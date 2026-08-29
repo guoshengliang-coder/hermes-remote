@@ -51,6 +51,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -65,6 +66,7 @@ import com.hermes.client.ui.theme.LocalProfileAccent
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.launch
 import androidx.compose.material3.OutlinedTextField
@@ -85,10 +87,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -103,12 +107,14 @@ fun ChatScreen(
     sessionId: String,
     vm: ChatViewModel = hiltViewModel(),
     onMenu: () -> Unit = {},
+    onNewChat: (String) -> Unit = {},
     onUnauthorized: () -> Unit = {},
 ) {
     LaunchedEffect(sessionId) { vm.open(sessionId) }
     val state by vm.state.collectAsStateWithLifecycle()
     val connState by vm.connectionState.collectAsStateWithLifecycle()
     val unauthorized by vm.unauthorized.collectAsStateWithLifecycle()
+    val sessionTitle by vm.sessionTitle.collectAsStateWithLifecycle()
     val currentModel by vm.currentModel.collectAsStateWithLifecycle()
     val providers by vm.providers.collectAsStateWithLifecycle()
     val favorites by vm.favorites.collectAsStateWithLifecycle()
@@ -125,6 +131,8 @@ fun ChatScreen(
     var showPersonaSheet by remember { mutableStateOf(false) }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { vm.stopReading() } }
     var draft by remember { mutableStateOf("") }
+    var composerFocused by rememberSaveable { mutableStateOf(false) }
+    var creatingSession by rememberSaveable { mutableStateOf(false) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var currentMatch by rememberSaveable { mutableStateOf(0) }
@@ -141,7 +149,17 @@ fun ChatScreen(
     LaunchedEffect(highlightIndex) { highlightIndex?.let { listState.animateScrollToItem(it) } }
     // System back closes the search bar first (rather than leaving the chat) when it's open.
     androidx.activity.compose.BackHandler(enabled = searchOpen) { searchOpen = false; query = "" }
+    val focusManager = LocalFocusManager.current
+    androidx.activity.compose.BackHandler(enabled = !searchOpen && composerFocused) {
+        composerFocused = false
+        focusManager.clearFocus()
+    }
     val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(composerFocused) {
+        // The compact and expanded layouts use different field placements. Re-request focus after
+        // expansion so the keyboard remains open instead of flashing and immediately collapsing.
+        if (composerFocused) focusRequester.requestFocus()
+    }
     val initialDraft by vm.initialDraft.collectAsStateWithLifecycle()
     androidx.compose.runtime.LaunchedEffect(initialDraft) {
         initialDraft?.takeIf { it.isNotEmpty() }?.let { draft = it; vm.clearInitialDraft() }
@@ -280,23 +298,22 @@ fun ChatScreen(
                 Column(
                     Modifier
                         .weight(1f)
-                        .clickable { modelSheetOpen = true }
                         .padding(horizontal = 12.dp),
                 ) {
                     Text(
-                        "Hermes 对话",
+                        sessionTitle,
                         style = MaterialTheme.typography.titleLarge,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         StatusDot(connState)
                         Text(
-                            listOfNotNull(currentModel, activeProfile).joinToString(" · ").ifBlank { "Mac mini" },
+                            activeProfile?.let { "Mac mini · $it" } ?: "Mac mini",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                         )
-                        Icon(Icons.Rounded.ArrowDropDown, "切换模型", Modifier.size(17.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 Surface(
@@ -305,11 +322,26 @@ fun ChatScreen(
                     shadowElevation = 4.dp,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) query = "" }) {
-                        Icon(
-                            androidx.compose.material.icons.Icons.Rounded.Search,
-                            contentDescription = "搜索对话",
-                        )
+                    IconButton(
+                        enabled = !creatingSession,
+                        onClick = {
+                            if (creatingSession) return@IconButton
+                            creatingSession = true
+                            attachScope.launch {
+                                val id = vm.createNewSession()
+                                creatingSession = false
+                                if (id != null) onNewChat(id)
+                                else android.widget.Toast.makeText(
+                                    context, "暂时无法新建会话", android.widget.Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        },
+                    ) {
+                        if (creatingSession) {
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Rounded.Add, contentDescription = "新建会话")
+                        }
                     }
                     Box {
                         IconButton(onClick = { transcriptMenu = true }) {
@@ -319,6 +351,13 @@ fun ChatScreen(
                             )
                         }
                         DropdownMenu(expanded = transcriptMenu, onDismissRequest = { transcriptMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("搜索当前对话") },
+                                onClick = {
+                                    transcriptMenu = false
+                                    searchOpen = true
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("复制全部对话") },
                                 onClick = {
@@ -418,49 +457,139 @@ fun ChatScreen(
                 }
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
-                    shape = RoundedCornerShape(30.dp),
+                    shape = RoundedCornerShape(if (composerFocused) 28.dp else 30.dp),
                     tonalElevation = 1.dp,
                     shadowElevation = 7.dp,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = if (composerFocused) 126.dp else 60.dp),
                 ) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (speechAvailable) {
-                            IconButton(onClick = { startDictation() }) {
-                                Icon(Icons.Rounded.Mic, contentDescription = "语音输入", modifier = Modifier.size(24.dp))
-                            }
-                        }
-                        OutlinedTextField(
-                            value = draft,
-                            onValueChange = { draft = it },
-                            modifier = Modifier.weight(1f).focusRequester(focusRequester),
-                            placeholder = { Text("发消息或按住说话", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)) },
-                            minLines = 1,
-                            maxLines = 5,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(onSend = { submit() }),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-                                unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-                                disabledBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-                            ),
-                        )
-                        when {
-                            state.isGenerating -> IconButton(onClick = { vm.stop() }) {
-                                Icon(Icons.Rounded.Stop, contentDescription = "停止", tint = LocalProfileAccent.current.accent)
-                            }
-                            canSend -> Surface(
-                                shape = androidx.compose.foundation.shape.CircleShape,
-                                color = LocalProfileAccent.current.accent,
+                    if (composerFocused) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
+                            OutlinedTextField(
+                                value = draft,
+                                onValueChange = { draft = it },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(focusRequester)
+                                    .onFocusChanged { if (it.isFocused) composerFocused = true },
+                                placeholder = {
+                                    Text(
+                                        "输入消息…",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    )
+                                },
+                                minLines = 2,
+                                maxLines = 6,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                                    unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                                    disabledBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                                ),
+                            )
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                IconButton(onClick = { submit() }) {
-                                    Icon(Icons.AutoMirrored.Rounded.Send, "发送", tint = MaterialTheme.colorScheme.onPrimary)
+                                if (speechAvailable) {
+                                    IconButton(onClick = { startDictation() }) {
+                                        Icon(Icons.Rounded.Mic, contentDescription = "语音输入", modifier = Modifier.size(24.dp))
+                                    }
+                                }
+                                Surface(
+                                    onClick = { modelSheetOpen = true },
+                                    color = androidx.compose.ui.graphics.Color.Transparent,
+                                    shape = RoundedCornerShape(18.dp),
+                                ) {
+                                    Row(
+                                        Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            compactModelLabel(currentModel),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            maxLines = 1,
+                                        )
+                                        Icon(
+                                            Icons.Rounded.ArrowDropDown,
+                                            contentDescription = "切换模型",
+                                            modifier = Modifier.size(20.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.weight(1f))
+                                IconButton(onClick = { showAttachSheet = true }) {
+                                    Icon(Icons.Rounded.Add, contentDescription = "添加内容", modifier = Modifier.size(28.dp))
+                                }
+                                when {
+                                    state.isGenerating -> IconButton(onClick = { vm.stop() }) {
+                                        Icon(Icons.Rounded.Stop, contentDescription = "停止", tint = LocalProfileAccent.current.accent)
+                                    }
+                                    else -> Surface(
+                                        shape = androidx.compose.foundation.shape.CircleShape,
+                                        color = if (canSend) LocalProfileAccent.current.accent
+                                        else MaterialTheme.colorScheme.surfaceVariant,
+                                    ) {
+                                        IconButton(onClick = { submit() }, enabled = canSend) {
+                                            Icon(
+                                                Icons.AutoMirrored.Rounded.Send,
+                                                contentDescription = "发送",
+                                                tint = if (canSend) MaterialTheme.colorScheme.onPrimary
+                                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                                            )
+                                        }
+                                    }
                                 }
                             }
-                            else -> IconButton(onClick = { showAttachSheet = true }) {
-                                Icon(Icons.Rounded.Add, contentDescription = "添加内容", modifier = Modifier.size(28.dp))
+                        }
+                    } else {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (speechAvailable) {
+                                IconButton(onClick = { startDictation() }) {
+                                    Icon(Icons.Rounded.Mic, contentDescription = "语音输入", modifier = Modifier.size(24.dp))
+                                }
+                            }
+                            OutlinedTextField(
+                                value = draft,
+                                onValueChange = { draft = it },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .focusRequester(focusRequester)
+                                    .onFocusChanged { if (it.isFocused) composerFocused = true },
+                                placeholder = {
+                                    Text(
+                                        "发消息或按住说话",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    )
+                                },
+                                minLines = 1,
+                                maxLines = 3,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                keyboardActions = KeyboardActions(onSend = { submit() }),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                                    unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                                    disabledBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                                ),
+                            )
+                            when {
+                                state.isGenerating -> IconButton(onClick = { vm.stop() }) {
+                                    Icon(Icons.Rounded.Stop, contentDescription = "停止", tint = LocalProfileAccent.current.accent)
+                                }
+                                canSend -> Surface(
+                                    shape = androidx.compose.foundation.shape.CircleShape,
+                                    color = LocalProfileAccent.current.accent,
+                                ) {
+                                    IconButton(onClick = { submit() }) {
+                                        Icon(Icons.AutoMirrored.Rounded.Send, "发送", tint = MaterialTheme.colorScheme.onPrimary)
+                                    }
+                                }
+                                else -> IconButton(onClick = { showAttachSheet = true }) {
+                                    Icon(Icons.Rounded.Add, contentDescription = "添加内容", modifier = Modifier.size(28.dp))
+                                }
                             }
                         }
                     }
@@ -702,6 +831,11 @@ fun ChatScreen(
             onDismiss = { showPersonaSheet = false },
         )
     }
+}
+
+internal fun compactModelLabel(model: String?): String {
+    val value = model?.trim()?.substringAfterLast('/')?.ifBlank { null } ?: return "Auto"
+    return if (value.length <= 24) value else value.take(23) + "…"
 }
 
 @Composable

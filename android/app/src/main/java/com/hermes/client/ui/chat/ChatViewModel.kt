@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.HermesApiException
 import com.hermes.client.data.network.ProfileDto
+import com.hermes.client.data.network.str
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileManager
@@ -40,6 +41,9 @@ class ChatViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(ChatUiState.empty())
     val state: StateFlow<ChatUiState> = _state.asStateFlow()
+
+    private val _sessionTitle = MutableStateFlow("新会话")
+    val sessionTitle: StateFlow<String> = _sessionTitle.asStateFlow()
 
     val connectionState: StateFlow<ConnectionState> = chat.connectionState
 
@@ -106,16 +110,34 @@ class ChatViewModel @Inject constructor(
     val pathItems: StateFlow<List<com.hermes.client.data.repository.PathItem>> = _pathItems.asStateFlow()
 
     private var sessionId: String = ""
+    private var storedSessionId: String = ""
     private var collectJob: Job? = null
     private var connJob: Job? = null
 
     fun open(id: String) {
         sessionId = id
+        storedSessionId = id
+        _sessionTitle.value = "新会话"
+        _currentModel.value = null
+        _currentProvider.value = null
         connJob?.cancel()
         // A share created this session and stashed its text; surface it as the initial composer draft.
         val ps = pendingShareStore.take(id)
         ps?.text?.let { _initialDraft.value = it }
         com.hermes.client.data.diagnostics.DebugLog.log("session", "open($id)")
+        // Load the server-authoritative title/model separately from history so neither request
+        // blocks the other. A new zero-message session may not have metadata yet; it stays
+        // "新会话" until Hermes emits session.title after the first prompt.
+        viewModelScope.launch {
+            val meta = runCatching {
+                sessions.list(profileManager.active.value).firstOrNull { it.id == id }
+            }.getOrNull()
+            if (sessionId == id && meta != null) {
+                _sessionTitle.value = displaySessionTitle(meta.title)
+                _currentModel.value = meta.model?.ifBlank { null }
+                _currentProvider.value = meta.provider?.ifBlank { null }
+            }
+        }
         viewModelScope.launch {
             try {
                 val history = sessions.history(id, profileManager.active.value)
@@ -164,10 +186,17 @@ class ChatViewModel @Inject constructor(
         }
         collectJob?.cancel()
         collectJob = viewModelScope.launch {
-            chat.events.filter { it.sessionId == null || it.sessionId == sessionId }
+            chat.events.filter {
+                it.sessionId == null || it.sessionId == sessionId || it.sessionId == storedSessionId
+            }
                 // Defense in depth: a single malformed event must never crash the chat.
                 // reduce() is pure, so on a bad event keep the prior state and drop it.
-                .onEach { event -> runCatching { _state.value.reduce(event) }.onSuccess { _state.value = it } }
+                .onEach { event ->
+                    if (event.type == "session.title") {
+                        event.str("title")?.let { _sessionTitle.value = displaySessionTitle(it) }
+                    }
+                    runCatching { _state.value.reduce(event) }.onSuccess { _state.value = it }
+                }
                 .collect {}
         }
         // C2 + I3: watch connection transitions
@@ -201,6 +230,12 @@ class ChatViewModel @Inject constructor(
         _state.update { it.withAttachment(PendingAttachment(id, bytes, mimeType)) }
     }
     fun removeAttachment(id: String) { _state.update { it.withoutAttachment(id) } }
+
+    /** Create a fresh chat in the currently active profile for the top-bar + action. */
+    suspend fun createNewSession(): String? =
+        runCatching { chat.createSession(profileManager.active.value) }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+            .getOrNull()
 
     fun send(text: String) {
         val atts = _state.value.pendingAttachments
@@ -383,4 +418,12 @@ class ChatViewModel @Inject constructor(
                 }
         }
     }
+}
+
+internal fun displaySessionTitle(raw: String?): String {
+    val title = raw?.trim().orEmpty()
+    return title.takeIf {
+        it.isNotEmpty() && !it.equals("Untitled", ignoreCase = true) &&
+            !it.equals("New chat", ignoreCase = true)
+    } ?: "新会话"
 }
