@@ -6,7 +6,7 @@
 2. The macOS Connector authenticates independently and registers a device ID.
 3. The Connector initiates the connection, so the Mac requires no inbound firewall rule.
 4. The Gateway routes opaque structured events and does not need access to Mac files.
-5. Hermes remains bound to localhost on the Mac.
+5. Hermes remains reachable only on the Mac's private interface and is never exposed publicly.
 
 ## MVP lifecycle
 
