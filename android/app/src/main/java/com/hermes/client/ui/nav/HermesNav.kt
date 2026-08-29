@@ -212,6 +212,11 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 ChatScreen(
                     sessionId = entry.arguments?.getString("id") ?: "",
                     onMenu = back,
+                    onNewChat = { id ->
+                        nav.navigate("chat/$id") {
+                            popUpTo(entry.destination.id) { inclusive = true }
+                        }
+                    },
                     onUnauthorized = onUnauthorized,
                 )
             }
