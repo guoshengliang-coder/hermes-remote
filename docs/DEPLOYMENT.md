@@ -9,6 +9,7 @@ The first production-shaped relay was installed and verified on 2026-08-29.
 - Public endpoint: `https://<gateway-domain>:8444`
 - Mac Connector: `~/Library/Application Support/Hermes Remote`
 - Connector service: `~/Library/LaunchAgents/com.hermesremote.connector.plist`
+- Connector control-channel heartbeat: 15 seconds; a missed pong forces an automatic reconnect after sleep or network changes.
 - Hermes credentials remain only in the existing `~/.hermes/.env`
 
 The deployment did not alter Xray, DERP, Hermes configuration, UFW, or the host firewall.
