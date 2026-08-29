@@ -17,3 +17,15 @@ Expected terminal event:
 ```json
 {"type":"event","version":1,"requestId":"request-1","event":"complete","data":{"sessionId":"request-1"}}
 ```
+
+## Hermes compatibility smoke test
+
+The repository also includes a protocol-shaped Mock Hermes server that requires the same Basic Auth → Cookie → WS Ticket sequence as the real dashboard.
+
+Run the Mock Hermes server, Gateway, and Connector on separate terminals, then run:
+
+```bash
+npm run smoke:compat
+```
+
+The test passes only after `/api/status` traverses the REST tunnel and a JSON-RPC request traverses `/api/ws` in both directions.

@@ -8,11 +8,11 @@ Android App -- HTTPS/WSS --> HK Gateway <-- outbound WSS -- macOS Connector --> 
 
 ## Status
 
-The repository contains the first relay skeleton:
+The repository contains the first relay MVP:
 
 - `android/` — integration plan for the pinned `adebnar/hermes-android` GPLv3 base
-- `gateway/` — public HK relay with app/connector authentication
-- `connector/` — outbound-only macOS agent with mock and Hermes HTTP modes
+- `gateway/` — public HK relay with app/connector authentication and a Hermes-compatible facade
+- `connector/` — outbound-only macOS agent with Basic Auth, Cookie, WS Ticket, REST, and WebSocket forwarding
 - `protocol/` — shared wire-message types and validation
 - `deploy/` — Docker and macOS launchd templates
 - `docs/` — architecture, intake checklist, and local smoke test
@@ -28,6 +28,8 @@ The repository contains the first relay skeleton:
 See `docs/SMOKE_TEST.md` for the WebSocket test message.
 
 The initial real host profile uses direct TLS on port `8444` with systemd; see `docs/ENVIRONMENT.md`.
+
+For the Android base, configure the public Gateway URL and the Gateway `APP_TOKEN` in token mode. The public token terminates in Hong Kong; the separate local Hermes credential exists only on the Mac Connector.
 
 ## Security baseline
 
