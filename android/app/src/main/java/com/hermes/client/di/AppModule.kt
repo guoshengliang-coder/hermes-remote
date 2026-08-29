@@ -7,6 +7,7 @@ import com.hermes.client.data.network.GatedAuth
 import com.hermes.client.data.network.GatedAuthenticator
 import com.hermes.client.data.network.HermesGatewayClient
 import com.hermes.client.data.network.HermesRestApi
+import com.hermes.client.data.network.RelayDns
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileRepository
@@ -46,6 +47,10 @@ object AppModule {
     @Provides
     @Singleton
     fun provideOkHttpClient(gatedAuth: GatedAuth): OkHttpClient = OkHttpClient.Builder()
+        // Chinese carrier/public DNS can intermittently fail to resolve sslip.io after Tailscale
+        // is disabled. Pin only our relay hostname to its known address while keeping the original
+        // HTTPS hostname for SNI and certificate validation.
+        .dns(RelayDns())
         .pingInterval(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         // Gated-dashboard auth: the cookie jar carries the session cookies on every REST call,

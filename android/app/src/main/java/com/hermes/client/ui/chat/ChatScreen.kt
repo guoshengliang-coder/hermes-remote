@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -35,12 +37,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.NoteAdd
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Search
@@ -64,6 +68,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.launch
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -82,6 +87,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -169,6 +175,7 @@ fun ChatScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val clipboard = LocalClipboardManager.current
     var transcriptMenu by remember { mutableStateOf(false) }
+    var showAttachSheet by remember { mutableStateOf(false) }
     val attachScope = androidx.compose.runtime.rememberCoroutineScope()
 
     fun readBytes(uri: Uri): ByteArray? =
@@ -181,6 +188,16 @@ fun ChatScreen(
     ) { uris ->
         attachScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             uris.forEach { uri ->
+                readBytes(uri)?.let { vm.stageAttachment(it, context.contentResolver.getType(uri) ?: "image/*") }
+            }
+        }
+    }
+
+    val pickFiles = androidx.activity.compose.rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        attachScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            uris.take(ATTACH_CAP).forEach { uri ->
                 readBytes(uri)?.let { vm.stageAttachment(it, context.contentResolver.getType(uri) ?: "image/*") }
             }
         }
@@ -243,50 +260,67 @@ fun ChatScreen(
 
     Scaffold(
         topBar = {
-            com.hermes.client.ui.components.HermesTopBar(
-                title = "Hermes Remote",
-                subtitle = activeProfile?.let { "身份：$it" } ?: "安全连接到你的 Mac",
-                navigationIcon = {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.background)
+                    .statusBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 4.dp,
+                ) {
                     IconButton(onClick = onMenu) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回")
                     }
-                },
-                actions = {
+                }
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clickable { modelSheetOpen = true }
+                        .padding(horizontal = 12.dp),
+                ) {
+                    Text(
+                        "Hermes 对话",
+                        style = MaterialTheme.typography.titleLarge,
+                        maxLines = 1,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        StatusDot(connState)
+                        Text(
+                            listOfNotNull(currentModel, activeProfile).joinToString(" · ").ifBlank { "Mac mini" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                        Icon(Icons.Rounded.ArrowDropDown, "切换模型", Modifier.size(17.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 4.dp,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { searchOpen = !searchOpen; if (!searchOpen) query = "" }) {
                         Icon(
                             androidx.compose.material.icons.Icons.Rounded.Search,
-                            contentDescription = "Search in chat",
-                            tint = com.hermes.client.ui.components.AccentChrome.onBar,
+                            contentDescription = "搜索对话",
                         )
                     }
-                    AssistChip(
-                        onClick = { modelSheetOpen = true },
-                        modifier = Modifier.minimumInteractiveComponentSize(),
-                        label = { Text(currentModel ?: "Model", maxLines = 1) },
-                        trailingIcon = {
-                            Icon(
-                                Icons.Rounded.ArrowDropDown,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        },
-                        colors = androidx.compose.material3.AssistChipDefaults.assistChipColors(
-                            labelColor = com.hermes.client.ui.components.AccentChrome.onBar,
-                            trailingIconContentColor = com.hermes.client.ui.components.AccentChrome.onBar,
-                        ),
-                    )
-                    StatusDot(connState)
                     Box {
                         IconButton(onClick = { transcriptMenu = true }) {
                             Icon(
                                 Icons.Rounded.MoreVert,
-                                contentDescription = "More",
-                                tint = com.hermes.client.ui.components.AccentChrome.onBar,
+                                contentDescription = "更多",
                             )
                         }
                         DropdownMenu(expanded = transcriptMenu, onDismissRequest = { transcriptMenu = false }) {
                             DropdownMenuItem(
-                                text = { Text("Copy transcript") },
+                                text = { Text("复制全部对话") },
                                 onClick = {
                                     val t = transcriptText(state.messages)
                                     if (t.isBlank()) {
@@ -303,7 +337,7 @@ fun ChatScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("Share transcript") },
+                                text = { Text("分享对话") },
                                 onClick = {
                                     val t = transcriptText(state.messages)
                                     if (t.isBlank()) {
@@ -324,7 +358,7 @@ fun ChatScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("Persona") },
+                                text = { Text("切换身份") },
                                 onClick = {
                                     transcriptMenu = false
                                     vm.loadPersonas()
@@ -333,143 +367,110 @@ fun ChatScreen(
                             )
                         }
                     }
-                },
-            )
+                    }
+                }
+            }
         },
         bottomBar = {
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
                     .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = RoundedCornerShape(24.dp),
-                    tonalElevation = 2.dp,
-                    shadowElevation = 8.dp,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            item {
-                                AssistChip(
-                                    onClick = { showPromptSheet = true },
-                                    label = { Text("常用提示") },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Rounded.NoteAdd, null, Modifier.size(17.dp)) },
-                                )
-                            }
-                            item {
-                                AssistChip(
-                                    onClick = { launchCamera() },
-                                    label = { Text("拍照") },
-                                    leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null, Modifier.size(17.dp)) },
-                                )
-                            }
-                            item {
-                                AssistChip(
-                                    onClick = {
-                                        pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                    },
-                                    label = { Text("相册") },
-                                    leadingIcon = { Icon(Icons.Rounded.PhotoLibrary, null, Modifier.size(17.dp)) },
-                                )
-                            }
-                        }
-                        if (state.pendingAttachments.isNotEmpty()) {
-                            LazyRow(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                items(state.pendingAttachments, key = { it.id }) { a ->
-                                    val thumb by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, a.id) {
-                                        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                            decodeThumbnail(a.bytes, reqPx = 200)?.asImageBitmap()
-                                        }
-                                    }
-                                    Box(Modifier.size(58.dp)) {
-                                        val bmp = thumb
-                                        if (bmp != null) {
-                                            Image(
-                                                bitmap = bmp,
-                                                contentDescription = "待发送图片",
-                                                modifier = Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)),
-                                                contentScale = ContentScale.Crop,
-                                            )
-                                        } else {
-                                            Box(Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
-                                        }
-                                        Box(
-                                            Modifier.align(Alignment.TopEnd).padding(2.dp).size(24.dp)
-                                                .clip(androidx.compose.foundation.shape.CircleShape)
-                                                .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f))
-                                                .clickable { vm.removeAttachment(a.id) },
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Icon(Icons.Rounded.Close, "移除图片", tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(15.dp))
-                                        }
-                                    }
+                if (state.pendingAttachments.isNotEmpty()) {
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(state.pendingAttachments, key = { it.id }) { a ->
+                            val thumb by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, a.id) {
+                                value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    decodeThumbnail(a.bytes, reqPx = 200)?.asImageBitmap()
                                 }
                             }
-                        }
-                        OutlinedTextField(
-                            value = draft,
-                            onValueChange = { draft = it },
-                            modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
-                            placeholder = { Text("给 Hermes 发消息…") },
-                            minLines = 1,
-                            maxLines = 5,
-                            shape = RoundedCornerShape(18.dp),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(onSend = { submit() }),
-                        )
-                        Row(
-                            Modifier.fillMaxWidth().padding(top = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            var attachMenu by remember { mutableStateOf(false) }
-                            Box {
-                                IconButton(onClick = { attachMenu = true }) {
-                                    Icon(Icons.Rounded.AttachFile, contentDescription = "添加附件")
-                                }
-                                DropdownMenu(expanded = attachMenu, onDismissRequest = { attachMenu = false }) {
-                                    DropdownMenuItem(text = { Text("拍照") }, onClick = { attachMenu = false; launchCamera() })
-                                    DropdownMenuItem(
-                                        text = { Text("从相册选择") },
-                                        onClick = {
-                                            attachMenu = false
-                                            pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                        },
+                            Box(Modifier.size(58.dp)) {
+                                val bmp = thumb
+                                if (bmp != null) {
+                                    Image(
+                                        bitmap = bmp,
+                                        contentDescription = "待发送图片",
+                                        modifier = Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)),
+                                        contentScale = ContentScale.Crop,
                                     )
+                                } else {
+                                    Box(Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
                                 }
-                            }
-                            com.hermes.client.ui.components.ProfileAvatar(activeProfile)
-                            Spacer(Modifier.weight(1f))
-                            if (speechAvailable) {
-                                IconButton(onClick = { startDictation() }) {
-                                    Icon(Icons.Rounded.Mic, contentDescription = "语音输入")
-                                }
-                            }
-                            Surface(
-                                shape = androidx.compose.foundation.shape.CircleShape,
-                                color = if (state.isGenerating || canSend) LocalProfileAccent.current.accent
-                                else MaterialTheme.colorScheme.surfaceVariant,
-                            ) {
-                                IconButton(onClick = { if (state.isGenerating) vm.stop() else submit() }, enabled = state.isGenerating || canSend) {
-                                    Icon(
-                                        if (state.isGenerating) Icons.Rounded.Stop else Icons.AutoMirrored.Rounded.Send,
-                                        contentDescription = if (state.isGenerating) "停止" else "发送",
-                                        tint = if (state.isGenerating || canSend) MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
+                                Box(
+                                    Modifier.align(Alignment.TopEnd).padding(2.dp).size(24.dp)
+                                        .clip(androidx.compose.foundation.shape.CircleShape)
+                                        .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f))
+                                        .clickable { vm.removeAttachment(a.id) },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(Icons.Rounded.Close, "移除图片", tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(15.dp))
                                 }
                             }
                         }
                     }
                 }
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(30.dp),
+                    tonalElevation = 1.dp,
+                    shadowElevation = 7.dp,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (speechAvailable) {
+                            IconButton(onClick = { startDictation() }) {
+                                Icon(Icons.Rounded.Mic, contentDescription = "语音输入", modifier = Modifier.size(24.dp))
+                            }
+                        }
+                        OutlinedTextField(
+                            value = draft,
+                            onValueChange = { draft = it },
+                            modifier = Modifier.weight(1f).focusRequester(focusRequester),
+                            placeholder = { Text("发消息或按住说话", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)) },
+                            minLines = 1,
+                            maxLines = 5,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = { submit() }),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                                unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                                disabledBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                            ),
+                        )
+                        when {
+                            state.isGenerating -> IconButton(onClick = { vm.stop() }) {
+                                Icon(Icons.Rounded.Stop, contentDescription = "停止", tint = LocalProfileAccent.current.accent)
+                            }
+                            canSend -> Surface(
+                                shape = androidx.compose.foundation.shape.CircleShape,
+                                color = LocalProfileAccent.current.accent,
+                            ) {
+                                IconButton(onClick = { submit() }) {
+                                    Icon(Icons.AutoMirrored.Rounded.Send, "发送", tint = MaterialTheme.colorScheme.onPrimary)
+                                }
+                            }
+                            else -> IconButton(onClick = { showAttachSheet = true }) {
+                                Icon(Icons.Rounded.Add, contentDescription = "添加内容", modifier = Modifier.size(28.dp))
+                            }
+                        }
+                    }
+                }
+                Text(
+                    "内容由 AI 生成",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                    modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
+                )
             }
         },
     ) { padding ->
@@ -585,6 +586,55 @@ fun ChatScreen(
         )
     }
 
+    if (showAttachSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showAttachSheet = false },
+            containerColor = MaterialTheme.colorScheme.background,
+        ) {
+            Text(
+                "添加内容",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(horizontal = 22.dp, vertical = 8.dp),
+            )
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                AttachmentActionCard(
+                    icon = Icons.Rounded.PhotoCamera,
+                    label = "拍照",
+                    modifier = Modifier.weight(1f),
+                    onClick = { showAttachSheet = false; launchCamera() },
+                )
+                AttachmentActionCard(
+                    icon = Icons.Rounded.PhotoLibrary,
+                    label = "照片",
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        showAttachSheet = false
+                        pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                )
+                AttachmentActionCard(
+                    icon = Icons.Rounded.InsertDriveFile,
+                    label = "手机图片",
+                    modifier = Modifier.weight(1f),
+                    onClick = { showAttachSheet = false; pickFiles.launch(arrayOf("image/*")) },
+                )
+            }
+            ListItem(
+                headlineContent = { Text("常用提示", style = MaterialTheme.typography.titleMedium) },
+                supportingContent = { Text("插入已经保存的提示词") },
+                leadingContent = { Icon(Icons.AutoMirrored.Rounded.NoteAdd, contentDescription = null) },
+                modifier = Modifier.clickable {
+                    showAttachSheet = false
+                    showPromptSheet = true
+                }.padding(horizontal = 8.dp),
+            )
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+
     state.pendingClarify?.let { req ->
         var answer by remember { mutableStateOf("") }
         AlertDialog(
@@ -651,6 +701,29 @@ fun ChatScreen(
             onRetry = { vm.loadPersonas() },
             onDismiss = { showPersonaSheet = false },
         )
+    }
+}
+
+@Composable
+private fun AttachmentActionCard(
+    icon: ImageVector,
+    label: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(116.dp),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(30.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 10.dp))
+        }
     }
 }
 

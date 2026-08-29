@@ -12,7 +12,11 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 - Calm mint/neutral visual system with a floating, full-width composer inspired by WorkBuddy's layout language.
 - Real Markdown rendering, readable JSON output normalization, and collapsed tool-result cards.
 - Camera, photo picker, voice input, saved prompts, sessions, and model selection remain available.
-- Version 0.1.1 opens directly on Chats and bounds Relay requests so a failed endpoint becomes a retryable error instead of an endless spinner.
+- Version 0.1.2 uses a document-style assistant layout with stronger Chinese/Markdown typography,
+  compact user bubbles, reply actions, a floating composer, and a WorkBuddy-inspired attachment sheet.
+- The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
+  break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
+- Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
 
 ## Build
 
