@@ -23,3 +23,7 @@
 - Replace static MVP credentials with short-lived, device-bound tokens.
 - Add replay protection, request limits, persisted sessions, and push notifications.
 - Define Hermes-specific event normalization for assistant text, tool calls, tool results, files, and errors.
+
+## Android compatibility facade
+
+The selected Android base already implements the Hermes REST and `/api/ws` JSON-RPC surfaces. To retain its sessions and management features, the production Gateway will expose compatible public routes and tunnel them through the Connector. The public app credential is validated in Hong Kong and is never forwarded to the Mac; the Connector adds the separate localhost Hermes credential.
