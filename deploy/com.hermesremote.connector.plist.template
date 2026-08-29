@@ -15,7 +15,9 @@
     <key>DEVICE_ID</key><string>mac-mini</string>
     <key>CONNECTOR_TOKEN</key><string>__CONNECTOR_TOKEN__</string>
     <key>HERMES_MODE</key><string>http</string>
-    <key>HERMES_CHAT_URL</key><string>__HERMES_CHAT_URL__</string>
+    <key>HERMES_BASE_URL</key><string>__HERMES_BASE_URL__</string>
+    <key>HERMES_BASIC_AUTH_USERNAME</key><string>__HERMES_BASIC_AUTH_USERNAME__</string>
+    <key>HERMES_BASIC_AUTH_PASSWORD</key><string>__HERMES_BASIC_AUTH_PASSWORD__</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
