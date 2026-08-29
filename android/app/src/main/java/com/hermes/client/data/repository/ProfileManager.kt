@@ -30,12 +30,16 @@ class ProfileManager @Inject constructor(private val profiles: ProfileRepository
         runCatching { _active.value = profiles.active() }
     }
 
-    /** Switches the gateway's active profile. No-op if already active. */
-    suspend fun switchTo(name: String) {
-        if (name == _active.value) return
-        runCatching { profiles.setActive(name) }.onSuccess {
-            _active.value = name
-            _changed.value = _changed.value + 1
-        }
+    /** Switches the gateway's active profile and reports whether the target is ready to use. */
+    suspend fun switchTo(name: String): Boolean {
+        if (name == _active.value) return true
+        return runCatching { profiles.setActive(name) }.fold(
+            onSuccess = {
+                _active.value = name
+                _changed.value = _changed.value + 1
+                true
+            },
+            onFailure = { false },
+        )
     }
 }

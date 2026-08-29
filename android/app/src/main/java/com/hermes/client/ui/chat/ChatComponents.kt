@@ -68,6 +68,10 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import android.widget.Toast
@@ -126,8 +130,11 @@ fun ChatMessageList(
     // Only the most recent assistant turn can be regenerated — regenerating an earlier one
     // would silently drop everything the user and agent said after it.
     val lastAssistantId = displayMessages.lastOrNull { it.role == Role.ASSISTANT }?.id
-    // Length of the last (streaming) message: changes on every delta so we follow the stream.
-    val tailLen = displayMessages.lastOrNull()?.text?.length ?: 0
+    // Changes for reasoning, visible answer text, and live tool activity. The previous text-only key
+    // never fired while Hermes was thinking, leaving the viewport frozen until answer text arrived.
+    val streamRevision = state.messages.lastOrNull()?.streamContentRevision() ?: 0
+    val endAnchorIndex = displayMessages.size
+    var followLatest by remember(sessionId) { mutableStateOf(true) }
 
     // On first load of a non-empty thread (opening an existing session), jump straight to the
     // newest message so the latest reply is visible immediately — otherwise the list stays at
@@ -145,7 +152,7 @@ fun ChatMessageList(
         // actually measured the loaded items before scrolling — jumping before first layout
         // lands short of the bottom.
         snapshotFlow { listState.layoutInfo.totalItemsCount }
-            .filter { it >= displayMessages.size }
+            .filter { it >= endAnchorIndex + 1 }
             .first()
         // Mark landed before the convergence loop: if the user scrolls during the loop, scrollBy
         // loses the MutatePriority race and throws CancellationException, cancelling this effect.
@@ -170,15 +177,35 @@ fun ChatMessageList(
         contentReady = true
     }
 
-    // After the initial jump, follow new content. Always follow right after the user sends
-    // (they want to see their message and the reply); otherwise only when already near the
-    // bottom, so scrolling back through history isn't yanked away mid-stream.
-    LaunchedEffect(state.messages.size, tailLen) {
-        if (lastIndex < 0 || !landed) return@LaunchedEffect
-        val justSent = displayMessages.lastOrNull()?.role == Role.USER
-        val visible = listState.layoutInfo.visibleItemsInfo
-        val atBottom = visible.isEmpty() || (visible.lastOrNull()?.index ?: 0) >= lastIndex - 1
-        if (justSent || atBottom) listState.animateScrollToItem(lastIndex)
+    // Sending a new prompt always resumes follow mode. A user drag pauses it; reaching the absolute
+    // bottom (manually or via the button) turns it back on.
+    LaunchedEffect(state.messages.size) {
+        if (displayMessages.lastOrNull()?.role == Role.USER) followLatest = true
+    }
+    LaunchedEffect(listState, contentReady) {
+        snapshotFlow { listState.canScrollForward }.collect { canScrollForward ->
+            if (contentReady && !canScrollForward) followLatest = true
+        }
+    }
+    val userScrollConnection = remember(sessionId, listState) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && listState.canScrollForward) {
+                    followLatest = false
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
+    // The anchor is a real item *after* the final message. Scrolling to the final message itself only
+    // aligns the top of a long Markdown block and therefore does not follow its growing bottom.
+    // Use a frame-coalesced immediate jump during token streaming; repeated animated scrolls cancel
+    // one another and visibly judder at normal model token rates.
+    LaunchedEffect(state.messages.size, streamRevision, followLatest, landed, endAnchorIndex) {
+        if (lastIndex < 0 || !landed || !followLatest) return@LaunchedEffect
+        withFrameNanos { }
+        listState.scrollToItem(endAnchorIndex)
     }
 
     if (displayMessages.isEmpty()) {
@@ -216,6 +243,7 @@ fun ChatMessageList(
             modifier = Modifier
                 .fillMaxSize()
                 .alpha(contentAlpha)
+                .nestedScroll(userScrollConnection)
                 // A simple tap on conversation whitespace exits the expanded composer. Drag gestures
                 // remain scrolling gestures, and taps consumed by message actions are left alone.
                 .pointerInput(onBlankAreaTap) { detectTapGestures { onBlankAreaTap() } }
@@ -242,12 +270,38 @@ fun ChatMessageList(
                     highlighted = index == highlightIndex,
                 )
             }
+            item(key = "conversation-end-anchor") {
+                Spacer(Modifier.height(1.dp))
+            }
+        }
+        if (contentReady && !followLatest && listState.canScrollForward) {
+            Surface(
+                onClick = {
+                    followLatest = true
+                },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 6.dp,
+            ) {
+                Icon(
+                    Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = "回到最新消息",
+                    modifier = Modifier.padding(10.dp).size(24.dp),
+                    tint = LocalProfileAccent.current.accent,
+                )
+            }
         }
         if (contentAlpha < 1f) {
             ChatHistorySkeleton(Modifier.fillMaxSize().alpha(1f - contentAlpha))
         }
     }
 }
+
+internal fun ChatMessage.streamContentRevision(): Int =
+    text.length + thinking.length + tools.sumOf { tool ->
+        tool.name.length + tool.output.length + if (tool.status == ToolStatus.RUNNING) 1 else 2
+    }
 
 @Composable
 private fun ChatHistorySkeleton(modifier: Modifier = Modifier) {

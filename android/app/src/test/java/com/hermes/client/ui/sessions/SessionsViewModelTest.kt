@@ -194,12 +194,22 @@ class SessionsViewModelTest {
     // chat resumes against the correct per-profile DB.
     @Test fun prepareOpen_switches_to_session_profile_when_different() = runTest {
         coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        coEvery { profileManager.switchTo("odos") } returns true
         val vm = buildVm() // active is "personal"
         advanceUntilIdle()
 
-        vm.prepareOpen(session("s2", "client", profile = "odos"))
+        assertTrue(vm.prepareOpen(session("s2", "client", profile = "odos")))
         advanceUntilIdle()
         io.mockk.coVerify { profileManager.switchTo("odos") }
+    }
+
+    @Test fun prepareOpen_blocks_navigation_when_profile_switch_fails() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        coEvery { profileManager.switchTo("odos") } returns false
+        val vm = buildVm()
+        advanceUntilIdle()
+
+        assertFalse(vm.prepareOpen(session("s2", "client", profile = "odos")))
     }
 
     // T3: no switch when the session is already in the active profile.
@@ -208,7 +218,7 @@ class SessionsViewModelTest {
         val vm = buildVm() // active is "personal"
         advanceUntilIdle()
 
-        vm.prepareOpen(session("s1", "mine", profile = "personal"))
+        assertTrue(vm.prepareOpen(session("s1", "mine", profile = "personal")))
         advanceUntilIdle()
         io.mockk.coVerify(exactly = 0) { profileManager.switchTo(any()) }
     }

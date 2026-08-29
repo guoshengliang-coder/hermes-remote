@@ -77,13 +77,14 @@ import com.hermes.client.data.progress.isActive
 import com.hermes.client.ui.record.RecordPhase
 import com.hermes.client.ui.record.RecordTaskSheet
 import com.hermes.client.ui.record.RecordTaskViewModel
+import com.hermes.client.ui.chat.ChatLaunch
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SessionsScreen(
     vm: SessionsViewModel = hiltViewModel(),
-    onOpen: (String) -> Unit,
+    onOpen: (ChatLaunch) -> Unit,
     onMenu: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
     onUnauthorized: () -> Unit = {},
@@ -99,6 +100,16 @@ fun SessionsScreen(
     val runtimes by vm.runtimes.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    fun openExisting(session: Session) {
+        scope.launch {
+            if (vm.prepareOpen(session)) {
+                onOpen(ChatLaunch.existing(session))
+            } else {
+                Toast.makeText(context, "无法切换到该会话所属身份，请稍后重试", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     // I1: route to Setup when a 401 is received
     LaunchedEffect(state.unauthorized) {
@@ -134,7 +145,7 @@ fun SessionsScreen(
     LaunchedEffect(Unit) {
         recordVm.navigateTo.collect { id ->
             showRecord = false
-            onOpen(id)
+            onOpen(ChatLaunch.unknown(id, activeProfile))
         }
     }
 
@@ -206,7 +217,7 @@ fun SessionsScreen(
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = { scope.launch { vm.createSession()?.let { onOpen(it) } } },
+                onClick = { scope.launch { vm.createSession()?.let { onOpen(ChatLaunch.new(it, activeProfile)) } } },
                 text = { Text("New") },
                 icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
                 containerColor = com.hermes.client.ui.components.AccentChrome.fabContainer,
@@ -231,7 +242,7 @@ fun SessionsScreen(
                                 onBack = { vm.exitProject() },
                                 // Projects span profiles, so switch to the session's own profile
                                 // (awaited) before opening, or the chat resumes against the wrong DB.
-                                onOpenSession = { s -> scope.launch { vm.prepareOpen(s); onOpen(s.id) } },
+                                onOpenSession = ::openExisting,
                             )
                         projectsState.tree.isEmpty() ->
                             com.hermes.client.ui.components.EmptyState(
@@ -273,7 +284,7 @@ fun SessionsScreen(
                                 title = "No sessions yet",
                                 subtitle = "Start a conversation with the New button.",
                                 actionLabel = "New session",
-                                onAction = { scope.launch { vm.createSession()?.let { onOpen(it) } } },
+                                onAction = { scope.launch { vm.createSession()?.let { onOpen(ChatLaunch.new(it, activeProfile)) } } },
                             )
                         else -> {
                             val q = query.trim()
@@ -297,7 +308,11 @@ fun SessionsScreen(
                                                 Text(r.snippet?.take(140)?.replace("\n", " ") ?: r.sessionId)
                                             },
                                             supportingContent = { Text(r.model ?: r.role ?: "") },
-                                            modifier = Modifier.clickable { onOpen(r.sessionId) },
+                                            modifier = Modifier.clickable {
+                                                val session = state.sessions.firstOrNull { it.id == r.sessionId }
+                                                if (session != null) openExisting(session)
+                                                else onOpen(ChatLaunch.unknown(r.sessionId, activeProfile))
+                                            },
                                         )
                                         HorizontalDivider()
                                     }
@@ -318,7 +333,7 @@ fun SessionsScreen(
                                         SessionRow(
                                             session = s, isPinned = true, showProfile = true,
                                             runtime = vm.runtimeFor(s, runtimes),
-                                            onOpen = { scope.launch { vm.prepareOpen(s); onOpen(s.id) } },
+                                            onOpen = { openExisting(s) },
                                             onTogglePin = { vm.togglePin(s) },
                                             onRename = { vm.rename(s, it) },
                                             onArchive = { vm.archive(s) },
@@ -333,7 +348,7 @@ fun SessionsScreen(
                                         SessionRow(
                                             session = s, isPinned = false, showProfile = true,
                                             runtime = vm.runtimeFor(s, runtimes),
-                                            onOpen = { scope.launch { vm.prepareOpen(s); onOpen(s.id) } },
+                                            onOpen = { openExisting(s) },
                                             onTogglePin = { vm.togglePin(s) },
                                             onRename = { vm.rename(s, it) },
                                             onArchive = { vm.archive(s) },

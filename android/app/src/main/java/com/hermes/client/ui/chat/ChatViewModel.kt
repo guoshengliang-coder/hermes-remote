@@ -120,16 +120,26 @@ class ChatViewModel @Inject constructor(
     private var titleJob: Job? = null
     private var runtimeKey: SessionRuntimeKey? = null
 
-    fun open(id: String) {
+    fun open(
+        id: String,
+        requestedProfile: String? = null,
+        initialTitle: String? = null,
+        isNewSession: Boolean = false,
+    ) {
         runtimeKey?.let { runtimeStore.setVisible(it, false) }
         sessionId = id
         storedSessionId = id
-        val profile = profileManager.active.value
+        val profile = requestedProfile?.ifBlank { null } ?: profileManager.active.value
         val key = runtimeStore.register(id, profile)
         runtimeKey = key
         runtimeStore.setVisible(key, true)
         val cachedMeta = sessions.cachedSession(id, profile)
-        _sessionTitle.value = cachedMeta?.title?.let(::displaySessionTitle) ?: "新会话"
+        val fallbackTitle = if (isNewSession) "新会话" else "会话"
+        _sessionTitle.value = when {
+            !initialTitle.isNullOrBlank() -> displaySessionTitle(initialTitle, fallbackTitle)
+            cachedMeta != null -> displaySessionTitle(cachedMeta.title, fallbackTitle)
+            else -> fallbackTitle
+        }
         _currentModel.value = cachedMeta?.model?.ifBlank { null }
         _currentProvider.value = cachedMeta?.provider?.ifBlank { null }
         val cachedHistory = sessions.cachedHistory(id, profile)?.map { it.organizedForDisplay() }
@@ -152,8 +162,8 @@ class ChatViewModel @Inject constructor(
             val meta = runCatching {
                 sessions.list(profile).firstOrNull { it.id == id }
             }.getOrNull()
-            if (sessionId == id && meta != null) {
-                _sessionTitle.value = displaySessionTitle(meta.title)
+            if (storedSessionId == id && meta != null) {
+                _sessionTitle.value = displaySessionTitle(meta.title, fallbackTitle)
                 _currentModel.value = meta.model?.ifBlank { null }
                 _currentProvider.value = meta.provider?.ifBlank { null }
             }
@@ -214,7 +224,19 @@ class ChatViewModel @Inject constructor(
             }
                 .onEach { event ->
                     if (event.type == "session.title") {
-                        event.str("title")?.let { _sessionTitle.value = displaySessionTitle(it) }
+                        val eventBelongsHere = event.sessionId == sessionId || event.sessionId == storedSessionId
+                        if (eventBelongsHere) {
+                            event.str("title")?.let { _sessionTitle.value = displaySessionTitle(it, fallbackTitle) }
+                        } else if (event.sessionId == null) {
+                            // Some gateway versions omit session_id on title events. Never apply that
+                            // unscoped title directly: re-read this session's own metadata instead.
+                            val meta = runCatching {
+                                sessions.list(profile).firstOrNull { it.id == storedSessionId }
+                            }.getOrNull()
+                            if (this@ChatViewModel.storedSessionId == id && meta != null) {
+                                _sessionTitle.value = displaySessionTitle(meta.title, fallbackTitle)
+                            }
+                        }
                     }
                 }
                 .collect {}
@@ -444,10 +466,10 @@ class ChatViewModel @Inject constructor(
     }
 }
 
-internal fun displaySessionTitle(raw: String?): String {
+internal fun displaySessionTitle(raw: String?, fallback: String = "新会话"): String {
     val title = raw?.trim().orEmpty()
     return title.takeIf {
         it.isNotEmpty() && !it.equals("Untitled", ignoreCase = true) &&
             !it.equals("New chat", ignoreCase = true)
-    } ?: "新会话"
+    } ?: fallback
 }

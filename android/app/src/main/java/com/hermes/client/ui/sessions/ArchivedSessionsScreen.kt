@@ -30,11 +30,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hermes.client.domain.Session
+import com.hermes.client.ui.chat.ChatLaunch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArchivedSessionsScreen(
-    onOpen: (String) -> Unit,
+    onOpen: (ChatLaunch) -> Unit,
     onBack: () -> Unit,
     onUnauthorized: () -> Unit = {},
     vm: ArchivedSessionsViewModel = hiltViewModel(),
@@ -79,7 +80,7 @@ fun ArchivedSessionsScreen(
                     items(state.sessions, key = { it.id }) { s ->
                         ArchivedRow(
                             session = s,
-                            onOpen = { onOpen(s.id) },
+                            onOpen = { onOpen(ChatLaunch.existing(s)) },
                             onUnarchive = { vm.unarchive(s) },
                             onDelete = { vm.delete(s) },
                         )

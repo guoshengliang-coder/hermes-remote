@@ -19,6 +19,22 @@ class ChatChromeTest {
         assertEquals("修复登录问题", displaySessionTitle("  修复登录问题  "))
     }
 
+    @Test fun existingSession_neverUsesNewChatFallback() {
+        assertEquals("会话", displaySessionTitle(null, fallback = "会话"))
+        assertEquals("会话", displaySessionTitle("Untitled", fallback = "会话"))
+    }
+
+    @Test fun streamRevision_tracksReasoningTextAndTools() {
+        val base = ChatMessage("a1", Role.ASSISTANT, text = "答", thinking = "想")
+        val withReasoning = base.copy(thinking = "想更多")
+        val withTool = withReasoning.copy(
+            tools = listOf(ToolCall("t1", "浏览器", ToolStatus.RUNNING, output = "结果")),
+        )
+
+        assertEquals(true, withReasoning.streamContentRevision() > base.streamContentRevision())
+        assertEquals(true, withTool.streamContentRevision() > withReasoning.streamContentRevision())
+    }
+
     @Test fun composerModelLabel_isCompact() {
         assertEquals("Auto", compactModelLabel(null))
         assertEquals("claude-sonnet-4", compactModelLabel("anthropic/claude-sonnet-4"))

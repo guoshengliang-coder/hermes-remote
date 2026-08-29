@@ -66,6 +66,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.launch
 import androidx.compose.material3.OutlinedTextField
@@ -104,12 +105,17 @@ import com.hermes.client.ui.components.connectionLabel
 @Composable
 fun ChatScreen(
     sessionId: String,
+    sessionProfile: String? = null,
+    initialTitle: String? = null,
+    isNewSession: Boolean = false,
     vm: ChatViewModel = hiltViewModel(),
     onMenu: () -> Unit = {},
     onNewChat: (String) -> Unit = {},
     onUnauthorized: () -> Unit = {},
 ) {
-    LaunchedEffect(sessionId) { vm.open(sessionId) }
+    LaunchedEffect(sessionId, sessionProfile, initialTitle, isNewSession) {
+        vm.open(sessionId, sessionProfile, initialTitle, isNewSession)
+    }
     val state by vm.state.collectAsStateWithLifecycle()
     val connState by vm.connectionState.collectAsStateWithLifecycle()
     val unauthorized by vm.unauthorized.collectAsStateWithLifecycle()
@@ -119,7 +125,7 @@ fun ChatScreen(
     val favorites by vm.favorites.collectAsStateWithLifecycle()
     val currentProvider by vm.currentProvider.collectAsStateWithLifecycle()
     val modelSheet by vm.modelSheet.collectAsStateWithLifecycle()
-    var modelSheetOpen by rememberSaveable { mutableStateOf(false) }
+    var modelSheetOpen by rememberSaveable(sessionId) { mutableStateOf(false) }
     val commands by vm.commands.collectAsStateWithLifecycle()
     val pathItems by vm.pathItems.collectAsStateWithLifecycle()
     val speaking by vm.speaking.collectAsStateWithLifecycle()
@@ -128,12 +134,12 @@ fun ChatScreen(
     val personaUi by vm.personaUi.collectAsStateWithLifecycle()
     var showPersonaSheet by remember { mutableStateOf(false) }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { vm.stopReading() } }
-    var draft by remember { mutableStateOf("") }
-    var composerFocused by rememberSaveable { mutableStateOf(false) }
-    var creatingSession by rememberSaveable { mutableStateOf(false) }
-    var searchOpen by rememberSaveable { mutableStateOf(false) }
-    var query by rememberSaveable { mutableStateOf("") }
-    var currentMatch by rememberSaveable { mutableStateOf(0) }
+    var draft by rememberSaveable(sessionId) { mutableStateOf("") }
+    var composerFocused by rememberSaveable(sessionId) { mutableStateOf(false) }
+    var creatingSession by rememberSaveable(sessionId) { mutableStateOf(false) }
+    var searchOpen by rememberSaveable(sessionId) { mutableStateOf(false) }
+    var query by rememberSaveable(sessionId) { mutableStateOf("") }
+    var currentMatch by rememberSaveable(sessionId) { mutableStateOf(0) }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     // Search the same merged turns rendered by ChatMessageList so highlight indices stay aligned.
     val conversationTurns = remember(state.messages, searchOpen) {
@@ -152,11 +158,24 @@ fun ChatScreen(
     // System back closes the search bar first (rather than leaving the chat) when it's open.
     androidx.activity.compose.BackHandler(enabled = searchOpen) { searchOpen = false; query = "" }
     val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     androidx.activity.compose.BackHandler(enabled = !searchOpen && composerFocused) {
         composerFocused = false
         focusManager.clearFocus()
     }
-    val focusRequester = remember { FocusRequester() }
+    val focusRequester = remember(sessionId) { FocusRequester() }
+
+    fun collapseComposer(clearDraft: Boolean = false) {
+        if (clearDraft) draft = ""
+        composerFocused = false
+        focusManager.clearFocus(force = true)
+        keyboardController?.hide()
+    }
+
+    LaunchedEffect(sessionId) {
+        // A fresh navigation entry must never inherit the outgoing chat's IME/focus state.
+        collapseComposer()
+    }
     LaunchedEffect(composerFocused) {
         // The compact and expanded layouts use different field placements. Re-request focus after
         // expansion so the keyboard remains open instead of flashing and immediately collapsing.
@@ -327,7 +346,10 @@ fun ChatScreen(
                             attachScope.launch {
                                 val id = vm.createNewSession()
                                 creatingSession = false
-                                if (id != null) onNewChat(id)
+                                if (id != null) {
+                                    collapseComposer(clearDraft = true)
+                                    onNewChat(id)
+                                }
                                 else android.widget.Toast.makeText(
                                     context, "暂时无法新建会话", android.widget.Toast.LENGTH_SHORT,
                                 ).show()

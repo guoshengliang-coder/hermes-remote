@@ -125,6 +125,22 @@ class ChatViewModelTest {
         coVerify { chatRepo.resume("s1", "personal") }
     }
 
+    @Test fun open_prefers_navigation_profile_and_title_for_existing_session() = runTest {
+        every { profileManager.active } returns MutableStateFlow<String?>("personal")
+        val vm = buildVm()
+
+        vm.open(
+            id = "s2",
+            requestedProfile = "odos",
+            initialTitle = "已有会话标题",
+            isNewSession = false,
+        )
+        advanceUntilIdle()
+
+        assertEquals("已有会话标题", vm.sessionTitle.value)
+        coVerify { chatRepo.resume("s2", "odos") }
+    }
+
     /**
      * A pending image share must be staged as a local attachment chip (not attached to the
      * gateway immediately) — it's flushed on the next send() using whatever the live

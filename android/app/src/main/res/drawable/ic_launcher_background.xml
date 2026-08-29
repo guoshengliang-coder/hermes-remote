@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Adaptive-icon background: solid white, matching the desktop app's icon. -->
+<!-- Dark backing prevents a light halo if an OEM adaptive-icon mask reveals the outer edge. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
     <path
-        android:fillColor="#FFFFFFFF"
+        android:fillColor="#FF090909"
         android:pathData="M0,0h24v24h-24z" />
 </vector>

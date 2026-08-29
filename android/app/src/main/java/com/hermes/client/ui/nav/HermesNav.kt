@@ -1,5 +1,6 @@
 package com.hermes.client.ui.nav
 
+import android.net.Uri
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -41,13 +42,16 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.hermes.client.data.network.isUnhealthy
 import com.hermes.client.ui.admin.SessionAdminScreen
 import com.hermes.client.ui.chat.ChatScreen
+import com.hermes.client.ui.chat.ChatLaunch
 import com.hermes.client.ui.components.HealthSheet
 import com.hermes.client.ui.components.HealthStrip
 import com.hermes.client.ui.cron.CronDetailScreen
@@ -76,6 +80,17 @@ private val TABS = listOf(
     Tab("sessions", "Chats", Icons.AutoMirrored.Rounded.Chat),
     Tab("you", "You", Icons.Rounded.Person),
 )
+
+private fun chatRoute(target: ChatLaunch): String = buildString {
+    append("chat/")
+    append(Uri.encode(target.sessionId))
+    val query = buildList {
+        target.profile?.takeIf { it.isNotBlank() }?.let { add("profile=${Uri.encode(it)}") }
+        target.title?.takeIf { it.isNotBlank() }?.let { add("title=${Uri.encode(it)}") }
+        if (target.isNew) add("new=true")
+    }
+    if (query.isNotEmpty()) append('?').append(query.joinToString("&"))
+}
 
 /**
  * Root navigation host with a three-tab bottom bar (Chats · Agent Activity · You).
@@ -137,6 +152,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
     val back: () -> Unit = { nav.popBackStack() }
     // Drill into a screen from a tab hub (Agent Activity / You).
     val push: (String) -> Unit = { dest -> nav.navigate(dest) { launchSingleTop = true } }
+    val openChat: (ChatLaunch) -> Unit = { target -> nav.navigate(chatRoute(target)) }
     // Switch top-level tab with state save/restore so each tab keeps its own back stack position.
     val switchTab: (String) -> Unit = { dest ->
         nav.navigate(dest) {
@@ -204,7 +220,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             // ---- Tab roots ----
             composable("sessions") {
                 SessionsScreen(
-                    onOpen = { id -> nav.navigate("chat/$id") },
+                    onOpen = openChat,
                     onOpenArchived = { nav.navigate("archived") },
                     onUnauthorized = onUnauthorized,
                 )
@@ -215,13 +231,18 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             // ---- Pushed screens (back arrow) ----
             composable("archived") {
                 com.hermes.client.ui.sessions.ArchivedSessionsScreen(
-                    onOpen = { id -> nav.navigate("chat/$id") },
+                    onOpen = openChat,
                     onBack = back,
                     onUnauthorized = onUnauthorized,
                 )
             }
             composable(
-                route = "chat/{id}",
+                route = "chat/{id}?profile={profile}&title={title}&new={new}",
+                arguments = listOf(
+                    navArgument("profile") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument("title") { type = NavType.StringType; nullable = true; defaultValue = null },
+                    navArgument("new") { type = NavType.BoolType; defaultValue = false },
+                ),
                 enterTransition = {
                     fadeIn(tween(170)) + slideInHorizontally(tween(190)) { it / 12 }
                 },
@@ -237,9 +258,12 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             ) { entry ->
                 ChatScreen(
                     sessionId = entry.arguments?.getString("id") ?: "",
+                    sessionProfile = entry.arguments?.getString("profile"),
+                    initialTitle = entry.arguments?.getString("title"),
+                    isNewSession = entry.arguments?.getBoolean("new") ?: false,
                     onMenu = back,
                     onNewChat = { id ->
-                        nav.navigate("chat/$id") {
+                        nav.navigate(chatRoute(ChatLaunch.new(id))) {
                             popUpTo(entry.destination.id) { inclusive = true }
                         }
                     },
@@ -314,7 +338,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             composable("session_admin") {
                 SessionAdminScreen(
                     onMenu = back,
-                    onOpen = { id -> nav.navigate("chat/$id") },
+                    onOpen = { id -> openChat(ChatLaunch.unknown(id)) },
                 )
             }
             composable("agents_tools") { AgentsToolsScreen(onMenu = back) }
