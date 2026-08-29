@@ -180,6 +180,7 @@ class ChatViewModel @Inject constructor(
                 }
                 com.hermes.client.data.diagnostics.DebugLog.log("session", "history($id) → ${history.size} messages")
                 runtimeStore.acceptHistory(key, history, requestStartedAt)
+                runtimeStore.markRead(key)
             } catch (e: HermesApiException) {
                 com.hermes.client.data.diagnostics.DebugLog.log("error", "history($id) failed: ${e.code} ${e.message}")
                 if (e.code == 401) { _unauthorized.value = true; return@launch }

@@ -19,6 +19,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -113,8 +114,12 @@ class SessionRuntimeStoreTest {
         advanceUntilIdle()
 
         assertEquals(SessionRunPhase.COMPLETED_UNREAD, store.runtimes.value.getValue(key).phase)
+        assertTrue("personal/s1" in store.unreadTokens.value)
         store.setVisible(key, true)
+        assertEquals(SessionRunPhase.COMPLETED_UNREAD, store.runtimes.value.getValue(key).phase)
+        store.markRead(key)
         assertEquals(SessionRunPhase.IDLE, store.runtimes.value.getValue(key).phase)
+        assertFalse("personal/s1" in store.unreadTokens.value)
     }
 
     @Test fun opening_a_just_completed_turn_does_not_accept_shorter_server_history() = runTest {
@@ -125,12 +130,13 @@ class SessionRuntimeStoreTest {
         events.emit(event("message.complete", "s1", "手机已经收到的完整答案"))
         advanceUntilIdle()
 
-        store.setVisible(key, true) // opening the chat clears the unread badge
+        store.setVisible(key, true)
         store.acceptHistory(
             key,
             listOf(ChatMessage("old", Role.USER, "开始")),
             requestStartedAt = System.currentTimeMillis() + 10_000,
         )
+        store.markRead(key) // successful history display clears the unread badge
 
         assertEquals("手机已经收到的完整答案", store.runtimes.value.getValue(key).chat.messages.last().text)
     }

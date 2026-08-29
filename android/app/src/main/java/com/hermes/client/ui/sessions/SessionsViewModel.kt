@@ -59,6 +59,7 @@ class SessionsViewModel @Inject constructor(
     )
     val state: StateFlow<SessionsUiState> = _state.asStateFlow()
     val runtimes: StateFlow<Map<SessionRuntimeKey, SessionRuntime>> = runtimeStore.runtimes
+    val unreadTokens: StateFlow<Set<String>> = runtimeStore.unreadTokens
 
     fun runtimeFor(
         session: Session,

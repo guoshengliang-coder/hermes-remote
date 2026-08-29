@@ -26,6 +26,8 @@ import com.hermes.client.ui.nav.deepLinkRouteFor
 import com.hermes.client.ui.nav.isNewChatLink
 import com.hermes.client.ui.theme.HermesTheme
 import com.hermes.client.ui.theme.LocalToolCallTechnical
+import com.hermes.client.ui.localization.AppLanguage
+import com.hermes.client.ui.localization.LocalAppLanguage
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -88,6 +90,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val mode by settingsStore.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
             val technical by settingsStore.toolCallTechnical.collectAsState(initial = true)
+            val language by settingsStore.appLanguage.collectAsState(initial = AppLanguage.ZH)
             val activeProfile by profileManager.active.collectAsState()
             val accentOverrides by profileAccentStore.overrides.collectAsState(initial = emptyMap())
             val dark = when (mode) {
@@ -99,6 +102,7 @@ class MainActivity : ComponentActivity() {
             // every accent call site (Mission Control pages, You-tab avatars) can honour them.
             CompositionLocalProvider(
                 com.hermes.client.ui.theme.LocalProfileAccentOverrides provides accentOverrides,
+                LocalAppLanguage provides language,
             ) {
                 HermesTheme(darkTheme = dark, profile = activeProfile) {
                     CompositionLocalProvider(LocalToolCallTechnical provides technical) {

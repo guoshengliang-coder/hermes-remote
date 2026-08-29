@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.repository.SettingsStore
 import com.hermes.client.data.repository.ThemeMode
+import com.hermes.client.ui.localization.AppLanguage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -21,10 +22,13 @@ class SettingsViewModel @Inject constructor(
         settings.themeMode.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThemeMode.SYSTEM)
     val toolCallTechnical: StateFlow<Boolean> =
         settings.toolCallTechnical.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+    val appLanguage: StateFlow<AppLanguage> =
+        settings.appLanguage.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppLanguage.ZH)
 
     fun setThemeMode(mode: ThemeMode) = viewModelScope.launch { settings.setThemeMode(mode) }
     fun setToolCallTechnical(technical: Boolean) =
         viewModelScope.launch { settings.setToolCallTechnical(technical) }
+    fun setAppLanguage(language: AppLanguage) = viewModelScope.launch { settings.setAppLanguage(language) }
 
     suspend fun gatewayVersion(): String? = runCatching { rest.gatewayStatus().version }.getOrNull()
 }

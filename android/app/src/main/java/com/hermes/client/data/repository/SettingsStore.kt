@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import com.hermes.client.ui.localization.AppLanguage
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
@@ -17,9 +18,18 @@ class SettingsStore(private val context: Context) {
     private val themeKey = stringPreferencesKey("theme_mode")
     private val toolDisplayKey = stringPreferencesKey("tool_call_display") // "product" | "technical"
     private val debugLoggingKey = booleanPreferencesKey("debug_logging")
+    private val languageKey = stringPreferencesKey("app_language")
 
     val themeMode: Flow<ThemeMode> = context.settingsDataStore.data.map { prefs ->
         runCatching { ThemeMode.valueOf(prefs[themeKey] ?: "SYSTEM") }.getOrDefault(ThemeMode.SYSTEM)
+    }
+
+    val appLanguage: Flow<AppLanguage> = context.settingsDataStore.data.map { prefs ->
+        runCatching { AppLanguage.valueOf(prefs[languageKey] ?: "ZH") }.getOrDefault(AppLanguage.ZH)
+    }
+
+    suspend fun setAppLanguage(language: AppLanguage) {
+        context.settingsDataStore.edit { it[languageKey] = language.name }
     }
 
     /** True = show full tool input/output (Technical); false = hide payloads (Product). */

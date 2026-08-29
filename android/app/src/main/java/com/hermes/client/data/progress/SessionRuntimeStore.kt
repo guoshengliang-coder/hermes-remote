@@ -6,6 +6,7 @@ import com.hermes.client.data.network.bool
 import com.hermes.client.data.network.str
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ProfileManager
+import com.hermes.client.data.repository.SessionReadStore
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.ui.chat.ChatUiState
 import com.hermes.client.ui.chat.markInterrupted
@@ -67,15 +68,21 @@ class SessionRuntimeStore(
     private val chatRepository: ChatRepository,
     private val appScope: CoroutineScope,
     private val profiles: ProfileManager,
+    private val readStore: SessionReadStore? = null,
 ) {
     private val _runtimes = MutableStateFlow<Map<SessionRuntimeKey, SessionRuntime>>(emptyMap())
     val runtimes: StateFlow<Map<SessionRuntimeKey, SessionRuntime>> = _runtimes.asStateFlow()
+    private val _unreadTokens = MutableStateFlow<Set<String>>(emptySet())
+    val unreadTokens: StateFlow<Set<String>> = _unreadTokens.asStateFlow()
 
     private val aliases = ConcurrentHashMap<String, SessionRuntimeKey>()
     private val visible = ConcurrentHashMap.newKeySet<SessionRuntimeKey>()
     @Volatile private var lastActiveKey: SessionRuntimeKey? = null
 
     init {
+        readStore?.let { store ->
+            appScope.launch { store.unread.collect { _unreadTokens.value = it } }
+        }
         appScope.launch {
             chatRepository.events.collect { event -> runCatching { applyEvent(event) } }
         }
@@ -122,15 +129,28 @@ class SessionRuntimeStore(
     fun setVisible(key: SessionRuntimeKey, value: Boolean) {
         if (value) {
             visible += key
-            _runtimes.update { map ->
-                val current = map[key] ?: return@update map
-                if (current.phase == SessionRunPhase.COMPLETED_UNREAD) {
-                    map + (key to current.copy(phase = SessionRunPhase.IDLE))
-                } else map
-            }
         } else {
             visible -= key
         }
+    }
+
+    /** Clear unread only after the chat has successfully loaded, not merely when its row is tapped. */
+    fun markRead(key: SessionRuntimeKey) {
+        val token = SessionReadStore.token(key.profile, key.sessionId)
+        _unreadTokens.update { it - token }
+        _runtimes.update { map ->
+            val current = map[key] ?: return@update map
+            if (current.phase == SessionRunPhase.COMPLETED_UNREAD) {
+                map + (key to current.copy(phase = SessionRunPhase.IDLE))
+            } else map
+        }
+        readStore?.let { store -> appScope.launch { store.markRead(token) } }
+    }
+
+    private fun markUnread(key: SessionRuntimeKey) {
+        val token = SessionReadStore.token(key.profile, key.sessionId)
+        _unreadTokens.update { it + token }
+        readStore?.let { store -> appScope.launch { store.markUnread(token) } }
     }
 
     fun markHistoryLoading(key: SessionRuntimeKey, cached: List<ChatMessage>?) {
@@ -301,6 +321,9 @@ class SessionRuntimeStore(
                 },
                 lastEventAt = System.currentTimeMillis(),
             )
+        }
+        if (event.type == "message.complete" || (event.type == "session.info" && event.bool("running") == false)) {
+            if (key in visible) markRead(key) else markUnread(key)
         }
     }
 

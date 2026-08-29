@@ -80,6 +80,8 @@ import com.hermes.client.domain.Role
 import com.hermes.client.domain.ToolCall
 import com.hermes.client.domain.ToolStatus
 import com.hermes.client.ui.theme.LocalToolCallTechnical
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.localized
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.text.TextStyle
@@ -108,6 +110,7 @@ fun ChatMessageList(
     highlightIndex: Int? = null,
     onBlankAreaTap: () -> Unit = {},
 ) {
+    val language = LocalAppLanguage.current
     // Hermes stores a tool-using answer as multiple adjacent assistant records. Present them as
     // one consumer-facing turn so the action row appears once and acts on the complete answer.
     // During streaming only the tail changes. Cache the settled prefix so each token sanitizes and
@@ -234,14 +237,14 @@ fun ChatMessageList(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    "历史消息暂时无法加载，连接恢复后会自动更新。",
+                    localized(language, "历史消息暂时无法加载，连接恢复后会自动更新。", "History is temporarily unavailable and will update after reconnecting."),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             else -> Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                 Text(
-                    "发条消息，开始和 Hermes 对话。",
+                    localized(language, "发条消息，开始和 Hermes 对话。", "Send a message to start chatting with Hermes."),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -304,7 +307,7 @@ fun ChatMessageList(
             ) {
                 Icon(
                     Icons.Rounded.KeyboardArrowDown,
-                    contentDescription = "回到最新消息",
+                    contentDescription = localized(language, "回到最新消息", "Jump to latest message"),
                     modifier = Modifier.padding(10.dp).size(24.dp),
                     tint = LocalProfileAccent.current.accent,
                 )
@@ -377,6 +380,7 @@ private fun MessageBubble(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun UserBubble(msg: ChatMessage, onEditResend: (String) -> Unit, highlighted: Boolean = false) {
+    val language = LocalAppLanguage.current
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -409,11 +413,11 @@ private fun UserBubble(msg: ChatMessage, onEditResend: (String) -> Unit, highlig
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
-                    text = { Text("Copy") },
-                    onClick = { copyToClipboard(msg.text, clipboard, context); menuOpen = false },
+                    text = { Text(localized(language, "复制", "Copy")) },
+                    onClick = { copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied")); menuOpen = false },
                 )
                 DropdownMenuItem(
-                    text = { Text("Edit & resend") },
+                    text = { Text(localized(language, "编辑并重新发送", "Edit & resend")) },
                     onClick = { onEditResend(msg.text); menuOpen = false },
                 )
             }
@@ -433,6 +437,7 @@ private fun AssistantTurn(
     onStopReading: () -> Unit,
     highlighted: Boolean = false,
 ) {
+    val language = LocalAppLanguage.current
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -504,10 +509,10 @@ private fun AssistantTurn(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(
-                        onClick = { copyToClipboard(msg.text, clipboard, context) },
+                        onClick = { copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied")) },
                         modifier = Modifier.size(40.dp),
                     ) {
-                        Icon(Icons.Rounded.ContentCopy, "复制回复", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(Icons.Rounded.ContentCopy, localized(language, "复制回复", "Copy response"), Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     IconButton(
                         onClick = { feedback = if (feedback == 1) 0 else 1 },
@@ -515,7 +520,7 @@ private fun AssistantTurn(
                     ) {
                         Icon(
                             Icons.Rounded.ThumbUp,
-                            "有帮助",
+                            localized(language, "有帮助", "Helpful"),
                             Modifier.size(20.dp),
                             tint = if (feedback == 1) accent else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -526,7 +531,7 @@ private fun AssistantTurn(
                     ) {
                         Icon(
                             Icons.Rounded.ThumbDown,
-                            "需要改进",
+                            localized(language, "需要改进", "Needs improvement"),
                             Modifier.size(20.dp),
                             tint = if (feedback == -1) accent else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -536,34 +541,34 @@ private fun AssistantTurn(
                             onClick = { if (isSpeaking) onStopReading() else onReadAloud(msg.text) },
                             modifier = Modifier.size(40.dp),
                         ) {
-                            Icon(Icons.Rounded.VolumeUp, if (isSpeaking) "停止朗读" else "朗读", Modifier.size(21.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.Rounded.VolumeUp, if (isSpeaking) localized(language, "停止朗读", "Stop reading") else localized(language, "朗读", "Read aloud"), Modifier.size(21.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     if (canRegenerate) {
                         IconButton(onClick = onRegenerate, modifier = Modifier.size(40.dp)) {
-                            Icon(Icons.Rounded.Refresh, "重新生成", Modifier.size(21.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.Rounded.Refresh, localized(language, "重新生成", "Regenerate"), Modifier.size(21.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) {
-                        Icon(Icons.Rounded.MoreHoriz, "更多操作", Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(Icons.Rounded.MoreHoriz, localized(language, "更多操作", "More actions"), Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             DropdownMenuItem(
-                text = { Text("Copy") },
-                onClick = { copyToClipboard(msg.text, clipboard, context); menuOpen = false },
+                text = { Text(localized(language, "复制", "Copy")) },
+                onClick = { copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied")); menuOpen = false },
             )
             if (canRegenerate) {
                 DropdownMenuItem(
-                    text = { Text("Regenerate") },
+                    text = { Text(localized(language, "重新生成", "Regenerate")) },
                     onClick = { onRegenerate(); menuOpen = false },
                 )
             }
             if (speakable && !msg.isError) {
                 DropdownMenuItem(
-                    text = { Text(if (isSpeaking) "Stop" else "Read aloud") },
+                    text = { Text(if (isSpeaking) localized(language, "停止", "Stop") else localized(language, "朗读", "Read aloud")) },
                     onClick = {
                         if (isSpeaking) onStopReading() else onReadAloud(msg.text)
                         menuOpen = false
@@ -578,10 +583,11 @@ private fun copyToClipboard(
     text: String,
     clipboard: androidx.compose.ui.platform.ClipboardManager,
     context: android.content.Context,
+    copiedMessage: String,
 ) {
     if (text.isNotBlank()) {
         clipboard.setText(AnnotatedString(text))
-        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -608,6 +614,7 @@ private fun chatMarkdownComponents(): MarkdownComponents =
 private fun CodeWithCopy(code: String, @Suppress("UNUSED_PARAMETER") language: String?, style: TextStyle) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
+    val appLanguage = LocalAppLanguage.current
     Box(
         Modifier
             .fillMaxWidth()
@@ -626,13 +633,13 @@ private fun CodeWithCopy(code: String, @Suppress("UNUSED_PARAMETER") language: S
         IconButton(
             onClick = {
                 clipboard.setText(AnnotatedString(code))
-                Toast.makeText(context, "Code copied", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, localized(appLanguage, "代码已复制", "Code copied"), Toast.LENGTH_SHORT).show()
             },
             modifier = Modifier.align(Alignment.TopEnd),
         ) {
             Icon(
                 Icons.Rounded.ContentCopy,
-                contentDescription = "Copy code",
+                contentDescription = localized(appLanguage, "复制代码", "Copy code"),
                 modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -668,10 +675,11 @@ private fun TypingIndicator() {
 
 @Composable
 private fun ThinkingCard(text: String) {
+    val language = LocalAppLanguage.current
     var expanded by remember { mutableStateOf(false) }
     AssistChip(
         onClick = { expanded = !expanded },
-        label = { Text(if (expanded) "收起思考过程" else "查看思考过程") },
+        label = { Text(if (expanded) localized(language, "收起思考过程", "Hide reasoning") else localized(language, "查看思考过程", "View reasoning")) },
     )
     if (expanded) {
         SelectionContainer {
@@ -687,6 +695,7 @@ private fun ThinkingCard(text: String) {
 
 @Composable
 private fun ToolCard(tool: ToolCall) {
+    val language = LocalAppLanguage.current
     var expanded by remember(tool.id) { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
     val technical = LocalToolCallTechnical.current
@@ -714,9 +723,9 @@ private fun ToolCard(tool: ToolCall) {
                 Spacer(Modifier.weight(1f))
                 Text(
                     text = when {
-                        tool.status == ToolStatus.RUNNING -> "运行中"
-                        technical && hasOutput -> "已完成 · ${formatPayloadSize(outputSize)}"
-                        else -> "已完成"
+                        tool.status == ToolStatus.RUNNING -> localized(language, "运行中", "Running")
+                        technical && hasOutput -> localized(language, "已完成 · ${formatPayloadSize(outputSize)}", "Completed · ${formatPayloadSize(outputSize)}")
+                        else -> localized(language, "已完成", "Completed")
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -724,7 +733,7 @@ private fun ToolCard(tool: ToolCall) {
                 if (technical && hasOutput) {
                     Icon(
                         if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
-                        contentDescription = if (expanded) "收起结果" else "展开结果",
+                        contentDescription = if (expanded) localized(language, "收起结果", "Collapse result") else localized(language, "展开结果", "Expand result"),
                         modifier = Modifier.size(20.dp).padding(start = 3.dp),
                     )
                 }
@@ -741,12 +750,12 @@ private fun ToolCard(tool: ToolCall) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = { clipboard.setText(AnnotatedString(tool.output)) }) {
                         Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Text("复制结果", modifier = Modifier.padding(start = 5.dp))
+                        Text(localized(language, "复制结果", "Copy result"), modifier = Modifier.padding(start = 5.dp))
                     }
                 }
                 if (tool.output.length > 12_000) {
                     Text(
-                        "内容较长，界面仅预览前 12,000 字符；复制可获取完整结果。",
+                        localized(language, "内容较长，界面仅预览前 12,000 字符；复制可获取完整结果。", "Long content: the app previews 12,000 characters. Copy to get the full result."),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

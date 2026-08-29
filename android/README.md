@@ -38,6 +38,8 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   the black-and-gold Hermes H launcher icon.
 - Version 0.1.11 makes opening a conversation reliably land at the true latest-content bottom after
   cached/server history and Markdown layout settle, with retry-safe initial positioning.
+- Version 0.1.12 streamlines Chats with a compact new button and long-press actions, adds running and
+  persistent unread indicators, and introduces Chinese/English app language selection (Chinese default).
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.

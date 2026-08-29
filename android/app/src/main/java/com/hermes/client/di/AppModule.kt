@@ -141,8 +141,16 @@ object AppModule {
         chat: ChatRepository,
         scope: CoroutineScope,
         profiles: com.hermes.client.data.repository.ProfileManager,
+        readStore: com.hermes.client.data.repository.SessionReadStore,
     ): com.hermes.client.data.progress.SessionRuntimeStore =
-        com.hermes.client.data.progress.SessionRuntimeStore(chat, scope, profiles)
+        com.hermes.client.data.progress.SessionRuntimeStore(chat, scope, profiles, readStore)
+
+    @Provides
+    @Singleton
+    fun provideSessionReadStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.SessionReadStore =
+        com.hermes.client.data.repository.SessionReadStore(context)
 
     @Provides
     @Singleton

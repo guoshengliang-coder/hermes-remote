@@ -64,6 +64,8 @@ import com.hermes.client.ui.components.LoadingState
 import com.hermes.client.ui.nav.ShellViewModel
 import com.hermes.client.ui.theme.LocalProfileAccent
 import com.hermes.client.ui.theme.rememberProfileAccent
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.util.relativeTime
 import kotlinx.coroutines.launch
 
@@ -87,6 +89,7 @@ fun MissionControlScreen(
     onNavigate: (String) -> Unit,
     shell: ShellViewModel = hiltViewModel(),
 ) {
+    val language = LocalAppLanguage.current
     val profiles by shell.profiles.collectAsStateWithLifecycle()
     val active by shell.active.collectAsStateWithLifecycle()
     val dark = isSystemInDarkTheme()
@@ -120,7 +123,7 @@ fun MissionControlScreen(
         Scaffold(
             topBar = {
                 Column {
-                    HermesTopBar(title = "Home")
+                    HermesTopBar(title = localized(language, "首页", "Home"))
                     if (names.size > 1) {
                         com.hermes.client.ui.components.ProfileSwitcher(
                             names = names.filterNotNull(),
@@ -148,6 +151,7 @@ fun MissionControlScreen(
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun MissionControlPage(profile: String?, dark: Boolean, onNavigate: (String) -> Unit) {
+    val language = LocalAppLanguage.current
     // One VM instance per tenant page, keyed by profile name.
     val vm: MissionControlViewModel = hiltViewModel(key = "mc-${profile ?: "_"}")
     val state by vm.state.collectAsStateWithLifecycle()
@@ -178,7 +182,7 @@ private fun MissionControlPage(profile: String?, dark: Boolean, onNavigate: (Str
             val ok = vm.runCron(alert.jobId)
             Toast.makeText(
                 context,
-                if (ok) "Triggered ${alert.name}" else "Couldn't run ${alert.name}",
+                if (ok) localized(language, "已触发 ${alert.name}", "Triggered ${alert.name}") else localized(language, "无法运行 ${alert.name}", "Couldn't run ${alert.name}"),
                 Toast.LENGTH_SHORT,
             ).show()
         }
@@ -244,17 +248,19 @@ private fun MissionControlContent(
     collapsed: List<String>,
     onToggleSection: (String) -> Unit,
 ) {
+    val language = LocalAppLanguage.current
+    val needsYou = localized(language, "需要你处理", "Needs you")
     LazyColumn(Modifier.fillMaxSize()) {
         if (view.needsYou.isNotEmpty()) {
             item(key = "needs-header") {
                 SectionHeader(
-                    "Needs you",
+                    needsYou,
                     view.needsYou.size,
-                    collapsed = "Needs you" in collapsed,
-                    onToggle = { onToggleSection("Needs you") },
+                    collapsed = needsYou in collapsed,
+                    onToggle = { onToggleSection(needsYou) },
                 )
             }
-            if ("Needs you" !in collapsed) {
+            if (needsYou !in collapsed) {
                 items(view.needsYou, key = { "needs-${it.jobId}" }) { alert ->
                     NeedsYouRow(alert, nowMs = nowMs, onClick = { onOpen(alert.route) }, onRunNow = { onRunNow(alert) })
                 }
@@ -266,20 +272,20 @@ private fun MissionControlContent(
             view.needsYou.isEmpty() && view.sections.isEmpty() -> item {
                 if (filter == FeedFilter.ALL) {
                     EmptyState(
-                        title = "Nothing happening yet",
-                        subtitle = "Conversations and scheduled runs for this profile will show up here.",
+                        title = localized(language, "暂时没有动态", "Nothing happening yet"),
+                        subtitle = localized(language, "此身份的会话和定时任务会显示在这里。", "Conversations and scheduled runs for this profile will show up here."),
                     )
                 } else {
                     EmptyState(
-                        title = "Nothing here",
-                        subtitle = "Nothing matches this filter yet.",
+                        title = localized(language, "这里暂无内容", "Nothing here"),
+                        subtitle = localized(language, "暂时没有符合此筛选条件的内容。", "Nothing matches this filter yet."),
                     )
                 }
             }
             else -> view.sections.forEach { section ->
                 item(key = "h-${section.title}") {
                     SectionHeader(
-                        section.title,
+                        activityLabel(language, section.title),
                         section.items.size,
                         collapsed = section.title in collapsed,
                         onToggle = { onToggleSection(section.title) },
@@ -311,7 +317,7 @@ private fun MissionControlContent(
                 QUICK_LINKS.forEach { link ->
                     AssistChip(
                         onClick = { onOpen(link.route) },
-                        label = { Text(link.label) },
+                        label = { Text(activityLabel(language, link.label)) },
                         leadingIcon = { Icon(link.icon, contentDescription = null, Modifier.width(18.dp)) },
                     )
                     Spacer(Modifier.width(8.dp))
@@ -323,6 +329,7 @@ private fun MissionControlContent(
 
 @Composable
 private fun SectionHeader(label: String, count: Int, collapsed: Boolean, onToggle: () -> Unit) {
+    val language = LocalAppLanguage.current
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onToggle)
             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
@@ -341,7 +348,7 @@ private fun SectionHeader(label: String, count: Int, collapsed: Boolean, onToggl
         )
         Icon(
             if (collapsed) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess,
-            contentDescription = if (collapsed) "Expand $label" else "Collapse $label",
+            contentDescription = if (collapsed) localized(language, "展开 $label", "Expand $label") else localized(language, "收起 $label", "Collapse $label"),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -349,9 +356,10 @@ private fun SectionHeader(label: String, count: Int, collapsed: Boolean, onToggl
 
 @Composable
 private fun NeedsYouRow(alert: CronAlert, nowMs: Long, onClick: () -> Unit, onRunNow: () -> Unit) {
+    val language = LocalAppLanguage.current
     val reasonText = when (alert.reason) {
-        CronAlertReason.FAILED -> "Last run failed"
-        CronAlertReason.OVERDUE -> "Overdue"
+        CronAlertReason.FAILED -> localized(language, "上次运行失败", "Last run failed")
+        CronAlertReason.OVERDUE -> localized(language, "已逾期", "Overdue")
     }
     val supporting = listOfNotNull(
         reasonText,
@@ -365,7 +373,7 @@ private fun NeedsYouRow(alert: CronAlert, nowMs: Long, onClick: () -> Unit, onRu
         supportingContent = { Text(supporting) },
         trailingContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onRunNow) { Text("Run now") }
+                TextButton(onClick = onRunNow) { Text(localized(language, "立即运行", "Run now")) }
                 Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null)
             }
         },
@@ -400,6 +408,7 @@ private fun ActivityRow(
     onRetry: () -> Unit = {},
     onOpenFull: () -> Unit = {},
 ) {
+    val language = LocalAppLanguage.current
     val icon: ImageVector = when {
         item.kind == ActivityKind.CONVERSATION -> Icons.AutoMirrored.Rounded.Chat
         item.upcoming -> Icons.Rounded.Schedule
@@ -427,7 +436,7 @@ private fun ActivityRow(
                         if (expandable) {
                             Icon(
                                 if (isExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                                contentDescription = if (isExpanded) "Collapse response" else "Show response",
+                                contentDescription = if (isExpanded) localized(language, "收起回复", "Collapse response") else localized(language, "查看回复", "Show response"),
                             )
                         }
                     }
@@ -449,6 +458,7 @@ private fun CronResponseCard(
     onRetry: () -> Unit,
     onOpenFull: () -> Unit,
 ) {
+    val language = LocalAppLanguage.current
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = MaterialTheme.shapes.medium,
@@ -459,18 +469,29 @@ private fun CronResponseCard(
                 response == null || response.loading ->
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                 response.error -> {
-                    Text("Couldn't load response", color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = onRetry) { Text("Retry") }
+                    Text(localized(language, "无法加载回复", "Couldn't load response"), color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = onRetry) { Text(localized(language, "重试", "Retry")) }
                 }
                 else -> {
                     Text(
-                        response.text ?: "No text output.",
+                        response.text ?: localized(language, "没有文本输出。", "No text output."),
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState()),
                     )
-                    TextButton(onClick = onOpenFull) { Text("View full chat") }
+                    TextButton(onClick = onOpenFull) { Text(localized(language, "查看完整对话", "View full chat")) }
                 }
             }
         }
     }
+}
+
+private fun activityLabel(language: com.hermes.client.ui.localization.AppLanguage, label: String): String = when (label) {
+    "Cron" -> localized(language, "定时任务", label)
+    "Messaging" -> localized(language, "消息渠道", label)
+    "Usage" -> localized(language, "用量", label)
+    "Agents" -> localized(language, "智能体", label)
+    "Today" -> localized(language, "今天", label)
+    "Earlier" -> localized(language, "更早", label)
+    "Upcoming" -> localized(language, "即将运行", label)
+    else -> label
 }

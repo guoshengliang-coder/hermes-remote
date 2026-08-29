@@ -36,6 +36,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.localized
 
 @HiltViewModel
 class NotificationsViewModel @Inject constructor(
@@ -55,6 +57,7 @@ class NotificationsViewModel @Inject constructor(
 fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltViewModel()) {
     val prefs by vm.prefs.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val language = LocalAppLanguage.current
 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
@@ -74,12 +77,12 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "Notifications",
+                title = localized(language, "通知", "Notifications"),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         androidx.compose.material3.Icon(
                             androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = localized(language, "返回", "Back"),
                         )
                     }
                 },
@@ -88,23 +91,23 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             ToggleRow(
-                "Enable notifications",
-                "Keeps a background connection to your gateway while on. Off saves battery.",
+                localized(language, "启用通知", "Enable notifications"),
+                localized(language, "开启时在后台保持网关连接；关闭可节省电量。", "Keeps a background connection to your gateway while on. Off saves battery."),
                 prefs.enabled,
             ) { on -> if (on) enable() else { vm.setEnabled(false); GatewayConnectionService.stop(context) } }
             HorizontalDivider()
-            ToggleRow("Approval requests", "When the agent needs you to approve an action", prefs.approvals, enabled = prefs.enabled) { vm.setApprovals(it) }
+            ToggleRow(localized(language, "审批请求", "Approval requests"), localized(language, "智能体需要你批准操作时提醒", "When the agent needs you to approve an action"), prefs.approvals, enabled = prefs.enabled) { vm.setApprovals(it) }
             HorizontalDivider()
             ToggleRow(
-                "Run finished",
-                "Notify when an agent run completes (while the app is in the background)",
+                localized(language, "运行完成", "Run finished"),
+                localized(language, "应用在后台时，智能体运行完成后提醒", "Notify when an agent run completes (while the app is in the background)"),
                 prefs.runFinished,
                 enabled = prefs.enabled,
             ) { vm.setRunFinished(it) }
             HorizontalDivider()
             ToggleRow(
-                "Live run progress",
-                "Show an ongoing notification with live progress while an agent run is in flight",
+                localized(language, "实时运行进度", "Live run progress"),
+                localized(language, "智能体运行时显示持续更新的进度通知", "Show an ongoing notification with live progress while an agent run is in flight"),
                 prefs.runProgress,
                 enabled = prefs.enabled,
             ) { vm.setRunProgress(it) }

@@ -100,6 +100,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.ui.components.bannerLabel
 import com.hermes.client.ui.components.connectionLabel
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.localized
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,6 +115,7 @@ fun ChatScreen(
     onNewChat: (String) -> Unit = {},
     onUnauthorized: () -> Unit = {},
 ) {
+    val language = LocalAppLanguage.current
     LaunchedEffect(sessionId, sessionProfile, initialTitle, isNewSession) {
         vm.open(sessionId, sessionProfile, initialTitle, isNewSession)
     }
@@ -287,7 +290,7 @@ fun ChatScreen(
         val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault().toLanguageTag())
-            putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Speak your message")
+            putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, localized(language, "请说出消息内容", "Speak your message"))
         }
         runCatching { speech.launch(intent) }
     }
@@ -313,7 +316,7 @@ fun ChatScreen(
                     shadowElevation = 4.dp,
                 ) {
                     IconButton(onClick = onMenu) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = localized(language, "返回", "Back"))
                     }
                 }
                 Box(
@@ -351,7 +354,7 @@ fun ChatScreen(
                                     onNewChat(id)
                                 }
                                 else android.widget.Toast.makeText(
-                                    context, "暂时无法新建会话", android.widget.Toast.LENGTH_SHORT,
+                                    context, localized(language, "暂时无法新建会话", "Couldn't create a new session"), android.widget.Toast.LENGTH_SHORT,
                                 ).show()
                             }
                         },
@@ -359,64 +362,64 @@ fun ChatScreen(
                         if (creatingSession) {
                             CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         } else {
-                            Icon(Icons.Rounded.Add, contentDescription = "新建会话")
+                            Icon(Icons.Rounded.Add, contentDescription = localized(language, "新建会话", "New session"))
                         }
                     }
                     Box {
                         IconButton(onClick = { transcriptMenu = true }) {
                             Icon(
                                 Icons.Rounded.MoreVert,
-                                contentDescription = "更多",
+                                contentDescription = localized(language, "更多", "More"),
                             )
                         }
                         DropdownMenu(expanded = transcriptMenu, onDismissRequest = { transcriptMenu = false }) {
                             DropdownMenuItem(
-                                text = { Text("搜索当前对话") },
+                                text = { Text(localized(language, "搜索当前对话", "Search this chat")) },
                                 onClick = {
                                     transcriptMenu = false
                                     searchOpen = true
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("复制全部对话") },
+                                text = { Text(localized(language, "复制全部对话", "Copy transcript")) },
                                 onClick = {
                                     val t = transcriptText(state.messages)
                                     if (t.isBlank()) {
-                                        android.widget.Toast.makeText(context, "Nothing to export yet", android.widget.Toast.LENGTH_SHORT).show()
+                                        android.widget.Toast.makeText(context, localized(language, "暂无可导出的内容", "Nothing to export yet"), android.widget.Toast.LENGTH_SHORT).show()
                                     } else {
                                         runCatching {
                                             clipboard.setText(AnnotatedString(t))
-                                            android.widget.Toast.makeText(context, "Transcript copied", android.widget.Toast.LENGTH_SHORT).show()
+                                            android.widget.Toast.makeText(context, localized(language, "对话已复制", "Transcript copied"), android.widget.Toast.LENGTH_SHORT).show()
                                         }.onFailure {
-                                            android.widget.Toast.makeText(context, "Couldn't copy transcript", android.widget.Toast.LENGTH_SHORT).show()
+                                            android.widget.Toast.makeText(context, localized(language, "无法复制对话", "Couldn't copy transcript"), android.widget.Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                     transcriptMenu = false
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("分享对话") },
+                                text = { Text(localized(language, "分享对话", "Share transcript")) },
                                 onClick = {
                                     val t = transcriptText(state.messages)
                                     if (t.isBlank()) {
-                                        android.widget.Toast.makeText(context, "Nothing to export yet", android.widget.Toast.LENGTH_SHORT).show()
+                                        android.widget.Toast.makeText(context, localized(language, "暂无可导出的内容", "Nothing to export yet"), android.widget.Toast.LENGTH_SHORT).show()
                                     } else {
                                         val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                                             type = "text/plain"
-                                            putExtra(android.content.Intent.EXTRA_SUBJECT, "Hermes chat transcript")
+                                            putExtra(android.content.Intent.EXTRA_SUBJECT, localized(language, "Hermes 对话记录", "Hermes chat transcript"))
                                             putExtra(android.content.Intent.EXTRA_TEXT, t)
                                         }
                                         runCatching {
-                                            context.startActivity(android.content.Intent.createChooser(send, "Share transcript"))
+                                            context.startActivity(android.content.Intent.createChooser(send, localized(language, "分享对话", "Share transcript")))
                                         }.onFailure {
-                                            android.widget.Toast.makeText(context, "Couldn't share transcript", android.widget.Toast.LENGTH_SHORT).show()
+                                            android.widget.Toast.makeText(context, localized(language, "无法分享对话", "Couldn't share transcript"), android.widget.Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                     transcriptMenu = false
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("切换身份") },
+                                text = { Text(localized(language, "切换身份", "Switch profile")) },
                                 onClick = {
                                     transcriptMenu = false
                                     vm.loadPersonas()
@@ -454,7 +457,7 @@ fun ChatScreen(
                                 if (bmp != null) {
                                     Image(
                                         bitmap = bmp,
-                                        contentDescription = "待发送图片",
+                                        contentDescription = localized(language, "待发送图片", "Image ready to send"),
                                         modifier = Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)),
                                         contentScale = ContentScale.Crop,
                                     )
@@ -468,7 +471,7 @@ fun ChatScreen(
                                         .clickable { vm.removeAttachment(a.id) },
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    Icon(Icons.Rounded.Close, "移除图片", tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(15.dp))
+                                    Icon(Icons.Rounded.Close, localized(language, "移除图片", "Remove image"), tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(15.dp))
                                 }
                             }
                         }
@@ -492,7 +495,7 @@ fun ChatScreen(
                                     .onFocusChanged { if (it.isFocused) composerFocused = true },
                                 placeholder = {
                                     Text(
-                                        "输入消息…",
+                                        localized(language, "输入消息…", "Type a message…"),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                     )
                                 },
@@ -511,7 +514,7 @@ fun ChatScreen(
                             ) {
                                 if (speechAvailable) {
                                     IconButton(onClick = { startDictation() }) {
-                                        Icon(Icons.Rounded.Mic, contentDescription = "语音输入", modifier = Modifier.size(24.dp))
+                                        Icon(Icons.Rounded.Mic, contentDescription = localized(language, "语音输入", "Voice input"), modifier = Modifier.size(24.dp))
                                     }
                                 }
                                 Surface(
@@ -524,13 +527,13 @@ fun ChatScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Text(
-                                            compactModelLabel(currentModel),
+                                            if (currentModel.isNullOrBlank()) localized(language, "自动", "Auto") else compactModelLabel(currentModel),
                                             style = MaterialTheme.typography.titleMedium,
                                             maxLines = 1,
                                         )
                                         Icon(
                                             Icons.Rounded.ArrowDropDown,
-                                            contentDescription = "切换模型",
+                                            contentDescription = localized(language, "切换模型", "Switch model"),
                                             modifier = Modifier.size(20.dp),
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
@@ -538,11 +541,11 @@ fun ChatScreen(
                                 }
                                 Spacer(Modifier.weight(1f))
                                 IconButton(onClick = { showAttachSheet = true }) {
-                                    Icon(Icons.Rounded.Add, contentDescription = "添加内容", modifier = Modifier.size(28.dp))
+                                    Icon(Icons.Rounded.Add, contentDescription = localized(language, "添加内容", "Add content"), modifier = Modifier.size(28.dp))
                                 }
                                 when {
                                     state.isGenerating -> IconButton(onClick = { vm.stop() }) {
-                                        Icon(Icons.Rounded.Stop, contentDescription = "停止", tint = LocalProfileAccent.current.accent)
+                                        Icon(Icons.Rounded.Stop, contentDescription = localized(language, "停止", "Stop"), tint = LocalProfileAccent.current.accent)
                                     }
                                     else -> Surface(
                                         shape = androidx.compose.foundation.shape.CircleShape,
@@ -552,7 +555,7 @@ fun ChatScreen(
                                         IconButton(onClick = { submit() }, enabled = canSend) {
                                             Icon(
                                                 Icons.AutoMirrored.Rounded.Send,
-                                                contentDescription = "发送",
+                                                contentDescription = localized(language, "发送", "Send"),
                                                 tint = if (canSend) MaterialTheme.colorScheme.onPrimary
                                                 else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
                                             )
@@ -568,7 +571,7 @@ fun ChatScreen(
                         ) {
                             if (speechAvailable) {
                                 IconButton(onClick = { startDictation() }) {
-                                    Icon(Icons.Rounded.Mic, contentDescription = "语音输入", modifier = Modifier.size(24.dp))
+                                    Icon(Icons.Rounded.Mic, contentDescription = localized(language, "语音输入", "Voice input"), modifier = Modifier.size(24.dp))
                                 }
                             }
                             OutlinedTextField(
@@ -580,7 +583,7 @@ fun ChatScreen(
                                     .onFocusChanged { if (it.isFocused) composerFocused = true },
                                 placeholder = {
                                     Text(
-                                        "发消息或按住说话",
+                                        localized(language, "发消息或按住说话", "Message or hold to talk"),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                     )
                                 },
@@ -596,25 +599,25 @@ fun ChatScreen(
                             )
                             when {
                                 state.isGenerating -> IconButton(onClick = { vm.stop() }) {
-                                    Icon(Icons.Rounded.Stop, contentDescription = "停止", tint = LocalProfileAccent.current.accent)
+                                    Icon(Icons.Rounded.Stop, contentDescription = localized(language, "停止", "Stop"), tint = LocalProfileAccent.current.accent)
                                 }
                                 canSend -> Surface(
                                     shape = androidx.compose.foundation.shape.CircleShape,
                                     color = LocalProfileAccent.current.accent,
                                 ) {
                                     IconButton(onClick = { submit() }) {
-                                        Icon(Icons.AutoMirrored.Rounded.Send, "发送", tint = MaterialTheme.colorScheme.onPrimary)
+                                        Icon(Icons.AutoMirrored.Rounded.Send, localized(language, "发送", "Send"), tint = MaterialTheme.colorScheme.onPrimary)
                                     }
                                 }
                                 else -> IconButton(onClick = { showAttachSheet = true }) {
-                                    Icon(Icons.Rounded.Add, contentDescription = "添加内容", modifier = Modifier.size(28.dp))
+                                    Icon(Icons.Rounded.Add, contentDescription = localized(language, "添加内容", "Add content"), modifier = Modifier.size(28.dp))
                                 }
                             }
                         }
                     }
                 }
                 Text(
-                    "内容由 AI 生成",
+                    localized(language, "内容由 AI 生成", "AI-generated content"),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
                     modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
@@ -629,7 +632,7 @@ fun ChatScreen(
             if (slashMatches.isNotEmpty()) {
                 // Typing "/" turns the message area into a full, scrollable command picker.
                 Text(
-                    "COMMANDS",
+                    localized(language, "命令", "COMMANDS"),
                     style = MaterialTheme.typography.labelMedium,
                     color = LocalProfileAccent.current.accent,
                     modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
@@ -646,7 +649,7 @@ fun ChatScreen(
                 }
             } else if (showPath) {
                 Text(
-                    "ATTACH / MENTION",
+                    localized(language, "附件 / 提及", "ATTACH / MENTION"),
                     style = MaterialTheme.typography.labelMedium,
                     color = LocalProfileAccent.current.accent,
                     modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
@@ -671,7 +674,7 @@ fun ChatScreen(
                             OutlinedTextField(
                                 value = query,
                                 onValueChange = { query = it },
-                                placeholder = { Text("Search in chat…") },
+                                placeholder = { Text(localized(language, "在对话中搜索…", "Search in chat…")) },
                                 singleLine = true,
                                 modifier = Modifier.weight(1f),
                             )
@@ -689,7 +692,7 @@ fun ChatScreen(
                             ) {
                                 Icon(
                                     androidx.compose.material.icons.Icons.Rounded.KeyboardArrowUp,
-                                    contentDescription = "Previous match",
+                                    contentDescription = localized(language, "上一个匹配项", "Previous match"),
                                     tint = accent,
                                 )
                             }
@@ -699,12 +702,12 @@ fun ChatScreen(
                             ) {
                                 Icon(
                                     androidx.compose.material.icons.Icons.Rounded.KeyboardArrowDown,
-                                    contentDescription = "Next match",
+                                    contentDescription = localized(language, "下一个匹配项", "Next match"),
                                     tint = accent,
                                 )
                             }
                             IconButton(onClick = { searchOpen = false; query = "" }) {
-                                Icon(androidx.compose.material.icons.Icons.Rounded.Close, contentDescription = "Close search")
+                                Icon(androidx.compose.material.icons.Icons.Rounded.Close, contentDescription = localized(language, "关闭搜索", "Close search"))
                             }
                         }
                     }
@@ -746,7 +749,7 @@ fun ChatScreen(
             containerColor = MaterialTheme.colorScheme.background,
         ) {
             Text(
-                "添加内容",
+                localized(language, "添加内容", "Add content"),
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(horizontal = 22.dp, vertical = 8.dp),
             )
@@ -756,13 +759,13 @@ fun ChatScreen(
             ) {
                 AttachmentActionCard(
                     icon = Icons.Rounded.PhotoCamera,
-                    label = "拍照",
+                    label = localized(language, "拍照", "Camera"),
                     modifier = Modifier.weight(1f),
                     onClick = { showAttachSheet = false; launchCamera() },
                 )
                 AttachmentActionCard(
                     icon = Icons.Rounded.PhotoLibrary,
-                    label = "照片",
+                    label = localized(language, "照片", "Photos"),
                     modifier = Modifier.weight(1f),
                     onClick = {
                         showAttachSheet = false
@@ -771,14 +774,14 @@ fun ChatScreen(
                 )
                 AttachmentActionCard(
                     icon = Icons.Rounded.InsertDriveFile,
-                    label = "手机图片",
+                    label = localized(language, "手机图片", "Device images"),
                     modifier = Modifier.weight(1f),
                     onClick = { showAttachSheet = false; pickFiles.launch(arrayOf("image/*")) },
                 )
             }
             ListItem(
-                headlineContent = { Text("常用提示", style = MaterialTheme.typography.titleMedium) },
-                supportingContent = { Text("插入已经保存的提示词") },
+                headlineContent = { Text(localized(language, "常用提示", "Saved prompts"), style = MaterialTheme.typography.titleMedium) },
+                supportingContent = { Text(localized(language, "插入已经保存的提示词", "Insert a saved prompt")) },
                 leadingContent = { Icon(Icons.AutoMirrored.Rounded.NoteAdd, contentDescription = null) },
                 modifier = Modifier.clickable {
                     showAttachSheet = false
@@ -793,7 +796,7 @@ fun ChatScreen(
         var answer by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { vm.clarify("") },
-            title = { Text("Clarification") },
+            title = { Text(localized(language, "需要补充信息", "Clarification")) },
             text = {
                 Column {
                     Text(req.question)
@@ -801,7 +804,7 @@ fun ChatScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { vm.clarify(answer) }) { Text("Send") }
+                TextButton(onClick = { vm.clarify(answer) }) { Text(localized(language, "发送", "Send")) }
             },
         )
     }
@@ -827,7 +830,7 @@ fun ChatScreen(
         ModalBottomSheet(onDismissRequest = { showPromptSheet = false }, sheetState = promptSheetState) {
             if (savedPrompts.isEmpty()) {
                 Text(
-                    "No saved prompts yet — add them in Settings › Saved prompts.",
+                    localized(language, "暂无常用提示，可前往“设置 › 常用提示”添加。", "No saved prompts yet — add them in Settings › Saved prompts."),
                     modifier = Modifier.padding(24.dp),
                 )
             } else {
@@ -895,6 +898,7 @@ private fun AttachmentActionCard(
 
 @Composable
 private fun ConnectionBanner(state: ConnectionState, onRetry: () -> Unit) {
+    val language = LocalAppLanguage.current
     Row(
         Modifier
             .fillMaxWidth()
@@ -915,7 +919,7 @@ private fun ConnectionBanner(state: ConnectionState, onRetry: () -> Unit) {
                 colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
                     contentColor = MaterialTheme.colorScheme.onErrorContainer,
                 ),
-            ) { Text("Retry") }
+            ) { Text(localized(language, "重试", "Retry")) }
         }
     }
 }

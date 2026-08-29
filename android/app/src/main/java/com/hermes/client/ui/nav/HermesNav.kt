@@ -69,9 +69,12 @@ import com.hermes.client.ui.settings.EnvScreen
 import com.hermes.client.ui.settings.McpSettingsScreen
 import com.hermes.client.ui.settings.MemorySettingsScreen
 import com.hermes.client.ui.settings.SettingsScreen
+import com.hermes.client.ui.settings.LanguageScreen
 import com.hermes.client.ui.setup.SetupScreen
 import com.hermes.client.ui.tools.AgentsToolsScreen
 import com.hermes.client.ui.usage.UsageScreen
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.localized
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
@@ -109,6 +112,7 @@ private fun chatRoute(target: ChatLaunch): String = buildString {
  */
 @Composable
 fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsumed: () -> Unit = {}) {
+    val language = LocalAppLanguage.current
     val nav = rememberNavController()
     // Chat is the primary Hermes Remote workflow. The richer activity dashboard makes several
     // optional API calls and must never block the user's first successful connection.
@@ -177,19 +181,24 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             ) {
                 NavigationBar {
                     TABS.forEach { tab ->
+                        val label = when (tab.route) {
+                            "activity" -> localized(language, "首页", "Home")
+                            "sessions" -> localized(language, "会话", "Chats")
+                            else -> localized(language, "我的", "You")
+                        }
                         NavigationBarItem(
                             selected = route == tab.route,
                             onClick = { switchTab(tab.route) },
                             icon = {
                                 if (tab.route == "you" && hasConfig && health.isUnhealthy()) {
                                     BadgedBox(badge = { Badge() }) {
-                                        Icon(tab.icon, contentDescription = tab.label)
+                                        Icon(tab.icon, contentDescription = label)
                                     }
                                 } else {
-                                    Icon(tab.icon, contentDescription = tab.label)
+                                    Icon(tab.icon, contentDescription = label)
                                 }
                             },
-                            label = { Text(tab.label) },
+                            label = { Text(label) },
                         )
                     }
                 }
@@ -313,6 +322,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 )
             }
             composable("settings_appearance") { AppearanceScreen(onBack = { nav.popBackStack() }) }
+            composable("settings_language") { LanguageScreen(onBack = { nav.popBackStack() }) }
             composable("settings_notifications") {
                 com.hermes.client.ui.settings.NotificationsScreen(onBack = { nav.popBackStack() })
             }

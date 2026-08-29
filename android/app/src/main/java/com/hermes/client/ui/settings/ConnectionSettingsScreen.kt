@@ -21,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.localized
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,12 +31,13 @@ fun ConnectionSettingsScreen(
     vm: ConnectionSettingsViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val language = LocalAppLanguage.current
 
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "Relay 连接",
-                navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+                title = localized(language, "Relay 连接", "Relay connection"),
+                navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = localized(language, "返回", "Back")) } },
             )
         },
     ) { padding ->
@@ -43,14 +46,14 @@ fun ConnectionSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "Hermes Remote 只使用独立的 App Token。Mac 上的 Hermes 用户名和密码不会发送到手机。",
+                localized(language, "Hermes Remote 只使用独立的 App Token。Mac 上的 Hermes 用户名和密码不会发送到手机。", "Hermes Remote only uses a dedicated App Token. Your Mac's Hermes username and password are never sent to the phone."),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             OutlinedTextField(
                 value = state.url,
                 onValueChange = vm::onUrlChange,
-                label = { Text("Relay 地址") },
+                label = { Text(localized(language, "Relay 地址", "Relay URL")) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -62,8 +65,8 @@ fun ConnectionSettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { vm.test() }) { Text("测试连接") }
-                Button(onClick = { vm.save() }) { Text("保存并重连") }
+                OutlinedButton(onClick = { vm.test() }) { Text(localized(language, "测试连接", "Test connection")) }
+                Button(onClick = { vm.save() }) { Text(localized(language, "保存并重连", "Save and reconnect")) }
             }
             state.testResult?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
         }

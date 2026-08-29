@@ -22,37 +22,31 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import com.hermes.client.ui.theme.LocalProfileAccent
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -66,6 +60,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.input.ImeAction
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -74,10 +70,13 @@ import com.hermes.client.domain.Session
 import com.hermes.client.data.progress.SessionRunPhase
 import com.hermes.client.data.progress.SessionRuntime
 import com.hermes.client.data.progress.isActive
+import com.hermes.client.data.repository.SessionReadStore
 import com.hermes.client.ui.record.RecordPhase
 import com.hermes.client.ui.record.RecordTaskSheet
 import com.hermes.client.ui.record.RecordTaskViewModel
 import com.hermes.client.ui.chat.ChatLaunch
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.localized
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -98,15 +97,30 @@ fun SessionsScreen(
     val viewMode by vm.viewMode.collectAsStateWithLifecycle()
     val projectsState by vm.projectsState.collectAsStateWithLifecycle()
     val runtimes by vm.runtimes.collectAsStateWithLifecycle()
+    val unreadTokens by vm.unreadTokens.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val language = LocalAppLanguage.current
+    var creatingSession by rememberSaveable { mutableStateOf(false) }
+
+    fun createSession() {
+        if (creatingSession) return
+        creatingSession = true
+        scope.launch {
+            try {
+                vm.createSession()?.let { onOpen(ChatLaunch.new(it, activeProfile)) }
+            } finally {
+                creatingSession = false
+            }
+        }
+    }
 
     fun openExisting(session: Session) {
         scope.launch {
             if (vm.prepareOpen(session)) {
                 onOpen(ChatLaunch.existing(session))
             } else {
-                Toast.makeText(context, "无法切换到该会话所属身份，请稍后重试", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, localized(language, "无法切换到该会话所属身份，请稍后重试", "Could not switch to this session's profile. Try again."), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -129,7 +143,7 @@ fun SessionsScreen(
             showRecord = true
             recordVm.startRecording()
         } else {
-            Toast.makeText(context, "Microphone needed to record a task", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, localized(language, "录制任务需要麦克风权限", "Microphone permission is needed to record a task"), Toast.LENGTH_SHORT).show()
         }
     }
     fun onMicTap() {
@@ -161,17 +175,17 @@ fun SessionsScreen(
         topBar = {
             Column {
                 com.hermes.client.ui.components.HermesTopBar(
-                    title = "Chats",
+                    title = localized(language, "会话", "Chats"),
                     actions = {
                         IconButton(onClick = { onMicTap() }) {
-                            Icon(Icons.Rounded.Mic, contentDescription = "Record a task")
+                            Icon(Icons.Rounded.Mic, contentDescription = localized(language, "录制任务", "Record a task"))
                         }
                         TextButton(
                             onClick = onOpenArchived,
                             colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
                                 contentColor = com.hermes.client.ui.components.AccentChrome.onBar,
                             ),
-                        ) { Text("Archived") }
+                        ) { Text(localized(language, "已归档", "Archived")) }
                     },
                 )
                 // Same tenant switcher as Agent Activity: a chip row, active one selected. Tapping
@@ -192,7 +206,7 @@ fun SessionsScreen(
                     // supports per-profile projects.tree), so they span tenants — each row is badged
                     // with its profile. The per-profile switcher doesn't apply here.
                     Text(
-                        "Projects · all profiles",
+                        localized(language, "项目 · 所有身份", "Projects · all profiles"),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
@@ -200,7 +214,10 @@ fun SessionsScreen(
                 }
                 val accent = LocalProfileAccent.current
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
-                    val tabs = listOf(ViewMode.SESSIONS to "Sessions", ViewMode.PROJECTS to "Projects")
+                    val tabs = listOf(
+                        ViewMode.SESSIONS to localized(language, "会话", "Sessions"),
+                        ViewMode.PROJECTS to localized(language, "项目", "Projects"),
+                    )
                     tabs.forEachIndexed { i, (mode, label) ->
                         SegmentedButton(
                             selected = viewMode == mode,
@@ -216,13 +233,25 @@ fun SessionsScreen(
             }
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { scope.launch { vm.createSession()?.let { onOpen(ChatLaunch.new(it, activeProfile)) } } },
-                text = { Text("New") },
-                icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+            FloatingActionButton(
+                onClick = ::createSession,
                 containerColor = com.hermes.client.ui.components.AccentChrome.fabContainer,
                 contentColor = com.hermes.client.ui.components.AccentChrome.onFab,
-            )
+            ) {
+                if (creatingSession) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.5.dp,
+                        color = com.hermes.client.ui.components.AccentChrome.onFab,
+                    )
+                } else {
+                    Icon(
+                        Icons.Rounded.Add,
+                        contentDescription = localized(language, "新建会话", "New session"),
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+            }
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
@@ -246,9 +275,9 @@ fun SessionsScreen(
                             )
                         projectsState.tree.isEmpty() ->
                             com.hermes.client.ui.components.EmptyState(
-                                title = "No projects",
-                                subtitle = "Chats run in a project folder show up here.",
-                                actionLabel = "Reload",
+                                title = localized(language, "暂无项目", "No projects"),
+                                subtitle = localized(language, "在项目文件夹中运行的会话会显示在这里。", "Chats run in a project folder show up here."),
+                                actionLabel = localized(language, "重新加载", "Reload"),
                                 onAction = { vm.loadProjectTree() },
                             )
                         else -> ProjectOverview(projectsState.tree, onOpenProject = { vm.enterProject(it) })
@@ -259,12 +288,12 @@ fun SessionsScreen(
                 OutlinedTextField(
                     value = query,
                     onValueChange = vm::onQueryChange,
-                    placeholder = { Text("Search sessions…") },
+                    placeholder = { Text(localized(language, "搜索会话…", "Search sessions…")) },
                     singleLine = true,
                     trailingIcon = {
                         if (query.isNotBlank()) {
                             IconButton(onClick = { vm.onQueryChange("") }) {
-                                Icon(Icons.Rounded.Close, contentDescription = "Clear search")
+                                Icon(Icons.Rounded.Close, contentDescription = localized(language, "清除搜索", "Clear search"))
                             }
                         }
                     },
@@ -281,10 +310,10 @@ fun SessionsScreen(
                         )
                         state.sessions.isEmpty() && query.isBlank() && messageResults.isEmpty() ->
                             com.hermes.client.ui.components.EmptyState(
-                                title = "No sessions yet",
-                                subtitle = "Start a conversation with the New button.",
-                                actionLabel = "New session",
-                                onAction = { scope.launch { vm.createSession()?.let { onOpen(ChatLaunch.new(it, activeProfile)) } } },
+                                title = localized(language, "暂无会话", "No sessions yet"),
+                                subtitle = localized(language, "点击右下角的加号开始对话。", "Tap the plus button to start a conversation."),
+                                actionLabel = localized(language, "新建会话", "New session"),
+                                onAction = ::createSession,
                             )
                         else -> {
                             val q = query.trim()
@@ -301,7 +330,7 @@ fun SessionsScreen(
 
                             LazyColumn {
                                 if (messageResults.isNotEmpty()) {
-                                    item(key = "h-msg") { SectionHeader("Message matches", messageResults.size) }
+                                    item(key = "h-msg") { SectionHeader(localized(language, "消息匹配", "Message matches"), messageResults.size) }
                                     items(messageResults) { r ->
                                         ListItem(
                                             headlineContent = {
@@ -320,7 +349,7 @@ fun SessionsScreen(
                                 if (q.isNotEmpty() && matches.isEmpty() && messageResults.isEmpty()) {
                                     item(key = "no-title-match") {
                                         Text(
-                                            "No titles match \"$q\". Press search on the keyboard to search message text.",
+                                            localized(language, "没有标题匹配“$q”。按键盘上的搜索键可搜索消息正文。", "No titles match \"$q\". Press search on the keyboard to search message text."),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.padding(16.dp),
@@ -328,11 +357,12 @@ fun SessionsScreen(
                                     }
                                 }
                                 if (pinned.isNotEmpty()) {
-                                    item(key = "h-pinned") { SectionHeader("Pinned", pinned.size, note = "Device only") }
+                                    item(key = "h-pinned") { SectionHeader(localized(language, "已置顶", "Pinned"), pinned.size, note = localized(language, "仅此设备", "Device only")) }
                                     items(pinned, key = { "p-${it.id}" }) { s ->
                                         SessionRow(
                                             session = s, isPinned = true, showProfile = true,
                                             runtime = vm.runtimeFor(s, runtimes),
+                                            unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
                                             onOpen = { openExisting(s) },
                                             onTogglePin = { vm.togglePin(s) },
                                             onRename = { vm.rename(s, it) },
@@ -343,11 +373,12 @@ fun SessionsScreen(
                                     }
                                 }
                                 if (recent.isNotEmpty()) {
-                                    item(key = "h-recent") { SectionHeader("Recent", recent.size) }
+                                    item(key = "h-recent") { SectionHeader(localized(language, "最近", "Recent"), recent.size) }
                                     items(recent, key = { it.id }) { s ->
                                         SessionRow(
                                             session = s, isPinned = false, showProfile = true,
                                             runtime = vm.runtimeFor(s, runtimes),
+                                            unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
                                             onOpen = { openExisting(s) },
                                             onTogglePin = { vm.togglePin(s) },
                                             onRename = { vm.rename(s, it) },
@@ -419,6 +450,7 @@ private fun SessionRow(
     isPinned: Boolean,
     showProfile: Boolean,
     runtime: SessionRuntime? = null,
+    unread: Boolean = false,
     onOpen: () -> Unit,
     onTogglePin: () -> Unit,
     onRename: (String) -> Unit,
@@ -429,48 +461,21 @@ private fun SessionRow(
     var menuOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
+    val language = LocalAppLanguage.current
+    val trailing: (@Composable () -> Unit)? = when {
+        runtime != null && runtime.phase != SessionRunPhase.IDLE -> ({ RuntimeIndicator(runtime.phase) })
+        unread -> ({ UnreadIndicator() })
+        else -> null
+    }
 
-    // Swipe a row left to archive (frequent, reversible). Delete stays behind the long-press
-    // menu + a confirm, since swipe-to-delete is easy to trigger by accident.
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) onArchive()
-            // Never keep the box dismissed: on a successful archive the list refresh removes the
-            // row; on failure it stays visible instead of getting stuck off-screen with no way back.
-            false
-        },
-        positionalThreshold = { distance -> distance * 0.4f },
-    )
-
-    Box(modifier) {
-        SwipeToDismissBox(
-            state = dismissState,
-            enableDismissFromStartToEnd = false,
-            enableDismissFromEndToStart = true,
-            backgroundContent = {
-                Row(
-                    Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.secondaryContainer)
-                        .padding(horizontal = 24.dp),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        Icons.Rounded.Archive,
-                        contentDescription = "Archive",
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
-                }
-            },
-        ) {
-            ListItem(
+    ListItem(
             headlineContent = { Text(session.title) },
             leadingContent = if (isPinned) {
                 {
                     Icon(
                         Icons.Rounded.PushPin,
-                        contentDescription = "Pinned",
+                        contentDescription = localized(language, "已置顶", "Pinned"),
                         modifier = Modifier.size(20.dp),
                         tint = LocalProfileAccent.current.accent,
                     )
@@ -483,40 +488,59 @@ private fun SessionRow(
                     Text(listOfNotNull(session.profile?.takeIf { showProfile && it.isNotBlank() }, session.model).joinToString(" · "))
                     runtime?.takeIf { it.phase != SessionRunPhase.IDLE }?.let { value ->
                         Text(
-                            runtimeLabel(value),
+                            runtimeLabel(value, language),
                             style = MaterialTheme.typography.labelMedium,
                             color = runtimeColor(value.phase),
                         )
                     }
                 }
             },
-            trailingContent = runtime?.takeIf { it.phase != SessionRunPhase.IDLE }?.let { value ->
-                { RuntimeIndicator(value.phase) }
-            },
+            trailingContent = trailing,
             // Tap opens the session; long-press opens the management menu.
             modifier = Modifier.combinedClickable(
                 onClick = onOpen,
-                onLongClick = { menuOpen = true },
+                onLongClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    menuOpen = true
+                },
             ),
+    )
+
+    if (menuOpen) {
+        ModalBottomSheet(onDismissRequest = { menuOpen = false }) {
+            Text(
+                session.title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
             )
-        }
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            DropdownMenuItem(
-                text = { Text(if (isPinned) "Unpin" else "Pin") },
-                onClick = { menuOpen = false; onTogglePin() },
+            ListItem(
+                headlineContent = { Text(if (isPinned) localized(language, "取消置顶", "Unpin") else localized(language, "置顶", "Pin")) },
+                leadingContent = { Icon(Icons.Rounded.PushPin, contentDescription = null) },
+                modifier = Modifier.clickable { menuOpen = false; onTogglePin() },
             )
-            DropdownMenuItem(
-                text = { Text("Rename") },
-                onClick = { menuOpen = false; renaming = true },
+            ListItem(
+                headlineContent = { Text(localized(language, "重命名", "Rename")) },
+                leadingContent = { Icon(Icons.Rounded.Edit, contentDescription = null) },
+                modifier = Modifier.clickable { menuOpen = false; renaming = true },
             )
-            DropdownMenuItem(
-                text = { Text("Archive") },
-                onClick = { menuOpen = false; onArchive() },
+            ListItem(
+                headlineContent = { Text(localized(language, "归档", "Archive")) },
+                leadingContent = { Icon(Icons.Rounded.Archive, contentDescription = null) },
+                modifier = Modifier.clickable { menuOpen = false; onArchive() },
             )
-            DropdownMenuItem(
-                text = { Text("Delete") },
-                onClick = { menuOpen = false; confirmingDelete = true },
+            ListItem(
+                headlineContent = { Text(localized(language, "删除", "Delete"), color = MaterialTheme.colorScheme.error) },
+                leadingContent = {
+                    Icon(
+                        Icons.Rounded.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                },
+                modifier = Modifier.clickable { menuOpen = false; confirmingDelete = true },
             )
+            androidx.compose.foundation.layout.Spacer(Modifier.size(20.dp))
         }
     }
 
@@ -524,7 +548,7 @@ private fun SessionRow(
         var title by remember { mutableStateOf(session.title) }
         AlertDialog(
             onDismissRequest = { renaming = false },
-            title = { Text("Rename session") },
+            title = { Text(localized(language, "重命名会话", "Rename session")) },
             text = {
                 OutlinedTextField(
                     value = title,
@@ -535,43 +559,45 @@ private fun SessionRow(
             confirmButton = {
                 TextButton(
                     onClick = { renaming = false; if (title.isNotBlank()) onRename(title.trim()) },
-                ) { Text("Save") }
+                ) { Text(localized(language, "保存", "Save")) }
             },
-            dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { renaming = false }) { Text(localized(language, "取消", "Cancel")) } },
         )
     }
 
     if (confirmingDelete) {
         AlertDialog(
             onDismissRequest = { confirmingDelete = false },
-            title = { Text("Delete session?") },
-            text = { Text("\"${session.title}\" will be permanently deleted.") },
+            title = { Text(localized(language, "删除会话？", "Delete session?")) },
+            text = { Text(localized(language, "“${session.title}”将被永久删除。", "\"${session.title}\" will be permanently deleted.")) },
             confirmButton = {
-                TextButton(onClick = { confirmingDelete = false; onDelete() }) { Text("Delete") }
+                TextButton(onClick = { confirmingDelete = false; onDelete() }) { Text(localized(language, "删除", "Delete")) }
             },
-            dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text(localized(language, "取消", "Cancel")) } },
         )
     }
 }
 
-private fun runtimeLabel(runtime: SessionRuntime): String = when (runtime.phase) {
-    SessionRunPhase.SUBMITTING -> "正在发送…"
-    SessionRunPhase.THINKING -> "思考中…"
-    SessionRunPhase.STREAMING -> "正在输出…"
-    SessionRunPhase.USING_TOOL -> runtime.toolName?.let { "正在使用 ${toolDisplayName(it)}…" } ?: "正在使用工具…"
-    SessionRunPhase.WAITING_APPROVAL -> "等待你的确认"
-    SessionRunPhase.WAITING_CLARIFICATION -> "等待你的回答"
-    SessionRunPhase.RECONNECTING -> "正在恢复连接…"
-    SessionRunPhase.COMPLETED_UNREAD -> "已完成"
-    SessionRunPhase.FAILED -> "运行失败"
-    SessionRunPhase.INTERRUPTED -> "已中断"
+private fun runtimeLabel(runtime: SessionRuntime, language: com.hermes.client.ui.localization.AppLanguage): String = when (runtime.phase) {
+    SessionRunPhase.SUBMITTING -> localized(language, "正在发送…", "Sending…")
+    SessionRunPhase.THINKING -> localized(language, "思考中…", "Thinking…")
+    SessionRunPhase.STREAMING -> localized(language, "正在输出…", "Responding…")
+    SessionRunPhase.USING_TOOL -> runtime.toolName?.let {
+        localized(language, "正在使用 ${toolDisplayName(it, language)}…", "Using ${toolDisplayName(it, language)}…")
+    } ?: localized(language, "正在使用工具…", "Using a tool…")
+    SessionRunPhase.WAITING_APPROVAL -> localized(language, "等待你的确认", "Waiting for approval")
+    SessionRunPhase.WAITING_CLARIFICATION -> localized(language, "等待你的回答", "Waiting for your answer")
+    SessionRunPhase.RECONNECTING -> localized(language, "正在恢复连接…", "Reconnecting…")
+    SessionRunPhase.COMPLETED_UNREAD -> localized(language, "已完成", "Completed")
+    SessionRunPhase.FAILED -> localized(language, "运行失败", "Run failed")
+    SessionRunPhase.INTERRUPTED -> localized(language, "已中断", "Interrupted")
     SessionRunPhase.IDLE -> ""
 }
 
-private fun toolDisplayName(raw: String): String = when {
-    raw.contains("search", ignoreCase = true) -> "搜索"
-    raw.contains("browser", ignoreCase = true) -> "浏览器"
-    raw.contains("terminal", ignoreCase = true) || raw.contains("shell", ignoreCase = true) -> "终端"
+private fun toolDisplayName(raw: String, language: com.hermes.client.ui.localization.AppLanguage): String = when {
+    raw.contains("search", ignoreCase = true) -> localized(language, "搜索", "Search")
+    raw.contains("browser", ignoreCase = true) -> localized(language, "浏览器", "Browser")
+    raw.contains("terminal", ignoreCase = true) || raw.contains("shell", ignoreCase = true) -> localized(language, "终端", "Terminal")
     else -> raw.substringAfterLast('.').replace('_', ' ').take(18)
 }
 
@@ -588,17 +614,10 @@ private fun runtimeColor(phase: SessionRunPhase) = when (phase) {
 private fun RuntimeIndicator(phase: SessionRunPhase) {
     val color = runtimeColor(phase)
     if (phase.isActive && phase !in setOf(SessionRunPhase.WAITING_APPROVAL, SessionRunPhase.WAITING_CLARIFICATION)) {
-        val transition = rememberInfiniteTransition(label = "session-runtime")
-        val alpha by transition.animateFloat(
-            initialValue = 0.35f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(tween(720), RepeatMode.Reverse),
-            label = "session-runtime-alpha",
-        )
-        Box(
-            Modifier
-                .size(12.dp)
-                .background(color.copy(alpha = alpha), androidx.compose.foundation.shape.CircleShape),
+        CircularProgressIndicator(
+            modifier = Modifier.size(18.dp),
+            color = color,
+            strokeWidth = 2.dp,
         )
     } else {
         Box(
@@ -607,4 +626,13 @@ private fun RuntimeIndicator(phase: SessionRunPhase) {
                 .background(color, androidx.compose.foundation.shape.CircleShape),
         )
     }
+}
+
+@Composable
+private fun UnreadIndicator() {
+    Box(
+        Modifier
+            .size(9.dp)
+            .background(LocalProfileAccent.current.accent, androidx.compose.foundation.shape.CircleShape),
+    )
 }

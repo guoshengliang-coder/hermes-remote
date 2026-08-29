@@ -51,6 +51,8 @@ import com.hermes.client.ui.theme.LocalProfileAccent
 import com.hermes.client.ui.theme.accentFromHsl
 import com.hermes.client.ui.theme.colorArgbToHsl
 import com.hermes.client.ui.theme.hslToColorArgb
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.localized
 
 /**
  * "You" tab — profile identity + everything about the account/app: the profile quick-switch
@@ -61,15 +63,16 @@ fun YouHubScreen(
     onNavigate: (String) -> Unit,
     vm: ShellViewModel = hiltViewModel(),
 ) {
+    val language = LocalAppLanguage.current
     val profiles by vm.profiles.collectAsStateWithLifecycle()
     val active by vm.active.collectAsStateWithLifecycle()
     var showColorPicker by remember { mutableStateOf(false) }
     val currentOverride = active?.let { com.hermes.client.ui.theme.LocalProfileAccentOverrides.current[it] }
 
-    Scaffold(topBar = { HermesTopBar(title = "You", subtitle = active?.let { "Active profile: $it" }) }) { padding ->
+    Scaffold(topBar = { HermesTopBar(title = localized(language, "我的", "You"), subtitle = active?.let { localized(language, "当前身份：$it", "Active profile: $it") }) }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {
             Text(
-                "PROFILES",
+                localized(language, "身份", "PROFILES"),
                 style = MaterialTheme.typography.titleSmall,
                 color = LocalProfileAccent.current.accent,
                 modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
@@ -82,19 +85,19 @@ fun YouHubScreen(
             active?.let { a ->
                 HubRow(
                     Icons.Rounded.Palette,
-                    "Accent colour",
-                    if (currentOverride != null) "Custom colour for \"$a\"" else "Auto colour for \"$a\"",
+                    localized(language, "强调色", "Accent colour"),
+                    if (currentOverride != null) localized(language, "“$a”的自定义颜色", "Custom colour for \"$a\"") else localized(language, "“$a”的自动颜色", "Auto colour for \"$a\""),
                 ) { showColorPicker = true }
             }
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
 
-            HubRow(Icons.Rounded.People, "Profiles", "Manage tenant profiles") { onNavigate("profiles") }
+            HubRow(Icons.Rounded.People, localized(language, "身份", "Profiles"), localized(language, "管理不同身份配置", "Manage tenant profiles")) { onNavigate("profiles") }
             HorizontalDivider()
-            HubRow(Icons.Rounded.AutoAwesome, "Models", "Browse & pick models") { onNavigate("models") }
+            HubRow(Icons.Rounded.AutoAwesome, localized(language, "模型", "Models"), localized(language, "浏览和选择模型", "Browse & pick models")) { onNavigate("models") }
             HorizontalDivider()
-            HubRow(Icons.Rounded.AdminPanelSettings, "Management", "Admin & session tools") { onNavigate("management") }
+            HubRow(Icons.Rounded.AdminPanelSettings, localized(language, "管理", "Management"), localized(language, "管理工具和会话工具", "Admin & session tools")) { onNavigate("management") }
             HorizontalDivider()
-            HubRow(Icons.Rounded.Settings, "Settings", "App & connection settings") { onNavigate("settings") }
+            HubRow(Icons.Rounded.Settings, localized(language, "设置", "Settings"), localized(language, "应用与连接设置", "App & connection settings")) { onNavigate("settings") }
         }
     }
 
@@ -121,9 +124,10 @@ private fun AccentColorDialog(
     onAuto: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val language = LocalAppLanguage.current
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Accent colour · $profile") },
+        title = { Text(localized(language, "强调色 · $profile", "Accent colour · $profile")) },
         text = {
             val dark = androidx.compose.foundation.isSystemInDarkTheme()
             val initHsl = selected?.let { colorArgbToHsl(it) }
@@ -134,7 +138,7 @@ private fun AccentColorDialog(
 
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    "Pick a swatch, dial in a custom colour, or Auto for the automatic hue.",
+                    localized(language, "选择色块、调节自定义颜色，或使用自动配色。", "Pick a swatch, dial in a custom colour, or Auto for the automatic hue."),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(16.dp))
@@ -151,7 +155,7 @@ private fun AccentColorDialog(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 if (argb == selected) {
-                                    Icon(Icons.Rounded.Check, contentDescription = "Selected", tint = Color.White)
+                                    Icon(Icons.Rounded.Check, contentDescription = localized(language, "已选择", "Selected"), tint = Color.White)
                                 }
                             }
                         }
@@ -161,7 +165,7 @@ private fun AccentColorDialog(
                 Spacer(Modifier.height(8.dp))
                 HorizontalDivider()
                 Text(
-                    "CUSTOM",
+                    localized(language, "自定义", "CUSTOM"),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
@@ -171,19 +175,19 @@ private fun AccentColorDialog(
                     Modifier.fillMaxWidth().height(44.dp).clip(RoundedCornerShape(12.dp)).background(preview.accent),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("Preview", color = preview.onAccent, style = MaterialTheme.typography.labelLarge)
+                    Text(localized(language, "预览", "Preview"), color = preview.onAccent, style = MaterialTheme.typography.labelLarge)
                 }
-                SliderRow("Hue", hue, 0f..360f) { hue = it }
-                SliderRow("Saturation", sat, 0f..1f) { sat = it }
-                SliderRow("Lightness", light, 0f..1f) { light = it }
+                SliderRow(localized(language, "色相", "Hue"), hue, 0f..360f) { hue = it }
+                SliderRow(localized(language, "饱和度", "Saturation"), sat, 0f..1f) { sat = it }
+                SliderRow(localized(language, "明度", "Lightness"), light, 0f..1f) { light = it }
                 Button(
                     onClick = { onPick(hslToColorArgb(hue, sat, light)) },
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                ) { Text("Use custom colour") }
+                ) { Text(localized(language, "使用自定义颜色", "Use custom colour")) }
             }
         },
-        confirmButton = { TextButton(onClick = onAuto) { Text("Auto") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = { TextButton(onClick = onAuto) { Text(localized(language, "自动", "Auto")) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(localized(language, "关闭", "Close")) } },
     )
 }
 

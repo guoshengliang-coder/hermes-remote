@@ -17,6 +17,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.localized
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -25,6 +27,7 @@ fun AboutScreen(
     vm: SettingsViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
+    val language = LocalAppLanguage.current
     val appVersion = remember(context) {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
@@ -35,20 +38,20 @@ fun AboutScreen(
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "About",
-                navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+                title = localized(language, "关于", "About"),
+                navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = localized(language, "返回", "Back")) } },
             )
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             ListItem(
                 headlineContent = { Text("Hermes Android") },
-                supportingContent = { Text("Version $appVersion") },
+                supportingContent = { Text(localized(language, "版本 $appVersion", "Version $appVersion")) },
             )
             HorizontalDivider()
             ListItem(
                 headlineContent = { Text("Gateway") },
-                supportingContent = { Text("Version ${gatewayVersion ?: "…"}") },
+                supportingContent = { Text(localized(language, "版本 ${gatewayVersion ?: "…"}", "Version ${gatewayVersion ?: "…"}")) },
             )
         }
     }

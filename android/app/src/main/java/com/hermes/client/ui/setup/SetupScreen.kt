@@ -43,9 +43,12 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.localized
 
 @Composable
 fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
+    val language = LocalAppLanguage.current
     val state by vm.state.collectAsStateWithLifecycle()
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.let { vm.applyPairing(it) }
@@ -74,9 +77,9 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
             )
         }
         Spacer(Modifier.height(22.dp))
-        Text("连接你的 Mac", style = MaterialTheme.typography.headlineSmall)
+        Text(localized(language, "连接你的 Mac", "Connect your Mac"), style = MaterialTheme.typography.headlineSmall)
         Text(
-            "手机通过香港 Relay 安全访问 Hermes，无需开启 VPN，也不会暴露 Mac 的登录密码。",
+            localized(language, "手机通过香港 Relay 安全访问 Hermes，无需开启 VPN，也不会暴露 Mac 的登录密码。", "Securely access Hermes through the Hong Kong relay without a VPN or exposing your Mac password."),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 8.dp),
@@ -107,9 +110,9 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
                         )
                     }
                     Column {
-                        Text("安全连接", style = MaterialTheme.typography.titleMedium)
+                        Text(localized(language, "安全连接", "Secure connection"), style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "只需要 Relay 地址和 App Token",
+                            localized(language, "只需要 Relay 地址和 App Token", "Only the relay address and App Token are required"),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -119,7 +122,7 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
                 OutlinedTextField(
                     value = state.url,
                     onValueChange = vm::onUrlChange,
-                    label = { Text("Relay 地址") },
+                    label = { Text(localized(language, "Relay 地址", "Relay URL")) },
                     leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
@@ -147,7 +150,7 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
                             else MaterialTheme.colorScheme.error,
                         )
                         Text(
-                            if (result == "Connected") "Relay 与 Mac 已连接" else "暂时无法连接，请检查地址和 Token",
+                            if (result == "Connected") localized(language, "Relay 与 Mac 已连接", "Relay and Mac are connected") else localized(language, "暂时无法连接，请检查地址和 Token", "Couldn't connect. Check the URL and token."),
                             modifier = Modifier.padding(start = 8.dp),
                             style = MaterialTheme.typography.bodyMedium,
                         )
@@ -159,14 +162,14 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
                     enabled = state.url.isNotBlank() && state.token.isNotBlank(),
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = MaterialTheme.shapes.medium,
-                ) { Text("测试连接") }
+                ) { Text(localized(language, "测试连接", "Test connection")) }
                 Button(
                     onClick = { vm.save() },
                     enabled = state.url.isNotBlank() && state.token.isNotBlank(),
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = MaterialTheme.shapes.medium,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
-                ) { Text("保存并进入 Hermes") }
+                ) { Text(localized(language, "保存并进入 Hermes", "Save and open Hermes")) }
             }
         }
 
@@ -175,7 +178,7 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
                 scanLauncher.launch(
                     ScanOptions().apply {
                         setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                        setPrompt("扫描 Hermes Remote 配对二维码")
+                        setPrompt(localized(language, "扫描 Hermes Remote 配对二维码", "Scan the Hermes Remote pairing QR code"))
                         setBeepEnabled(false)
                         setOrientationLocked(false)
                     },
@@ -185,11 +188,11 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
             shape = MaterialTheme.shapes.medium,
         ) {
             Icon(Icons.Rounded.QrCodeScanner, contentDescription = null)
-            Text("扫描配对二维码", modifier = Modifier.padding(start = 8.dp))
+            Text(localized(language, "扫描配对二维码", "Scan pairing QR code"), modifier = Modifier.padding(start = 8.dp))
         }
         state.scanError?.let {
             Text(
-                "二维码不是有效的 Hermes Remote 配置",
+                localized(language, "二维码不是有效的 Hermes Remote 配置", "This QR code isn't a valid Hermes Remote configuration"),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 10.dp),
