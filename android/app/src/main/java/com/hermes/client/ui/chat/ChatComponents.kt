@@ -3,7 +3,6 @@ package com.hermes.client.ui.chat
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -61,6 +60,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CancellationException
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -133,48 +133,57 @@ fun ChatMessageList(
     // Changes for reasoning, visible answer text, and live tool activity. The previous text-only key
     // never fired while Hermes was thinking, leaving the viewport frozen until answer text arrived.
     val streamRevision = state.messages.lastOrNull()?.streamContentRevision() ?: 0
+    // Cached separately from the streaming tail: an authoritative history refresh may replace an
+    // earlier turn without changing the message count or the final message. That must trigger a
+    // second bottom calibration before the initial-entry window closes.
+    val settledLayoutRevision = remember(settledMessages) {
+        settledMessages.conversationLayoutRevision()
+    }
     val endAnchorIndex = displayMessages.size
     var followLatest by remember(sessionId) { mutableStateOf(true) }
 
-    // On first load of a non-empty thread (opening an existing session), jump straight to the
-    // newest message so the latest reply is visible immediately — otherwise the list stays at
-    // the top and the most recent response looks missing until you scroll down by hand.
-    // Deliberately `remember` (not `rememberSaveable`) and keyed by sessionId: a config change
-    // like rotation recreates the composition, resets this to false, and re-lands at the bottom.
-    // With rememberSaveable it would survive rotation as `true` and skip the re-scroll, leaving
-    // the view mid-thread because the restored offset no longer maps to the bottom after the
-    // width reflow. Switching threads also re-lands (the key changes).
-    var landed by remember(sessionId) { mutableStateOf(false) }
-    var contentReady by remember(sessionId) { mutableStateOf(false) }
-    LaunchedEffect(sessionId, displayMessages.isNotEmpty()) {
-        if (displayMessages.isEmpty() || landed) return@LaunchedEffect
-        // History loads after the list is already composed, so wait until the LazyColumn has
-        // actually measured the loaded items before scrolling — jumping before first layout
-        // lands short of the bottom.
-        snapshotFlow { listState.layoutInfo.totalItemsCount }
-            .filter { it >= endAnchorIndex + 1 }
-            .first()
-        // Mark landed before the convergence loop: if the user scrolls during the loop, scrollBy
-        // loses the MutatePriority race and throws CancellationException, cancelling this effect.
-        // Setting the flag first means an interrupted landing still ends in a consistent state and
-        // we never re-fight the user (the follow effect only re-scrolls when already at the bottom).
-        landed = true
-        // Converge to the ABSOLUTE bottom. Full-width assistant markdown measures lazily and can
-        // keep growing over several frames, so a single scroll pass under-shoots. Keep scrolling
-        // to the end each frame and only stop after a few consecutive frames with nothing left
-        // below — that catches late-measuring content without a fixed guess.
-        var stableFrames = 0
-        var guard = 0
-        while (guard++ < 90 && stableFrames < 3) {
-            if (listState.canScrollForward) {
-                listState.scrollBy(100_000f)
-                stableFrames = 0
-            } else {
-                stableFrames++
+    // Initial entry is a small state machine instead of a one-shot boolean. The one-shot version
+    // marked itself complete before scrolling, so a cancelled layout/scroll could never retry and
+    // cached history could be revealed before the server's fuller transcript changed its height.
+    var landingStage by remember(sessionId) { mutableStateOf(InitialLandingStage.WAITING) }
+    var authoritativeLandingDone by remember(sessionId) { mutableStateOf(false) }
+    val contentReady = landingStage == InitialLandingStage.READY
+    LaunchedEffect(
+        sessionId,
+        displayMessages.isNotEmpty(),
+        settledLayoutRevision,
+        state.historyLoading,
+        endAnchorIndex,
+    ) {
+        if (displayMessages.isEmpty() || authoritativeLandingDone) return@LaunchedEffect
+        val wasAlreadyVisible = landingStage == InitialLandingStage.READY
+        if (!wasAlreadyVisible) landingStage = InitialLandingStage.LANDING
+        try {
+            // Wait for the end anchor to exist in LazyColumn's measured item set.
+            snapshotFlow { listState.layoutInfo.totalItemsCount }
+                .filter { it >= endAnchorIndex + 1 }
+                .first()
+
+            // Repeatedly target the item *after* the final message. Markdown/code measurement can
+            // grow across several frames, so declare success only after the absolute bottom remains
+            // stable for multiple frames. The guard prevents a broken layout from hiding chat forever.
+            var stableFrames = 0
+            var guard = 0
+            while (guard++ < 120 && stableFrames < 6) {
+                listState.scrollToItem(endAnchorIndex)
+                withFrameNanos { }
+                if (listState.canScrollForward) stableFrames = 0 else stableFrames++
             }
-            withFrameNanos {} // let a layout pass measure the next items, then continue
+            landingStage = InitialLandingStage.READY
+            // Cached history may be shown after its own successful landing, but when the server
+            // refresh completes we calibrate once more (without hiding the already-visible content).
+            if (!state.historyLoading) authoritativeLandingDone = true
+        } catch (cancelled: CancellationException) {
+            // A new history/layout revision restarts this effect. Do not leave the initial skeleton
+            // permanently covering the list if the first landing was cancelled before reveal.
+            if (!wasAlreadyVisible) landingStage = InitialLandingStage.WAITING
+            throw cancelled
         }
-        contentReady = true
     }
 
     // Sending a new prompt always resumes follow mode. A user drag pauses it; reaching the absolute
@@ -182,9 +191,18 @@ fun ChatMessageList(
     LaunchedEffect(state.messages.size) {
         if (displayMessages.lastOrNull()?.role == Role.USER) followLatest = true
     }
-    LaunchedEffect(listState, contentReady) {
+    LaunchedEffect(listState, contentReady, followLatest, endAnchorIndex) {
+        if (!contentReady) return@LaunchedEffect
         snapshotFlow { listState.canScrollForward }.collect { canScrollForward ->
-            if (contentReady && !canScrollForward) followLatest = true
+            when {
+                !canScrollForward -> followLatest = true
+                followLatest -> {
+                    // Catches asynchronous Markdown/font reflow and IME height changes even when no
+                    // message text changed, keeping a genuine bottom-follow rather than index-follow.
+                    withFrameNanos { }
+                    listState.scrollToItem(endAnchorIndex)
+                }
+            }
         }
     }
     val userScrollConnection = remember(sessionId, listState) {
@@ -202,8 +220,8 @@ fun ChatMessageList(
     // aligns the top of a long Markdown block and therefore does not follow its growing bottom.
     // Use a frame-coalesced immediate jump during token streaming; repeated animated scrolls cancel
     // one another and visibly judder at normal model token rates.
-    LaunchedEffect(state.messages.size, streamRevision, followLatest, landed, endAnchorIndex) {
-        if (lastIndex < 0 || !landed || !followLatest) return@LaunchedEffect
+    LaunchedEffect(state.messages.size, streamRevision, followLatest, contentReady, endAnchorIndex) {
+        if (lastIndex < 0 || !contentReady || !followLatest) return@LaunchedEffect
         withFrameNanos { }
         listState.scrollToItem(endAnchorIndex)
     }
@@ -296,6 +314,21 @@ fun ChatMessageList(
             ChatHistorySkeleton(Modifier.fillMaxSize().alpha(1f - contentAlpha))
         }
     }
+}
+
+private enum class InitialLandingStage { WAITING, LANDING, READY }
+
+internal fun List<ChatMessage>.conversationLayoutRevision(): Int = fold(1) { revision, message ->
+    var next = 31 * revision + message.id.hashCode()
+    next = 31 * next + message.text.hashCode()
+    next = 31 * next + message.thinking.hashCode()
+    message.tools.forEach { tool ->
+        next = 31 * next + tool.id.hashCode()
+        next = 31 * next + tool.name.hashCode()
+        next = 31 * next + tool.output.hashCode()
+        next = 31 * next + tool.status.hashCode()
+    }
+    next
 }
 
 internal fun ChatMessage.streamContentRevision(): Int =

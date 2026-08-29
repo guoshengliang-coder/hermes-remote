@@ -2,6 +2,7 @@ package com.hermes.client.ui.chat
 
 import app.cash.turbine.test
 import com.hermes.client.data.network.ConnectionState
+import com.hermes.client.MainDispatcherRule
 import com.hermes.client.data.network.ProfileDto
 import com.hermes.client.data.network.ServerEvent
 import com.hermes.client.data.progress.SessionRuntimeStore
@@ -16,24 +17,27 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModelTest {
+    @get:Rule val mainDispatcherRule = MainDispatcherRule()
+
     private val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
     private val connectionStateFlow = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     private val chatRepo = mockk<ChatRepository>(relaxed = true)
@@ -46,9 +50,9 @@ class ChatViewModelTest {
     private val tts = mockk<com.hermes.client.data.tts.TextToSpeechController>(relaxed = true)
     private val promptStore = mockk<com.hermes.client.data.repository.PromptStore>(relaxed = true)
     private val configRepo = mockk<com.hermes.client.data.repository.ConfigRepository>(relaxed = true)
+    private val runtimeJobs = mutableListOf<Job>()
 
     @Before fun setUp() {
-        Dispatchers.setMain(StandardTestDispatcher())
         every { chatRepo.events } returns events
         every { chatRepo.connectionState } returns connectionStateFlow
         // resume returns null here so the ViewModel keeps the opened id stable for these tests
@@ -64,15 +68,22 @@ class ChatViewModelTest {
         every { promptStore.prompts } returns MutableStateFlow(emptyList())
     }
 
+    @After fun tearDown() {
+        runtimeJobs.forEach(Job::cancel)
+        runtimeJobs.clear()
+    }
+
     private fun buildVm(): ChatViewModel {
+        val runtimeJob = SupervisorJob()
+        runtimeJobs += runtimeJob
         val runtimeStore = SessionRuntimeStore(
             chatRepo,
-            CoroutineScope(SupervisorJob() + Dispatchers.Main),
+            CoroutineScope(runtimeJob + Dispatchers.Main),
             profileManager,
         )
         return ChatViewModel(
             chatRepo, sessionRepo, modelRepo, profileRepo, profileManager, favoritesStore,
-            pendingShareStore, tts, promptStore, configRepo, runtimeStore,
+            pendingShareStore, tts, promptStore, configRepo, runtimeStore, mainDispatcherRule.dispatcher,
         )
     }
 

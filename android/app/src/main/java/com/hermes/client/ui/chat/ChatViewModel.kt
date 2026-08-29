@@ -15,7 +15,9 @@ import com.hermes.client.data.repository.ProfileRepository
 import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
+import com.hermes.client.di.DefaultDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,6 +44,7 @@ class ChatViewModel @Inject constructor(
     private val promptStore: com.hermes.client.data.repository.PromptStore,
     private val configRepo: com.hermes.client.data.repository.ConfigRepository,
     private val runtimeStore: SessionRuntimeStore,
+    @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ChatUiState.empty())
@@ -171,8 +174,9 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             val requestStartedAt = System.currentTimeMillis()
             try {
-                val history = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                    sessions.history(id, profile).map { it.organizedForDisplay() }
+                val rawHistory = sessions.history(id, profile)
+                val history = kotlinx.coroutines.withContext(defaultDispatcher) {
+                    rawHistory.map { it.organizedForDisplay() }
                 }
                 com.hermes.client.data.diagnostics.DebugLog.log("session", "history($id) → ${history.size} messages")
                 runtimeStore.acceptHistory(key, history, requestStartedAt)
