@@ -6,6 +6,14 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.rounded.Home
@@ -146,7 +154,11 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
         // (otherwise the status-bar inset would be applied twice and push titles down).
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            if (showBottomBar) {
+            AnimatedVisibility(
+                visible = showBottomBar,
+                enter = fadeIn(tween(140)) + slideInVertically(tween(180)) { it / 3 },
+                exit = fadeOut(tween(110)) + slideOutVertically(tween(150)) { it / 3 },
+            ) {
                 NavigationBar {
                     TABS.forEach { tab ->
                         NavigationBarItem(
@@ -208,7 +220,21 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                     onUnauthorized = onUnauthorized,
                 )
             }
-            composable("chat/{id}") { entry ->
+            composable(
+                route = "chat/{id}",
+                enterTransition = {
+                    fadeIn(tween(170)) + slideInHorizontally(tween(190)) { it / 12 }
+                },
+                exitTransition = {
+                    fadeOut(tween(120)) + slideOutHorizontally(tween(150)) { -it / 18 }
+                },
+                popEnterTransition = {
+                    fadeIn(tween(160)) + slideInHorizontally(tween(180)) { -it / 14 }
+                },
+                popExitTransition = {
+                    fadeOut(tween(120)) + slideOutHorizontally(tween(170)) { it / 12 }
+                },
+            ) { entry ->
                 ChatScreen(
                     sessionId = entry.arguments?.getString("id") ?: "",
                     onMenu = back,

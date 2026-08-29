@@ -4,6 +4,7 @@ import app.cash.turbine.test
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.ProfileDto
 import com.hermes.client.data.network.ServerEvent
+import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ModelFavoritesStore
 import com.hermes.client.data.repository.ModelRepository
@@ -14,6 +15,8 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,7 +64,17 @@ class ChatViewModelTest {
         every { promptStore.prompts } returns MutableStateFlow(emptyList())
     }
 
-    private fun buildVm() = ChatViewModel(chatRepo, sessionRepo, modelRepo, profileRepo, profileManager, favoritesStore, pendingShareStore, tts, promptStore, configRepo)
+    private fun buildVm(): ChatViewModel {
+        val runtimeStore = SessionRuntimeStore(
+            chatRepo,
+            CoroutineScope(SupervisorJob() + Dispatchers.Main),
+            profileManager,
+        )
+        return ChatViewModel(
+            chatRepo, sessionRepo, modelRepo, profileRepo, profileManager, favoritesStore,
+            pendingShareStore, tts, promptStore, configRepo, runtimeStore,
+        )
+    }
 
     @Test fun streamed_delta_appears_in_state() = runTest {
         val vm = buildVm()
@@ -85,6 +98,8 @@ class ChatViewModelTest {
     @Test fun reconnect_triggers_second_resume() = runTest {
         val vm = buildVm()
         vm.open("s1")
+        advanceUntilIdle()
+        events.emit(ServerEvent("message.start", "s1", buildJsonObject { put("session_id", "s1") }))
         advanceUntilIdle()
         // open() already called resume once; now simulate a reconnect cycle
         connectionStateFlow.value = ConnectionState.Reconnecting
@@ -146,7 +161,7 @@ class ChatViewModelTest {
      * I3: when connectionState enters Reconnecting while generation is in progress,
      * the in-flight assistant message must be marked interrupted and isGenerating cleared.
      */
-    @Test fun reconnecting_while_generating_marks_interrupted() = runTest {
+    @Test fun reconnecting_while_generating_keeps_live_snapshot() = runTest {
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -161,9 +176,9 @@ class ChatViewModelTest {
         advanceUntilIdle()
 
         val s = vm.state.value
-        assertFalse("isGenerating should be cleared after Reconnecting", s.isGenerating)
+        assertTrue("generation stays resumable while reconnecting", s.isGenerating)
         val lastMsg = s.messages.lastOrNull()
-        assertTrue("last message should be marked interrupted", lastMsg?.interrupted == true)
+        assertFalse("a recoverable reconnect must not discard the live turn", lastMsg?.interrupted == true)
     }
 
     /**

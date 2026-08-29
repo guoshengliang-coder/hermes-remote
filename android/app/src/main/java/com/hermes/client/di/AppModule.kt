@@ -132,6 +132,15 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideSessionRuntimeStore(
+        chat: ChatRepository,
+        scope: CoroutineScope,
+        profiles: com.hermes.client.data.repository.ProfileManager,
+    ): com.hermes.client.data.progress.SessionRuntimeStore =
+        com.hermes.client.data.progress.SessionRuntimeStore(chat, scope, profiles)
+
+    @Provides
+    @Singleton
     fun provideProjectsRepository(
         client: HermesGatewayClient,
         json: Json,

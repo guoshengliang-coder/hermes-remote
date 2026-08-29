@@ -4,6 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.HermesApiException
 import com.hermes.client.data.network.SearchResultDto
+import com.hermes.client.data.progress.SessionRuntime
+import com.hermes.client.data.progress.SessionRuntimeKey
+import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.PinStore
 import com.hermes.client.data.repository.ProfileManager
@@ -44,9 +47,24 @@ class SessionsViewModel @Inject constructor(
     private val profileManager: ProfileManager,
     private val pinStore: PinStore,
     private val viewModeStore: ViewModeStore,
+    private val runtimeStore: SessionRuntimeStore,
 ) : ViewModel() {
-    private val _state = MutableStateFlow(SessionsUiState())
+    private val _state = MutableStateFlow(
+        SessionsUiState(
+            sessions = sessions.cachedAllProfiles().let { cached ->
+                val active = profileManager.active.value
+                if (active.isNullOrBlank()) cached else cached.filter { it.profile == active }
+            },
+        ),
+    )
     val state: StateFlow<SessionsUiState> = _state.asStateFlow()
+    val runtimes: StateFlow<Map<SessionRuntimeKey, SessionRuntime>> = runtimeStore.runtimes
+
+    fun runtimeFor(
+        session: Session,
+        values: Map<SessionRuntimeKey, SessionRuntime> = runtimes.value,
+    ): SessionRuntime? = values[SessionRuntimeKey(session.profile, session.id)]
+        ?: values.values.firstOrNull { it.key.sessionId == session.id }
 
     /** The active profile, shown as a subtitle so the tenant context is always visible. */
     val activeProfile: StateFlow<String?> = profileManager.active
@@ -154,17 +172,28 @@ class SessionsViewModel @Inject constructor(
                 val active = profileManager.active.value
                 val all = sessions.listAllProfiles()
                 val list = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
-                _state.value = SessionsUiState(sessions = list)
+                _state.value = _state.value.copy(
+                    sessions = list,
+                    loading = false,
+                    error = null,
+                    unauthorized = false,
+                )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e // a superseded refresh is cancelled, not an error — don't clobber state
             } catch (e: HermesApiException) {
                 if (e.code == 401) {
                     _state.value = SessionsUiState(unauthorized = true)
                 } else {
-                    _state.value = SessionsUiState(error = e.message ?: "Failed to load")
+                    _state.value = _state.value.copy(
+                        loading = false,
+                        error = e.message ?: "Failed to load",
+                    )
                 }
             } catch (e: Exception) {
-                _state.value = SessionsUiState(error = e.message ?: "Failed to load")
+                _state.value = _state.value.copy(
+                    loading = false,
+                    error = e.message ?: "Failed to load",
+                )
             }
         }
     }

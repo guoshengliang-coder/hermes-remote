@@ -22,6 +22,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Archive
@@ -37,6 +42,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import com.hermes.client.ui.theme.LocalProfileAccent
 import androidx.compose.material3.OutlinedTextField
@@ -65,6 +71,9 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hermes.client.domain.Session
+import com.hermes.client.data.progress.SessionRunPhase
+import com.hermes.client.data.progress.SessionRuntime
+import com.hermes.client.data.progress.isActive
 import com.hermes.client.ui.record.RecordPhase
 import com.hermes.client.ui.record.RecordTaskSheet
 import com.hermes.client.ui.record.RecordTaskViewModel
@@ -87,6 +96,7 @@ fun SessionsScreen(
     val messageResults by vm.messageResults.collectAsStateWithLifecycle()
     val viewMode by vm.viewMode.collectAsStateWithLifecycle()
     val projectsState by vm.projectsState.collectAsStateWithLifecycle()
+    val runtimes by vm.runtimes.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
@@ -253,8 +263,8 @@ fun SessionsScreen(
                 )
                 Box(Modifier.fillMaxSize()) {
                     when {
-                        state.loading -> com.hermes.client.ui.components.LoadingState()
-                        state.error != null -> com.hermes.client.ui.components.ErrorState(
+                        state.loading && state.sessions.isEmpty() -> com.hermes.client.ui.components.LoadingState()
+                        state.error != null && state.sessions.isEmpty() -> com.hermes.client.ui.components.ErrorState(
                             message = state.error!!,
                             onRetry = { vm.refresh() },
                         )
@@ -307,6 +317,7 @@ fun SessionsScreen(
                                     items(pinned, key = { "p-${it.id}" }) { s ->
                                         SessionRow(
                                             session = s, isPinned = true, showProfile = true,
+                                            runtime = vm.runtimeFor(s, runtimes),
                                             onOpen = { scope.launch { vm.prepareOpen(s); onOpen(s.id) } },
                                             onTogglePin = { vm.togglePin(s) },
                                             onRename = { vm.rename(s, it) },
@@ -321,6 +332,7 @@ fun SessionsScreen(
                                     items(recent, key = { it.id }) { s ->
                                         SessionRow(
                                             session = s, isPinned = false, showProfile = true,
+                                            runtime = vm.runtimeFor(s, runtimes),
                                             onOpen = { scope.launch { vm.prepareOpen(s); onOpen(s.id) } },
                                             onTogglePin = { vm.togglePin(s) },
                                             onRename = { vm.rename(s, it) },
@@ -332,6 +344,11 @@ fun SessionsScreen(
                                 }
                             }
                         }
+                    }
+                    if (state.loading && state.sessions.isNotEmpty()) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
+                        )
                     }
                 }
             }
@@ -386,6 +403,7 @@ private fun SessionRow(
     session: Session,
     isPinned: Boolean,
     showProfile: Boolean,
+    runtime: SessionRuntime? = null,
     onOpen: () -> Unit,
     onTogglePin: () -> Unit,
     onRename: (String) -> Unit,
@@ -446,7 +464,19 @@ private fun SessionRow(
             // Pinned rows pool across profiles, so the tenant prefix stays to disambiguate;
             // grouped rows already sit under a profile header, so it would be redundant there.
             supportingContent = {
-                Text(listOfNotNull(session.profile?.takeIf { showProfile && it.isNotBlank() }, session.model).joinToString(" · "))
+                Column {
+                    Text(listOfNotNull(session.profile?.takeIf { showProfile && it.isNotBlank() }, session.model).joinToString(" · "))
+                    runtime?.takeIf { it.phase != SessionRunPhase.IDLE }?.let { value ->
+                        Text(
+                            runtimeLabel(value),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = runtimeColor(value.phase),
+                        )
+                    }
+                }
+            },
+            trailingContent = runtime?.takeIf { it.phase != SessionRunPhase.IDLE }?.let { value ->
+                { RuntimeIndicator(value.phase) }
             },
             // Tap opens the session; long-press opens the management menu.
             modifier = Modifier.combinedClickable(
@@ -505,6 +535,61 @@ private fun SessionRow(
                 TextButton(onClick = { confirmingDelete = false; onDelete() }) { Text("Delete") }
             },
             dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+private fun runtimeLabel(runtime: SessionRuntime): String = when (runtime.phase) {
+    SessionRunPhase.SUBMITTING -> "正在发送…"
+    SessionRunPhase.THINKING -> "思考中…"
+    SessionRunPhase.STREAMING -> "正在输出…"
+    SessionRunPhase.USING_TOOL -> runtime.toolName?.let { "正在使用 ${toolDisplayName(it)}…" } ?: "正在使用工具…"
+    SessionRunPhase.WAITING_APPROVAL -> "等待你的确认"
+    SessionRunPhase.WAITING_CLARIFICATION -> "等待你的回答"
+    SessionRunPhase.RECONNECTING -> "正在恢复连接…"
+    SessionRunPhase.COMPLETED_UNREAD -> "已完成"
+    SessionRunPhase.FAILED -> "运行失败"
+    SessionRunPhase.INTERRUPTED -> "已中断"
+    SessionRunPhase.IDLE -> ""
+}
+
+private fun toolDisplayName(raw: String): String = when {
+    raw.contains("search", ignoreCase = true) -> "搜索"
+    raw.contains("browser", ignoreCase = true) -> "浏览器"
+    raw.contains("terminal", ignoreCase = true) || raw.contains("shell", ignoreCase = true) -> "终端"
+    else -> raw.substringAfterLast('.').replace('_', ' ').take(18)
+}
+
+@Composable
+private fun runtimeColor(phase: SessionRunPhase) = when (phase) {
+    SessionRunPhase.WAITING_APPROVAL, SessionRunPhase.WAITING_CLARIFICATION ->
+        MaterialTheme.colorScheme.tertiary
+    SessionRunPhase.FAILED -> MaterialTheme.colorScheme.error
+    SessionRunPhase.COMPLETED_UNREAD -> LocalProfileAccent.current.accent
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+@Composable
+private fun RuntimeIndicator(phase: SessionRunPhase) {
+    val color = runtimeColor(phase)
+    if (phase.isActive && phase !in setOf(SessionRunPhase.WAITING_APPROVAL, SessionRunPhase.WAITING_CLARIFICATION)) {
+        val transition = rememberInfiniteTransition(label = "session-runtime")
+        val alpha by transition.animateFloat(
+            initialValue = 0.35f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(720), RepeatMode.Reverse),
+            label = "session-runtime-alpha",
+        )
+        Box(
+            Modifier
+                .size(12.dp)
+                .background(color.copy(alpha = alpha), androidx.compose.foundation.shape.CircleShape),
+        )
+    } else {
+        Box(
+            Modifier
+                .size(10.dp)
+                .background(color, androidx.compose.foundation.shape.CircleShape),
         )
     }
 }

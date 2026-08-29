@@ -4,6 +4,7 @@ import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.PinStore
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SessionRepository
+import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.domain.Session
 import io.mockk.coEvery
 import io.mockk.every
@@ -31,6 +32,7 @@ class SessionsViewModelTest {
     private val profileManager = mockk<ProfileManager>(relaxed = true)
     private val pinStore = mockk<PinStore>(relaxed = true)
     private val viewModeStore = mockk<com.hermes.client.data.repository.ViewModeStore>(relaxed = true)
+    private val runtimeStore = mockk<SessionRuntimeStore>(relaxed = true)
     // Controllable so tests can flip the persisted view mode (drives the VM's launch/toggle load).
     private val modeFlow = MutableStateFlow(ViewMode.SESSIONS)
 
@@ -40,6 +42,7 @@ class SessionsViewModelTest {
         every { profileManager.active } returns MutableStateFlow<String?>("personal")
         every { pinStore.pinned } returns MutableStateFlow<Set<String>>(emptySet())
         every { viewModeStore.mode } returns modeFlow
+        every { runtimeStore.runtimes } returns MutableStateFlow(emptyMap())
     }
 
     private fun session(id: String, title: String, profile: String = "personal") = Session(
@@ -47,7 +50,9 @@ class SessionsViewModelTest {
         messageCount = 1, profile = profile, workspace = "No workspace", source = "hermes-dispatch",
     )
 
-    private fun buildVm() = SessionsViewModel(sessionRepo, chatRepo, profileManager, pinStore, viewModeStore)
+    private fun buildVm() = SessionsViewModel(
+        sessionRepo, chatRepo, profileManager, pinStore, viewModeStore, runtimeStore,
+    )
 
     private fun repoSession(id: String, repo: String?, profile: String = "personal") = Session(
         id = id, title = id, model = null, provider = null, messageCount = 1,
@@ -94,6 +99,21 @@ class SessionsViewModelTest {
         val ids = vm.state.value.sessions.map { it.id }
         assertTrue("refresh must surface the newly-added session", ids.contains("s2"))
         assertEquals(2, ids.size)
+    }
+
+    @Test fun failed_background_refresh_keeps_the_existing_list() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns listOf(session("s1", "cached"))
+        val vm = buildVm()
+        advanceUntilIdle()
+        assertEquals(listOf("s1"), vm.state.value.sessions.map { it.id })
+
+        coEvery { sessionRepo.listAllProfiles() } throws RuntimeException("offline")
+        vm.refresh()
+        advanceUntilIdle()
+
+        assertEquals(listOf("s1"), vm.state.value.sessions.map { it.id })
+        assertFalse(vm.state.value.loading)
+        assertEquals("offline", vm.state.value.error)
     }
 
     // Regression: after a new chat's first message, the gateway auto-generates a title and pushes a

@@ -136,7 +136,9 @@ fun ChatScreen(
     var currentMatch by rememberSaveable { mutableStateOf(0) }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     // Search the same merged turns rendered by ChatMessageList so highlight indices stay aligned.
-    val conversationTurns = remember(state.messages) { state.messages.organizedConversationTurns() }
+    val conversationTurns = remember(state.messages, searchOpen) {
+        if (searchOpen) state.messages.organizedConversationTurns() else emptyList()
+    }
     val matches = remember(query, conversationTurns) { matchIndices(conversationTurns, query) }
     // Reset the cursor when the QUERY changes — not when `matches` changes: `matches` is a fresh
     // list instance on every streamed token, which would otherwise yank the cursor to 0 mid-search.

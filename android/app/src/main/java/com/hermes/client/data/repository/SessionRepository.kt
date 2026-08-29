@@ -18,6 +18,12 @@ private fun Session.isInteractive(): Boolean =
     messageCount > 0 && (source == null || source !in SessionRepository.EXCLUDED_SOURCES)
 
 class SessionRepository(private val rest: HermesRestApi) {
+    @Volatile private var allProfilesCache: List<Session> = emptyList()
+    private val historyCache = object : LinkedHashMap<String, List<ChatMessage>>(12, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<ChatMessage>>?): Boolean =
+            size > 10
+    }
+
     companion object {
         /**
          * Sources hidden from the sessions list, matching the desktop's SIDEBAR_EXCLUDED_SOURCES:
@@ -42,9 +48,19 @@ class SessionRepository(private val rest: HermesRestApi) {
      * sessions screen. The endpoint already excludes archived; the filter is defensive.
      * [isInteractive] hides cron + empty sessions so the counts match the desktop dashboard.
      */
-    suspend fun listAllProfiles(): List<Session> =
-        rest.profileSessions().sessions.map { it.toDomain() }
+    suspend fun listAllProfiles(): List<Session> {
+        val loaded = rest.profileSessions().sessions.map { it.toDomain() }
             .filter { !it.archived && it.isInteractive() }
+        allProfilesCache = loaded
+        return loaded
+    }
+
+    fun cachedAllProfiles(): List<Session> = allProfilesCache
+
+    fun cachedSession(sessionId: String, profile: String? = null): Session? =
+        allProfilesCache.firstOrNull {
+            it.id == sessionId && (profile.isNullOrBlank() || it.profile == profile)
+        }
 
     /**
      * Mission Control feed source: like [listAllProfiles] but KEEPS cron-produced sessions, so a
@@ -69,13 +85,22 @@ class SessionRepository(private val rest: HermesRestApi) {
     // so trying to recognize individual payload shapes will always leak the next variant. Remove
     // these roles at the data boundary and render only user/assistant/system conversation history.
     // Live tool activity still appears through tool.start/tool.complete as compact status cards.
-    suspend fun history(sessionId: String, profile: String? = null): List<ChatMessage> =
-        rest.messages(sessionId, profile)
+    suspend fun history(sessionId: String, profile: String? = null): List<ChatMessage> {
+        val loaded = rest.messages(sessionId, profile)
             .filterNot { it.role.lowercase() in INTERNAL_TOOL_ROLES }
             .mapIndexed { i, dto ->
             val m = dto.toDomain()
             m.copy(id = "h-$i-${m.id}")
         }
+        synchronized(historyCache) { historyCache[historyKey(sessionId, profile)] = loaded }
+        return loaded
+    }
+
+    fun cachedHistory(sessionId: String, profile: String? = null): List<ChatMessage>? =
+        synchronized(historyCache) { historyCache[historyKey(sessionId, profile)] }
+
+    private fun historyKey(sessionId: String, profile: String?): String =
+        "${profile.orEmpty()}/$sessionId"
 
     // All mutations carry the session's profile so the gateway hits the right per-profile DB
     // (otherwise the call 404s and the change silently no-ops).

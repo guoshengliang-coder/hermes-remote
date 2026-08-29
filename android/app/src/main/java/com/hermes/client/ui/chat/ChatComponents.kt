@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,6 +30,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -62,6 +64,7 @@ import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
@@ -103,7 +106,22 @@ fun ChatMessageList(
 ) {
     // Hermes stores a tool-using answer as multiple adjacent assistant records. Present them as
     // one consumer-facing turn so the action row appears once and acts on the complete answer.
-    val displayMessages = remember(state.messages) { state.messages.organizedConversationTurns() }
+    // During streaming only the tail changes. Cache the settled prefix so each token sanitizes and
+    // groups one message instead of walking a potentially huge history on the main thread.
+    val streamingTail = state.messages.lastOrNull()?.takeIf { it.isStreaming }
+    val settledMessages = if (streamingTail != null) state.messages.dropLast(1) else state.messages
+    val settledTurns = remember(sessionId, settledMessages) {
+        settledMessages.organizedConversationTurns()
+    }
+    val displayMessages = remember(settledTurns, streamingTail) {
+        val tail = streamingTail?.organizedForDisplay() ?: return@remember settledTurns
+        val previous = settledTurns.lastOrNull()
+        if (previous?.role == Role.ASSISTANT && tail.role == Role.ASSISTANT) {
+            settledTurns.dropLast(1) + listOf(previous, tail).organizedConversationTurns()
+        } else {
+            settledTurns + tail
+        }
+    }
     val lastIndex = displayMessages.lastIndex
     // Only the most recent assistant turn can be regenerated — regenerating an earlier one
     // would silently drop everything the user and agent said after it.
@@ -120,6 +138,7 @@ fun ChatMessageList(
     // the view mid-thread because the restored offset no longer maps to the bottom after the
     // width reflow. Switching threads also re-lands (the key changes).
     var landed by remember(sessionId) { mutableStateOf(false) }
+    var contentReady by remember(sessionId) { mutableStateOf(false) }
     LaunchedEffect(sessionId, displayMessages.isNotEmpty()) {
         if (displayMessages.isEmpty() || landed) return@LaunchedEffect
         // History loads after the list is already composed, so wait until the LazyColumn has
@@ -148,6 +167,7 @@ fun ChatMessageList(
             }
             withFrameNanos {} // let a layout pass measure the next items, then continue
         }
+        contentReady = true
     }
 
     // After the initial jump, follow new content. Always follow right after the user sends
@@ -162,48 +182,86 @@ fun ChatMessageList(
     }
 
     if (displayMessages.isEmpty()) {
-        Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-            Text(
-                "发条消息，开始和 Hermes 对话。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        when {
+            state.historyLoading -> ChatHistorySkeleton(modifier.fillMaxSize())
+            state.historyError != null -> Box(
+                modifier.fillMaxSize().padding(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "历史消息暂时无法加载，连接恢复后会自动更新。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            else -> Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                Text(
+                    "发条消息，开始和 Hermes 对话。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         return
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = modifier
-            .fillMaxSize()
-            // A simple tap on conversation whitespace exits the expanded composer. Drag gestures
-            // remain scrolling gestures, and taps consumed by message actions are left alone.
-            .pointerInput(onBlankAreaTap) { detectTapGestures { onBlankAreaTap() } }
-            .padding(horizontal = 22.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(22.dp),
-    ) {
-        // Key by position as well as id: the gateway reuses the model name as the
-        // message id across a session's turns, so ids are NOT guaranteed unique.
-        // The index makes the key collision-proof regardless of id source (the list
-        // is append-only, so an item's index is stable across recompositions).
-        itemsIndexed(
-            displayMessages,
-            key = { index, msg -> "$index:${msg.id}" },
-        ) { index, msg ->
-            val canRegenerate = msg.id == lastAssistantId && !isGenerating
-            val showAssistantActions = !(isGenerating && index == displayMessages.lastIndex)
-            MessageBubble(
-                msg,
-                canRegenerate,
-                showAssistantActions,
-                onEditResend,
-                onRegenerate,
-                isSpeaking,
-                onReadAloud,
-                onStopReading,
-                highlighted = index == highlightIndex,
-            )
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (contentReady) 1f else 0f,
+        animationSpec = tween(150),
+        label = "chat-history-reveal",
+    )
+    Box(modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(contentAlpha)
+                // A simple tap on conversation whitespace exits the expanded composer. Drag gestures
+                // remain scrolling gestures, and taps consumed by message actions are left alone.
+                .pointerInput(onBlankAreaTap) { detectTapGestures { onBlankAreaTap() } }
+                .padding(horizontal = 22.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
+        ) {
+            // Key by position as well as id: the gateway reuses the model name as the
+            // message id across a session's turns, so ids are NOT guaranteed unique.
+            itemsIndexed(
+                displayMessages,
+                key = { index, msg -> "$index:${msg.id}" },
+            ) { index, msg ->
+                val canRegenerate = msg.id == lastAssistantId && !isGenerating
+                val showAssistantActions = !(isGenerating && index == displayMessages.lastIndex)
+                MessageBubble(
+                    msg,
+                    canRegenerate,
+                    showAssistantActions,
+                    onEditResend,
+                    onRegenerate,
+                    isSpeaking,
+                    onReadAloud,
+                    onStopReading,
+                    highlighted = index == highlightIndex,
+                )
+            }
         }
+        if (contentAlpha < 1f) {
+            ChatHistorySkeleton(Modifier.fillMaxSize().alpha(1f - contentAlpha))
+        }
+    }
+}
+
+@Composable
+private fun ChatHistorySkeleton(modifier: Modifier = Modifier) {
+    val block = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+    Column(
+        modifier.padding(horizontal = 24.dp, vertical = 22.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(Modifier.fillMaxWidth(0.82f).height(18.dp).clip(RoundedCornerShape(9.dp)).background(block))
+        Box(Modifier.fillMaxWidth(0.94f).height(18.dp).clip(RoundedCornerShape(9.dp)).background(block))
+        Box(Modifier.fillMaxWidth(0.68f).height(18.dp).clip(RoundedCornerShape(9.dp)).background(block))
+        Spacer(Modifier.height(18.dp))
+        Box(Modifier.fillMaxWidth(0.9f).height(18.dp).clip(RoundedCornerShape(9.dp)).background(block))
+        Box(Modifier.fillMaxWidth(0.74f).height(18.dp).clip(RoundedCornerShape(9.dp)).background(block))
     }
 }
 

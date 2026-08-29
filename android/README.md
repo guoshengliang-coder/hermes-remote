@@ -29,6 +29,10 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   covering command JSON, escaped markdown, skill documents, and future tool payload formats.
 - Version 0.1.8 merges adjacent assistant records into one conversation turn, so copy, feedback,
   read-aloud, and more actions appear only once after the complete answer.
+- Version 0.1.9 moves live runs into an application-level multi-session store, preserving reasoning
+  and streaming output when leaving a chat. Session rows show live status, warm data remains visible
+  during refresh, history uses an in-memory cache and skeleton, and settled chats reveal only after
+  their initial bottom position is ready.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.

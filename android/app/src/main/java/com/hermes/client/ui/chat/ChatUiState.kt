@@ -336,6 +336,11 @@ data class ChatUiState(
     val pendingClarify: ClarifyRequest? = null,
     val isGenerating: Boolean = false,
     val pendingAttachments: List<PendingAttachment> = emptyList(),
+    // Loading history is not the same thing as a confirmed empty conversation. Keeping these
+    // separate prevents the chat from flashing the new-chat empty state before REST returns.
+    val historyLoading: Boolean = false,
+    val historyLoaded: Boolean = false,
+    val historyError: String? = null,
 ) {
     companion object { fun empty() = ChatUiState() }
 }

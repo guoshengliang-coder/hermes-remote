@@ -6,6 +6,8 @@ import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.HermesApiException
 import com.hermes.client.data.network.ProfileDto
 import com.hermes.client.data.network.str
+import com.hermes.client.data.progress.SessionRuntimeKey
+import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileManager
@@ -19,6 +21,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -37,6 +41,7 @@ class ChatViewModel @Inject constructor(
     private val tts: com.hermes.client.data.tts.TextToSpeechController,
     private val promptStore: com.hermes.client.data.repository.PromptStore,
     private val configRepo: com.hermes.client.data.repository.ConfigRepository,
+    private val runtimeStore: SessionRuntimeStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ChatUiState.empty())
@@ -112,15 +117,30 @@ class ChatViewModel @Inject constructor(
     private var sessionId: String = ""
     private var storedSessionId: String = ""
     private var collectJob: Job? = null
-    private var connJob: Job? = null
+    private var titleJob: Job? = null
+    private var runtimeKey: SessionRuntimeKey? = null
 
     fun open(id: String) {
+        runtimeKey?.let { runtimeStore.setVisible(it, false) }
         sessionId = id
         storedSessionId = id
-        _sessionTitle.value = "新会话"
-        _currentModel.value = null
-        _currentProvider.value = null
-        connJob?.cancel()
+        val profile = profileManager.active.value
+        val key = runtimeStore.register(id, profile)
+        runtimeKey = key
+        runtimeStore.setVisible(key, true)
+        val cachedMeta = sessions.cachedSession(id, profile)
+        _sessionTitle.value = cachedMeta?.title?.let(::displaySessionTitle) ?: "新会话"
+        _currentModel.value = cachedMeta?.model?.ifBlank { null }
+        _currentProvider.value = cachedMeta?.provider?.ifBlank { null }
+        val cachedHistory = sessions.cachedHistory(id, profile)?.map { it.organizedForDisplay() }
+        runtimeStore.markHistoryLoading(key, cachedHistory)
+        collectJob?.cancel()
+        collectJob = viewModelScope.launch {
+            runtimeStore.runtimes
+                .map { it[key] }
+                .filterNotNull()
+                .collect { _state.value = it.chat }
+        }
         // A share created this session and stashed its text; surface it as the initial composer draft.
         val ps = pendingShareStore.take(id)
         ps?.text?.let { _initialDraft.value = it }
@@ -130,7 +150,7 @@ class ChatViewModel @Inject constructor(
         // "新会话" until Hermes emits session.title after the first prompt.
         viewModelScope.launch {
             val meta = runCatching {
-                sessions.list(profileManager.active.value).firstOrNull { it.id == id }
+                sessions.list(profile).firstOrNull { it.id == id }
             }.getOrNull()
             if (sessionId == id && meta != null) {
                 _sessionTitle.value = displaySessionTitle(meta.title)
@@ -139,26 +159,29 @@ class ChatViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            val requestStartedAt = System.currentTimeMillis()
             try {
-                val history = sessions.history(id, profileManager.active.value)
-                    .map { it.organizedForDisplay() }
+                val history = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    sessions.history(id, profile).map { it.organizedForDisplay() }
+                }
                 com.hermes.client.data.diagnostics.DebugLog.log("session", "history($id) → ${history.size} messages")
-                _state.value = ChatUiState(messages = history)
+                runtimeStore.acceptHistory(key, history, requestStartedAt)
             } catch (e: HermesApiException) {
                 com.hermes.client.data.diagnostics.DebugLog.log("error", "history($id) failed: ${e.code} ${e.message}")
                 if (e.code == 401) { _unauthorized.value = true; return@launch }
-                _state.value = ChatUiState(messages = emptyList())
+                runtimeStore.historyFailed(key, e.message ?: "无法加载历史消息")
             } catch (e: Exception) {
-                // History load failed (network/parse) — start with an empty thread rather than crash.
+                // Keep a cached/live transcript visible if history refresh fails.
                 com.hermes.client.data.diagnostics.DebugLog.log("error", "history($id) failed: ${e.message}")
-                _state.value = ChatUiState(messages = emptyList())
+                runtimeStore.historyFailed(key, e.message ?: "无法加载历史消息")
             }
             // resume() returns the live socket handle for this session; switch to it so
             // submit/interrupt and event filtering use the id the gateway actually knows.
             // Pass the active profile: the gateway resolves resume against a per-profile DB,
             // so a session in a non-default profile is "session not found" without it.
-            val handle = runCatching { chat.resume(id, profileManager.active.value) }.getOrNull()
+            val handle = runCatching { chat.resume(id, profile) }.getOrNull()
             handle?.let { sessionId = it }
+            runtimeStore.bindLiveHandle(key, handle)
             com.hermes.client.data.diagnostics.DebugLog.log("session", "resume($id) → handle=${handle ?: "none"}")
             // A share may have handed off an image; stage it so it shows as a chip and is
             // flushed to the gateway on the next send (rather than attaching immediately).
@@ -184,42 +207,24 @@ class ChatViewModel @Inject constructor(
             launch { runCatching { _profiles.value = profileRepo.list() } }
             launch { runCatching { _commands.value = chat.commandsCatalog() } }
         }
-        collectJob?.cancel()
-        collectJob = viewModelScope.launch {
+        titleJob?.cancel()
+        titleJob = viewModelScope.launch {
             chat.events.filter {
                 it.sessionId == null || it.sessionId == sessionId || it.sessionId == storedSessionId
             }
-                // Defense in depth: a single malformed event must never crash the chat.
-                // reduce() is pure, so on a bad event keep the prior state and drop it.
                 .onEach { event ->
                     if (event.type == "session.title") {
                         event.str("title")?.let { _sessionTitle.value = displaySessionTitle(it) }
                     }
-                    runCatching { _state.value.reduce(event) }.onSuccess { _state.value = it }
                 }
                 .collect {}
         }
-        // C2 + I3: watch connection transitions
-        connJob = viewModelScope.launch {
-            var prev: ConnectionState? = null
-            chat.connectionState.collect { cur ->
-                // I3: entering Reconnecting or Error while generating → mark interrupted
-                if ((cur is ConnectionState.Reconnecting || cur is ConnectionState.Error)
-                    && _state.value.isGenerating
-                ) {
-                    _state.value = _state.value.markInterrupted()
-                }
-                // C2: reconnect cycle completed (Reconnecting → Connected) → re-attach agent stream
-                // Guard: prev must be Reconnecting (not null) to skip the very first Connected transition
-                if (cur is ConnectionState.Connected && prev is ConnectionState.Reconnecting) {
-                    launch {
-                        runCatching { chat.resume(sessionId, profileManager.active.value) }
-                            .getOrNull()?.let { sessionId = it }
-                    }
-                }
-                prev = cur
-            }
-        }
+    }
+
+    private fun mutateState(block: (ChatUiState) -> ChatUiState) {
+        val next = block(_state.value)
+        _state.value = next
+        runtimeKey?.let { key -> runtimeStore.updateChat(key) { next } }
     }
 
     fun stageAttachment(bytes: ByteArray, mimeType: String) {
@@ -227,9 +232,9 @@ class ChatViewModel @Inject constructor(
         // update lambda can re-run under CAS contention — a shared counter would race/collide. UUID
         // is collision-free across threads.
         val id = "att-${java.util.UUID.randomUUID()}"
-        _state.update { it.withAttachment(PendingAttachment(id, bytes, mimeType)) }
+        mutateState { it.withAttachment(PendingAttachment(id, bytes, mimeType)) }
     }
-    fun removeAttachment(id: String) { _state.update { it.withoutAttachment(id) } }
+    fun removeAttachment(id: String) { mutateState { it.withoutAttachment(id) } }
 
     /** Create a fresh chat in the currently active profile for the top-bar + action. */
     suspend fun createNewSession(): String? =
@@ -242,7 +247,8 @@ class ChatViewModel @Inject constructor(
         if (text.isBlank() && atts.isEmpty()) return
         val isSlash = text.trimStart().startsWith("/")
         val shown = text.ifBlank { "📎 ${atts.size} image${if (atts.size > 1) "s" else ""}" }
-        _state.value = _state.value.withUserMessage(shown).copy(pendingAttachments = emptyList())
+        runtimeKey?.let { runtimeStore.beginPrompt(it, shown) }
+            ?: mutateState { it.withUserMessage(shown).copy(pendingAttachments = emptyList()) }
         viewModelScope.launch {
             try {
                 atts.forEach { a ->
@@ -254,8 +260,11 @@ class ChatViewModel @Inject constructor(
                 }
                 // A leading "/" is a slash command — execute it (the gateway strips the slash)
                 // rather than prompting the model.
-                if (isSlash) chat.slashExec(sessionId, text.trim())
-                else chat.submit(sessionId, text)
+                if (isSlash) {
+                    val output = chat.slashExec(sessionId, text.trim())
+                    output?.takeIf { it.isNotBlank() }?.let(::appendSystem)
+                    runtimeKey?.let(runtimeStore::finishLocal)
+                } else chat.submit(sessionId, text)
             } catch (e: Exception) {
                 // A gateway error (e.g. "session not found") must surface, not crash the app.
                 appendError(e.message ?: "Failed to send message")
@@ -270,14 +279,21 @@ class ChatViewModel @Inject constructor(
         send(prompt)
     }
 
-    fun stop() { viewModelScope.launch { runCatching { chat.interrupt(sessionId) } } }
+    fun stop() {
+        viewModelScope.launch {
+            runCatching { chat.interrupt(sessionId) }
+                .onSuccess { runtimeKey?.let(runtimeStore::markInterrupted) }
+        }
+    }
 
     private fun appendSystem(text: String) {
-        _state.value = _state.value.copy(
-            messages = _state.value.messages + ChatMessage(
-                id = "s-${_state.value.messages.size}", role = Role.SYSTEM, text = text,
-            ),
-        )
+        mutateState { current ->
+            current.copy(
+                messages = current.messages + ChatMessage(
+                    id = "s-${current.messages.size}", role = Role.SYSTEM, text = text,
+                ),
+            )
+        }
     }
 
     /** User tapped "Retry" on the offline banner — force an immediate reconnect. */
@@ -294,9 +310,10 @@ class ChatViewModel @Inject constructor(
     fun clearPathItems() { _pathItems.value = emptyList() }
 
     fun respondApproval(choice: ApprovalChoice) {
-        _state.value = _state.value.copy(pendingApproval = null)
+        mutateState { it.copy(pendingApproval = null) }
         viewModelScope.launch {
             runCatching { chat.respondApproval(sessionId, choice) }
+                .onSuccess { runtimeKey?.let(runtimeStore::continueAfterInput) }
                 .onFailure {
                     if (it is kotlinx.coroutines.CancellationException) throw it
                     // The sheet is already gone; surface the failure so a lost approve/deny is visible.
@@ -307,21 +324,28 @@ class ChatViewModel @Inject constructor(
 
     fun clarify(answer: String) {
         val requestId = _state.value.pendingClarify?.requestId ?: ""
-        _state.value = _state.value.copy(pendingClarify = null)
-        viewModelScope.launch { runCatching { chat.respondClarify(sessionId, requestId, answer) } }
+        mutateState { it.copy(pendingClarify = null) }
+        viewModelScope.launch {
+            runCatching { chat.respondClarify(sessionId, requestId, answer) }
+                .onSuccess { runtimeKey?.let(runtimeStore::continueAfterInput) }
+        }
     }
 
     /** Appends a non-fatal error as a system message and stops the generating spinner. */
     private fun appendError(text: String) {
-        _state.value = _state.value.copy(
+        val failed = _state.value.copy(
             messages = _state.value.messages + ChatMessage(
-                id = "e-${_state.value.messages.size}",
-                role = Role.SYSTEM,
-                text = text,
-                isError = true,
+                id = "e-${_state.value.messages.size}", role = Role.SYSTEM, text = text, isError = true,
             ),
             isGenerating = false,
         )
+        _state.value = failed
+        runtimeKey?.let { runtimeStore.markFailed(it, failed) }
+    }
+
+    override fun onCleared() {
+        runtimeKey?.let { runtimeStore.setVisible(it, false) }
+        super.onCleared()
     }
 
     fun onSheetQuery(q: String) { _modelSheet.value = _modelSheet.value.copy(query = q) }
