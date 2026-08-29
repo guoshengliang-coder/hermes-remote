@@ -15,6 +15,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 private val displayJson = Json { prettyPrint = true }
+private val extraBlankLines = Regex("\\n[ \\t]*\\n(?:[ \\t]*\\n)+")
 
 /**
  * Turns gateway payloads into human-readable text. Some Hermes tools wrap their actual output
@@ -42,6 +43,172 @@ internal fun normalizeDisplayPayload(raw: String): String {
     return unwrap(parsed) ?: runCatching {
         displayJson.encodeToString(JsonElement.serializer(), parsed)
     }.getOrDefault(raw)
+}
+
+private data class OrganizedAssistantContent(
+    val text: String,
+    val tools: List<ToolCall>,
+)
+
+/**
+ * Hermes history can flatten terminal/tool payloads into the assistant's prose, for example:
+ *
+ *   Checking the process.
+ *   {"status":"not_found", ...}
+ *   {"output":"line 1\\nline 2"}
+ *
+ * Rendering that verbatim is both noisy and unreadable. Pull embedded JSON payloads back into
+ * collapsed tool cards, hide expected polling misses, and keep only the actual answer as prose.
+ */
+private fun organizeAssistantContent(
+    raw: String,
+    existingTools: List<ToolCall> = emptyList(),
+): OrganizedAssistantContent {
+    if (!raw.contains('{')) {
+        return OrganizedAssistantContent(normalizeDisplayPayload(raw).trim(), existingTools)
+    }
+
+    val prose = StringBuilder()
+    val tools = existingTools.toMutableList()
+    var cursor = 0
+    var searchFrom = 0
+    var extracted = 0
+
+    while (searchFrom < raw.length) {
+        val start = raw.indexOf('{', searchFrom)
+        if (start < 0) break
+        val match = parseEmbeddedObject(raw, start)
+        if (match == null) {
+            searchFrom = start + 1
+            continue
+        }
+        val (endExclusive, obj) = match
+        val embedded = classifyEmbeddedObject(obj)
+        if (embedded == null) {
+            searchFrom = endExclusive
+            continue
+        }
+
+        val before = raw.substring(cursor, start)
+        val (keptProse, processLabel) = detachProcessNarration(before)
+        prose.append(keptProse)
+
+        if (!embedded.hidden && embedded.output.isNotBlank() &&
+            tools.none { it.output.trim() == embedded.output.trim() }
+        ) {
+            tools += ToolCall(
+                id = "embedded-${raw.hashCode()}-${extracted++}",
+                name = processLabel ?: embedded.defaultLabel,
+                status = ToolStatus.DONE,
+                output = embedded.output,
+            )
+        }
+        cursor = endExclusive
+        searchFrom = endExclusive
+    }
+
+    // No recognized embedded payload: preserve ordinary prose/code containing braces.
+    if (cursor == 0) {
+        return OrganizedAssistantContent(normalizeDisplayPayload(raw).trim(), existingTools)
+    }
+
+    prose.append(raw.substring(cursor))
+    val cleanText = extraBlankLines.replace(prose.toString(), "\n\n").trim()
+    return OrganizedAssistantContent(cleanText, tools)
+}
+
+private data class EmbeddedPayload(
+    val output: String,
+    val defaultLabel: String,
+    val hidden: Boolean = false,
+)
+
+private fun classifyEmbeddedObject(obj: JsonObject): EmbeddedPayload? {
+    val status = (obj["status"] as? JsonPrimitive)?.content?.lowercase()
+    val error = (obj["error"] as? JsonPrimitive)?.content.orEmpty()
+    val wrapped = listOf("output", "result", "content", "text")
+        .firstNotNullOfOrNull { key -> obj[key]?.let { normalizeDisplayPayload(it.toString()) } }
+
+    if (wrapped != null) {
+        val label = if (wrapped.contains("github.com", ignoreCase = true) ||
+            wrapped.contains("Token scopes", ignoreCase = true)
+        ) "终端结果" else "工具结果"
+        return EmbeddedPayload(wrapped.trim(), label)
+    }
+
+    // A background-process poll commonly returns not_found after the command has already ended.
+    // It is an implementation detail, not an answer or a user-facing error.
+    if (status == "not_found" || error.contains("No process with ID", ignoreCase = true)) {
+        return EmbeddedPayload("", "后台检查", hidden = true)
+    }
+
+    if (status != null || error.isNotBlank()) {
+        return EmbeddedPayload(
+            displayJson.encodeToString(JsonElement.serializer(), obj),
+            "执行详情",
+        )
+    }
+    return null
+}
+
+/** Returns the exclusive end plus parsed object, respecting braces inside JSON strings. */
+private fun parseEmbeddedObject(raw: String, start: Int): Pair<Int, JsonObject>? {
+    var depth = 0
+    var inString = false
+    var escaped = false
+    for (i in start until raw.length) {
+        val ch = raw[i]
+        if (inString) {
+            when {
+                escaped -> escaped = false
+                ch == '\\' -> escaped = true
+                ch == '"' -> inString = false
+            }
+            continue
+        }
+        when (ch) {
+            '"' -> inString = true
+            '{' -> depth++
+            '}' -> {
+                depth--
+                if (depth == 0) {
+                    val end = i + 1
+                    val parsed = runCatching {
+                        Json.parseToJsonElement(raw.substring(start, end)) as? JsonObject
+                    }.getOrNull() ?: return null
+                    return end to parsed
+                }
+            }
+        }
+    }
+    return null
+}
+
+/**
+ * A short paragraph immediately introducing a JSON payload is process narration, not the final
+ * answer. Remove it from prose and reuse it as the collapsed card's label when concise.
+ */
+private fun detachProcessNarration(text: String): Pair<String, String?> {
+    val trimmedEnd = text.trimEnd()
+    if (trimmedEnd.isBlank()) return "" to null
+    val split = trimmedEnd.lastIndexOf("\n\n")
+    val paragraph = trimmedEnd.substring(split + 2).trim()
+    val looksLikeNarration = paragraph.length in 2..80 &&
+        !paragraph.contains("```") &&
+        !paragraph.startsWith("#") &&
+        !paragraph.startsWith("-") &&
+        !paragraph.startsWith("•")
+    if (!looksLikeNarration) return text to null
+
+    val kept = if (split >= 0) trimmedEnd.substring(0, split).trimEnd() else ""
+    val label = paragraph.trimEnd('。', '.', '：', ':').take(28)
+    return kept to label
+}
+
+internal fun ChatMessage.organizedForDisplay(): ChatMessage {
+    if (role != Role.ASSISTANT || isError) return this
+    val organized = organizeAssistantContent(text, tools)
+    return copy(text = organized.text, tools = organized.tools)
 }
 
 data class ApprovalRequest(
@@ -113,7 +280,7 @@ fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
             mutateLastAssistant { it.copy(thinking = it.thinking + (event.str("text") ?: "")) }
         "message.complete" -> mutateLastAssistant {
             val complete = event.str("text") ?: event.str("rendered")
-            it.copy(text = complete?.let(::normalizeDisplayPayload) ?: it.text, isStreaming = false)
+            it.copy(text = complete ?: it.text, isStreaming = false).organizedForDisplay()
         }.copy(isGenerating = false)
         "tool.start" -> mutateLastAssistant {
             it.copy(tools = it.tools + ToolCall(

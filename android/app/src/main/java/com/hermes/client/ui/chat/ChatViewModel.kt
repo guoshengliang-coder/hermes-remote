@@ -119,6 +119,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val history = sessions.history(id, profileManager.active.value)
+                    .map { it.organizedForDisplay() }
                 com.hermes.client.data.diagnostics.DebugLog.log("session", "history($id) → ${history.size} messages")
                 _state.value = ChatUiState(messages = history)
             } catch (e: HermesApiException) {
