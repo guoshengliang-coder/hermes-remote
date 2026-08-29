@@ -106,7 +106,57 @@ class ChatReducerTest {
         s = s.reduce(ev("message.complete") {
             putJsonObject("text") { put("output", "hello\nworld") }
         })
-        assertEquals("hello\nworld", s.messages.last().text)
+        assertEquals("", s.messages.last().text)
+        assertEquals("hello\nworld", s.messages.last().tools.single().output)
+    }
+
+    @Test fun embedded_process_json_is_removed_from_prose_and_output_is_collapsed() {
+        val raw = """
+            查后台轮询结果。
+
+            {"status": "not_found", "error": "No process with ID proc_123"}
+
+            进程已结束。直接验证登录结果。
+
+            {"output": "github.com\n✓ Logged in\n- Token scopes: repo"}
+        """.trimIndent()
+
+        val msg = com.hermes.client.domain.ChatMessage(
+            id = "a1", role = Role.ASSISTANT, text = raw,
+        ).organizedForDisplay()
+
+        assertEquals("", msg.text)
+        assertEquals(1, msg.tools.size)
+        assertEquals("github.com\n✓ Logged in\n- Token scopes: repo", msg.tools.single().output)
+        assertFalse(msg.tools.single().output.contains("\\n"))
+    }
+
+    @Test fun final_answer_after_embedded_tool_payload_remains_as_prose() {
+        val raw = """
+            正在查询。
+
+            {"output":"row 1\nrow 2"}
+
+            ## 查询完成
+
+            一共找到 **2 条**记录。
+        """.trimIndent()
+
+        val msg = com.hermes.client.domain.ChatMessage(
+            id = "a1", role = Role.ASSISTANT, text = raw,
+        ).organizedForDisplay()
+
+        assertEquals("## 查询完成\n\n一共找到 **2 条**记录。", msg.text)
+        assertEquals("row 1\nrow 2", msg.tools.single().output)
+    }
+
+    @Test fun ordinary_markdown_with_braces_is_not_modified() {
+        val raw = "在 Kotlin 中使用 `map { it.name }`。"
+        val msg = com.hermes.client.domain.ChatMessage(
+            id = "a1", role = Role.ASSISTANT, text = raw,
+        ).organizedForDisplay()
+        assertEquals(raw, msg.text)
+        assertTrue(msg.tools.isEmpty())
     }
 
     // The same non-primitive hazard applies to message text fields, not just tool results.
