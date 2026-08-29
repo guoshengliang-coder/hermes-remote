@@ -32,7 +32,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.ThumbDown
+import androidx.compose.material.icons.rounded.ThumbUp
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -68,6 +73,8 @@ import com.hermes.client.domain.ToolStatus
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.compose.components.MarkdownComponents
 import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.compose.elements.MarkdownCodeBlock
@@ -160,8 +167,8 @@ fun ChatMessageList(
 
     LazyColumn(
         state = listState,
-        modifier = modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(22.dp),
     ) {
         // Key by position as well as id: the gateway reuses the model name as the
         // message id across a session's turns, so ids are NOT guaranteed unique.
@@ -214,9 +221,9 @@ private fun UserBubble(msg: ChatMessage, onEditResend: (String) -> Unit, highlig
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
     val bg = if (msg.isError) MaterialTheme.colorScheme.errorContainer
-    else MaterialTheme.colorScheme.primaryContainer
+    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.78f)
     val accent = LocalProfileAccent.current.accent
-    val userShape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp)
+    val userShape = RoundedCornerShape(22.dp, 22.dp, 7.dp, 22.dp)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box {
             Column(
@@ -226,10 +233,19 @@ private fun UserBubble(msg: ChatMessage, onEditResend: (String) -> Unit, highlig
                     .clip(userShape)
                     .background(bg)
                     .then(if (highlighted) Modifier.background(accent.copy(alpha = 0.18f)).border(1.5.dp, accent, userShape) else Modifier)
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                    .padding(horizontal = 16.dp, vertical = 11.dp)
                     .combinedClickable(onClick = {}, onLongClick = { menuOpen = true }),
             ) {
-                if (msg.text.isNotBlank()) Text(msg.text, style = MaterialTheme.typography.bodyLarge)
+                if (msg.text.isNotBlank()) {
+                    Text(
+                        msg.text,
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontSize = 17.sp,
+                            lineHeight = 25.sp,
+                            letterSpacing = 0.sp,
+                        ),
+                    )
+                }
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
@@ -259,6 +275,7 @@ private fun AssistantTurn(
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
+    var feedback by remember(msg.id) { mutableStateOf(0) }
     val speakable = remember(msg.text) { speechText(msg.text).isNotBlank() }
     val accent = LocalProfileAccent.current.accent
     val hlShape = RoundedCornerShape(12.dp)
@@ -290,16 +307,86 @@ private fun AssistantTurn(
                     }
                 } else {
                     val mdComponents = remember { chatMarkdownComponents() }
+                    val body = MaterialTheme.typography.bodyLarge.copy(
+                        fontSize = 17.sp,
+                        lineHeight = 29.sp,
+                        letterSpacing = 0.sp,
+                    )
                     Markdown(
                         content = msg.text,
                         colors = markdownColor(),
-                        typography = markdownTypography(),
+                        typography = markdownTypography(
+                            h1 = MaterialTheme.typography.headlineSmall.copy(lineHeight = 34.sp),
+                            h2 = MaterialTheme.typography.titleLarge.copy(fontSize = 21.sp, lineHeight = 31.sp),
+                            h3 = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold),
+                            h4 = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            h5 = MaterialTheme.typography.titleSmall,
+                            h6 = MaterialTheme.typography.titleSmall,
+                            text = body,
+                            paragraph = body,
+                            ordered = body,
+                            bullet = body,
+                            list = body,
+                            quote = body.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+                            table = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 22.sp),
+                        ),
                         components = mdComponents,
                     )
                 }
             }
             if (msg.isStreaming && msg.text.isBlank() && msg.tools.isEmpty()) {
                 TypingIndicator()
+            }
+            if (!msg.isStreaming && msg.text.isNotBlank() && !msg.isError) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = { copyToClipboard(msg.text, clipboard, context) },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(Icons.Rounded.ContentCopy, "复制回复", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    IconButton(
+                        onClick = { feedback = if (feedback == 1) 0 else 1 },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            Icons.Rounded.ThumbUp,
+                            "有帮助",
+                            Modifier.size(20.dp),
+                            tint = if (feedback == 1) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(
+                        onClick = { feedback = if (feedback == -1) 0 else -1 },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            Icons.Rounded.ThumbDown,
+                            "需要改进",
+                            Modifier.size(20.dp),
+                            tint = if (feedback == -1) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (speakable) {
+                        IconButton(
+                            onClick = { if (isSpeaking) onStopReading() else onReadAloud(msg.text) },
+                            modifier = Modifier.size(40.dp),
+                        ) {
+                            Icon(Icons.Rounded.VolumeUp, if (isSpeaking) "停止朗读" else "朗读", Modifier.size(21.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    if (canRegenerate) {
+                        IconButton(onClick = onRegenerate, modifier = Modifier.size(40.dp)) {
+                            Icon(Icons.Rounded.Refresh, "重新生成", Modifier.size(21.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Rounded.MoreHoriz, "更多操作", Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
