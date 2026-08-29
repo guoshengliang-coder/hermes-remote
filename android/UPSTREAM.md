@@ -13,6 +13,6 @@ The Android derivative must retain the upstream copyright and GPL notices. If th
 
 Do not copy the upstream signing keystore. Hermes Remote will use its own application ID and signing key.
 
-## Import policy
+## Import record
 
-Keep the upstream repository as a pinned reference until the first Hermes-compatible relay is ready. Then import the Android source with attribution, record the upstream commit, and keep future upstream changes reviewable.
+The source was imported from the pinned commit for the first Relay-compatible MVP. Product-specific changes include a new application ID and branding, token-only setup, Hermes Remote Relay defaults, display-payload normalization, collapsed tool results, and a redesigned Compose chat shell. Future upstream changes should be reviewed against the pinned commit.
