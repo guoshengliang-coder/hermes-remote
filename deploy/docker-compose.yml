@@ -1,0 +1,12 @@
+services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gateway
+    restart: unless-stopped
+    environment:
+      PORT: "8787"
+      APP_TOKEN: "${APP_TOKEN}"
+      CONNECTOR_TOKEN: "${CONNECTOR_TOKEN}"
+    ports:
+      - "127.0.0.1:8787:8787"
