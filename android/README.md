@@ -1,12 +1,9 @@
 # Android client
 
-This directory is reserved for the selected open-source Hermes Android client.
+The selected base is [`adebnar/hermes-android`](https://github.com/adebnar/hermes-android), pinned for the initial integration at tag `v0.1.52` / commit `9f08f39ed2b9fc7cb29a551b1d9b695a409fdb7a`.
 
-Before importing it, confirm:
+The upstream client is Kotlin + Jetpack Compose and already implements Hermes REST, `/api/ws` JSON-RPC, sessions, streaming chat, Markdown, tool cards, attachments, reconnect, and encrypted credential storage. We will retain those layers where possible.
 
-1. Repository URL and exact revision used by the tested APK.
-2. License compatibility and required attribution.
-3. Existing networking/session code that can be retained.
-4. Whether the UI is Views or Jetpack Compose.
+The HK Gateway should expose a Hermes-compatible facade rather than forcing the app to replace every existing repository. The macOS Connector will transport facade requests to the real loopback Hermes service.
 
-The client will connect to `/v1/connect`, send an authenticated `hello`, target `mac-mini`, and render protocol events as structured chat blocks rather than raw JSON.
+See `UPSTREAM.md` and `../docs/ANDROID_BASE_AUDIT.md` before importing or distributing the derivative app.
