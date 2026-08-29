@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+install -o root -g hermes-remote -m 640 \
+  "/etc/letsencrypt/live/__TLS_DOMAIN__/fullchain.pem" \
+  /etc/hermes-remote/tls/fullchain.pem
+install -o root -g hermes-remote -m 640 \
+  "/etc/letsencrypt/live/__TLS_DOMAIN__/privkey.pem" \
+  /etc/hermes-remote/tls/privkey.pem
+systemctl try-restart hermes-remote-gateway.service
