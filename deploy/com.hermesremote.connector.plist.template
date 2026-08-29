@@ -6,19 +6,8 @@
   <string>com.hermesremote.connector</string>
   <key>ProgramArguments</key>
   <array>
-    <string>__NODE_BIN__</string>
-    <string>__INSTALL_DIR__/connector/dist/index.js</string>
+    <string>__INSTALL_DIR__/run-connector.sh</string>
   </array>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>GATEWAY_URL</key><string>__GATEWAY_URL__</string>
-    <key>DEVICE_ID</key><string>mac-mini</string>
-    <key>CONNECTOR_TOKEN</key><string>__CONNECTOR_TOKEN__</string>
-    <key>HERMES_MODE</key><string>http</string>
-    <key>HERMES_BASE_URL</key><string>__HERMES_BASE_URL__</string>
-    <key>HERMES_BASIC_AUTH_USERNAME</key><string>__HERMES_BASIC_AUTH_USERNAME__</string>
-    <key>HERMES_BASIC_AUTH_PASSWORD</key><string>__HERMES_BASIC_AUTH_PASSWORD__</string>
-  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>__INSTALL_DIR__/connector.log</string>

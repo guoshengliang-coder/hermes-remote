@@ -17,6 +17,8 @@ The repository contains the first relay MVP:
 - `deploy/` — Docker and macOS launchd templates
 - `docs/` — architecture, intake checklist, and local smoke test
 
+The first HK + Mac mini deployment and its verified operations are recorded in `docs/DEPLOYMENT.md`.
+
 ## Local smoke test
 
 1. Install Node.js 20 or newer.

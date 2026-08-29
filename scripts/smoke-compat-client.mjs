@@ -29,7 +29,7 @@ socket.on("message", (raw) => {
   if (message.method === "event" && message.params?.type === "gateway.ready" && !ready) {
     ready = true;
     socket.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "session.create", params: {} }));
-  } else if (message.id === 1 && message.result?.ok) {
+  } else if (message.id === 1 && message.result && !message.error) {
     clearTimeout(timeout);
     socket.close();
   }

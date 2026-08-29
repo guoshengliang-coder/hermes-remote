@@ -27,12 +27,12 @@ PORT=8444
 HOST=0.0.0.0
 TLS_CERT_FILE=/etc/letsencrypt/live/<domain>/fullchain.pem
 TLS_KEY_FILE=/etc/letsencrypt/live/<domain>/privkey.pem
-APP_TOKEN=<generated secret>
-CONNECTOR_TOKEN=<different generated secret>
+APP_TOKEN_FILE=/etc/hermes-remote/secrets/app-token
+CONNECTOR_TOKEN_FILE=/etc/hermes-remote/secrets/connector-token
 DEFAULT_DEVICE_ID=mac-mini
 ```
 
-The actual environment file belongs at `/etc/hermes-remote/gateway.env`, mode `0600`, and must never be committed.
+The deployment copies the certificate into `/etc/hermes-remote/tls` with narrowly scoped permissions and refreshes it from a Certbot deploy hook. The actual environment file belongs at `/etc/hermes-remote/gateway.env`; tokens are separate files readable only by the service group. None of them may be committed.
 
 ## Security items outside this repository
 
@@ -40,6 +40,4 @@ The actual environment file belongs at `/etc/hermes-remote/gateway.env`, mode `0
 - Restrict or disable the public remote-desktop port on the HK host.
 - Add host firewall rules carefully, allowing SSH before enabling the firewall to avoid lockout.
 
-No remote-system changes are performed by this repository documentation.
-
-The Mac Connector stores its Hermes Basic Auth username/password only in its local launchd configuration (or a future mode-`0600` environment file). These credentials must not be placed on the HK server or in the Android app.
+The Mac Connector reads only the two Basic Auth values it needs from the existing local Hermes dotenv file. The values are never copied into launchd, the HK server, or the Android app.

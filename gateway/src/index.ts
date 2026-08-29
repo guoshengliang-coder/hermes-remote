@@ -448,7 +448,8 @@ function safeEqual(actual: string, expected: string): boolean {
 }
 
 function requireSecret(name: string): string {
-  const value = process.env[name];
+  const file = process.env[`${name}_FILE`];
+  const value = process.env[name] ?? (file ? readFileSync(file, "utf8").trim() : undefined);
   if (!value || value.length < 8) throw new Error(`${name} must contain at least 8 characters`);
   return value;
 }
