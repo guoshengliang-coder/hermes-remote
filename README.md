@@ -10,7 +10,7 @@ Android App -- HTTPS/WSS --> HK Gateway <-- outbound WSS -- macOS Connector --> 
 
 The repository contains the first relay skeleton:
 
-- `android/` — Android client integration point (awaiting the selected open-source base)
+- `android/` — integration plan for the pinned `adebnar/hermes-android` GPLv3 base
 - `gateway/` — public HK relay with app/connector authentication
 - `connector/` — outbound-only macOS agent with mock and Hermes HTTP modes
 - `protocol/` — shared wire-message types and validation
