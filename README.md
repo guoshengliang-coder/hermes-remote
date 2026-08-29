@@ -27,6 +27,8 @@ The repository contains the first relay skeleton:
 
 See `docs/SMOKE_TEST.md` for the WebSocket test message.
 
+The initial real host profile uses direct TLS on port `8444` with systemd; see `docs/ENVIRONMENT.md`.
+
 ## Security baseline
 
 - The Mac connector creates an outbound connection; no Mac port is exposed.

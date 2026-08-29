@@ -6,7 +6,7 @@
   <string>com.hermesremote.connector</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/bin/node</string>
+    <string>__NODE_BIN__</string>
     <string>__INSTALL_DIR__/connector/dist/index.js</string>
   </array>
   <key>EnvironmentVariables</key>

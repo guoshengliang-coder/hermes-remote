@@ -27,3 +27,5 @@
 ## Android compatibility facade
 
 The selected Android base already implements the Hermes REST and `/api/ws` JSON-RPC surfaces. To retain its sessions and management features, the production Gateway will expose compatible public routes and tunnel them through the Connector. The public app credential is validated in Hong Kong and is never forwarded to the Mac; the Connector adds the separate localhost Hermes credential.
+
+The first HK deployment terminates TLS directly in the Node.js Gateway on port `8444` because ports `80`, `443`, and `8443` are already occupied. The Gateway supports certificate and private-key paths through environment variables; the dedicated service user must receive narrowly scoped read access to those files.

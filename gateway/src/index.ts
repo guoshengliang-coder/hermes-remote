@@ -1,5 +1,7 @@
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   PROTOCOL_VERSION,
@@ -12,8 +14,11 @@ import {
 } from "@hermes-remote/protocol";
 
 const port = Number(process.env.PORT ?? 8787);
+const host = process.env.HOST ?? "0.0.0.0";
 const appToken = requireSecret("APP_TOKEN");
 const connectorToken = requireSecret("CONNECTOR_TOKEN");
+const tlsCertFile = process.env.TLS_CERT_FILE;
+const tlsKeyFile = process.env.TLS_KEY_FILE;
 
 type Peer = {
   socket: WebSocket;
@@ -25,14 +30,25 @@ const connectors = new Map<string, Peer>();
 const apps = new Set<Peer>();
 const requestOwners = new Map<string, Peer>();
 
-const server = createServer((request, response) => {
+const requestHandler = (request: IncomingMessage, response: ServerResponse): void => {
   if (request.url === "/health") {
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({ ok: true, connectors: connectors.size }));
     return;
   }
   response.writeHead(404).end();
-});
+};
+
+if (Boolean(tlsCertFile) !== Boolean(tlsKeyFile)) {
+  throw new Error("TLS_CERT_FILE and TLS_KEY_FILE must be configured together");
+}
+
+const server = tlsCertFile && tlsKeyFile
+  ? createHttpsServer(
+      { cert: readFileSync(tlsCertFile), key: readFileSync(tlsKeyFile) },
+      requestHandler,
+    )
+  : createServer(requestHandler);
 
 const wss = new WebSocketServer({ server, path: "/v1/connect" });
 
@@ -86,8 +102,9 @@ wss.on("connection", (socket) => {
   });
 });
 
-server.listen(port, "0.0.0.0", () => {
-  console.log(`Hermes Remote Gateway listening on :${port}`);
+server.listen(port, host, () => {
+  const scheme = tlsCertFile ? "https/wss" : "http/ws";
+  console.log(`Hermes Remote Gateway listening on ${scheme}://${host}:${port}`);
 });
 
 function route(peer: Peer, message: WireMessage): void {

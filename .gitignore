@@ -7,3 +7,5 @@ dist/
 .gradle/
 local.properties
 android/**/build/
+work/
+outputs/
