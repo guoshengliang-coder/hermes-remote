@@ -29,6 +29,7 @@ TLS_CERT_FILE=/etc/letsencrypt/live/<domain>/fullchain.pem
 TLS_KEY_FILE=/etc/letsencrypt/live/<domain>/privkey.pem
 APP_TOKEN=<generated secret>
 CONNECTOR_TOKEN=<different generated secret>
+DEFAULT_DEVICE_ID=mac-mini
 ```
 
 The actual environment file belongs at `/etc/hermes-remote/gateway.env`, mode `0600`, and must never be committed.
@@ -40,3 +41,5 @@ The actual environment file belongs at `/etc/hermes-remote/gateway.env`, mode `0
 - Add host firewall rules carefully, allowing SSH before enabling the firewall to avoid lockout.
 
 No remote-system changes are performed by this repository documentation.
+
+The Mac Connector stores its Hermes Basic Auth username/password only in its local launchd configuration (or a future mode-`0600` environment file). These credentials must not be placed on the HK server or in the Android app.
