@@ -18,6 +18,7 @@ const deviceId = process.env.DEVICE_ID ?? "mac-mini";
 const hermesMode = process.env.HERMES_MODE ?? "mock";
 const hermesBaseUrl = (process.env.HERMES_BASE_URL ?? "http://127.0.0.1:9119").replace(/\/$/, "");
 const hermesChatUrl = process.env.HERMES_CHAT_URL ?? `${hermesBaseUrl}/api/chat`;
+const controlHeartbeatMs = Number(process.env.CONTROL_HEARTBEAT_MS ?? 15_000);
 const localSockets = new Map<string, WebSocket>();
 const pendingSocketFrames = new Map<string, TunnelSocketFrame[]>();
 let retryMs = 1_000;
@@ -25,6 +26,8 @@ let controlSocket: WebSocket | undefined;
 
 function connect(): void {
   const socket = new WebSocket(gatewayUrl);
+  let heartbeatTimer: NodeJS.Timeout | undefined;
+  let awaitingPong = false;
   controlSocket = socket;
 
   socket.on("open", () => {
@@ -36,6 +39,25 @@ function connect(): void {
       deviceId,
       token: connectorToken,
     }));
+
+    // A Mac sleep/wake or network switch can leave a TCP socket looking OPEN locally after the
+    // Relay has already discarded it. Without an application heartbeat the Connector then stays
+    // in a false "Connected" state forever. WebSocket ping/pong gives that half-open connection
+    // one interval to answer, then terminates it so the normal reconnect path takes over.
+    heartbeatTimer = setInterval(() => {
+      if (controlSocket !== socket || socket.readyState !== WebSocket.OPEN) return;
+      if (awaitingPong) {
+        console.log("Control heartbeat timed out; forcing reconnect");
+        socket.terminate();
+        return;
+      }
+      awaitingPong = true;
+      socket.ping();
+    }, controlHeartbeatMs);
+  });
+
+  socket.on("pong", () => {
+    awaitingPong = false;
   });
 
   socket.on("message", (raw) => {
@@ -45,6 +67,7 @@ function connect(): void {
   });
 
   socket.on("close", () => {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
     closeLocalSockets();
     if (controlSocket === socket) controlSocket = undefined;
     scheduleReconnect();
