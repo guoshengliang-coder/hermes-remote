@@ -87,7 +87,9 @@ private val TABS = listOf(
 @Composable
 fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsumed: () -> Unit = {}) {
     val nav = rememberNavController()
-    val start = if (hasConfig) "activity" else "setup"
+    // Chat is the primary Hermes Remote workflow. The richer activity dashboard makes several
+    // optional API calls and must never block the user's first successful connection.
+    val start = if (hasConfig) "sessions" else "setup"
 
     // Guard the navigate: a hermes:// deep link is untrusted, and even the notification path could
     // carry a stale/unknown route — an unresolved route must be ignored, never crash.
@@ -183,7 +185,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             composable("setup") {
                 SetupScreen(
                     onSaved = {
-                        nav.navigate("activity") { popUpTo("setup") { inclusive = true } }
+                        nav.navigate("sessions") { popUpTo("setup") { inclusive = true } }
                     },
                 )
             }

@@ -13,6 +13,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.util.concurrent.TimeUnit
 
 class HermesApiException(val code: Int, message: String) : Exception(message)
 
@@ -21,6 +22,11 @@ class HermesRestApi(
     private val json: Json,
     private val configProvider: () -> GatewayConfig?,
 ) {
+    private companion object {
+        const val REST_TIMEOUT_SECONDS = 20L
+        const val CONNECTION_TEST_TIMEOUT_SECONDS = 12L
+    }
+
     private fun config(): GatewayConfig =
         configProvider() ?: throw HermesApiException(0, "no gateway configured")
 
@@ -38,7 +44,12 @@ class HermesRestApi(
 
     private suspend inline fun <reified T> get(path: String): T = withContext(Dispatchers.IO) {
         com.hermes.client.data.diagnostics.DebugLog.log("rest", "GET $path")
-        okHttp.newCall(builder(path).get().build()).execute().use { resp ->
+        val call = okHttp.newCall(builder(path).get().build())
+        // The shared client deliberately has no read timeout because WebSockets are long-lived.
+        // A per-call deadline is essential for REST, otherwise a stalled Relay/Connector request
+        // leaves a Compose loading screen spinning forever.
+        call.timeout().timeout(REST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        call.execute().use { resp ->
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
                 com.hermes.client.data.diagnostics.DebugLog.log(
@@ -59,7 +70,9 @@ class HermesRestApi(
         runCatching {
             val rb = Request.Builder().url("${baseUrl.trimEnd('/')}/api/status").get()
             if (token.isNotBlank()) rb.header("X-Hermes-Session-Token", token)
-            okHttp.newCall(rb.build()).execute().use { it.isSuccessful }
+            val call = okHttp.newCall(rb.build())
+            call.timeout().timeout(CONNECTION_TEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            call.execute().use { it.isSuccessful }
         }.getOrDefault(false)
     }
 
