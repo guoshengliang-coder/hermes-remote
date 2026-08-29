@@ -11,7 +11,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.platform.LocalContext
 
 /** App-wide flag for tool-call verbosity (true = Technical/show payloads, false = Product/hide). */
-val LocalToolCallTechnical = compositionLocalOf { true }
+val LocalToolCallTechnical = compositionLocalOf { false }
 
 @Composable
 fun HermesTheme(

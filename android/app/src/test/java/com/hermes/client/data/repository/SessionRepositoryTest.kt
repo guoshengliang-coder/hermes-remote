@@ -1,8 +1,10 @@
 package com.hermes.client.data.repository
 
 import com.hermes.client.data.network.HermesRestApi
+import com.hermes.client.data.network.MessageDto
 import com.hermes.client.data.network.ProfileSessionsDto
 import com.hermes.client.data.network.SessionDto
+import com.hermes.client.domain.Role
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
@@ -47,5 +49,35 @@ class SessionRepositoryTest {
             ),
         )
         assertEquals(listOf("a-keep"), repo.archivedAllProfiles().map { it.id })
+    }
+
+    @Test fun history_removes_every_internal_tool_payload_shape_at_data_boundary() = runTest {
+        coEvery { rest.messages("session-1", "default") } returns listOf(
+            MessageDto(1, "user", "请检查环境"),
+            MessageDto(2, "tool", "<untrusted_tool_result source=\"web_search\">raw</untrusted_tool_result>"),
+            MessageDto(3, "tool", "{\"output\":\"health=200\",\"exit_code\":0}"),
+            MessageDto(4, "function", "table\\n| host | port |"),
+            MessageDto(5, "tool_result", "{\"success\":true,\"content\":\"skill body\"}"),
+            MessageDto(6, "tool_call", "internal call arguments"),
+            MessageDto(7, "assistant", "环境检查完成。"),
+        )
+
+        val history = repo.history("session-1", "default")
+
+        assertEquals(listOf(Role.USER, Role.ASSISTANT), history.map { it.role })
+        assertEquals(listOf("请检查环境", "环境检查完成。"), history.map { it.text })
+        assertEquals(listOf("h-0-1", "h-1-7"), history.map { it.id })
+    }
+
+    @Test fun history_keeps_non_tool_system_notices() = runTest {
+        coEvery { rest.messages("session-2", null) } returns listOf(
+            MessageDto(1, "system", "会话已恢复"),
+        )
+
+        val history = repo.history("session-2")
+
+        assertEquals(1, history.size)
+        assertEquals(Role.SYSTEM, history.single().role)
+        assertEquals("会话已恢复", history.single().text)
     }
 }

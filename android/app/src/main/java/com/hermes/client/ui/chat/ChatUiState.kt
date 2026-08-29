@@ -64,20 +64,31 @@ private fun organizeAssistantContent(
     raw: String,
     existingTools: List<ToolCall> = emptyList(),
 ): OrganizedAssistantContent {
-    if (!raw.contains('{')) {
-        return OrganizedAssistantContent(normalizeDisplayPayload(raw).trim(), existingTools)
+    // Hermes injects <untrusted_tool_result> blocks for the model's safety boundary. Those tags,
+    // warnings, and raw payloads are protocol details. Consumer chat apps render only a compact
+    // tool/source card, never the security wrapper as assistant prose.
+    val untrusted = extractUntrustedToolResults(raw)
+    val displayRaw = untrusted.text
+    val initialTools = existingTools.toMutableList().apply {
+        untrusted.tools.forEach { extracted ->
+            if (none { it.output.trim() == extracted.output.trim() && it.name == extracted.name }) add(extracted)
+        }
+    }
+
+    if (!displayRaw.contains('{')) {
+        return OrganizedAssistantContent(normalizeDisplayPayload(displayRaw).trim(), initialTools)
     }
 
     val prose = StringBuilder()
-    val tools = existingTools.toMutableList()
+    val tools = initialTools
     var cursor = 0
     var searchFrom = 0
     var extracted = 0
 
-    while (searchFrom < raw.length) {
-        val start = raw.indexOf('{', searchFrom)
+    while (searchFrom < displayRaw.length) {
+        val start = displayRaw.indexOf('{', searchFrom)
         if (start < 0) break
-        val match = parseEmbeddedObject(raw, start)
+        val match = parseEmbeddedObject(displayRaw, start)
         if (match == null) {
             searchFrom = start + 1
             continue
@@ -89,7 +100,7 @@ private fun organizeAssistantContent(
             continue
         }
 
-        val before = raw.substring(cursor, start)
+        val before = displayRaw.substring(cursor, start)
         val (keptProse, processLabel) = detachProcessNarration(before)
         prose.append(keptProse)
 
@@ -97,7 +108,7 @@ private fun organizeAssistantContent(
             tools.none { it.output.trim() == embedded.output.trim() }
         ) {
             tools += ToolCall(
-                id = "embedded-${raw.hashCode()}-${extracted++}",
+                id = "embedded-${displayRaw.hashCode()}-${extracted++}",
                 name = processLabel ?: embedded.defaultLabel,
                 status = ToolStatus.DONE,
                 output = embedded.output,
@@ -109,12 +120,67 @@ private fun organizeAssistantContent(
 
     // No recognized embedded payload: preserve ordinary prose/code containing braces.
     if (cursor == 0) {
-        return OrganizedAssistantContent(normalizeDisplayPayload(raw).trim(), existingTools)
+        return OrganizedAssistantContent(normalizeDisplayPayload(displayRaw).trim(), initialTools)
     }
 
-    prose.append(raw.substring(cursor))
+    prose.append(displayRaw.substring(cursor))
     val cleanText = extraBlankLines.replace(prose.toString(), "\n\n").trim()
     return OrganizedAssistantContent(cleanText, tools)
+}
+
+private data class UntrustedExtraction(
+    val text: String,
+    val tools: List<ToolCall>,
+)
+
+private val untrustedOpenTag = Regex(
+    "<untrusted_tool_result\\b([^>]*)>",
+    setOf(RegexOption.IGNORE_CASE),
+)
+private val untrustedSource = Regex("source\\s*=\\s*[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
+private const val UNTRUSTED_CLOSE_TAG = "</untrusted_tool_result>"
+
+private fun extractUntrustedToolResults(raw: String): UntrustedExtraction {
+    if (!raw.contains("<untrusted_tool_result", ignoreCase = true)) {
+        return UntrustedExtraction(raw, emptyList())
+    }
+
+    val clean = StringBuilder()
+    val tools = mutableListOf<ToolCall>()
+    var cursor = 0
+    var index = 0
+    while (cursor < raw.length) {
+        val open = untrustedOpenTag.find(raw, cursor) ?: break
+        clean.append(raw.substring(cursor, open.range.first))
+        val bodyStart = open.range.last + 1
+        val closeStart = raw.indexOf(UNTRUSTED_CLOSE_TAG, bodyStart, ignoreCase = true)
+        val bodyEnd = if (closeStart >= 0) closeStart else raw.length
+        val body = raw.substring(bodyStart, bodyEnd).trim()
+        val source = untrustedSource.find(open.groupValues[1])?.groupValues?.getOrNull(1)
+        val usefulStart = body.indexOfFirst { it == '{' || it == '[' }
+        val useful = if (usefulStart >= 0) normalizeDisplayPayload(body.substring(usefulStart)) else ""
+        tools += ToolCall(
+            id = "untrusted-${raw.hashCode()}-${index++}",
+            name = toolSourceLabel(source),
+            status = ToolStatus.DONE,
+            // Keep data available behind an explicit expand action, but discard the repetitive
+            // English "treat as data" safety preamble that has no user-facing value.
+            output = useful.trim(),
+        )
+        cursor = if (closeStart >= 0) closeStart + UNTRUSTED_CLOSE_TAG.length else raw.length
+    }
+    if (cursor < raw.length) clean.append(raw.substring(cursor))
+    return UntrustedExtraction(
+        text = extraBlankLines.replace(clean.toString(), "\n\n").trim(),
+        tools = tools,
+    )
+}
+
+private fun toolSourceLabel(source: String?): String = when (source?.lowercase()) {
+    "web_search", "web-search", "search" -> "网页搜索"
+    "browser", "web_browser" -> "浏览器结果"
+    "terminal", "shell", "bash" -> "终端结果"
+    else -> "工具结果"
 }
 
 private data class EmbeddedPayload(
@@ -206,7 +272,13 @@ private fun detachProcessNarration(text: String): Pair<String, String?> {
 }
 
 internal fun ChatMessage.organizedForDisplay(): ChatMessage {
-    if (role != Role.ASSISTANT || isError) return this
+    if (isError) return this
+    // REST history preserves Hermes tool turns as role="tool"; the domain mapper represents
+    // unknown/non-chat roles as SYSTEM. Those turns contain the same untrusted wrappers as live
+    // assistant output and must be collapsed too. Leave ordinary system notices untouched.
+    val isToolHistory = role == Role.SYSTEM &&
+        text.contains("untrusted_tool_result", ignoreCase = true)
+    if (role != Role.ASSISTANT && !isToolHistory) return this
     val organized = organizeAssistantContent(text, tools)
     return copy(text = organized.text, tools = organized.tools)
 }

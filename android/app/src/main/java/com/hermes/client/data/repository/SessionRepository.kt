@@ -30,6 +30,7 @@ class SessionRepository(private val rest: HermesRestApi) {
             "bluebubbles", "homeassistant", "email", "sms", "webhook", "api_server",
             "weixin", "wecom", "qqbot", "yuanbao", "dingtalk", "feishu",
         )
+        private val INTERNAL_TOOL_ROLES = setOf("tool", "function", "tool_result", "tool_call")
     }
 
     suspend fun list(profile: String? = null): List<Session> =
@@ -63,11 +64,15 @@ class SessionRepository(private val rest: HermesRestApi) {
         rest.searchSessions(query, profile)
     suspend fun archived(profile: String? = null): List<Session> =
         rest.archivedSessions(profile).map { it.toDomain() }
-    // The gateway reuses the model name as a message id across a session's turns, so
-    // it can't be a unique list key on its own. Prefix the position to guarantee
-    // unique, stable ids for the loaded history (the id is display-only).
+    // Tool/function turns are model context, not conversation turns. Their payload format is not
+    // stable (untrusted wrappers, command result JSON, escaped markdown, skill documents, etc.),
+    // so trying to recognize individual payload shapes will always leak the next variant. Remove
+    // these roles at the data boundary and render only user/assistant/system conversation history.
+    // Live tool activity still appears through tool.start/tool.complete as compact status cards.
     suspend fun history(sessionId: String, profile: String? = null): List<ChatMessage> =
-        rest.messages(sessionId, profile).mapIndexed { i, dto ->
+        rest.messages(sessionId, profile)
+            .filterNot { it.role.lowercase() in INTERNAL_TOOL_ROLES }
+            .mapIndexed { i, dto ->
             val m = dto.toDomain()
             m.copy(id = "h-$i-${m.id}")
         }
@@ -79,4 +84,5 @@ class SessionRepository(private val rest: HermesRestApi) {
     suspend fun archive(sessionId: String, archived: Boolean, profile: String?) =
         rest.patchSession(sessionId, archived = archived, profile = profile)
     suspend fun delete(sessionId: String, profile: String?) = rest.deleteSession(sessionId, profile)
+
 }

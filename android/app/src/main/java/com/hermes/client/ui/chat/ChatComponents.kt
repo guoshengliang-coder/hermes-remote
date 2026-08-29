@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.combinedClickable
@@ -63,6 +64,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import android.widget.Toast
@@ -70,6 +72,7 @@ import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import com.hermes.client.domain.ToolCall
 import com.hermes.client.domain.ToolStatus
+import com.hermes.client.ui.theme.LocalToolCallTechnical
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.text.TextStyle
@@ -96,6 +99,7 @@ fun ChatMessageList(
     onReadAloud: (String) -> Unit = {},
     onStopReading: () -> Unit = {},
     highlightIndex: Int? = null,
+    onBlankAreaTap: () -> Unit = {},
 ) {
     val lastIndex = state.messages.lastIndex
     // Only the most recent assistant turn can be regenerated — regenerating an earlier one
@@ -167,7 +171,12 @@ fun ChatMessageList(
 
     LazyColumn(
         state = listState,
-        modifier = modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 10.dp),
+        modifier = modifier
+            .fillMaxSize()
+            // A simple tap on conversation whitespace exits the expanded composer. Drag gestures
+            // remain scrolling gestures, and taps consumed by message actions are left alone.
+            .pointerInput(onBlankAreaTap) { detectTapGestures { onBlankAreaTap() } }
+            .padding(horizontal = 22.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(22.dp),
     ) {
         // Key by position as well as id: the gateway reuses the model name as the
@@ -179,8 +188,15 @@ fun ChatMessageList(
             key = { index, msg -> "$index:${msg.id}" },
         ) { index, msg ->
             val canRegenerate = msg.id == lastAssistantId && !isGenerating
+            // Sanitize the render copy on every streamed update. The reducer intentionally keeps
+            // the raw accumulated text so split protocol tags can be completed by later deltas;
+            // rendering that raw buffer would briefly expose tool safety wrappers and JSON until
+            // message.complete arrives.
+            val displayMsg = remember(msg.text, msg.tools, msg.isStreaming) {
+                msg.organizedForDisplay()
+            }
             MessageBubble(
-                msg,
+                displayMsg,
                 canRegenerate,
                 onEditResend,
                 onRegenerate,
@@ -528,13 +544,14 @@ private fun ThinkingCard(text: String) {
 private fun ToolCard(tool: ToolCall) {
     var expanded by remember(tool.id) { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
+    val technical = LocalToolCallTechnical.current
     val hasOutput = tool.output.isNotBlank()
     val outputSize = tool.output.toByteArray().size
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        onClick = { if (hasOutput) expanded = !expanded },
+        onClick = { if (technical && hasOutput) expanded = !expanded },
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -553,13 +570,13 @@ private fun ToolCard(tool: ToolCall) {
                 Text(
                     text = when {
                         tool.status == ToolStatus.RUNNING -> "运行中"
-                        hasOutput -> "已完成 · ${formatPayloadSize(outputSize)}"
+                        technical && hasOutput -> "已完成 · ${formatPayloadSize(outputSize)}"
                         else -> "已完成"
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (hasOutput) {
+                if (technical && hasOutput) {
                     Icon(
                         if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
                         contentDescription = if (expanded) "收起结果" else "展开结果",
@@ -567,7 +584,7 @@ private fun ToolCard(tool: ToolCall) {
                     )
                 }
             }
-            if (expanded && hasOutput) {
+            if (technical && expanded && hasOutput) {
                 SelectionContainer {
                     Text(
                         tool.output.take(12_000),

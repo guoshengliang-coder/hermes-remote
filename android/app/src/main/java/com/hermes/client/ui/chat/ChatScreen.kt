@@ -47,7 +47,6 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PhotoLibrary
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -94,10 +93,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hermes.client.data.network.ConnectionState
-import com.hermes.client.ui.components.StatusDot
 import com.hermes.client.ui.components.bannerLabel
 import com.hermes.client.ui.components.connectionLabel
 
@@ -121,7 +120,6 @@ fun ChatScreen(
     val currentProvider by vm.currentProvider.collectAsStateWithLifecycle()
     val modelSheet by vm.modelSheet.collectAsStateWithLifecycle()
     var modelSheetOpen by rememberSaveable { mutableStateOf(false) }
-    val activeProfile by vm.activeProfile.collectAsStateWithLifecycle()
     val commands by vm.commands.collectAsStateWithLifecycle()
     val pathItems by vm.pathItems.collectAsStateWithLifecycle()
     val speaking by vm.speaking.collectAsStateWithLifecycle()
@@ -295,26 +293,21 @@ fun ChatScreen(
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回")
                     }
                 }
-                Column(
+                Box(
                     Modifier
                         .weight(1f)
                         .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.CenterStart,
                 ) {
                     Text(
                         sessionTitle,
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontSize = adaptiveSessionTitleSize(sessionTitle).sp,
+                            lineHeight = (adaptiveSessionTitleSize(sessionTitle) + 4).sp,
+                        ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        StatusDot(connState)
-                        Text(
-                            activeProfile?.let { "Mac mini · $it" } ?: "Mac mini",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                        )
-                    }
                 }
                 Surface(
                     shape = RoundedCornerShape(28.dp),
@@ -701,6 +694,12 @@ fun ChatScreen(
                         onReadAloud = { vm.readAloud(it) },
                         onStopReading = { vm.stopReading() },
                         modifier = Modifier.weight(1f),
+                        onBlankAreaTap = {
+                            if (composerFocused) {
+                                composerFocused = false
+                                focusManager.clearFocus()
+                            }
+                        },
                     )
                 }
             }
@@ -836,6 +835,13 @@ fun ChatScreen(
 internal fun compactModelLabel(model: String?): String {
     val value = model?.trim()?.substringAfterLast('/')?.ifBlank { null } ?: return "Auto"
     return if (value.length <= 24) value else value.take(23) + "…"
+}
+
+internal fun adaptiveSessionTitleSize(title: String): Int = when {
+    title.length <= 8 -> 24
+    title.length <= 14 -> 20
+    title.length <= 22 -> 18
+    else -> 16
 }
 
 @Composable

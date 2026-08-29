@@ -24,7 +24,9 @@ class SettingsStore(private val context: Context) {
 
     /** True = show full tool input/output (Technical); false = hide payloads (Product). */
     val toolCallTechnical: Flow<Boolean> = context.settingsDataStore.data.map { prefs ->
-        (prefs[toolDisplayKey] ?: "technical") == "technical"
+        // Consumer chat apps keep implementation payloads out of the conversation by default.
+        // Users who are debugging can still opt into Technical mode from Appearance.
+        (prefs[toolDisplayKey] ?: "product") == "technical"
     }
 
     suspend fun setThemeMode(mode: ThemeMode) {

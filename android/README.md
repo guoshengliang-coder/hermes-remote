@@ -20,6 +20,13 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 - Version 0.1.4 shows the live session title in the chat header, replaces header search with a
   one-tap new-chat action, and expands the focused composer to expose the current model picker,
   attachment action, multiline input, and send control.
+- Version 0.1.5 removes internal `<untrusted_tool_result>` safety wrappers from chat prose, keeps
+  source data behind collapsed tool cards, simplifies the header to an adaptive session title,
+  and collapses the focused composer when the conversation area is tapped.
+- Version 0.1.6 also sanitizes historical messages stored with Hermes' `tool` role, preventing
+  reopened sessions from rendering raw web-search wrappers and payloads as system prose.
+- Version 0.1.7 removes every internal tool/function history turn at the repository boundary,
+  covering command JSON, escaped markdown, skill documents, and future tool payload formats.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
