@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hermesremote.connector</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>__INSTALL_DIR__/connector/dist/index.js</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>GATEWAY_URL</key><string>__GATEWAY_URL__</string>
+    <key>DEVICE_ID</key><string>mac-mini</string>
+    <key>CONNECTOR_TOKEN</key><string>__CONNECTOR_TOKEN__</string>
+    <key>HERMES_MODE</key><string>http</string>
+    <key>HERMES_CHAT_URL</key><string>__HERMES_CHAT_URL__</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>__INSTALL_DIR__/connector.log</string>
+  <key>StandardErrorPath</key><string>__INSTALL_DIR__/connector.error.log</string>
+</dict>
+</plist>
