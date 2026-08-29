@@ -51,13 +51,62 @@ export interface ErrorMessage {
   requestId?: string;
 }
 
+export interface TunnelHttpRequest {
+  type: "tunnel.http.request";
+  version: typeof PROTOCOL_VERSION;
+  id: string;
+  targetDeviceId: string;
+  method: string;
+  path: string;
+  headers: Record<string, string>;
+  bodyBase64?: string;
+}
+
+export interface TunnelHttpResponse {
+  type: "tunnel.http.response";
+  version: typeof PROTOCOL_VERSION;
+  requestId: string;
+  status: number;
+  headers: Record<string, string>;
+  bodyBase64?: string;
+}
+
+export interface TunnelSocketOpen {
+  type: "tunnel.ws.open";
+  version: typeof PROTOCOL_VERSION;
+  id: string;
+  targetDeviceId: string;
+  path: string;
+}
+
+export interface TunnelSocketFrame {
+  type: "tunnel.ws.frame";
+  version: typeof PROTOCOL_VERSION;
+  id: string;
+  dataBase64: string;
+  binary: boolean;
+}
+
+export interface TunnelSocketClose {
+  type: "tunnel.ws.close";
+  version: typeof PROTOCOL_VERSION;
+  id: string;
+  code?: number;
+  reason?: string;
+}
+
 export type WireMessage =
   | HelloMessage
   | HelloAckMessage
   | ChatCommand
   | RelayEvent
   | DeviceStatus
-  | ErrorMessage;
+  | ErrorMessage
+  | TunnelHttpRequest
+  | TunnelHttpResponse
+  | TunnelSocketOpen
+  | TunnelSocketFrame
+  | TunnelSocketClose;
 
 export function parseWireMessage(raw: string): WireMessage {
   let value: unknown;
