@@ -27,6 +27,8 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   reopened sessions from rendering raw web-search wrappers and payloads as system prose.
 - Version 0.1.7 removes every internal tool/function history turn at the repository boundary,
   covering command JSON, escaped markdown, skill documents, and future tool payload formats.
+- Version 0.1.8 merges adjacent assistant records into one conversation turn, so copy, feedback,
+  read-aloud, and more actions appear only once after the complete answer.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.

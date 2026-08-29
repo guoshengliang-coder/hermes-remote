@@ -1,5 +1,9 @@
 package com.hermes.client.ui.chat
 
+import com.hermes.client.domain.ChatMessage
+import com.hermes.client.domain.Role
+import com.hermes.client.domain.ToolCall
+import com.hermes.client.domain.ToolStatus
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -26,5 +30,34 @@ class ChatChromeTest {
         assertEquals(20, adaptiveSessionTitleSize("GPT对应DeepSeek"))
         assertEquals(18, adaptiveSessionTitleSize("这是一个长度明显更长的会话标题"))
         assertEquals(16, adaptiveSessionTitleSize("这是一个非常非常长并且需要进一步缩小字号的完整会话标题"))
+    }
+
+    @Test fun adjacentAssistantRecords_areOneConversationTurn() {
+        val messages = listOf(
+            ChatMessage("u1", Role.USER, "查一下"),
+            ChatMessage("a1", Role.ASSISTANT, "我先检查服务。"),
+            ChatMessage(
+                "a2",
+                Role.ASSISTANT,
+                "服务正常，再检查客户端。",
+                tools = listOf(ToolCall("t1", "服务检查", ToolStatus.DONE)),
+            ),
+            ChatMessage("a3", Role.ASSISTANT, "结论：需要更新客户端。"),
+            ChatMessage("u2", Role.USER, "继续"),
+            ChatMessage("a4", Role.ASSISTANT, "已经更新", isStreaming = true),
+        )
+
+        val turns = messages.organizedConversationTurns()
+
+        assertEquals(4, turns.size)
+        assertEquals("a3", turns[1].id)
+        assertEquals(
+            "我先检查服务。\n\n服务正常，再检查客户端。\n\n结论：需要更新客户端。",
+            turns[1].text,
+        )
+        assertEquals(listOf("t1"), turns[1].tools.map { it.id })
+        assertEquals("u2", turns[2].id)
+        assertEquals("a4", turns[3].id)
+        assertEquals(true, turns[3].isStreaming)
     }
 }

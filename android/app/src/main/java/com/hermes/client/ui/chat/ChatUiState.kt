@@ -283,6 +283,44 @@ internal fun ChatMessage.organizedForDisplay(): ChatMessage {
     return copy(text = organized.text, tools = organized.tools)
 }
 
+/**
+ * Hermes may persist one user turn as several adjacent assistant records (typically one around
+ * each tool call). Consumer chat UIs present those records as one answer: otherwise every small
+ * fragment gets its own copy/feedback/read-aloud row and those actions only target a fragment.
+ *
+ * Keep user/system boundaries intact, but combine adjacent assistant records after sanitizing
+ * them. The newest record supplies the stable id and streaming state, while copy/read-aloud sees
+ * the complete text produced during that turn.
+ */
+internal fun List<ChatMessage>.organizedConversationTurns(): List<ChatMessage> {
+    val turns = mutableListOf<ChatMessage>()
+    for (raw in this) {
+        val message = raw.organizedForDisplay()
+        val previous = turns.lastOrNull()
+        if (message.role != Role.ASSISTANT || previous?.role != Role.ASSISTANT) {
+            turns += message
+            continue
+        }
+
+        val toolsById = linkedMapOf<String, ToolCall>()
+        (previous.tools + message.tools).forEach { tool -> toolsById[tool.id] = tool }
+        turns[turns.lastIndex] = message.copy(
+            text = joinTurnParts(previous.text, message.text),
+            thinking = joinTurnParts(previous.thinking, message.thinking),
+            tools = toolsById.values.toList(),
+            isError = previous.isError || message.isError,
+            interrupted = previous.interrupted || message.interrupted,
+        )
+    }
+    return turns
+}
+
+private fun joinTurnParts(first: String, second: String): String = when {
+    first.isBlank() -> second
+    second.isBlank() -> first
+    else -> first.trimEnd() + "\n\n" + second.trimStart()
+}
+
 data class ApprovalRequest(
     val command: String,
     val description: String,

@@ -101,12 +101,15 @@ fun ChatMessageList(
     highlightIndex: Int? = null,
     onBlankAreaTap: () -> Unit = {},
 ) {
-    val lastIndex = state.messages.lastIndex
+    // Hermes stores a tool-using answer as multiple adjacent assistant records. Present them as
+    // one consumer-facing turn so the action row appears once and acts on the complete answer.
+    val displayMessages = remember(state.messages) { state.messages.organizedConversationTurns() }
+    val lastIndex = displayMessages.lastIndex
     // Only the most recent assistant turn can be regenerated — regenerating an earlier one
     // would silently drop everything the user and agent said after it.
-    val lastAssistantId = state.messages.lastOrNull { it.role == Role.ASSISTANT }?.id
+    val lastAssistantId = displayMessages.lastOrNull { it.role == Role.ASSISTANT }?.id
     // Length of the last (streaming) message: changes on every delta so we follow the stream.
-    val tailLen = state.messages.lastOrNull()?.text?.length ?: 0
+    val tailLen = displayMessages.lastOrNull()?.text?.length ?: 0
 
     // On first load of a non-empty thread (opening an existing session), jump straight to the
     // newest message so the latest reply is visible immediately — otherwise the list stays at
@@ -117,13 +120,13 @@ fun ChatMessageList(
     // the view mid-thread because the restored offset no longer maps to the bottom after the
     // width reflow. Switching threads also re-lands (the key changes).
     var landed by remember(sessionId) { mutableStateOf(false) }
-    LaunchedEffect(sessionId, state.messages.isNotEmpty()) {
-        if (state.messages.isEmpty() || landed) return@LaunchedEffect
+    LaunchedEffect(sessionId, displayMessages.isNotEmpty()) {
+        if (displayMessages.isEmpty() || landed) return@LaunchedEffect
         // History loads after the list is already composed, so wait until the LazyColumn has
         // actually measured the loaded items before scrolling — jumping before first layout
         // lands short of the bottom.
         snapshotFlow { listState.layoutInfo.totalItemsCount }
-            .filter { it >= state.messages.size }
+            .filter { it >= displayMessages.size }
             .first()
         // Mark landed before the convergence loop: if the user scrolls during the loop, scrollBy
         // loses the MutatePriority race and throws CancellationException, cancelling this effect.
@@ -152,13 +155,13 @@ fun ChatMessageList(
     // bottom, so scrolling back through history isn't yanked away mid-stream.
     LaunchedEffect(state.messages.size, tailLen) {
         if (lastIndex < 0 || !landed) return@LaunchedEffect
-        val justSent = state.messages.lastOrNull()?.role == Role.USER
+        val justSent = displayMessages.lastOrNull()?.role == Role.USER
         val visible = listState.layoutInfo.visibleItemsInfo
         val atBottom = visible.isEmpty() || (visible.lastOrNull()?.index ?: 0) >= lastIndex - 1
         if (justSent || atBottom) listState.animateScrollToItem(lastIndex)
     }
 
-    if (state.messages.isEmpty()) {
+    if (displayMessages.isEmpty()) {
         Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
             Text(
                 "发条消息，开始和 Hermes 对话。",
@@ -184,20 +187,15 @@ fun ChatMessageList(
         // The index makes the key collision-proof regardless of id source (the list
         // is append-only, so an item's index is stable across recompositions).
         itemsIndexed(
-            state.messages,
+            displayMessages,
             key = { index, msg -> "$index:${msg.id}" },
         ) { index, msg ->
             val canRegenerate = msg.id == lastAssistantId && !isGenerating
-            // Sanitize the render copy on every streamed update. The reducer intentionally keeps
-            // the raw accumulated text so split protocol tags can be completed by later deltas;
-            // rendering that raw buffer would briefly expose tool safety wrappers and JSON until
-            // message.complete arrives.
-            val displayMsg = remember(msg.text, msg.tools, msg.isStreaming) {
-                msg.organizedForDisplay()
-            }
+            val showAssistantActions = !(isGenerating && index == displayMessages.lastIndex)
             MessageBubble(
-                displayMsg,
+                msg,
                 canRegenerate,
+                showAssistantActions,
                 onEditResend,
                 onRegenerate,
                 isSpeaking,
@@ -217,6 +215,7 @@ fun ChatMessageList(
 private fun MessageBubble(
     msg: ChatMessage,
     canRegenerate: Boolean,
+    showAssistantActions: Boolean,
     onEditResend: (String) -> Unit,
     onRegenerate: () -> Unit,
     isSpeaking: Boolean,
@@ -226,7 +225,7 @@ private fun MessageBubble(
 ) {
     when (msg.role) {
         Role.USER -> UserBubble(msg, onEditResend, highlighted = highlighted)
-        else -> AssistantTurn(msg, canRegenerate, onRegenerate, isSpeaking, onReadAloud, onStopReading, highlighted = highlighted)
+        else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, isSpeaking, onReadAloud, onStopReading, highlighted = highlighted)
     }
 }
 
@@ -282,6 +281,7 @@ private fun UserBubble(msg: ChatMessage, onEditResend: (String) -> Unit, highlig
 private fun AssistantTurn(
     msg: ChatMessage,
     canRegenerate: Boolean,
+    showActions: Boolean,
     onRegenerate: () -> Unit,
     isSpeaking: Boolean,
     onReadAloud: (String) -> Unit,
@@ -353,7 +353,7 @@ private fun AssistantTurn(
             if (msg.isStreaming && msg.text.isBlank() && msg.tools.isEmpty()) {
                 TypingIndicator()
             }
-            if (!msg.isStreaming && msg.text.isNotBlank() && !msg.isError) {
+            if (showActions && !msg.isStreaming && msg.text.isNotBlank() && !msg.isError) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
