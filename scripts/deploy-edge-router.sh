@@ -19,6 +19,14 @@ RELEASE_ENV_EXISTED=false
 EDGE_CONF_EXISTED=false
 CERT_HOOK_EXISTED=false
 
+wait_for_https() {
+  for _ in $(seq 1 40); do
+    if curl --fail --silent --show-error "$@" >/dev/null 2>&1; then return 0; fi
+    sleep 0.25
+  done
+  return 1
+}
+
 systemctl is-active --quiet hermes-remote-gateway.service
 systemctl is-active --quiet hermes-release-server.service
 [[ -r /etc/letsencrypt/live/mrlgs.net/fullchain.pem && -r /etc/letsencrypt/live/mrlgs.net/privkey.pem ]]
@@ -61,12 +69,12 @@ if [[ -e "$DEFAULT_SITE" && ! -e "$DEFAULT_SITE_BACKUP" ]]; then mv "$DEFAULT_SI
 nginx -t
 systemctl daemon-reload
 systemctl restart hermes-release-server.service
-curl --fail --silent --show-error --resolve mrlgs.net:9443:127.0.0.1 https://mrlgs.net:9443/health >/dev/null
+wait_for_https --resolve mrlgs.net:9443:127.0.0.1 https://mrlgs.net:9443/health
 systemctl enable --now nginx.service
 
-curl --fail --silent --show-error --resolve mrlgs.net:443:127.0.0.1 https://mrlgs.net/health >/dev/null
-curl --fail --silent --show-error --resolve mrlgs.net:443:127.0.0.1 https://mrlgs.net/relay-health >/dev/null
-curl --fail --silent --show-error --resolve mrlgs.net:443:127.0.0.1 https://mrlgs.net/releases/index.json >/dev/null
+wait_for_https --resolve mrlgs.net:443:127.0.0.1 https://mrlgs.net/health
+wait_for_https --resolve mrlgs.net:443:127.0.0.1 https://mrlgs.net/relay-health
+wait_for_https --resolve mrlgs.net:443:127.0.0.1 https://mrlgs.net/releases/index.json
 [[ "$(curl --silent --show-error --resolve mrlgs.net:443:127.0.0.1 --output /dev/null --write-out '%{http_code}' https://mrlgs.net/api/status)" == 401 ]]
 
 trap - ERR INT TERM
