@@ -30,6 +30,35 @@ class ChatReducerTest {
         assertTrue(!s.isGenerating)
     }
 
+    @Test fun delta_without_start_recovers_a_streaming_assistant() {
+        var s = ChatUiState.empty().withUserMessage("hello")
+        s = s.reduce(ev("message.delta") { put("text", "recovered") })
+
+        assertEquals(2, s.messages.size)
+        assertEquals(Role.ASSISTANT, s.messages.last().role)
+        assertEquals("recovered", s.messages.last().text)
+        assertTrue(s.messages.last().isStreaming)
+    }
+
+    @Test fun complete_without_start_recovers_the_final_answer() {
+        var s = ChatUiState.empty().withUserMessage("hello")
+        s = s.reduce(ev("message.complete") { put("text", "final answer") })
+
+        assertEquals(2, s.messages.size)
+        assertEquals("final answer", s.messages.last().text)
+        assertFalse(s.messages.last().isStreaming)
+        assertFalse(s.isGenerating)
+    }
+
+    @Test fun late_start_after_recovered_delta_does_not_duplicate_assistant() {
+        var s = ChatUiState.empty().withUserMessage("hello")
+        s = s.reduce(ev("message.delta") { put("text", "partial") })
+        s = s.reduce(ev("message.start") { put("message_id", "agent") })
+
+        assertEquals(2, s.messages.size)
+        assertEquals("partial", s.messages.last().text)
+    }
+
     @Test fun tool_events_attach_to_current_turn() {
         var s = ChatUiState.empty()
         s = s.reduce(ev("message.start") { put("message_id", "a1") })

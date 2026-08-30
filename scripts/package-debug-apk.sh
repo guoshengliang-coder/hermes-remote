@@ -107,10 +107,17 @@ import re
 import sys
 
 text = open(sys.argv[1], encoding="utf-8").read()
-match = re.search(r"Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F]+)", text)
-if not match:
+matches = re.findall(
+    r"^(?:Signer #\d+|V\d+ Signer): certificate SHA-256 digest:\s*([0-9a-fA-F]+)\s*$",
+    text,
+    re.MULTILINE,
+)
+digests = {value.lower() for value in matches}
+if not digests:
     raise SystemExit("unable to read APK signing certificate SHA-256")
-print(match.group(1).lower())
+if len(digests) != 1:
+    raise SystemExit("APK contains more than one signing certificate SHA-256")
+print(digests.pop())
 PY
 )"
 if [[ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]]; then

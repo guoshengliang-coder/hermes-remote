@@ -140,6 +140,31 @@ class SessionsViewModelTest {
         assertTrue("a session.title event must trigger a list refresh", fetches > before)
     }
 
+    @Test fun message_complete_event_retries_list_refresh_for_delayed_persistence() = runTest {
+        val events = kotlinx.coroutines.flow.MutableSharedFlow<com.hermes.client.data.network.ServerEvent>(extraBufferCapacity = 8)
+        every { chatRepo.events } returns events
+        var fetches = 0
+        coEvery { sessionRepo.listAllProfiles() } coAnswers {
+            fetches++
+            if (fetches < 3) listOf(session("s1", "old")) else listOf(session("s1", "updated"))
+        }
+        val vm = buildVm()
+        advanceUntilIdle()
+        val before = fetches
+
+        events.emit(
+            com.hermes.client.data.network.ServerEvent(
+                type = "message.complete",
+                sessionId = "s1",
+                payload = buildJsonObject { put("session_id", "s1"); put("text", "done") },
+            ),
+        )
+        advanceUntilIdle()
+
+        assertTrue(fetches >= before + 2)
+        assertEquals("updated", vm.state.value.sessions.single().title)
+    }
+
     // The list is scoped to the active profile (one tenant at a time, like the desktop): a session
     // from another profile is filtered out, and each shown session keeps its own true profile.
     @Test fun list_is_scoped_to_active_profile() = runTest {

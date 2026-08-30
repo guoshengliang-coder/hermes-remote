@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.HermesApiException
 import com.hermes.client.data.network.SearchResultDto
+import com.hermes.client.data.network.bool
 import com.hermes.client.data.progress.SessionRuntime
 import com.hermes.client.data.progress.SessionRuntimeKey
 import com.hermes.client.data.progress.SessionRuntimeStore
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -142,7 +144,14 @@ class SessionsViewModel @Inject constructor(
         // event; re-fetch so the AI title replaces "Untitled" (and the now-non-empty chat appears).
         // This VM stays in the back stack while a chat is open, so it catches the event live.
         viewModelScope.launch {
-            chat.events.collect { if (it.type == "session.title") refresh() }
+            chat.events.collect { event ->
+                val shouldRefresh = when (event.type) {
+                    "session.title", "message.complete", "error", "gateway.ready" -> true
+                    "session.info" -> event.bool("running") == false
+                    else -> false
+                }
+                if (shouldRefresh) scheduleEventRefresh()
+            }
         }
         // Fetch the project tree whenever Projects becomes the active view without a loaded tree.
         // Covers both the toggle tap AND a cold launch restored into Projects mode (persisted) —
@@ -157,45 +166,69 @@ class SessionsViewModel @Inject constructor(
         }
     }
 
-    // Several triggers call refresh() (profile change, session.title event, manual). Cancel any
-    // in-flight refresh before starting a new one so a slow older request can't complete last and
-    // overwrite the list with stale data (latest-wins).
+    // Coalesce refresh storms without cancelling an already-running HTTP request. Cancellation used
+    // to make a title/completion event race the ON_RESUME refresh, occasionally leaving neither
+    // result committed. If another request arrives while loading, one final pass runs afterward.
     private var refreshJob: Job? = null
+    private var refreshVersion = 0L
+    private var eventRefreshJob: Job? = null
 
     fun refresh() {
-        refreshJob?.cancel()
+        refreshVersion++
+        if (refreshJob?.isActive == true) return
         refreshJob = viewModelScope.launch {
-            _state.value = _state.value.copy(loading = true, error = null, unauthorized = false)
-            try {
-                // Fetch the cross-profile list (true per-session profile + cron/empty already filtered),
-                // then scope to the active profile so only that tenant's sessions show. Until the active
-                // profile is known, fall back to showing everything rather than a blank list.
-                val active = profileManager.active.value
-                val all = sessions.listAllProfiles()
-                val list = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
-                _state.value = _state.value.copy(
-                    sessions = list,
-                    loading = false,
-                    error = null,
-                    unauthorized = false,
-                )
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e // a superseded refresh is cancelled, not an error — don't clobber state
-            } catch (e: HermesApiException) {
-                if (e.code == 401) {
-                    _state.value = SessionsUiState(unauthorized = true)
-                } else {
-                    _state.value = _state.value.copy(
-                        loading = false,
-                        error = e.message ?: "Failed to load",
-                    )
-                }
-            } catch (e: Exception) {
-                _state.value = _state.value.copy(
-                    loading = false,
-                    error = e.message ?: "Failed to load",
-                )
+            do {
+                val handlingVersion = refreshVersion
+                refreshOnce()
+            } while (handlingVersion != refreshVersion)
+        }
+    }
+
+    private suspend fun refreshOnce() {
+        // Keep an already-rendered list completely steady during background reconciliation. The
+        // blocking skeleton is only for the first load; terminal/reconnect refreshes stay invisible.
+        _state.value = _state.value.copy(
+            loading = _state.value.sessions.isEmpty(),
+            error = null,
+            unauthorized = false,
+        )
+        try {
+            val active = profileManager.active.value
+            val all = sessions.listAllProfiles()
+            // A profile switch during the request queues another pass. Do not briefly publish the
+            // previous profile's list while that newer request is waiting.
+            if (active != profileManager.active.value) return
+            val list = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
+            _state.value = _state.value.copy(
+                sessions = list,
+                loading = false,
+                error = null,
+                unauthorized = false,
+            )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: HermesApiException) {
+            if (e.code == 401) {
+                _state.value = SessionsUiState(unauthorized = true)
+            } else {
+                _state.value = _state.value.copy(loading = false, error = e.message ?: "Failed to load")
             }
+        } catch (e: Exception) {
+            _state.value = _state.value.copy(loading = false, error = e.message ?: "Failed to load")
+        }
+    }
+
+    private fun scheduleEventRefresh() {
+        eventRefreshJob?.cancel()
+        eventRefreshJob = viewModelScope.launch {
+            // The terminal event can precede SQLite visibility by a fraction of a second. Keep the
+            // warm list on screen, then do a quick pass and one delayed authoritative pass.
+            delay(250L)
+            refresh()
+            delay(1_250L)
+            refresh()
+            delay(3_000L)
+            refresh()
         }
     }
 

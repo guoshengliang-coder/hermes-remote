@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -17,8 +18,15 @@ data class ServerEvent(
         fun from(params: JsonObject): ServerEvent {
             val type = params["type"]?.jsonPrimitive?.content ?: "unknown"
             val payload = (params["payload"] as? JsonObject) ?: JsonObject(emptyMap())
-            val sessionId = payload["session_id"]?.jsonPrimitive?.content
-                ?: params["session_id"]?.jsonPrimitive?.content
+            // Hermes versions in the field have used snake_case, camelCase, and a separate
+            // durable stored id. Prefer the durable id when present, and never let an unexpected
+            // structured value throw while parsing the whole event.
+            val sessionId = listOf(
+                payload["stored_session_id"], params["stored_session_id"],
+                payload["storedSessionId"], params["storedSessionId"],
+                payload["session_id"], params["session_id"],
+                payload["sessionId"], params["sessionId"],
+            ).firstNotNullOfOrNull { (it as? JsonPrimitive)?.contentOrNull?.ifBlank { null } }
             return ServerEvent(type, sessionId, payload)
         }
     }

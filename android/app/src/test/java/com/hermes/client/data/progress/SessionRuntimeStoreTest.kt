@@ -7,6 +7,7 @@ import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import io.mockk.every
+import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CoroutineScope
@@ -14,6 +15,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.serialization.json.buildJsonObject
@@ -40,7 +43,9 @@ class SessionRuntimeStoreTest {
         val events: MutableSharedFlow<ServerEvent>,
     )
 
-    private fun kotlinx.coroutines.test.TestScope.fixture(): Fixture {
+    private fun kotlinx.coroutines.test.TestScope.fixture(
+        sessions: com.hermes.client.data.repository.SessionRepository? = null,
+    ): Fixture {
         val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
         val chat = mockk<ChatRepository>(relaxed = true)
         every { chat.events } returns events
@@ -48,7 +53,15 @@ class SessionRuntimeStoreTest {
         val profiles = mockk<ProfileManager>(relaxed = true)
         every { profiles.active } returns MutableStateFlow<String?>("personal")
         val eagerScope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
-        return Fixture(SessionRuntimeStore(chat, eagerScope, profiles), events)
+        return Fixture(
+            SessionRuntimeStore(
+                chatRepository = chat,
+                appScope = eagerScope,
+                profiles = profiles,
+                sessionRepository = sessions,
+            ),
+            events,
+        )
     }
 
     @Test fun offscreen_stream_is_retained_and_marked_running() = runTest {
@@ -105,6 +118,45 @@ class SessionRuntimeStoreTest {
         assertEquals("回答二", store.runtimes.value.getValue(second).chat.messages.last().text)
     }
 
+    @Test fun unscoped_event_with_two_active_sessions_is_not_misrouted() = runTest {
+        val (store, events) = fixture()
+        val first = store.register("s1", "personal")
+        val second = store.register("s2", "personal")
+        store.beginPrompt(first, "一")
+        store.beginPrompt(second, "二")
+
+        events.emit(ServerEvent("message.delta", null, buildJsonObject { put("text", "ambiguous") }))
+        advanceUntilIdle()
+
+        assertEquals("一", store.runtimes.value.getValue(first).chat.messages.last().text)
+        assertEquals("二", store.runtimes.value.getValue(second).chat.messages.last().text)
+    }
+
+    @Test fun terminal_event_retries_until_server_history_contains_the_turn() = runTest {
+        val sessions = mockk<com.hermes.client.data.repository.SessionRepository>()
+        val user = ChatMessage("persisted-user", Role.USER, "开始")
+        val answer = ChatMessage("persisted-answer", Role.ASSISTANT, "完成内容")
+        coEvery { sessions.history("s1", "personal") } returnsMany listOf(
+            listOf(user),
+            listOf(user, answer),
+            listOf(user, answer),
+            listOf(user, answer),
+        )
+        val (store, events) = fixture(sessions)
+        val key = store.register("s1", "personal")
+        store.beginPrompt(key, "开始")
+        events.emit(event("message.complete", "s1", "完成内容"))
+        runCurrent()
+
+        advanceTimeBy(250L)
+        runCurrent()
+        assertTrue(store.runtimes.value.getValue(key).chat.messages.none { it.id == "persisted-answer" })
+
+        advanceTimeBy(1_000L)
+        runCurrent()
+        assertTrue(store.runtimes.value.getValue(key).chat.messages.any { it.id == "persisted-answer" })
+    }
+
     @Test fun completion_while_offscreen_becomes_unread() = runTest {
         val (store, events) = fixture()
         val key = store.register("s1", "personal")
@@ -120,6 +172,24 @@ class SessionRuntimeStoreTest {
         store.markRead(key)
         assertEquals(SessionRunPhase.IDLE, store.runtimes.value.getValue(key).phase)
         assertFalse("personal/s1" in store.unreadTokens.value)
+    }
+
+    @Test fun resumed_running_session_restores_generating_state() = runTest {
+        val (store, events) = fixture()
+        val key = store.register("s1", "personal")
+
+        events.emit(
+            ServerEvent(
+                "session.info",
+                "s1",
+                buildJsonObject { put("session_id", "s1"); put("running", true) },
+            ),
+        )
+        advanceUntilIdle()
+
+        val runtime = store.runtimes.value.getValue(key)
+        assertEquals(SessionRunPhase.THINKING, runtime.phase)
+        assertTrue(runtime.chat.isGenerating)
     }
 
     @Test fun opening_a_just_completed_turn_does_not_accept_shorter_server_history() = runTest {

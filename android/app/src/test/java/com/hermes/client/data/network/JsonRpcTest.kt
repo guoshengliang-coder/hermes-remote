@@ -43,4 +43,19 @@ class JsonRpcTest {
         assertEquals("s1", ev.sessionId)
         assertEquals("hello", ev.payload["delta"]!!.toString().trim('"'))
     }
+
+    @Test fun event_prefers_durable_stored_session_id_across_field_variants() {
+        val line = """{"jsonrpc":"2.0","method":"event","params":{"type":"message.complete","sessionId":"live-1","payload":{"stored_session_id":"stored-1","session_id":"live-1","text":"done"}}}"""
+        val event = (parseInbound(json, line) as RpcEvent).event
+
+        assertEquals("stored-1", event.sessionId)
+    }
+
+    @Test fun structured_session_id_does_not_break_event_parsing() {
+        val line = """{"jsonrpc":"2.0","method":"event","params":{"type":"message.delta","payload":{"session_id":{"bad":true},"text":"hello"}}}"""
+        val event = (parseInbound(json, line) as RpcEvent).event
+
+        assertEquals(null, event.sessionId)
+        assertEquals("message.delta", event.type)
+    }
 }

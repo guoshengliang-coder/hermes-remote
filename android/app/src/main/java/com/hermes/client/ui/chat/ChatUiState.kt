@@ -370,56 +370,71 @@ fun ChatUiState.withUserMessage(
 /** Pure reducer: folds one server event into the chat state. */
 fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
     val state = this
-    // Targets the last STREAMING assistant message.
-    fun mutateLastAssistant(block: (ChatMessage) -> ChatMessage): ChatUiState {
-        val idx = state.messages.indexOfLast { it.role == Role.ASSISTANT && it.isStreaming }
-        if (idx < 0) return state
-        val updated = state.messages.toMutableList()
-        updated[idx] = block(updated[idx])
-        return state.copy(messages = updated)
-    }
-
-    // Targets the last assistant message regardless of streaming state.
-    fun mutateLastAssistantAny(block: (ChatMessage) -> ChatMessage): ChatUiState {
-        val idx = state.messages.indexOfLast { it.role == Role.ASSISTANT }
-        if (idx < 0) return state
-        val updated = state.messages.toMutableList()
-        updated[idx] = block(updated[idx])
-        return state.copy(messages = updated)
-    }
-
-    return when (event.type) {
-        "message.start" -> state.copy(
-            messages = state.messages + ChatMessage(
-                // The gateway's message_id is NOT unique across turns — it sends the
-                // model/agent name (e.g. "gemma"), reused every turn. Used alone as a
-                // LazyColumn key it collides on the second turn and crashes the app, so
-                // prefix the message position (monotonic) to guarantee a unique, stable
-                // id. message_id isn't read anywhere else (deltas/tools route by
-                // indexOfLast / tool_id), so this is the only place it matters.
-                id = "a-${state.messages.size}-${event.str("message_id") ?: "msg"}",
-                role = Role.ASSISTANT, text = "", isStreaming = true,
+    fun ChatUiState.ensureStreamingAssistant(): ChatUiState {
+        val streamingIndex = messages.indexOfLast { it.role == Role.ASSISTANT && it.isStreaming }
+        val lastUserIndex = messages.indexOfLast { it.role == Role.USER }
+        if (streamingIndex > lastUserIndex) return this
+        return copy(
+            messages = messages + ChatMessage(
+                id = "a-${messages.size}-${event.str("message_id") ?: "recovered"}",
+                role = Role.ASSISTANT,
+                text = "",
+                isStreaming = true,
             ),
             isGenerating = true,
         )
+    }
+
+    // Targets the last STREAMING assistant message.
+    fun ChatUiState.mutateLastAssistant(block: (ChatMessage) -> ChatMessage): ChatUiState {
+        val idx = messages.indexOfLast { it.role == Role.ASSISTANT && it.isStreaming }
+        if (idx < 0) return this
+        val updated = messages.toMutableList()
+        updated[idx] = block(updated[idx])
+        return copy(messages = updated)
+    }
+
+    // Targets the last assistant message regardless of streaming state.
+    fun ChatUiState.mutateLastAssistantAny(block: (ChatMessage) -> ChatMessage): ChatUiState {
+        val idx = messages.indexOfLast { it.role == Role.ASSISTANT }
+        if (idx < 0) return this
+        val updated = messages.toMutableList()
+        updated[idx] = block(updated[idx])
+        return copy(messages = updated)
+    }
+
+    return when (event.type) {
+        // A reconnect can replay start after a recovered delta, so do not append a duplicate.
+        "message.start" -> state.ensureStreamingAssistant()
         // Gateway streams text under payload.text (not "delta"/"content").
-        "message.delta" -> mutateLastAssistant { it.copy(text = it.text + (event.str("text") ?: "")) }
+        // If start was lost during a reconnect, recover a streaming assistant instead of silently
+        // discarding every delta until the user reopens the conversation.
+        "message.delta" -> state.ensureStreamingAssistant()
+            .mutateLastAssistant { it.copy(text = it.text + (event.str("text") ?: "")) }
         // Real reasoning arrives as reasoning.delta/reasoning.available (payload.text).
         // thinking.delta is only a transient spinner status, so it's ignored (else branch).
         "reasoning.delta", "reasoning.available" ->
-            mutateLastAssistant { it.copy(thinking = it.thinking + (event.str("text") ?: "")) }
-        "message.complete" -> mutateLastAssistant {
+            state.ensureStreamingAssistant()
+                .mutateLastAssistant { it.copy(thinking = it.thinking + (event.str("text") ?: "")) }
+        // Complete normally contains the authoritative final text. Upsert a recovered assistant
+        // when start/delta were missed so the most valuable terminal event is never thrown away.
+        "message.complete" -> {
             val complete = event.str("text") ?: event.str("rendered")
-            it.copy(text = complete ?: it.text, isStreaming = false).organizedForDisplay()
-        }.copy(isGenerating = false)
-        "tool.start" -> mutateLastAssistant {
+            val prepared = if (state.messages.any { it.role == Role.ASSISTANT && it.isStreaming } || !complete.isNullOrBlank()) {
+                state.ensureStreamingAssistant()
+            } else state
+            prepared.mutateLastAssistant {
+                it.copy(text = complete ?: it.text, isStreaming = false).organizedForDisplay()
+            }.copy(isGenerating = false)
+        }
+        "tool.start" -> state.ensureStreamingAssistant().mutateLastAssistant {
             it.copy(tools = it.tools + ToolCall(
                 id = event.str("tool_id") ?: "t-${it.tools.size}",
                 name = event.str("name") ?: "tool",
                 status = ToolStatus.RUNNING,
             ))
         }
-        "tool.complete" -> mutateLastAssistantAny { msg ->
+        "tool.complete" -> state.mutateLastAssistantAny { msg ->
             val tid = event.str("tool_id")
             msg.copy(tools = msg.tools.map {
                 if (it.id == tid) it.copy(

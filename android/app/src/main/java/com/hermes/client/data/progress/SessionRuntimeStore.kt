@@ -4,14 +4,20 @@ import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.ServerEvent
 import com.hermes.client.data.network.bool
 import com.hermes.client.data.network.str
+import com.hermes.client.data.diagnostics.DebugLog
+import com.hermes.client.data.repository.ChatMediaRepository
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SessionReadStore
+import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.domain.ChatMessage
+import com.hermes.client.domain.Role
 import com.hermes.client.ui.chat.ChatUiState
 import com.hermes.client.ui.chat.markInterrupted
+import com.hermes.client.ui.chat.organizedForDisplay
 import com.hermes.client.ui.chat.reduce
 import com.hermes.client.ui.chat.withUserMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -77,6 +83,8 @@ class SessionRuntimeStore(
     private val appScope: CoroutineScope,
     private val profiles: ProfileManager,
     private val readStore: SessionReadStore? = null,
+    private val sessionRepository: SessionRepository? = null,
+    private val mediaRepository: ChatMediaRepository? = null,
 ) {
     private val _runtimes = MutableStateFlow<Map<SessionRuntimeKey, SessionRuntime>>(emptyMap())
     val runtimes: StateFlow<Map<SessionRuntimeKey, SessionRuntime>> = _runtimes.asStateFlow()
@@ -86,6 +94,7 @@ class SessionRuntimeStore(
     private val aliases = ConcurrentHashMap<String, SessionRuntimeKey>()
     private val processPollJobs = ConcurrentHashMap<SessionRuntimeKey, Job>()
     private val processPollGraceRemaining = ConcurrentHashMap<SessionRuntimeKey, Int>()
+    private val historyReconcileJobs = ConcurrentHashMap<SessionRuntimeKey, Job>()
     private val visible = ConcurrentHashMap.newKeySet<SessionRuntimeKey>()
     private val readPersistenceQueue = Channel<Pair<String, Boolean>>(Channel.UNLIMITED)
     @Volatile private var lastActiveKey: SessionRuntimeKey? = null
@@ -102,7 +111,15 @@ class SessionRuntimeStore(
             }
         }
         appScope.launch {
-            chatRepository.events.collect { event -> runCatching { applyEvent(event) } }
+            chatRepository.events.collect { event ->
+                try {
+                    applyEvent(event)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    DebugLog.log("event", "failed ${event.type} session=${event.sessionId ?: "-"}: ${error.message}")
+                }
+            }
         }
         appScope.launch {
             var previous: ConnectionState? = null
@@ -115,8 +132,13 @@ class SessionRuntimeStore(
                         }
                     }
                 }
-                if (current is ConnectionState.Connected && previous is ConnectionState.Reconnecting) {
+                if (current is ConnectionState.Connected && previous != null && previous !is ConnectionState.Connected) {
                     resumeRunningSessions()
+                    // WebSocket notifications are not replayed across a disconnect. Re-read every
+                    // active/visible transcript so any events produced in the gap are recovered.
+                    _runtimes.value.values
+                        .filter { it.phase.isActive || it.key in visible || it.chat.isGenerating }
+                        .forEach { scheduleHistoryReconciliation(it.key, expectationFor(it)) }
                 }
                 previous = current
             }
@@ -255,6 +277,7 @@ class SessionRuntimeStore(
                 ),
             )
         }
+        _runtimes.value[key]?.let { scheduleHistoryReconciliation(key, expectationFor(it)) }
     }
 
     fun updateChat(key: SessionRuntimeKey, transform: (ChatUiState) -> ChatUiState) {
@@ -267,6 +290,7 @@ class SessionRuntimeStore(
         images: List<com.hermes.client.domain.ChatImage> = emptyList(),
         messageId: String = "u-${System.nanoTime()}",
     ) {
+        historyReconcileJobs.remove(key)?.cancel()
         lastActiveKey = key
         updateRuntime(key) { runtime ->
             runtime.copy(
@@ -352,16 +376,29 @@ class SessionRuntimeStore(
             if (event.type == "message.start" || event.type == "session.info") {
                 return register(id, profiles.active.value)
             }
+            DebugLog.log("event", "unmatched ${event.type} session=$id; awaiting history reconciliation")
+            return null
         }
         val active = _runtimes.value.values.filter { it.phase.isActive }
-        return if (active.size == 1) active.single().key else lastActiveKey
+        if (active.size == 1) return active.single().key
+        if (active.size > 1) {
+            DebugLog.log("event", "ambiguous ${event.type} without session id across ${active.size} runs")
+        } else {
+            DebugLog.log("event", "unmatched ${event.type} without session id")
+        }
+        return null
     }
 
     private fun applyEvent(event: ServerEvent) {
         val key = resolve(event) ?: return
         if (event.type == "message.start") lastActiveKey = key
         updateRuntime(key) { runtime ->
-            val reduced = runCatching { runtime.chat.reduce(event) }.getOrDefault(runtime.chat)
+            val reduced = try {
+                runtime.chat.reduce(event)
+            } catch (error: Exception) {
+                DebugLog.log("event", "reducer rejected ${event.type} session=${event.sessionId ?: "-"}: ${error.message}")
+                runtime.chat
+            }
             val withTerminalOutput = if (event.type == "agent.terminal.output") {
                 val processId = event.str("process_id")
                 val chunk = event.str("chunk").orEmpty()
@@ -387,8 +424,12 @@ class SessionRuntimeStore(
                 }
                 else -> runtime.phase
             }
-            val finalChat = if (event.type == "session.info" && event.bool("running") == false) {
-                withTerminalOutput.copy(isGenerating = false)
+            val finalChat = if (event.type == "session.info") {
+                when (event.bool("running")) {
+                    true -> withTerminalOutput.copy(isGenerating = true)
+                    false -> withTerminalOutput.copy(isGenerating = false)
+                    null -> withTerminalOutput
+                }
             } else withTerminalOutput
             runtime.copy(
                 chat = finalChat,
@@ -406,8 +447,109 @@ class SessionRuntimeStore(
         }
         if (event.type == "message.complete" || (event.type == "session.info" && event.bool("running") == false)) {
             if (key in visible) markRead(key) else markUnread(key)
+            _runtimes.value[key]?.let { scheduleHistoryReconciliation(key, expectationFor(it)) }
         }
     }
+
+    private data class HistoryExpectation(
+        val userTurns: Int,
+        val assistantTurns: Int,
+        val lastUserText: String,
+        val lastAssistantText: String,
+    )
+
+    private fun expectationFor(runtime: SessionRuntime): HistoryExpectation = HistoryExpectation(
+        userTurns = runtime.chat.messages.count { it.role == Role.USER },
+        assistantTurns = runtime.chat.messages.count { it.role == Role.ASSISTANT },
+        lastUserText = runtime.chat.messages.lastOrNull { it.role == Role.USER }?.text.orEmpty().matchText(),
+        lastAssistantText = runtime.chat.messages.lastOrNull { it.role == Role.ASSISTANT }?.text.orEmpty().matchText(),
+    )
+
+    /**
+     * Reconcile several times because Hermes can emit its terminal event slightly before the final
+     * database transaction becomes visible through REST. Every pass is safe: a snapshot that does
+     * not yet cover the locally observed turn is rejected, while a later authoritative snapshot
+     * repairs missing WebSocket start/delta/complete events.
+     */
+    private fun scheduleHistoryReconciliation(
+        key: SessionRuntimeKey,
+        expectation: HistoryExpectation,
+    ) {
+        val repository = sessionRepository ?: return
+        historyReconcileJobs.remove(key)?.cancel()
+        lateinit var job: Job
+        job = appScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                for (delayMs in HISTORY_RECONCILE_DELAYS_MS) {
+                    delay(delayMs)
+                    val history = try {
+                        repository.history(key.sessionId, key.profile).map { it.organizedForDisplay() }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        DebugLog.log("history", "reconcile ${key.sessionId} failed: ${error.message}")
+                        continue
+                    }
+                    val accepted = acceptReconciledHistory(key, history, expectation)
+                    DebugLog.log(
+                        "history",
+                        "reconcile ${key.sessionId}: ${history.size} messages, accepted=$accepted",
+                    )
+                    if (accepted && mediaRepository != null) {
+                        val hydrated = mediaRepository.hydrateMessages(history, key.profile)
+                        acceptHydratedImages(key, hydrated)
+                    }
+                }
+            } finally {
+                historyReconcileJobs.remove(key, job)
+            }
+        }
+        historyReconcileJobs[key] = job
+        job.start()
+    }
+
+    private fun acceptReconciledHistory(
+        key: SessionRuntimeKey,
+        messages: List<ChatMessage>,
+        expectation: HistoryExpectation,
+    ): Boolean {
+        updateRuntime(key) { runtime ->
+            val current = expectationFor(runtime)
+            val newerPromptStarted = current.userTurns > expectation.userTurns ||
+                (expectation.lastUserText.isNotBlank() && current.lastUserText != expectation.lastUserText)
+            // It is safe to refresh text while a run is still active as long as REST covers every
+            // locally observed turn. Keep the phase unchanged; a terminal event/session.info still
+            // owns the transition to idle. This also recovers deltas lost during reconnect.
+            if (newerPromptStarted || !messages.covers(expectation)) {
+                return@updateRuntime runtime
+            }
+            runtime.copy(
+                chat = runtime.chat.copy(
+                    messages = messages,
+                    historyLoading = false,
+                    historyLoaded = true,
+                    historyError = null,
+                ),
+            )
+        }
+        // StateFlow.update may retry its transform under contention, so keep the transform free of
+        // side effects and derive acceptance from the committed snapshot afterward.
+        return _runtimes.value[key]?.chat?.messages == messages
+    }
+
+    private fun List<ChatMessage>.covers(expectation: HistoryExpectation): Boolean {
+        val users = filter { it.role == Role.USER }
+        val assistants = filter { it.role == Role.ASSISTANT }
+        if (users.size < expectation.userTurns || assistants.size < expectation.assistantTurns) return false
+        if (expectation.lastUserText.isNotBlank() && users.lastOrNull()?.text.orEmpty().matchText() != expectation.lastUserText) {
+            return false
+        }
+        if (expectation.lastAssistantText.isBlank()) return true
+        val persisted = assistants.lastOrNull()?.text.orEmpty().matchText()
+        return persisted == expectation.lastAssistantText || persisted.contains(expectation.lastAssistantText)
+    }
+
+    private fun String.matchText(): String = trim().replace(Regex("\\s+"), " ")
 
     private suspend fun refreshProcesses(key: SessionRuntimeKey) {
         val runtime = _runtimes.value[key] ?: return
@@ -470,6 +612,7 @@ class SessionRuntimeStore(
         const val PROCESS_POLL_MS = 5_000L
         const val PROCESS_DISCOVERY_GRACE_POLLS = 4
         const val PROCESS_OUTPUT_TAIL_CHARS = 4_000
+        val HISTORY_RECONCILE_DELAYS_MS = longArrayOf(250L, 1_000L, 3_000L, 10_000L)
         /** Keep recent idle histories warm without retaining every session opened in this process. */
         const val MAX_CACHED_IDLE_RUNTIMES = 20
     }

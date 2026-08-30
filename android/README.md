@@ -52,6 +52,9 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   resumable downloads, APK integrity/signature checks, and system-confirmed overwrite installation.
 - Version 0.1.18 is the first release published specifically to verify the complete in-app update
   flow from version discovery through signed download and system-confirmed overwrite installation.
+- Version 0.1.19 makes chat and session state self-healing: missing or reordered stream events recover
+  their assistant turn, terminal/reconnect paths reconcile against server history with delayed retries,
+  resumed runs restore their generating state, and warm session lists refresh without visual flashing.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
@@ -73,7 +76,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.18-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.19-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
