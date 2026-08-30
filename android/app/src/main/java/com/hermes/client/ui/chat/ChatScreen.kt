@@ -155,9 +155,8 @@ fun ChatScreen(
     // Coerce currentMatch into range so the highlight stays in sync with the (coerced) counter during
     // the transient window after `matches` shrinks but before the reset effect runs.
     val highlightIndex = if (searchOpen && matches.isNotEmpty()) matches[currentMatch.coerceAtMost(matches.lastIndex)] else null
-    // Key the scroll on the resolved match index, so it only animates when the active match actually
-    // moves — not on every streamed token (which changes `matches`'s identity but not the target).
-    LaunchedEffect(highlightIndex) { highlightIndex?.let { listState.animateScrollToItem(it) } }
+    // Highlight scrolling lives inside ChatMessageList: with reverseLayout the turn index must be
+    // mapped to the reversed list index, and the list owns that mapping.
     // System back closes the search bar first (rather than leaving the chat) when it's open.
     androidx.activity.compose.BackHandler(enabled = searchOpen) { searchOpen = false; query = "" }
     val focusManager = LocalFocusManager.current

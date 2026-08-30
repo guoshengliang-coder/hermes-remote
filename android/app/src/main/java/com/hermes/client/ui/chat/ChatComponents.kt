@@ -33,7 +33,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -60,6 +59,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,7 +68,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
@@ -85,9 +84,6 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
@@ -166,202 +162,80 @@ fun ChatMessageList(
         }
     }
     val displayKeys = remember(displayMessages) { displayMessages.conversationRenderKeys() }
-    val lastIndex = displayMessages.lastIndex
     // Only the most recent assistant turn can be regenerated — regenerating an earlier one
     // would silently drop everything the user and agent said after it.
     val lastAssistantId = displayMessages.lastOrNull { it.role == Role.ASSISTANT }?.id
-    // Changes for reasoning, visible answer text, and live tool activity. The previous text-only key
-    // never fired while Hermes was thinking, leaving the viewport frozen until answer text arrived.
-    val streamRevision = (state.messages.lastOrNull()?.streamContentRevision() ?: 0) +
-        state.backgroundProcesses.sumOf { it.outputTail.length + if (it.running) 1 else 2 }
-    val latestStreamRevision by rememberUpdatedState(streamRevision)
-    var renderedStreamRevision by remember(sessionId) { mutableStateOf(streamRevision) }
-    LaunchedEffect(sessionId, streamingTail?.id, streamingTail != null) {
-        if (streamingTail == null) {
-            renderedStreamRevision = latestStreamRevision
-            return@LaunchedEffect
-        }
-        while (isActive) {
-            renderedStreamRevision = latestStreamRevision
-            delay(STREAM_RENDER_INTERVAL_MS)
+    val processesVisible = visibleProcesses.isNotEmpty()
+
+    // reverseLayout pins the viewport to the newest content natively: while the list rests at
+    // (firstVisibleItemIndex = 0, offset = 0), a growing streaming turn stays glued to the bottom
+    // with ZERO programmatic scrolling. The previous forward layout chased the tail with an
+    // instant scrollToItem every 64ms — the visible stream jitter — and needed pixel-tolerance
+    // "did we land" checks that made the jump button unreliable on dense screens.
+    val atBottom by remember(listState) {
+        derivedStateOf {
+            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
         }
     }
-    // Cached separately from the streaming tail: an authoritative history refresh may replace an
-    // earlier turn without changing the message count or the final message. That must trigger a
-    // second bottom calibration before the initial-entry window closes.
-    val settledLayoutRevision = remember(settledMessages) {
-        settledMessages.conversationLayoutRevision()
-    }
-    val endAnchorIndex = displayMessages.size + if (visibleProcesses.isNotEmpty()) 1 else 0
-    var scrollMode by remember(sessionId) { mutableStateOf(ChatScrollMode.INITIALIZING) }
-    var contentReady by remember(sessionId) { mutableStateOf(false) }
-    var atTail by remember(sessionId) { mutableStateOf(false) }
-    val scrollRequests = remember(sessionId) { Channel<ChatScrollRequest>(Channel.CONFLATED) }
-    val latestEndAnchorIndex by rememberUpdatedState(endAnchorIndex)
-    val latestScrollMode by rememberUpdatedState(scrollMode)
-    val latestExternalScrollActive by rememberUpdatedState(externalScrollActive)
 
-    // This coroutine is the only owner allowed to mutate LazyListState. Previously initial landing,
-    // stream following, the bottom button, and layout observation all issued independent scrolls;
-    // those mutators cancelled one another and left the list at arbitrary offsets.
-    LaunchedEffect(sessionId, listState, scrollRequests) {
-        // A user drag owns the scroll mutex at UserInput priority; a programmatic snap runs at
-        // Default. Whenever the two collide — a drag starting mid-snap, or a snap issued while a
-        // finger is down — the losing snap surfaces as a CancellationException. Uncaught, that one
-        // exception used to cancel this whole executor, and because its keys never change the
-        // executor stayed dead for the rest of the screen: the jump button and stream following
-        // silently stopped working forever. A stolen mutex is just one failed snap; only rethrow
-        // when this effect itself is actually being cancelled.
-        suspend fun snapTo(index: Int): Boolean = try {
-            listState.scrollToItem(index)
-            true
-        } catch (stolen: CancellationException) {
-            currentCoroutineContext().ensureActive()
-            false
-        }
-
-        suspend fun waitForTailItem(): Boolean {
-            repeat(90) {
-                if (listState.layoutInfo.totalItemsCount > latestEndAnchorIndex) return true
-                withFrameNanos { }
-            }
-            return false
-        }
-
-        suspend fun settleAtTail(requiredStableFrames: Int, expectedMode: ChatScrollMode): Boolean {
-            if (!waitForTailItem()) return false
-            var stableFrames = 0
-            var guard = 0
-            while (guard++ < 24 && stableFrames < requiredStableFrames) {
-                if (latestScrollMode != expectedMode) return false
-                // Search-driven highlight scrolling owns the list while active; racing it with
-                // scrollToItem would cancel both and leave the viewport at an arbitrary offset.
-                if (latestExternalScrollActive) return false
-                val target = latestEndAnchorIndex
-                if (listState.layoutInfo.totalItemsCount <= target) {
-                    withFrameNanos { }
-                    continue
-                }
-                // The user grabbing the list mid-settle means they want control; stop competing.
-                if (!snapTo(target)) return false
-                withFrameNanos { }
-                stableFrames = if (listState.layoutInfo.isAtConversationTail()) stableFrames + 1 else 0
-            }
-            return stableFrames >= requiredStableFrames
-        }
-
-        for (request in scrollRequests) {
-            when (request) {
-                ChatScrollRequest.PAUSE -> Unit
-                ChatScrollRequest.INITIALIZE -> {
-                    val landed = settleAtTail(3, ChatScrollMode.INITIALIZING)
-                    // Never keep the transcript hidden forever if a malformed item cannot settle.
-                    contentReady = true
-                    if (landed && latestScrollMode == ChatScrollMode.INITIALIZING) {
-                        scrollMode = ChatScrollMode.FOLLOWING_TAIL
-                    } else if (latestScrollMode == ChatScrollMode.INITIALIZING) {
-                        scrollMode = ChatScrollMode.USER_BROWSING
-                    }
-                }
-                ChatScrollRequest.FOLLOW -> {
-                    withFrameNanos { }
-                    if (contentReady && !latestExternalScrollActive &&
-                        latestScrollMode == ChatScrollMode.FOLLOWING_TAIL
-                    ) {
-                        val target = latestEndAnchorIndex
-                        // A follow snap losing the mutex to a user drag is fine: the drag's
-                        // onPreScroll flips the mode to USER_BROWSING right after.
-                        if (listState.layoutInfo.totalItemsCount > target) snapTo(target)
-                    }
-                }
-                ChatScrollRequest.JUMP_TO_TAIL -> {
-                    val landed = settleAtTail(2, ChatScrollMode.PROGRAMMATIC_JUMP)
-                    if (latestScrollMode == ChatScrollMode.PROGRAMMATIC_JUMP) {
-                        // A failed jump must fall back to browsing: staying in PROGRAMMATIC_JUMP
-                        // hides the jump button (it renders only in USER_BROWSING) and disables
-                        // tail-following, wedging the screen until the user drags manually.
-                        scrollMode = if (landed) ChatScrollMode.FOLLOWING_TAIL else ChatScrollMode.USER_BROWSING
-                    }
-                }
+    // Single owner of programmatic bottom snaps. A user drag holds the scroll mutex at UserInput
+    // priority, so a losing Default-priority snap surfaces as a CancellationException; swallow the
+    // theft (the user wants control) and rethrow only when this effect itself is being cancelled.
+    // One uncaught theft used to kill the old scroll executor for the rest of the screen.
+    val bottomRequests = remember(sessionId) { Channel<Unit>(Channel.CONFLATED) }
+    LaunchedEffect(sessionId, listState, bottomRequests) {
+        for (request in bottomRequests) {
+            try {
+                listState.scrollToItem(0)
+            } catch (stolen: CancellationException) {
+                currentCoroutineContext().ensureActive()
             }
         }
     }
 
-    val hasRenderableContent = displayMessages.isNotEmpty() || visibleProcesses.isNotEmpty()
-    LaunchedEffect(sessionId, hasRenderableContent) {
-        if (hasRenderableContent && !contentReady) scrollRequests.trySend(ChatScrollRequest.INITIALIZE)
-    }
-
-    // A strict tail observation requires the real final anchor to be visible. canScrollForward by
-    // itself transiently becomes false while Markdown/images are remeasured and used to re-enable
-    // follow mode even while the user was reading older content.
-    LaunchedEffect(sessionId, listState, contentReady, externalScrollActive) {
+    // Track "was the viewer at the bottom" ahead of content changes: content inserted at the
+    // bottom edge (a new turn, the processes card) reveals itself only for a pinned viewer, while
+    // key-based anchoring keeps an upward reader's position untouched.
+    var wasAtBottom by remember(sessionId) { mutableStateOf(true) }
+    LaunchedEffect(sessionId, listState) {
         snapshotFlow {
-            TailObservation(
-                atTail = listState.layoutInfo.isAtConversationTail(),
-                scrolling = listState.isScrollInProgress,
-            )
-        }.distinctUntilChanged().collect { observation ->
-            atTail = observation.atTail
-            if (contentReady && observation.atTail && !observation.scrolling &&
-                scrollMode == ChatScrollMode.USER_BROWSING && !externalScrollActive
-            ) {
-                scrollMode = ChatScrollMode.FOLLOWING_TAIL
-            }
+            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+        }.distinctUntilChanged().collect { wasAtBottom = it }
+    }
+    val bottomEdgeKey = if (processesVisible) "background-processes" else displayKeys.lastOrNull()
+    LaunchedEffect(bottomEdgeKey) {
+        if (bottomEdgeKey != null && wasAtBottom && !externalScrollActive) {
+            bottomRequests.trySend(Unit)
         }
     }
 
-    val userScrollConnection = remember(sessionId, listState) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                // Any deliberate drag owns the viewport, including the first upward drag that starts
-                // at the absolute bottom (where canScrollForward is still false at gesture start).
-                if (source == NestedScrollSource.UserInput && available != Offset.Zero && contentReady) {
-                    scrollMode = ChatScrollMode.USER_BROWSING
-                    scrollRequests.trySend(ChatScrollRequest.PAUSE)
-                }
-                return Offset.Zero
-            }
-        }
-    }
-
-    LaunchedEffect(externalScrollActive, contentReady) {
-        if (externalScrollActive && contentReady) {
-            scrollMode = ChatScrollMode.USER_BROWSING
-            scrollRequests.trySend(ChatScrollRequest.PAUSE)
-        }
-    }
-
-    // Sending resumes following. Keyed on the newest USER turn's stable render key, not raw list
-    // size: history reconciliation, session-resume backfill, and process churn all change counts
-    // while the last message is still the user's, and each of those used to yank a reader who had
-    // scrolled up back to the bottom. Only a genuinely new user turn produces a new key.
+    // Sending always returns to the bottom, even from deep in history — it is the user's own
+    // action. Keyed on the newest USER turn's stable render key, not raw list size, so history
+    // reconciliation and session-resume backfill cannot fake it.
     val lastTurnKey = displayKeys.lastOrNull()
     val lastTurnIsUser = displayMessages.lastOrNull()?.role == Role.USER
     var followedUserTurnKey by remember(sessionId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(lastTurnKey, lastTurnIsUser, contentReady, externalScrollActive) {
+    LaunchedEffect(lastTurnKey, lastTurnIsUser) {
         if (!lastTurnIsUser || lastTurnKey == null) return@LaunchedEffect
         val previous = followedUserTurnKey
         followedUserTurnKey = lastTurnKey
-        // previous == null is the first observation after entering the chat; the initial landing
-        // belongs to INITIALIZE, not to this effect.
-        if (previous != null && previous != lastTurnKey && contentReady && !externalScrollActive) {
-            scrollMode = ChatScrollMode.FOLLOWING_TAIL
-            scrollRequests.trySend(ChatScrollRequest.FOLLOW)
+        if (previous != null && previous != lastTurnKey && !externalScrollActive) {
+            bottomRequests.trySend(Unit)
         }
     }
-    LaunchedEffect(
-        state.messages.size,
-        renderedStreamRevision,
-        settledLayoutRevision,
-        endAnchorIndex,
-        contentReady,
-        externalScrollActive,
-    ) {
-        if (lastIndex >= 0 && contentReady && !externalScrollActive &&
-            scrollMode == ChatScrollMode.FOLLOWING_TAIL
-        ) {
-            scrollRequests.trySend(ChatScrollRequest.FOLLOW)
+
+    // Search-highlight navigation, mapped from turn order to the reversed list order. The size is
+    // a key on purpose: new turns shift the reversed index of the same logical match.
+    val processOffset = if (processesVisible) 1 else 0
+    LaunchedEffect(highlightIndex, displayMessages.size, processOffset) {
+        val target = highlightIndex ?: return@LaunchedEffect
+        val listIndex = processOffset + (displayMessages.lastIndex - target)
+        if (listIndex >= 0) {
+            try {
+                listState.animateScrollToItem(listIndex)
+            } catch (stolen: CancellationException) {
+                currentCoroutineContext().ensureActive()
+            }
         }
     }
 
@@ -389,18 +263,15 @@ fun ChatMessageList(
         return
     }
 
-    val contentAlpha by animateFloatAsState(
-        targetValue = if (contentReady) 1f else 0f,
-        animationSpec = tween(150),
-        label = "chat-history-reveal",
-    )
     Box(modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
+            // Item 0 renders at the bottom edge. A viewport resting at (index 0, offset 0) stays
+            // pinned to the newest content as it grows — the whole "follow the tail" machinery of
+            // the previous forward layout is simply the physics of this orientation.
+            reverseLayout = true,
             modifier = Modifier
                 .fillMaxSize()
-                .alpha(contentAlpha)
-                .nestedScroll(userScrollConnection)
                 .testTag("chat-message-list")
                 // A simple tap on conversation whitespace exits the expanded composer. Drag gestures
                 // remain scrolling gestures, and taps consumed by message actions are left alone.
@@ -408,12 +279,22 @@ fun ChatMessageList(
                 .padding(horizontal = 22.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(22.dp),
         ) {
+            // Bottom-most first in reverse order: live processes sit at the very bottom edge.
+            if (processesVisible) {
+                item(key = "background-processes") {
+                    BackgroundProcessesCard(visibleProcesses)
+                }
+            }
             // Stable turn keys are independent of list position and gateway ids. The latter can be
-            // duplicated (model name) or replaced when REST history reconciles a locally streamed turn.
+            // duplicated (model name) or replaced when REST history reconciles a locally streamed
+            // turn — and with reverseLayout they are also what keeps an upward reader anchored
+            // while new turns insert at the bottom of the list.
+            val turnCount = displayMessages.size
             itemsIndexed(
-                displayMessages,
-                key = { index, _ -> displayKeys[index] },
-            ) { index, msg ->
+                displayMessages.asReversed(),
+                key = { reversed, _ -> displayKeys[turnCount - 1 - reversed] },
+            ) { reversed, msg ->
+                val index = turnCount - 1 - reversed
                 val canRegenerate = msg.id == lastAssistantId && !isGenerating
                 val showAssistantActions = !(isGenerating && index == displayMessages.lastIndex)
                 MessageBubble(
@@ -430,21 +311,10 @@ fun ChatMessageList(
                     highlighted = index == highlightIndex,
                 )
             }
-            if (visibleProcesses.isNotEmpty()) {
-                item(key = "background-processes") {
-                    BackgroundProcessesCard(visibleProcesses)
-                }
-            }
-            item(key = "conversation-end-anchor") {
-                Spacer(Modifier.height(1.dp))
-            }
         }
-        if (contentReady && !atTail && scrollMode == ChatScrollMode.USER_BROWSING) {
+        if (!atBottom) {
             Surface(
-                onClick = {
-                    scrollMode = ChatScrollMode.PROGRAMMATIC_JUMP
-                    scrollRequests.trySend(ChatScrollRequest.JUMP_TO_TAIL)
-                },
+                onClick = { bottomRequests.trySend(Unit) },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.surface,
@@ -458,28 +328,8 @@ fun ChatMessageList(
                 )
             }
         }
-        if (contentAlpha < 1f) {
-            ChatHistorySkeleton(Modifier.fillMaxSize().alpha(1f - contentAlpha))
-        }
     }
 }
-
-private enum class ChatScrollMode { INITIALIZING, FOLLOWING_TAIL, USER_BROWSING, PROGRAMMATIC_JUMP }
-private enum class ChatScrollRequest { INITIALIZE, FOLLOW, JUMP_TO_TAIL, PAUSE }
-private data class TailObservation(val atTail: Boolean, val scrolling: Boolean)
-
-private fun androidx.compose.foundation.lazy.LazyListLayoutInfo.isAtConversationTail(): Boolean {
-    if (totalItemsCount == 0) return false
-    val last = visibleItemsInfo.lastOrNull() ?: return false
-    // The previous 2px tolerance was tighter than layout rounding on dense screens: the 1dp end
-    // anchor is 3-4px there, and item placement can land it a few pixels past the viewport edge
-    // forever. settleAtTail then never counts a stable frame and every jump-to-bottom "fails".
-    // Being within ~24px of the bottom is visually indistinguishable from resting on it.
-    return last.index == totalItemsCount - 1 &&
-        last.offset + last.size <= viewportEndOffset + TAIL_TOLERANCE_PX
-}
-
-private const val TAIL_TOLERANCE_PX = 24
 
 /**
  * Stable render keys survive local-id to REST-id replacement and adjacent assistant-record merges.
