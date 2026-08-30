@@ -189,4 +189,98 @@ class MappersTest {
         assertEquals(raw, parsed.text)
         assertEquals(0, parsed.images.size)
     }
+
+    @Test fun hermes_media_markdown_tag_becomes_downloadable_file() {
+        val parsed = parseMessageContent(
+            """
+                现在直接发 md 原文件：
+
+                MEDIA:/Users/bs/hermes-文生图与安卓图片显示-会话整理-20260830.md
+
+                这次应该能打开。
+            """.trimIndent(),
+        )
+
+        assertEquals("现在直接发 md 原文件：\n\n这次应该能打开。", parsed.text)
+        assertEquals(0, parsed.images.size)
+        assertEquals("hermes-文生图与安卓图片显示-会话整理-20260830.md", parsed.files.single().name)
+        assertEquals("text/markdown", parsed.files.single().mimeType)
+        assertEquals(
+            "/Users/bs/hermes-文生图与安卓图片显示-会话整理-20260830.md",
+            parsed.files.single().remotePath,
+        )
+    }
+
+    @Test fun media_keyword_explanation_stays_while_real_directive_becomes_file() {
+        val parsed = parseMessageContent(
+            """
+                桌面会话会提取，`MEDIA:` 标签和扩展名都在支持范围内。
+
+                MEDIA:/Users/bs/hermes-文生图与安卓图片显示-会话整理-20260830.md
+
+                文件会作为附件推送到客户端。
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            "桌面会话会提取，`MEDIA:` 标签和扩展名都在支持范围内。\n\n文件会作为附件推送到客户端。",
+            parsed.text,
+        )
+        assertEquals("text/markdown", parsed.files.single().mimeType)
+    }
+
+    @Test fun media_protocol_routes_multiple_quoted_and_spaced_paths_by_kind() {
+        val parsed = parseMessageContent(
+            """
+                结果如下：
+                **MEDIA:`/Users/bs/output/戴眼镜的猫 01.png`**
+                [[as_document]] MEDIA:"/Users/bs/output/季度 报告.pdf"（7.3 KB）
+            """.trimIndent(),
+        )
+
+        assertEquals("结果如下：", parsed.text)
+        assertEquals("/Users/bs/output/戴眼镜的猫 01.png", parsed.images.single().remotePath)
+        assertEquals("/Users/bs/output/季度 报告.pdf", parsed.files.single().remotePath)
+    }
+
+    @Test fun adjacent_media_tags_are_extracted_independently() {
+        val parsed = parseMessageContent(
+            "MEDIA:/Users/bs/a.pngMEDIA:/Users/bs/b.csv",
+        )
+
+        assertEquals("", parsed.text)
+        assertEquals("/Users/bs/a.png", parsed.images.single().remotePath)
+        assertEquals("/Users/bs/b.csv", parsed.files.single().remotePath)
+    }
+
+    @Test fun media_examples_in_fenced_code_and_blockquotes_remain_visible() {
+        val raw = """
+            示例：
+            ```text
+            MEDIA:/Users/bs/example.pdf
+            ```
+            > MEDIA:/Users/bs/quoted.png
+        """.trimIndent()
+        val parsed = parseMessageContent(raw)
+
+        assertEquals(raw, parsed.text)
+        assertEquals(0, parsed.images.size)
+        assertEquals(0, parsed.files.size)
+    }
+
+    @Test fun incomplete_or_unknown_media_tag_is_not_silently_removed() {
+        val raw = "`MEDIA:` 标签示例；MEDIA:/Users/bs/source.py"
+        val parsed = parseMessageContent(raw)
+
+        assertEquals(raw, parsed.text)
+        assertEquals(0, parsed.images.size)
+        assertEquals(0, parsed.files.size)
+    }
+
+    @Test fun local_markdown_file_link_becomes_downloadable_card() {
+        val parsed = parseMessageContent("下载：[会话整理](</Users/bs/output/会话 整理.md>)")
+
+        assertEquals("下载：会话整理", parsed.text)
+        assertEquals("/Users/bs/output/会话 整理.md", parsed.files.single().remotePath)
+    }
 }

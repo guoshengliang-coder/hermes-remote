@@ -45,6 +45,35 @@ private val LOCAL_MARKDOWN_IMAGE = Regex(
     "!\\[([^]\\r\\n]*)]\\(\\s*(<?(?:file://)?/[^)\\r\\n>]*?\\.(?:png|jpe?g|gif|webp)>?)(?:\\s+[\"'][^)\\r\\n]*[\"'])?\\s*\\)",
     RegexOption.IGNORE_CASE,
 )
+private val MEDIA_DELIVERY_EXTENSIONS = listOf(
+    // Keep this aligned with Hermes gateway.platforms.base.MEDIA_DELIVERY_EXTS. Android previews
+    // the four formats supported by ChatImage; every other format remains downloadable.
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "svg",
+    "mp4", "mov", "avi", "mkv", "webm", "3gp",
+    "mp3", "m2a", "wav", "ogg", "opus", "m4a", "flac",
+    "pdf", "docx", "doc", "odt", "rtf", "txt", "md", "epub",
+    "xlsx", "xls", "ods", "csv", "tsv", "json", "xml", "yaml", "yml",
+    "kmz", "kml", "geojson", "gpx",
+    "pptx", "ppt", "odp", "key",
+    "zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar", "apk", "ipa",
+    "html", "htm",
+)
+private val MEDIA_DELIVERY_EXTENSION_PATTERN = MEDIA_DELIVERY_EXTENSIONS
+    .sortedByDescending(String::length)
+    .joinToString("|") { Regex.escape(it) }
+private val MEDIA_TAG = Regex(
+    """[`\"'*_]{0,3}MEDIA:\s*(?:`((?:file://)?/[^`\r\n]+?\.(?:$MEDIA_DELIVERY_EXTENSION_PATTERN))`|\"((?:file://)?/[^\"\r\n]+?\.(?:$MEDIA_DELIVERY_EXTENSION_PATTERN))\"|'((?:file://)?/[^'\r\n]+?\.(?:$MEDIA_DELIVERY_EXTENSION_PATTERN))'|((?:file://)?/\S+?(?:[^\S\r\n]+\S+?)*?\.(?:$MEDIA_DELIVERY_EXTENSION_PATTERN)))(?=[\s`\"'*_,;:)\]}\[（）〈〉《》：，。；！？、“”‘’【】]|MEDIA:|\.(?:\s|$)|$)[`\"'*_]{0,3}\.?""",
+    RegexOption.IGNORE_CASE,
+)
+private val MEDIA_GLOBAL_DIRECTIVE = Regex("\\[\\[(?:as_document|audio_as_voice)]]", RegexOption.IGNORE_CASE)
+private val FILE_SIZE_AT_START = Regex(
+    "^\\s*[（(]\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(B|KB|MB|GB|KIB|MIB|GIB)\\s*[）)]",
+    RegexOption.IGNORE_CASE,
+)
+private val LOCAL_MARKDOWN_FILE = Regex(
+    "(?<!!)\\[([^]\\r\\n]*)]\\(\\s*(<?(?:file://)?/[^)\\r\\n>]*?\\.(?:$MEDIA_DELIVERY_EXTENSION_PATTERN)>?)(?:\\s+[\"'][^)\\r\\n]*[\"'])?\\s*\\)",
+    RegexOption.IGNORE_CASE,
+)
 private val LABELED_IMAGE_PATH = Regex(
     "^\\s*(?:图片(?:的)?保存(?:路径|位置)|图片路径|图片(?:已)?保存(?:到|至|在)|生成(?:的)?图片(?:保存)?(?:路径|位置)|image\\s+(?:saved|written|stored)(?:\\s+(?:to|at))?|generated\\s+image\\s+(?:path|location)|已生成|generated)\\s*[：:]?\\s*(.*)$",
     RegexOption.IGNORE_CASE,
@@ -88,9 +117,15 @@ private data class LabeledFileExtraction(
     val references: List<LabeledFileReference>,
 )
 
+private data class ExplicitMediaExtraction(
+    val text: String,
+    val paths: List<String>,
+)
+
 /** Hermes persists attachments as `@image:/absolute/path`; keep the path out of visible chat. */
 internal fun parseMessageContent(raw: String): ParsedMessageContent {
-    val labeled = extractLabeledImagePaths(raw)
+    val explicitMedia = extractExplicitMediaReferences(raw)
+    val labeled = extractLabeledImagePaths(explicitMedia.text)
     val labeledFiles = extractLabeledFilePaths(labeled.text)
     val pathImages = IMAGE_DIRECTIVE.findAll(labeledFiles.text).mapNotNull { match ->
         match.groupValues.drop(1).firstOrNull { it.isNotBlank() }
@@ -98,6 +133,9 @@ internal fun parseMessageContent(raw: String): ParsedMessageContent {
             ?.let(::remoteImage)
     }.toList()
     val labeledImages = labeled.paths.map(::remoteImage)
+    val explicitImages = explicitMedia.paths.mapNotNull { path ->
+        path.takeIf { imageMimeTypeForPath(it) != null }?.let(::remoteImage)
+    }
     val localMarkdownImages = LOCAL_MARKDOWN_IMAGE.findAll(labeledFiles.text).mapNotNull { match ->
         normalizeLocalImagePath(match.groupValues[2])?.let(::remoteImage)
     }.toList()
@@ -108,7 +146,7 @@ internal fun parseMessageContent(raw: String): ParsedMessageContent {
             sourceUrl = url,
         )
     }.toList()
-    val images = (pathImages + labeledImages + localMarkdownImages + webImages)
+    val images = (explicitImages + pathImages + labeledImages + localMarkdownImages + webImages)
         .distinctBy { it.remotePath ?: it.sourceUrl ?: it.id }
     val directiveFiles = FILE_DIRECTIVE.findAll(labeledFiles.text).mapIndexed { index, match ->
         val path = match.groupValues.drop(1).firstOrNull { it.isNotBlank() }.orEmpty()
@@ -130,19 +168,101 @@ internal fun parseMessageContent(raw: String): ParsedMessageContent {
             remotePath = reference.path,
         )
     }
-    val files = (directiveFiles + naturalFiles).distinctBy { it.remotePath ?: it.localPath ?: it.id }
+    val explicitFiles = explicitMedia.paths
+        .filter { imageMimeTypeForPath(it) == null }
+        .map(::remoteFile)
+    val localMarkdownFiles = LOCAL_MARKDOWN_FILE.findAll(labeledFiles.text).map { match ->
+        normalizeExplicitMediaPath(match.groupValues[2]).let(::remoteFile)
+    }.toList()
+    val files = (explicitFiles + directiveFiles + naturalFiles + localMarkdownFiles)
+        .distinctBy { it.remotePath ?: it.localPath ?: it.id }
     val visible = labeledFiles.text
         .replace(IMAGE_DIRECTIVE, "")
         .replace(ATTACHED_IMAGE_PLACEHOLDER, "")
         .replace(FILE_DIRECTIVE, "")
         .replace(ATTACHED_FILE_PLACEHOLDER, "")
         .replace(LOCAL_MARKDOWN_IMAGE) { it.groupValues[1].takeIf(String::isNotBlank).orEmpty() }
+        .replace(LOCAL_MARKDOWN_FILE) { it.groupValues[1].takeIf(String::isNotBlank).orEmpty() }
         .replace(MARKDOWN_IMAGE) { it.groupValues[1].takeIf(String::isNotBlank).orEmpty() }
         .lines()
         .dropWhile { it.isBlank() }
         .dropLastWhile { it.isBlank() }
         .joinToString("\n")
     return ParsedMessageContent(visible, images, files)
+}
+
+/**
+ * Parse Hermes' canonical outbound attachment grammar: `MEDIA:/absolute/path.ext`.
+ *
+ * This deliberately runs before natural-language compatibility rules. One protocol parser therefore
+ * covers images, documents, archives, audio/video and multiple attachments without depending on the
+ * model's surrounding Chinese/English wording. Like Hermes itself, fenced examples and blockquotes
+ * are protected so documentation containing a sample MEDIA tag does not create a broken card.
+ * Unknown extensions stay visible rather than being silently removed.
+ */
+private fun extractExplicitMediaReferences(raw: String): ExplicitMediaExtraction {
+    if (!raw.contains("MEDIA:", ignoreCase = true)) {
+        return ExplicitMediaExtraction(raw.replace(MEDIA_GLOBAL_DIRECTIVE, ""), emptyList())
+    }
+
+    val masked = maskProtectedMediaExamples(raw)
+    val matches = MEDIA_TAG.findAll(masked).toList()
+    if (matches.isEmpty()) {
+        return ExplicitMediaExtraction(raw.replace(MEDIA_GLOBAL_DIRECTIVE, ""), emptyList())
+    }
+
+    val paths = mutableListOf<String>()
+    val removalRanges = mutableListOf<IntRange>()
+    matches.forEach { match ->
+        val rawPath = match.groupValues.drop(1).firstOrNull { it.isNotBlank() } ?: return@forEach
+        val path = normalizeExplicitMediaPath(rawPath)
+        if (!path.startsWith('/') || path.substringAfterLast('/').isBlank()) return@forEach
+        paths += path
+
+        var endInclusive = match.range.last
+        FILE_SIZE_AT_START.find(raw.substring(endInclusive + 1))?.let { suffix ->
+            endInclusive += suffix.value.length
+        }
+        removalRanges += match.range.first..endInclusive
+    }
+
+    val cleaned = buildString(raw.length) {
+        var cursor = 0
+        removalRanges.sortedBy { it.first }.forEach { range ->
+            if (range.first > cursor) append(raw, cursor, range.first)
+            cursor = maxOf(cursor, range.last + 1)
+        }
+        if (cursor < raw.length) append(raw, cursor, raw.length)
+    }
+        .replace(MEDIA_GLOBAL_DIRECTIVE, "")
+        .replace(Regex("\\n{3,}"), "\n\n")
+        .trim()
+
+    return ExplicitMediaExtraction(cleaned, paths.distinct())
+}
+
+/** Offset-preserving mask used only to locate real MEDIA tags in the original string. */
+private fun maskProtectedMediaExamples(raw: String): String {
+    val chars = raw.toCharArray()
+    val protected = mutableListOf<IntRange>()
+    Regex("```[^\\n]*\\n.*?```", setOf(RegexOption.DOT_MATCHES_ALL)).findAll(raw).forEach {
+        protected += it.range
+    }
+    Regex("^\\s*>.*$", setOf(RegexOption.MULTILINE)).findAll(raw).forEach {
+        protected += it.range
+    }
+    protected.forEach { range ->
+        range.forEach { index -> if (chars[index] != '\n') chars[index] = ' ' }
+    }
+    return chars.concatToString()
+}
+
+private fun normalizeExplicitMediaPath(raw: String): String {
+    val reference = raw.trim().trim('<', '>')
+    return runCatching { URI(reference.replace(" ", "%20")).path }
+        .getOrNull()
+        ?.takeIf { it.isNotBlank() }
+        ?: reference.removePrefix("file://")
 }
 
 /** Natural-language compatibility for generated non-image artifacts such as markdown reports. */
@@ -301,6 +421,16 @@ private fun remoteImage(path: String) = ChatImage(
     remotePath = path,
 )
 
+private fun remoteFile(path: String): ChatFile {
+    val name = path.substringAfterLast('/').substringAfterLast('\\').ifBlank { "attachment" }
+    return ChatFile(
+        id = "file-${path.hashCode()}",
+        name = name,
+        mimeType = mimeTypeForName(name),
+        remotePath = path,
+    )
+}
+
 private fun imageMimeTypeForPath(path: String): String? = when (path.substringAfterLast('.', "").lowercase()) {
     "jpg", "jpeg" -> "image/jpeg"
     "png" -> "image/png"
@@ -321,12 +451,32 @@ private fun mimeTypeForName(name: String): String? = when (name.substringAfterLa
     "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     "ppt" -> "application/vnd.ms-powerpoint"
     "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    "odt" -> "application/vnd.oasis.opendocument.text"
+    "ods" -> "application/vnd.oasis.opendocument.spreadsheet"
+    "odp" -> "application/vnd.oasis.opendocument.presentation"
+    "rtf" -> "application/rtf"
+    "epub" -> "application/epub+zip"
+    "tsv" -> "text/tab-separated-values"
+    "xml" -> "application/xml"
+    "yaml", "yml" -> "application/yaml"
+    "html", "htm" -> "text/html"
+    "svg" -> "image/svg+xml"
+    "bmp" -> "image/bmp"
+    "tiff" -> "image/tiff"
     "mp3" -> "audio/mpeg"
     "m4a" -> "audio/mp4"
     "wav" -> "audio/wav"
+    "ogg", "opus" -> "audio/ogg"
+    "flac" -> "audio/flac"
     "mp4" -> "video/mp4"
     "mov" -> "video/quicktime"
+    "webm" -> "video/webm"
+    "mkv" -> "video/x-matroska"
     "zip" -> "application/zip"
+    "gz", "tgz" -> "application/gzip"
+    "7z" -> "application/x-7z-compressed"
+    "rar" -> "application/vnd.rar"
+    "apk" -> "application/vnd.android.package-archive"
     else -> null
 }
 
