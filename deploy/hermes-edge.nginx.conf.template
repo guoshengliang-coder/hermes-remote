@@ -30,6 +30,9 @@ server {
     ssl_session_cache shared:HermesTLS:10m;
     ssl_session_timeout 1d;
 
+    # The current Let's Encrypt chain contains more than Nginx's default one intermediate.
+    proxy_ssl_verify_depth 4;
+
     access_log /var/log/nginx/hermes-edge.access.log hermes_edge;
     client_max_body_size 10m;
 
