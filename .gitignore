@@ -15,3 +15,6 @@ android/*.aab
 android/*.jks
 work/
 outputs/
+
+# Private machine/deployment context supplied by the project owner.
+environment.md

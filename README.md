@@ -19,6 +19,13 @@ The repository contains the first relay MVP:
 
 The first HK + Mac mini deployment and its verified operations are recorded in `docs/DEPLOYMENT.md`.
 
+## Agent collaboration
+
+Hermes may coordinate Codex, Claude Code, and other agents on this repository. Every agent must read
+`AGENTS.md` before changing the project. `CLAUDE.md` provides the Claude Code entry point; `AGENTS.md`
+remains the single source of truth for concurrency, security, testing, Android versioning, APK delivery,
+and deployment rules.
+
 ## Local smoke test
 
 1. Install Node.js 20 or newer.
