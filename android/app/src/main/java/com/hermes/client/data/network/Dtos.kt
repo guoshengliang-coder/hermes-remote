@@ -47,6 +47,8 @@ import kotlinx.serialization.Serializable
     val id: Int? = null,
     val role: String,
     val content: String? = null,
+    // ISO-8601 when the gateway provides it; optional so older gateways keep parsing.
+    @SerialName("created_at") val createdAt: String? = null,
 )
 @Serializable data class MessagesDto(val messages: List<MessageDto> = emptyList())
 

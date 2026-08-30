@@ -23,6 +23,7 @@ data class SetupUiState(
     val username: String = "",
     val password: String = "",
     val testResult: String? = null,
+    val connecting: Boolean = false,
     val saved: Boolean = false,
     val scanError: String? = null,
 )
@@ -58,6 +59,32 @@ class SetupViewModel @Inject constructor(
             rest.statusFor(url, s.token)
         }
         _state.value = _state.value.copy(testResult = if (ok) "Connected" else "Unreachable")
+    }
+
+    /**
+     * Single-action connect: probe with the entered values and persist ONLY on success, so a user
+     * can no longer save an unverified config and land in a dead chat screen wondering whether
+     * the URL or the token was wrong. The failure message renders in place.
+     */
+    fun connect() = viewModelScope.launch {
+        val s = _state.value
+        if (s.connecting) return@launch
+        _state.value = s.copy(connecting = true, testResult = null)
+        val url = runCatching { normalizeGatewayBaseUrl(s.url) }.getOrElse {
+            _state.value = _state.value.copy(connecting = false, testResult = it.message ?: "Invalid gateway URL")
+            return@launch
+        }
+        val ok = if (s.username.isNotBlank()) {
+            withContext(Dispatchers.IO) { gatedAuth.probeLogin(url, s.username, s.password) }
+        } else {
+            rest.statusFor(url, s.token)
+        }
+        if (!ok) {
+            _state.value = _state.value.copy(connecting = false, testResult = "Unreachable")
+            return@launch
+        }
+        _state.value = _state.value.copy(connecting = false, testResult = "Connected")
+        save()
     }
 
     fun save() {

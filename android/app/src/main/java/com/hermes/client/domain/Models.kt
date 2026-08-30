@@ -78,6 +78,9 @@ data class ChatMessage(
     val id: String,
     val role: Role,
     val text: String,
+    // Epoch millis. Live messages are stamped locally; REST history maps created_at when the
+    // gateway provides it and inherits the live stamp during reconciliation otherwise.
+    val timestamp: Long? = null,
     val images: List<ChatImage> = emptyList(),
     val files: List<ChatFile> = emptyList(),
     val tools: List<ToolCall> = emptyList(),

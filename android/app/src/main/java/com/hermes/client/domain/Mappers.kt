@@ -480,6 +480,13 @@ private fun mimeTypeForName(name: String): String? = when (name.substringAfterLa
     else -> null
 }
 
+/** Lenient ISO-8601 parse: with or without offset; null on anything unexpected. */
+internal fun parseIsoTimestampMillis(raw: String): Long? = runCatching {
+    java.time.OffsetDateTime.parse(raw).toInstant().toEpochMilli()
+}.getOrNull() ?: runCatching {
+    java.time.LocalDateTime.parse(raw).atZone(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+}.getOrNull()
+
 fun MessageDto.toDomain(): ChatMessage {
     val parsed = parseMessageContent(content.orEmpty())
     return ChatMessage(
@@ -492,6 +499,7 @@ fun MessageDto.toDomain(): ChatMessage {
         text = parsed.text,
         images = parsed.images,
         files = parsed.files,
+        timestamp = createdAt?.let(::parseIsoTimestampMillis),
     )
 }
 

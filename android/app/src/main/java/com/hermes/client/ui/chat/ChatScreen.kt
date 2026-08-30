@@ -159,13 +159,14 @@ fun ChatScreen(
     val conversationTurns = remember(state.messages, searchOpen) {
         if (searchOpen) state.messages.organizedConversationTurns() else emptyList()
     }
-    val matches = remember(query, conversationTurns) { matchIndices(conversationTurns, query) }
+    val matches = remember(query, conversationTurns) { searchHits(conversationTurns, query) }
     // Reset the cursor when the QUERY changes — not when `matches` changes: `matches` is a fresh
     // list instance on every streamed token, which would otherwise yank the cursor to 0 mid-search.
     LaunchedEffect(query, searchOpen) { currentMatch = 0 }
     // Coerce currentMatch into range so the highlight stays in sync with the (coerced) counter during
     // the transient window after `matches` shrinks but before the reset effect runs.
-    val highlightIndex = if (searchOpen && matches.isNotEmpty()) matches[currentMatch.coerceAtMost(matches.lastIndex)] else null
+    val currentHit = if (searchOpen && matches.isNotEmpty()) matches[currentMatch.coerceAtMost(matches.lastIndex)] else null
+    val highlightIndex = currentHit?.turnIndex
     // Highlight scrolling lives inside ChatMessageList: with reverseLayout the turn index must be
     // mapped to the reversed list index, and the list owns that mapping.
     // System back closes the search bar first (rather than leaving the chat) when it's open.
@@ -907,6 +908,35 @@ fun ChatScreen(
                             }
                             IconButton(onClick = { searchOpen = false; query = "" }) {
                                 Icon(androidx.compose.material.icons.Icons.Rounded.Close, contentDescription = localized(language, "关闭搜索", "Close search"))
+                            }
+                        }
+                        currentHit?.let { hit ->
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(6.dp),
+                                ) {
+                                    Text(
+                                        when (hit.source) {
+                                            SearchSource.TEXT -> localized(language, "正文", "Text")
+                                            SearchSource.THINKING -> localized(language, "思考", "Reasoning")
+                                            SearchSource.TOOL -> localized(language, "工具", "Tool")
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    )
+                                }
+                                Text(
+                                    hit.snippet,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(start = 8.dp),
+                                )
                             }
                         }
                     }

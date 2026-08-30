@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -339,7 +340,18 @@ fun ChatMessageList(
                 val index = turnCount - 1 - reversed
                 val canRegenerate = msg.id == lastAssistantId && !isGenerating
                 val showAssistantActions = !(isGenerating && index == displayMessages.lastIndex)
-                Box(Modifier.padding(top = TURN_SPACING)) {
+                val previousTs = if (index > 0) displayMessages[index - 1].timestamp else null
+                Column(Modifier.padding(top = TURN_SPACING)) {
+                    if (showsTimeSeparator(previousTs, msg.timestamp)) {
+                        Text(
+                            text = formatTimeSeparator(msg.timestamp ?: 0L, language),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .padding(bottom = 10.dp),
+                        )
+                    }
                     MessageBubble(
                         msg,
                         canRegenerate,
@@ -498,6 +510,7 @@ private fun UserBubble(
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
+    var selectingText by remember { mutableStateOf(false) }
     val bg = if (msg.isError) MaterialTheme.colorScheme.errorContainer
     else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.78f)
     val accent = LocalProfileAccent.current.accent
@@ -542,6 +555,13 @@ private fun UserBubble(
                     text = { Text(localized(language, "编辑并重新发送", "Edit & resend")) },
                     onClick = { onEditResend(msg.text); menuOpen = false },
                 )
+                DropdownMenuItem(
+                    text = { Text(localized(language, "选择文本", "Select text")) },
+                    onClick = { selectingText = true; menuOpen = false },
+                )
+            }
+            if (selectingText) {
+                TextSelectionDialog(text = msg.text, onDismiss = { selectingText = false })
             }
         }
     }
@@ -852,6 +872,7 @@ private fun AssistantTurn(
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
+    var selectingText by remember { mutableStateOf(false) }
     var feedback by remember(msg.id) { mutableStateOf(0) }
     // The streaming tail arrives pre-throttled: ChatMessageList publishes whole-message snapshots
     // at STREAM_RENDER_INTERVAL_MS, so text, thinking, and tools reflow together at one cadence.
@@ -1009,12 +1030,37 @@ private fun AssistantTurn(
                     },
                 )
             }
+            DropdownMenuItem(
+                text = { Text(localized(language, "选择文本", "Select text")) },
+                onClick = { selectingText = true; menuOpen = false },
+            )
+        }
+        if (selectingText) {
+            TextSelectionDialog(text = msg.text, onDismiss = { selectingText = false })
         }
     }
 }
 
 private const val STREAM_RENDER_INTERVAL_MS = 64L
 private val TURN_SPACING = 22.dp
+
+/** "14:32" today, "昨天 14:32" yesterday, "8月30日 14:32" this year, full date otherwise. */
+private fun formatTimeSeparator(ts: Long, language: com.hermes.client.ui.localization.AppLanguage): String {
+    val zone = java.time.ZoneId.systemDefault()
+    val time = java.time.Instant.ofEpochMilli(ts).atZone(zone)
+    val today = java.time.LocalDate.now(zone)
+    val date = time.toLocalDate()
+    val hm = "%02d:%02d".format(time.hour, time.minute)
+    val zh = language == com.hermes.client.ui.localization.AppLanguage.ZH
+    return when {
+        date == today -> hm
+        date == today.minusDays(1) -> if (zh) "昨天 $hm" else "Yesterday $hm"
+        date.year == today.year ->
+            if (zh) "${time.monthValue}月${time.dayOfMonth}日 $hm" else "${date.month.name.take(3)} ${time.dayOfMonth}, $hm"
+        else ->
+            if (zh) "${time.year}年${time.monthValue}月${time.dayOfMonth}日 $hm" else "${date.month.name.take(3)} ${time.dayOfMonth} ${time.year}, $hm"
+    }
+}
 
 private fun copyToClipboard(
     text: String,
@@ -1138,6 +1184,57 @@ private fun CodeWithCopy(code: String, language: String?, style: TextStyle) {
                 modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+/**
+ * Full-screen plain-text selection view. The markdown body is not selectable (SelectionContainer
+ * and the markdown renderer's block structure do not compose well), so partial quoting runs
+ * through this dialog: the raw text, selectable, scrollable, nothing else.
+ */
+@Composable
+private fun TextSelectionDialog(text: String, onDismiss: () -> Unit) {
+    val language = LocalAppLanguage.current
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.background,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            Icons.Rounded.Close,
+                            contentDescription = localized(language, "关闭", "Close"),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                    Text(
+                        localized(language, "选择文本", "Select text"),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(start = 4.dp),
+                    )
+                }
+                SelectionContainer(
+                    Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp),
+                ) {
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, lineHeight = 26.sp),
+                        modifier = Modifier.padding(bottom = 24.dp),
+                    )
+                }
+            }
         }
     }
 }

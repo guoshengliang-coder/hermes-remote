@@ -157,19 +157,20 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
                     }
                 }
 
+                // One action: probe first, persist only on success — no more saving an unverified
+                // config and landing in a dead chat screen (the two equal-weight buttons let that
+                // happen). The QR path already worked this way.
                 Button(
-                    onClick = { vm.test() },
-                    enabled = state.url.isNotBlank() && state.token.isNotBlank(),
+                    onClick = { vm.connect() },
+                    enabled = state.url.isNotBlank() && state.token.isNotBlank() && !state.connecting,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = MaterialTheme.shapes.medium,
-                ) { Text(localized(language, "测试连接", "Test connection")) }
-                Button(
-                    onClick = { vm.save() },
-                    enabled = state.url.isNotBlank() && state.token.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = MaterialTheme.shapes.medium,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onSurface),
-                ) { Text(localized(language, "保存并进入 Hermes", "Save and open Hermes")) }
+                ) {
+                    Text(
+                        if (state.connecting) localized(language, "正在连接…", "Connecting…")
+                        else localized(language, "连接并进入 Hermes", "Connect and open Hermes"),
+                    )
+                }
             }
         }
 

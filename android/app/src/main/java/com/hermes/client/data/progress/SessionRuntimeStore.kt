@@ -548,7 +548,7 @@ class SessionRuntimeStore(
             }
             runtime.copy(
                 chat = runtime.chat.copy(
-                    messages = messages,
+                    messages = com.hermes.client.ui.chat.inheritTimestamps(messages, runtime.chat.messages),
                     historyLoading = false,
                     historyLoaded = true,
                     historyError = null,
@@ -557,7 +557,11 @@ class SessionRuntimeStore(
         }
         // StateFlow.update may retry its transform under contention, so keep the transform free of
         // side effects and derive acceptance from the committed snapshot afterward.
-        return _runtimes.value[key]?.chat?.messages == messages
+        // Timestamp inheritance mutates the committed list relative to the raw REST result, so
+        // acceptance compares content with stamps normalized out.
+        val committed = _runtimes.value[key]?.chat?.messages ?: return false
+        return committed.size == messages.size &&
+            committed.zip(messages).all { (a, b) -> a.copy(timestamp = null) == b.copy(timestamp = null) }
     }
 
     private fun List<ChatMessage>.covers(expectation: HistoryExpectation): Boolean {

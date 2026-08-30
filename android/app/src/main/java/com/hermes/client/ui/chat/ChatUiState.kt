@@ -321,6 +321,29 @@ internal fun List<ChatMessage>.organizedConversationTurns(): List<ChatMessage> {
     return turns
 }
 
+
+/**
+ * A turn shows a time separator above it when it is the first stamped turn or when more than
+ * [gapMinutes] passed since the previous stamped turn. Unstamped turns never show one.
+ */
+internal fun showsTimeSeparator(previousTs: Long?, ts: Long?, gapMinutes: Long = 20): Boolean {
+    ts ?: return false
+    previousTs ?: return true
+    return ts - previousTs >= gapMinutes * 60_000
+}
+
+/**
+ * History reconciliation replaces the live transcript wholesale. When the gateway's history rows
+ * carry no created_at, inherit the live message's local stamp by position+role so time separators
+ * survive the swap; a position mismatch simply yields no stamp, never a wrong one.
+ */
+internal fun inheritTimestamps(history: List<ChatMessage>, current: List<ChatMessage>): List<ChatMessage> =
+    history.mapIndexed { index, message ->
+        if (message.timestamp != null) return@mapIndexed message
+        val live = current.getOrNull(index)
+        if (live != null && live.role == message.role) message.copy(timestamp = live.timestamp) else message
+    }
+
 /** Merge two already display-ready assistant records without re-running content sanitization. */
 internal fun mergeAssistantTurns(previous: ChatMessage, message: ChatMessage): ChatMessage {
     val toolsById = linkedMapOf<String, ToolCall>()
@@ -328,6 +351,7 @@ internal fun mergeAssistantTurns(previous: ChatMessage, message: ChatMessage): C
     return message.copy(
         text = joinTurnParts(previous.text, message.text),
         thinking = joinTurnParts(previous.thinking, message.thinking),
+        timestamp = previous.timestamp ?: message.timestamp,
         images = (previous.images + message.images).distinctBy { it.id },
         files = (previous.files + message.files).distinctBy { it.id },
         tools = toolsById.values.toList(),
@@ -461,6 +485,7 @@ fun ChatUiState.withUserMessage(
             id = messageId,
             role = Role.USER,
             text = text,
+            timestamp = System.currentTimeMillis(),
             images = images,
             files = files,
         ),
@@ -480,6 +505,7 @@ fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
                 id = "a-${messages.size}-${event.str("message_id") ?: "recovered"}",
                 role = Role.ASSISTANT,
                 text = "",
+                timestamp = System.currentTimeMillis(),
                 isStreaming = true,
             ),
             isGenerating = true,
