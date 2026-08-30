@@ -72,9 +72,9 @@ Port 443's old `apk-server.service` is the authorized replacement target; Xray i
 failure. `CAP_NET_BIND_SERVICE` permits a low-port bind but does not resolve port conflicts.
 
 Replace the old combined Hermes Certbot hook with `deploy/certbot-hermes-services-hook.sh.template`,
-but retain the derper hook. It atomically copies the `mrlgs.net` files into `/etc/hermes-remote/tls` and
-`/etc/hermes-release-server/tls` as `root:kkk` mode `0640`, then verifies both restarts. Services never
-read the live Certbot private key. The unit fixes `ReadOnlyPaths=/srv/hermes-releases` and enforces
+but retain the derper hook. It atomically copies the `mrlgs.net` files into `/etc/hermes-remote/tls`
+as `root:hermes-remote` and `/etc/hermes-release-server/tls` as `root:kkk`, both mode `0640`, then
+verifies both restarts. Services never read the live Certbot private key. The unit fixes `ReadOnlyPaths=/srv/hermes-releases` and enforces
 `UMask=0077`, restricted address families, and native syscall architecture.
 
 ## Verification and recovery
