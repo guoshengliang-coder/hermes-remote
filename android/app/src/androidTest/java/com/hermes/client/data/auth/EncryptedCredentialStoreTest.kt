@@ -17,7 +17,8 @@ class EncryptedCredentialStoreTest {
         val loaded = store.load()!!
         assertEquals("http://hermes-mac:9119", loaded.baseUrl)
         assertEquals("abc", loaded.token)
-        assertEquals("ws://hermes-mac:9119/api/ws?token=abc", loaded.wsUrl)
+        // Authentication now travels in a header or short-lived ticket, never in a persisted URL.
+        assertEquals("ws://hermes-mac:9119/api/ws", loaded.wsBase)
     }
 
     @Test fun clear_removes_config() {

@@ -716,6 +716,7 @@ fun ChatScreen(
                         sessionId = sessionId,
                         listState = listState,
                         highlightIndex = highlightIndex,
+                        externalScrollActive = searchOpen,
                         isGenerating = state.isGenerating,
                         onEditResend = { text -> draft = text; focusRequester.requestFocus() },
                         onRegenerate = { vm.regenerate() },

@@ -2,7 +2,12 @@ package com.hermes.client.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import com.hermes.client.ui.chat.ChatMessageList
@@ -70,5 +75,55 @@ class ChatScreenTest {
         rule.setContent { HermesTheme { ChatMessageList(state = state, sessionId = "s1") } }
         rule.onNodeWithText("first reply").assertIsDisplayed()
         rule.onNodeWithText("second reply").assertIsDisplayed()
+    }
+
+    @Test fun userBrowsing_isNotStolenByStream_andBottomButtonReachesTail() {
+        val settled = (1..59).map { i ->
+            ChatMessage(
+                id = "m$i",
+                role = if (i % 2 == 0) Role.ASSISTANT else Role.USER,
+                text = "message $i — enough body text to keep this conversation much taller than the viewport",
+            )
+        }
+        val state = androidx.compose.runtime.mutableStateOf(
+            ChatUiState(
+                messages = settled + ChatMessage(
+                    id = "stream",
+                    role = Role.ASSISTANT,
+                    text = "reply started",
+                    isStreaming = true,
+                ),
+                isGenerating = true,
+            ),
+        )
+        val listState = androidx.compose.foundation.lazy.LazyListState()
+        rule.setContent {
+            HermesTheme {
+                ChatMessageList(state = state.value, sessionId = "stream-session", listState = listState)
+            }
+        }
+        rule.waitUntil(timeoutMillis = 5_000) { !listState.canScrollForward }
+
+        rule.onNodeWithTag("chat-message-list").performTouchInput { swipeDown() }
+        rule.waitUntil(timeoutMillis = 5_000) { listState.canScrollForward }
+
+        state.value = state.value.copy(
+            messages = settled + state.value.messages.last().copy(
+                text = buildString {
+                    append("reply started\n\n")
+                    repeat(80) { append("streamed line $it with markdown-like content\n\n") }
+                },
+            ),
+        )
+        rule.mainClock.advanceTimeBy(500)
+        rule.waitForIdle()
+        check(listState.canScrollForward) { "streaming stole the user's historical scroll position" }
+
+        rule.onNodeWithContentDescription("回到最新消息").assertIsDisplayed().performClick()
+        rule.waitUntil(timeoutMillis = 5_000) {
+            !listState.canScrollForward &&
+                listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ==
+                listState.layoutInfo.totalItemsCount - 1
+        }
     }
 }

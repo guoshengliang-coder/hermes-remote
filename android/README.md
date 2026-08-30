@@ -57,6 +57,9 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   resumed runs restore their generating state, and warm session lists refresh without visual flashing.
 - Version 0.1.20 moves all public Relay, WebSocket, and APK traffic to standard HTTPS/WSS port 443,
   automatically migrates stored `:8444` production URLs, and adds resumable APK byte-range downloads.
+- Version 0.1.21 replaces competing chat auto-scroll effects with one coordinated state machine,
+  preserves manual history browsing during streams, reliably jumps to the true tail, and reduces
+  Markdown re-layout churn with stable conversation keys and frame-coalesced rendering.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
@@ -78,7 +81,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.20-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.21-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

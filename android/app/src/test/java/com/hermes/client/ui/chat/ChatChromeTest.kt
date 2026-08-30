@@ -1,6 +1,8 @@
 package com.hermes.client.ui.chat
 
 import com.hermes.client.domain.ChatMessage
+import com.hermes.client.domain.ChatImage
+import com.hermes.client.domain.ImageTransferState
 import com.hermes.client.domain.Role
 import com.hermes.client.domain.ToolCall
 import com.hermes.client.domain.ToolStatus
@@ -87,5 +89,47 @@ class ChatChromeTest {
         assertEquals("u2", turns[2].id)
         assertEquals("a4", turns[3].id)
         assertEquals(true, turns[3].isStreaming)
+    }
+
+    @Test fun renderKeys_surviveLiveToHistoryReconciliation() {
+        val live = listOf(
+            ChatMessage("local-user-id", Role.USER, "同一个问题"),
+            ChatMessage("local-assistant-id", Role.ASSISTANT, "第一段\n\n第二段"),
+        ).organizedConversationTurns()
+        val persisted = listOf(
+            ChatMessage("server-user-id", Role.USER, "同一个问题"),
+            ChatMessage("duplicated-model-id", Role.ASSISTANT, "第一段"),
+            ChatMessage("duplicated-model-id", Role.ASSISTANT, "第二段"),
+        ).organizedConversationTurns()
+
+        assertEquals(live.conversationRenderKeys(), persisted.conversationRenderKeys())
+    }
+
+    @Test fun renderKeys_surviveImageUploadAndHydration() {
+        val uploading = listOf(
+            ChatMessage(
+                "local-user",
+                Role.USER,
+                "",
+                images = listOf(ChatImage("att-local", "image/png", state = ImageTransferState.UPLOADING)),
+            ),
+        )
+        val hydrated = listOf(
+            ChatMessage(
+                "server-user",
+                Role.USER,
+                "",
+                images = listOf(
+                    ChatImage(
+                        "remote-different",
+                        "image/png",
+                        localPath = "/cache/image.png",
+                        remotePath = "/server/image.png",
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(uploading.conversationRenderKeys(), hydrated.conversationRenderKeys())
     }
 }
