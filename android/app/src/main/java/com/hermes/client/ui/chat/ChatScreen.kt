@@ -1,10 +1,20 @@
 package com.hermes.client.ui.chat
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 
+import android.Manifest
+import android.app.Activity
+import android.content.ClipData
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.MediaStore
+import android.provider.Settings
 import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.io.File
 import androidx.compose.foundation.Image
@@ -220,6 +230,8 @@ fun ChatScreen(
     var showAttachSheet by remember { mutableStateOf(false) }
     var savingImageId by remember { mutableStateOf<String?>(null) }
     var pendingSaveAsImage by remember { mutableStateOf<com.hermes.client.domain.ChatImage?>(null) }
+    var showCameraPermissionDialog by rememberSaveable { mutableStateOf(false) }
+    var cameraLaunchRequest by rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
     val attachScope = androidx.compose.runtime.rememberCoroutineScope()
 
     fun showAttachmentError(message: String?) {
@@ -371,35 +383,70 @@ fun ChatScreen(
         uris.take(ATTACH_CAP).forEach { stageUri(it) }
     }
 
-    // Camera: capture into a FileProvider cache uri, then read it back. No CAMERA permission (delegates).
+    // Camera: zxing contributes CAMERA to the merged manifest, so Android requires the runtime grant
+    // even though capture is delegated to the system camera. Honor/MagicOS enforces this strictly.
     // rememberSaveable (Uri is Parcelable): survive process death while the camera app is foregrounded,
     // so the captured photo isn't dropped when we return.
     var captureUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var captureFilePath by rememberSaveable { mutableStateOf<String?>(null) }
     val takePhoto = androidx.activity.compose.rememberLauncherForActivityResult(
-        ActivityResultContracts.TakePicture(),
+        CompatibleTakePictureContract(),
     ) { ok ->
-        if (ok) captureUri?.let { uri ->
+        val uri = captureUri
+        val file = captureFilePath?.let(::File)
+        // A few OEM cameras write the full file but return RESULT_CANCELED. Trust a non-empty
+        // output file in that case; never stage an empty placeholder even when RESULT_OK was sent.
+        if (uri != null && file?.isFile == true && file.length() > 0L) {
             stageUri(uri, "camera-${System.currentTimeMillis()}.jpg")
+        } else if (ok) {
+            showAttachmentError(localized(language, "相机没有返回可用的照片", "The camera didn't return a usable photo"))
         }
+        if (file?.length() == 0L) file.delete()
+        uri?.let { revokeCameraUriPermission(context, it) }
+        captureUri = null
+        captureFilePath = null
     }
+
+    val requestCameraPermission = androidx.activity.compose.rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) cameraLaunchRequest += 1 else showCameraPermissionDialog = true
+    }
+
     fun launchCamera() {
         val cameraIntent = android.content.Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
         if (cameraIntent.resolveActivity(context.packageManager) == null) {
             showAttachmentError(localized(language, "没有可用的相机应用", "No camera app is available"))
             return
         }
-        attachScope.launch {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            cameraLaunchRequest += 1
+        } else {
+            requestCameraPermission.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    LaunchedEffect(cameraLaunchRequest) {
+        if (cameraLaunchRequest == 0) return@LaunchedEffect
+        runCatching {
             // Do the cache sweep + file creation off the main thread (disk I/O can jank/ANR),
             // then return to the main thread to set the uri and launch the camera.
-            val uri = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val file = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 // Prior captures are already staged in-memory, so their temp files are disposable.
                 context.cacheDir.listFiles { f -> f.name.startsWith("capture_") }?.forEach { it.delete() }
-                val file = File(context.cacheDir, "capture_${System.currentTimeMillis()}.jpg")
-                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                File(context.cacheDir, "capture_${System.currentTimeMillis()}.jpg")
             }
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
             captureUri = uri
-            runCatching { takePhoto.launch(uri) }
-                .onFailure { showAttachmentError(it.message) }
+            captureFilePath = file.absolutePath
+            grantCameraUriPermissions(context, uri)
+            takePhoto.launch(uri)
+        }.onFailure {
+            captureUri?.let { uri -> revokeCameraUriPermission(context, uri) }
+            captureUri = null
+            captureFilePath?.let(::File)?.delete()
+            captureFilePath = null
+            showAttachmentError(it.message)
         }
     }
 
@@ -969,6 +1016,42 @@ fun ChatScreen(
         }
     }
 
+    if (showCameraPermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { showCameraPermissionDialog = false },
+            title = { Text(localized(language, "需要相机权限", "Camera permission required")) },
+            text = {
+                Text(
+                    localized(
+                        language,
+                        "拍照需要使用相机权限。请在系统设置中允许相机权限，然后重新点击拍照。",
+                        "Taking a photo requires camera access. Allow it in system settings, then try again.",
+                    ),
+                )
+            },
+            dismissButton = {
+                TextButton(onClick = { showCameraPermissionDialog = false }) {
+                    Text(localized(language, "取消", "Cancel"))
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCameraPermissionDialog = false
+                        runCatching {
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.parse("package:${context.packageName}"),
+                                ),
+                            )
+                        }.onFailure { showAttachmentError(it.message) }
+                    },
+                ) { Text(localized(language, "打开设置", "Open settings")) }
+            },
+        )
+    }
+
     state.pendingClarify?.let { req ->
         var answer by remember { mutableStateOf("") }
         AlertDialog(
@@ -1034,6 +1117,40 @@ fun ChatScreen(
             onPick = { vm.setPersona(it) },
             onRetry = { vm.loadPersonas() },
             onDismiss = { showPersonaSheet = false },
+        )
+    }
+}
+
+/**
+ * The stock TakePicture contract grants URI flags, but several OEM camera apps also require the
+ * output Uri in ClipData. Keeping both makes the FileProvider hand-off portable without exposing it.
+ */
+internal class CompatibleTakePictureContract : ActivityResultContract<Uri, Boolean>() {
+    override fun createIntent(context: Context, input: Uri): Intent =
+        Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+            putExtra(MediaStore.EXTRA_OUTPUT, input)
+            clipData = ClipData.newRawUri("Hermes Remote photo", input)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        }
+
+    override fun parseResult(resultCode: Int, intent: Intent?): Boolean = resultCode == Activity.RESULT_OK
+}
+
+private fun grantCameraUriPermissions(context: Context, uri: Uri) {
+    val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+    val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+    context.packageManager.queryIntentActivities(cameraIntent, PackageManager.MATCH_DEFAULT_ONLY).forEach { info ->
+        info.activityInfo?.packageName?.let { packageName ->
+            runCatching { context.grantUriPermission(packageName, uri, flags) }
+        }
+    }
+}
+
+private fun revokeCameraUriPermission(context: Context, uri: Uri) {
+    runCatching {
+        context.revokeUriPermission(
+            uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
         )
     }
 }
