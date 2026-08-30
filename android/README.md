@@ -116,6 +116,11 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   cards with a progress bar and per-item state, and three or more consecutive tool calls collapse
   into one timeline card with per-row status, command summary, duration/exit metadata, and
   tap-to-expand output — long agent runs no longer render as a wall of separate cards.
+- Version 0.1.38 upgrades in-chat search to occurrence-level hits with context snippets across
+  text, reasoning, and tool outputs; adds long-press "Select text" full-screen selection; stamps
+  messages with timestamps and renders time separators after 20-minute gaps; collapses setup into
+  a single verify-then-save connect action; and localizes twelve secondary screens (cron, usage,
+  archived, management, admin, tools, memory, MCP, env, prompts, diagnostics, messaging) to Chinese.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
@@ -137,7 +142,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.37-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.38-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
