@@ -44,6 +44,8 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   distribution artifacts so test packages can always be matched to their source version.
 - Version 0.1.14 merges the hardened Connector `/api/files` download endpoint and disables Android
   cleartext traffic outside localhost development targets.
+- Version 0.1.15 rebuilds the tester APK with the canonical shared debug signing identity so packages
+  produced by Hermes, Codex, and Claude Code can update the same installed application.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
@@ -65,7 +67,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.14-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.15-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
