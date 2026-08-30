@@ -56,6 +56,36 @@ class StreamingMarkdownStabilizerTest {
         assertTrue(out.startsWith("quick:"))
     }
 
+    @Test fun bracesInsideJsonStringsDoNotUnmask() {
+        // Payload whose STRING VALUES are full of braces (code output). A naive brace count sees
+        // depth hit zero inside the string and unmasks; string-aware scanning must keep the blob
+        // masked until the real closing brace.
+        val blob = "{\"output\": \"if (x) { return y; } else { z(); } map { it } close}}\", \"code\": \"fun a() { b() }"
+        val out = stabilizeStreamingMarkdown("前文分析：\n$blob", "接收中")
+        assertFalse(out.contains("output"))
+        assertTrue(out.contains("接收中"))
+    }
+
+    @Test fun maskVerdictIsMonotoneAcrossStreamingPrefixes() {
+        // The regression seen on a screen recording: the mask flipping on/off between 64ms
+        // snapshots made the answer's rendered height oscillate at ~7Hz. Feed every prefix of a
+        // hostile payload (braces and escaped quotes inside strings) and require at most ONE
+        // masked->unmasked transition across the whole stream.
+        val prose = "结论如下：\n\n"
+        val blob = "{\"result\": \"for { a } while { b } \\\" quoted \\\" end}\", \"n\": 1, \"tail\": \"x { y }\"}"
+        val full = prose + blob + "\n\n后续说明文字。"
+        var transitions = 0
+        var wasMasked = false
+        for (end in prose.length + 2..full.length) {
+            val masked = stabilizeStreamingMarkdown(full.substring(0, end), "P").contains("*P*")
+            if (end > prose.length + 2 && masked != wasMasked) transitions++
+            wasMasked = masked
+        }
+        assertTrue("mask flipped $transitions times across prefixes", transitions <= 1)
+        // And the final complete text must be unmasked (blob closed, prose follows).
+        assertEquals(false, stabilizeStreamingMarkdown(full, "P").contains("*P*"))
+    }
+
     @Test fun maskedJsonInsideOpenFenceStillClosesTheFence() {
         val blob = "{\"data\": \"" + "y".repeat(300)
         val out = stabilizeStreamingMarkdown("look:\n```json\n$blob", "P")

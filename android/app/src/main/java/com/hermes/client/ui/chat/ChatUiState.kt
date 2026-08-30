@@ -380,19 +380,35 @@ private fun String.withStreamingPlaceholder(placeholder: String): String =
 
 /**
  * Index of a trailing, still-unbalanced `{"…` object, or -1. Masking starts with the blob's very
- * first characters: showing raw payload and yanking it back later is itself a visible jump. Brace
- * counting is deliberately naive (braces inside JSON strings count too): a wrong verdict only
- * means the tail stays masked until the organization pass extracts it, or renders raw as before.
+ * first characters: showing raw payload and yanking it back later is itself a visible jump.
+ *
+ * The scan MUST be string-aware so its verdict stays monotone. An earlier naive brace count
+ * treated braces inside JSON string values as structure; while a payload full of code streamed
+ * in, the depth repeatedly crossed zero and the mask flipped on and off at snapshot cadence —
+ * measured on a screen recording as the whole answer's rendered height oscillating thousands of
+ * pixels at ~7Hz. With quotes and escapes tracked, "still open" holds continuously until the
+ * real closing brace arrives, and "closed" holds forever after: one transition per blob.
  */
 private fun findTrailingUnbalancedJson(text: String): Int {
     val start = streamedJsonLineStart.findAll(text).lastOrNull()?.range?.first ?: return -1
     var depth = 0
+    var inString = false
+    var escaped = false
     for (index in start until text.length) {
-        when (text[index]) {
-            '{' -> depth++
-            '}' -> {
-                depth--
-                if (depth == 0) return -1
+        val c = text[index]
+        when {
+            escaped -> escaped = false
+            inString -> when (c) {
+                '\\' -> escaped = true
+                '"' -> inString = false
+            }
+            else -> when (c) {
+                '"' -> inString = true
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return -1
+                }
             }
         }
     }
