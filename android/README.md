@@ -63,6 +63,9 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 - Version 0.1.22 adds bounded camera/photo/file input, raw attachment upload, image compression,
   output image previews, downloadable file cards, and acknowledged streaming downloads so large
   results cannot overflow the Connector control WebSocket.
+- Version 0.1.23 unwedges chat scrolling: a failed jump-to-bottom falls back to browsing instead
+  of locking the screen, tail detection tolerates dense-screen layout rounding, history refreshes
+  no longer yank an upward-scrolled reader to the bottom, and tail-follow yields to search scrolls.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
