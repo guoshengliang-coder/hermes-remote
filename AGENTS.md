@@ -54,10 +54,21 @@ For every APK actually handed to a tester or user:
 
 1. The integration agent increments `appVersionName` by one patch version and `appVersionCode` by one.
 2. Update the matching version note in `android/README.md`.
-3. Run the Android unit tests and debug build.
-4. Deliver only the staged artifact from
+3. Run the mandatory release gate from the repository root:
+
+   ```bash
+   ./scripts/package-debug-apk.sh
+   ```
+
+   This gate runs `git diff --check`, Android unit tests, the debug build, staged-artifact checks,
+   APK package/version validation, signature verification, and SHA-256 generation. A successful
+   `assembleDebug` by itself is not sufficient for distribution.
+4. Deliver only the exact `ARTIFACT=` path printed after `APK_RELEASE_OK`:
    `android/app/build/outputs/apk/distribution/debug/Hermes-Remote-<version>-debug.apk`.
-5. Never hand off the canonical unversioned `app-debug.apk`.
+5. Never hand off, upload, or serve the canonical unversioned `app-debug.apk`.
+6. For public hosting, use the versioned filename in the URL, download the full remote file after
+   deployment, verify its byte size and SHA-256 against the release-gate output, and ensure any old
+   unversioned URL does not serve an APK.
 
 Do not bump the Android version for documentation-only or server-only work when no new APK is being
 distributed. With concurrent agents, only the integration agent performs the bump after all Android

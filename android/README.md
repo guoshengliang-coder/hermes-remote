@@ -50,9 +50,16 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 
 ## Build
 
+For local development checks, Gradle remains available directly. For every APK distributed to a
+user or tester, run the repository release gate instead:
+
 ```bash
-./gradlew :app:testDebugUnitTest :app:assembleDebug
+cd ..
+./scripts/package-debug-apk.sh
 ```
+
+The gate runs Android unit tests and `assembleDebug`, then validates the package metadata, version,
+signature, staged filename, and SHA-256 before printing `APK_RELEASE_OK`.
 
 Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. After every debug
 build, the tester-facing APK is staged automatically as:
