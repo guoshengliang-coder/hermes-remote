@@ -1,0 +1,8 @@
+{
+  "channel": "internal",
+  "releaseNotes": [
+    "兼容 image_generate 等工具返回的 Mac 图片保存路径：自动通过受认证的 Relay 获取原图，在聊天中展示缩略图并支持查看与下载。",
+    "支持中文/英文路径提示、本地 Markdown、file://、路径换行及重复引用去重，不再把手机无法访问的 Mac 绝对路径直接展示为正文。",
+    "统一构建签名：显式固定并校验共享 debug.keystore，避免 GitHub Actions、Hermes、Codex 或 Claude Code 因 Android 目录差异生成无法覆盖安装的 APK。"
+  ]
+}

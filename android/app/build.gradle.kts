@@ -5,8 +5,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // Increment both values for every APK distributed to testers. Keep versionCode
 // strictly increasing so Android always accepts the newer package as an update.
-val appVersionCode = 27
-val appVersionName = "0.1.26"
+val appVersionCode = 28
+val appVersionName = "0.1.27"
 
 // Temporary shared debug identity used by every authorized Hermes Remote build host. The private
 // keystore stays outside Git at ~/.android/debug.keystore; only its public certificate digest is
@@ -51,6 +51,16 @@ android {
         buildConfigField("String", "EXPECTED_UPDATE_CERT_SHA256", "\"$expectedDebugCertificateSha256\"")
     }
     signingConfigs {
+        // Do not rely on AGP's environment-dependent default debug keystore lookup. CI runners
+        // may redirect ANDROID_USER_HOME and silently sign with a generated key even after the
+        // canonical ~/.android/debug.keystore has been verified. Pin every debug APK to the exact
+        // file whose certificate is checked below so all authorized build hosts stay compatible.
+        getByName("debug") {
+            storeFile = canonicalDebugKeystore
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         if (keystorePropsFile.exists()) {
             create("release") {
                 storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
@@ -61,6 +71,9 @@ android {
         }
     }
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = false
             // Sign with the release config only when the keystore is present.

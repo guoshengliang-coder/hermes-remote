@@ -76,6 +76,9 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 - Version 0.1.26 recognizes image-generation results that report a Mac absolute path in natural
   Chinese/English prose, local Markdown, or `file://` form; it hides the unusable Mac path and
   resolves the original image through the authenticated Relay into an on-device preview.
+- Version 0.1.27 explicitly pins debug builds to the verified shared keystore, preventing CI or
+  agent-specific Android home directories from silently producing an incompatible APK signature;
+  it carries forward the Mac image-output preview support introduced in 0.1.26.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
@@ -97,7 +100,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.26-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.27-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
