@@ -62,6 +62,29 @@ downgrade is not supported.”
 5. The publisher downloads the complete public versioned APK and verifies HTTP, size, and SHA-256,
    then checks the public index entry/latest value. Only the printed versioned URL is deliverable.
 
+## Automatic publishing from GitHub
+
+The repository includes `.github/workflows/android-release.yml`. Normal pushes and pull requests run
+CI only. Publishing runs when a tag named `android-v<appVersionName>` is pushed, or when the workflow
+is manually dispatched from `main`. The job uses the `production` environment and a concurrency lock,
+so configure a required reviewer for that environment in GitHub Settings → Environments before using
+it in production. The workflow then performs the protocol tests, provisions the canonical debug key,
+runs the package gate, publishes through the existing SSH publisher, and verifies the public APK and
+`index.json`. A tag whose version does not match `android/app/build.gradle.kts` or whose commit is not
+the current `origin/main` is rejected.
+
+Configure these repository secrets once (never commit their values):
+
+- `HERMES_DEBUG_KEYSTORE_BASE64`: base64 of the shared `~/.android/debug.keystore` (password remains
+  `android`).
+- `RELEASE_SSH_PRIVATE_KEY`: the deployment key allowed to log in as `kkk@mrlgs.net`.
+- `RELEASE_SSH_KNOWN_HOSTS`: the pinned `mrlgs.net` SSH host key line(s).
+
+After a release commit is pushed, create and push the matching tag, for example
+`git tag android-v0.1.23 && git push origin android-v0.1.23`; GitHub then handles the build, upload,
+index update, and public verification after the production approval. This automation publishes only
+the Android update artifact; Gateway/Connector service deployment remains an explicit server operation.
+
 `scripts/bootstrap-release-server.sh` creates `/opt/hermes-release-server`, `/srv/hermes-releases`, a
 legal empty index, TLS directory, environment, and systemd unit. Test locally with
 `SYSTEM_ROOT=$(mktemp -d) scripts/bootstrap-release-server.sh`. Import 0.1.14–0.1.16 by passing each

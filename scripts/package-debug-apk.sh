@@ -126,7 +126,14 @@ if [[ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]]; then
 fi
 SHA_LINE="$(shasum -a 256 "$ARTIFACT")"
 SHA256="${SHA_LINE%% *}"
-BYTES="$(stat -f '%z' "$ARTIFACT")"
+# Keep the release gate portable across macOS (local builds) and Linux (CI).
+BYTES="$(python3 - "$ARTIFACT" <<'PY'
+import os
+import sys
+
+print(os.stat(sys.argv[1]).st_size)
+PY
+)"
 
 echo
 echo "APK_RELEASE_OK"
