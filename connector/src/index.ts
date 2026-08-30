@@ -1,5 +1,8 @@
 import { WebSocket } from "ws";
-import { readFileSync } from "node:fs";
+import { constants, readFileSync } from "node:fs";
+import { open, realpath } from "node:fs/promises";
+import { homedir } from "node:os";
+import { extname, isAbsolute, resolve, sep } from "node:path";
 import {
   PROTOCOL_VERSION,
   encodeWireMessage,
@@ -18,6 +21,8 @@ const deviceId = process.env.DEVICE_ID ?? "mac-mini";
 const hermesMode = process.env.HERMES_MODE ?? "mock";
 const hermesBaseUrl = (process.env.HERMES_BASE_URL ?? "http://127.0.0.1:9119").replace(/\/$/, "");
 const hermesChatUrl = process.env.HERMES_CHAT_URL ?? `${hermesBaseUrl}/api/chat`;
+const filesRoot = resolve(process.env.FILES_ROOT ?? homedir());
+const maxFileBytes = 2 * 1024 * 1024;
 const controlHeartbeatMs = positiveIntEnv("CONTROL_HEARTBEAT_MS", 15_000);
 const localRequestTimeoutMs = positiveIntEnv("LOCAL_REQUEST_TIMEOUT_MS", 60_000);
 const chatRequestTimeoutMs = positiveIntEnv("CHAT_REQUEST_TIMEOUT_MS", 10 * 60_000);
@@ -114,6 +119,16 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
 
 async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): Promise<void> {
   if (request.targetDeviceId !== deviceId) return;
+  if (request.path.startsWith("/api/files")) {
+    const response = await handleFileRequest(request);
+    sendControl(socket, {
+      type: "tunnel.http.response",
+      version: PROTOCOL_VERSION,
+      requestId: request.id,
+      ...response,
+    });
+    return;
+  }
   try {
     const response = await hermesAuth.request(request.path, {
       method: request.method,
@@ -141,6 +156,138 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
         .toString("base64"),
     });
   }
+}
+
+type FileResponse = {
+  status: number;
+  headers: Record<string, string>;
+  bodyBase64: string;
+};
+
+async function handleFileRequest(request: TunnelHttpRequest): Promise<FileResponse> {
+  if (request.method.toUpperCase() !== "GET") {
+    return jsonFileResponse(405, "method_not_allowed", { allow: "GET" });
+  }
+
+  let requestedPath: string;
+  try {
+    const url = new URL(request.path, "http://connector.local");
+    if (url.pathname !== "/api/files") return jsonFileResponse(404, "not_found");
+    const rawPath = rawQueryParameter(request.path, "path");
+    if (rawPath === undefined || rawPath.length === 0) {
+      return jsonFileResponse(400, "invalid_path");
+    }
+    requestedPath = decodeURIComponent(rawPath.replace(/\+/g, " "));
+  } catch {
+    return jsonFileResponse(400, "invalid_path");
+  }
+
+  if (requestedPath.includes("\0")
+      || !isAbsolute(requestedPath)
+      || requestedPath.split(/[\\/]+/).includes("..")) {
+    return jsonFileResponse(400, "invalid_path");
+  }
+
+  try {
+    const canonicalRoot = await realpath(filesRoot);
+    const resolvedPath = resolve(requestedPath);
+    if (!isWithinRoot(resolvedPath, filesRoot)) {
+      return jsonFileResponse(403, "forbidden");
+    }
+
+    const canonicalPath = await realpath(resolvedPath);
+    if (!isWithinRoot(canonicalPath, canonicalRoot)) {
+      return jsonFileResponse(403, "forbidden");
+    }
+
+    const noFollow = constants.O_NOFOLLOW ?? 0;
+    const handle = await open(canonicalPath, constants.O_RDONLY | noFollow);
+    try {
+      const metadata = await handle.stat();
+      if (!metadata.isFile()) return jsonFileResponse(400, "invalid_file");
+      if (metadata.size > maxFileBytes) return jsonFileResponse(413, "file_too_large");
+
+      const chunks: Buffer[] = [];
+      let total = 0;
+      while (true) {
+        const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, maxFileBytes + 1 - total));
+        const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+        if (bytesRead === 0) break;
+        total += bytesRead;
+        if (total > maxFileBytes) return jsonFileResponse(413, "file_too_large");
+        chunks.push(chunk.subarray(0, bytesRead));
+      }
+      const body = Buffer.concat(chunks, total);
+      return {
+        status: 200,
+        headers: {
+          "content-type": contentTypeFor(canonicalPath),
+          "content-length": String(body.length),
+        },
+        bodyBase64: body.toString("base64"),
+      };
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return jsonFileResponse(404, "not_found");
+    if (code === "EACCES" || code === "EPERM") return jsonFileResponse(403, "forbidden");
+    console.error("File request failed", code ?? "unknown_error");
+    return jsonFileResponse(500, "file_read_failed");
+  }
+}
+
+function rawQueryParameter(path: string, name: string): string | undefined {
+  const query = path.split("?", 2)[1]?.split("#", 1)[0];
+  if (query === undefined) return undefined;
+  for (const part of query.split("&")) {
+    const separator = part.indexOf("=");
+    const rawName = separator >= 0 ? part.slice(0, separator) : part;
+    if (decodeURIComponent(rawName.replace(/\+/g, " ")) === name) {
+      return separator >= 0 ? part.slice(separator + 1) : "";
+    }
+  }
+  return undefined;
+}
+
+function isWithinRoot(candidate: string, root: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}${sep}`);
+}
+
+function jsonFileResponse(
+  status: number,
+  error: string,
+  extraHeaders: Record<string, string> = {},
+): FileResponse {
+  const body = Buffer.from(JSON.stringify({ error }));
+  return {
+    status,
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(body.length),
+      ...extraHeaders,
+    },
+    bodyBase64: body.toString("base64"),
+  };
+}
+
+function contentTypeFor(path: string): string {
+  const types: Record<string, string> = {
+    ".txt": "text/plain; charset=utf-8",
+    ".md": "text/markdown; charset=utf-8",
+    ".csv": "text/csv; charset=utf-8",
+    ".log": "text/plain; charset=utf-8",
+    ".json": "application/json",
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+  };
+  return types[extname(path).toLowerCase()] ?? "application/octet-stream";
 }
 
 async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): Promise<void> {
