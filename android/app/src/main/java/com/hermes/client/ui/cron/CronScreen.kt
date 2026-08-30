@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.widget.Toast
+import com.hermes.client.ui.localization.l10n
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,15 +62,15 @@ fun CronScreen(
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "Cron jobs",
-                subtitle = state.profile?.let { "Profile: $it" },
+                title = l10n("定时任务", "Cron jobs"),
+                subtitle = state.profile?.let { l10n("身份：$it", "Profile: $it") },
                 navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
             )
         },
         floatingActionButton = {
             androidx.compose.material3.ExtendedFloatingActionButton(
                 onClick = { onNew("new") },
-                text = { Text("New") },
+                text = { Text(l10n("新建", "New")) },
                 icon = { Icon(androidx.compose.material.icons.Icons.Rounded.Add, contentDescription = null) },
                 containerColor = com.hermes.client.ui.components.AccentChrome.fabContainer,
                 contentColor = com.hermes.client.ui.components.AccentChrome.onFab,
@@ -120,7 +121,7 @@ fun CronScreen(
                                 },
                                 headlineContent = { Text(cronDisplayName(job.name, job.prompt, job.id)) },
                                 supportingContent = {
-                                    val next = job.nextRunAt?.let { "Next: " + com.hermes.client.ui.util.formatIso(it) }
+                                    val next = job.nextRunAt?.let { l10n("下次：", "Next: ") + com.hermes.client.ui.util.formatIso(it) }
                                     // Prompt snippet is only useful here when the headline is the name; when the job is
                                     // unnamed the headline already shows the prompt (via cronDisplayName), so don't repeat it.
                                     val fallback = job.name?.takeIf { it.isNotBlank() }?.let {
@@ -135,14 +136,14 @@ fun CronScreen(
                                         }
                                         DropdownMenu(expanded = menuFor.value == job.id, onDismissRequest = { menuFor.value = null }) {
                                             DropdownMenuItem(
-                                                text = { Text(if (job.isPaused) "Resume" else "Pause") },
+                                                text = { Text(if (job.isPaused) l10n("恢复", "Resume") else l10n("暂停", "Pause")) },
                                                 onClick = {
                                                     vm.runAction(job.id, job.name ?: job.id, if (job.isPaused) CronAction.RESUME else CronAction.PAUSE)
                                                     menuFor.value = null
                                                 }
                                             )
                                             DropdownMenuItem(
-                                                text = { Text("Run now") },
+                                                text = { Text(l10n("立即运行", "Run now")) },
                                                 onClick = {
                                                     vm.runAction(job.id, job.name ?: job.id, CronAction.RUN)
                                                     menuFor.value = null
@@ -172,9 +173,9 @@ private fun CronEmpty(onNew: (String) -> Unit) {
     ) {
         Icon(Icons.Rounded.Schedule, contentDescription = null, tint = accent.accent, modifier = Modifier.size(40.dp))
         Spacer(Modifier.height(12.dp))
-        Text("No cron jobs", style = MaterialTheme.typography.titleMedium)
+        Text(l10n("暂无定时任务", "No cron jobs"), style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(4.dp))
-        Text("Start from a template:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(l10n("从模板开始：", "Start from a template:"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(16.dp))
         CRON_TEMPLATES.forEach { t ->
             OutlinedButton(onClick = { onNew(t.id) }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
@@ -182,6 +183,6 @@ private fun CronEmpty(onNew: (String) -> Unit) {
             }
         }
         Spacer(Modifier.height(12.dp))
-        Button(onClick = { onNew("new") }) { Text("New cron job") }
+        Button(onClick = { onNew("new") }) { Text(l10n("新建定时任务", "New cron job")) }
     }
 }

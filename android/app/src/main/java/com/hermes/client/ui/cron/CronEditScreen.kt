@@ -56,6 +56,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.hermes.client.ui.localization.l10n
 
 data class CronEditState(
     val name: String = "",
@@ -142,12 +143,12 @@ fun CronEditScreen(
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = if (state.isNew) "New cron job" else "Edit cron job",
+                title = if (state.isNew) l10n("新建定时任务", "New cron job") else l10n("编辑定时任务", "Edit cron job"),
                 navigationIcon = {
                     IconButton(onClick = onDone) {
                         androidx.compose.material3.Icon(
                             androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = l10n("返回", "Back"),
                         )
                     }
                 },
@@ -156,12 +157,12 @@ fun CronEditScreen(
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-            OutlinedTextField(state.name, vm::setName, label = { Text("Name (optional)") },
+            OutlinedTextField(state.name, vm::setName, label = { Text(l10n("名称（可选）", "Name (optional)")) },
                 singleLine = true, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(8.dp))
             val nowMs = androidx.compose.runtime.remember(state.schedule) { System.currentTimeMillis() }
             ScheduleBuilder(schedule = state.schedule, onChange = vm::setSchedule, nowMs = nowMs)
-            OutlinedTextField(state.prompt, vm::setPrompt, label = { Text("Prompt") },
+            OutlinedTextField(state.prompt, vm::setPrompt, label = { Text(l10n("提示词", "Prompt")) },
                 minLines = 5, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
             Button(
                 onClick = { vm.save() },
@@ -169,7 +170,7 @@ fun CronEditScreen(
                     (state.schedule !is Schedule.Advanced || isValidCron((state.schedule as Schedule.Advanced).expr)),
                 modifier = Modifier.padding(top = 16.dp),
             ) {
-                Text(if (state.isNew) "Create" else "Save")
+                Text(if (state.isNew) l10n("创建", "Create") else l10n("保存", "Save"))
             }
         }
     }
@@ -179,7 +180,10 @@ fun CronEditScreen(
 @Composable
 private fun ScheduleBuilder(schedule: Schedule, onChange: (Schedule) -> Unit, nowMs: Long) {
     val accent = com.hermes.client.ui.theme.LocalProfileAccent.current
-    val kinds = listOf("Hourly", "Daily", "Weekly", "Monthly", "Advanced")
+    val kinds = listOf(
+        l10n("每小时", "Hourly"), l10n("每天", "Daily"), l10n("每周", "Weekly"),
+        l10n("每月", "Monthly"), l10n("高级", "Advanced"),
+    )
     val current = when (schedule) {
         is Schedule.Hourly -> 0; is Schedule.Daily -> 1; is Schedule.Weekly -> 2
         is Schedule.Monthly -> 3; is Schedule.Advanced -> 4
@@ -229,11 +233,11 @@ private fun ScheduleBuilder(schedule: Schedule, onChange: (Schedule) -> Unit, no
                 val valid = isValidCron(schedule.expr)
                 OutlinedTextField(
                     schedule.expr, { onChange(Schedule.Advanced(it)) },
-                    label = { Text("Schedule (cron, e.g. 0 9 * * *)") }, singleLine = true,
+                    label = { Text(l10n("计划（cron 表达式，如 0 9 * * *）", "Schedule (cron, e.g. 0 9 * * *)")) }, singleLine = true,
                     isError = schedule.expr.isNotBlank() && !valid, modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    if (schedule.expr.isNotBlank() && !valid) "Not a valid 5-field cron expression" else "min hour day month weekday",
+                    if (schedule.expr.isNotBlank() && !valid) l10n("不是有效的 5 段 cron 表达式", "Not a valid 5-field cron expression") else l10n("分 时 日 月 星期", "min hour day month weekday"),
                     style = MaterialTheme.typography.labelSmall,
                     color = if (schedule.expr.isNotBlank() && !valid) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -258,7 +262,7 @@ private fun MinutePicker(minute: Int, onPick: (Int) -> Unit) {
             value = ":%02d".format(minute),
             onValueChange = {},
             readOnly = true,
-            label = { Text("Minute") },
+            label = { Text(l10n("分钟", "Minute")) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable, true).fillMaxWidth(),
         )
@@ -282,7 +286,7 @@ private fun DayOfMonthPicker(day: Int, onPick: (Int) -> Unit) {
             value = day.toString(),
             onValueChange = {},
             readOnly = true,
-            label = { Text("Day of month") },
+            label = { Text(l10n("每月几号", "Day of month")) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable, true).fillMaxWidth(),
         )
@@ -331,17 +335,17 @@ private fun TimeRow(hour: Int, minute: Int, onPick: (Int, Int) -> Unit) {
         onClick = { showDialog = true },
         colors = ButtonDefaults.outlinedButtonColors(contentColor = accent.accent),
     ) {
-        Text("At %02d:%02d".format(hour, minute))
+        Text(l10n("时间 ", "At ") + "%02d:%02d".format(hour, minute))
     }
     if (showDialog) {
         val state = rememberTimePickerState(initialHour = hour, initialMinute = minute, is24Hour = true)
         AlertDialog(
             onDismissRequest = { showDialog = false },
             confirmButton = {
-                TextButton(onClick = { onPick(state.hour, state.minute); showDialog = false }) { Text("OK") }
+                TextButton(onClick = { onPick(state.hour, state.minute); showDialog = false }) { Text(l10n("确定", "OK")) }
             },
             dismissButton = {
-                TextButton(onClick = { showDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showDialog = false }) { Text(l10n("取消", "Cancel")) }
             },
             text = { TimePicker(state = state) },
         )

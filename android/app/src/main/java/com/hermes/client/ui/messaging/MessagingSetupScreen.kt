@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.hermes.client.ui.localization.l10n
 
 data class MessagingSetupState(
     val platform: MessagingPlatformDto? = null,
@@ -95,12 +96,12 @@ fun MessagingSetupScreen(
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = state.platform?.name ?: "Set up",
+                title = state.platform?.name ?: l10n("设置", "Set up"),
                 navigationIcon = {
                     IconButton(onClick = onDone) {
                         androidx.compose.material3.Icon(
                             androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = l10n("返回", "Back"),
                         )
                     }
                 },
@@ -111,14 +112,14 @@ fun MessagingSetupScreen(
         val p = state.platform
         when {
             state.loading -> com.hermes.client.ui.components.LoadingState()
-            p == null -> Text("Platform not found", Modifier.padding(padding).padding(24.dp))
+            p == null -> Text(l10n("未找到该平台", "Platform not found"), Modifier.padding(padding).padding(24.dp))
             else -> Column(
                 Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             ) {
                 p.description?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
                 p.docsUrl?.let { url ->
                     Text(
-                        "Setup guide ↗",
+                        l10n("配置指南 ↗", "Setup guide ↗"),
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(top = 8.dp).clickable {
@@ -132,7 +133,7 @@ fun MessagingSetupScreen(
                 }
                 if (p.envVars.isEmpty()) {
                     Text(
-                        "No configuration needed — just enable it.",
+                        l10n("无需配置——直接启用即可。", "No configuration needed — just enable it."),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 16.dp),
@@ -156,7 +157,7 @@ fun MessagingSetupScreen(
                     onClick = { vm.saveAndEnable(values.toMap()) },
                     enabled = !state.saving,
                     modifier = Modifier.padding(top = 16.dp),
-                ) { Text(if (state.saving) "Saving…" else "Save & enable") }
+                ) { Text(if (state.saving) l10n("保存中…", "Saving…") else l10n("保存并启用", "Save & enable")) }
             }
         }
     }

@@ -45,6 +45,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
+import com.hermes.client.ui.localization.l10n
 
 data class MemorySettingsState(
     val memoryEnabled: Boolean = true,
@@ -123,7 +124,7 @@ fun MemorySettingsScreen(
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "Models & memory",
+                title = l10n("模型与记忆", "Models & memory"),
                 navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
             )
         },
@@ -139,31 +140,31 @@ fun MemorySettingsScreen(
         }
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {
             ListItem(
-                headlineContent = { Text("Default model") },
+                headlineContent = { Text(l10n("默认模型", "Default model")) },
                 supportingContent = { Text(state.defaultModel) },
             )
-            ToggleRow("Persistent memory", "Save durable memories across sessions",
+            ToggleRow(l10n("持久记忆", "Persistent memory"), l10n("跨会话保存长期记忆", "Save durable memories across sessions"),
                 state.memoryEnabled) { vm.setMemoryEnabled(it) }
-            ToggleRow("User profile", "Maintain a compact profile of preferences",
+            ToggleRow(l10n("用户画像", "User profile"), l10n("维护偏好的精简画像", "Maintain a compact profile of preferences"),
                 state.userProfileEnabled) { vm.setUserProfileEnabled(it) }
-            ToggleRow("Write approval", "Ask before saving a memory",
+            ToggleRow(l10n("写入确认", "Write approval"), l10n("保存记忆前先询问", "Ask before saving a memory"),
                 state.writeApproval) { vm.setWriteApproval(it) }
 
             var mem by remember(state.memoryCharLimit) { mutableStateOf(state.memoryCharLimit.toString()) }
             var usr by remember(state.userCharLimit) { mutableStateOf(state.userCharLimit.toString()) }
-            Text("BUDGETS (chars)", style = MaterialTheme.typography.labelMedium,
+            Text(l10n("预算（字符）", "BUDGETS (chars)"), style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp))
-            OutlinedTextField(mem, { mem = it }, label = { Text("Memory budget") }, singleLine = true,
+            OutlinedTextField(mem, { mem = it }, label = { Text(l10n("记忆预算", "Memory budget")) }, singleLine = true,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
-            OutlinedTextField(usr, { usr = it }, label = { Text("Profile budget") }, singleLine = true,
+            OutlinedTextField(usr, { usr = it }, label = { Text(l10n("画像预算", "Profile budget")) }, singleLine = true,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
             Button(
                 onClick = { vm.saveBudgets(mem.toIntOrNull() ?: state.memoryCharLimit, usr.toIntOrNull() ?: state.userCharLimit) },
                 modifier = Modifier.padding(16.dp),
-            ) { Text("Save budgets") }
+            ) { Text(l10n("保存预算", "Save budgets")) }
         }
     }
 }

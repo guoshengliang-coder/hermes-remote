@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.hermes.client.ui.localization.l10n
 
 data class UsageUiState(
     val inputTokens: Long = 0,
@@ -101,7 +102,7 @@ fun UsageScreen(
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "Usage",
+                title = l10n("用量", "Usage"),
                 navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
             )
         },
@@ -116,23 +117,23 @@ fun UsageScreen(
                     item {
                         Column(Modifier.padding(16.dp)) {
                             Row(Modifier.fillMaxWidth()) {
-                                Stat("Sessions", state.sessions.toString(), Modifier.weight(1f))
-                                Stat("API calls", state.apiCalls.toString(), Modifier.weight(1f))
+                                Stat(l10n("会话数", "Sessions"), state.sessions.toString(), Modifier.weight(1f))
+                                Stat(l10n("API 调用", "API calls"), state.apiCalls.toString(), Modifier.weight(1f))
                             }
                             Row(Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                                Stat("Tokens in/out",
+                                Stat(l10n("Token 入/出", "Tokens in/out"),
                                     "${state.inputTokens.compact()} / ${state.outputTokens.compact()}",
                                     Modifier.weight(1f))
-                                Stat("Est. cost", "$" + "%.2f".format(state.estimatedCost), Modifier.weight(1f))
+                                Stat(l10n("预估费用", "Est. cost"), "$" + "%.2f".format(state.estimatedCost), Modifier.weight(1f))
                             }
                             if (state.daily.isNotEmpty()) {
-                                Text("DAILY TOKENS", style = MaterialTheme.typography.labelMedium,
+                                Text(l10n("每日 TOKEN", "DAILY TOKENS"), style = MaterialTheme.typography.labelMedium,
                                     color = LocalProfileAccent.current.accent,
                                     modifier = Modifier.padding(top = 20.dp, bottom = 8.dp))
                                 DailyTokensChart(state.daily)
                             }
                         }
-                        Text("TOP MODELS", style = MaterialTheme.typography.labelMedium,
+                        Text(l10n("常用模型", "TOP MODELS"), style = MaterialTheme.typography.labelMedium,
                             color = LocalProfileAccent.current.accent,
                             modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp))
                     }
@@ -141,7 +142,7 @@ fun UsageScreen(
                     items(state.topModels) { m ->
                         ListItem(
                             headlineContent = { Text(m.model) },
-                            supportingContent = { Text("${m.sessions} sessions · ${m.apiCalls} calls") },
+                            supportingContent = { Text(l10n("${m.sessions} 次会话 · ${m.apiCalls} 次调用", "${m.sessions} sessions · ${m.apiCalls} calls")) },
                             trailingContent = {
                                 Text((m.inputTokens + m.outputTokens).compact() + " tok")
                             },
@@ -178,9 +179,9 @@ private fun DailyTokensChart(daily: List<com.hermes.client.data.network.UsageDay
         }
     }
     Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-        Text("input", style = MaterialTheme.typography.labelSmall, color = inputColor)
+        Text(l10n("输入", "input"), style = MaterialTheme.typography.labelSmall, color = inputColor)
         Spacer(Modifier.width(12.dp))
-        Text("output", style = MaterialTheme.typography.labelSmall, color = outputColor)
+        Text(l10n("输出", "output"), style = MaterialTheme.typography.labelSmall, color = outputColor)
     }
 }
 

@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.hermes.client.ui.localization.l10n
 
 data class MessagingUiState(
     val platforms: List<MessagingPlatformDto> = emptyList(),
@@ -86,7 +87,7 @@ fun MessagingScreen(
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "Messaging",
+                title = l10n("消息渠道", "Messaging"),
                 navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
             )
         },
@@ -99,10 +100,10 @@ fun MessagingScreen(
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(state.platforms, key = { it.id }) { p ->
                         val status = when {
-                            p.enabled && p.gatewayRunning -> "Connected"
-                            p.enabled -> "Enabled"
-                            p.configured -> "Configured"
-                            else -> "Not configured"
+                            p.enabled && p.gatewayRunning -> l10n("已连接", "Connected")
+                            p.enabled -> l10n("已启用", "Enabled")
+                            p.configured -> l10n("已配置", "Configured")
+                            else -> l10n("未配置", "Not configured")
                         }
                         ListItem(
                             headlineContent = { Text(p.name ?: p.id) },

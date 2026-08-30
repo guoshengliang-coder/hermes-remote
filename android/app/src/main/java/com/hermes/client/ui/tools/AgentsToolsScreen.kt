@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hermes.client.ui.theme.LocalProfileAccent
+import com.hermes.client.ui.localization.l10n
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,7 +33,7 @@ fun AgentsToolsScreen(
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "Agents & tools",
+                title = l10n("智能体与工具", "Agents & tools"),
                 navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
             )
         },
@@ -44,7 +45,7 @@ fun AgentsToolsScreen(
                     message = state.error!!, onRetry = { vm.load() },
                 )
                 state.skills.isEmpty() && state.toolsets.isEmpty() -> com.hermes.client.ui.components.EmptyState(
-                    title = "No agents or tools",
+                    title = l10n("暂无智能体或工具", "No agents or tools"),
                 )
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     item { SectionHeader("Skills (${state.skills.size})") }

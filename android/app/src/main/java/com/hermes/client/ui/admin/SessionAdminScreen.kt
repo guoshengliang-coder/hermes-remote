@@ -27,6 +27,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hermes.client.ui.localization.l10n
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,7 +41,7 @@ fun SessionAdminScreen(
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "Session admin",
+                title = l10n("会话管理", "Session admin"),
                 navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
             )
         },
@@ -57,7 +58,7 @@ fun SessionAdminScreen(
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = vm::onQueryChange,
-                    placeholder = { Text("Search messages…") },
+                    placeholder = { Text(l10n("搜索消息…", "Search messages…")) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { vm.search() }),
@@ -85,7 +86,7 @@ fun SessionAdminScreen(
             if (state.archived.isEmpty()) {
                 item {
                     Text(
-                        "No archived sessions.",
+                        l10n("暂无归档会话。", "No archived sessions."),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),

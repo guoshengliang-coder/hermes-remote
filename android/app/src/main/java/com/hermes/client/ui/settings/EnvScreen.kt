@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.hermes.client.ui.localization.l10n
 
 data class EnvUiState(
     val vars: List<Pair<String, EnvVarDto>> = emptyList(),
@@ -103,7 +104,7 @@ fun EnvScreen(
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "API keys & env",
+                title = l10n("API 密钥与环境变量", "API keys & env"),
                 navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
             )
         },
@@ -118,7 +119,7 @@ fun EnvScreen(
                         OutlinedTextField(
                             value = state.query,
                             onValueChange = vm::onQuery,
-                            placeholder = { Text("Search keys…") },
+                            placeholder = { Text(l10n("搜索键名…", "Search keys…")) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth().padding(16.dp),
                         )
@@ -152,15 +153,15 @@ fun EnvScreen(
                 OutlinedTextField(
                     value = value,
                     onValueChange = { value = it },
-                    label = { Text("Value") },
+                    label = { Text(l10n("值", "Value")) },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                 )
             },
             confirmButton = {
-                TextButton(onClick = { editing = null; if (value.isNotBlank()) vm.set(key, value) }) { Text("Save") }
+                TextButton(onClick = { editing = null; if (value.isNotBlank()) vm.set(key, value) }) { Text(l10n("保存", "Save")) }
             },
-            dismissButton = { TextButton(onClick = { editing = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { editing = null }) { Text(l10n("取消", "Cancel")) } },
         )
     }
 }

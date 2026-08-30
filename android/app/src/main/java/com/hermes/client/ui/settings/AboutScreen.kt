@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.localization.l10n
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,7 +51,7 @@ fun AboutScreen(
             )
             HorizontalDivider()
             ListItem(
-                headlineContent = { Text("Gateway") },
+                headlineContent = { Text(l10n("网关", "Gateway")) },
                 supportingContent = { Text(localized(language, "版本 ${gatewayVersion ?: "…"}", "Version ${gatewayVersion ?: "…"}")) },
             )
         }

@@ -31,6 +31,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hermes.client.domain.Session
 import com.hermes.client.ui.chat.ChatLaunch
+import com.hermes.client.ui.localization.l10n
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,12 +53,12 @@ fun ArchivedSessionsScreen(
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "Archived",
+                title = l10n("已归档", "Archived"),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         androidx.compose.material3.Icon(
                             androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = l10n("返回", "Back"),
                         )
                     }
                 },
@@ -73,8 +74,8 @@ fun ArchivedSessionsScreen(
                     onRetry = { vm.refresh() },
                 )
                 state.sessions.isEmpty() -> com.hermes.client.ui.components.EmptyState(
-                    title = "No archived sessions",
-                    subtitle = "Archived conversations will appear here.",
+                    title = l10n("暂无归档会话", "No archived sessions"),
+                    subtitle = l10n("归档的会话会显示在这里。", "Archived conversations will appear here."),
                 )
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(state.sessions, key = { it.id }) { s ->
@@ -111,11 +112,11 @@ private fun ArchivedRow(
         )
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             DropdownMenuItem(
-                text = { Text("Unarchive") },
+                text = { Text(l10n("取消归档", "Unarchive")) },
                 onClick = { menuOpen = false; onUnarchive() },
             )
             DropdownMenuItem(
-                text = { Text("Delete") },
+                text = { Text(l10n("删除", "Delete")) },
                 onClick = { menuOpen = false; confirmingDelete = true },
             )
         }
@@ -124,12 +125,12 @@ private fun ArchivedRow(
     if (confirmingDelete) {
         AlertDialog(
             onDismissRequest = { confirmingDelete = false },
-            title = { Text("Delete session?") },
+            title = { Text(l10n("删除会话？", "Delete session?")) },
             text = { Text("\"${session.title}\" will be permanently deleted.") },
             confirmButton = {
-                TextButton(onClick = { confirmingDelete = false; onDelete() }) { Text("Delete") }
+                TextButton(onClick = { confirmingDelete = false; onDelete() }) { Text(l10n("删除", "Delete")) }
             },
-            dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text(l10n("取消", "Cancel")) } },
         )
     }
 }

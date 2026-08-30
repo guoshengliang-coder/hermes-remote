@@ -32,6 +32,7 @@ import com.hermes.client.data.diagnostics.DebugLog
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import com.hermes.client.ui.localization.l10n
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,16 +47,19 @@ fun DiagnosticsScreen(
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "Diagnostics",
+                title = l10n("诊断", "Diagnostics"),
+            // captured for use inside onClick lambdas (l10n is composition-scoped)
                 navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
             )
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
+            val shareSubject = l10n("Hermes 诊断日志", "Hermes diagnostic log")
+            val shareTitle = l10n("分享诊断日志", "Share diagnostic log")
             ListItem(
-                headlineContent = { Text("Diagnostic logging") },
+                headlineContent = { Text(l10n("诊断日志", "Diagnostic logging")) },
                 supportingContent = {
-                    Text("Records network and session activity to diagnose errors like \"message not found\". Off by default; the session token is never logged.")
+                    Text(l10n("记录网络与会话活动，用于排查\u201c找不到消息\u201d这类错误。默认关闭；会话令牌不会被记录。", "Records network and session activity to diagnose errors like \"message not found\". Off by default; the session token is never logged."))
                 },
                 trailingContent = {
                     Switch(checked = enabled, onCheckedChange = { vm.setEnabled(it) })
@@ -71,20 +75,20 @@ fun DiagnosticsScreen(
                     onClick = {
                         val send = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "Hermes diagnostic log")
+                            putExtra(Intent.EXTRA_SUBJECT, shareSubject)
                             putExtra(Intent.EXTRA_TEXT, vm.export())
                         }
-                        context.startActivity(Intent.createChooser(send, "Share diagnostic log"))
+                        context.startActivity(Intent.createChooser(send, shareTitle))
                     },
-                ) { Text("Share") }
-                OutlinedButton(onClick = { vm.clear() }) { Text("Clear") }
+                ) { Text(l10n("分享", "Share")) }
+                OutlinedButton(onClick = { vm.clear() }) { Text(l10n("清除", "Clear")) }
             }
             HorizontalDivider()
 
             if (entries.isEmpty()) {
                 Text(
-                    if (enabled) "Logging is on. Reproduce the issue and entries will appear here."
-                    else "Turn on Diagnostic logging, then reproduce the issue.",
+                    if (enabled) l10n("日志已开启。复现问题后，这里会显示记录。", "Logging is on. Reproduce the issue and entries will appear here.")
+                    else l10n("先开启诊断日志，然后复现问题。", "Turn on Diagnostic logging, then reproduce the issue."),
                     Modifier.padding(16.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

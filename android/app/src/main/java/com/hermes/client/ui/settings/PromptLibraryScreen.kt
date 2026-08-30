@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
+import com.hermes.client.ui.localization.l10n
 
 @HiltViewModel
 class PromptLibraryViewModel @Inject constructor(private val store: PromptStore) : ViewModel() {
@@ -69,11 +70,11 @@ fun PromptLibraryScreen(
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "Saved prompts",
+                title = l10n("常用提示", "Saved prompts"),
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
                 actions = {
                     IconButton(onClick = { adding = true }) {
-                        Icon(Icons.Rounded.Add, contentDescription = "New")
+                        Icon(Icons.Rounded.Add, contentDescription = l10n("新建", "New"))
                     }
                 },
             )
@@ -81,7 +82,7 @@ fun PromptLibraryScreen(
     ) { padding ->
         if (prompts.isEmpty()) {
             Text(
-                "No saved prompts yet. Tap New to add one.",
+                l10n("还没有保存的提示词，点击右上角添加。", "No saved prompts yet. Tap New to add one."),
                 modifier = Modifier.padding(padding).padding(24.dp),
             )
         } else {
@@ -92,7 +93,7 @@ fun PromptLibraryScreen(
                         supportingContent = { Text(p.body.lineSequence().firstOrNull().orEmpty()) },
                         trailingContent = {
                             IconButton(onClick = { vm.delete(p.id) }) {
-                                Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                                Icon(Icons.Rounded.Delete, contentDescription = l10n("删除", "Delete"))
                             }
                         },
                         modifier = Modifier.clickable { editing = p },
@@ -115,14 +116,14 @@ fun PromptLibraryScreen(
                     OutlinedTextField(
                         value = title,
                         onValueChange = { title = it },
-                        label = { Text("Title") },
+                        label = { Text(l10n("标题", "Title")) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(
                         value = body,
                         onValueChange = { body = it },
-                        label = { Text("Prompt") },
+                        label = { Text(l10n("提示词", "Prompt")) },
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     )
                 }
@@ -131,9 +132,9 @@ fun PromptLibraryScreen(
                 TextButton(
                     onClick = { vm.save(current?.id, title, body); dismiss() },
                     enabled = title.isNotBlank() || body.isNotBlank(),
-                ) { Text("Save") }
+                ) { Text(l10n("保存", "Save")) }
             },
-            dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = dismiss) { Text(l10n("取消", "Cancel")) } },
         )
     }
 }

@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hermes.client.ui.localization.l10n
 
 /**
  * Shown on the first launch after a crash (the trace was saved by [CrashReporter]). Lets the user
@@ -30,10 +31,10 @@ import androidx.compose.ui.unit.sp
 fun CrashReportScreen(report: String, onShare: () -> Unit, onDismiss: () -> Unit) {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {
-            Text("Hermes Beta crashed", style = MaterialTheme.typography.headlineSmall)
+            Text(l10n("Hermes Beta 崩溃了", "Hermes Beta crashed"), style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(8.dp))
             Text(
-                "This is the crash details. Tap Share to send it to the developer, then continue.",
+                l10n("这是崩溃详情。点击分享发送给开发者，然后继续。", "This is the crash details. Tap Share to send it to the developer, then continue."),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -52,9 +53,9 @@ fun CrashReportScreen(report: String, onShare: () -> Unit, onDismiss: () -> Unit
             }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onShare) { Text("Share") }
+                Button(onClick = onShare) { Text(l10n("分享", "Share")) }
                 Spacer(Modifier.width(4.dp))
-                OutlinedButton(onClick = onDismiss) { Text("Continue to app") }
+                OutlinedButton(onClick = onDismiss) { Text(l10n("继续使用", "Continue to app")) }
             }
         }
     }

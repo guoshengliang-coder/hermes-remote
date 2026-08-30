@@ -43,6 +43,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import javax.inject.Inject
+import com.hermes.client.ui.localization.l10n
 
 data class McpServer(val name: String, val transport: String, val json: String)
 
@@ -122,7 +123,7 @@ fun McpSettingsScreen(
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "MCP servers",
+                title = l10n("MCP 服务器", "MCP servers"),
                 navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
             )
         },
@@ -156,7 +157,7 @@ fun McpSettingsScreen(
                         IconButton(onClick = { selected = null }) {
                             androidx.compose.material3.Icon(
                                 androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack,
-                                contentDescription = "Back",
+                                contentDescription = l10n("返回", "Back"),
                             )
                         }
                     },
@@ -164,7 +165,7 @@ fun McpSettingsScreen(
             },
         ) { padding ->
             Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-                Text("SERVER JSON", style = MaterialTheme.typography.labelMedium,
+                Text(l10n("服务器 JSON", "SERVER JSON"), style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary)
                 OutlinedTextField(
                     value = jsonText,
@@ -173,9 +174,9 @@ fun McpSettingsScreen(
                     minLines = 8,
                 )
                 Row(Modifier.padding(top = 12.dp)) {
-                    Button(onClick = { vm.save(server.name, jsonText); selected = null }) { Text("Save") }
+                    Button(onClick = { vm.save(server.name, jsonText); selected = null }) { Text(l10n("保存", "Save")) }
                     TextButton(onClick = { vm.remove(server.name); selected = null },
-                        modifier = Modifier.padding(start = 8.dp)) { Text("Remove") }
+                        modifier = Modifier.padding(start = 8.dp)) { Text(l10n("移除", "Remove")) }
                 }
             }
         }

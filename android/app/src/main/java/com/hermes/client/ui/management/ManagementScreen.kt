@@ -13,6 +13,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.hermes.client.ui.localization.l10n
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -23,21 +24,21 @@ fun ManagementScreen(
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "Management",
-                navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+                title = l10n("管理", "Management"),
+                navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = l10n("返回", "Back")) } },
             )
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             ListItem(
-                headlineContent = { Text("Session admin") },
-                supportingContent = { Text("Search messages, archived sessions, stats") },
+                headlineContent = { Text(l10n("会话管理", "Session admin")) },
+                supportingContent = { Text(l10n("搜索消息、归档会话与统计", "Search messages, archived sessions, stats")) },
                 modifier = Modifier.clickable { onNavigate("session_admin") },
             )
             HorizontalDivider()
             ListItem(
-                headlineContent = { Text("Agents & tools") },
-                supportingContent = { Text("Toggle skills, view toolsets") },
+                headlineContent = { Text(l10n("智能体与工具", "Agents & tools")) },
+                supportingContent = { Text(l10n("开关技能、查看工具集", "Toggle skills, view toolsets")) },
                 modifier = Modifier.clickable { onNavigate("agents_tools") },
             )
         }

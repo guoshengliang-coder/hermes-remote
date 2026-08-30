@@ -42,6 +42,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hermes.client.ui.util.formatEpoch
 import com.hermes.client.ui.util.formatIso
+import com.hermes.client.ui.localization.l10n
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,12 +65,12 @@ fun CronDetailScreen(
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = state.job?.let { cronDisplayName(it.name, it.prompt, it.id) } ?: "Cron job",
+                title = state.job?.let { cronDisplayName(it.name, it.prompt, it.id) } ?: l10n("定时任务", "Cron job"),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         androidx.compose.material3.Icon(
                             androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = l10n("返回", "Back"),
                         )
                     }
                 },
@@ -80,7 +81,7 @@ fun CronDetailScreen(
         when {
             state.loading -> com.hermes.client.ui.components.LoadingState()
             state.job == null -> com.hermes.client.ui.components.ErrorState(
-                message = state.error ?: "Couldn't load this cron job",
+                message = state.error ?: l10n("无法加载该定时任务", "Couldn't load this cron job"),
                 modifier = Modifier.padding(padding).fillMaxSize(),
                 onRetry = { vm.load(jobId) },
             )
@@ -89,13 +90,13 @@ fun CronDetailScreen(
                 LazyColumn(Modifier.padding(padding).fillMaxSize()) {
                     item {
                         Column(Modifier.padding(16.dp)) {
-                            Field("Schedule", job.scheduleText)
+                            Field(l10n("计划", "Schedule"), job.scheduleText)
                             Spacer(Modifier.height(8.dp))
                             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
                                 Column(Modifier.padding(12.dp)) {
-                                    Field("Status", if (job.isPaused) "Paused" else if (job.enabled) "Enabled" else "Disabled")
-                                    Field("Next run", formatIso(job.nextRunAt))
-                                    Field("Last run", formatIso(job.lastRunAt) + (job.lastStatus?.let { " · $it" } ?: ""))
+                                    Field(l10n("状态", "Status"), if (job.isPaused) l10n("已暂停", "Paused") else if (job.enabled) l10n("已启用", "Enabled") else l10n("已停用", "Disabled"))
+                                    Field(l10n("下次运行", "Next run"), formatIso(job.nextRunAt))
+                                    Field(l10n("上次运行", "Last run"), formatIso(job.lastRunAt) + (job.lastStatus?.let { " · $it" } ?: ""))
                                     job.lastError?.takeIf { it.isNotBlank() }?.let { err ->
                                         var errorExpanded by rememberSaveable(err) { mutableStateOf(false) }
                                         Spacer(Modifier.height(6.dp))
@@ -108,7 +109,7 @@ fun CronDetailScreen(
                                             modifier = Modifier.clickable { errorExpanded = !errorExpanded },
                                         )
                                         Text(
-                                            if (errorExpanded) "Show less" else "Show more",
+                                            if (errorExpanded) l10n("收起", "Show less") else l10n("展开", "Show more"),
                                             style = MaterialTheme.typography.labelSmall,
                                             color = LocalProfileAccent.current.accent,
                                             modifier = Modifier.padding(top = 2.dp).clickable { errorExpanded = !errorExpanded },
@@ -119,27 +120,27 @@ fun CronDetailScreen(
                             Spacer(Modifier.padding(top = 12.dp))
                             Row {
                                 if (job.isPaused) {
-                                    Button(onClick = { vm.resume() }) { Text("Resume") }
+                                    Button(onClick = { vm.resume() }) { Text(l10n("恢复", "Resume")) }
                                 } else {
-                                    OutlinedButton(onClick = { vm.pause() }) { Text("Pause") }
+                                    OutlinedButton(onClick = { vm.pause() }) { Text(l10n("暂停", "Pause")) }
                                 }
                                 Spacer(Modifier.width(8.dp))
-                                Button(onClick = { vm.trigger() }) { Text("Run now") }
+                                Button(onClick = { vm.trigger() }) { Text(l10n("立即运行", "Run now")) }
                                 Spacer(Modifier.width(8.dp))
-                                OutlinedButton(onClick = onEdit) { Text("Edit") }
+                                OutlinedButton(onClick = onEdit) { Text(l10n("编辑", "Edit")) }
                                 Spacer(Modifier.width(8.dp))
-                                TextButton(onClick = { confirmingDelete = true }) { Text("Delete") }
+                                TextButton(onClick = { confirmingDelete = true }) { Text(l10n("删除", "Delete")) }
                             }
                             job.prompt?.takeIf { it.isNotBlank() }?.let {
                                 Spacer(Modifier.padding(top = 12.dp))
-                                Text("PROMPT", style = MaterialTheme.typography.labelSmall,
+                                Text(l10n("提示词", "PROMPT"), style = MaterialTheme.typography.labelSmall,
                                     color = LocalProfileAccent.current.accent)
                                 Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 8,
                                     overflow = TextOverflow.Ellipsis)
                             }
                         }
                         Text(
-                            "RUN HISTORY (${state.runs.size})",
+                            l10n("运行历史（${state.runs.size}）", "RUN HISTORY (${state.runs.size})"),
                             style = MaterialTheme.typography.labelMedium,
                             color = LocalProfileAccent.current.accent,
                             modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
@@ -160,12 +161,12 @@ fun CronDetailScreen(
     if (confirmingDelete) {
         AlertDialog(
             onDismissRequest = { confirmingDelete = false },
-            title = { Text("Delete cron job?") },
-            text = { Text("This permanently deletes the scheduled job.") },
+            title = { Text(l10n("删除定时任务？", "Delete cron job?")) },
+            text = { Text(l10n("将永久删除该定时任务。", "This permanently deletes the scheduled job.")) },
             confirmButton = {
-                TextButton(onClick = { confirmingDelete = false; vm.delete() }) { Text("Delete") }
+                TextButton(onClick = { confirmingDelete = false; vm.delete() }) { Text(l10n("删除", "Delete")) }
             },
-            dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text(l10n("取消", "Cancel")) } },
         )
     }
 }
