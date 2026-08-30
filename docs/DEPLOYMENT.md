@@ -52,3 +52,21 @@ tail -n 100 "$HOME/Library/Application Support/Hermes Remote/connector.error.log
 ```
 
 The Android app needs only the public Gateway URL and the app token. It must never receive the Connector token or local Hermes password.
+
+The separately managed HTTPS Android release repository is documented in `APP_UPDATE.md`. Installing
+or restarting it is an explicit deployment operation and must not be inferred from an app/source change.
+Its environment file must be installed from `deploy/hermes-release-server.environment.template` at
+`/etc/hermes-release-server/environment` with mode `0600`; the service account must have read access to
+the configured certificate and key (for example through a narrowly scoped certificate group or ACL).
+Install `deploy/hermes-release-server.service.template` as `hermes-release-server.service`, run
+`systemctl daemon-reload`, and enable/start it only during an explicitly authorized deployment.
+Replace the old combined Hermes hook with `deploy/certbot-hermes-services-hook.sh.template` under
+Certbot's `renewal-hooks/deploy/` directory mode `0755`; retain the derper hook. It copies the renewed
+`mrlgs.net` certificate to both dedicated service TLS directories before checking both restarts. The
+services do not read `/etc/letsencrypt/live` directly.
+
+For the first deployment, the existing `apk-server.service` on 443 is the explicitly authorized
+replacement target and Xray is already stopped. With deployment authorization, run
+`CONFIRM_PRODUCTION_DEPLOY=mrlgs.net scripts/deploy-release-server.sh`; it stops the old service,
+starts and verifies the new one, and restarts the old service on failure. Capabilities do not solve a
+port collision.

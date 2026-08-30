@@ -47,6 +47,8 @@ android {
         testInstrumentationRunner = "com.hermes.client.HiltTestRunner"
         // App name; the beta build type overrides this so both can be installed at once.
         manifestPlaceholders["appLabel"] = "Hermes Remote"
+        buildConfigField("String", "UPDATE_INDEX_URL", "\"https://mrlgs.net/releases/index.json\"")
+        buildConfigField("String", "EXPECTED_UPDATE_CERT_SHA256", "\"$expectedDebugCertificateSha256\"")
     }
     signingConfigs {
         if (keystorePropsFile.exists()) {
@@ -75,7 +77,7 @@ android {
             signingConfig = signingConfigs.findByName("release")
         }
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
 
     // Let stubbed android.* calls (e.g. android.util.Log) return defaults instead of throwing
     // in local JVM unit tests, so pure logic that mirrors to logcat stays unit-testable.

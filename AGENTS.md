@@ -70,6 +70,16 @@ For every APK actually handed to a tester or user:
    deployment, verify its byte size and SHA-256 against the release-gate output, and ensure any old
    unversioned URL does not serve an APK.
 
+App updates and release publication must follow `docs/APP_UPDATE.md`. In particular, never edit a
+release index by hand, serve an unregistered APK, reuse Gateway-authenticated HTTP clients for update
+traffic, publish without the package gate, or accept an APK whose package/channel/version/size/hash/
+certificate does not match the signed manifest. Only the integration agent bumps the version and adds
+the current release description before invoking the publisher.
+
+Publication must run from an isolated worktree with no concurrent writers. The publisher checks the
+clean worktree and `HEAD == origin/main` both before the package gate and immediately before upload;
+never bypass either check or publish from a shared active development worktree.
+
 The current test channel temporarily uses one shared debug certificate, documented in
 `docs/SIGNING.md`. `assembleDebug` runs `verifyDebugSigningKey` and must fail when the canonical key is
 missing or different. Never bypass that check, generate a replacement debug keystore, or provision the

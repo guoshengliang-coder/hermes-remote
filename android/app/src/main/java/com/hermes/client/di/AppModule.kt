@@ -16,6 +16,9 @@ import com.hermes.client.data.repository.ProfileRepository
 import com.hermes.client.data.repository.ProjectsRepository
 import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.data.repository.ToolsRepository
+import com.hermes.client.update.UpdateRepository
+import com.hermes.client.update.UpdateRepositoryContract
+import com.hermes.client.update.createUpdateHttpClient
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -30,6 +33,11 @@ import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
+import javax.inject.Qualifier
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class UpdateHttpClient
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -65,6 +73,19 @@ object AppModule {
         .cookieJar(gatedAuth.cookieJar)
         .authenticator(GatedAuthenticator(gatedAuth))
         .build()
+
+    @Provides
+    @Singleton
+    @UpdateHttpClient
+    fun provideUpdateHttpClient(): OkHttpClient = createUpdateHttpClient()
+
+    @Provides
+    @Singleton
+    fun provideUpdateRepository(
+        @ApplicationContext context: Context,
+        json: Json,
+        @UpdateHttpClient client: OkHttpClient,
+    ): UpdateRepositoryContract = UpdateRepository(context, json, client)
 
     @Provides
     @Singleton

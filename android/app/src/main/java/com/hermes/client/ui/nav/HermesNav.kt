@@ -69,6 +69,7 @@ import com.hermes.client.ui.settings.EnvScreen
 import com.hermes.client.ui.settings.McpSettingsScreen
 import com.hermes.client.ui.settings.MemorySettingsScreen
 import com.hermes.client.ui.settings.SettingsScreen
+import com.hermes.client.ui.settings.AppUpdateScreen
 import com.hermes.client.ui.settings.LanguageScreen
 import com.hermes.client.ui.setup.SetupScreen
 import com.hermes.client.ui.tools.AgentsToolsScreen
@@ -321,6 +322,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                     onNavigate = { dest -> nav.navigate(dest) { launchSingleTop = true } },
                 )
             }
+            composable("app_update") { AppUpdateScreen(onBack = { nav.popBackStack() }) }
             composable("settings_appearance") { AppearanceScreen(onBack = { nav.popBackStack() }) }
             composable("settings_language") { LanguageScreen(onBack = { nav.popBackStack() }) }
             composable("settings_notifications") {

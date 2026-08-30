@@ -1,0 +1,1 @@
+{"channel":"internal","releaseNotes":["Rebuild the tester APK with the canonical shared debug signing identity so packages from authorized builders update the same installed app."]}
