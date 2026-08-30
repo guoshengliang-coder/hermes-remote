@@ -40,6 +40,8 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   cached/server history and Markdown layout settle, with retry-safe initial positioning.
 - Version 0.1.12 streamlines Chats with a compact new button and long-press actions, adds running and
   persistent unread indicators, and introduces Chinese/English app language selection (Chinese default).
+- Version 0.1.13 migrates the default Relay to `mrlgs.net` and restores automatic, versioned APK
+  distribution artifacts so test packages can always be matched to their source version.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
@@ -50,6 +52,15 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 ```
 
-The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. After every debug
+build, the tester-facing APK is staged automatically as:
+
+```text
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.13-debug.apk
+```
+
+For every APK distributed to testers, increment `appVersionName` by one patch version and
+increment `appVersionCode` by one in `app/build.gradle.kts`. Never distribute the unversioned
+canonical APK.
 
 See `UPSTREAM.md` and `../docs/ANDROID_BASE_AUDIT.md` before importing or distributing the derivative app.

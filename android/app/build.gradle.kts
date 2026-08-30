@@ -1,6 +1,11 @@
 import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+// Increment both values for every APK distributed to testers. Keep versionCode
+// strictly increasing so Android always accepts the newer package as an update.
+val appVersionCode = 14
+val appVersionName = "0.1.13"
+
 // Release signing is driven by a gitignored keystore.properties at the repo root.
 // When absent (e.g. a fresh clone or CI without secrets), release builds stay unsigned.
 val keystorePropsFile = rootProject.file("keystore.properties")
@@ -28,8 +33,8 @@ android {
         applicationId = "com.hermes.remote"
         minSdk = 26
         targetSdk = 37
-        versionCode = 13
-        versionName = "0.1.12"
+        versionCode = appVersionCode
+        versionName = appVersionName
         testInstrumentationRunner = "com.hermes.client.HiltTestRunner"
         // App name; the beta build type overrides this so both can be installed at once.
         manifestPlaceholders["appLabel"] = "Hermes Remote"
@@ -78,6 +83,21 @@ kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
     }
+}
+
+// Keep Gradle's canonical app-debug.apk intact for tooling, and automatically
+// stage the tester-facing APK under a stable, versioned filename after each build.
+// Sync uses an isolated directory so an older version can never be handed off by mistake.
+val stageDebugApk = tasks.register<Sync>("stageDebugApk") {
+    group = "distribution"
+    description = "Stages the debug APK with its version in the filename."
+    from(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk"))
+    into(layout.buildDirectory.dir("outputs/apk/distribution/debug"))
+    rename { "Hermes-Remote-$appVersionName-debug.apk" }
+}
+
+tasks.matching { it.name == "assembleDebug" }.configureEach {
+    finalizedBy(stageDebugApk)
 }
 
 dependencies {
