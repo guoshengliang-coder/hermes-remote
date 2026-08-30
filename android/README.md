@@ -112,6 +112,10 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 - Version 0.1.36 completes the normal-content typography pass: GFM tables render in a bordered
   rounded container with a tinted semibold header row, and H2/H3 headings gain top breathing room
   so long answers read in visual chapters.
+- Version 0.1.37 adds the second semantic-rendering phase: task-list payloads render as checklist
+  cards with a progress bar and per-item state, and three or more consecutive tool calls collapse
+  into one timeline card with per-row status, command summary, duration/exit metadata, and
+  tap-to-expand output — long agent runs no longer render as a wall of separate cards.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
@@ -133,7 +137,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.36-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.37-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
