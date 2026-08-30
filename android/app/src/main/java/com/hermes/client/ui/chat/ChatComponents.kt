@@ -871,8 +871,8 @@ private fun AssistantTurn(
                 .padding(vertical = 2.dp)
                 .combinedClickable(onClick = {}, onLongClick = { menuOpen = true }),
         ) {
-            if (msg.thinking.isNotBlank()) ThinkingCard(msg.thinking)
-            msg.tools.forEach { ToolCard(it) }
+            if (msg.thinking.isNotBlank()) ThinkingCard(msg.id, msg.thinking)
+            msg.tools.forEach { SemanticToolCard(it) }
             if (msg.images.isNotEmpty()) {
                 ChatImageGrid(msg.images, onImageSave, onImageSaveAs, onImageShare, savingImageId)
                 if (renderedText.isNotBlank() || msg.files.isNotEmpty()) Spacer(Modifier.height(8.dp))
@@ -904,7 +904,12 @@ private fun AssistantTurn(
                     )
                     Markdown(
                         content = renderedText,
-                        colors = markdownColor(),
+                        // Inline code renders as a soft chip on the mint surface tone, matching
+                        // the approved semantic-rendering mockups.
+                        colors = markdownColor(
+                            inlineCodeBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                            codeBackground = MaterialTheme.colorScheme.surfaceVariant,
+                        ),
                         typography = markdownTypography(
                             h1 = MaterialTheme.typography.headlineSmall.copy(lineHeight = 34.sp),
                             h2 = MaterialTheme.typography.titleLarge.copy(fontSize = 21.sp, lineHeight = 31.sp),
@@ -1038,10 +1043,15 @@ private fun chatMarkdownComponents(): MarkdownComponents =
     )
 
 @Composable
-private fun CodeWithCopy(code: String, @Suppress("UNUSED_PARAMETER") language: String?, style: TextStyle) {
+private fun CodeWithCopy(code: String, language: String?, style: TextStyle) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val appLanguage = LocalAppLanguage.current
+    // Unified diffs get semantic red/green rows instead of a flat code block.
+    if (remember(code, language) { looksLikeDiff(code, language) }) {
+        DiffBlock(code)
+        return
+    }
     Box(
         Modifier
             .fillMaxWidth()
@@ -1101,9 +1111,11 @@ private fun TypingIndicator() {
 }
 
 @Composable
-private fun ThinkingCard(text: String) {
+private fun ThinkingCard(messageId: String, text: String) {
     val language = LocalAppLanguage.current
-    var expanded by remember { mutableStateOf(false) }
+    // rememberSaveable keyed by the message id: plain remember lost the expanded state whenever
+    // the item scrolled out of the Lazy viewport and was recycled.
+    var expanded by androidx.compose.runtime.saveable.rememberSaveable(messageId) { mutableStateOf(false) }
     AssistChip(
         onClick = { expanded = !expanded },
         label = { Text(if (expanded) localized(language, "收起思考过程", "Hide reasoning") else localized(language, "查看思考过程", "View reasoning")) },
@@ -1116,80 +1128,6 @@ private fun ThinkingCard(text: String) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
             )
-        }
-    }
-}
-
-@Composable
-private fun ToolCard(tool: ToolCall) {
-    val language = LocalAppLanguage.current
-    var expanded by remember(tool.id) { mutableStateOf(false) }
-    val clipboard = LocalClipboardManager.current
-    val technical = LocalToolCallTechnical.current
-    val hasOutput = tool.output.isNotBlank()
-    // Cached: allocating a byte array of the full output on every recomposition is wasteful while
-    // a running tool's output grows across render snapshots.
-    val outputSize = remember(tool.id, tool.output.length) { tool.output.toByteArray().size }
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        onClick = { if (technical && hasOutput) expanded = !expanded },
-    ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    if (tool.status == ToolStatus.RUNNING) Icons.Rounded.PlayArrow else Icons.Rounded.Check,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = LocalProfileAccent.current.accent,
-                )
-                Text(
-                    text = tool.name,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.padding(start = 6.dp),
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    text = when {
-                        tool.status == ToolStatus.RUNNING -> localized(language, "运行中", "Running")
-                        technical && hasOutput -> localized(language, "已完成 · ${formatPayloadSize(outputSize)}", "Completed · ${formatPayloadSize(outputSize)}")
-                        else -> localized(language, "已完成", "Completed")
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (technical && hasOutput) {
-                    Icon(
-                        if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
-                        contentDescription = if (expanded) localized(language, "收起结果", "Collapse result") else localized(language, "展开结果", "Expand result"),
-                        modifier = Modifier.size(20.dp).padding(start = 3.dp),
-                    )
-                }
-            }
-            if (technical && expanded && hasOutput) {
-                SelectionContainer {
-                    Text(
-                        tool.output.take(12_000),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 10.dp),
-                    )
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = { clipboard.setText(AnnotatedString(tool.output)) }) {
-                        Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Text(localized(language, "复制结果", "Copy result"), modifier = Modifier.padding(start = 5.dp))
-                    }
-                }
-                if (tool.output.length > 12_000) {
-                    Text(
-                        localized(language, "内容较长，界面仅预览前 12,000 字符；复制可获取完整结果。", "Long content: the app previews 12,000 characters. Copy to get the full result."),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
         }
     }
 }

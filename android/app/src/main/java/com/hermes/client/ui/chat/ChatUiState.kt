@@ -107,11 +107,15 @@ private fun organizeAssistantContent(
         if (!embedded.hidden && embedded.output.isNotBlank() &&
             tools.none { it.output.trim() == embedded.output.trim() }
         ) {
+            val embeddedMeta = parseToolPayloadMeta(obj.toString())
             tools += ToolCall(
                 id = "embedded-${displayRaw.hashCode()}-${extracted++}",
                 name = processLabel ?: embedded.defaultLabel,
                 status = ToolStatus.DONE,
                 output = embedded.output,
+                command = embeddedMeta?.command,
+                exitCode = embeddedMeta?.exitCode,
+                durationMs = embeddedMeta?.durationMs,
             )
         }
         cursor = endExclusive
@@ -533,10 +537,17 @@ fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
         }
         "tool.complete" -> state.mutateLastAssistantAny { msg ->
             val tid = event.str("tool_id")
+            // Parse semantic metadata (command/exit/duration) from the RAW payload; display
+            // normalization below unwraps the JSON to readable text and would discard it.
+            val raw = event.str("result")
+            val meta = raw?.let(::parseToolPayloadMeta)
             msg.copy(tools = msg.tools.map {
                 if (it.id == tid) it.copy(
                     status = ToolStatus.DONE,
-                    output = event.str("result")?.let(::normalizeDisplayPayload) ?: "",
+                    output = raw?.let(::normalizeDisplayPayload) ?: "",
+                    command = meta?.command,
+                    exitCode = meta?.exitCode,
+                    durationMs = meta?.durationMs,
                 ) else it
             })
         }

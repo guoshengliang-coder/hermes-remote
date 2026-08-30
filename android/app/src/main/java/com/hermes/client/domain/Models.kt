@@ -34,6 +34,12 @@ data class ToolCall(
     val name: String,
     val status: ToolStatus,
     val output: String = "",
+    // Semantic metadata parsed from the RAW payload before display normalization unwraps it:
+    // command-shaped tools render `$ command`, exit codes drive the failure state, and the
+    // duration feeds the card header. Null for tools without the command shape.
+    val command: String? = null,
+    val exitCode: Int? = null,
+    val durationMs: Long? = null,
 )
 
 /** A chat image is stored as a small reference; full image bytes live in the app cache. */
