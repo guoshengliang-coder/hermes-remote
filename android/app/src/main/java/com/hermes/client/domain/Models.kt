@@ -2,6 +2,7 @@ package com.hermes.client.domain
 
 enum class Role { USER, ASSISTANT, SYSTEM }
 enum class ToolStatus { RUNNING, DONE }
+enum class ImageTransferState { READY, UPLOADING, FAILED }
 
 data class Session(
     val id: String,
@@ -34,10 +35,22 @@ data class ToolCall(
     val output: String = "",
 )
 
+/** A chat image is stored as a small reference; full image bytes live in the app cache. */
+data class ChatImage(
+    val id: String,
+    val mimeType: String? = null,
+    val localPath: String? = null,
+    val remotePath: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val state: ImageTransferState = ImageTransferState.READY,
+)
+
 data class ChatMessage(
     val id: String,
     val role: Role,
     val text: String,
+    val images: List<ChatImage> = emptyList(),
     val tools: List<ToolCall> = emptyList(),
     val thinking: String = "",
     val isStreaming: Boolean = false,

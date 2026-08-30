@@ -7,6 +7,7 @@ import com.hermes.client.data.network.ProfileDto
 import com.hermes.client.data.network.ServerEvent
 import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.repository.ChatRepository
+import com.hermes.client.data.repository.ChatMediaRepository
 import com.hermes.client.data.repository.ModelFavoritesStore
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileRepository
@@ -23,6 +24,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -41,6 +43,7 @@ class ChatViewModelTest {
     private val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
     private val connectionStateFlow = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     private val chatRepo = mockk<ChatRepository>(relaxed = true)
+    private val mediaRepo = mockk<ChatMediaRepository>(relaxed = true)
     private val sessionRepo = mockk<SessionRepository>(relaxed = true)
     private val modelRepo = mockk<ModelRepository>(relaxed = true)
     private val profileRepo = mockk<ProfileRepository>(relaxed = true)
@@ -52,6 +55,15 @@ class ChatViewModelTest {
     private val configRepo = mockk<com.hermes.client.data.repository.ConfigRepository>(relaxed = true)
     private val runtimeJobs = mutableListOf<Job>()
 
+    private fun event(type: String, sessionId: String, text: String? = null) = ServerEvent(
+        type = type,
+        sessionId = sessionId,
+        payload = buildJsonObject {
+            put("session_id", sessionId)
+            text?.let { put("text", it) }
+        },
+    )
+
     @Before fun setUp() {
         every { chatRepo.events } returns events
         every { chatRepo.connectionState } returns connectionStateFlow
@@ -60,6 +72,7 @@ class ChatViewModelTest {
         coEvery { chatRepo.resume(any(), any()) } returns null
         every { profileManager.active } returns MutableStateFlow<String?>(null)
         coEvery { sessionRepo.history(any(), any()) } returns emptyList()
+        coEvery { mediaRepo.hydrateMessages(any(), any()) } answers { firstArg() }
         coEvery { modelRepo.options() } returns emptyList()
         coEvery { modelRepo.providers() } returns emptyList()
         coEvery { profileRepo.list() } returns emptyList()
@@ -83,7 +96,8 @@ class ChatViewModelTest {
         )
         return ChatViewModel(
             chatRepo, sessionRepo, modelRepo, profileRepo, profileManager, favoritesStore,
-            pendingShareStore, tts, promptStore, configRepo, runtimeStore, mainDispatcherRule.dispatcher,
+            pendingShareStore, tts, promptStore, configRepo, runtimeStore, mediaRepo,
+            mainDispatcherRule.dispatcher,
         )
     }
 
@@ -171,6 +185,61 @@ class ChatViewModelTest {
         coVerify(exactly = 0) { chatRepo.attachImageBytes(any(), any(), any()) }
         assertEquals(1, vm.state.value.pendingAttachments.size)
         assertEquals("image/png", vm.state.value.pendingAttachments.first().mimeType)
+    }
+
+    @Test fun send_waits_for_live_handle_instead_of_using_stored_session_id() = runTest {
+        val resumed = kotlinx.coroutines.CompletableDeferred<String?>()
+        coEvery { chatRepo.resume("s1", null) } coAnswers { resumed.await() }
+        val vm = buildVm()
+
+        vm.open("s1")
+        runCurrent()
+        vm.send("hello")
+        runCurrent()
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+
+        resumed.complete("s1-live")
+        runCurrent()
+        coVerify(exactly = 1) { chatRepo.submit("s1-live", "hello") }
+
+        events.emit(event("message.complete", "s1-live", "done"))
+        advanceUntilIdle()
+    }
+
+    @Test fun stale_submit_resumes_and_retries_once_with_new_handle() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returnsMany listOf("live-1", "live-2")
+        coEvery { chatRepo.submit("live-1", "hello") } throws
+            com.hermes.client.data.network.GatewayRpcException(4001, "session not found")
+        coEvery { chatRepo.submit("live-2", "hello") } returns Unit
+        val vm = buildVm()
+
+        vm.open("s1")
+        advanceUntilIdle()
+        vm.send("hello")
+        runCurrent()
+
+        coVerify(exactly = 2) { chatRepo.resume("s1", null) }
+        coVerify(exactly = 1) { chatRepo.submit("live-1", "hello") }
+        coVerify(exactly = 1) { chatRepo.submit("live-2", "hello") }
+
+        events.emit(event("message.complete", "live-2", "done"))
+        advanceUntilIdle()
+    }
+
+    @Test fun send_retries_resume_when_initial_open_resume_failed() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returnsMany listOf(null, "live-2")
+        val vm = buildVm()
+
+        vm.open("s1")
+        advanceUntilIdle()
+        vm.send("hello")
+        runCurrent()
+
+        coVerify(exactly = 2) { chatRepo.resume("s1", null) }
+        coVerify(exactly = 1) { chatRepo.submit("live-2", "hello") }
+
+        events.emit(event("message.complete", "live-2", "done"))
+        advanceUntilIdle()
     }
 
     /** A text-only pending share (no image) must not trigger an attach call at all. */

@@ -25,15 +25,55 @@ fun SessionDto.toDomain() = Session(
     gitRepoRoot = gitRepoRoot?.ifBlank { null },
 )
 
-fun MessageDto.toDomain() = ChatMessage(
-    id = id?.toString() ?: "m-${hashCode()}",
-    role = when (role.lowercase()) {
-        "user" -> Role.USER
-        "assistant" -> Role.ASSISTANT
-        else -> Role.SYSTEM
-    },
-    text = content.orEmpty(),
+private val IMAGE_DIRECTIVE = Regex(
+    "(?m)^\\s*@image:(?:\\\"([^\\\"]+)\\\"|'([^']+)'|`([^`]+)`|(.+?))\\s*$",
 )
+private val ATTACHED_IMAGE_PLACEHOLDER = Regex(
+    "(?m)^\\s*\\[User attached image:[^]]+]\\s*$",
+    RegexOption.IGNORE_CASE,
+)
+
+internal data class ParsedMessageContent(val text: String, val images: List<ChatImage>)
+
+/** Hermes persists attachments as `@image:/absolute/path`; keep the path out of visible chat. */
+internal fun parseMessageContent(raw: String): ParsedMessageContent {
+    val images = IMAGE_DIRECTIVE.findAll(raw).mapIndexed { index, match ->
+        val path = match.groupValues.drop(1).firstOrNull { it.isNotBlank() }.orEmpty()
+        ChatImage(
+            id = "remote-${path.hashCode()}-$index",
+            mimeType = when (path.substringAfterLast('.', "").lowercase()) {
+                "jpg", "jpeg" -> "image/jpeg"
+                "png" -> "image/png"
+                "gif" -> "image/gif"
+                "webp" -> "image/webp"
+                else -> null
+            },
+            remotePath = path,
+        )
+    }.toList()
+    val visible = raw
+        .replace(IMAGE_DIRECTIVE, "")
+        .replace(ATTACHED_IMAGE_PLACEHOLDER, "")
+        .lines()
+        .dropWhile { it.isBlank() }
+        .dropLastWhile { it.isBlank() }
+        .joinToString("\n")
+    return ParsedMessageContent(visible, images)
+}
+
+fun MessageDto.toDomain(): ChatMessage {
+    val parsed = parseMessageContent(content.orEmpty())
+    return ChatMessage(
+        id = id?.toString() ?: "m-${hashCode()}",
+        role = when (role.lowercase()) {
+            "user" -> Role.USER
+            "assistant" -> Role.ASSISTANT
+            else -> Role.SYSTEM
+        },
+        text = parsed.text,
+        images = parsed.images,
+    )
+}
 
 fun ProjectTreeDto.toDomain() = ProjectTree(
     projects = projects.map { it.toDomain() },

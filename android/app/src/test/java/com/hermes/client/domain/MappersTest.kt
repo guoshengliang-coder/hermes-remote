@@ -19,4 +19,25 @@ class MappersTest {
         assertEquals("hello", m.text)
         assertEquals(false, m.isStreaming)
     }
+
+    @Test fun image_directives_become_hidden_image_references() {
+        val m = MessageDto(
+            id = 2,
+            role = "user",
+            content = "请看这张图\n@image:/Users/me/photo one.png\n@image:\"/tmp/second.jpg\"",
+        ).toDomain()
+
+        assertEquals("请看这张图", m.text)
+        assertEquals(2, m.images.size)
+        assertEquals("/Users/me/photo one.png", m.images[0].remotePath)
+        assertEquals("/tmp/second.jpg", m.images[1].remotePath)
+    }
+
+    @Test fun attachment_placeholder_is_not_rendered_when_image_exists() {
+        val parsed = parseMessageContent(
+            "[User attached image: screenshot.png]\n@image:`/tmp/screenshot.png`",
+        )
+        assertEquals("", parsed.text)
+        assertEquals("/tmp/screenshot.png", parsed.images.single().remotePath)
+    }
 }

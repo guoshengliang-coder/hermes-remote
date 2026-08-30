@@ -3,9 +3,11 @@ package com.hermes.client.di
 import android.content.Context
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.EncryptedCredentialStore
+import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import com.hermes.client.data.network.GatedAuth
 import com.hermes.client.data.network.GatedAuthenticator
 import com.hermes.client.data.network.HermesGatewayClient
+import com.hermes.client.data.network.GatewayWebSocketEndpoint
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.network.RelayDns
 import com.hermes.client.data.repository.ChatRepository
@@ -89,14 +91,15 @@ object AppModule {
         // Gated mode mints a fresh single-use WS ticket per connect; loopback mode appends the
         // session token. The ticket POST goes through the authenticated client, so a missing
         // session is recovered (401 → login → retry) before the socket opens.
-        wsUrlProvider = {
-            val cfg = store.load() ?: error("no gateway configured")
+        wsEndpointProvider = {
+            val stored = store.load() ?: error("no gateway configured")
+            val cfg = stored.copy(baseUrl = normalizeGatewayBaseUrl(stored.baseUrl))
             if (cfg.isGated) {
                 val ticket = withContext(Dispatchers.IO) { gatedAuth.wsTicket(okHttp) }
                     ?: error("ws ticket unavailable")
-                "${cfg.wsBase}?ticket=$ticket"
+                GatewayWebSocketEndpoint("${cfg.wsBase}?ticket=$ticket")
             } else {
-                cfg.wsUrl
+                GatewayWebSocketEndpoint(cfg.wsBase, cfg.token)
             }
         },
     )

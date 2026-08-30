@@ -39,7 +39,8 @@ The first HK deployment terminates TLS directly in the Node.js Gateway on port `
 
 ### WebSocket flow
 
-1. Android opens `/api/ws?token=<APP_TOKEN>` on the public Gateway.
+1. Android opens `/api/ws` on the public Gateway and sends `X-Hermes-Session-Token` in the
+   WebSocket upgrade header. Password-gated mode uses only a short-lived, single-use query ticket.
 2. Gateway validates the token and opens a logical socket through the Connector.
 3. Connector uses its local Cookie session to mint a single-use Hermes WS Ticket.
 4. Raw JSON-RPC frames, including `gateway.ready` and streaming events, travel bidirectionally without being reinterpreted by the relay.

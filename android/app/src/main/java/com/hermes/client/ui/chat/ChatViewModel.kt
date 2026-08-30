@@ -4,11 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.HermesApiException
+import com.hermes.client.data.network.GatewayRpcException
 import com.hermes.client.data.network.ProfileDto
 import com.hermes.client.data.network.str
 import com.hermes.client.data.progress.SessionRuntimeKey
 import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.repository.ChatRepository
+import com.hermes.client.data.repository.ChatMediaRepository
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.ProfileRepository
@@ -19,6 +21,12 @@ import com.hermes.client.di.DefaultDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,8 +52,14 @@ class ChatViewModel @Inject constructor(
     private val promptStore: com.hermes.client.data.repository.PromptStore,
     private val configRepo: com.hermes.client.data.repository.ConfigRepository,
     private val runtimeStore: SessionRuntimeStore,
+    private val mediaRepository: ChatMediaRepository,
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
+
+    private companion object {
+        const val LIVE_HANDLE_TIMEOUT_MS = 25_000L
+        const val STALE_SESSION_CODE = 4001
+    }
 
     private val _state = MutableStateFlow(ChatUiState.empty())
     val state: StateFlow<ChatUiState> = _state.asStateFlow()
@@ -121,7 +135,12 @@ class ChatViewModel @Inject constructor(
     private var storedSessionId: String = ""
     private var collectJob: Job? = null
     private var titleJob: Job? = null
+    private var resumeJob: Job? = null
+    private var sendJob: Job? = null
     private var runtimeKey: SessionRuntimeKey? = null
+    private var currentProfile: String? = null
+    private var liveHandleGate = CompletableDeferred<String>()
+    private val resumeMutex = Mutex()
 
     fun open(
         id: String,
@@ -129,10 +148,15 @@ class ChatViewModel @Inject constructor(
         initialTitle: String? = null,
         isNewSession: Boolean = false,
     ) {
+        sendJob?.cancel()
+        resumeJob?.cancel()
+        liveHandleGate.completeExceptionally(CancellationException("session changed"))
+        liveHandleGate = CompletableDeferred()
         runtimeKey?.let { runtimeStore.setVisible(it, false) }
         sessionId = id
         storedSessionId = id
         val profile = requestedProfile?.ifBlank { null } ?: profileManager.active.value
+        currentProfile = profile
         val key = runtimeStore.register(id, profile)
         runtimeKey = key
         runtimeStore.setVisible(key, true)
@@ -152,7 +176,10 @@ class ChatViewModel @Inject constructor(
             runtimeStore.runtimes
                 .map { it[key] }
                 .filterNotNull()
-                .collect { _state.value = it.chat }
+                .collect { runtime ->
+                    _state.value = runtime.chat
+                    runtime.liveHandle?.takeIf { it.isNotBlank() }?.let { sessionId = it }
+                }
         }
         // A share created this session and stashed its text; surface it as the initial composer draft.
         val ps = pendingShareStore.take(id)
@@ -175,12 +202,18 @@ class ChatViewModel @Inject constructor(
             val requestStartedAt = System.currentTimeMillis()
             try {
                 val rawHistory = sessions.history(id, profile)
-                val history = kotlinx.coroutines.withContext(defaultDispatcher) {
+                val organizedHistory = kotlinx.coroutines.withContext(defaultDispatcher) {
                     rawHistory.map { it.organizedForDisplay() }
                 }
-                com.hermes.client.data.diagnostics.DebugLog.log("session", "history($id) → ${history.size} messages")
-                runtimeStore.acceptHistory(key, history, requestStartedAt)
+                com.hermes.client.data.diagnostics.DebugLog.log("session", "history($id) → ${organizedHistory.size} messages")
+                runtimeStore.acceptHistory(key, organizedHistory, requestStartedAt)
                 runtimeStore.markRead(key)
+                // Do not hold the transcript behind image downloads. Show text and placeholders
+                // immediately, then merge cached/downloaded thumbnails by stable history id.
+                launch {
+                    val hydrated = mediaRepository.hydrateMessages(organizedHistory, profile)
+                    runtimeStore.acceptHydratedImages(key, hydrated)
+                }
             } catch (e: HermesApiException) {
                 com.hermes.client.data.diagnostics.DebugLog.log("error", "history($id) failed: ${e.code} ${e.message}")
                 if (e.code == 401) { _unauthorized.value = true; return@launch }
@@ -190,14 +223,6 @@ class ChatViewModel @Inject constructor(
                 com.hermes.client.data.diagnostics.DebugLog.log("error", "history($id) failed: ${e.message}")
                 runtimeStore.historyFailed(key, e.message ?: "无法加载历史消息")
             }
-            // resume() returns the live socket handle for this session; switch to it so
-            // submit/interrupt and event filtering use the id the gateway actually knows.
-            // Pass the active profile: the gateway resolves resume against a per-profile DB,
-            // so a session in a non-default profile is "session not found" without it.
-            val handle = runCatching { chat.resume(id, profile) }.getOrNull()
-            handle?.let { sessionId = it }
-            runtimeStore.bindLiveHandle(key, handle)
-            com.hermes.client.data.diagnostics.DebugLog.log("session", "resume($id) → handle=${handle ?: "none"}")
             // A share may have handed off an image; stage it so it shows as a chip and is
             // flushed to the gateway on the next send (rather than attaching immediately).
             ps?.let { share ->
@@ -221,6 +246,25 @@ class ChatViewModel @Inject constructor(
             launch { runCatching { _providers.value = modelRepo.providers() } }
             launch { runCatching { _profiles.value = profileRepo.list() } }
             launch { runCatching { _commands.value = chat.commandsCatalog() } }
+        }
+        // Resume is independent from REST history. The composer can be used immediately, but any
+        // send awaits this gate so a stored database id is never submitted as a live runtime id.
+        val gateForOpen = liveHandleGate
+        resumeJob = viewModelScope.launch {
+            try {
+                val handle = recoverLiveHandle(id, profile, key)
+                if (storedSessionId == id && liveHandleGate === gateForOpen) {
+                    gateForOpen.complete(handle)
+                }
+            } catch (cancelled: CancellationException) {
+                gateForOpen.cancel(cancelled)
+                throw cancelled
+            } catch (error: Exception) {
+                com.hermes.client.data.diagnostics.DebugLog.log(
+                    "session", "resume($id) failed: ${error.message}",
+                )
+                gateForOpen.completeExceptionally(error)
+            }
         }
         titleJob?.cancel()
         titleJob = viewModelScope.launch {
@@ -273,30 +317,153 @@ class ChatViewModel @Inject constructor(
         val atts = _state.value.pendingAttachments
         if (text.isBlank() && atts.isEmpty()) return
         val isSlash = text.trimStart().startsWith("/")
-        val shown = text.ifBlank { "📎 ${atts.size} image${if (atts.size > 1) "s" else ""}" }
-        runtimeKey?.let { runtimeStore.beginPrompt(it, shown) }
-            ?: mutateState { it.withUserMessage(shown).copy(pendingAttachments = emptyList()) }
-        viewModelScope.launch {
+        val messageId = "u-${java.util.UUID.randomUUID()}"
+        val expectedStoredId = storedSessionId
+        val expectedProfile = currentProfile
+        val gateForSend = liveHandleGate
+        // Clear the staging strip immediately. The cached thumbnails are attached to the sent turn
+        // on an IO dispatcher below, so large images never block the Compose main thread.
+        mutateState { it.copy(pendingAttachments = emptyList()) }
+        sendJob = viewModelScope.launch {
             try {
-                atts.forEach { a ->
-                    // java.util.Base64 (minSdk 26): consistent with the share-decode path and,
-                    // unlike android.util.Base64, not stubbed to null under JVM unit tests.
-                    val b64 = java.util.Base64.getEncoder().encodeToString(a.bytes)
-                    runCatching { chat.attachImageBytes(sessionId, b64, a.mimeType) }
-                        .onFailure { appendError("Attach failed: ${it.message}") }
+                val outgoingImages = atts.map { a ->
+                    mediaRepository.cacheOutgoing(a.id, a.bytes, a.mimeType)
                 }
-                // A leading "/" is a slash command — execute it (the gateway strips the slash)
-                // rather than prompting the model.
-                if (isSlash) {
-                    val output = chat.slashExec(sessionId, text.trim())
-                    output?.takeIf { it.isNotBlank() }?.let(::appendSystem)
-                    runtimeKey?.let(runtimeStore::finishLocal)
-                } else chat.submit(sessionId, text)
+                runtimeKey?.let { runtimeStore.beginPrompt(it, text, outgoingImages, messageId) }
+                    ?: mutateState { it.withUserMessage(text, outgoingImages, messageId) }
+                com.hermes.client.data.diagnostics.DebugLog.log(
+                    "session", "send($expectedStoredId) waiting for live handle",
+                )
+                val initialHandle = try {
+                    withTimeout(LIVE_HANDLE_TIMEOUT_MS) { gateForSend.await() }
+                } catch (timeout: TimeoutCancellationException) {
+                    com.hermes.client.data.diagnostics.DebugLog.log(
+                        "session", "resume gate timed out for $expectedStoredId; retrying resume",
+                    )
+                    val key = runtimeKey ?: throw timeout
+                    recoverLiveHandle(expectedStoredId, expectedProfile, key)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (resumeError: Exception) {
+                    com.hermes.client.data.diagnostics.DebugLog.log(
+                        "session", "resume gate failed for $expectedStoredId; retrying resume once",
+                    )
+                    val key = runtimeKey ?: throw resumeError
+                    recoverLiveHandle(expectedStoredId, expectedProfile, key)
+                }
+                check(storedSessionId == expectedStoredId) { "conversation changed before send" }
+                val currentHandle = runtimeKey
+                    ?.let { runtimeStore.runtimes.value[it]?.liveHandle }
+                    ?.takeIf { it.isNotBlank() }
+                    ?: initialHandle
+                submitTurnWithRecovery(
+                    initialHandle = currentHandle,
+                    storedId = expectedStoredId,
+                    profile = expectedProfile,
+                    text = text,
+                    isSlash = isSlash,
+                    attachments = atts,
+                    messageId = messageId,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 // A gateway error (e.g. "session not found") must surface, not crash the app.
+                updateSentImages(messageId) { images ->
+                    images.map { image ->
+                        if (image.state == com.hermes.client.domain.ImageTransferState.UPLOADING) {
+                            image.copy(state = com.hermes.client.domain.ImageTransferState.FAILED)
+                        } else image
+                    }
+                }
                 appendError(e.message ?: "Failed to send message")
             }
         }
+    }
+
+    private suspend fun submitTurnWithRecovery(
+        initialHandle: String,
+        storedId: String,
+        profile: String?,
+        text: String,
+        isSlash: Boolean,
+        attachments: List<PendingAttachment>,
+        messageId: String,
+    ) {
+        suspend fun submitOn(handle: String) {
+            com.hermes.client.data.diagnostics.DebugLog.log(
+                "session",
+                "submit stored=$storedId handle=$handle chars=${text.length} images=${attachments.size}",
+            )
+            attachments.forEach { attachment ->
+                val encoded = java.util.Base64.getEncoder().encodeToString(attachment.bytes)
+                val attached = chat.attachImageBytes(handle, encoded, attachment.mimeType)
+                updateSentImage(messageId, attachment.id) { image ->
+                    image.copy(
+                        remotePath = attached.path,
+                        width = attached.width,
+                        height = attached.height,
+                        state = com.hermes.client.domain.ImageTransferState.READY,
+                    )
+                }
+            }
+            if (isSlash) {
+                val output = chat.slashExec(handle, text.trim())
+                output?.takeIf { it.isNotBlank() }?.let(::appendSystem)
+                runtimeKey?.let(runtimeStore::finishLocal)
+            } else {
+                chat.submit(handle, text)
+            }
+        }
+
+        try {
+            submitOn(initialHandle)
+        } catch (error: GatewayRpcException) {
+            if (error.code != STALE_SESSION_CODE) throw error
+            com.hermes.client.data.diagnostics.DebugLog.log(
+                "session", "submit rejected as stale; resuming $storedId and retrying once",
+            )
+            val key = runtimeKey ?: throw error
+            val recovered = recoverLiveHandle(storedId, profile, key)
+            submitOn(recovered)
+        }
+    }
+
+    private suspend fun recoverLiveHandle(
+        storedId: String,
+        profile: String?,
+        key: SessionRuntimeKey,
+    ): String = resumeMutex.withLock {
+        check(this.storedSessionId == storedId) { "conversation changed during resume" }
+        val handle = chat.resume(storedId, profile)
+            ?.takeIf { it.isNotBlank() }
+            ?: throw GatewayRpcException(STALE_SESSION_CODE, "session resume returned no live handle")
+        sessionId = handle
+        runtimeStore.bindLiveHandle(key, handle)
+        com.hermes.client.data.diagnostics.DebugLog.log(
+            "session", "resume($storedId) → handle=$handle",
+        )
+        handle
+    }
+
+    private fun updateSentImage(
+        messageId: String,
+        imageId: String,
+        transform: (com.hermes.client.domain.ChatImage) -> com.hermes.client.domain.ChatImage,
+    ) = updateSentImages(messageId) { images ->
+        images.map { if (it.id == imageId) transform(it) else it }
+    }
+
+    private fun updateSentImages(
+        messageId: String,
+        transform: (List<com.hermes.client.domain.ChatImage>) -> List<com.hermes.client.domain.ChatImage>,
+    ) {
+        runtimeKey?.let { runtimeStore.updateUserImages(it, messageId, transform) }
+            ?: mutateState { current ->
+                current.copy(messages = current.messages.map { message ->
+                    if (message.id == messageId) message.copy(images = transform(message.images)) else message
+                })
+            }
     }
 
     /** Re-ask: re-submit the last user prompt (appends a new answer; the gateway can't replace). */
@@ -372,7 +539,6 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         runtimeKey?.let { runtimeStore.setVisible(it, false) }
-        super.onCleared()
     }
 
     fun onSheetQuery(q: String) { _modelSheet.value = _modelSheet.value.copy(query = q) }

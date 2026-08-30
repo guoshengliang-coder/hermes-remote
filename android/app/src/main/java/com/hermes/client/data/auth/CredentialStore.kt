@@ -1,5 +1,7 @@
 package com.hermes.client.data.auth
 
+import java.net.URI
+
 const val DEFAULT_REMOTE_GATEWAY_URL = "https://47.239.30.253.sslip.io:8444"
 
 data class GatewayConfig(
@@ -14,18 +16,44 @@ data class GatewayConfig(
     /** True when this targets a gated dashboard (basic-auth); false for a loopback/token setup. */
     val isGated: Boolean get() = username.isNotBlank()
 
-    /** Base WS endpoint with no auth query — the auth param (?token / ?ticket) is appended later. */
+    /** Base WS endpoint with no auth query. Authentication is carried in a header or short-lived ticket. */
     val wsBase: String
         get() {
             val ws = baseUrl.replaceFirst("https://", "wss://").replaceFirst("http://", "ws://")
             return "${ws.trimEnd('/')}/api/ws"
         }
 
-    /**
-     * Loopback WS URL using the session token, e.g. ws://host:9119/api/ws?token=...
-     * Only used in non-gated mode; gated mode appends a per-connect ?ticket= instead.
-     */
-    val wsUrl: String get() = if (token.isBlank()) wsBase else "$wsBase?token=$token"
+}
+
+/**
+ * Validate and normalize a user-controlled gateway URL before it is persisted or contacted.
+ * Public gateways must use TLS. Plain HTTP remains available for literal loopback/private
+ * addresses so local Mac development continues to work without weakening remote connections.
+ */
+fun normalizeGatewayBaseUrl(raw: String): String = runCatching {
+    val trimmed = raw.trim().trimEnd('/')
+    val uri = URI(trimmed)
+    val scheme = uri.scheme?.lowercase()
+    require(scheme == "https" || scheme == "http") { "Only HTTP(S) gateway URLs are supported" }
+    require(!uri.host.isNullOrBlank()) { "Gateway URL must include a host" }
+    require(uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null) {
+        "Gateway URL cannot include credentials, query parameters, or fragments"
+    }
+    require(scheme == "https" || isLocalAddress(uri.host)) {
+        "Remote gateways must use HTTPS"
+    }
+    scheme + trimmed.substring(uri.scheme.length)
+}.getOrElse { throw IllegalArgumentException(it.message ?: "Invalid gateway URL") }
+
+private fun isLocalAddress(host: String): Boolean {
+    val normalized = host.removePrefix("[").removeSuffix("]").lowercase()
+    if (normalized == "localhost" || normalized == "::1") return true
+    val octets = normalized.split('.').mapNotNull(String::toIntOrNull)
+    if (octets.size != 4 || octets.any { it !in 0..255 }) return false
+    return octets[0] == 127 || octets[0] == 10 ||
+        (octets[0] == 172 && octets[1] in 16..31) ||
+        (octets[0] == 192 && octets[1] == 168) ||
+        (octets[0] == 100 && octets[1] in 64..127) // CGNAT, including Tailscale addresses
 }
 
 interface CredentialStore {

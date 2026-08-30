@@ -11,17 +11,21 @@ import {
   type WireMessage,
 } from "@hermes-remote/protocol";
 
-const port = Number(process.env.PORT ?? 8787);
+const port = positiveIntEnv("PORT", 8787, 65_535);
 const host = process.env.HOST ?? "0.0.0.0";
 const defaultDeviceId = process.env.DEFAULT_DEVICE_ID ?? "mac-mini";
 const appToken = requireSecret("APP_TOKEN");
 const connectorToken = requireSecret("CONNECTOR_TOKEN");
 const tlsCertFile = process.env.TLS_CERT_FILE;
 const tlsKeyFile = process.env.TLS_KEY_FILE;
-const maxBodyBytes = Number(process.env.MAX_BODY_BYTES ?? 10 * 1024 * 1024);
-const requestTimeoutMs = Number(process.env.REQUEST_TIMEOUT_MS ?? 60_000);
-const maxPendingRequests = Number(process.env.MAX_PENDING_REQUESTS ?? 128);
-const maxWebSocketTunnels = Number(process.env.MAX_WS_TUNNELS ?? 32);
+const maxBodyBytes = positiveIntEnv("MAX_BODY_BYTES", 10 * 1024 * 1024);
+const requestTimeoutMs = positiveIntEnv("REQUEST_TIMEOUT_MS", 60_000);
+const maxPendingRequests = positiveIntEnv("MAX_PENDING_REQUESTS", 128);
+const maxWebSocketTunnels = positiveIntEnv("MAX_WS_TUNNELS", 32);
+const maxControlConnections = positiveIntEnv("MAX_CONTROL_CONNECTIONS", 32);
+const maxWirePayloadBytes = positiveIntEnv("MAX_WIRE_PAYLOAD_BYTES", 20 * 1024 * 1024);
+const maxAppPayloadBytes = positiveIntEnv("MAX_APP_WS_PAYLOAD_BYTES", 12 * 1024 * 1024);
+const maxSocketBufferedBytes = positiveIntEnv("MAX_SOCKET_BUFFERED_BYTES", 24 * 1024 * 1024);
 
 type Peer = {
   socket: WebSocket;
@@ -40,9 +44,15 @@ type AppTunnel = {
   deviceId: string;
 };
 
+type RequestOwner = {
+  peer: Peer;
+  deviceId: string;
+  timer?: NodeJS.Timeout;
+};
+
 const connectors = new Map<string, Peer>();
 const apps = new Set<Peer>();
-const requestOwners = new Map<string, Peer>();
+const requestOwners = new Map<string, RequestOwner>();
 const pendingHttp = new Map<string, PendingHttp>();
 const appTunnels = new Map<string, AppTunnel>();
 
@@ -65,12 +75,21 @@ const server = tlsCertFile && tlsKeyFile
     )
   : createServer(requestHandler);
 
-const controlWss = new WebSocketServer({ noServer: true });
-const appWss = new WebSocketServer({ noServer: true });
+server.headersTimeout = 15_000;
+server.requestTimeout = requestTimeoutMs + 5_000;
+server.keepAliveTimeout = 5_000;
+server.maxHeadersCount = 64;
+
+const controlWss = new WebSocketServer({ noServer: true, maxPayload: maxWirePayloadBytes });
+const appWss = new WebSocketServer({ noServer: true, maxPayload: maxAppPayloadBytes });
 
 server.on("upgrade", (request, socket, head) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
   if (url.pathname === "/v1/connect") {
+    if (controlWss.clients.size >= maxControlConnections) {
+      rejectUpgrade(socket, 503, "Control connection capacity reached");
+      return;
+    }
     controlWss.handleUpgrade(request, socket, head, (webSocket) => {
       controlWss.emit("connection", webSocket, request);
     });
@@ -111,29 +130,36 @@ controlWss.on("connection", (socket) => {
       message = parseWireMessage(data.toString());
     } catch (error) {
       send(socket, errorMessage("bad_message", String(error)));
+      socket.close(1008, "invalid message");
       return;
     }
 
-    if (!peer) {
-      if (message.type !== "hello" || !authenticate(message)) {
-        socket.close(4401, "unauthorized");
+    try {
+      if (!peer) {
+        if (message.type !== "hello" || !authenticate(message)) {
+          socket.close(4401, "unauthorized");
+          return;
+        }
+        clearTimeout(authTimer);
+        peer = { socket, role: message.role, deviceId: message.deviceId };
+        register(peer);
+        send(socket, {
+          type: "hello_ack",
+          version: PROTOCOL_VERSION,
+          deviceId: message.deviceId,
+        });
+        if (peer.role === "app") {
+          for (const deviceId of connectors.keys()) sendStatus(peer, deviceId, true);
+        }
         return;
       }
-      clearTimeout(authTimer);
-      peer = { socket, role: message.role, deviceId: message.deviceId };
-      register(peer);
-      send(socket, {
-        type: "hello_ack",
-        version: PROTOCOL_VERSION,
-        deviceId: message.deviceId,
-      });
-      if (peer.role === "app") {
-        for (const deviceId of connectors.keys()) sendStatus(peer, deviceId, true);
-      }
-      return;
-    }
 
-    route(peer, message);
+      route(peer, message);
+    } catch (error) {
+      console.error("Control message failure", safeError(error));
+      send(socket, errorMessage("bad_message", "Unable to process message"));
+      socket.close(1008, "invalid message");
+    }
   });
 
   socket.on("close", () => {
@@ -261,7 +287,17 @@ function route(peer: Peer, message: WireMessage): void {
       send(peer.socket, errorMessage("device_offline", "Target Mac is offline", message.id));
       return;
     }
-    requestOwners.set(message.id, peer);
+    if (requestOwners.size >= maxPendingRequests) {
+      send(peer.socket, errorMessage("relay_capacity_reached", "Too many pending requests", message.id));
+      return;
+    }
+    if (requestOwners.has(message.id)) {
+      send(peer.socket, errorMessage("duplicate_request_id", "Request ID is already pending", message.id));
+      return;
+    }
+    const owner = { peer, deviceId: message.targetDeviceId };
+    requestOwners.set(message.id, owner);
+    armRequestOwnerTimeout(message.id, owner);
     send(connector.socket, message);
     return;
   }
@@ -273,10 +309,14 @@ function route(peer: Peer, message: WireMessage): void {
 
   if (message.type === "event") {
     const owner = requestOwners.get(message.requestId);
-    if (!owner) return;
-    send(owner.socket, message);
+    if (!owner || owner.deviceId !== peer.deviceId) return;
+    send(owner.peer.socket, message);
     if (message.event === "complete" || message.event === "error") {
-      requestOwners.delete(message.requestId);
+      clearRequestOwner(message.requestId);
+    } else {
+      // This is an inactivity timeout, not a maximum generation duration. A long answer that is
+      // still producing accepted/delta events must not be cut off at the fixed request deadline.
+      armRequestOwnerTimeout(message.requestId, owner);
     }
     return;
   }
@@ -296,7 +336,11 @@ function route(peer: Peer, message: WireMessage): void {
     if (!tunnel || tunnel.deviceId !== peer.deviceId) return;
     if (tunnel.socket.readyState === WebSocket.OPEN) {
       const data = Buffer.from(message.dataBase64, "base64");
-      tunnel.socket.send(message.binary ? data : data.toString("utf8"), { binary: message.binary });
+      if (tunnel.socket.bufferedAmount + data.length > maxSocketBufferedBytes) {
+        tunnel.socket.close(1013, "backpressure limit reached");
+      } else {
+        tunnel.socket.send(message.binary ? data : data.toString("utf8"), { binary: message.binary });
+      }
     }
     return;
   }
@@ -336,7 +380,7 @@ function unregister(peer: Peer): void {
     apps.delete(peer);
   }
   for (const [requestId, owner] of requestOwners) {
-    if (owner === peer) requestOwners.delete(requestId);
+    if (owner.peer === peer) clearRequestOwner(requestId);
   }
 }
 
@@ -351,6 +395,27 @@ function failDeviceRequests(deviceId: string): void {
     appTunnels.delete(id);
     tunnel.socket.close(1013, "Mac connector disconnected");
   }
+  for (const [id, owner] of requestOwners) {
+    if (owner.deviceId !== deviceId) continue;
+    send(owner.peer.socket, errorMessage("connector_disconnected", "Mac connector disconnected", id));
+    clearRequestOwner(id);
+  }
+}
+
+function clearRequestOwner(id: string): void {
+  const owner = requestOwners.get(id);
+  if (!owner) return;
+  if (owner.timer) clearTimeout(owner.timer);
+  requestOwners.delete(id);
+}
+
+function armRequestOwnerTimeout(id: string, owner: RequestOwner): void {
+  if (owner.timer) clearTimeout(owner.timer);
+  owner.timer = setTimeout(() => {
+    if (requestOwners.get(id) !== owner) return;
+    requestOwners.delete(id);
+    send(owner.peer.socket, errorMessage("connector_timeout", "Connector response timed out", id));
+  }, requestTimeoutMs);
 }
 
 function clearPendingHttp(id: string): void {
@@ -369,7 +434,13 @@ function sendStatus(peer: Peer, deviceId: string, online: boolean): void {
 }
 
 function send(socket: WebSocket, message: WireMessage): void {
-  if (socket.readyState === WebSocket.OPEN) socket.send(encodeWireMessage(message));
+  if (socket.readyState !== WebSocket.OPEN) return;
+  const encoded = encodeWireMessage(message);
+  if (socket.bufferedAmount + Buffer.byteLength(encoded) > maxSocketBufferedBytes) {
+    socket.close(1013, "backpressure limit reached");
+    return;
+  }
+  socket.send(encoded);
 }
 
 function errorMessage(code: string, message: string, requestId?: string): WireMessage {
@@ -453,3 +524,28 @@ function requireSecret(name: string): string {
   if (!value || value.length < 8) throw new Error(`${name} must contain at least 8 characters`);
   return value;
 }
+
+function positiveIntEnv(name: string, fallback: number, max = 1024 * 1024 * 1024): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0 || value > max) {
+    throw new Error(`${name} must be an integer between 1 and ${max}`);
+  }
+  return value;
+}
+
+function safeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function shutdown(signal: string): void {
+  console.log(`Received ${signal}; closing Gateway`);
+  for (const client of controlWss.clients) client.close(1012, "gateway restarting");
+  for (const client of appWss.clients) client.close(1012, "gateway restarting");
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));

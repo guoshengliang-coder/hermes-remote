@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.DEFAULT_REMOTE_GATEWAY_URL
 import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import com.hermes.client.data.network.GatedAuth
 import com.hermes.client.data.network.HermesRestApi
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -47,17 +48,25 @@ class SetupViewModel @Inject constructor(
     // T10b: test() must NOT persist unverified credentials — probe with transient values.
     fun test() = viewModelScope.launch {
         val s = _state.value
+        val url = runCatching { normalizeGatewayBaseUrl(s.url) }.getOrElse {
+            _state.value = s.copy(testResult = it.message ?: "Invalid gateway URL")
+            return@launch
+        }
         val ok = if (s.username.isNotBlank()) {
-            withContext(Dispatchers.IO) { gatedAuth.probeLogin(s.url, s.username, s.password) }
+            withContext(Dispatchers.IO) { gatedAuth.probeLogin(url, s.username, s.password) }
         } else {
-            rest.statusFor(s.url, s.token)
+            rest.statusFor(url, s.token)
         }
         _state.value = _state.value.copy(testResult = if (ok) "Connected" else "Unreachable")
     }
 
     fun save() {
         val s = _state.value
-        store.save(GatewayConfig(s.url, s.token, s.username.trim(), s.password))
+        val url = runCatching { normalizeGatewayBaseUrl(s.url) }.getOrElse {
+            _state.value = s.copy(testResult = it.message ?: "Invalid gateway URL", saved = false)
+            return
+        }
+        store.save(GatewayConfig(url, s.token, s.username.trim(), s.password))
         gatedAuth.cookieJar.clear()
         _state.value = _state.value.copy(saved = true)
     }

@@ -1,6 +1,7 @@
 package com.hermes.client.data.network
 
 import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import com.hermes.client.data.diagnostics.DebugLog
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -19,6 +20,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.Route
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 /**
  * In-memory cookie store for the gated dashboard's session cookies
@@ -61,8 +63,11 @@ class GatedAuth(
     private val loginClient by lazy { OkHttpClient.Builder().cookieJar(cookieJar).build() }
 
     /** Log in with the stored username/password; session cookies land in [cookieJar]. */
+    @Synchronized
     fun login(): Boolean {
-        val cfg = configProvider() ?: return false
+        val cfg = configProvider()?.let {
+            runCatching { it.copy(baseUrl = normalizeGatewayBaseUrl(it.baseUrl)) }.getOrNull()
+        } ?: return false
         if (cfg.username.isBlank()) return false
         val payload: JsonObject = buildJsonObject {
             put("provider", "basic")
@@ -74,7 +79,8 @@ class GatedAuth(
                 .url("${cfg.baseUrl.trimEnd('/')}/auth/password-login")
                 .post(json.encodeToString(JsonObject.serializer(), payload).toRequestBody(JSON_MEDIA))
                 .build()
-            loginClient.newCall(req).execute().use { it.isSuccessful }
+            loginClient.newCall(req).apply { timeout().timeout(AUTH_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
+                .execute().use { it.isSuccessful }
         }.getOrDefault(false)
         DebugLog.log("ws", "gated login -> $ok")
         return ok
@@ -85,13 +91,16 @@ class GatedAuth(
      * missing session is recovered (401 → login → retry) before the ticket is issued.
      */
     fun wsTicket(client: OkHttpClient): String? {
-        val cfg = configProvider() ?: return null
+        val cfg = configProvider()?.let {
+            runCatching { it.copy(baseUrl = normalizeGatewayBaseUrl(it.baseUrl)) }.getOrNull()
+        } ?: return null
         val req = Request.Builder()
             .url("${cfg.baseUrl.trimEnd('/')}/api/auth/ws-ticket")
             .post(ByteArray(0).toRequestBody(null))
             .build()
         return runCatching {
-            client.newCall(req).execute().use { resp ->
+            client.newCall(req).apply { timeout().timeout(AUTH_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
+                .execute().use { resp ->
                 if (!resp.isSuccessful) return null
                 val body = resp.body?.string().orEmpty()
                 json.parseToJsonElement(body).jsonObject["ticket"]?.jsonPrimitive?.content
@@ -104,6 +113,7 @@ class GatedAuth(
      * client so it neither persists creds nor disturbs the live session cookies.
      */
     fun probeLogin(baseUrl: String, username: String, password: String): Boolean {
+        val safeBaseUrl = runCatching { normalizeGatewayBaseUrl(baseUrl) }.getOrNull() ?: return false
         val payload: JsonObject = buildJsonObject {
             put("provider", "basic")
             put("username", username)
@@ -111,15 +121,17 @@ class GatedAuth(
         }
         return runCatching {
             val req = Request.Builder()
-                .url("${baseUrl.trimEnd('/')}/auth/password-login")
+                .url("${safeBaseUrl.trimEnd('/')}/auth/password-login")
                 .post(json.encodeToString(JsonObject.serializer(), payload).toRequestBody(JSON_MEDIA))
                 .build()
-            OkHttpClient().newCall(req).execute().use { it.isSuccessful }
+            OkHttpClient().newCall(req).apply { timeout().timeout(AUTH_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
+                .execute().use { it.isSuccessful }
         }.getOrDefault(false)
     }
 
     private companion object {
         val JSON_MEDIA = "application/json".toMediaType()
+        const val AUTH_TIMEOUT_SECONDS = 15L
     }
 }
 

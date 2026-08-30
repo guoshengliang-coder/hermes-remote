@@ -18,8 +18,8 @@ if (!statusResponse.ok) throw new Error(`REST relay failed with HTTP ${statusRes
 const status = await statusResponse.json();
 console.log(JSON.stringify({ rest: status }));
 
-const wsUrl = `${baseUrl.replace(/^https:/, "wss:").replace(/^http:/, "ws:")}/api/ws?token=${encodeURIComponent(appToken)}`;
-const socket = new WebSocket(wsUrl);
+const wsUrl = `${baseUrl.replace(/^https:/, "wss:").replace(/^http:/, "ws:")}/api/ws`;
+const socket = new WebSocket(wsUrl, { headers: { "x-hermes-session-token": appToken } });
 const timeout = setTimeout(() => fail("Timed out waiting for JSON-RPC response"), 10_000);
 let ready = false;
 

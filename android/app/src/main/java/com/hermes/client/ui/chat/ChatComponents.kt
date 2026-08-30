@@ -3,7 +3,10 @@ package com.hermes.client.ui.chat
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.combinedClickable
@@ -17,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -40,6 +44,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.ThumbUp
 import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,12 +54,14 @@ import com.hermes.client.ui.theme.LocalProfileAccent
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
@@ -65,6 +72,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
@@ -74,11 +82,19 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import android.widget.Toast
+import android.graphics.BitmapFactory
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import com.hermes.client.domain.ToolCall
 import com.hermes.client.domain.ToolStatus
+import com.hermes.client.domain.ChatImage
+import com.hermes.client.domain.ImageTransferState
 import com.hermes.client.ui.theme.LocalToolCallTechnical
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
@@ -86,6 +102,8 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.compose.components.MarkdownComponents
 import com.mikepenz.markdown.compose.components.markdownComponents
@@ -111,20 +129,24 @@ fun ChatMessageList(
     onBlankAreaTap: () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
+    val visibleProcesses = state.backgroundProcesses.filter { it.running }
     // Hermes stores a tool-using answer as multiple adjacent assistant records. Present them as
     // one consumer-facing turn so the action row appears once and acts on the complete answer.
-    // During streaming only the tail changes. Cache the settled prefix so each token sanitizes and
-    // groups one message instead of walking a potentially huge history on the main thread.
+    // During streaming only the tail changes. Cache the settled prefix so each token groups one
+    // message instead of walking a potentially huge history on the main thread.
     val streamingTail = state.messages.lastOrNull()?.takeIf { it.isStreaming }
     val settledMessages = if (streamingTail != null) state.messages.dropLast(1) else state.messages
     val settledTurns = remember(sessionId, settledMessages) {
         settledMessages.organizedConversationTurns()
     }
     val displayMessages = remember(settledTurns, streamingTail) {
-        val tail = streamingTail?.organizedForDisplay() ?: return@remember settledTurns
+        // Full sanitization runs several regex passes over the complete answer. Repeating it for
+        // every token makes long replies approach O(n²). The reducer performs that cleanup once
+        // when message.complete arrives, so live text can be rendered directly here.
+        val tail = streamingTail ?: return@remember settledTurns
         val previous = settledTurns.lastOrNull()
         if (previous?.role == Role.ASSISTANT && tail.role == Role.ASSISTANT) {
-            settledTurns.dropLast(1) + listOf(previous, tail).organizedConversationTurns()
+            settledTurns.dropLast(1) + mergeAssistantTurns(previous, tail)
         } else {
             settledTurns + tail
         }
@@ -135,14 +157,15 @@ fun ChatMessageList(
     val lastAssistantId = displayMessages.lastOrNull { it.role == Role.ASSISTANT }?.id
     // Changes for reasoning, visible answer text, and live tool activity. The previous text-only key
     // never fired while Hermes was thinking, leaving the viewport frozen until answer text arrived.
-    val streamRevision = state.messages.lastOrNull()?.streamContentRevision() ?: 0
+    val streamRevision = (state.messages.lastOrNull()?.streamContentRevision() ?: 0) +
+        state.backgroundProcesses.sumOf { it.outputTail.length + if (it.running) 1 else 2 }
     // Cached separately from the streaming tail: an authoritative history refresh may replace an
     // earlier turn without changing the message count or the final message. That must trigger a
     // second bottom calibration before the initial-entry window closes.
     val settledLayoutRevision = remember(settledMessages) {
         settledMessages.conversationLayoutRevision()
     }
-    val endAnchorIndex = displayMessages.size
+    val endAnchorIndex = displayMessages.size + if (visibleProcesses.isNotEmpty()) 1 else 0
     var followLatest by remember(sessionId) { mutableStateOf(true) }
 
     // Initial entry is a small state machine instead of a one-shot boolean. The one-shot version
@@ -153,12 +176,12 @@ fun ChatMessageList(
     val contentReady = landingStage == InitialLandingStage.READY
     LaunchedEffect(
         sessionId,
-        displayMessages.isNotEmpty(),
+        displayMessages.isNotEmpty() || visibleProcesses.isNotEmpty(),
         settledLayoutRevision,
         state.historyLoading,
         endAnchorIndex,
     ) {
-        if (displayMessages.isEmpty() || authoritativeLandingDone) return@LaunchedEffect
+        if ((displayMessages.isEmpty() && visibleProcesses.isEmpty()) || authoritativeLandingDone) return@LaunchedEffect
         val wasAlreadyVisible = landingStage == InitialLandingStage.READY
         if (!wasAlreadyVisible) landingStage = InitialLandingStage.LANDING
         try {
@@ -229,7 +252,7 @@ fun ChatMessageList(
         listState.scrollToItem(endAnchorIndex)
     }
 
-    if (displayMessages.isEmpty()) {
+    if (displayMessages.isEmpty() && visibleProcesses.isEmpty()) {
         when {
             state.historyLoading -> ChatHistorySkeleton(modifier.fillMaxSize())
             state.historyError != null -> Box(
@@ -291,6 +314,11 @@ fun ChatMessageList(
                     highlighted = index == highlightIndex,
                 )
             }
+            if (visibleProcesses.isNotEmpty()) {
+                item(key = "background-processes") {
+                    BackgroundProcessesCard(visibleProcesses)
+                }
+            }
             item(key = "conversation-end-anchor") {
                 Spacer(Modifier.height(1.dp))
             }
@@ -325,6 +353,11 @@ internal fun List<ChatMessage>.conversationLayoutRevision(): Int = fold(1) { rev
     var next = 31 * revision + message.id.hashCode()
     next = 31 * next + message.text.hashCode()
     next = 31 * next + message.thinking.hashCode()
+    message.images.forEach { image ->
+        next = 31 * next + image.id.hashCode()
+        next = 31 * next + image.localPath.hashCode()
+        next = 31 * next + image.state.hashCode()
+    }
     message.tools.forEach { tool ->
         next = 31 * next + tool.id.hashCode()
         next = 31 * next + tool.name.hashCode()
@@ -335,7 +368,7 @@ internal fun List<ChatMessage>.conversationLayoutRevision(): Int = fold(1) { rev
 }
 
 internal fun ChatMessage.streamContentRevision(): Int =
-    text.length + thinking.length + tools.sumOf { tool ->
+    text.length + thinking.length + images.sumOf { it.localPath.orEmpty().length + it.state.ordinal } + tools.sumOf { tool ->
         tool.name.length + tool.output.length + if (tool.status == ToolStatus.RUNNING) 1 else 2
     }
 
@@ -400,6 +433,10 @@ private fun UserBubble(msg: ChatMessage, onEditResend: (String) -> Unit, highlig
                     .padding(horizontal = 16.dp, vertical = 11.dp)
                     .combinedClickable(onClick = {}, onLongClick = { menuOpen = true }),
             ) {
+                if (msg.images.isNotEmpty()) {
+                    ChatImageGrid(msg.images)
+                    if (msg.text.isNotBlank()) Spacer(Modifier.height(8.dp))
+                }
                 if (msg.text.isNotBlank()) {
                     Text(
                         msg.text,
@@ -420,6 +457,161 @@ private fun UserBubble(msg: ChatMessage, onEditResend: (String) -> Unit, highlig
                     text = { Text(localized(language, "编辑并重新发送", "Edit & resend")) },
                     onClick = { onEditResend(msg.text); menuOpen = false },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatImageGrid(images: List<ChatImage>) {
+    var selected by remember { mutableStateOf<ChatImage?>(null) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        images.chunked(2).forEach { rowImages ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                rowImages.forEach { image ->
+                    ChatImageThumbnail(
+                        image = image,
+                        modifier = Modifier.weight(1f).height(if (images.size == 1) 190.dp else 132.dp),
+                        onClick = { if (image.localPath != null) selected = image },
+                    )
+                }
+                if (rowImages.size == 1 && images.size > 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+    selected?.let { image -> FullScreenImage(image) { selected = null } }
+}
+
+@Composable
+private fun ChatImageThumbnail(image: ChatImage, modifier: Modifier, onClick: () -> Unit) {
+    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, image.localPath) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            image.localPath?.let { decodeImageFile(it, 900) }
+        }
+    }
+    val shape = RoundedCornerShape(14.dp)
+    Box(
+        modifier.clip(shape).background(MaterialTheme.colorScheme.surface).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap!!,
+                contentDescription = localized(LocalAppLanguage.current, "聊天图片", "Chat image"),
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else if (image.state == ImageTransferState.UPLOADING ||
+            (image.remotePath != null && image.state != ImageTransferState.FAILED)
+        ) {
+            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+        } else {
+            Icon(
+                Icons.Rounded.BrokenImage,
+                contentDescription = localized(LocalAppLanguage.current, "图片加载失败", "Image unavailable"),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun FullScreenImage(image: ChatImage, onDismiss: () -> Unit) {
+    var scale by remember(image.id) { mutableStateOf(1f) }
+    var offset by remember(image.id) { mutableStateOf(Offset.Zero) }
+    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, image.localPath) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            image.localPath?.let { decodeImageFile(it, 4096) }
+        }
+    }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Box(
+            Modifier.fillMaxSize().background(Color.Black).pointerInput(image.id) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    scale = (scale * zoom).coerceIn(1f, 5f)
+                    offset = if (scale == 1f) Offset.Zero else offset + pan
+                }
+            },
+            contentAlignment = Alignment.Center,
+        ) {
+            bitmap?.let {
+                Image(
+                    bitmap = it,
+                    contentDescription = localized(LocalAppLanguage.current, "查看原图", "View full image"),
+                    modifier = Modifier.fillMaxSize().graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offset.x,
+                        translationY = offset.y,
+                    ),
+                    contentScale = ContentScale.Fit,
+                )
+            }
+        }
+    }
+}
+
+private fun decodeImageFile(path: String, requestedPx: Int): androidx.compose.ui.graphics.ImageBitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sample = 1
+    while (bounds.outWidth / sample > requestedPx * 2 || bounds.outHeight / sample > requestedPx * 2) {
+        sample *= 2
+    }
+    return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
+        ?.asImageBitmap()
+}
+
+@Composable
+private fun BackgroundProcessesCard(processes: List<com.hermes.client.data.repository.BackgroundProcess>) {
+    val language = LocalAppLanguage.current
+    val running = processes.count { it.running }
+    var expanded by remember(processes.map { it.id }) { mutableStateOf(false) }
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (running > 0) {
+                    CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                }
+                Text(
+                    if (running > 0) localized(language, "后台任务运行中 · $running", "$running background task(s) running")
+                    else localized(language, "后台任务已结束", "Background tasks finished"),
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = null,
+                )
+            }
+            processes.forEach { process ->
+                Text(
+                    process.command.ifBlank { localized(language, "后台进程", "Background process") },
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = if (expanded) 3 else 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (expanded && process.outputTail.isNotBlank()) {
+                    SelectionContainer {
+                        Text(
+                            process.outputTail.takeLast(4_000),
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
     }

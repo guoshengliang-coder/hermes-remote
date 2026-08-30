@@ -7,6 +7,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -47,5 +48,42 @@ class ChatRepositoryTest {
         repo.createSession(profile = null)
 
         coVerify { client.call("session.create", match { !it.containsKey("profile") }) }
+    }
+
+    @Test fun attach_image_uses_current_contract_and_returns_remote_reference() = runTest {
+        val client = mockk<HermesGatewayClient>(relaxed = true)
+        coEvery { client.call(any(), any()) } returns buildJsonObject {
+            put("path", "/tmp/image.png")
+            put("width", 640)
+            put("height", 480)
+        }
+        val attached = ChatRepository(client).attachImageBytes("live-1", "YWJj", "image/png")
+
+        assertEquals("/tmp/image.png", attached.path)
+        assertEquals(640, attached.width)
+        coVerify {
+            client.call("image.attach_bytes", match {
+                it["content_base64"]?.jsonPrimitive?.content == "YWJj" && !it.containsKey("data")
+            })
+        }
+    }
+
+    @Test fun process_list_maps_running_process_and_output_tail() = runTest {
+        val client = mockk<HermesGatewayClient>(relaxed = true)
+        coEvery { client.call("process.list", any()) } returns buildJsonObject {
+            put("processes", buildJsonArray {
+                add(buildJsonObject {
+                    put("session_id", "proc-1")
+                    put("command", "python worker.py")
+                    put("status", "running")
+                    put("output_tail", "working")
+                })
+            })
+        }
+        val process = ChatRepository(client).listProcesses("live-1").single()
+
+        assertEquals("proc-1", process.id)
+        assertEquals(true, process.running)
+        assertEquals("working", process.outputTail)
     }
 }

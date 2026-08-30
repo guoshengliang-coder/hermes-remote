@@ -12,6 +12,22 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+
+data class AttachedImage(
+    val path: String,
+    val width: Int? = null,
+    val height: Int? = null,
+)
+
+data class BackgroundProcess(
+    val id: String,
+    val command: String,
+    val running: Boolean,
+    val exitCode: Int? = null,
+    val outputTail: String = "",
+)
 
 /** A "@" completion item: [text] is inserted, [display] shown, [meta] is a hint. */
 data class PathItem(val text: String, val display: String, val meta: String)
@@ -116,12 +132,42 @@ class ChatRepository(private val client: HermesGatewayClient) {
     }
 
     /** Attach an image (base64 data) to the session; included with the next prompt. */
-    suspend fun attachImageBytes(sessionId: String, dataBase64: String, mimeType: String) {
-        client.call("image.attach_bytes", buildJsonObject {
+    suspend fun attachImageBytes(sessionId: String, dataBase64: String, mimeType: String): AttachedImage {
+        val result = client.call("image.attach_bytes", buildJsonObject {
             put("session_id", sessionId)
-            put("data", dataBase64)
+            // Current Hermes uses content_base64; `data` was a legacy alias.
+            put("content_base64", dataBase64)
             put("mime_type", mimeType)
         })
+        val obj = result.jsonObject
+        return AttachedImage(
+            path = obj["path"]?.jsonPrimitive?.content
+                ?: error("image.attach_bytes returned no path"),
+            width = obj["width"]?.jsonPrimitive?.intOrNull,
+            height = obj["height"]?.jsonPrimitive?.intOrNull,
+        )
+    }
+
+    /** Session-scoped background processes, matching Hermes Desktop's process status source. */
+    suspend fun listProcesses(sessionId: String): List<BackgroundProcess> {
+        val result = client.call("process.list", buildJsonObject { put("session_id", sessionId) })
+        val items = result.jsonObject["processes"]?.let { runCatching { it.jsonArray }.getOrNull() }
+            ?: return emptyList()
+        return items.mapNotNull { element ->
+            val obj = element as? JsonObject ?: return@mapNotNull null
+            val id = listOf("session_id", "process_id", "id")
+                .firstNotNullOfOrNull { key -> obj[key]?.jsonPrimitive?.contentOrNull }
+                ?: return@mapNotNull null
+            val status = obj["status"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val exitCode = obj["exit_code"]?.jsonPrimitive?.intOrNull
+            BackgroundProcess(
+                id = id,
+                command = obj["command"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                running = status.equals("running", true) || (status.isBlank() && exitCode == null),
+                exitCode = exitCode,
+                outputTail = obj["output_tail"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+            )
+        }
     }
 
     suspend fun respondApproval(sessionId: String, choice: ApprovalChoice) {

@@ -22,6 +22,8 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import java.util.concurrent.TimeUnit
@@ -43,7 +45,9 @@ class HermesGatewayClientTest {
         val okHttp = OkHttpClient.Builder()
             .readTimeout(10, TimeUnit.SECONDS)
             .build()
-        return HermesGatewayClient(okHttp, json, testScope) { "$base?token=t" } to okHttp
+        return HermesGatewayClient(okHttp, json, testScope) {
+            GatewayWebSocketEndpoint(base, "t")
+        } to okHttp
     }
 
     /**
@@ -91,6 +95,41 @@ class HermesGatewayClientTest {
                 withTimeout(5_000) { client.call("ping", buildJsonObject {}) }
             }
             assertEquals("true", result.jsonObject["pong"]!!.jsonPrimitive.content)
+            val upgrade = serverRule.server.takeRequest(5, TimeUnit.SECONDS)!!
+            assertEquals("/api/ws", upgrade.target)
+            assertEquals("t", upgrade.headers["X-Hermes-Session-Token"])
+            assertFalse(upgrade.target.contains("token="))
+        } finally {
+            tearDownClient(client, okHttp)
+        }
+    }
+
+    @Test fun call_times_out_when_gateway_never_replies() = runTest {
+        serverRule.server.enqueue(
+            MockResponse.Builder().webSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onOpen(webSocket: WebSocket, response: Response) {
+                        webSocket.send(GATEWAY_READY_FRAME)
+                    }
+                },
+            ).build(),
+        )
+        val base = serverRule.server.url("/api/ws").toString().replace("http", "ws")
+        val okHttp = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
+        val client = HermesGatewayClient(
+            okHttp = okHttp,
+            json = json,
+            scope = testScope,
+            rpcTimeoutMs = 100,
+        ) { GatewayWebSocketEndpoint(base, "t") }
+        try {
+            client.connect()
+            val error = withContext(Dispatchers.Default) {
+                runCatching { withTimeout(5_000) { client.call("never-replies", buildJsonObject {}) } }
+                    .exceptionOrNull()
+            }
+            assertTrue(error is GatewayRpcException)
+            assertEquals("gateway response timeout", error?.message)
         } finally {
             tearDownClient(client, okHttp)
         }

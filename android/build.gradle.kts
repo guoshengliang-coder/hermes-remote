@@ -21,6 +21,18 @@ buildscript {
     }
 }
 
+// AndroidX Test 1.7 requires concurrent-futures 1.2, while an older Glance transitive constraint
+// still selects 1.1 for some AndroidTest/Lint model configurations. Keep both artifacts aligned so
+// instrumented-test dependency resolution (and therefore lintDebug) remains usable.
+subprojects {
+    configurations.configureEach {
+        resolutionStrategy.force(
+            "androidx.concurrent:concurrent-futures:1.2.0",
+            "androidx.concurrent:concurrent-futures-ktx:1.2.0",
+        )
+    }
+}
+
 plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.kotlin.compose) apply false

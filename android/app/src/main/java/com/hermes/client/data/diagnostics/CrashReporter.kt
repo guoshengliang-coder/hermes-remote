@@ -25,7 +25,13 @@ object CrashReporter {
                 val trace = DebugLog.redact(sw.toString())
                 val version = runCatching {
                     val pi = app.packageManager.getPackageInfo(app.packageName, 0)
-                    "${pi.versionName} (${pi.longVersionCode})"
+                    val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        pi.longVersionCode
+                    } else {
+                        @Suppress("DEPRECATION")
+                        pi.versionCode.toLong()
+                    }
+                    "${pi.versionName} ($code)"
                 }.getOrDefault("?")
                 val report = buildString {
                     appendLine("Hermes Beta — crash report")

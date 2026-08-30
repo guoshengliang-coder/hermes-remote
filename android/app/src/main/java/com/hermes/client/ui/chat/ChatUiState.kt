@@ -302,17 +302,22 @@ internal fun List<ChatMessage>.organizedConversationTurns(): List<ChatMessage> {
             continue
         }
 
-        val toolsById = linkedMapOf<String, ToolCall>()
-        (previous.tools + message.tools).forEach { tool -> toolsById[tool.id] = tool }
-        turns[turns.lastIndex] = message.copy(
-            text = joinTurnParts(previous.text, message.text),
-            thinking = joinTurnParts(previous.thinking, message.thinking),
-            tools = toolsById.values.toList(),
-            isError = previous.isError || message.isError,
-            interrupted = previous.interrupted || message.interrupted,
-        )
+        turns[turns.lastIndex] = mergeAssistantTurns(previous, message)
     }
     return turns
+}
+
+/** Merge two already display-ready assistant records without re-running content sanitization. */
+internal fun mergeAssistantTurns(previous: ChatMessage, message: ChatMessage): ChatMessage {
+    val toolsById = linkedMapOf<String, ToolCall>()
+    (previous.tools + message.tools).forEach { tool -> toolsById[tool.id] = tool }
+    return message.copy(
+        text = joinTurnParts(previous.text, message.text),
+        thinking = joinTurnParts(previous.thinking, message.thinking),
+        tools = toolsById.values.toList(),
+        isError = previous.isError || message.isError,
+        interrupted = previous.interrupted || message.interrupted,
+    )
 }
 
 private fun joinTurnParts(first: String, second: String): String = when {
@@ -332,6 +337,7 @@ data class ClarifyRequest(val question: String, val options: List<String>, val r
 
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
+    val backgroundProcesses: List<com.hermes.client.data.repository.BackgroundProcess> = emptyList(),
     val pendingApproval: ApprovalRequest? = null,
     val pendingClarify: ClarifyRequest? = null,
     val isGenerating: Boolean = false,
@@ -345,9 +351,18 @@ data class ChatUiState(
     companion object { fun empty() = ChatUiState() }
 }
 
-fun ChatUiState.withUserMessage(text: String): ChatUiState =
+fun ChatUiState.withUserMessage(
+    text: String,
+    images: List<com.hermes.client.domain.ChatImage> = emptyList(),
+    messageId: String = "u-${messages.size}",
+): ChatUiState =
     copy(
-        messages = messages + ChatMessage(id = "u-${messages.size}", role = Role.USER, text = text),
+        messages = messages + ChatMessage(
+            id = messageId,
+            role = Role.USER,
+            text = text,
+            images = images,
+        ),
         isGenerating = true,
     )
 

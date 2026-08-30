@@ -1,0 +1,43 @@
+name: CodeQL
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, java-kotlin]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+      - if: matrix.language == 'javascript-typescript'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - if: matrix.language == 'javascript-typescript'
+        run: npm ci --ignore-scripts && npm run build
+      - if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - if: matrix.language == 'java-kotlin'
+        uses: gradle/actions/setup-gradle@v4
+      - if: matrix.language == 'java-kotlin'
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+      - uses: github/codeql-action/analyze@v3

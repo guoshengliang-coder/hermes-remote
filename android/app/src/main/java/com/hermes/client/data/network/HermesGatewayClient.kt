@@ -4,6 +4,7 @@ import com.hermes.client.data.diagnostics.DebugLog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -28,6 +29,12 @@ import kotlin.math.pow
 
 class GatewayRpcException(val code: Int, message: String) : Exception(message)
 
+/** WebSocket URL plus optional header authentication. Long-lived tokens never enter URLs/logs. */
+data class GatewayWebSocketEndpoint(
+    val url: String,
+    val sessionToken: String? = null,
+)
+
 data class BackoffPolicy(
     val baseMs: Long = 500,
     val factor: Double = 2.0,
@@ -42,12 +49,17 @@ open class HermesGatewayClient(
     private val json: Json,
     private val scope: CoroutineScope,
     private val backoff: BackoffPolicy = BackoffPolicy(),
+    private val rpcTimeoutMs: Long = 60_000L,
     // suspend so gated mode can fetch a fresh single-use WS ticket (an HTTP round trip) before
     // each connect; loopback mode returns immediately.
-    private val wsUrlProvider: suspend () -> String,
+    private val wsEndpointProvider: suspend () -> GatewayWebSocketEndpoint,
 ) {
     private val _events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 256)
     val events: SharedFlow<ServerEvent> = _events.asSharedFlow()
+    // OkHttp callbacks must never block. A bounded actor preserves event order while the
+    // SharedFlow fans events out to multiple collectors. Overflow forces a reconnect so normal
+    // history resync can recover, instead of silently dropping lifecycle events.
+    private val eventQueue = Channel<ServerEvent>(capacity = 2_048)
 
     private val _state = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _state.asStateFlow()
@@ -62,6 +74,12 @@ open class HermesGatewayClient(
     // ignored once a newer socket has been opened, so an in-flight backoff reopen can never
     // race a manual reconnectNow() into two live sockets.
     private val generation = AtomicInteger(0)
+
+    init {
+        scope.launch {
+            for (event in eventQueue) _events.emit(event)
+        }
+    }
 
     // Readiness gate: awaited by call() before sending RPCs.
     // Recreated (uncompleted) on each openSocket(); completed when gateway.ready arrives;
@@ -98,8 +116,8 @@ open class HermesGatewayClient(
         // Resolve the URL off the calling thread: gated mode mints a WS ticket (HTTP) here. A
         // failure (e.g. login/ticket error) routes through onSocketClosed so backoff retries.
         scope.launch {
-            val url = try {
-                wsUrlProvider()
+            val endpoint = try {
+                wsEndpointProvider()
             } catch (e: Exception) {
                 DebugLog.log("ws", "ws url/ticket failed (gen=$gen): ${e.message}")
                 onSocketClosed(gen, e.message ?: "ws url failed")
@@ -108,7 +126,14 @@ open class HermesGatewayClient(
             // A newer socket may have superseded this one — or the client was closed — while we
             // fetched the ticket. Either way, don't open a now-orphaned socket.
             if (gen != generation.get() || manuallyClosed) return@launch
-            val request = Request.Builder().url(url).build()
+            val request = Request.Builder()
+                .url(endpoint.url)
+                .apply {
+                    endpoint.sessionToken?.takeIf { it.isNotBlank() }?.let {
+                        header("X-Hermes-Session-Token", it)
+                    }
+                }
+                .build()
             ws = okHttp.newWebSocket(request, makeListener(gen))
         }
     }
@@ -155,7 +180,10 @@ open class HermesGatewayClient(
                         if (msg.event.type != "message.delta" && msg.event.type != "reasoning.delta") {
                             DebugLog.log("ws", "event ${msg.event.type} session=${msg.event.sessionId ?: "-"}")
                         }
-                        _events.tryEmit(msg.event)
+                        if (eventQueue.trySend(msg.event).isFailure) {
+                            DebugLog.log("ws", "event queue overflow; reconnecting for history resync")
+                            webSocket.close(1013, "event queue overflow")
+                        }
                     }
                 }
             }
@@ -215,7 +243,13 @@ open class HermesGatewayClient(
             DebugLog.log("ws", "rpc#$id $method failed: not connected")
             throw GatewayRpcException(0, "not connected")
         }
-        return deferred.await()
+        return try {
+            withTimeout(rpcTimeoutMs) { deferred.await() }
+        } catch (e: TimeoutCancellationException) {
+            throw GatewayRpcException(0, "gateway response timeout")
+        } finally {
+            pending.remove(id, deferred)
+        }
     }
 
     fun close() {

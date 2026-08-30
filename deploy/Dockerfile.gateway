@@ -5,7 +5,10 @@ COPY protocol/package.json protocol/tsconfig.json ./protocol/
 COPY protocol/src ./protocol/src
 COPY gateway/package.json gateway/tsconfig.json ./gateway/
 COPY gateway/src ./gateway/src
-RUN npm install && npm run build
+COPY connector/package.json connector/tsconfig.json ./connector/
+RUN npm ci --ignore-scripts \
+    && npm run build -w @hermes-remote/protocol \
+    && npm run build -w @hermes-remote/gateway
 
 FROM node:22-alpine
 WORKDIR /app
@@ -15,6 +18,8 @@ COPY --from=build /app/protocol/package.json ./protocol/
 COPY --from=build /app/protocol/dist ./protocol/dist
 COPY --from=build /app/gateway/package.json ./gateway/
 COPY --from=build /app/gateway/dist ./gateway/dist
-RUN npm install --omit=dev
+COPY --from=build /app/connector/package.json ./connector/
+RUN npm ci --omit=dev --ignore-scripts && chown -R node:node /app
+USER node
 EXPOSE 8787
 CMD ["node", "gateway/dist/index.js"]

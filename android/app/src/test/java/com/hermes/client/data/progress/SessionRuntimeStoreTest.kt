@@ -140,4 +140,18 @@ class SessionRuntimeStoreTest {
 
         assertEquals("手机已经收到的完整答案", store.runtimes.value.getValue(key).chat.messages.last().text)
     }
+
+    @Test fun idle_runtime_cache_is_bounded_but_keeps_active_sessions() = runTest {
+        val (store, _) = fixture()
+        repeat(25) { store.register("idle-$it", "personal") }
+        assertEquals(20, store.runtimes.value.size)
+
+        val active = store.register("active", "personal")
+        store.beginPrompt(active, "继续运行")
+        repeat(25) { store.register("more-$it", "personal") }
+
+        assertTrue(active in store.runtimes.value)
+        assertEquals(SessionRunPhase.SUBMITTING, store.runtimes.value.getValue(active).phase)
+        assertTrue(store.runtimes.value.size <= 21)
+    }
 }

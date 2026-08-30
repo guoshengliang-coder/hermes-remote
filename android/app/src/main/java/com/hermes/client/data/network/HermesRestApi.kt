@@ -1,16 +1,20 @@
 package com.hermes.client.data.network
 
 import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Call
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
@@ -31,7 +35,7 @@ class HermesRestApi(
         configProvider() ?: throw HermesApiException(0, "no gateway configured")
 
     private fun builder(path: String): Request.Builder {
-        val cfg = config()
+        val cfg = config().let { it.copy(baseUrl = normalizeGatewayBaseUrl(it.baseUrl)) }
         // Keep the diagnostic log's redaction current with whatever token is active, so a
         // shared log can never contain the session token in plain text.
         com.hermes.client.data.diagnostics.DebugLog.setTokenToRedact(cfg.token)
@@ -42,9 +46,14 @@ class HermesRestApi(
         return b
     }
 
+    /** The shared client has no read timeout for WebSockets; every REST call gets a deadline. */
+    private fun restCall(request: Request): Call = okHttp.newCall(request).apply {
+        timeout().timeout(REST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+    }
+
     private suspend inline fun <reified T> get(path: String): T = withContext(Dispatchers.IO) {
         com.hermes.client.data.diagnostics.DebugLog.log("rest", "GET $path")
-        val call = okHttp.newCall(builder(path).get().build())
+        val call = restCall(builder(path).get().build())
         // The shared client deliberately has no read timeout because WebSockets are long-lived.
         // A per-call deadline is essential for REST, otherwise a stalled Relay/Connector request
         // leaves a Compose loading screen spinning forever.
@@ -102,6 +111,21 @@ class HermesRestApi(
     suspend fun messages(sessionId: String, profile: String? = null): List<MessageDto> =
         get<MessagesDto>("/api/sessions/$sessionId/messages${profileParam(profile, first = true)}").messages
 
+    /** Read a gateway-side attachment through the same authenticated relay used by the desktop. */
+    suspend fun fileDataUrl(path: String, profile: String? = null): String {
+        val encoded = java.net.URLEncoder.encode(path, "UTF-8")
+        val payload = get<JsonElement>(
+            "/api/fs/read-data-url?path=$encoded${profileParam(profile)}",
+        )
+        return when (payload) {
+            is JsonPrimitive -> payload.content
+            is JsonObject -> (payload["dataUrl"] ?: payload["data_url"] ?: payload["data"])
+                ?.jsonPrimitive?.content
+                ?: throw HermesApiException(0, "image response contained no dataUrl")
+            else -> throw HermesApiException(0, "unsupported image response")
+        }
+    }
+
     /** "&profile=x" (or "?profile=x" when [first]) — empty when profile is null/blank. */
     private fun profileParam(profile: String?, first: Boolean = false): String {
         if (profile.isNullOrBlank()) return ""
@@ -132,7 +156,7 @@ class HermesRestApi(
         }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
             .toRequestBody("application/json".toMediaType())
-        okHttp.newCall(builder("/api/model/set").post(payload).build()).execute().use { resp ->
+        restCall(builder("/api/model/set").post(payload).build()).execute().use { resp ->
             if (!resp.isSuccessful) throw HermesApiException(resp.code, "set model failed")
         }
     }
@@ -156,7 +180,7 @@ class HermesRestApi(
         }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
             .toRequestBody("application/json".toMediaType())
-        okHttp.newCall(builder("/api/sessions/$sessionId").patch(payload).build()).execute().use { resp ->
+        restCall(builder("/api/sessions/$sessionId").patch(payload).build()).execute().use { resp ->
             if (!resp.isSuccessful) throw HermesApiException(resp.code, "update session failed")
         }
     }
@@ -164,7 +188,7 @@ class HermesRestApi(
     /** Delete a session. [profile] (query param) scopes it to the right per-profile DB. */
     suspend fun deleteSession(sessionId: String, profile: String? = null) = withContext(Dispatchers.IO) {
         val path = "/api/sessions/$sessionId${profileParam(profile, first = true)}"
-        okHttp.newCall(builder(path).delete().build()).execute().use { resp ->
+        restCall(builder(path).delete().build()).execute().use { resp ->
             if (!resp.isSuccessful) throw HermesApiException(resp.code, "delete session failed")
         }
     }
@@ -196,7 +220,7 @@ class HermesRestApi(
         withContext(Dispatchers.IO) {
             val body = "{}".toRequestBody("application/json".toMediaType())
             val path = "/api/cron/jobs/$jobId/$action${profileParam(profile, first = true)}"
-            okHttp.newCall(builder(path).post(body).build()).execute().use { resp ->
+            restCall(builder(path).post(body).build()).execute().use { resp ->
                 if (!resp.isSuccessful) throw HermesApiException(resp.code, "$action failed")
             }
         }
@@ -213,7 +237,7 @@ class HermesRestApi(
             }
             val payload = json.encodeToString(JsonObject.serializer(), obj)
                 .toRequestBody("application/json".toMediaType())
-            okHttp.newCall(builder("/api/cron/jobs${profileParam(profile, first = true)}").post(payload).build())
+            restCall(builder("/api/cron/jobs${profileParam(profile, first = true)}").post(payload).build())
                 .execute().use { resp ->
                     if (!resp.isSuccessful) {
                         val body = resp.body?.string().orEmpty().take(160)
@@ -229,7 +253,7 @@ class HermesRestApi(
             }
             val payload = json.encodeToString(JsonObject.serializer(), obj)
                 .toRequestBody("application/json".toMediaType())
-            okHttp.newCall(builder("/api/cron/jobs/$jobId${profileParam(profile, first = true)}").put(payload).build())
+            restCall(builder("/api/cron/jobs/$jobId${profileParam(profile, first = true)}").put(payload).build())
                 .execute().use { resp ->
                     if (!resp.isSuccessful) {
                         val body = resp.body?.string().orEmpty().take(160)
@@ -239,7 +263,7 @@ class HermesRestApi(
         }
 
     suspend fun deleteCron(jobId: String, profile: String? = null) = withContext(Dispatchers.IO) {
-        okHttp.newCall(builder("/api/cron/jobs/$jobId${profileParam(profile, first = true)}").delete().build())
+        restCall(builder("/api/cron/jobs/$jobId${profileParam(profile, first = true)}").delete().build())
             .execute().use { resp ->
                 if (!resp.isSuccessful) throw HermesApiException(resp.code, "delete cron failed")
             }
@@ -261,7 +285,7 @@ class HermesRestApi(
         val wrapped = JsonObject(mapOf("config" to config))
         val payload = json.encodeToString(JsonObject.serializer(), wrapped)
             .toRequestBody("application/json".toMediaType())
-        okHttp.newCall(builder("/api/config${profileParam(profile, first = true)}").put(payload).build())
+        restCall(builder("/api/config${profileParam(profile, first = true)}").put(payload).build())
             .execute().use { resp ->
                 if (!resp.isSuccessful) {
                     val body = resp.body?.string().orEmpty().take(180)
@@ -274,7 +298,7 @@ class HermesRestApi(
         val obj = buildJsonObject { put("provider", provider); put("model", model) }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
             .toRequestBody("application/json".toMediaType())
-        okHttp.newCall(builder("/api/profiles/$name/model").put(payload).build()).execute().use { resp ->
+        restCall(builder("/api/profiles/$name/model").put(payload).build()).execute().use { resp ->
             if (!resp.isSuccessful) throw HermesApiException(resp.code, "set profile model failed")
         }
     }
@@ -290,7 +314,7 @@ class HermesRestApi(
         }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
             .toRequestBody("application/json".toMediaType())
-        okHttp.newCall(builder("/api/env").put(payload).build()).execute().use { resp ->
+        restCall(builder("/api/env").put(payload).build()).execute().use { resp ->
             if (!resp.isSuccessful) throw HermesApiException(resp.code, "set env failed")
         }
     }
@@ -299,7 +323,7 @@ class HermesRestApi(
         val obj = buildJsonObject { put("key", key); if (profile != null) put("profile", profile) }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
             .toRequestBody("application/json".toMediaType())
-        okHttp.newCall(builder("/api/env/reveal").post(payload).build()).execute().use { resp ->
+        restCall(builder("/api/env/reveal").post(payload).build()).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) throw HermesApiException(resp.code, "reveal env failed")
             json.decodeFromString<JsonObject>(body)["value"]?.jsonPrimitive?.content ?: ""
@@ -315,7 +339,7 @@ class HermesRestApi(
         val obj = buildJsonObject { put("data_url", dataUrl); put("mime_type", mimeType) }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
             .toRequestBody("application/json".toMediaType())
-        okHttp.newCall(builder("/api/audio/transcribe").post(payload).build()).execute().use { resp ->
+        restCall(builder("/api/audio/transcribe").post(payload).build()).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) throw HermesApiException(resp.code, "transcription failed")
             // Treat an explicit JSON null (out-of-contract, but guards against a phantom "null"
@@ -331,7 +355,7 @@ class HermesRestApi(
         val obj: JsonObject = buildJsonObject { put("name", name); put("enabled", enabled) }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
             .toRequestBody("application/json".toMediaType())
-        okHttp.newCall(builder("/api/skills/toggle").put(payload).build()).execute().use { resp ->
+        restCall(builder("/api/skills/toggle").put(payload).build()).execute().use { resp ->
             if (!resp.isSuccessful) throw HermesApiException(resp.code, "toggle skill failed")
         }
     }
@@ -356,7 +380,7 @@ class HermesRestApi(
         }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
             .toRequestBody("application/json".toMediaType())
-        okHttp.newCall(builder("/api/messaging/platforms/$platformId").put(payload).build())
+        restCall(builder("/api/messaging/platforms/$platformId").put(payload).build())
             .execute().use { resp ->
                 if (!resp.isSuccessful) {
                     val body = resp.body?.string().orEmpty().take(180)
@@ -369,7 +393,7 @@ class HermesRestApi(
         val obj: JsonObject = buildJsonObject { put("name", name) }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
             .toRequestBody("application/json".toMediaType())
-        okHttp.newCall(builder("/api/profiles/active").post(payload).build()).execute().use { resp ->
+        restCall(builder("/api/profiles/active").post(payload).build()).execute().use { resp ->
             if (!resp.isSuccessful) throw HermesApiException(resp.code, "set active profile failed")
         }
     }

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import com.hermes.client.data.network.GatedAuth
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.repository.ChatRepository
@@ -53,10 +54,14 @@ class ConnectionSettingsViewModel @Inject constructor(
      *  otherwise a plain status check. */
     fun test() = viewModelScope.launch {
         val s = _state.value
+        val url = runCatching { normalizeGatewayBaseUrl(s.url) }.getOrElse {
+            _state.value = s.copy(testResult = it.message ?: "Invalid gateway URL")
+            return@launch
+        }
         val ok = if (s.username.isNotBlank()) {
-            withContext(Dispatchers.IO) { gatedAuth.probeLogin(s.url, s.username, s.password) }
+            withContext(Dispatchers.IO) { gatedAuth.probeLogin(url, s.username, s.password) }
         } else {
-            rest.statusFor(s.url, s.token)
+            rest.statusFor(url, s.token)
         }
         _state.value = _state.value.copy(testResult = if (ok) "Connected ✓" else "Failed — check the details")
     }
@@ -64,7 +69,11 @@ class ConnectionSettingsViewModel @Inject constructor(
     /** Persist the new server/credentials, drop any stale session, then reconnect. */
     fun save() {
         val s = _state.value
-        store.save(GatewayConfig(s.url.trim(), s.token.trim(), s.username.trim(), s.password))
+        val url = runCatching { normalizeGatewayBaseUrl(s.url) }.getOrElse {
+            _state.value = s.copy(testResult = it.message ?: "Invalid gateway URL", saved = false)
+            return
+        }
+        store.save(GatewayConfig(url, s.token.trim(), s.username.trim(), s.password))
         gatedAuth.cookieJar.clear() // force a fresh login with the new credentials
         runCatching { chat.reconnect() }
         _state.value = _state.value.copy(saved = true, testResult = "Saved — reconnecting")

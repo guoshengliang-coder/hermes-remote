@@ -18,14 +18,25 @@ const deviceId = process.env.DEVICE_ID ?? "mac-mini";
 const hermesMode = process.env.HERMES_MODE ?? "mock";
 const hermesBaseUrl = (process.env.HERMES_BASE_URL ?? "http://127.0.0.1:9119").replace(/\/$/, "");
 const hermesChatUrl = process.env.HERMES_CHAT_URL ?? `${hermesBaseUrl}/api/chat`;
-const controlHeartbeatMs = Number(process.env.CONTROL_HEARTBEAT_MS ?? 15_000);
+const controlHeartbeatMs = positiveIntEnv("CONTROL_HEARTBEAT_MS", 15_000);
+const localRequestTimeoutMs = positiveIntEnv("LOCAL_REQUEST_TIMEOUT_MS", 60_000);
+const chatRequestTimeoutMs = positiveIntEnv("CHAT_REQUEST_TIMEOUT_MS", 10 * 60_000);
+const localSocketConnectTimeoutMs = positiveIntEnv("LOCAL_WS_CONNECT_TIMEOUT_MS", 15_000);
+const maxWirePayloadBytes = positiveIntEnv("MAX_WIRE_PAYLOAD_BYTES", 20 * 1024 * 1024);
+const maxLocalSocketPayloadBytes = positiveIntEnv("MAX_LOCAL_WS_PAYLOAD_BYTES", 12 * 1024 * 1024);
+const maxPendingSocketFrames = positiveIntEnv("MAX_PENDING_WS_FRAMES", 256);
+const maxControlBufferedBytes = positiveIntEnv("MAX_CONTROL_BUFFERED_BYTES", 24 * 1024 * 1024);
+const maxLocalBufferedBytes = positiveIntEnv("MAX_LOCAL_WS_BUFFERED_BYTES", 24 * 1024 * 1024);
 const localSockets = new Map<string, WebSocket>();
 const pendingSocketFrames = new Map<string, TunnelSocketFrame[]>();
 let retryMs = 1_000;
 let controlSocket: WebSocket | undefined;
 
 function connect(): void {
-  const socket = new WebSocket(gatewayUrl);
+  const socket = new WebSocket(gatewayUrl, {
+    handshakeTimeout: localSocketConnectTimeoutMs,
+    maxPayload: maxWirePayloadBytes,
+  });
   let heartbeatTimer: NodeJS.Timeout | undefined;
   let awaitingPong = false;
   controlSocket = socket;
@@ -137,7 +148,10 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
   closeTunnelSocket(request.id, 1000, "replaced");
   try {
     const localUrl = await hermesAuth.websocketUrl(request.path);
-    const local = new WebSocket(localUrl);
+    const local = new WebSocket(localUrl, {
+      handshakeTimeout: localSocketConnectTimeoutMs,
+      maxPayload: maxLocalSocketPayloadBytes,
+    });
     localSockets.set(request.id, local);
     pendingSocketFrames.set(request.id, []);
 
@@ -184,7 +198,13 @@ function forwardTunnelFrame(frame: TunnelSocketFrame): void {
   const local = localSockets.get(frame.id);
   if (!local) return;
   if (local.readyState === WebSocket.CONNECTING) {
-    pendingSocketFrames.get(frame.id)?.push(frame);
+    const pending = pendingSocketFrames.get(frame.id);
+    if (!pending) return;
+    if (pending.length >= maxPendingSocketFrames) {
+      closeTunnelSocket(frame.id, 1009, "pending frame capacity reached");
+      return;
+    }
+    pending.push(frame);
     return;
   }
   sendLocalFrame(local, frame);
@@ -193,6 +213,10 @@ function forwardTunnelFrame(frame: TunnelSocketFrame): void {
 function sendLocalFrame(local: WebSocket, frame: TunnelSocketFrame): void {
   if (local.readyState !== WebSocket.OPEN) return;
   const data = Buffer.from(frame.dataBase64, "base64");
+  if (local.bufferedAmount + data.length > maxLocalBufferedBytes) {
+    local.close(1013, "backpressure limit reached");
+    return;
+  }
   local.send(frame.binary ? data : data.toString("utf8"), { binary: frame.binary });
 }
 
@@ -224,6 +248,7 @@ async function handleCommand(socket: WebSocket, command: ChatCommand): Promise<v
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ message: command.payload.input, session_id: command.sessionId }),
+      signal: AbortSignal.timeout(chatRequestTimeoutMs),
     });
     if (!response.ok) throw new Error(`Hermes returned HTTP ${response.status}`);
     const contentType = response.headers.get("content-type") ?? "";
@@ -250,7 +275,14 @@ function emit(socket: WebSocket, requestId: string, event: RelayEvent["event"], 
 }
 
 function sendControl(socket: WebSocket, message: WireMessage): void {
-  if (socket.readyState === WebSocket.OPEN) socket.send(encodeWireMessage(message));
+  if (socket.readyState !== WebSocket.OPEN) return;
+  const encoded = encodeWireMessage(message);
+  if (socket.bufferedAmount + Buffer.byteLength(encoded) > maxControlBufferedBytes) {
+    console.error("Control socket backpressure limit reached; reconnecting");
+    socket.close(1013, "backpressure limit reached");
+    return;
+  }
+  socket.send(encoded);
 }
 
 function scheduleReconnect(): void {
@@ -343,6 +375,7 @@ class HermesAuth {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ provider: "basic", username: this.username, password: this.password }),
+      signal: AbortSignal.timeout(localRequestTimeoutMs),
     });
     this.captureCookies(response.headers);
     return response.ok;
@@ -355,7 +388,11 @@ class HermesAuth {
     if (this.sessionToken) headers.set("x-hermes-session-token", this.sessionToken);
     const cookie = [...this.cookies.entries()].map(([name, value]) => `${name}=${value}`).join("; ");
     if (cookie) headers.set("cookie", cookie);
-    return { ...init, headers };
+    return {
+      ...init,
+      headers,
+      signal: init.signal ?? AbortSignal.timeout(localRequestTimeoutMs),
+    };
   }
 
   private captureCookies(headers: Headers): void {
@@ -404,5 +441,15 @@ function requireSecret(name: string): string {
   const file = process.env[`${name}_FILE`];
   const value = process.env[name] ?? (file ? readFileSync(file, "utf8").trim() : undefined);
   if (!value || value.length < 8) throw new Error(`${name} must contain at least 8 characters`);
+  return value;
+}
+
+function positiveIntEnv(name: string, fallback: number, max = 1024 * 1024 * 1024): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0 || value > max) {
+    throw new Error(`${name} must be an integer between 1 and ${max}`);
+  }
   return value;
 }

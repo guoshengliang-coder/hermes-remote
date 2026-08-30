@@ -20,20 +20,17 @@ files, and more. Practices in this codebase:
   the app logs in (`POST /auth/password-login`), holds a rotating session cookie, and mints a
   single-use WebSocket ticket per connection. The token/cookies are sent over the configured
   transport only.
-- **Cleartext is permitted by design** (`usesCleartextTraffic="true"`) for self-hosted
-  dashboards on a **private network** — Tailscale is WireGuard-encrypted and a LAN is trusted,
-  so confidentiality/integrity come from the network layer. For public-internet exposure,
-  front the dashboard with HTTPS (Tailscale Serve / a reverse proxy) and use an `https://` URL.
+- **Cleartext is restricted to local/private addresses.** The manifest permits it for self-hosted
+  loopback, LAN, and Tailscale/CGNAT endpoints, but the connection boundary rejects a public
+  `http://` URL before it is saved or contacted. Public gateways must use HTTPS.
 - **No secrets in the repo.** `keystore.properties`, `keystore/`, `*.jks`/`*.keystore`,
   `local.properties`, and `.env` are git-ignored. Release signing reads the gitignored
   `keystore.properties`; signing material never enters git.
 - **Diagnostics redaction.** The optional in-app diagnostic log (Settings → Diagnostics) is
   off by default and masks the session token before anything is recorded or shared.
 - **Dependency & supply-chain hygiene.** Toolchain and libraries are pinned via the Gradle
-  version catalog. CI runs `gitleaks` secret scanning (pre-push hook + workflow), CodeQL code
-  scanning, and a Dependabot dependency-graph submission scoped to the app's **shipped**
-  (release runtime) dependencies — so advisories focus on what actually reaches the APK rather
-  than the build toolchain.
+  version catalog. CI runs Node/Android build and tests, Android Lint, `gitleaks` secret scanning,
+  and CodeQL analysis for Java/Kotlin and JavaScript/TypeScript.
 - **Least privilege** — only the permissions the feature set needs.
 
 ## Scope

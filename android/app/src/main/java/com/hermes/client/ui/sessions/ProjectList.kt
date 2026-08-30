@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.hermes.client.domain.Project
 import com.hermes.client.domain.Session
 import com.hermes.client.ui.theme.LocalProfileAccent
+import com.hermes.client.ui.localization.LocalAppLanguage
 
 /** Parse the gateway's "#RRGGBB" project color; fall back to the tenant accent when null/invalid. */
 @Composable
@@ -69,7 +70,13 @@ fun ProjectCard(project: Project, onClick: () -> Unit) {
  * flat list; multi-lane projects show repo/branch sub-headers.
  */
 @Composable
-fun ProjectScopeView(project: Project, onBack: () -> Unit, onOpenSession: (Session) -> Unit) {
+fun ProjectScopeView(
+    project: Project,
+    profileCount: Int,
+    onBack: () -> Unit,
+    onOpenSession: (Session) -> Unit,
+) {
+    val language = LocalAppLanguage.current
     val lanes = project.repos.flatMap { repo -> repo.lanes.map { repo to it } }
     val multi = lanes.size > 1
     LazyColumn(Modifier.fillMaxWidth()) {
@@ -99,7 +106,12 @@ fun ProjectScopeView(project: Project, onBack: () -> Unit, onOpenSession: (Sessi
                     headlineContent = { Text(s.title) },
                     // Badge the tenant since a project can span profiles.
                     supportingContent = {
-                        Text(listOfNotNull(s.profile?.takeIf { it.isNotBlank() }, s.model).joinToString(" · "))
+                        Text(
+                            listOfNotNull(
+                                profileDisplayLabel(s.profile, profileCount, language),
+                                s.model?.ifBlank { null },
+                            ).joinToString(" · "),
+                        )
                     },
                     modifier = Modifier.clickable { onOpenSession(s) },
                 )

@@ -268,6 +268,7 @@ fun SessionsScreen(
                         projectsState.scope != null ->
                             ProjectScopeView(
                                 project = projectsState.scope!!,
+                                profileCount = profiles.size,
                                 onBack = { vm.exitProject() },
                                 // Projects span profiles, so switch to the session's own profile
                                 // (awaited) before opening, or the chat resumes against the wrong DB.
@@ -360,7 +361,7 @@ fun SessionsScreen(
                                     item(key = "h-pinned") { SectionHeader(localized(language, "已置顶", "Pinned"), pinned.size, note = localized(language, "仅此设备", "Device only")) }
                                     items(pinned, key = { "p-${it.id}" }) { s ->
                                         SessionRow(
-                                            session = s, isPinned = true, showProfile = true,
+                                            session = s, isPinned = true, profileCount = profiles.size,
                                             runtime = vm.runtimeFor(s, runtimes),
                                             unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
                                             onOpen = { openExisting(s) },
@@ -374,9 +375,9 @@ fun SessionsScreen(
                                 }
                                 if (recent.isNotEmpty()) {
                                     item(key = "h-recent") { SectionHeader(localized(language, "最近", "Recent"), recent.size) }
-                                    items(recent, key = { it.id }) { s ->
+                                    items(recent, key = { "${it.profile.orEmpty()}:${it.id}" }) { s ->
                                         SessionRow(
-                                            session = s, isPinned = false, showProfile = true,
+                                            session = s, isPinned = false, profileCount = profiles.size,
                                             runtime = vm.runtimeFor(s, runtimes),
                                             unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
                                             onOpen = { openExisting(s) },
@@ -448,7 +449,7 @@ private fun SectionHeader(label: String, count: Int, note: String? = null) {
 private fun SessionRow(
     session: Session,
     isPinned: Boolean,
-    showProfile: Boolean,
+    profileCount: Int,
     runtime: SessionRuntime? = null,
     unread: Boolean = false,
     onOpen: () -> Unit,
@@ -464,10 +465,12 @@ private fun SessionRow(
     val haptics = LocalHapticFeedback.current
     val language = LocalAppLanguage.current
     val trailing: (@Composable () -> Unit)? = when {
-        runtime != null && runtime.phase != SessionRunPhase.IDLE -> ({ RuntimeIndicator(runtime.phase) })
+        runtime?.hasActiveWork == true -> ({ RuntimeIndicator(runtime) })
         unread -> ({ UnreadIndicator() })
+        runtime != null && runtime.phase != SessionRunPhase.IDLE -> ({ RuntimeIndicator(runtime) })
         else -> null
     }
+    val profileLabel = profileDisplayLabel(session.profile, profileCount, language)
 
     ListItem(
             headlineContent = { Text(session.title) },
@@ -485,8 +488,11 @@ private fun SessionRow(
             // grouped rows already sit under a profile header, so it would be redundant there.
             supportingContent = {
                 Column {
-                    Text(listOfNotNull(session.profile?.takeIf { showProfile && it.isNotBlank() }, session.model).joinToString(" · "))
-                    runtime?.takeIf { it.phase != SessionRunPhase.IDLE }?.let { value ->
+                    listOfNotNull(profileLabel, session.model?.ifBlank { null })
+                        .joinToString(" · ")
+                        .takeIf { it.isNotBlank() }
+                        ?.let { Text(it) }
+                    runtime?.takeIf { it.phase != SessionRunPhase.IDLE || it.hasRunningProcesses }?.let { value ->
                         Text(
                             runtimeLabel(value, language),
                             style = MaterialTheme.typography.labelMedium,
@@ -578,7 +584,26 @@ private fun SessionRow(
     }
 }
 
-private fun runtimeLabel(runtime: SessionRuntime, language: com.hermes.client.ui.localization.AppLanguage): String = when (runtime.phase) {
+internal fun profileDisplayLabel(
+    profile: String?,
+    profileCount: Int,
+    language: com.hermes.client.ui.localization.AppLanguage,
+): String? {
+    if (profileCount <= 1) return null
+    val normalized = profile?.trim().orEmpty().ifBlank { "default" }
+    return if (normalized.equals("default", ignoreCase = true)) {
+        localized(language, "默认身份", "Default profile")
+    } else {
+        localized(language, "身份：$normalized", "Profile: $normalized")
+    }
+}
+
+private fun runtimeLabel(runtime: SessionRuntime, language: com.hermes.client.ui.localization.AppLanguage): String {
+    if (!runtime.phase.isActive && runtime.hasRunningProcesses) {
+        val count = runtime.chat.backgroundProcesses.count { it.running }
+        return localized(language, "后台任务运行中 · $count", "$count background task(s) running")
+    }
+    return when (runtime.phase) {
     SessionRunPhase.SUBMITTING -> localized(language, "正在发送…", "Sending…")
     SessionRunPhase.THINKING -> localized(language, "思考中…", "Thinking…")
     SessionRunPhase.STREAMING -> localized(language, "正在输出…", "Responding…")
@@ -592,6 +617,7 @@ private fun runtimeLabel(runtime: SessionRuntime, language: com.hermes.client.ui
     SessionRunPhase.FAILED -> localized(language, "运行失败", "Run failed")
     SessionRunPhase.INTERRUPTED -> localized(language, "已中断", "Interrupted")
     SessionRunPhase.IDLE -> ""
+    }
 }
 
 private fun toolDisplayName(raw: String, language: com.hermes.client.ui.localization.AppLanguage): String = when {
@@ -611,9 +637,12 @@ private fun runtimeColor(phase: SessionRunPhase) = when (phase) {
 }
 
 @Composable
-private fun RuntimeIndicator(phase: SessionRunPhase) {
+private fun RuntimeIndicator(runtime: SessionRuntime) {
+    val phase = runtime.phase
     val color = runtimeColor(phase)
-    if (phase.isActive && phase !in setOf(SessionRunPhase.WAITING_APPROVAL, SessionRunPhase.WAITING_CLARIFICATION)) {
+    if ((phase.isActive || runtime.hasRunningProcesses) &&
+        phase !in setOf(SessionRunPhase.WAITING_APPROVAL, SessionRunPhase.WAITING_CLARIFICATION)
+    ) {
         CircularProgressIndicator(
             modifier = Modifier.size(18.dp),
             color = color,

@@ -1,6 +1,7 @@
 package com.hermes.client.notifications
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -80,6 +81,7 @@ class NotificationTileService : TileService() {
     }
 
     /** Open the app at Settings > Notifications so its Enable switch can run the permission flow. */
+    @SuppressLint("StartActivityAndCollapseDeprecated")
     private fun openNotificationSettings() {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -92,7 +94,6 @@ class NotificationTileService : TileService() {
             )
             startActivityAndCollapse(pi)
         } else {
-            @Suppress("DEPRECATION")
             startActivityAndCollapse(intent)
         }
     }
