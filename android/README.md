@@ -104,6 +104,11 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   the QR-scanner dependency: the app requests permission before capture, resumes automatically after
   approval, offers a settings recovery path after denial, and hardens FileProvider URI grants for OEM
   camera apps. An API 36 emulator verified permission, capture, return, and pending-image staging.
+- Version 0.1.35 ships the first phase of semantic chat rendering: tool cards gain status dots
+  (pulsing while running, mint check on success, coral cross with the exit code on failure),
+  command-shaped payloads render `$ command` with terminal output behind a hierarchy rail and are
+  expandable in Product mode, unified diffs render as red/green rows with add/del counts, inline
+  code becomes a soft chip, and reasoning-card expansion survives lazy-list recycling.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
@@ -125,7 +130,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.34-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.35-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
