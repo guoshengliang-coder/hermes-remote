@@ -196,6 +196,7 @@ fun ChatMessageList(
     val scrollRequests = remember(sessionId) { Channel<ChatScrollRequest>(Channel.CONFLATED) }
     val latestEndAnchorIndex by rememberUpdatedState(endAnchorIndex)
     val latestScrollMode by rememberUpdatedState(scrollMode)
+    val latestExternalScrollActive by rememberUpdatedState(externalScrollActive)
 
     // This coroutine is the only owner allowed to mutate LazyListState. Previously initial landing,
     // stream following, the bottom button, and layout observation all issued independent scrolls;
@@ -215,6 +216,9 @@ fun ChatMessageList(
             var guard = 0
             while (guard++ < 24 && stableFrames < requiredStableFrames) {
                 if (latestScrollMode != expectedMode) return false
+                // Search-driven highlight scrolling owns the list while active; racing it with
+                // scrollToItem would cancel both and leave the viewport at an arbitrary offset.
+                if (latestExternalScrollActive) return false
                 val target = latestEndAnchorIndex
                 if (listState.layoutInfo.totalItemsCount <= target) {
                     withFrameNanos { }
@@ -242,15 +246,20 @@ fun ChatMessageList(
                 }
                 ChatScrollRequest.FOLLOW -> {
                     withFrameNanos { }
-                    if (contentReady && latestScrollMode == ChatScrollMode.FOLLOWING_TAIL) {
+                    if (contentReady && !latestExternalScrollActive &&
+                        latestScrollMode == ChatScrollMode.FOLLOWING_TAIL
+                    ) {
                         val target = latestEndAnchorIndex
                         if (listState.layoutInfo.totalItemsCount > target) listState.scrollToItem(target)
                     }
                 }
                 ChatScrollRequest.JUMP_TO_TAIL -> {
                     val landed = settleAtTail(2, ChatScrollMode.PROGRAMMATIC_JUMP)
-                    if (landed && latestScrollMode == ChatScrollMode.PROGRAMMATIC_JUMP) {
-                        scrollMode = ChatScrollMode.FOLLOWING_TAIL
+                    if (latestScrollMode == ChatScrollMode.PROGRAMMATIC_JUMP) {
+                        // A failed jump must fall back to browsing: staying in PROGRAMMATIC_JUMP
+                        // hides the jump button (it renders only in USER_BROWSING) and disables
+                        // tail-following, wedging the screen until the user drags manually.
+                        scrollMode = if (landed) ChatScrollMode.FOLLOWING_TAIL else ChatScrollMode.USER_BROWSING
                     }
                 }
             }
@@ -302,10 +311,20 @@ fun ChatMessageList(
         }
     }
 
-    // Sending resumes following. All stream/layout invalidations are conflated through the channel,
-    // so token bursts can request at most one jump per rendered frame.
-    LaunchedEffect(state.messages.size) {
-        if (displayMessages.lastOrNull()?.role == Role.USER && contentReady && !externalScrollActive) {
+    // Sending resumes following. Keyed on the newest USER turn's stable render key, not raw list
+    // size: history reconciliation, session-resume backfill, and process churn all change counts
+    // while the last message is still the user's, and each of those used to yank a reader who had
+    // scrolled up back to the bottom. Only a genuinely new user turn produces a new key.
+    val lastTurnKey = displayKeys.lastOrNull()
+    val lastTurnIsUser = displayMessages.lastOrNull()?.role == Role.USER
+    var followedUserTurnKey by remember(sessionId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(lastTurnKey, lastTurnIsUser, contentReady, externalScrollActive) {
+        if (!lastTurnIsUser || lastTurnKey == null) return@LaunchedEffect
+        val previous = followedUserTurnKey
+        followedUserTurnKey = lastTurnKey
+        // previous == null is the first observation after entering the chat; the initial landing
+        // belongs to INITIALIZE, not to this effect.
+        if (previous != null && previous != lastTurnKey && contentReady && !externalScrollActive) {
             scrollMode = ChatScrollMode.FOLLOWING_TAIL
             scrollRequests.trySend(ChatScrollRequest.FOLLOW)
         }
@@ -431,8 +450,15 @@ private data class TailObservation(val atTail: Boolean, val scrolling: Boolean)
 private fun androidx.compose.foundation.lazy.LazyListLayoutInfo.isAtConversationTail(): Boolean {
     if (totalItemsCount == 0) return false
     val last = visibleItemsInfo.lastOrNull() ?: return false
-    return last.index == totalItemsCount - 1 && last.offset + last.size <= viewportEndOffset + 2
+    // The previous 2px tolerance was tighter than layout rounding on dense screens: the 1dp end
+    // anchor is 3-4px there, and item placement can land it a few pixels past the viewport edge
+    // forever. settleAtTail then never counts a stable frame and every jump-to-bottom "fails".
+    // Being within ~24px of the bottom is visually indistinguishable from resting on it.
+    return last.index == totalItemsCount - 1 &&
+        last.offset + last.size <= viewportEndOffset + TAIL_TOLERANCE_PX
 }
+
+private const val TAIL_TOLERANCE_PX = 24
 
 /**
  * Stable render keys survive local-id to REST-id replacement and adjacent assistant-record merges.
