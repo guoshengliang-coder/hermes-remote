@@ -50,6 +50,18 @@ class ChatRepositoryTest {
         coVerify { client.call("session.create", match { !it.containsKey("profile") }) }
     }
 
+    @Test fun createSession_returns_stored_id_instead_of_ephemeral_live_handle() = runTest {
+        val client = mockk<HermesGatewayClient>(relaxed = true)
+        coEvery { client.call(any(), any()) } returns buildJsonObject {
+            put("session_id", "live-1")
+            put("stored_session_id", "stored-1")
+        }
+
+        val id = ChatRepository(client).createSession(profile = "personal")
+
+        assertEquals("stored-1", id)
+    }
+
     @Test fun attach_image_uses_current_contract_and_returns_remote_reference() = runTest {
         val client = mockk<HermesGatewayClient>(relaxed = true)
         coEvery { client.call(any(), any()) } returns buildJsonObject {

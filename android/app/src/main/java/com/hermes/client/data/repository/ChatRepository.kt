@@ -53,7 +53,14 @@ class ChatRepository(private val client: HermesGatewayClient) {
         val result = client.call("session.create", buildJsonObject {
             if (!profile.isNullOrBlank()) put("profile", profile)
         })
-        return result.jsonObject["session_id"]?.jsonPrimitive?.content
+        val obj = result.jsonObject
+        // session.create returns an ephemeral in-memory `session_id` plus the durable
+        // `stored_session_id`. Navigation must use the durable id: ChatViewModel.open()
+        // resumes it into a fresh live handle before the first prompt. Passing the live
+        // id back to session.resume fails for a zero-message session because no DB row
+        // exists yet (`session not found`). Older gateways may omit stored_session_id.
+        return obj["stored_session_id"]?.jsonPrimitive?.contentOrNull
+            ?: obj["session_id"]?.jsonPrimitive?.contentOrNull
             ?: error("session.create returned no id")
     }
 
