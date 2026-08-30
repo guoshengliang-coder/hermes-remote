@@ -87,7 +87,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.22-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.23-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
