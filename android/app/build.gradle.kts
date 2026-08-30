@@ -3,8 +3,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // Increment both values for every APK distributed to testers. Keep versionCode
 // strictly increasing so Android always accepts the newer package as an update.
-val appVersionCode = 14
-val appVersionName = "0.1.13"
+val appVersionCode = 15
+val appVersionName = "0.1.14"
 
 // Release signing is driven by a gitignored keystore.properties at the repo root.
 // When absent (e.g. a fresh clone or CI without secrets), release builds stay unsigned.
