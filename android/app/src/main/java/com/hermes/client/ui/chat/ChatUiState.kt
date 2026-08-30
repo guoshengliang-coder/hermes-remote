@@ -280,7 +280,17 @@ internal fun ChatMessage.organizedForDisplay(): ChatMessage {
         text.contains("untrusted_tool_result", ignoreCase = true)
     if (role != Role.ASSISTANT && !isToolHistory) return this
     val organized = organizeAssistantContent(text, tools)
-    return copy(text = organized.text, tools = organized.tools)
+    val parsed = com.hermes.client.domain.parseMessageContent(organized.text)
+    val parsedTools = organized.tools.map { tool ->
+        val content = com.hermes.client.domain.parseMessageContent(tool.output)
+        tool to content
+    }
+    return copy(
+        text = parsed.text,
+        images = (images + parsed.images + parsedTools.flatMap { it.second.images }).distinctBy { it.id },
+        files = (files + parsed.files + parsedTools.flatMap { it.second.files }).distinctBy { it.id },
+        tools = parsedTools.map { (tool, content) -> tool.copy(output = content.text) },
+    )
 }
 
 /**
@@ -314,6 +324,8 @@ internal fun mergeAssistantTurns(previous: ChatMessage, message: ChatMessage): C
     return message.copy(
         text = joinTurnParts(previous.text, message.text),
         thinking = joinTurnParts(previous.thinking, message.thinking),
+        images = (previous.images + message.images).distinctBy { it.id },
+        files = (previous.files + message.files).distinctBy { it.id },
         tools = toolsById.values.toList(),
         isError = previous.isError || message.isError,
         interrupted = previous.interrupted || message.interrupted,
@@ -354,6 +366,7 @@ data class ChatUiState(
 fun ChatUiState.withUserMessage(
     text: String,
     images: List<com.hermes.client.domain.ChatImage> = emptyList(),
+    files: List<com.hermes.client.domain.ChatFile> = emptyList(),
     messageId: String = "u-${messages.size}",
 ): ChatUiState =
     copy(
@@ -362,6 +375,7 @@ fun ChatUiState.withUserMessage(
             role = Role.USER,
             text = text,
             images = images,
+            files = files,
         ),
         isGenerating = true,
     )

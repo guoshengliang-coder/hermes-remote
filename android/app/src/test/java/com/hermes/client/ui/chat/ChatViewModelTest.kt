@@ -44,6 +44,7 @@ class ChatViewModelTest {
     private val connectionStateFlow = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     private val chatRepo = mockk<ChatRepository>(relaxed = true)
     private val mediaRepo = mockk<ChatMediaRepository>(relaxed = true)
+    private val fileRepo = mockk<com.hermes.client.data.repository.ChatFileRepository>(relaxed = true)
     private val sessionRepo = mockk<SessionRepository>(relaxed = true)
     private val modelRepo = mockk<ModelRepository>(relaxed = true)
     private val profileRepo = mockk<ProfileRepository>(relaxed = true)
@@ -73,6 +74,8 @@ class ChatViewModelTest {
         every { profileManager.active } returns MutableStateFlow<String?>(null)
         coEvery { sessionRepo.history(any(), any()) } returns emptyList()
         coEvery { mediaRepo.hydrateMessages(any(), any()) } answers { firstArg() }
+        coEvery { fileRepo.upload(any(), any(), any()) } returns
+            com.hermes.client.data.network.UploadedArtifact("/tmp/uploaded", "attachment", 3)
         coEvery { modelRepo.options() } returns emptyList()
         coEvery { modelRepo.providers() } returns emptyList()
         coEvery { profileRepo.list() } returns emptyList()
@@ -96,7 +99,7 @@ class ChatViewModelTest {
         )
         return ChatViewModel(
             chatRepo, sessionRepo, modelRepo, profileRepo, profileManager, favoritesStore,
-            pendingShareStore, tts, promptStore, configRepo, runtimeStore, mediaRepo,
+            pendingShareStore, tts, promptStore, configRepo, runtimeStore, mediaRepo, fileRepo,
             mainDispatcherRule.dispatcher,
         )
     }
@@ -204,6 +207,30 @@ class ChatViewModelTest {
 
         events.emit(event("message.complete", "s1-live", "done"))
         advanceUntilIdle()
+    }
+
+    @Test fun file_attachment_uploads_raw_then_attaches_visible_mac_path() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.attachFilePath("s1-live", "/tmp/uploaded", "notes.txt") } returns
+            com.hermes.client.data.repository.AttachedFile(
+                name = "notes.txt",
+                path = "/tmp/uploaded",
+                refText = "@file:/tmp/uploaded",
+            )
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+
+        vm.stageAttachment("abc".toByteArray(), "text/plain", "notes.txt")
+        vm.send("请总结")
+        runCurrent()
+
+        coVerify { fileRepo.upload(any(), "notes.txt", "text/plain") }
+        coVerify { chatRepo.attachFilePath("s1-live", "/tmp/uploaded", "notes.txt") }
+        coVerify { chatRepo.submit("s1-live", "请总结\n@file:/tmp/uploaded") }
+
+        events.emit(event("message.complete", "s1-live", "done"))
+        runCurrent()
     }
 
     @Test fun stale_submit_resumes_and_retries_once_with_new_handle() = runTest {

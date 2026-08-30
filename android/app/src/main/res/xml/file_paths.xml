@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="captures" path="." />
+    <cache-path name="chat_files" path="chat-files/" />
     <external-files-path name="update_downloads" path="Download/" />
 </paths>

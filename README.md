@@ -10,7 +10,7 @@ Android App -- HTTPS/WSS --> HK Gateway <-- outbound WSS -- macOS Connector --> 
 
 The repository contains the first relay MVP:
 
-- `android/` — integration plan for the pinned `adebnar/hermes-android` GPLv3 base
+- `android/` — Kotlin/Compose client derived from the pinned `adebnar/hermes-android` GPLv3 base
 - `gateway/` — public HK relay with app/connector authentication and a Hermes-compatible facade
 - `connector/` — outbound-only macOS agent with Basic Auth, Cookie, WS Ticket, REST, and WebSocket forwarding
 - `protocol/` — shared wire-message types and validation
@@ -48,3 +48,5 @@ For the Android base, configure the public Gateway URL and the Gateway `APP_TOKE
 - Production traffic must use TLS (`wss://`).
 - Secrets are supplied through environment variables and are excluded from Git.
 - The MVP is single-user and single-Mac by design; multi-user authorization is deferred.
+- Attachment uploads are capped and stored transiently on the Mac; output files stream with
+  acknowledged backpressure instead of crossing the control channel as one oversized message.

@@ -27,4 +27,14 @@ class AttachmentsTest {
         assertEquals(PendingAttachment("x", byteArrayOf(1), "image/png"), PendingAttachment("x", byteArrayOf(9, 9), "image/jpeg"))
         assertFalse(PendingAttachment("x", byteArrayOf(1), "image/png") == PendingAttachment("y", byteArrayOf(1), "image/png"))
     }
+
+    @Test fun attachment_kind_distinguishes_images_pdfs_and_files() {
+        assertEquals(AttachmentKind.IMAGE, attachmentKind("image/png", "x.png"))
+        assertEquals(AttachmentKind.PDF, attachmentKind("application/octet-stream", "report.PDF"))
+        assertEquals(AttachmentKind.FILE, attachmentKind("text/plain", "notes.txt"))
+    }
+
+    @Test fun direct_attachment_limit_is_safely_below_tunnel_limit() {
+        assertEquals(6 * 1024 * 1024, MAX_DIRECT_ATTACHMENT_BYTES)
+    }
 }

@@ -11,15 +11,19 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Call
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import java.util.concurrent.TimeUnit
+import java.io.File
 
 class HermesApiException(val code: Int, message: String) : Exception(message)
+data class UploadedArtifact(val path: String, val name: String, val sizeBytes: Long)
 
 class HermesRestApi(
     private val okHttp: OkHttpClient,
@@ -111,20 +115,71 @@ class HermesRestApi(
     suspend fun messages(sessionId: String, profile: String? = null): List<MessageDto> =
         get<MessagesDto>("/api/sessions/$sessionId/messages${profileParam(profile, first = true)}").messages
 
-    /** Read a gateway-side attachment through the same authenticated relay used by the desktop. */
-    suspend fun fileDataUrl(path: String, profile: String? = null): String {
+    /** Stream a Connector-authorized artifact to disk; large files never become strings/ByteArrays. */
+    suspend fun downloadArtifact(
+        path: String,
+        destination: File,
+        maxBytes: Long = 100L * 1024L * 1024L,
+        onProgress: (downloaded: Long, total: Long?) -> Unit = { _, _ -> },
+    ): File = withContext(Dispatchers.IO) {
         val encoded = java.net.URLEncoder.encode(path, "UTF-8")
-        val payload = get<JsonElement>(
-            "/api/fs/read-data-url?path=$encoded${profileParam(profile)}",
-        )
-        return when (payload) {
-            is JsonPrimitive -> payload.content
-            is JsonObject -> (payload["dataUrl"] ?: payload["data_url"] ?: payload["data"])
-                ?.jsonPrimitive?.content
-                ?: throw HermesApiException(0, "image response contained no dataUrl")
-            else -> throw HermesApiException(0, "unsupported image response")
+        val call = okHttp.newCall(builder("/api/files?path=$encoded").get().build()).apply {
+            timeout().timeout(10, TimeUnit.MINUTES)
         }
+        try {
+            call.execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw HermesApiException(response.code, response.body.string().ifBlank { "HTTP ${response.code}" })
+                }
+                val body = response.body
+                val total = body.contentLength().takeIf { it >= 0 }
+                if (total != null && total > maxBytes) throw HermesApiException(413, "file is too large")
+                destination.parentFile?.mkdirs()
+                body.byteStream().use { input ->
+                    destination.outputStream().buffered().use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var downloaded = 0L
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            downloaded += read
+                            if (downloaded > maxBytes) throw HermesApiException(413, "file is too large")
+                            output.write(buffer, 0, read)
+                            onProgress(downloaded, total)
+                        }
+                    }
+                }
+            }
+        } catch (error: Throwable) {
+            destination.delete()
+            throw error
+        }
+        destination
     }
+
+    /** Upload raw bytes over HTTPS; only the tunnel layer Base64-encodes them once. */
+    suspend fun uploadArtifact(bytes: ByteArray, name: String, mimeType: String): UploadedArtifact =
+        withContext(Dispatchers.IO) {
+            val encodedName = java.net.URLEncoder.encode(name, "UTF-8")
+            val request = builder("/api/files/upload?name=$encodedName")
+                .post(bytes.toRequestBody(mimeType.toMediaTypeOrNull()))
+                .build()
+            okHttp.newCall(request).apply {
+                timeout().timeout(10, TimeUnit.MINUTES)
+            }.execute().use { response ->
+                val body = response.body.string()
+                if (!response.isSuccessful) {
+                    throw HermesApiException(response.code, body.ifBlank { "HTTP ${response.code}" })
+                }
+                val obj = json.parseToJsonElement(body).jsonObject
+                UploadedArtifact(
+                    path = obj["path"]?.jsonPrimitive?.content
+                        ?: throw HermesApiException(0, "upload response contained no path"),
+                    name = obj["name"]?.jsonPrimitive?.content ?: name,
+                    sizeBytes = obj["size"]?.jsonPrimitive?.content?.toLongOrNull() ?: bytes.size.toLong(),
+                )
+            }
+        }
 
     /** "&profile=x" (or "?profile=x" when [first]) — empty when profile is null/blank. */
     private fun profileParam(profile: String?, first: Boolean = false): String {

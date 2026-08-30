@@ -60,6 +60,9 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 - Version 0.1.21 replaces competing chat auto-scroll effects with one coordinated state machine,
   preserves manual history browsing during streams, reliably jumps to the true tail, and reduces
   Markdown re-layout churn with stable conversation keys and frame-coalesced rendering.
+- Version 0.1.22 adds bounded camera/photo/file input, raw attachment upload, image compression,
+  output image previews, downloadable file cards, and acknowledged streaming downloads so large
+  results cannot overflow the Connector control WebSocket.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
@@ -81,7 +84,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.21-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.22-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

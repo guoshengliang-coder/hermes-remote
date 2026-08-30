@@ -32,12 +32,24 @@ private val ATTACHED_IMAGE_PLACEHOLDER = Regex(
     "(?m)^\\s*\\[User attached image:[^]]+]\\s*$",
     RegexOption.IGNORE_CASE,
 )
+private val FILE_DIRECTIVE = Regex(
+    "(?m)^\\s*@file:(?:\\\"([^\\\"]+)\\\"|'([^']+)'|`([^`]+)`|(.+?))\\s*$",
+)
+private val ATTACHED_FILE_PLACEHOLDER = Regex(
+    "(?m)^\\s*\\[User attached (?:file|PDF):[^]]+]\\s*$",
+    RegexOption.IGNORE_CASE,
+)
+private val MARKDOWN_IMAGE = Regex("!\\[([^]]*)]\\((https://[^\\s)]+)(?:\\s+[\"'][^)]*)?\\)")
 
-internal data class ParsedMessageContent(val text: String, val images: List<ChatImage>)
+internal data class ParsedMessageContent(
+    val text: String,
+    val images: List<ChatImage>,
+    val files: List<ChatFile>,
+)
 
 /** Hermes persists attachments as `@image:/absolute/path`; keep the path out of visible chat. */
 internal fun parseMessageContent(raw: String): ParsedMessageContent {
-    val images = IMAGE_DIRECTIVE.findAll(raw).mapIndexed { index, match ->
+    val pathImages = IMAGE_DIRECTIVE.findAll(raw).mapIndexed { index, match ->
         val path = match.groupValues.drop(1).firstOrNull { it.isNotBlank() }.orEmpty()
         ChatImage(
             id = "remote-${path.hashCode()}-$index",
@@ -51,14 +63,56 @@ internal fun parseMessageContent(raw: String): ParsedMessageContent {
             remotePath = path,
         )
     }.toList()
+    val webImages = MARKDOWN_IMAGE.findAll(raw).mapIndexed { index, match ->
+        val url = match.groupValues[2]
+        ChatImage(
+            id = "web-${url.hashCode()}-$index",
+            sourceUrl = url,
+        )
+    }.toList()
+    val images = pathImages + webImages
+    val files = FILE_DIRECTIVE.findAll(raw).mapIndexed { index, match ->
+        val path = match.groupValues.drop(1).firstOrNull { it.isNotBlank() }.orEmpty()
+        val name = path.substringAfterLast('/').substringAfterLast('\\').ifBlank { "attachment" }
+        ChatFile(
+            id = "file-${path.hashCode()}-$index",
+            name = name,
+            mimeType = mimeTypeForName(name),
+            remotePath = path,
+        )
+    }.toList()
     val visible = raw
         .replace(IMAGE_DIRECTIVE, "")
         .replace(ATTACHED_IMAGE_PLACEHOLDER, "")
+        .replace(FILE_DIRECTIVE, "")
+        .replace(ATTACHED_FILE_PLACEHOLDER, "")
+        .replace(MARKDOWN_IMAGE) { it.groupValues[1].takeIf(String::isNotBlank).orEmpty() }
         .lines()
         .dropWhile { it.isBlank() }
         .dropLastWhile { it.isBlank() }
         .joinToString("\n")
-    return ParsedMessageContent(visible, images)
+    return ParsedMessageContent(visible, images, files)
+}
+
+private fun mimeTypeForName(name: String): String? = when (name.substringAfterLast('.', "").lowercase()) {
+    "pdf" -> "application/pdf"
+    "txt", "log" -> "text/plain"
+    "md" -> "text/markdown"
+    "json" -> "application/json"
+    "csv" -> "text/csv"
+    "doc" -> "application/msword"
+    "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    "xls" -> "application/vnd.ms-excel"
+    "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    "ppt" -> "application/vnd.ms-powerpoint"
+    "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    "mp3" -> "audio/mpeg"
+    "m4a" -> "audio/mp4"
+    "wav" -> "audio/wav"
+    "mp4" -> "video/mp4"
+    "mov" -> "video/quicktime"
+    "zip" -> "application/zip"
+    else -> null
 }
 
 fun MessageDto.toDomain(): ChatMessage {
@@ -72,6 +126,7 @@ fun MessageDto.toDomain(): ChatMessage {
         },
         text = parsed.text,
         images = parsed.images,
+        files = parsed.files,
     )
 }
 

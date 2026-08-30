@@ -21,6 +21,12 @@ data class AttachedImage(
     val height: Int? = null,
 )
 
+data class AttachedFile(
+    val name: String,
+    val path: String?,
+    val refText: String,
+)
+
 data class BackgroundProcess(
     val id: String,
     val command: String,
@@ -152,6 +158,68 @@ class ChatRepository(private val client: HermesGatewayClient) {
                 ?: error("image.attach_bytes returned no path"),
             width = obj["width"]?.jsonPrimitive?.intOrNull,
             height = obj["height"]?.jsonPrimitive?.intOrNull,
+        )
+    }
+
+    suspend fun attachImagePath(sessionId: String, path: String): AttachedImage {
+        val obj = client.call("image.attach", buildJsonObject {
+            put("session_id", sessionId)
+            put("path", path)
+        }).jsonObject
+        return AttachedImage(
+            path = obj["path"]?.jsonPrimitive?.content ?: path,
+            width = obj["width"]?.jsonPrimitive?.intOrNull,
+            height = obj["height"]?.jsonPrimitive?.intOrNull,
+        )
+    }
+
+    /** Render a remotely-selected PDF into Hermes vision pages for the next prompt. */
+    suspend fun attachPdfBytes(sessionId: String, dataBase64: String, filename: String) {
+        client.call("pdf.attach", buildJsonObject {
+            put("session_id", sessionId)
+            put("content_base64", dataBase64)
+            put("filename", filename)
+        })
+    }
+
+    suspend fun attachPdfPath(sessionId: String, path: String) {
+        client.call("pdf.attach", buildJsonObject {
+            put("session_id", sessionId)
+            put("path", path)
+        })
+    }
+
+    /** Stage a non-image client file and return the @file reference required by prompt.submit. */
+    suspend fun attachFileBytes(
+        sessionId: String,
+        dataBase64: String,
+        mimeType: String,
+        filename: String,
+    ): AttachedFile {
+        val result = client.call("file.attach", buildJsonObject {
+            put("session_id", sessionId)
+            put("name", filename)
+            put("data_url", "data:$mimeType;base64,$dataBase64")
+        }).jsonObject
+        return AttachedFile(
+            name = result["name"]?.jsonPrimitive?.contentOrNull ?: filename,
+            path = result["path"]?.jsonPrimitive?.contentOrNull,
+            refText = result["ref_text"]?.jsonPrimitive?.contentOrNull
+                ?: error("file.attach returned no ref_text"),
+        )
+    }
+
+    suspend fun attachFilePath(sessionId: String, path: String, filename: String): AttachedFile {
+        val result = client.call("file.attach", buildJsonObject {
+            put("session_id", sessionId)
+            put("path", path)
+            put("name", filename)
+        }).jsonObject
+        return AttachedFile(
+            name = result["name"]?.jsonPrimitive?.contentOrNull ?: filename,
+            path = result["path"]?.jsonPrimitive?.contentOrNull ?: path,
+            refText = result["ref_text"]?.jsonPrimitive?.contentOrNull
+                ?: error("file.attach returned no ref_text"),
         )
     }
 

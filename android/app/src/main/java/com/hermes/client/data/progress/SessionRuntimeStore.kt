@@ -288,13 +288,14 @@ class SessionRuntimeStore(
         key: SessionRuntimeKey,
         shownText: String,
         images: List<com.hermes.client.domain.ChatImage> = emptyList(),
+        files: List<com.hermes.client.domain.ChatFile> = emptyList(),
         messageId: String = "u-${System.nanoTime()}",
     ) {
         historyReconcileJobs.remove(key)?.cancel()
         lastActiveKey = key
         updateRuntime(key) { runtime ->
             runtime.copy(
-                chat = runtime.chat.withUserMessage(shownText, images, messageId)
+                chat = runtime.chat.withUserMessage(shownText, images, files, messageId)
                     .copy(pendingAttachments = emptyList()),
                 phase = SessionRunPhase.SUBMITTING,
                 toolName = null,
@@ -312,6 +313,18 @@ class SessionRuntimeStore(
         updateRuntime(key) { runtime ->
             runtime.copy(chat = runtime.chat.copy(messages = runtime.chat.messages.map { message ->
                 if (message.id == messageId) message.copy(images = transform(message.images)) else message
+            }))
+        }
+    }
+
+    fun updateUserFiles(
+        key: SessionRuntimeKey,
+        messageId: String,
+        transform: (List<com.hermes.client.domain.ChatFile>) -> List<com.hermes.client.domain.ChatFile>,
+    ) {
+        updateRuntime(key) { runtime ->
+            runtime.copy(chat = runtime.chat.copy(messages = runtime.chat.messages.map { message ->
+                if (message.id == messageId) message.copy(files = transform(message.files)) else message
             }))
         }
     }
@@ -447,6 +460,16 @@ class SessionRuntimeStore(
         }
         if (event.type == "message.complete" || (event.type == "session.info" && event.bool("running") == false)) {
             if (key in visible) markRead(key) else markUnread(key)
+            if (event.type == "message.complete" && mediaRepository != null) {
+                // The final WebSocket event may already contain @image or Markdown image output.
+                // Hydrate that snapshot immediately instead of waiting for the eventually
+                // consistent REST history reconciliation passes below.
+                val snapshot = _runtimes.value[key]?.chat?.messages.orEmpty()
+                appScope.launch {
+                    val hydrated = mediaRepository.hydrateMessages(snapshot, key.profile)
+                    acceptHydratedImages(key, hydrated)
+                }
+            }
             _runtimes.value[key]?.let { scheduleHistoryReconciliation(key, expectationFor(it)) }
         }
     }

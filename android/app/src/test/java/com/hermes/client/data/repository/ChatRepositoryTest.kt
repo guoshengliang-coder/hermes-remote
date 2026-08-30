@@ -80,6 +80,41 @@ class ChatRepositoryTest {
         }
     }
 
+    @Test fun attach_pdf_uses_remote_bytes_contract() = runTest {
+        val client = mockk<HermesGatewayClient>(relaxed = true)
+        coEvery { client.call(any(), any()) } returns buildJsonObject { put("attached", true) }
+
+        ChatRepository(client).attachPdfBytes("live-1", "JVBERg==", "report.pdf")
+
+        coVerify {
+            client.call("pdf.attach", match {
+                it["content_base64"]?.jsonPrimitive?.content == "JVBERg==" &&
+                    it["filename"]?.jsonPrimitive?.content == "report.pdf"
+            })
+        }
+    }
+
+    @Test fun attach_file_builds_data_url_and_returns_prompt_reference() = runTest {
+        val client = mockk<HermesGatewayClient>(relaxed = true)
+        coEvery { client.call(any(), any()) } returns buildJsonObject {
+            put("name", "notes.txt")
+            put("path", "/tmp/notes.txt")
+            put("ref_text", "@file:.hermes/notes.txt")
+        }
+
+        val attached = ChatRepository(client).attachFileBytes(
+            "live-1", "YWJj", "text/plain", "notes.txt",
+        )
+
+        assertEquals("@file:.hermes/notes.txt", attached.refText)
+        coVerify {
+            client.call("file.attach", match {
+                it["data_url"]?.jsonPrimitive?.content == "data:text/plain;base64,YWJj" &&
+                    it["name"]?.jsonPrimitive?.content == "notes.txt"
+            })
+        }
+    }
+
     @Test fun process_list_maps_running_process_and_output_tail() = runTest {
         val client = mockk<HermesGatewayClient>(relaxed = true)
         coEvery { client.call("process.list", any()) } returns buildJsonObject {

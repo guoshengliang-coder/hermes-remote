@@ -3,6 +3,7 @@ package com.hermes.client.domain
 enum class Role { USER, ASSISTANT, SYSTEM }
 enum class ToolStatus { RUNNING, DONE }
 enum class ImageTransferState { READY, UPLOADING, FAILED }
+enum class FileTransferState { READY, UPLOADING, FAILED }
 
 data class Session(
     val id: String,
@@ -41,9 +42,21 @@ data class ChatImage(
     val mimeType: String? = null,
     val localPath: String? = null,
     val remotePath: String? = null,
+    val sourceUrl: String? = null,
     val width: Int? = null,
     val height: Int? = null,
     val state: ImageTransferState = ImageTransferState.READY,
+)
+
+/** A non-image artifact. Bytes are fetched only when the user opens or downloads it. */
+data class ChatFile(
+    val id: String,
+    val name: String,
+    val mimeType: String? = null,
+    val sizeBytes: Long? = null,
+    val localPath: String? = null,
+    val remotePath: String? = null,
+    val state: FileTransferState = FileTransferState.READY,
 )
 
 data class ChatMessage(
@@ -51,6 +64,7 @@ data class ChatMessage(
     val role: Role,
     val text: String,
     val images: List<ChatImage> = emptyList(),
+    val files: List<ChatFile> = emptyList(),
     val tools: List<ToolCall> = emptyList(),
     val thinking: String = "",
     val isStreaming: Boolean = false,

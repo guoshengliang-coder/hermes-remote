@@ -1,8 +1,8 @@
 import { WebSocket } from "ws";
 import { constants, readFileSync } from "node:fs";
-import { open, realpath } from "node:fs/promises";
+import { mkdir, open, readdir, realpath, stat, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
-import { extname, isAbsolute, resolve, sep } from "node:path";
+import { basename, extname, isAbsolute, resolve, sep } from "node:path";
 import {
   PROTOCOL_VERSION,
   encodeWireMessage,
@@ -14,6 +14,7 @@ import {
   type TunnelSocketOpen,
   type WireMessage,
 } from "@hermes-remote/protocol";
+import { randomUUID } from "node:crypto";
 
 const gatewayUrl = process.env.GATEWAY_URL ?? "ws://127.0.0.1:8787/v1/connect";
 const connectorToken = requireSecret("CONNECTOR_TOKEN");
@@ -22,7 +23,12 @@ const hermesMode = process.env.HERMES_MODE ?? "mock";
 const hermesBaseUrl = (process.env.HERMES_BASE_URL ?? "http://127.0.0.1:9119").replace(/\/$/, "");
 const hermesChatUrl = process.env.HERMES_CHAT_URL ?? `${hermesBaseUrl}/api/chat`;
 const filesRoot = resolve(process.env.FILES_ROOT ?? homedir());
-const maxFileBytes = 2 * 1024 * 1024;
+const uploadRoot = resolve(process.env.UPLOAD_ROOT ?? resolve(filesRoot, ".hermes-remote", "uploads"));
+const maxUploadBytes = positiveIntEnv("MAX_UPLOAD_BYTES", 6 * 1024 * 1024);
+const maxFileBytes = positiveIntEnv("MAX_FILE_BYTES", 100 * 1024 * 1024);
+const maxUploadCacheBytes = positiveIntEnv("MAX_UPLOAD_CACHE_BYTES", 512 * 1024 * 1024);
+const maxUploadCacheFiles = positiveIntEnv("MAX_UPLOAD_CACHE_FILES", 200, 10_000);
+const uploadRetentionMs = positiveIntEnv("UPLOAD_RETENTION_HOURS", 7 * 24, 24 * 365) * 60 * 60 * 1000;
 const controlHeartbeatMs = positiveIntEnv("CONTROL_HEARTBEAT_MS", 15_000);
 const localRequestTimeoutMs = positiveIntEnv("LOCAL_REQUEST_TIMEOUT_MS", 60_000);
 const chatRequestTimeoutMs = positiveIntEnv("CHAT_REQUEST_TIMEOUT_MS", 10 * 60_000);
@@ -32,10 +38,20 @@ const maxLocalSocketPayloadBytes = positiveIntEnv("MAX_LOCAL_WS_PAYLOAD_BYTES", 
 const maxPendingSocketFrames = positiveIntEnv("MAX_PENDING_WS_FRAMES", 256);
 const maxControlBufferedBytes = positiveIntEnv("MAX_CONTROL_BUFFERED_BYTES", 24 * 1024 * 1024);
 const maxLocalBufferedBytes = positiveIntEnv("MAX_LOCAL_WS_BUFFERED_BYTES", 24 * 1024 * 1024);
+const httpResponseChunkBytes = Math.min(
+  positiveIntEnv("HTTP_RESPONSE_CHUNK_BYTES", 256 * 1024),
+  384 * 1024,
+);
+const httpResponseChunkAckTimeoutMs = positiveIntEnv("HTTP_RESPONSE_CHUNK_ACK_TIMEOUT_MS", 30_000);
 const localSockets = new Map<string, WebSocket>();
 const pendingSocketFrames = new Map<string, TunnelSocketFrame[]>();
+const responseChunkWaiters = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
 let retryMs = 1_000;
 let controlSocket: WebSocket | undefined;
+
+if (!isWithinRoot(uploadRoot, filesRoot)) {
+  throw new Error("UPLOAD_ROOT must be inside FILES_ROOT so uploaded attachments remain downloadable");
+}
 
 function connect(): void {
   const socket = new WebSocket(gatewayUrl, {
@@ -84,6 +100,7 @@ function connect(): void {
 
   socket.on("close", () => {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
+    rejectResponseChunkWaiters(new Error("control_socket_closed"));
     closeLocalSockets();
     if (controlSocket === socket) controlSocket = undefined;
     scheduleReconnect();
@@ -112,6 +129,9 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
     case "tunnel.ws.close":
       closeTunnelSocket(message.id, message.code, message.reason);
       return;
+    case "tunnel.http.response.ack":
+      acknowledgeResponseChunk(message.requestId, message.sequence);
+      return;
     default:
       return;
   }
@@ -120,32 +140,53 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
 async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): Promise<void> {
   if (request.targetDeviceId !== deviceId) return;
   if (request.path.startsWith("/api/files")) {
-    const response = await handleFileRequest(request);
-    sendControl(socket, {
-      type: "tunnel.http.response",
-      version: PROTOCOL_VERSION,
-      requestId: request.id,
-      ...response,
-    });
+    await handleFileRequest(socket, request);
     return;
   }
+  let streamStarted = false;
   try {
     const response = await hermesAuth.request(request.path, {
       method: request.method,
       headers: request.headers,
       body: request.bodyBase64 ? Buffer.from(request.bodyBase64, "base64") : undefined,
     });
-    const body = Buffer.from(await response.arrayBuffer());
     sendControl(socket, {
-      type: "tunnel.http.response",
+      type: "tunnel.http.response.start",
       version: PROTOCOL_VERSION,
       requestId: request.id,
       status: response.status,
       headers: selectResponseHeaders(response.headers),
-      bodyBase64: body.length > 0 ? body.toString("base64") : undefined,
+    });
+    streamStarted = true;
+    let sequence = 0;
+    if (response.body) {
+      const reader = response.body.getReader();
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const buffer = Buffer.from(value);
+        for (let offset = 0; offset < buffer.length; offset += httpResponseChunkBytes) {
+          const chunk = buffer.subarray(offset, Math.min(offset + httpResponseChunkBytes, buffer.length));
+          await sendResponseChunk(socket, request.id, sequence++, chunk);
+        }
+      }
+    }
+    sendControl(socket, {
+      type: "tunnel.http.response.end",
+      version: PROTOCOL_VERSION,
+      requestId: request.id,
     });
   } catch (error) {
     console.error("Local Hermes HTTP error", safeError(error));
+    if (streamStarted) {
+      sendControl(socket, {
+        type: "tunnel.http.response.end",
+        version: PROTOCOL_VERSION,
+        requestId: request.id,
+        error: "hermes_stream_failed",
+      });
+      return;
+    }
     sendControl(socket, {
       type: "tunnel.http.response",
       version: PROTOCOL_VERSION,
@@ -158,83 +199,225 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
   }
 }
 
-type FileResponse = {
-  status: number;
-  headers: Record<string, string>;
-  bodyBase64: string;
-};
+function sendResponseChunk(
+  socket: WebSocket,
+  requestId: string,
+  sequence: number,
+  data: Buffer,
+): Promise<void> {
+  if (socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error("control_socket_closed"));
+  const key = `${requestId}:${sequence}`;
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      responseChunkWaiters.delete(key);
+      reject(new Error("response_chunk_ack_timeout"));
+    }, httpResponseChunkAckTimeoutMs);
+    responseChunkWaiters.set(key, { resolve, reject, timer });
+    sendControl(socket, {
+      type: "tunnel.http.response.chunk",
+      version: PROTOCOL_VERSION,
+      requestId,
+      sequence,
+      dataBase64: data.toString("base64"),
+    });
+  });
+}
 
-async function handleFileRequest(request: TunnelHttpRequest): Promise<FileResponse> {
-  if (request.method.toUpperCase() !== "GET") {
-    return jsonFileResponse(405, "method_not_allowed", { allow: "GET" });
+function acknowledgeResponseChunk(requestId: string, sequence: number): void {
+  const key = `${requestId}:${sequence}`;
+  const waiter = responseChunkWaiters.get(key);
+  if (!waiter) return;
+  responseChunkWaiters.delete(key);
+  clearTimeout(waiter.timer);
+  waiter.resolve();
+}
+
+function rejectResponseChunkWaiters(error: Error): void {
+  for (const waiter of responseChunkWaiters.values()) {
+    clearTimeout(waiter.timer);
+    waiter.reject(error);
   }
+  responseChunkWaiters.clear();
+}
 
+async function handleFileRequest(socket: WebSocket, request: TunnelHttpRequest): Promise<void> {
+  let streamStarted = false;
+  const fail = (status: number, error: string, extraHeaders: Record<string, string> = {}): void => {
+    sendFileError(socket, request.id, status, error, extraHeaders);
+  };
+  let url: URL;
+  try {
+    url = new URL(request.path, "http://connector.local");
+  } catch {
+    fail(400, "invalid_path");
+    return;
+  }
+  if (url.pathname === "/api/files/upload") {
+    await handleUploadRequest(socket, request, url);
+    return;
+  }
+  if (request.method.toUpperCase() !== "GET") {
+    fail(405, "method_not_allowed", { allow: "GET" });
+    return;
+  }
   let requestedPath: string;
   try {
-    const url = new URL(request.path, "http://connector.local");
-    if (url.pathname !== "/api/files") return jsonFileResponse(404, "not_found");
+    if (url.pathname !== "/api/files") { fail(404, "not_found"); return; }
     const rawPath = rawQueryParameter(request.path, "path");
     if (rawPath === undefined || rawPath.length === 0) {
-      return jsonFileResponse(400, "invalid_path");
+      fail(400, "invalid_path");
+      return;
     }
     requestedPath = decodeURIComponent(rawPath.replace(/\+/g, " "));
   } catch {
-    return jsonFileResponse(400, "invalid_path");
+    fail(400, "invalid_path");
+    return;
   }
 
   if (requestedPath.includes("\0")
       || !isAbsolute(requestedPath)
       || requestedPath.split(/[\\/]+/).includes("..")) {
-    return jsonFileResponse(400, "invalid_path");
+    fail(400, "invalid_path");
+    return;
   }
 
   try {
     const canonicalRoot = await realpath(filesRoot);
     const resolvedPath = resolve(requestedPath);
     if (!isWithinRoot(resolvedPath, filesRoot)) {
-      return jsonFileResponse(403, "forbidden");
+      fail(403, "forbidden");
+      return;
     }
 
     const canonicalPath = await realpath(resolvedPath);
     if (!isWithinRoot(canonicalPath, canonicalRoot)) {
-      return jsonFileResponse(403, "forbidden");
+      fail(403, "forbidden");
+      return;
     }
 
     const noFollow = constants.O_NOFOLLOW ?? 0;
     const handle = await open(canonicalPath, constants.O_RDONLY | noFollow);
     try {
       const metadata = await handle.stat();
-      if (!metadata.isFile()) return jsonFileResponse(400, "invalid_file");
-      if (metadata.size > maxFileBytes) return jsonFileResponse(413, "file_too_large");
+      if (!metadata.isFile()) { fail(400, "invalid_file"); return; }
+      if (metadata.size > maxFileBytes) { fail(413, "file_too_large"); return; }
 
-      const chunks: Buffer[] = [];
-      let total = 0;
-      while (true) {
-        const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, maxFileBytes + 1 - total));
-        const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
-        if (bytesRead === 0) break;
-        total += bytesRead;
-        if (total > maxFileBytes) return jsonFileResponse(413, "file_too_large");
-        chunks.push(chunk.subarray(0, bytesRead));
-      }
-      const body = Buffer.concat(chunks, total);
-      return {
+      sendControl(socket, {
+        type: "tunnel.http.response.start",
+        version: PROTOCOL_VERSION,
+        requestId: request.id,
         status: 200,
         headers: {
           "content-type": contentTypeFor(canonicalPath),
-          "content-length": String(body.length),
+          "content-length": String(metadata.size),
+          "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(basename(canonicalPath))}`,
         },
-        bodyBase64: body.toString("base64"),
-      };
+      });
+      streamStarted = true;
+      let sequence = 0;
+      while (true) {
+        const chunk = Buffer.allocUnsafe(httpResponseChunkBytes);
+        const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+        if (bytesRead === 0) break;
+        await sendResponseChunk(socket, request.id, sequence++, chunk.subarray(0, bytesRead));
+      }
+      sendControl(socket, {
+        type: "tunnel.http.response.end",
+        version: PROTOCOL_VERSION,
+        requestId: request.id,
+      });
     } finally {
       await handle.close();
     }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "ENOTDIR") return jsonFileResponse(404, "not_found");
-    if (code === "EACCES" || code === "EPERM") return jsonFileResponse(403, "forbidden");
+    if (streamStarted) {
+      sendControl(socket, {
+        type: "tunnel.http.response.end",
+        version: PROTOCOL_VERSION,
+        requestId: request.id,
+        error: "file_read_failed",
+      });
+      return;
+    }
+    if (code === "ENOENT" || code === "ENOTDIR") { fail(404, "not_found"); return; }
+    if (code === "EACCES" || code === "EPERM") { fail(403, "forbidden"); return; }
     console.error("File request failed", code ?? "unknown_error");
-    return jsonFileResponse(500, "file_read_failed");
+    fail(500, "file_read_failed");
+  }
+}
+
+async function handleUploadRequest(socket: WebSocket, request: TunnelHttpRequest, url: URL): Promise<void> {
+  if (request.method.toUpperCase() !== "POST") {
+    sendFileError(socket, request.id, 405, "method_not_allowed", { allow: "POST" });
+    return;
+  }
+  const bytes = request.bodyBase64 ? Buffer.from(request.bodyBase64, "base64") : Buffer.alloc(0);
+  if (bytes.length === 0) {
+    sendFileError(socket, request.id, 400, "empty_file");
+    return;
+  }
+  if (bytes.length > maxUploadBytes) {
+    sendFileError(socket, request.id, 413, "file_too_large");
+    return;
+  }
+  const requestedName = (url.searchParams.get("name") ?? "attachment")
+    .replace(/[\u0000-\u001f\u007f/\\]/g, "_")
+    .slice(0, 160) || "attachment";
+  try {
+    await mkdir(uploadRoot, { recursive: true, mode: 0o700 });
+    const storedName = `${randomUUID()}-${requestedName}`;
+    const path = resolve(uploadRoot, storedName);
+    if (!isWithinRoot(path, uploadRoot)) throw new Error("invalid_upload_path");
+    const handle = await open(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+    try {
+      await handle.writeFile(bytes);
+    } finally {
+      await handle.close();
+    }
+    sendJsonResponse(socket, request.id, 201, {
+      path,
+      name: requestedName,
+      size: bytes.length,
+    });
+    void trimUploadDirectory(path).catch((error) => {
+      console.error("Unable to trim upload cache", safeError(error));
+    });
+  } catch (error) {
+    console.error("File upload failed", safeError(error));
+    sendFileError(socket, request.id, 500, "file_upload_failed");
+  }
+}
+
+/** Keep transient phone uploads bounded without ever removing the file just written. */
+async function trimUploadDirectory(protectedPath: string): Promise<void> {
+  const now = Date.now();
+  const entries = await readdir(uploadRoot);
+  const files = (await Promise.all(entries.map(async (name) => {
+    const path = resolve(uploadRoot, name);
+    if (!isWithinRoot(path, uploadRoot)) return undefined;
+    const metadata = await stat(path).catch(() => undefined);
+    return metadata?.isFile() ? { path, size: metadata.size, modifiedAt: metadata.mtimeMs } : undefined;
+  }))).filter((entry): entry is { path: string; size: number; modifiedAt: number } => entry !== undefined)
+    .sort((left, right) => right.modifiedAt - left.modifiedAt);
+
+  let retainedBytes = 0;
+  let retainedFiles = 0;
+  for (const file of files) {
+    if (file.path === protectedPath) {
+      retainedBytes += file.size;
+      retainedFiles += 1;
+      continue;
+    }
+    const expired = now - file.modifiedAt > uploadRetentionMs;
+    const overCapacity = retainedFiles >= maxUploadCacheFiles
+      || retainedBytes + file.size > maxUploadCacheBytes;
+    if (expired || overCapacity) {
+      await unlink(file.path).catch(() => undefined);
+    } else {
+      retainedBytes += file.size;
+      retainedFiles += 1;
+    }
   }
 }
 
@@ -255,13 +438,28 @@ function isWithinRoot(candidate: string, root: string): boolean {
   return candidate === root || candidate.startsWith(`${root}${sep}`);
 }
 
-function jsonFileResponse(
+function sendFileError(
+  socket: WebSocket,
+  requestId: string,
   status: number,
   error: string,
   extraHeaders: Record<string, string> = {},
-): FileResponse {
-  const body = Buffer.from(JSON.stringify({ error }));
-  return {
+): void {
+  sendJsonResponse(socket, requestId, status, { error }, extraHeaders);
+}
+
+function sendJsonResponse(
+  socket: WebSocket,
+  requestId: string,
+  status: number,
+  value: Record<string, unknown>,
+  extraHeaders: Record<string, string> = {},
+): void {
+  const body = Buffer.from(JSON.stringify(value));
+  sendControl(socket, {
+    type: "tunnel.http.response",
+    version: PROTOCOL_VERSION,
+    requestId,
     status,
     headers: {
       "content-type": "application/json",
@@ -269,7 +467,7 @@ function jsonFileResponse(
       ...extraHeaders,
     },
     bodyBase64: body.toString("base64"),
-  };
+  });
 }
 
 function contentTypeFor(path: string): string {
@@ -286,6 +484,16 @@ function contentTypeFor(path: string): string {
     ".gif": "image/gif",
     ".webp": "image/webp",
     ".svg": "image/svg+xml",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".wav": "audio/wav",
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".zip": "application/zip",
   };
   return types[extname(path).toLowerCase()] ?? "application/octet-stream";
 }
@@ -441,7 +649,7 @@ function scheduleReconnect(): void {
 
 function selectResponseHeaders(headers: Headers): Record<string, string> {
   const selected: Record<string, string> = {};
-  for (const name of ["content-type", "cache-control"]) {
+  for (const name of ["content-type", "content-length", "content-disposition", "cache-control"]) {
     const value = headers.get(name);
     if (value) selected[name] = value;
   }

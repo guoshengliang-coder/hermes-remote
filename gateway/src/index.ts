@@ -37,6 +37,8 @@ type PendingHttp = {
   response: ServerResponse;
   deviceId: string;
   timer: NodeJS.Timeout;
+  started: boolean;
+  nextSequence: number;
 };
 
 type AppTunnel = {
@@ -259,14 +261,10 @@ async function handleHttpRequest(request: IncomingMessage, response: ServerRespo
   }
 
   const id = randomUUID();
-  const timer = setTimeout(() => {
-    const pending = pendingHttp.get(id);
-    if (!pending) return;
-    pendingHttp.delete(id);
-    sendHttpError(pending.response, 504, "connector_timeout");
-  }, requestTimeoutMs);
-  pendingHttp.set(id, { response, deviceId, timer });
+  const timer = setTimeout(() => expirePendingHttp(id), requestTimeoutMs);
+  pendingHttp.set(id, { response, deviceId, timer, started: false, nextSequence: 0 });
   request.on("aborted", () => clearPendingHttp(id));
+  response.on("close", () => clearPendingHttp(id));
 
   send(connector.socket, {
     type: "tunnel.http.request",
@@ -325,9 +323,60 @@ function route(peer: Peer, message: WireMessage): void {
     const pending = pendingHttp.get(message.requestId);
     if (!pending || pending.deviceId !== peer.deviceId) return;
     clearPendingHttp(message.requestId);
+    if (pending.started) {
+      pending.response.destroy(new Error("mixed_http_response_modes"));
+      return;
+    }
     const body = message.bodyBase64 ? Buffer.from(message.bodyBase64, "base64") : Buffer.alloc(0);
     pending.response.writeHead(message.status, selectResponseHeaders(message.headers));
     pending.response.end(body);
+    return;
+  }
+
+  if (message.type === "tunnel.http.response.start") {
+    const pending = pendingHttp.get(message.requestId);
+    if (!pending || pending.deviceId !== peer.deviceId || pending.started) return;
+    pending.started = true;
+    refreshPendingHttpTimeout(message.requestId, pending);
+    pending.response.writeHead(message.status, selectResponseHeaders(message.headers));
+    return;
+  }
+
+  if (message.type === "tunnel.http.response.chunk") {
+    const pending = pendingHttp.get(message.requestId);
+    if (!pending || pending.deviceId !== peer.deviceId || !pending.started) return;
+    if (message.sequence !== pending.nextSequence) {
+      clearPendingHttp(message.requestId);
+      pending.response.destroy(new Error("invalid_response_chunk_sequence"));
+      return;
+    }
+    pending.nextSequence += 1;
+    refreshPendingHttpTimeout(message.requestId, pending);
+    const chunk = Buffer.from(message.dataBase64, "base64");
+    pending.response.write(chunk, () => {
+      const current = pendingHttp.get(message.requestId);
+      if (current !== pending) return;
+      send(peer.socket, {
+        type: "tunnel.http.response.ack",
+        version: PROTOCOL_VERSION,
+        requestId: message.requestId,
+        sequence: message.sequence,
+      });
+    });
+    return;
+  }
+
+  if (message.type === "tunnel.http.response.end") {
+    const pending = pendingHttp.get(message.requestId);
+    if (!pending || pending.deviceId !== peer.deviceId) return;
+    clearPendingHttp(message.requestId);
+    if (message.error) {
+      if (!pending.started) sendHttpError(pending.response, 502, message.error);
+      else pending.response.destroy(new Error(message.error));
+    } else {
+      if (!pending.started) pending.response.writeHead(204);
+      pending.response.end();
+    }
     return;
   }
 
@@ -425,6 +474,20 @@ function clearPendingHttp(id: string): void {
   pendingHttp.delete(id);
 }
 
+function refreshPendingHttpTimeout(id: string, pending: PendingHttp): void {
+  clearTimeout(pending.timer);
+  pending.timer = setTimeout(() => expirePendingHttp(id), requestTimeoutMs);
+}
+
+function expirePendingHttp(id: string): void {
+  const pending = pendingHttp.get(id);
+  if (!pending) return;
+  pendingHttp.delete(id);
+  clearTimeout(pending.timer);
+  if (pending.response.headersSent) pending.response.destroy(new Error("connector_timeout"));
+  else sendHttpError(pending.response, 504, "connector_timeout");
+}
+
 function broadcastStatus(deviceId: string, online: boolean): void {
   for (const app of apps) sendStatus(app, deviceId, online);
 }
@@ -458,7 +521,7 @@ function selectRequestHeaders(request: IncomingMessage): Record<string, string> 
 
 function selectResponseHeaders(headers: Record<string, string>): Record<string, string> {
   const selected: Record<string, string> = {};
-  for (const name of ["content-type", "cache-control"]) {
+  for (const name of ["content-type", "content-length", "content-disposition", "cache-control"]) {
     const value = headers[name];
     if (value) selected[name] = value;
   }
@@ -490,6 +553,10 @@ function readRequestBody(request: IncomingMessage, limit: number): Promise<Buffe
 
 function sendHttpError(response: ServerResponse, status: number, code: string): void {
   if (response.writableEnded) return;
+  if (response.headersSent) {
+    response.destroy(new Error(code));
+    return;
+  }
   response.writeHead(status, { "content-type": "application/json" });
   response.end(JSON.stringify({ error: code }));
 }

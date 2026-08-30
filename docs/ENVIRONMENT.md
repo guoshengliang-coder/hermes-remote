@@ -41,3 +41,8 @@ The deployment copies the certificate into `/etc/hermes-remote/tls` with narrowl
 - Add host firewall rules carefully, allowing SSH before enabling the firewall to avoid lockout.
 
 The Mac Connector reads only the two Basic Auth values it needs from the existing local Hermes dotenv file. The values are never copied into launchd, the HK server, or the Android app.
+
+Attachment deployments additionally configure `FILES_ROOT` to the narrowest Mac directory that may
+be returned to the phone. `UPLOAD_ROOT` must remain inside it; its defaults are
+`$HOME/.hermes-remote/uploads`, 6 MiB per upload, 100 MiB per download, 200 cached uploads, 512 MiB
+cached total, and seven-day retention. These are operational limits, not secrets.

@@ -38,7 +38,28 @@ old-client compatibility and can be closed after migration.
 1. Android calls a normal Hermes `/api/*` route with `X-Hermes-Session-Token: <APP_TOKEN>`.
 2. Gateway validates and removes the public credential, limits the request body, and sends a tunnel request to the registered Mac.
 3. Connector logs into the local Hermes dashboard when needed, maintains the in-memory Cookie session, and forwards the request.
-4. Only selected response headers and the response body return to Android.
+4. Only selected response headers and the response body return to Android. Bodies are split into
+   sequence-checked chunks; Gateway acknowledges a chunk only after writing it to the Android HTTP
+   response, which provides end-to-end backpressure and keeps the shared Connector socket bounded.
+
+### Attachment flow
+
+1. Android reads a picker/camera URI with a hard limit. Still images above the direct-upload limit
+   are resized and JPEG-compressed; unsupported executables and oversized non-image files are rejected.
+2. Android uploads raw bytes to authenticated `POST /api/files/upload`; there is no data-URL wrapper.
+   Gateway's existing request cap and Connector's 6 MiB upload cap bound the single-request MVP.
+3. Connector stores the transient file with mode `0600` inside `UPLOAD_ROOT` (which must be within
+   `FILES_ROOT`) and returns its Mac-visible path. Uploads expire after seven days by default and are
+   also trimmed by count and total size.
+4. Android attaches that path to the live Hermes session. Images render as thumbnails; output files
+   render as cards and download only when opened or shared.
+5. Authenticated `GET /api/files?path=...` resolves and opens files beneath `FILES_ROOT`, rejects
+   traversal/symlink escapes, enforces the output limit, and streams bytes through the acknowledged
+   response-chunk protocol. A large result therefore fails only its HTTP request instead of closing
+   the Mac's shared control connection.
+
+External Markdown images are fetched by a separate credential-free Android HTTP client. It permits
+HTTPS only, refuses HTTPS-to-HTTP redirects and private/local address ranges, and caps image bytes.
 
 ### WebSocket flow
 

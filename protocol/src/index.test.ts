@@ -32,6 +32,52 @@ test("round-trips a tunneled HTTP request", () => {
   assert.deepEqual(parseWireMessage(encodeWireMessage(message)), message);
 });
 
+test("round-trips an acknowledged streaming HTTP response", () => {
+  const messages = [
+    {
+      type: "tunnel.http.response.start" as const,
+      version: PROTOCOL_VERSION,
+      requestId: "request-1",
+      status: 200,
+      headers: { "content-type": "application/octet-stream" },
+    },
+    {
+      type: "tunnel.http.response.chunk" as const,
+      version: PROTOCOL_VERSION,
+      requestId: "request-1",
+      sequence: 0,
+      dataBase64: "YWJj",
+    },
+    {
+      type: "tunnel.http.response.ack" as const,
+      version: PROTOCOL_VERSION,
+      requestId: "request-1",
+      sequence: 0,
+    },
+    {
+      type: "tunnel.http.response.end" as const,
+      version: PROTOCOL_VERSION,
+      requestId: "request-1",
+    },
+  ];
+  for (const message of messages) {
+    assert.deepEqual(parseWireMessage(encodeWireMessage(message)), message);
+  }
+});
+
+test("rejects an oversized streaming response chunk", () => {
+  assert.throws(
+    () => parseWireMessage(JSON.stringify({
+      type: "tunnel.http.response.chunk",
+      version: PROTOCOL_VERSION,
+      requestId: "request-1",
+      sequence: 0,
+      dataBase64: "A".repeat(512 * 1024 + 1),
+    })),
+    /invalid_chunk/,
+  );
+});
+
 test("rejects malformed authentication fields before the gateway uses them", () => {
   assert.throws(
     () => parseWireMessage(

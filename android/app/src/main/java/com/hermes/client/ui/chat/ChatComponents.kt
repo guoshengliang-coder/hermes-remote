@@ -45,6 +45,9 @@ import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.ThumbUp
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.BrokenImage
+import androidx.compose.material.icons.rounded.InsertDriveFile
+import androidx.compose.material.icons.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -98,6 +101,8 @@ import com.hermes.client.domain.ToolCall
 import com.hermes.client.domain.ToolStatus
 import com.hermes.client.domain.ChatImage
 import com.hermes.client.domain.ImageTransferState
+import com.hermes.client.domain.ChatFile
+import com.hermes.client.domain.FileTransferState
 import com.hermes.client.ui.theme.LocalToolCallTechnical
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
@@ -128,6 +133,8 @@ fun ChatMessageList(
     isSpeaking: Boolean = false,
     onReadAloud: (String) -> Unit = {},
     onStopReading: () -> Unit = {},
+    onFileOpen: (ChatFile) -> Unit = {},
+    onFileShare: (ChatFile) -> Unit = {},
     highlightIndex: Int? = null,
     externalScrollActive: Boolean = false,
     onBlankAreaTap: () -> Unit = {},
@@ -378,6 +385,8 @@ fun ChatMessageList(
                     isSpeaking,
                     onReadAloud,
                     onStopReading,
+                    onFileOpen,
+                    onFileShare,
                     highlighted = index == highlightIndex,
                 )
             }
@@ -440,7 +449,8 @@ internal fun List<ChatMessage>.conversationRenderKeys(): List<String> {
                 // Do not include local attachment ids or remote paths: both change after upload and
                 // REST hydration. MIME/count is stable enough, with occurrences disambiguating repeats.
                 val imageSignature = message.images.joinToString(",") { it.mimeType.orEmpty() }
-                val fingerprint = 31 * message.text.trim().hashCode() + imageSignature.hashCode()
+                val fileSignature = message.files.joinToString(",") { "${it.name}:${it.mimeType}" }
+                val fingerprint = 31 * (31 * message.text.trim().hashCode() + imageSignature.hashCode()) + fileSignature.hashCode()
                 val occurrence = userOccurrences.getOrDefault(fingerprint, 0)
                 userOccurrences[fingerprint] = occurrence + 1
                 userAnchor = "user:$fingerprint:$occurrence"
@@ -462,6 +472,11 @@ internal fun List<ChatMessage>.conversationLayoutRevision(): Int = fold(1) { rev
         next = 31 * next + image.id.hashCode()
         next = 31 * next + image.localPath.hashCode()
         next = 31 * next + image.state.hashCode()
+    }
+    message.files.forEach { file ->
+        next = 31 * next + file.id.hashCode()
+        next = 31 * next + file.localPath.hashCode()
+        next = 31 * next + file.state.hashCode()
     }
     message.tools.forEach { tool ->
         next = 31 * next + tool.id.hashCode()
@@ -507,17 +522,25 @@ private fun MessageBubble(
     isSpeaking: Boolean,
     onReadAloud: (String) -> Unit,
     onStopReading: () -> Unit,
+    onFileOpen: (ChatFile) -> Unit,
+    onFileShare: (ChatFile) -> Unit,
     highlighted: Boolean = false,
 ) {
     when (msg.role) {
-        Role.USER -> UserBubble(msg, onEditResend, highlighted = highlighted)
-        else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, isSpeaking, onReadAloud, onStopReading, highlighted = highlighted)
+        Role.USER -> UserBubble(msg, onEditResend, onFileOpen, onFileShare, highlighted = highlighted)
+        else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, isSpeaking, onReadAloud, onStopReading, onFileOpen, onFileShare, highlighted = highlighted)
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun UserBubble(msg: ChatMessage, onEditResend: (String) -> Unit, highlighted: Boolean = false) {
+private fun UserBubble(
+    msg: ChatMessage,
+    onEditResend: (String) -> Unit,
+    onFileOpen: (ChatFile) -> Unit,
+    onFileShare: (ChatFile) -> Unit,
+    highlighted: Boolean = false,
+) {
     val language = LocalAppLanguage.current
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
@@ -540,6 +563,10 @@ private fun UserBubble(msg: ChatMessage, onEditResend: (String) -> Unit, highlig
             ) {
                 if (msg.images.isNotEmpty()) {
                     ChatImageGrid(msg.images)
+                    if (msg.text.isNotBlank() || msg.files.isNotEmpty()) Spacer(Modifier.height(8.dp))
+                }
+                if (msg.files.isNotEmpty()) {
+                    ChatFileList(msg.files, onFileOpen, onFileShare)
                     if (msg.text.isNotBlank()) Spacer(Modifier.height(8.dp))
                 }
                 if (msg.text.isNotBlank()) {
@@ -610,7 +637,7 @@ private fun ChatImageThumbnail(image: ChatImage, modifier: Modifier, onClick: ()
                 contentScale = ContentScale.Crop,
             )
         } else if (image.state == ImageTransferState.UPLOADING ||
-            (image.remotePath != null && image.state != ImageTransferState.FAILED)
+            ((image.remotePath != null || image.sourceUrl != null) && image.state != ImageTransferState.FAILED)
         ) {
             CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
         } else {
@@ -657,6 +684,54 @@ private fun FullScreenImage(image: ChatImage, onDismiss: () -> Unit) {
                     ),
                     contentScale = ContentScale.Fit,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatFileList(
+    files: List<ChatFile>,
+    onOpen: (ChatFile) -> Unit,
+    onShare: (ChatFile) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        files.forEach { file ->
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.InsertDriveFile, contentDescription = null, modifier = Modifier.size(25.dp))
+                    Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                        Text(file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
+                        val detail = listOfNotNull(
+                            file.mimeType?.substringAfter('/'),
+                            file.sizeBytes?.let(::attachmentSizeLabel),
+                        ).joinToString(" · ")
+                        if (detail.isNotBlank()) {
+                            Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    when (file.state) {
+                        FileTransferState.UPLOADING -> CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                        FileTransferState.FAILED -> Icon(Icons.Rounded.BrokenImage, contentDescription = localized(LocalAppLanguage.current, "文件不可用", "File unavailable"))
+                        FileTransferState.READY -> {
+                            if (file.remotePath != null || file.localPath != null) {
+                                IconButton(onClick = { onOpen(file) }, modifier = Modifier.size(38.dp)) {
+                                    Icon(Icons.Rounded.OpenInNew, localized(LocalAppLanguage.current, "打开文件", "Open file"), modifier = Modifier.size(19.dp))
+                                }
+                                IconButton(onClick = { onShare(file) }, modifier = Modifier.size(38.dp)) {
+                                    Icon(Icons.Rounded.Share, localized(LocalAppLanguage.current, "分享文件", "Share file"), modifier = Modifier.size(19.dp))
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -732,6 +807,8 @@ private fun AssistantTurn(
     isSpeaking: Boolean,
     onReadAloud: (String) -> Unit,
     onStopReading: () -> Unit,
+    onFileOpen: (ChatFile) -> Unit,
+    onFileShare: (ChatFile) -> Unit,
     highlighted: Boolean = false,
 ) {
     val language = LocalAppLanguage.current
@@ -770,6 +847,14 @@ private fun AssistantTurn(
         ) {
             if (msg.thinking.isNotBlank()) ThinkingCard(msg.thinking)
             msg.tools.forEach { ToolCard(it) }
+            if (msg.images.isNotEmpty()) {
+                ChatImageGrid(msg.images)
+                if (renderedText.isNotBlank() || msg.files.isNotEmpty()) Spacer(Modifier.height(8.dp))
+            }
+            if (msg.files.isNotEmpty()) {
+                ChatFileList(msg.files, onFileOpen, onFileShare)
+                if (renderedText.isNotBlank()) Spacer(Modifier.height(8.dp))
+            }
             if (renderedText.isNotBlank()) {
                 if (msg.isError) {
                     Surface(

@@ -182,8 +182,8 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Handle an incoming ACTION_SEND share (text or a single image): open a new chat with the text
-     * pre-filled and/or the image attached. Reuses the notification deep-link rail.
+     * Handle an incoming ACTION_SEND share (text or a single attachment): open a new chat with
+     * the text pre-filled and/or the attachment staged. Reuses the notification deep-link rail.
      */
     private fun handleShare(intent: Intent?) {
         val text = com.hermes.client.share.sharedText(
@@ -191,7 +191,8 @@ class MainActivity : ComponentActivity() {
             intent?.getStringExtra(Intent.EXTRA_SUBJECT), intent?.getStringExtra(Intent.EXTRA_TEXT),
         )
         val isImage = com.hermes.client.share.isImageShare(intent?.action, intent?.type)
-        val imageUri: android.net.Uri? = if (isImage) {
+        val hasStream = intent?.action == Intent.ACTION_SEND && intent.hasExtra(Intent.EXTRA_STREAM)
+        val attachmentUri: android.net.Uri? = if (hasStream) {
             if (Build.VERSION.SDK_INT >= 33) {
                 intent?.getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
             } else {
@@ -199,7 +200,7 @@ class MainActivity : ComponentActivity() {
             }
         } else null
 
-        if (text == null && imageUri == null) return
+        if (text == null && attachmentUri == null) return
 
         // For an image share the caption (if any) is EXTRA_TEXT; a text share's caption is `text`.
         val caption = if (isImage) {
@@ -216,22 +217,26 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             var b64: String? = null
             var mime: String? = null
-            if (imageUri != null) {
+            var attachmentName: String? = null
+            if (attachmentUri != null) {
                 val read = withContext(kotlinx.coroutines.Dispatchers.IO) {
                     runCatching {
-                        val bytes = contentResolver.openInputStream(imageUri)?.use { it.readBytes() }
-                            ?: return@runCatching null
-                        val m = contentResolver.getType(imageUri) ?: "image/*"
-                        android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP) to m
+                        com.hermes.client.ui.chat.prepareAttachment(
+                            this@MainActivity,
+                            attachmentUri,
+                            if (isImage) "shared-image.jpg" else "shared-file",
+                        )
                     }.getOrNull()
                 }
                 if (read == null) {
                     android.widget.Toast.makeText(
-                        this@MainActivity, "Couldn't read the image", android.widget.Toast.LENGTH_SHORT,
+                        this@MainActivity, "Couldn't read the attachment", android.widget.Toast.LENGTH_SHORT,
                     ).show()
                     if (caption == null) return@launch  // nothing left to share
                 } else {
-                    b64 = read.first; mime = read.second
+                    b64 = android.util.Base64.encodeToString(read.bytes, android.util.Base64.NO_WRAP)
+                    mime = read.mimeType
+                    attachmentName = read.name
                 }
             }
             // connect() first — a cold-start share has no open socket yet, and createSession()
@@ -249,7 +254,12 @@ class MainActivity : ComponentActivity() {
                 .onSuccess { id ->
                     pendingShare.put(
                         id,
-                        com.hermes.client.share.PendingShare(text = caption, imageBase64 = b64, imageMime = mime),
+                        com.hermes.client.share.PendingShare(
+                            text = caption,
+                            imageBase64 = b64,
+                            imageMime = mime,
+                            attachmentName = attachmentName,
+                        ),
                     )
                     pendingRoute.value = "chat/$id"
                 }

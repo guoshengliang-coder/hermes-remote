@@ -71,6 +71,37 @@ export interface TunnelHttpResponse {
   bodyBase64?: string;
 }
 
+/** Streaming HTTP response metadata. Large bodies follow as acknowledged chunks. */
+export interface TunnelHttpResponseStart {
+  type: "tunnel.http.response.start";
+  version: typeof PROTOCOL_VERSION;
+  requestId: string;
+  status: number;
+  headers: Record<string, string>;
+}
+
+export interface TunnelHttpResponseChunk {
+  type: "tunnel.http.response.chunk";
+  version: typeof PROTOCOL_VERSION;
+  requestId: string;
+  sequence: number;
+  dataBase64: string;
+}
+
+export interface TunnelHttpResponseAck {
+  type: "tunnel.http.response.ack";
+  version: typeof PROTOCOL_VERSION;
+  requestId: string;
+  sequence: number;
+}
+
+export interface TunnelHttpResponseEnd {
+  type: "tunnel.http.response.end";
+  version: typeof PROTOCOL_VERSION;
+  requestId: string;
+  error?: string;
+}
+
 export interface TunnelSocketOpen {
   type: "tunnel.ws.open";
   version: typeof PROTOCOL_VERSION;
@@ -104,6 +135,10 @@ export type WireMessage =
   | ErrorMessage
   | TunnelHttpRequest
   | TunnelHttpResponse
+  | TunnelHttpResponseStart
+  | TunnelHttpResponseChunk
+  | TunnelHttpResponseAck
+  | TunnelHttpResponseEnd
   | TunnelSocketOpen
   | TunnelSocketFrame
   | TunnelSocketClose;
@@ -206,6 +241,38 @@ export function parseWireMessage(raw: string): WireMessage {
         ...(bodyBase64 === undefined ? {} : { bodyBase64 }),
       };
     }
+    case "tunnel.http.response.start":
+      return {
+        type: "tunnel.http.response.start",
+        version: PROTOCOL_VERSION,
+        requestId: boundedString(value.requestId, "invalid_request_id", 1, 128),
+        status: integer(value.status, "invalid_http_status", 100, 599),
+        headers: stringRecord(value.headers, "invalid_headers"),
+      };
+    case "tunnel.http.response.chunk":
+      return {
+        type: "tunnel.http.response.chunk",
+        version: PROTOCOL_VERSION,
+        requestId: boundedString(value.requestId, "invalid_request_id", 1, 128),
+        sequence: integer(value.sequence, "invalid_chunk_sequence", 0, 1_000_000),
+        dataBase64: boundedString(value.dataBase64, "invalid_chunk", 0, MAX_CHUNK_BASE64_CHARS),
+      };
+    case "tunnel.http.response.ack":
+      return {
+        type: "tunnel.http.response.ack",
+        version: PROTOCOL_VERSION,
+        requestId: boundedString(value.requestId, "invalid_request_id", 1, 128),
+        sequence: integer(value.sequence, "invalid_chunk_sequence", 0, 1_000_000),
+      };
+    case "tunnel.http.response.end": {
+      const error = optionalString(value.error, "invalid_stream_error", 256);
+      return {
+        type: "tunnel.http.response.end",
+        version: PROTOCOL_VERSION,
+        requestId: boundedString(value.requestId, "invalid_request_id", 1, 128),
+        ...(error === undefined ? {} : { error }),
+      };
+    }
     case "tunnel.ws.open":
       return {
         type: "tunnel.ws.open",
@@ -247,6 +314,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const MAX_BASE64_CHARS = 16 * 1024 * 1024;
+const MAX_CHUNK_BASE64_CHARS = 512 * 1024;
 
 function record(value: unknown, error: string): Record<string, unknown> {
   if (!isRecord(value)) throw new Error(error);

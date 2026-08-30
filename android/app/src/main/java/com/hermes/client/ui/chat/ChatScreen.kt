@@ -220,29 +220,70 @@ fun ChatScreen(
     var showAttachSheet by remember { mutableStateOf(false) }
     val attachScope = androidx.compose.runtime.rememberCoroutineScope()
 
-    fun readBytes(uri: Uri): ByteArray? =
-        runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+    fun showAttachmentError(message: String?) {
+        android.widget.Toast.makeText(
+            context,
+            message ?: localized(language, "无法读取附件", "Unable to read attachment"),
+            android.widget.Toast.LENGTH_LONG,
+        ).show()
+    }
+
+    fun stageUri(uri: Uri, fallbackName: String = "attachment") {
+        attachScope.launch {
+            runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    prepareAttachment(context, uri, fallbackName)
+                }
+            }.onSuccess { attachment ->
+                vm.stageAttachment(attachment.bytes, attachment.mimeType, attachment.name)
+            }.onFailure { showAttachmentError(it.message) }
+        }
+    }
+
+    fun handleFile(file: com.hermes.client.domain.ChatFile, share: Boolean) {
+        android.widget.Toast.makeText(
+            context,
+            localized(language, "正在准备文件…", "Preparing file…"),
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
+        vm.fetchFile(file) { result ->
+            result.onSuccess { local ->
+                val contentUri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    local,
+                )
+                val intent = if (share) {
+                    android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = file.mimeType ?: "application/octet-stream"
+                        putExtra(android.content.Intent.EXTRA_STREAM, contentUri)
+                    }
+                } else {
+                    android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                        setDataAndType(contentUri, file.mimeType ?: "application/octet-stream")
+                    }
+                }.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                runCatching {
+                    context.startActivity(
+                        if (share) android.content.Intent.createChooser(intent, file.name) else intent,
+                    )
+                }.onFailure { showAttachmentError(it.message) }
+            }.onFailure { showAttachmentError(it.message) }
+        }
+    }
 
     // Photo library: multi-select via the system photo picker (no permission).
     // Read bytes off the main thread (large images would otherwise jank/ANR the UI).
     val pickPhotos = androidx.activity.compose.rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(ATTACH_CAP),
     ) { uris ->
-        attachScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            uris.forEach { uri ->
-                readBytes(uri)?.let { vm.stageAttachment(it, context.contentResolver.getType(uri) ?: "image/*") }
-            }
-        }
+        uris.take(ATTACH_CAP).forEach { stageUri(it, "photo.jpg") }
     }
 
     val pickFiles = androidx.activity.compose.rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
-        attachScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            uris.take(ATTACH_CAP).forEach { uri ->
-                readBytes(uri)?.let { vm.stageAttachment(it, context.contentResolver.getType(uri) ?: "image/*") }
-            }
-        }
+        uris.take(ATTACH_CAP).forEach { stageUri(it) }
     }
 
     // Camera: capture into a FileProvider cache uri, then read it back. No CAMERA permission (delegates).
@@ -253,12 +294,15 @@ fun ChatScreen(
         ActivityResultContracts.TakePicture(),
     ) { ok ->
         if (ok) captureUri?.let { uri ->
-            attachScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                readBytes(uri)?.let { vm.stageAttachment(it, "image/jpeg") }
-            }
+            stageUri(uri, "camera-${System.currentTimeMillis()}.jpg")
         }
     }
     fun launchCamera() {
+        val cameraIntent = android.content.Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
+        if (cameraIntent.resolveActivity(context.packageManager) == null) {
+            showAttachmentError(localized(language, "没有可用的相机应用", "No camera app is available"))
+            return
+        }
         attachScope.launch {
             // Do the cache sweep + file creation off the main thread (disk I/O can jank/ANR),
             // then return to the main thread to set the uri and launch the camera.
@@ -270,6 +314,7 @@ fun ChatScreen(
             }
             captureUri = uri
             runCatching { takePhoto.launch(uri) }
+                .onFailure { showAttachmentError(it.message) }
         }
     }
 
@@ -447,31 +492,53 @@ fun ChatScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(state.pendingAttachments, key = { it.id }) { a ->
-                            val thumb by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, a.id) {
-                                value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                    decodeThumbnail(a.bytes, reqPx = 200)?.asImageBitmap()
+                            if (a.kind == AttachmentKind.IMAGE) {
+                                val thumb by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, a.id) {
+                                    value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        decodeThumbnail(a.bytes, reqPx = 200)?.asImageBitmap()
+                                    }
                                 }
-                            }
-                            Box(Modifier.size(58.dp)) {
-                                val bmp = thumb
-                                if (bmp != null) {
-                                    Image(
-                                        bitmap = bmp,
-                                        contentDescription = localized(language, "待发送图片", "Image ready to send"),
-                                        modifier = Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)),
-                                        contentScale = ContentScale.Crop,
-                                    )
-                                } else {
-                                    Box(Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
+                                Box(Modifier.size(58.dp)) {
+                                    val bmp = thumb
+                                    if (bmp != null) {
+                                        Image(
+                                            bitmap = bmp,
+                                            contentDescription = localized(language, "待发送图片", "Image ready to send"),
+                                            modifier = Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)),
+                                            contentScale = ContentScale.Crop,
+                                        )
+                                    } else {
+                                        Box(Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
+                                    }
+                                    Box(
+                                        Modifier.align(Alignment.TopEnd).padding(2.dp).size(24.dp)
+                                            .clip(androidx.compose.foundation.shape.CircleShape)
+                                            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f))
+                                            .clickable { vm.removeAttachment(a.id) },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(Icons.Rounded.Close, localized(language, "移除图片", "Remove image"), tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(15.dp))
+                                    }
                                 }
-                                Box(
-                                    Modifier.align(Alignment.TopEnd).padding(2.dp).size(24.dp)
-                                        .clip(androidx.compose.foundation.shape.CircleShape)
-                                        .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f))
-                                        .clickable { vm.removeAttachment(a.id) },
-                                    contentAlignment = Alignment.Center,
+                            } else {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.width(190.dp).height(58.dp),
                                 ) {
-                                    Icon(Icons.Rounded.Close, localized(language, "移除图片", "Remove image"), tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(15.dp))
+                                    Row(
+                                        Modifier.padding(start = 12.dp, end = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(Icons.Rounded.InsertDriveFile, contentDescription = null)
+                                        Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                                            Text(a.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
+                                            Text(attachmentSizeLabel(a.sizeBytes), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        IconButton(onClick = { vm.removeAttachment(a.id) }, modifier = Modifier.size(36.dp)) {
+                                            Icon(Icons.Rounded.Close, localized(language, "移除文件", "Remove file"), modifier = Modifier.size(17.dp))
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -723,6 +790,8 @@ fun ChatScreen(
                         isSpeaking = speaking,
                         onReadAloud = { vm.readAloud(it) },
                         onStopReading = { vm.stopReading() },
+                        onFileOpen = { handleFile(it, share = false) },
+                        onFileShare = { handleFile(it, share = true) },
                         modifier = Modifier.weight(1f),
                         onBlankAreaTap = {
                             if (composerFocused) {
@@ -775,9 +844,27 @@ fun ChatScreen(
                 )
                 AttachmentActionCard(
                     icon = Icons.Rounded.InsertDriveFile,
-                    label = localized(language, "手机图片", "Device images"),
+                    label = localized(language, "手机文件", "Files"),
                     modifier = Modifier.weight(1f),
-                    onClick = { showAttachSheet = false; pickFiles.launch(arrayOf("image/*")) },
+                    onClick = {
+                        showAttachSheet = false
+                        pickFiles.launch(arrayOf(
+                            "image/*",
+                            "application/pdf",
+                            "text/*",
+                            "application/json",
+                            "application/msword",
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            "application/vnd.ms-excel",
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            "application/vnd.ms-powerpoint",
+                            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                            "audio/*",
+                            "video/*",
+                            "application/zip",
+                            "application/octet-stream",
+                        ))
+                    },
                 )
             }
             ListItem(

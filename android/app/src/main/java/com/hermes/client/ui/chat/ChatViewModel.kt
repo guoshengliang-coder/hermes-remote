@@ -11,6 +11,7 @@ import com.hermes.client.data.progress.SessionRuntimeKey
 import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ChatMediaRepository
+import com.hermes.client.data.repository.ChatFileRepository
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.ProfileRepository
@@ -53,6 +54,7 @@ class ChatViewModel @Inject constructor(
     private val configRepo: com.hermes.client.data.repository.ConfigRepository,
     private val runtimeStore: SessionRuntimeStore,
     private val mediaRepository: ChatMediaRepository,
+    private val fileRepository: ChatFileRepository,
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
@@ -103,6 +105,13 @@ class ChatViewModel @Inject constructor(
 
     /** Stop any current read-aloud. */
     fun stopReading() = tts.stop()
+
+    fun fetchFile(file: com.hermes.client.domain.ChatFile, onResult: (Result<java.io.File>) -> Unit) {
+        viewModelScope.launch {
+            val result = runCatching { fileRepository.download(file) }
+            onResult(result)
+        }
+    }
 
     /** Device-local saved prompts, for the composer's prompt picker. */
     val savedPrompts: kotlinx.coroutines.flow.StateFlow<List<com.hermes.client.data.repository.SavedPrompt>> =
@@ -235,7 +244,7 @@ class ChatViewModel @Inject constructor(
                     // is a real JDK class (available since API 26, our minSdk) so it decodes
                     // correctly both on-device and under test.
                     runCatching { java.util.Base64.getDecoder().decode(imgB64) }
-                        .onSuccess { bytes -> stageAttachment(bytes, imgMime) }
+                        .onSuccess { bytes -> stageAttachment(bytes, imgMime, share.attachmentName ?: "attachment") }
                         .onFailure { e ->
                             if (e is kotlinx.coroutines.CancellationException) throw e
                             appendError("Attach failed: ${e.message}")
@@ -298,12 +307,13 @@ class ChatViewModel @Inject constructor(
         runtimeKey?.let { key -> runtimeStore.updateChat(key) { next } }
     }
 
-    fun stageAttachment(bytes: ByteArray, mimeType: String) {
+    fun stageAttachment(bytes: ByteArray, mimeType: String, name: String = "attachment") {
         // Generate the id outside update{}: staging is called from background (IO) threads, and the
         // update lambda can re-run under CAS contention — a shared counter would race/collide. UUID
         // is collision-free across threads.
         val id = "att-${java.util.UUID.randomUUID()}"
-        mutateState { it.withAttachment(PendingAttachment(id, bytes, mimeType)) }
+        require(bytes.size <= MAX_DIRECT_ATTACHMENT_BYTES) { "Attachment exceeds 6 MB" }
+        mutateState { it.withAttachment(PendingAttachment(id, bytes, mimeType, name)) }
     }
     fun removeAttachment(id: String) { mutateState { it.withoutAttachment(id) } }
 
@@ -326,11 +336,20 @@ class ChatViewModel @Inject constructor(
         mutateState { it.copy(pendingAttachments = emptyList()) }
         sendJob = viewModelScope.launch {
             try {
-                val outgoingImages = atts.map { a ->
+                val outgoingImages = atts.filter { it.kind == AttachmentKind.IMAGE }.map { a ->
                     mediaRepository.cacheOutgoing(a.id, a.bytes, a.mimeType)
                 }
-                runtimeKey?.let { runtimeStore.beginPrompt(it, text, outgoingImages, messageId) }
-                    ?: mutateState { it.withUserMessage(text, outgoingImages, messageId) }
+                val outgoingFiles = atts.filter { it.kind != AttachmentKind.IMAGE }.map { a ->
+                    com.hermes.client.domain.ChatFile(
+                        id = a.id,
+                        name = a.name,
+                        mimeType = a.mimeType,
+                        sizeBytes = a.sizeBytes,
+                        state = com.hermes.client.domain.FileTransferState.UPLOADING,
+                    )
+                }
+                runtimeKey?.let { runtimeStore.beginPrompt(it, text, outgoingImages, outgoingFiles, messageId) }
+                    ?: mutateState { it.withUserMessage(text, outgoingImages, outgoingFiles, messageId) }
                 com.hermes.client.data.diagnostics.DebugLog.log(
                     "session", "send($expectedStoredId) waiting for live handle",
                 )
@@ -376,6 +395,13 @@ class ChatViewModel @Inject constructor(
                         } else image
                     }
                 }
+                updateSentFiles(messageId) { files ->
+                    files.map { file ->
+                        if (file.state == com.hermes.client.domain.FileTransferState.UPLOADING) {
+                            file.copy(state = com.hermes.client.domain.FileTransferState.FAILED)
+                        } else file
+                    }
+                }
                 appendError(e.message ?: "Failed to send message")
             }
         }
@@ -393,18 +419,44 @@ class ChatViewModel @Inject constructor(
         suspend fun submitOn(handle: String) {
             com.hermes.client.data.diagnostics.DebugLog.log(
                 "session",
-                "submit stored=$storedId handle=$handle chars=${text.length} images=${attachments.size}",
+                "submit stored=$storedId handle=$handle chars=${text.length} attachments=${attachments.size}",
             )
+            val fileRefs = mutableListOf<String>()
             attachments.forEach { attachment ->
-                val encoded = java.util.Base64.getEncoder().encodeToString(attachment.bytes)
-                val attached = chat.attachImageBytes(handle, encoded, attachment.mimeType)
-                updateSentImage(messageId, attachment.id) { image ->
-                    image.copy(
-                        remotePath = attached.path,
-                        width = attached.width,
-                        height = attached.height,
-                        state = com.hermes.client.domain.ImageTransferState.READY,
-                    )
+                val uploaded = fileRepository.upload(
+                    attachment.bytes,
+                    attachment.name,
+                    attachment.mimeType,
+                )
+                when (attachment.kind) {
+                    AttachmentKind.IMAGE -> {
+                        val attached = chat.attachImagePath(handle, uploaded.path)
+                        updateSentImage(messageId, attachment.id) { image ->
+                            image.copy(
+                                remotePath = attached.path,
+                                width = attached.width,
+                                height = attached.height,
+                                state = com.hermes.client.domain.ImageTransferState.READY,
+                            )
+                        }
+                    }
+                    AttachmentKind.PDF -> {
+                        chat.attachPdfPath(handle, uploaded.path)
+                        updateSentFile(messageId, attachment.id) {
+                            it.copy(state = com.hermes.client.domain.FileTransferState.READY)
+                        }
+                    }
+                    AttachmentKind.FILE -> {
+                        val attached = chat.attachFilePath(handle, uploaded.path, attachment.name)
+                        fileRefs += attached.refText
+                        updateSentFile(messageId, attachment.id) {
+                            it.copy(
+                                name = attached.name,
+                                remotePath = attached.path,
+                                state = com.hermes.client.domain.FileTransferState.READY,
+                            )
+                        }
+                    }
                 }
             }
             if (isSlash) {
@@ -412,7 +464,14 @@ class ChatViewModel @Inject constructor(
                 output?.takeIf { it.isNotBlank() }?.let(::appendSystem)
                 runtimeKey?.let(runtimeStore::finishLocal)
             } else {
-                chat.submit(handle, text)
+                val submittedText = buildString {
+                    append(text.trimEnd())
+                    fileRefs.forEach { ref ->
+                        if (isNotEmpty()) append('\n')
+                        append(ref)
+                    }
+                }
+                chat.submit(handle, submittedText)
             }
         }
 
@@ -462,6 +521,26 @@ class ChatViewModel @Inject constructor(
             ?: mutateState { current ->
                 current.copy(messages = current.messages.map { message ->
                     if (message.id == messageId) message.copy(images = transform(message.images)) else message
+                })
+            }
+    }
+
+    private fun updateSentFile(
+        messageId: String,
+        fileId: String,
+        transform: (com.hermes.client.domain.ChatFile) -> com.hermes.client.domain.ChatFile,
+    ) = updateSentFiles(messageId) { files ->
+        files.map { if (it.id == fileId) transform(it) else it }
+    }
+
+    private fun updateSentFiles(
+        messageId: String,
+        transform: (List<com.hermes.client.domain.ChatFile>) -> List<com.hermes.client.domain.ChatFile>,
+    ) {
+        runtimeKey?.let { runtimeStore.updateUserFiles(it, messageId, transform) }
+            ?: mutateState { current ->
+                current.copy(messages = current.messages.map { message ->
+                    if (message.id == messageId) message.copy(files = transform(message.files)) else message
                 })
             }
     }

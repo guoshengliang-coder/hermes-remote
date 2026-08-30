@@ -31,3 +31,18 @@ npm run smoke:compat
 The test passes only after `/api/status` traverses the REST tunnel and a JSON-RPC request traverses `/api/ws` in both directions.
 
 For a deployed relay, set `PUBLIC_GATEWAY_URL` and `APP_TOKEN` in the invoking shell before running the same script. Keep the token out of command history and source control. A successful real-Hermes run accepts `gateway.ready` and any non-error result from `session.create`.
+
+## Attachment and large-response smoke test
+
+With Gateway and Connector running locally and `FILES_ROOT` pointing at a dedicated test directory:
+
+1. Upload a small text, PDF, and processed photo through the Android attachment sheet. Confirm each
+   appears on the outgoing user turn and Hermes receives the attachment before the prompt.
+2. Capture a photo with the system camera, cancel once, then capture successfully. Confirm cancel is
+   harmless and the successful capture produces a thumbnail.
+3. Have Hermes return `@image:/absolute/path/to/image.png` and `@file:/absolute/path/to/report.pdf`.
+   Confirm the image opens full screen and the file card opens/shares through the Android system UI.
+4. Download a file larger than the former whole-message ceiling (for example 24 MiB but below
+   `MAX_FILE_BYTES`). Confirm the download completes and the Connector remains online afterward.
+5. Attempt a path outside `FILES_ROOT`, an upload above `MAX_UPLOAD_BYTES`, and a download above
+   `MAX_FILE_BYTES`. Expect request-scoped 403/413 errors with no control-WebSocket disconnect.

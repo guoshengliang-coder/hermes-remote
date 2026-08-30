@@ -40,4 +40,22 @@ class MappersTest {
         assertEquals("", parsed.text)
         assertEquals("/tmp/screenshot.png", parsed.images.single().remotePath)
     }
+
+    @Test fun file_directives_become_hidden_downloadable_references() {
+        val parsed = parseMessageContent(
+            "报告已生成\n@file:`/Users/me/report final.pdf`\n[User attached file: report final.pdf]",
+        )
+
+        assertEquals("报告已生成", parsed.text)
+        assertEquals("report final.pdf", parsed.files.single().name)
+        assertEquals("application/pdf", parsed.files.single().mimeType)
+        assertEquals("/Users/me/report final.pdf", parsed.files.single().remotePath)
+    }
+
+    @Test fun https_markdown_images_become_image_cards_without_leaking_markup() {
+        val parsed = parseMessageContent("图如下：\n![架构图](https://cdn.example.com/diagram.png)")
+
+        assertEquals("图如下：\n架构图", parsed.text)
+        assertEquals("https://cdn.example.com/diagram.png", parsed.images.single().sourceUrl)
+    }
 }

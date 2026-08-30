@@ -8,6 +8,7 @@ data class PendingShare(
     val text: String? = null,
     val imageBase64: String? = null,
     val imageMime: String? = null,
+    val attachmentName: String? = null,
 )
 
 /**
