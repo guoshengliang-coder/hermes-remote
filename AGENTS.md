@@ -59,6 +59,11 @@ For every APK actually handed to a tester or user:
    `android/app/build/outputs/apk/distribution/debug/Hermes-Remote-<version>-debug.apk`.
 5. Never hand off the canonical unversioned `app-debug.apk`.
 
+The current test channel temporarily uses one shared debug certificate, documented in
+`docs/SIGNING.md`. `assembleDebug` runs `verifyDebugSigningKey` and must fail when the canonical key is
+missing or different. Never bypass that check, generate a replacement debug keystore, or provision the
+private key to another host without the project owner's explicit authorization.
+
 Do not bump the Android version for documentation-only or server-only work when no new APK is being
 distributed. With concurrent agents, only the integration agent performs the bump after all Android
 changes for that package have been integrated.
@@ -91,6 +96,7 @@ Do not claim device verification when only JVM tests were run.
 
 - Run `git diff --check` and inspect the final diff.
 - Confirm `git status` contains no accidental secrets, generated files, or other agents' changes.
+- For Android artifacts, confirm the signing certificate matches `docs/SIGNING.md`.
 - Report tests run, tests not run, the versioned APK path when applicable, and any deployment performed.
 - Commit and push only when the user or orchestrating workflow authorizes it. Never include
   `environment.md` in a commit.

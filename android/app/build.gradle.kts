@@ -1,10 +1,19 @@
 import java.util.Properties
+import java.security.KeyStore
+import java.security.MessageDigest
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // Increment both values for every APK distributed to testers. Keep versionCode
 // strictly increasing so Android always accepts the newer package as an update.
 val appVersionCode = 14
 val appVersionName = "0.1.13"
+
+// Temporary shared debug identity used by every authorized Hermes Remote build host. The private
+// keystore stays outside Git at ~/.android/debug.keystore; only its public certificate digest is
+// safe to keep here. This prevents another agent/machine from silently shipping an incompatible APK.
+val expectedDebugCertificateSha256 =
+    "06C18DFC4A852330654C2DA040A578BCCAB13B71DDE4AC962BB9BC2271DD32C5"
+val canonicalDebugKeystore = file("${System.getProperty("user.home")}/.android/debug.keystore")
 
 // Release signing is driven by a gitignored keystore.properties at the repo root.
 // When absent (e.g. a fresh clone or CI without secrets), release builds stay unsigned.
@@ -96,7 +105,32 @@ val stageDebugApk = tasks.register<Sync>("stageDebugApk") {
     rename { "Hermes-Remote-$appVersionName-debug.apk" }
 }
 
+val verifyDebugSigningKey = tasks.register("verifyDebugSigningKey") {
+    group = "verification"
+    description = "Rejects builds that do not use the shared Hermes Remote debug certificate."
+    doLast {
+        check(canonicalDebugKeystore.isFile) {
+            "Missing shared Hermes Remote debug keystore at ${canonicalDebugKeystore.path}. " +
+                "Ask the project owner for secure provisioning; do not generate a replacement."
+        }
+        val keyStore = KeyStore.getInstance("PKCS12").apply {
+            canonicalDebugKeystore.inputStream().use { load(it, "android".toCharArray()) }
+        }
+        val certificate = checkNotNull(keyStore.getCertificate("androiddebugkey")) {
+            "Shared debug keystore does not contain androiddebugkey."
+        }
+        val actual = MessageDigest.getInstance("SHA-256")
+            .digest(certificate.encoded)
+            .joinToString("") { "%02X".format(it) }
+        check(actual == expectedDebugCertificateSha256) {
+            "Wrong Hermes Remote debug signing certificate: $actual. " +
+                "Expected $expectedDebugCertificateSha256."
+        }
+    }
+}
+
 tasks.matching { it.name == "assembleDebug" }.configureEach {
+    dependsOn(verifyDebugSigningKey)
     finalizedBy(stageDebugApk)
 }
 

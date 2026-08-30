@@ -13,6 +13,9 @@ android/keystore/
 android/*.apk
 android/*.aab
 android/*.jks
+*.keystore
+*.jks
+/keystore.properties
 work/
 outputs/
 
