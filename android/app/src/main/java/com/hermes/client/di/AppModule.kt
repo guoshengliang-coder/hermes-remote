@@ -54,9 +54,8 @@ object AppModule {
     @Provides
     @Singleton
     fun provideOkHttpClient(gatedAuth: GatedAuth): OkHttpClient = OkHttpClient.Builder()
-        // Chinese carrier/public DNS can intermittently fail to resolve sslip.io after Tailscale
-        // is disabled. Pin only our relay hostname to its known address while keeping the original
-        // HTTPS hostname for SNI and certificate validation.
+        // Preserve the pinned DNS fallback for existing installations that still use the legacy
+        // sslip.io URL. The mrlgs.net production URL uses normal Android DNS resolution.
         .dns(RelayDns())
         .pingInterval(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)

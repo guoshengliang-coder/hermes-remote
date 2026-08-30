@@ -17,7 +17,7 @@ Collected on 2026-08-29. Concrete IP addresses, hostnames, SSH users, and creden
 - No Docker, Caddy, or Nginx currently installed
 - Ports `80`, `443`, and `8443` are occupied by existing services
 - Selected Hermes Remote port: `8444/TCP`
-- An existing Certbot certificate can be referenced by the Gateway after granting the dedicated service account read access
+- The Gateway uses a Certbot certificate for `mrlgs.net`, with the legacy hostname retained as a SAN during migration
 - Deployment style: Node.js build output managed by systemd
 
 ## Production configuration shape
@@ -32,7 +32,7 @@ CONNECTOR_TOKEN_FILE=/etc/hermes-remote/secrets/connector-token
 DEFAULT_DEVICE_ID=mac-mini
 ```
 
-The deployment copies the certificate into `/etc/hermes-remote/tls` with narrowly scoped permissions and refreshes it from a Certbot deploy hook. The actual environment file belongs at `/etc/hermes-remote/gateway.env`; tokens are separate files readable only by the service group. None of them may be committed.
+The deployment copies the certificate into `/etc/hermes-remote/tls` with narrowly scoped permissions and refreshes it from a Certbot deploy hook. Because DERP owns port 80, the `mrlgs.net` renewal configuration stops DERP before the standalone HTTP-01 challenge and starts it again afterward. The actual environment file belongs at `/etc/hermes-remote/gateway.env`; tokens are separate files readable only by the service group. None of them may be committed.
 
 ## Security items outside this repository
 

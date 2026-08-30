@@ -7,7 +7,7 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 ## First UI pass
 
 - Application ID: `com.hermes.remote`
-- Default Relay: `https://47.239.30.253.sslip.io:8444`
+- Default Relay: `https://mrlgs.net:8444`
 - Setup requires only the Relay URL and a dedicated App Token; Mac credentials never enter the app.
 - Calm mint/neutral visual system with a floating, full-width composer inspired by WorkBuddy's layout language.
 - Real Markdown rendering, readable JSON output normalization, and collapsed tool-result cards.

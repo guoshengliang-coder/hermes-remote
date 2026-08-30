@@ -2,7 +2,7 @@ package com.hermes.client.data.auth
 
 import java.net.URI
 
-const val DEFAULT_REMOTE_GATEWAY_URL = "https://47.239.30.253.sslip.io:8444"
+const val DEFAULT_REMOTE_GATEWAY_URL = "https://mrlgs.net:8444"
 
 data class GatewayConfig(
     val baseUrl: String,

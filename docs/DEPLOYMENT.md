@@ -1,18 +1,24 @@
 # MVP deployment
 
-The first production-shaped relay was installed and verified on 2026-08-29.
+The first production-shaped relay was installed and verified on 2026-08-29. The production
+hostname was migrated to `mrlgs.net` on 2026-08-30.
 
 ## Installed services
 
 - HK Gateway: `/opt/hermes-remote`, managed by `hermes-remote-gateway.service`
 - Gateway configuration: `/etc/hermes-remote`, with separate service-readable token files
-- Public endpoint: `https://<gateway-domain>:8444`
+- Public endpoint: `https://mrlgs.net:8444`
 - Mac Connector: `~/Library/Application Support/Hermes Remote`
 - Connector service: `~/Library/LaunchAgents/com.hermesremote.connector.plist`
 - Connector control-channel heartbeat: 15 seconds; a missed pong forces an automatic reconnect after sleep or network changes.
 - Hermes credentials remain only in the existing `~/.hermes/.env`
 
 The deployment did not alter Xray, DERP, Hermes configuration, UFW, or the host firewall.
+
+The Gateway certificate contains both `mrlgs.net` and the previous sslip.io hostname so existing
+Android installations remain connected during migration. Certbot renewal uses standalone HTTP-01;
+its certificate-specific hooks briefly stop and restart DERP around the challenge, and the deploy
+hook copies the renewed certificate into `/etc/hermes-remote/tls` before restarting the Gateway.
 
 ## Verification completed
 
@@ -27,7 +33,7 @@ The deployment did not alter Xray, DERP, Hermes configuration, UFW, or the host 
 Gateway health:
 
 ```bash
-curl https://<gateway-domain>:8444/health
+curl https://mrlgs.net:8444/health
 ```
 
 Gateway status and logs:
