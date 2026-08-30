@@ -66,6 +66,9 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 - Version 0.1.23 unwedges chat scrolling: a failed jump-to-bottom falls back to browsing instead
   of locking the screen, tail detection tolerates dense-screen layout rounding, history refreshes
   no longer yank an upward-scrolled reader to the bottom, and tail-follow yields to search scrolls.
+- Version 0.1.24 keeps the chat scroll executor alive when a user drag steals the scroll mutex
+  from a programmatic snap; that collision previously cancelled the executor coroutine silently,
+  after which the jump-to-bottom button and stream following never worked again for the screen.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
@@ -87,7 +90,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.23-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.24-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
