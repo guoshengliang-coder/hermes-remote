@@ -1,0 +1,8 @@
+{
+  "channel": "internal",
+  "releaseNotes": [
+    "兼容 Hermes 实际返回的“已生成:`/Users/...md`(7.3KB)”文件格式，自动替换为可打开、可分享的远程文件卡片。",
+    "支持文件路径独占下一行、Markdown 行内代码、fenced code block、有限换行、中文文件名及 B/KB/MB/GB 大小标记。",
+    "图片扩展名仍进入图片预览而不会误生成文件卡；普通正文中的路径不会被误判。"
+  ]
+}

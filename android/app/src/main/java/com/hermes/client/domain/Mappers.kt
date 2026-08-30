@@ -46,11 +46,23 @@ private val LOCAL_MARKDOWN_IMAGE = Regex(
     RegexOption.IGNORE_CASE,
 )
 private val LABELED_IMAGE_PATH = Regex(
-    "^\\s*(?:图片(?:的)?保存(?:路径|位置)|图片路径|图片(?:已)?保存(?:到|至|在)|生成(?:的)?图片(?:保存)?(?:路径|位置)|image\\s+(?:saved|written|stored)(?:\\s+(?:to|at))?|generated\\s+image\\s+(?:path|location))\\s*[：:]?\\s*(.*)$",
+    "^\\s*(?:图片(?:的)?保存(?:路径|位置)|图片路径|图片(?:已)?保存(?:到|至|在)|生成(?:的)?图片(?:保存)?(?:路径|位置)|image\\s+(?:saved|written|stored)(?:\\s+(?:to|at))?|generated\\s+image\\s+(?:path|location)|已生成|generated)\\s*[：:]?\\s*(.*)$",
+    RegexOption.IGNORE_CASE,
+)
+private val LABELED_FILE_PATH = Regex(
+    "^\\s*(?:文件(?:的)?保存(?:路径|位置)|文件路径|文件(?:已)?保存(?:到|至|在)|生成(?:的)?文件(?:保存)?(?:路径|位置)|输出(?:文件)?(?:路径|位置)|file\\s+(?:saved|written|stored)(?:\\s+(?:to|at))?|generated\\s+file(?:\\s+(?:path|location))?|output\\s+file(?:\\s+(?:path|location))?|已生成|generated)\\s*[：:]?\\s*(.*)$",
     RegexOption.IGNORE_CASE,
 )
 private val IMAGE_PATH_EXTENSION = Regex(
     "\\.(?:png|jpe?g|gif|webp)(?=$|[\\s`\"'<>，。；;）)\\]])",
+    RegexOption.IGNORE_CASE,
+)
+private val FILE_PATH_EXTENSION = Regex(
+    "\\.([A-Za-z][A-Za-z0-9]{0,11})(?=$|[\\s`\"'<>，。；;）)\\]])",
+    RegexOption.IGNORE_CASE,
+)
+private val FILE_SIZE_SUFFIX = Regex(
+    "[（(]\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(B|KB|MB|GB|KIB|MIB|GIB)\\s*[）)]",
     RegexOption.IGNORE_CASE,
 )
 private val NEXT_FIELD_LABEL = Regex("^[^/\\\\]{1,40}[：:].*$")
@@ -66,19 +78,30 @@ private data class LabeledImageExtraction(
     val paths: List<String>,
 )
 
+private data class LabeledFileReference(
+    val path: String,
+    val sizeBytes: Long?,
+)
+
+private data class LabeledFileExtraction(
+    val text: String,
+    val references: List<LabeledFileReference>,
+)
+
 /** Hermes persists attachments as `@image:/absolute/path`; keep the path out of visible chat. */
 internal fun parseMessageContent(raw: String): ParsedMessageContent {
     val labeled = extractLabeledImagePaths(raw)
-    val pathImages = IMAGE_DIRECTIVE.findAll(labeled.text).mapNotNull { match ->
+    val labeledFiles = extractLabeledFilePaths(labeled.text)
+    val pathImages = IMAGE_DIRECTIVE.findAll(labeledFiles.text).mapNotNull { match ->
         match.groupValues.drop(1).firstOrNull { it.isNotBlank() }
             ?.let(::normalizeLocalImagePath)
             ?.let(::remoteImage)
     }.toList()
     val labeledImages = labeled.paths.map(::remoteImage)
-    val localMarkdownImages = LOCAL_MARKDOWN_IMAGE.findAll(labeled.text).mapNotNull { match ->
+    val localMarkdownImages = LOCAL_MARKDOWN_IMAGE.findAll(labeledFiles.text).mapNotNull { match ->
         normalizeLocalImagePath(match.groupValues[2])?.let(::remoteImage)
     }.toList()
-    val webImages = MARKDOWN_IMAGE.findAll(labeled.text).mapIndexed { index, match ->
+    val webImages = MARKDOWN_IMAGE.findAll(labeledFiles.text).mapIndexed { index, match ->
         val url = match.groupValues[2]
         ChatImage(
             id = "web-${url.hashCode()}-$index",
@@ -87,7 +110,7 @@ internal fun parseMessageContent(raw: String): ParsedMessageContent {
     }.toList()
     val images = (pathImages + labeledImages + localMarkdownImages + webImages)
         .distinctBy { it.remotePath ?: it.sourceUrl ?: it.id }
-    val files = FILE_DIRECTIVE.findAll(labeled.text).mapIndexed { index, match ->
+    val directiveFiles = FILE_DIRECTIVE.findAll(labeledFiles.text).mapIndexed { index, match ->
         val path = match.groupValues.drop(1).firstOrNull { it.isNotBlank() }.orEmpty()
         val name = path.substringAfterLast('/').substringAfterLast('\\').ifBlank { "attachment" }
         ChatFile(
@@ -97,7 +120,18 @@ internal fun parseMessageContent(raw: String): ParsedMessageContent {
             remotePath = path,
         )
     }.toList()
-    val visible = labeled.text
+    val naturalFiles = labeledFiles.references.map { reference ->
+        val name = reference.path.substringAfterLast('/').substringAfterLast('\\').ifBlank { "attachment" }
+        ChatFile(
+            id = "file-${reference.path.hashCode()}",
+            name = name,
+            mimeType = mimeTypeForName(name),
+            sizeBytes = reference.sizeBytes,
+            remotePath = reference.path,
+        )
+    }
+    val files = (directiveFiles + naturalFiles).distinctBy { it.remotePath ?: it.localPath ?: it.id }
+    val visible = labeledFiles.text
         .replace(IMAGE_DIRECTIVE, "")
         .replace(ATTACHED_IMAGE_PLACEHOLDER, "")
         .replace(FILE_DIRECTIVE, "")
@@ -109,6 +143,55 @@ internal fun parseMessageContent(raw: String): ParsedMessageContent {
         .dropLastWhile { it.isBlank() }
         .joinToString("\n")
     return ParsedMessageContent(visible, images, files)
+}
+
+/** Natural-language compatibility for generated non-image artifacts such as markdown reports. */
+private fun extractLabeledFilePaths(raw: String): LabeledFileExtraction {
+    val lines = raw.lines()
+    val visible = mutableListOf<String>()
+    val references = mutableListOf<LabeledFileReference>()
+    var index = 0
+    while (index < lines.size) {
+        val match = LABELED_FILE_PATH.matchEntire(lines[index])
+        if (match == null) {
+            visible += lines[index++]
+            continue
+        }
+
+        var candidate = match.groupValues[1].trim()
+        var end = index
+        var reference = normalizeLocalFileReference(candidate)
+        var fenced = false
+        while (reference == null && end + 1 < lines.size && end - index < 6 &&
+            (candidate.isBlank() || looksLikeLocalPathStart(candidate))
+        ) {
+            val continuation = lines[end + 1].trim()
+            if (continuation.isBlank()) {
+                end += 1
+                continue
+            }
+            if (candidate.isBlank() && continuation.startsWith("```")) {
+                fenced = true
+                end += 1
+                continue
+            }
+            if (NEXT_FIELD_LABEL.matches(continuation)) break
+            candidate += continuation
+            end += 1
+            reference = normalizeLocalFileReference(candidate)
+        }
+        if (reference == null) {
+            visible += lines[index++]
+        } else {
+            references += reference
+            if (fenced && end + 1 < lines.size && lines[end + 1].trim().startsWith("```")) {
+                end += 1
+            }
+            while (end + 1 < lines.size && lines[end + 1].isBlank()) end += 1
+            index = end + 1
+        }
+    }
+    return LabeledFileExtraction(visible.joinToString("\n"), references)
 }
 
 /**
@@ -184,6 +267,32 @@ private fun normalizeLocalImagePath(raw: String): String? {
         URI(reference.replace(" ", "%20")).path
     }.getOrNull()?.takeIf { it.isNotBlank() } ?: reference.removePrefix("file://")
     return path.takeIf { it.startsWith('/') && imageMimeTypeForPath(it) != null }
+}
+
+private fun normalizeLocalFileReference(raw: String): LabeledFileReference? {
+    val unwrapped = raw.trim().trimStart('`', '"', '\'', '<')
+    val extension = FILE_PATH_EXTENSION.findAll(unwrapped).lastOrNull() ?: return null
+    val extensionName = extension.groupValues[1]
+    if (imageMimeTypeForPath("attachment.$extensionName") != null) return null
+    val reference = unwrapped.substring(0, extension.range.last + 1)
+    val path = runCatching {
+        URI(reference.replace(" ", "%20")).path
+    }.getOrNull()?.takeIf { it.isNotBlank() } ?: reference.removePrefix("file://")
+    if (!path.startsWith('/') || path.substringAfterLast('/').isBlank()) return null
+    return LabeledFileReference(path, parseFileSizeBytes(unwrapped.substring(extension.range.last + 1)))
+}
+
+private fun parseFileSizeBytes(raw: String): Long? {
+    val match = FILE_SIZE_SUFFIX.find(raw) ?: return null
+    val value = match.groupValues[1].toDoubleOrNull() ?: return null
+    val multiplier = when (match.groupValues[2].uppercase()) {
+        "B" -> 1L
+        "KB", "KIB" -> 1024L
+        "MB", "MIB" -> 1024L * 1024L
+        "GB", "GIB" -> 1024L * 1024L * 1024L
+        else -> return null
+    }
+    return (value * multiplier).toLong().takeIf { it >= 0 }
 }
 
 private fun remoteImage(path: String) = ChatImage(

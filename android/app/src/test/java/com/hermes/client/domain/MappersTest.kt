@@ -130,6 +130,48 @@ class MappersTest {
         assertEquals("/Users/bs/output/generated fox.webp", parsed.images.single().remotePath)
     }
 
+    @Test fun hermes_generated_markdown_path_becomes_downloadable_file() {
+        val parsed = parseMessageContent(
+            """
+                已生成:`/Users/bs/hermes-文生图与安卓图片显示-会话整理-20260830.md`(7.3KB)
+
+                **内容结构**:
+                1. **需求背景** — 三个问题的来源
+            """.trimIndent(),
+        )
+
+        assertEquals("**内容结构**:\n1. **需求背景** — 三个问题的来源", parsed.text)
+        val file = parsed.files.single()
+        assertEquals("hermes-文生图与安卓图片显示-会话整理-20260830.md", file.name)
+        assertEquals("text/markdown", file.mimeType)
+        assertEquals(7_475L, file.sizeBytes)
+        assertEquals("/Users/bs/hermes-文生图与安卓图片显示-会话整理-20260830.md", file.remotePath)
+    }
+
+    @Test fun labeled_file_path_on_following_fenced_line_becomes_downloadable_file() {
+        val parsed = parseMessageContent(
+            """
+                File saved to:
+                ```text
+                /Users/bs/output/final report.pdf
+                ```
+                Ready.
+            """.trimIndent(),
+        )
+
+        assertEquals("Ready.", parsed.text)
+        assertEquals("final report.pdf", parsed.files.single().name)
+        assertEquals("application/pdf", parsed.files.single().mimeType)
+    }
+
+    @Test fun generic_generated_image_path_remains_an_image_not_a_file() {
+        val parsed = parseMessageContent("已生成：`/Users/bs/output/generated.png`")
+
+        assertEquals("", parsed.text)
+        assertEquals("/Users/bs/output/generated.png", parsed.images.single().remotePath)
+        assertEquals(0, parsed.files.size)
+    }
+
     @Test fun local_markdown_and_file_urls_become_remote_images() {
         val markdown = parseMessageContent("结果：\n![测试图](</Users/bs/output/photo one.webp>)")
         val fileUrl = parseMessageContent("Image saved to: file:///Users/bs/output/photo%20two.jpg")
