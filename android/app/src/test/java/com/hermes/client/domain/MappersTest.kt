@@ -90,6 +90,46 @@ class MappersTest {
         )
     }
 
+    @Test fun hermes_image_path_on_following_inline_code_line_becomes_remote_image() {
+        val markdownHardBreak = "  "
+        val parsed = parseMessageContent(
+            """
+                已生成并复核成功：云海上的玻璃温室、发光植物和戴红围巾的小狐狸。
+
+                图片路径：${markdownHardBreak}
+                `/Users/bs/.hermes/cache/images/openai_codex_gpt-image-2-medium_20260830_212159_f6fe9be9.png`
+
+                图片模型：gpt-image-2-medium${markdownHardBreak}
+                对话模型：gpt-5.6-sol
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            "已生成并复核成功：云海上的玻璃温室、发光植物和戴红围巾的小狐狸。\n\n" +
+                "图片模型：gpt-image-2-medium  \n对话模型：gpt-5.6-sol",
+            parsed.text,
+        )
+        assertEquals(
+            "/Users/bs/.hermes/cache/images/openai_codex_gpt-image-2-medium_20260830_212159_f6fe9be9.png",
+            parsed.images.single().remotePath,
+        )
+    }
+
+    @Test fun labeled_fenced_image_path_becomes_remote_image_without_leaking_fence() {
+        val parsed = parseMessageContent(
+            """
+                Generated image path:
+                ```text
+                /Users/bs/output/generated fox.webp
+                ```
+                Done.
+            """.trimIndent(),
+        )
+
+        assertEquals("Done.", parsed.text)
+        assertEquals("/Users/bs/output/generated fox.webp", parsed.images.single().remotePath)
+    }
+
     @Test fun local_markdown_and_file_urls_become_remote_images() {
         val markdown = parseMessageContent("结果：\n![测试图](</Users/bs/output/photo one.webp>)")
         val fileUrl = parseMessageContent("Image saved to: file:///Users/bs/output/photo%20two.jpg")

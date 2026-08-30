@@ -46,7 +46,7 @@ private val LOCAL_MARKDOWN_IMAGE = Regex(
     RegexOption.IGNORE_CASE,
 )
 private val LABELED_IMAGE_PATH = Regex(
-    "^\\s*(?:图片(?:的)?保存(?:路径|位置)|图片路径|图片(?:已)?保存(?:到|至|在)|生成(?:的)?图片(?:保存)?(?:路径|位置)|image\\s+(?:saved|written|stored)(?:\\s+(?:to|at))?|generated\\s+image\\s+(?:path|location))\\s*(?:[：:]|\\s)\\s*(.+?)\\s*$",
+    "^\\s*(?:图片(?:的)?保存(?:路径|位置)|图片路径|图片(?:已)?保存(?:到|至|在)|生成(?:的)?图片(?:保存)?(?:路径|位置)|image\\s+(?:saved|written|stored)(?:\\s+(?:to|at))?|generated\\s+image\\s+(?:path|location))\\s*[：:]?\\s*(.*)$",
     RegexOption.IGNORE_CASE,
 )
 private val IMAGE_PATH_EXTENSION = Regex(
@@ -113,9 +113,11 @@ internal fun parseMessageContent(raw: String): ParsedMessageContent {
 
 /**
  * Compatibility for tool/model prose such as `图片保存路径： /Users/me/output.png`. The path may
- * have real line breaks inserted by an upstream formatter, so join at most four continuation lines
- * until a raster-image extension appears. Requiring an explicit image-path label avoids turning
- * arbitrary filesystem examples in ordinary assistant prose into downloadable attachments.
+ * have real line breaks inserted by an upstream formatter, and Hermes commonly emits the label as
+ * a Markdown hard break followed by an inline-code path on the next line. Join a small bounded
+ * number of continuation lines until a raster-image extension appears. Requiring an explicit
+ * image-path label avoids turning arbitrary filesystem examples in ordinary assistant prose into
+ * downloadable attachments.
  */
 private fun extractLabeledImagePaths(raw: String): LabeledImageExtraction {
     val lines = raw.lines()
@@ -132,9 +134,23 @@ private fun extractLabeledImagePaths(raw: String): LabeledImageExtraction {
         var candidate = match.groupValues[1].trim()
         var end = index
         var path = normalizeLocalImagePath(candidate)
-        while (path == null && end + 1 < lines.size && end - index < 3 && looksLikeLocalPathStart(candidate)) {
+        var fenced = false
+        while (path == null && end + 1 < lines.size && end - index < 6 &&
+            (candidate.isBlank() || looksLikeLocalPathStart(candidate))
+        ) {
             val continuation = lines[end + 1].trim()
-            if (continuation.isBlank() || NEXT_FIELD_LABEL.matches(continuation)) break
+            if (continuation.isBlank()) {
+                // Permit one or two presentation-only gaps after an otherwise empty label without
+                // scanning arbitrarily far into the following answer.
+                end += 1
+                continue
+            }
+            if (candidate.isBlank() && continuation.startsWith("```")) {
+                fenced = true
+                end += 1
+                continue
+            }
+            if (NEXT_FIELD_LABEL.matches(continuation)) break
             candidate += continuation
             end += 1
             path = normalizeLocalImagePath(candidate)
@@ -143,6 +159,12 @@ private fun extractLabeledImagePaths(raw: String): LabeledImageExtraction {
             visible += lines[index++]
         } else {
             paths += path
+            if (fenced && end + 1 < lines.size && lines[end + 1].trim().startsWith("```")) {
+                end += 1
+            }
+            // The path block is normally followed by a presentation-only blank line. Consume it
+            // with the hidden block so removing the path does not leave a three-line visual gap.
+            while (end + 1 < lines.size && lines[end + 1].isBlank()) end += 1
             index = end + 1
         }
     }
