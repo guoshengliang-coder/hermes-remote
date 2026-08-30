@@ -1,0 +1,1 @@
+{"channel":"internal","releaseNotes":["Fix first-message delivery in a new conversation by navigating with the durable stored_session_id and resuming it before submitting."]}

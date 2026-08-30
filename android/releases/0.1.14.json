@@ -1,0 +1,1 @@
+{"channel":"internal","releaseNotes":["Merge the hardened Connector /api/files download endpoint.","Disable Android cleartext traffic outside localhost development targets."]}

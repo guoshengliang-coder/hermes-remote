@@ -1,0 +1,5 @@
+# Install as /etc/hermes-release-server/environment with mode 0600.
+TLS_CERT=/etc/hermes-release-server/tls/fullchain.pem
+TLS_KEY=/etc/hermes-release-server/tls/privkey.pem
+RELEASE_DATA_ROOT=/srv/hermes-releases
+PORT=443

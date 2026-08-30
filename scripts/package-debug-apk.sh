@@ -129,3 +129,20 @@ echo "ARTIFACT=$ARTIFACT"
 echo "BYTES=$BYTES"
 echo "CERT_SHA256=$ACTUAL_CERT_SHA256"
 echo "SHA256=$SHA256"
+
+if [[ -n "${APK_RELEASE_METADATA_FILE:-}" ]]; then
+  umask 077
+  python3 - "$APK_RELEASE_METADATA_FILE" "$VERSION_NAME" "$VERSION_CODE" "$ARTIFACT" "$BYTES" "$ACTUAL_CERT_SHA256" "$SHA256" <<'PY'
+import json, os, sys, tempfile
+target, name, code, artifact, size, cert, sha = sys.argv[1:]
+directory = os.path.dirname(os.path.abspath(target))
+fd, temporary = tempfile.mkstemp(dir=directory, prefix='.apk-release-', text=True)
+try:
+    with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+        json.dump({'gate':'APK_RELEASE_OK','versionName':name,'versionCode':int(code),'artifact':artifact,'sizeBytes':int(size),'certificateSha256':cert,'sha256':sha}, stream)
+        stream.write('\n')
+    os.replace(temporary, target)
+finally:
+    if os.path.exists(temporary): os.unlink(temporary)
+PY
+fi

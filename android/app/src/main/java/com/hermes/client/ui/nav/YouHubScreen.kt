@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
@@ -98,6 +99,8 @@ fun YouHubScreen(
             HubRow(Icons.Rounded.AdminPanelSettings, localized(language, "管理", "Management"), localized(language, "管理工具和会话工具", "Admin & session tools")) { onNavigate("management") }
             HorizontalDivider()
             HubRow(Icons.Rounded.Settings, localized(language, "设置", "Settings"), localized(language, "应用与连接设置", "App & connection settings")) { onNavigate("settings") }
+            HorizontalDivider()
+            HubRow(Icons.Rounded.SystemUpdate, localized(language, "检查更新", "Check for updates"), localized(language, "查看、下载并安装可用版本", "View, download, and install available versions")) { onNavigate("app_update") }
         }
     }
 

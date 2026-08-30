@@ -81,3 +81,12 @@ Every `assembleDebug` verifies that certificate before compiling, so a new Agent
 cannot silently produce an APK with an incompatible signature.
 
 See `UPSTREAM.md` and `../docs/ANDROID_BASE_AUDIT.md` before importing or distributing the derivative app.
+
+## App updates
+
+The You tab links to a manual update page. It uses a credential-free HTTP client to read the internal
+channel manifest from `https://mrlgs.net/releases/index.json`, downloads with Android DownloadManager,
+and verifies the complete APK before opening Android's user-confirmed package installer. It does not
+perform automatic, forced, silent, incremental, or downgrade installs. Release descriptions live in
+`releases/<version>.json`; derived hashes, sizes, timestamps, and signing data are generated only by
+the release gate and publisher. See `../docs/APP_UPDATE.md`.
