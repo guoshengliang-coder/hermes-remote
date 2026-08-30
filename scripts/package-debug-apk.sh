@@ -124,7 +124,11 @@ if [[ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]]; then
   echo "APK signing certificate mismatch: got $ACTUAL_CERT_SHA256, expected $EXPECTED_CERT_SHA256" >&2
   exit 1
 fi
-SHA_LINE="$(shasum -a 256 "$ARTIFACT")"
+if command -v shasum >/dev/null 2>&1; then
+  SHA_LINE="$(shasum -a 256 "$ARTIFACT")"
+else
+  SHA_LINE="$(sha256sum "$ARTIFACT")"
+fi
 SHA256="${SHA_LINE%% *}"
 # Keep the release gate portable across macOS (local builds) and Linux (CI).
 BYTES="$(python3 - "$ARTIFACT" <<'PY'
