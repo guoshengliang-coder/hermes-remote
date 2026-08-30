@@ -23,7 +23,7 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 RestrictRealtime=true
 LockPersonality=true
-MemoryDenyWriteExecute=true
+# Node/V8 JIT allocates executable memory; MemoryDenyWriteExecute crashes the process.
 UMask=0077
 RestrictAddressFamilies=AF_INET AF_INET6
 SystemCallArchitectures=native
