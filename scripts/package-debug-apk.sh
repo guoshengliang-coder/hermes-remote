@@ -23,6 +23,21 @@ PY
 
 VERSION_NAME="$(read_version appVersionName)"
 VERSION_CODE="$(read_version appVersionCode)"
+EXPECTED_CERT_SHA256="$(python3 - "$GRADLE_FILE" <<'PY'
+import re
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+match = re.search(
+    r'expectedDebugCertificateSha256\s*=\s*"([0-9A-Fa-f]+)"',
+    text,
+    re.MULTILINE,
+)
+if not match:
+    raise SystemExit("missing expectedDebugCertificateSha256 in build.gradle.kts")
+print(match.group(1).lower())
+PY
+)"
 ARTIFACT="$ANDROID_DIR/app/build/outputs/apk/distribution/debug/Hermes-Remote-${VERSION_NAME}-debug.apk"
 
 python3 - "$ANDROID_README" "$VERSION_NAME" <<'PY'
@@ -64,7 +79,8 @@ PY
 )"
 APKSIGNER="${AAPT%/aapt}/apksigner"
 BADGING="$(mktemp)"
-trap 'rm -f "$BADGING"' EXIT
+SIGNING="$(mktemp)"
+trap 'rm -f "$BADGING" "$SIGNING"' EXIT
 "$AAPT" dump badging "$ARTIFACT" > "$BADGING"
 
 python3 - "$BADGING" "$VERSION_NAME" "$VERSION_CODE" <<'PY'
@@ -85,7 +101,22 @@ if name != expected_name or code != expected_code:
     )
 PY
 
-"$APKSIGNER" verify "$ARTIFACT"
+"$APKSIGNER" verify --print-certs "$ARTIFACT" > "$SIGNING"
+ACTUAL_CERT_SHA256="$(python3 - "$SIGNING" <<'PY'
+import re
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+match = re.search(r"Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F]+)", text)
+if not match:
+    raise SystemExit("unable to read APK signing certificate SHA-256")
+print(match.group(1).lower())
+PY
+)"
+if [[ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]]; then
+  echo "APK signing certificate mismatch: got $ACTUAL_CERT_SHA256, expected $EXPECTED_CERT_SHA256" >&2
+  exit 1
+fi
 SHA_LINE="$(shasum -a 256 "$ARTIFACT")"
 SHA256="${SHA_LINE%% *}"
 BYTES="$(stat -f '%z' "$ARTIFACT")"
@@ -96,4 +127,5 @@ echo "VERSION_NAME=$VERSION_NAME"
 echo "VERSION_CODE=$VERSION_CODE"
 echo "ARTIFACT=$ARTIFACT"
 echo "BYTES=$BYTES"
+echo "CERT_SHA256=$ACTUAL_CERT_SHA256"
 echo "SHA256=$SHA256"
