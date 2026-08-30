@@ -72,4 +72,8 @@ For every APK distributed to testers, increment `appVersionName` by one patch ve
 increment `appVersionCode` by one in `app/build.gradle.kts`. Never distribute the unversioned
 canonical APK.
 
+Debug APKs currently use the temporary shared signing identity documented in `../docs/SIGNING.md`.
+Every `assembleDebug` verifies that certificate before compiling, so a new Agent or build machine
+cannot silently produce an APK with an incompatible signature.
+
 See `UPSTREAM.md` and `../docs/ANDROID_BASE_AUDIT.md` before importing or distributing the derivative app.
