@@ -7,6 +7,14 @@ rollback() { systemctl stop hermes-release-server.service >/dev/null 2>&1 || tru
 trap rollback ERR
 "$(cd "$(dirname "$0")" && pwd)/bootstrap-release-server.sh"
 systemctl enable --now hermes-release-server.service
-curl --fail --silent --show-error https://mrlgs.net/health >/dev/null
+ready=false
+for _ in $(seq 1 40); do
+  if curl --fail --silent --show-error --connect-timeout 1 https://mrlgs.net/health >/dev/null 2>&1; then
+    ready=true
+    break
+  fi
+  sleep 0.25
+done
+[[ "$ready" == true ]] || { echo "release server readiness check timed out" >&2; exit 1; }
 systemctl disable "$OLD_SERVICE" >/dev/null 2>&1 || true
 trap - ERR
