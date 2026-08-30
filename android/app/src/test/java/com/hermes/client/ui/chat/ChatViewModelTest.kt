@@ -280,6 +280,24 @@ class ChatViewModelTest {
         assertEquals("hello", vm.initialDraft.value)
     }
 
+    @Test fun save_image_to_gallery_delegates_and_reports_completion() = runTest {
+        val image = com.hermes.client.domain.ChatImage(
+            id = "generated",
+            mimeType = "image/png",
+            localPath = "/cache/generated.png",
+        )
+        val saved = com.hermes.client.data.repository.SavedChatImage(mockk(), "generated.png")
+        coEvery { mediaRepo.saveToGallery(image) } returns saved
+        val vm = buildVm()
+        var result: Result<com.hermes.client.data.repository.SavedChatImage>? = null
+
+        vm.saveImageToGallery(image) { result = it }
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { mediaRepo.saveToGallery(image) }
+        assertEquals("generated.png", result?.getOrThrow()?.displayName)
+    }
+
     /**
      * I3: when connectionState enters Reconnecting while generation is in progress,
      * the in-flight assistant message must be marked interrupted and isGenerating cleared.

@@ -93,6 +93,9 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   into raw markdown and collapsing again at completion; payload masking now starts with the blob's
   first characters, and snapshots are organized off the main thread. Verified on an emulator against
   a scripted mock stream: prose above the stream stays pixel-stable through the payload lifecycle.
+- Version 0.1.32 adds original-quality image export from the full-screen viewer: Android 10+ saves
+  directly into `Pictures/Hermes Remote` through MediaStore, Android 8/9 uses the system Save As
+  picker, and every supported version can share the hydrated original through a protected content URI.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
@@ -114,7 +117,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.31-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.32-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

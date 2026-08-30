@@ -38,6 +38,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.ThumbDown
@@ -47,6 +48,8 @@ import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -85,6 +88,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
@@ -132,6 +137,10 @@ fun ChatMessageList(
     isSpeaking: Boolean = false,
     onReadAloud: (String) -> Unit = {},
     onStopReading: () -> Unit = {},
+    onImageSave: (ChatImage) -> Unit = {},
+    onImageSaveAs: (ChatImage) -> Unit = {},
+    onImageShare: (ChatImage) -> Unit = {},
+    savingImageId: String? = null,
     onFileOpen: (ChatFile) -> Unit = {},
     onFileShare: (ChatFile) -> Unit = {},
     highlightIndex: Int? = null,
@@ -340,6 +349,10 @@ fun ChatMessageList(
                         isSpeaking,
                         onReadAloud,
                         onStopReading,
+                        onImageSave,
+                        onImageSaveAs,
+                        onImageShare,
+                        savingImageId,
                         onFileOpen,
                         onFileShare,
                         highlighted = index == highlightIndex,
@@ -454,13 +467,17 @@ private fun MessageBubble(
     isSpeaking: Boolean,
     onReadAloud: (String) -> Unit,
     onStopReading: () -> Unit,
+    onImageSave: (ChatImage) -> Unit,
+    onImageSaveAs: (ChatImage) -> Unit,
+    onImageShare: (ChatImage) -> Unit,
+    savingImageId: String?,
     onFileOpen: (ChatFile) -> Unit,
     onFileShare: (ChatFile) -> Unit,
     highlighted: Boolean = false,
 ) {
     when (msg.role) {
-        Role.USER -> UserBubble(msg, onEditResend, onFileOpen, onFileShare, highlighted = highlighted)
-        else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, isSpeaking, onReadAloud, onStopReading, onFileOpen, onFileShare, highlighted = highlighted)
+        Role.USER -> UserBubble(msg, onEditResend, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted)
+        else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, isSpeaking, onReadAloud, onStopReading, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted)
     }
 }
 
@@ -469,6 +486,10 @@ private fun MessageBubble(
 private fun UserBubble(
     msg: ChatMessage,
     onEditResend: (String) -> Unit,
+    onImageSave: (ChatImage) -> Unit,
+    onImageSaveAs: (ChatImage) -> Unit,
+    onImageShare: (ChatImage) -> Unit,
+    savingImageId: String?,
     onFileOpen: (ChatFile) -> Unit,
     onFileShare: (ChatFile) -> Unit,
     highlighted: Boolean = false,
@@ -494,7 +515,7 @@ private fun UserBubble(
                     .combinedClickable(onClick = {}, onLongClick = { menuOpen = true }),
             ) {
                 if (msg.images.isNotEmpty()) {
-                    ChatImageGrid(msg.images)
+                    ChatImageGrid(msg.images, onImageSave, onImageSaveAs, onImageShare, savingImageId)
                     if (msg.text.isNotBlank() || msg.files.isNotEmpty()) Spacer(Modifier.height(8.dp))
                 }
                 if (msg.files.isNotEmpty()) {
@@ -527,7 +548,13 @@ private fun UserBubble(
 }
 
 @Composable
-private fun ChatImageGrid(images: List<ChatImage>) {
+private fun ChatImageGrid(
+    images: List<ChatImage>,
+    onSave: (ChatImage) -> Unit,
+    onSaveAs: (ChatImage) -> Unit,
+    onShare: (ChatImage) -> Unit,
+    savingImageId: String?,
+) {
     var selected by remember { mutableStateOf<ChatImage?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         images.chunked(2).forEach { rowImages ->
@@ -546,7 +573,16 @@ private fun ChatImageGrid(images: List<ChatImage>) {
             }
         }
     }
-    selected?.let { image -> FullScreenImage(image) { selected = null } }
+    selected?.let { image ->
+        FullScreenImage(
+            image = image,
+            saving = savingImageId == image.id,
+            onSave = { onSave(image) },
+            onSaveAs = { onSaveAs(image) },
+            onShare = { onShare(image) },
+            onDismiss = { selected = null },
+        )
+    }
 }
 
 @Composable
@@ -583,9 +619,17 @@ private fun ChatImageThumbnail(image: ChatImage, modifier: Modifier, onClick: ()
 }
 
 @Composable
-private fun FullScreenImage(image: ChatImage, onDismiss: () -> Unit) {
+private fun FullScreenImage(
+    image: ChatImage,
+    saving: Boolean,
+    onSave: () -> Unit,
+    onSaveAs: () -> Unit,
+    onShare: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     var scale by remember(image.id) { mutableStateOf(1f) }
     var offset by remember(image.id) { mutableStateOf(Offset.Zero) }
+    var menuOpen by remember(image.id) { mutableStateOf(false) }
     val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, image.localPath) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             image.localPath?.let { decodeImageFile(it, 4096) }
@@ -617,6 +661,63 @@ private fun FullScreenImage(image: ChatImage, onDismiss: () -> Unit) {
                     contentScale = ContentScale.Fit,
                 )
             }
+            FullScreenImageAction(
+                contentDescription = localized(LocalAppLanguage.current, "关闭", "Close"),
+                modifier = Modifier.align(Alignment.TopStart).padding(top = 30.dp, start = 18.dp),
+                onClick = onDismiss,
+            ) { Icon(Icons.Rounded.Close, null, tint = Color.White) }
+            Row(
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 30.dp, end = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FullScreenImageAction(
+                    contentDescription = localized(LocalAppLanguage.current, "保存图片", "Save image"),
+                    enabled = !saving,
+                    onClick = onSave,
+                ) {
+                    if (saving) CircularProgressIndicator(Modifier.size(21.dp), strokeWidth = 2.dp, color = Color.White)
+                    else Icon(Icons.Rounded.Download, null, tint = Color.White)
+                }
+                FullScreenImageAction(
+                    contentDescription = localized(LocalAppLanguage.current, "分享图片", "Share image"),
+                    enabled = !saving,
+                    onClick = onShare,
+                ) { Icon(Icons.Rounded.Share, null, tint = Color.White) }
+                Box {
+                    FullScreenImageAction(
+                        contentDescription = localized(LocalAppLanguage.current, "更多图片操作", "More image actions"),
+                        enabled = !saving,
+                        onClick = { menuOpen = true },
+                    ) { Icon(Icons.Rounded.MoreVert, null, tint = Color.White) }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(localized(LocalAppLanguage.current, "另存为…", "Save as…")) },
+                            onClick = { menuOpen = false; onSaveAs() },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FullScreenImageAction(
+    contentDescription: String,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.semantics { this.contentDescription = contentDescription },
+        shape = CircleShape,
+        color = Color.Black.copy(alpha = 0.58f),
+    ) {
+        Box(Modifier.size(46.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(24.dp)) { icon() }
         }
     }
 }
@@ -739,6 +840,10 @@ private fun AssistantTurn(
     isSpeaking: Boolean,
     onReadAloud: (String) -> Unit,
     onStopReading: () -> Unit,
+    onImageSave: (ChatImage) -> Unit,
+    onImageSaveAs: (ChatImage) -> Unit,
+    onImageShare: (ChatImage) -> Unit,
+    savingImageId: String?,
     onFileOpen: (ChatFile) -> Unit,
     onFileShare: (ChatFile) -> Unit,
     highlighted: Boolean = false,
@@ -769,7 +874,7 @@ private fun AssistantTurn(
             if (msg.thinking.isNotBlank()) ThinkingCard(msg.thinking)
             msg.tools.forEach { ToolCard(it) }
             if (msg.images.isNotEmpty()) {
-                ChatImageGrid(msg.images)
+                ChatImageGrid(msg.images, onImageSave, onImageSaveAs, onImageShare, savingImageId)
                 if (renderedText.isNotBlank() || msg.files.isNotEmpty()) Spacer(Modifier.height(8.dp))
             }
             if (msg.files.isNotEmpty()) {

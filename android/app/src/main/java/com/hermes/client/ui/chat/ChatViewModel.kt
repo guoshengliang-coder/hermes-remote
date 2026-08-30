@@ -113,6 +113,34 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun saveImageToGallery(
+        image: com.hermes.client.domain.ChatImage,
+        onResult: (Result<com.hermes.client.data.repository.SavedChatImage>) -> Unit,
+    ) {
+        viewModelScope.launch { onResult(runCatching { mediaRepository.saveToGallery(image) }) }
+    }
+
+    fun saveImageToUri(
+        image: com.hermes.client.domain.ChatImage,
+        destination: android.net.Uri,
+        onResult: (Result<Unit>) -> Unit,
+    ) {
+        viewModelScope.launch { onResult(runCatching { mediaRepository.copyToUri(image, destination) }) }
+    }
+
+    fun prepareImageForShare(
+        image: com.hermes.client.domain.ChatImage,
+        onResult: (Result<java.io.File>) -> Unit,
+    ) {
+        viewModelScope.launch { onResult(runCatching { mediaRepository.requireLocalImage(image) }) }
+    }
+
+    fun imageExportName(image: com.hermes.client.domain.ChatImage): String =
+        mediaRepository.exportDisplayName(image)
+
+    fun imageExportMimeType(image: com.hermes.client.domain.ChatImage): String =
+        mediaRepository.exportMimeType(image)
+
     /** Device-local saved prompts, for the composer's prompt picker. */
     val savedPrompts: kotlinx.coroutines.flow.StateFlow<List<com.hermes.client.data.repository.SavedPrompt>> =
         promptStore.prompts.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptyList())

@@ -2,6 +2,7 @@ package com.hermes.client.ui.chat
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 
 import android.net.Uri
+import android.os.Build
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
@@ -217,6 +218,8 @@ fun ChatScreen(
     val clipboard = LocalClipboardManager.current
     var transcriptMenu by remember { mutableStateOf(false) }
     var showAttachSheet by remember { mutableStateOf(false) }
+    var savingImageId by remember { mutableStateOf<String?>(null) }
+    var pendingSaveAsImage by remember { mutableStateOf<com.hermes.client.domain.ChatImage?>(null) }
     val attachScope = androidx.compose.runtime.rememberCoroutineScope()
 
     fun showAttachmentError(message: String?) {
@@ -225,6 +228,89 @@ fun ChatScreen(
             message ?: localized(language, "无法读取附件", "Unable to read attachment"),
             android.widget.Toast.LENGTH_LONG,
         ).show()
+    }
+
+    fun showImageMessage(message: String, long: Boolean = false) {
+        android.widget.Toast.makeText(
+            context,
+            message,
+            if (long) android.widget.Toast.LENGTH_LONG else android.widget.Toast.LENGTH_SHORT,
+        ).show()
+    }
+
+    val saveImageDocument = androidx.activity.compose.rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val image = pendingSaveAsImage
+        pendingSaveAsImage = null
+        val destination = result.data?.data
+        if (result.resultCode != android.app.Activity.RESULT_OK || image == null || destination == null) return@rememberLauncherForActivityResult
+        savingImageId = image.id
+        vm.saveImageToUri(image, destination) { saved ->
+            savingImageId = null
+            saved.onSuccess {
+                showImageMessage(localized(language, "图片已保存", "Image saved"))
+            }.onFailure {
+                showImageMessage(it.message ?: localized(language, "保存图片失败", "Unable to save image"), long = true)
+            }
+        }
+    }
+
+    fun saveImageAs(image: com.hermes.client.domain.ChatImage) {
+        if (savingImageId != null) return
+        pendingSaveAsImage = image
+        saveImageDocument.launch(
+            android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                type = vm.imageExportMimeType(image)
+                putExtra(android.content.Intent.EXTRA_TITLE, vm.imageExportName(image))
+            },
+        )
+    }
+
+    fun saveImage(image: com.hermes.client.domain.ChatImage) {
+        if (savingImageId != null) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            savingImageId = image.id
+            vm.saveImageToGallery(image) { saved ->
+                savingImageId = null
+                saved.onSuccess { result ->
+                    showImageMessage(
+                        localized(language, "已保存到相册：${result.displayName}", "Saved to Photos: ${result.displayName}"),
+                    )
+                }.onFailure {
+                    showImageMessage(it.message ?: localized(language, "保存图片失败", "Unable to save image"), long = true)
+                }
+            }
+        } else saveImageAs(image)
+    }
+
+    fun shareImage(image: com.hermes.client.domain.ChatImage) {
+        vm.prepareImageForShare(image) { prepared ->
+            prepared.onSuccess { local ->
+                val contentUri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    local,
+                )
+                val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = vm.imageExportMimeType(image)
+                    putExtra(android.content.Intent.EXTRA_STREAM, contentUri)
+                    clipData = android.content.ClipData.newRawUri(vm.imageExportName(image), contentUri)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent.createChooser(
+                            intent,
+                            localized(language, "分享图片", "Share image"),
+                        ),
+                    )
+                }.onFailure { showImageMessage(it.message ?: localized(language, "无法分享图片", "Unable to share image"), long = true) }
+            }.onFailure {
+                showImageMessage(it.message ?: localized(language, "图片尚未加载完成", "Image is not ready"), long = true)
+            }
+        }
     }
 
     fun stageUri(uri: Uri, fallbackName: String = "attachment") {
@@ -789,6 +875,10 @@ fun ChatScreen(
                         isSpeaking = speaking,
                         onReadAloud = { vm.readAloud(it) },
                         onStopReading = { vm.stopReading() },
+                        onImageSave = ::saveImage,
+                        onImageSaveAs = ::saveImageAs,
+                        onImageShare = ::shareImage,
+                        savingImageId = savingImageId,
                         onFileOpen = { handleFile(it, share = false) },
                         onFileShare = { handleFile(it, share = true) },
                         modifier = Modifier.weight(1f),

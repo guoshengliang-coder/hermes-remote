@@ -1,6 +1,11 @@
 package com.hermes.client.data.repository
 
+import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.domain.ChatImage
 import com.hermes.client.domain.ChatMessage
@@ -14,7 +19,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.io.File
+import java.net.URI
 import java.security.MessageDigest
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Dns
@@ -24,7 +33,7 @@ import javax.inject.Singleton
 /** Keeps image bytes off Compose state and turns Hermes file references into device-local files. */
 @Singleton
 class ChatMediaRepository @Inject constructor(
-    @ApplicationContext context: Context,
+    @param:ApplicationContext private val context: Context,
     private val rest: HermesRestApi,
 ) {
     private val directory = File(context.cacheDir, "chat-images").apply { mkdirs() }
@@ -55,6 +64,79 @@ class ChatMediaRepository @Inject constructor(
                 state = ImageTransferState.UPLOADING,
             )
         }
+
+    /** Copy the already-hydrated original bytes into the user-visible system photo library. */
+    suspend fun saveToGallery(image: ChatImage): SavedChatImage = withContext(Dispatchers.IO) {
+        check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            "System Save As is required on this Android version"
+        }
+        val source = requireLocalImage(image)
+        val mimeType = exportMimeType(image)
+        val displayName = exportDisplayName(image)
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, displayName)
+            put(MediaStore.Images.Media.MIME_TYPE, mimeType)
+            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Hermes Remote")
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: error("Unable to create a photo-library item")
+        try {
+            resolver.openOutputStream(uri, "w")?.use { output -> source.inputStream().use { it.copyTo(output) } }
+                ?: error("Unable to open the photo-library destination")
+            values.clear()
+            values.put(MediaStore.Images.Media.IS_PENDING, 0)
+            check(resolver.update(uri, values, null, null) == 1) { "Unable to publish the saved image" }
+            SavedChatImage(uri, displayName)
+        } catch (error: Throwable) {
+            resolver.delete(uri, null, null)
+            throw error
+        }
+    }
+
+    /** Android 8/9 and explicit “Save as…” destinations arrive as a user-granted content Uri. */
+    suspend fun copyToUri(image: ChatImage, destination: Uri): Unit = withContext(Dispatchers.IO) {
+        val source = requireLocalImage(image)
+        try {
+            context.contentResolver.openOutputStream(destination, "w")?.use { output ->
+                source.inputStream().use { it.copyTo(output) }
+            } ?: error("Unable to open the selected destination")
+        } catch (error: Throwable) {
+            runCatching { context.contentResolver.delete(destination, null, null) }
+            throw error
+        }
+    }
+
+    fun exportMimeType(image: ChatImage): String = image.mimeType
+        ?.takeIf { it.startsWith("image/") }
+        ?: mimeForPath(image.remotePath ?: image.sourceUrl ?: image.localPath.orEmpty())
+
+    fun exportDisplayName(image: ChatImage, now: Date = Date()): String {
+        val sourceName = listOfNotNull(
+            image.remotePath?.substringAfterLast('/'),
+            image.sourceUrl?.let { runCatching { URI(it).path.substringAfterLast('/') }.getOrNull() },
+        ).firstOrNull { it.isNotBlank() }
+        val safeSource = sourceName
+            ?.replace(Regex("[\\u0000-\\u001f/\\\\:]"), "_")
+            ?.trim(' ', '.')
+            ?.take(120)
+            ?.takeIf { it.isNotBlank() }
+        val expectedExtension = extensionForMime(exportMimeType(image))
+        if (safeSource != null && supportedImageExtension(safeSource) != null) return safeSource
+        val base = safeSource?.substringBeforeLast('.', safeSource)?.takeIf { it.isNotBlank() }
+            ?: "Hermes_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(now)}"
+        return "$base.$expectedExtension"
+    }
+
+    fun requireLocalImage(image: ChatImage): File {
+        val source = image.localPath?.let(::File)?.takeIf { it.isFile && it.length() > 0L }
+            ?: error("Image is not available on this device yet")
+        val root = directory.canonicalFile
+        val canonical = source.canonicalFile
+        check(canonical.toPath().startsWith(root.toPath())) { "Image cache path is not trusted" }
+        return canonical
+    }
 
     suspend fun hydrateMessages(messages: List<ChatMessage>, profile: String?): List<ChatMessage> =
         coroutineScope {
@@ -144,6 +226,18 @@ class ChatMediaRepository @Inject constructor(
         else -> "image/jpeg"
     }
 
+    private fun supportedImageExtension(name: String): String? = when (name.substringAfterLast('.', "").lowercase()) {
+        "jpg", "jpeg", "png", "gif", "webp" -> name.substringAfterLast('.').lowercase()
+        else -> null
+    }
+
+    private fun extensionForMime(mimeType: String): String = when (mimeType.lowercase()) {
+        "image/png" -> "png"
+        "image/gif" -> "gif"
+        "image/webp" -> "webp"
+        else -> "jpg"
+    }
+
     private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray())
         .joinToString("") { "%02x".format(it) }
@@ -164,3 +258,5 @@ class ChatMediaRepository @Inject constructor(
         const val MAX_CACHE_BYTES = 200L * 1024L * 1024L
     }
 }
+
+data class SavedChatImage(val uri: Uri, val displayName: String)
