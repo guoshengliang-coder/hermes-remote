@@ -12,7 +12,7 @@ BACKUP_DIR="$(mktemp -d /var/tmp/hermes-edge-backup.XXXXXX)"
 RELEASE_ENV=/etc/hermes-release-server/environment
 EDGE_CONF=/etc/nginx/conf.d/hermes-edge.conf
 DEFAULT_SITE=/etc/nginx/sites-enabled/default
-DEFAULT_SITE_BACKUP=/etc/nginx/sites-enabled/default.hermes-disabled
+DEFAULT_SITE_BACKUP=/etc/nginx/sites-available/default.hermes-disabled-link
 CERT_HOOK=/etc/letsencrypt/renewal-hooks/deploy/hermes-services
 NGINX_WAS_ACTIVE=false
 RELEASE_ENV_EXISTED=false
@@ -46,7 +46,11 @@ rollback() {
   if [[ -e "$DEFAULT_SITE_BACKUP" && ! -e "$DEFAULT_SITE" ]]; then mv "$DEFAULT_SITE_BACKUP" "$DEFAULT_SITE"; fi
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl restart hermes-release-server.service >/dev/null 2>&1 || true
-  if [[ "$NGINX_WAS_ACTIVE" == true ]]; then systemctl start nginx.service >/dev/null 2>&1 || true; fi
+  if [[ "$NGINX_WAS_ACTIVE" == true ]]; then
+    systemctl start nginx.service >/dev/null 2>&1 || true
+  else
+    systemctl disable nginx.service >/dev/null 2>&1 || true
+  fi
 }
 trap rollback ERR INT TERM
 
