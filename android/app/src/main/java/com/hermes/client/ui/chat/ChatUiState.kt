@@ -332,6 +332,68 @@ internal fun mergeAssistantTurns(previous: ChatMessage, message: ChatMessage): C
     )
 }
 
+/**
+ * Cheap per-snapshot stabilizer for RAW streaming markdown. Full sanitization stays deferred to
+ * message.complete (regex passes per token would be O(n²)); these bounded passes remove only the
+ * constructs that make the parse structure of already-rendered text flip between 64ms snapshots —
+ * which, with the list pinned to the bottom edge, reads as violent content jumping:
+ *
+ * 1. An `<untrusted_tool_result>` wrapper whose close tag has not streamed in yet: everything
+ *    after the opener is unfinished tool payload; hide it behind [toolDataPlaceholder].
+ * 2. A trailing tool-payload JSON object that has not balanced yet: its `#`/`*`/backtick bytes
+ *    stream straight into the markdown parser and restyle earlier lines on every snapshot.
+ * 3. An odd number of code fences leaves the final fence open, so trailing prose renders as code
+ *    until the closing fence arrives and then reflows; close the fence per snapshot instead.
+ */
+internal fun stabilizeStreamingMarkdown(raw: String, toolDataPlaceholder: String): String {
+    val wrapperStart = raw.lastIndexOf("<untrusted_tool_result", ignoreCase = true)
+    if (wrapperStart >= 0 && raw.indexOf(UNTRUSTED_CLOSE_TAG, wrapperStart, ignoreCase = true) < 0) {
+        return closeOpenFence(raw.substring(0, wrapperStart)).withStreamingPlaceholder(toolDataPlaceholder)
+    }
+    val jsonStart = findTrailingUnbalancedJson(raw)
+    if (jsonStart >= 0) {
+        return closeOpenFence(raw.substring(0, jsonStart)).withStreamingPlaceholder(toolDataPlaceholder)
+    }
+    return closeOpenFence(raw)
+}
+
+internal fun ChatMessage.stabilizedForStreaming(toolDataPlaceholder: String): ChatMessage =
+    if (text.isBlank()) this else copy(text = stabilizeStreamingMarkdown(text, toolDataPlaceholder))
+
+private val fenceLine = Regex("(?m)^\\s*```")
+private val streamedJsonLineStart = Regex("(?m)^\\s*\\{\\s*\"")
+
+// Small trailing objects balance within a snapshot or two; hiding them would only flicker the
+// placeholder. Only blobs at least this long are worth masking.
+private const val MIN_MASKED_JSON_CHARS = 160
+
+private fun closeOpenFence(text: String): String =
+    if (fenceLine.findAll(text).count() % 2 == 1) "$text\n```" else text
+
+private fun String.withStreamingPlaceholder(placeholder: String): String =
+    if (placeholder.isBlank()) this else trimEnd() + "\n\n*$placeholder*"
+
+/**
+ * Index of a trailing, still-unbalanced `{"…` object large enough to mask, or -1. Brace counting
+ * is deliberately naive (braces inside JSON strings count too): a wrong verdict only means the
+ * tail is masked until the completion pass restores it, or rendered raw as before.
+ */
+private fun findTrailingUnbalancedJson(text: String): Int {
+    val start = streamedJsonLineStart.findAll(text).lastOrNull()?.range?.first ?: return -1
+    if (text.length - start < MIN_MASKED_JSON_CHARS) return -1
+    var depth = 0
+    for (index in start until text.length) {
+        when (text[index]) {
+            '{' -> depth++
+            '}' -> {
+                depth--
+                if (depth == 0) return -1
+            }
+        }
+    }
+    return if (depth > 0) start else -1
+}
+
 private fun joinTurnParts(first: String, second: String): String = when {
     first.isBlank() -> second
     second.isBlank() -> first

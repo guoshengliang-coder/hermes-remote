@@ -67,13 +67,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -149,11 +147,44 @@ fun ChatMessageList(
     val settledTurns = remember(sessionId, settledMessages) {
         settledMessages.organizedConversationTurns()
     }
-    val displayMessages = remember(settledTurns, streamingTail) {
-        // Full sanitization runs several regex passes over the complete answer. Repeating it for
-        // every token makes long replies approach O(n²). The reducer performs that cleanup once
-        // when message.complete arrives, so live text can be rendered directly here.
-        val tail = streamingTail ?: return@remember settledTurns
+    // One 64ms gate for the WHOLE streaming tail — text, thinking, and tool churn together.
+    // WebSocket deltas arrive far faster than display frames; recomposing the tail item per delta
+    // thrashed layout, and gating only the markdown text (the previous design) still let every
+    // delta reflow the thinking and tool sections around it. Each snapshot also runs the cheap
+    // streaming stabilizer so half-open fences and unfinished tool payloads cannot restyle
+    // already-rendered lines between snapshots. Full sanitization stays deferred to
+    // message.complete — per-token regex passes would approach O(n²).
+    val toolDataPlaceholder = localized(language, "工具数据接收中…", "Receiving tool data…")
+    val latestTail by rememberUpdatedState(streamingTail)
+    val latestPlaceholder by rememberUpdatedState(toolDataPlaceholder)
+    var renderedTail by remember(sessionId) {
+        mutableStateOf(streamingTail?.stabilizedForStreaming(toolDataPlaceholder))
+    }
+    LaunchedEffect(sessionId, streamingTail?.id, streamingTail != null) {
+        if (latestTail == null) {
+            renderedTail = null
+            return@LaunchedEffect
+        }
+        var snapshotSource: ChatMessage? = null
+        while (isActive) {
+            val newest = latestTail
+            if (newest !== snapshotSource) {
+                snapshotSource = newest
+                renderedTail = newest?.stabilizedForStreaming(latestPlaceholder)
+            }
+            delay(STREAM_RENDER_INTERVAL_MS)
+        }
+    }
+    // The ticker clears/replaces renderedTail one frame after composition sees the state change.
+    // Without this guard, the frame where a stream completes would merge the settled turn with
+    // the stale snapshot of the same content — a one-frame duplicated-text flash.
+    val effectiveTail = when {
+        streamingTail == null -> null
+        renderedTail?.id == streamingTail.id -> renderedTail
+        else -> streamingTail // a new record's first frame; the ticker stabilizes it next pass
+    }
+    val displayMessages = remember(settledTurns, effectiveTail) {
+        val tail = effectiveTail ?: return@remember settledTurns
         val previous = settledTurns.lastOrNull()
         if (previous?.role == Role.ASSISTANT && tail.role == Role.ASSISTANT) {
             settledTurns.dropLast(1) + mergeAssistantTurns(previous, tail)
@@ -193,22 +224,6 @@ fun ChatMessageList(
         }
     }
 
-    // Track "was the viewer at the bottom" ahead of content changes: content inserted at the
-    // bottom edge (a new turn, the processes card) reveals itself only for a pinned viewer, while
-    // key-based anchoring keeps an upward reader's position untouched.
-    var wasAtBottom by remember(sessionId) { mutableStateOf(true) }
-    LaunchedEffect(sessionId, listState) {
-        snapshotFlow {
-            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
-        }.distinctUntilChanged().collect { wasAtBottom = it }
-    }
-    val bottomEdgeKey = if (processesVisible) "background-processes" else displayKeys.lastOrNull()
-    LaunchedEffect(bottomEdgeKey) {
-        if (bottomEdgeKey != null && wasAtBottom && !externalScrollActive) {
-            bottomRequests.trySend(Unit)
-        }
-    }
-
     // Sending always returns to the bottom, even from deep in history — it is the user's own
     // action. Keyed on the newest USER turn's stable render key, not raw list size, so history
     // reconciliation and session-resume backfill cannot fake it.
@@ -225,11 +240,11 @@ fun ChatMessageList(
     }
 
     // Search-highlight navigation, mapped from turn order to the reversed list order. The size is
-    // a key on purpose: new turns shift the reversed index of the same logical match.
-    val processOffset = if (processesVisible) 1 else 0
-    LaunchedEffect(highlightIndex, displayMessages.size, processOffset) {
+    // a key on purpose: new turns shift the reversed index of the same logical match. Offset 1
+    // skips the permanent bottom-edge slot at index 0.
+    LaunchedEffect(highlightIndex, displayMessages.size) {
         val target = highlightIndex ?: return@LaunchedEffect
-        val listIndex = processOffset + (displayMessages.lastIndex - target)
+        val listIndex = 1 + (displayMessages.lastIndex - target)
         if (listIndex >= 0) {
             try {
                 listState.animateScrollToItem(listIndex)
@@ -277,18 +292,30 @@ fun ChatMessageList(
                 // remain scrolling gestures, and taps consumed by message actions are left alone.
                 .pointerInput(onBlankAreaTap) { detectTapGestures { onBlankAreaTap() } }
                 .padding(horizontal = 22.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
         ) {
-            // Bottom-most first in reverse order: live processes sit at the very bottom edge.
-            if (processesVisible) {
-                item(key = "background-processes") {
-                    BackgroundProcessesCard(visibleProcesses)
+            // Index 0 is a PERMANENT slot pinned to the bottom edge. When the processes card lived
+            // in a conditional item, every process start/stop inserted or removed it at index 0,
+            // shoving the pinned viewport up by a card height and snapping it back — the largest
+            // single source of visible jumping during agent runs. A permanent slot only grows and
+            // shrinks in place, which the bottom-pinned layout absorbs smoothly — and because new
+            // turns now insert ABOVE this anchored slot, a pinned viewer sees them without any
+            // programmatic scroll at all. The 1dp spacer keeps the empty slot measurable so the
+            // at-bottom check stays exactly (index 0, offset 0).
+            item(key = "bottom-edge") {
+                if (processesVisible) {
+                    Box(Modifier.padding(top = TURN_SPACING)) {
+                        BackgroundProcessesCard(visibleProcesses)
+                    }
+                } else {
+                    Spacer(Modifier.height(1.dp))
                 }
             }
             // Stable turn keys are independent of list position and gateway ids. The latter can be
             // duplicated (model name) or replaced when REST history reconciles a locally streamed
             // turn — and with reverseLayout they are also what keeps an upward reader anchored
-            // while new turns insert at the bottom of the list.
+            // while new turns insert at the bottom of the list. Inter-turn spacing rides on each
+            // turn's top edge instead of Arrangement.spacedBy so the permanent (possibly empty)
+            // bottom slot never contributes a phantom gap.
             val turnCount = displayMessages.size
             itemsIndexed(
                 displayMessages.asReversed(),
@@ -297,19 +324,21 @@ fun ChatMessageList(
                 val index = turnCount - 1 - reversed
                 val canRegenerate = msg.id == lastAssistantId && !isGenerating
                 val showAssistantActions = !(isGenerating && index == displayMessages.lastIndex)
-                MessageBubble(
-                    msg,
-                    canRegenerate,
-                    showAssistantActions,
-                    onEditResend,
-                    onRegenerate,
-                    isSpeaking,
-                    onReadAloud,
-                    onStopReading,
-                    onFileOpen,
-                    onFileShare,
-                    highlighted = index == highlightIndex,
-                )
+                Box(Modifier.padding(top = TURN_SPACING)) {
+                    MessageBubble(
+                        msg,
+                        canRegenerate,
+                        showAssistantActions,
+                        onEditResend,
+                        onRegenerate,
+                        isSpeaking,
+                        onReadAloud,
+                        onStopReading,
+                        onFileOpen,
+                        onFileShare,
+                        highlighted = index == highlightIndex,
+                    )
+                }
             }
         }
         if (!atBottom) {
@@ -713,25 +742,14 @@ private fun AssistantTurn(
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
     var feedback by remember(msg.id) { mutableStateOf(0) }
-    val speakable = remember(msg.text) { speechText(msg.text).isNotBlank() }
+    // The streaming tail arrives pre-throttled: ChatMessageList publishes whole-message snapshots
+    // at STREAM_RENDER_INTERVAL_MS, so text, thinking, and tools reflow together at one cadence.
+    val renderedText = msg.text
+    // The read-aloud affordance is meaningless mid-stream; skipping the regex strip until the
+    // turn settles avoids running it on every render snapshot.
+    val speakable = if (msg.isStreaming) false else remember(msg.text) { speechText(msg.text).isNotBlank() }
     val accent = LocalProfileAccent.current.accent
     val hlShape = RoundedCornerShape(12.dp)
-    val latestText by rememberUpdatedState(msg.text)
-    var renderedText by remember(msg.id) { mutableStateOf(msg.text) }
-    LaunchedEffect(msg.id, msg.isStreaming, msg.text.takeUnless { msg.isStreaming }) {
-        if (!msg.isStreaming) {
-            renderedText = latestText
-            return@LaunchedEffect
-        }
-        // WebSocket deltas can arrive faster than display frames. Rebuilding a complete Markdown
-        // tree for every token causes repeated height changes and main-thread layout thrash; keep
-        // the state authoritative but publish render snapshots at a human-invisible cadence.
-        while (isActive) {
-            val newest = latestText
-            if (renderedText != newest) renderedText = newest
-            delay(STREAM_RENDER_INTERVAL_MS)
-        }
-    }
     Box {
         Column(
             Modifier
@@ -875,6 +893,7 @@ private fun AssistantTurn(
 }
 
 private const val STREAM_RENDER_INTERVAL_MS = 64L
+private val TURN_SPACING = 22.dp
 
 private fun copyToClipboard(
     text: String,
@@ -997,7 +1016,9 @@ private fun ToolCard(tool: ToolCall) {
     val clipboard = LocalClipboardManager.current
     val technical = LocalToolCallTechnical.current
     val hasOutput = tool.output.isNotBlank()
-    val outputSize = tool.output.toByteArray().size
+    // Cached: allocating a byte array of the full output on every recomposition is wasteful while
+    // a running tool's output grows across render snapshots.
+    val outputSize = remember(tool.id, tool.output.length) { tool.output.toByteArray().size }
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
         shape = RoundedCornerShape(16.dp),
