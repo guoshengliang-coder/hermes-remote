@@ -14,11 +14,11 @@ async function fixture() {
   await writeFile(path.join(root, 'secret.txt'), 'no');
   await writeFile(path.join(root, 'index.json'), JSON.stringify({schemaVersion:1,channel:'internal',latestVersionCode:3,generatedAt:'2026-01-01T00:00:00Z',versions:[entry]}));
   const handler=createReleaseHandler(root);
-  const request = async (url,method='GET') => await new Promise((resolve,reject)=>{
+  const request = async (url,method='GET',headers={}) => await new Promise((resolve,reject)=>{
     const chunks=[];const res=new Writable({write(chunk,encoding,done){chunks.push(Buffer.from(chunk));done();}});
     res.writeHead=(status,headers={})=>{res.status=status;res.headers=Object.fromEntries(Object.entries(headers).map(([k,v])=>[k.toLowerCase(),String(v)]));};
     res.on('finish',()=>resolve({status:res.status,headers:{get:k=>res.headers?.[k.toLowerCase()]??null},text:async()=>Buffer.concat(chunks).toString()}));res.on('error',reject);
-    Promise.resolve(handler({url,method},res)).catch(reject);
+    Promise.resolve(handler({url,method,headers},res)).catch(reject);
   });
   request.root=root;
   return request;
@@ -27,6 +27,16 @@ async function fixture() {
 test('health supports GET and HEAD', async()=>{const request=await fixture();for (const method of ['GET','HEAD']) assert.equal((await request('/health',method)).status,200);});
 test('index GET/HEAD is no-store', async()=>{const request=await fixture();for (const method of ['GET','HEAD']) {const r=await request('/releases/index.json',method);assert.equal(r.status,200);assert.equal(r.headers.get('cache-control'),'no-store');}});
 test('registered APK GET and HEAD expose safe headers', async()=>{const request=await fixture();for (const method of ['GET','HEAD']) {const r=await request(`/releases/${entry.fileName}`,method);assert.equal(r.status,200);assert.equal(r.headers.get('content-length'),'3');assert.equal(r.headers.get('content-type'),'application/vnd.android.package-archive');assert.match(r.headers.get('content-disposition'),/attachment/);assert.match(r.headers.get('cache-control'),/immutable/);if(method==='GET') assert.equal(await r.text(),'apk');}});
+test('registered APK supports resumable single byte ranges', async()=>{
+  const request=await fixture();
+  const middle=await request(`/releases/${entry.fileName}`,'GET',{range:'bytes=1-2'});
+  assert.equal(middle.status,206);assert.equal(middle.headers.get('content-range'),'bytes 1-2/3');assert.equal(middle.headers.get('content-length'),'2');assert.equal(middle.headers.get('accept-ranges'),'bytes');assert.equal(await middle.text(),'pk');
+  const suffix=await request(`/releases/${entry.fileName}`,'GET',{range:'bytes=-1'});
+  assert.equal(suffix.status,206);assert.equal(await suffix.text(),'k');
+  const head=await request(`/releases/${entry.fileName}`,'HEAD',{range:'bytes=0-0'});
+  assert.equal(head.status,206);assert.equal(head.headers.get('content-range'),'bytes 0-0/3');assert.equal(head.headers.get('content-length'),'1');
+});
+test('registered APK rejects malformed and unsatisfiable ranges', async()=>{const request=await fixture();for(const range of ['bytes=3-4','bytes=2-1','bytes=0-1,2-2','items=0-1']){const r=await request(`/releases/${entry.fileName}`,'GET',{range});assert.equal(r.status,416);assert.equal(r.headers.get('content-range'),'bytes */3');}});
 test('root redirects to latest versioned APK', async()=>{const request=await fixture();const r=await request('/');assert.equal(r.status,302);assert.equal(r.headers.get('location'),`/releases/${entry.fileName}`);});
 test('rejects missing, unregistered and traversal paths', async()=>{const request=await fixture();for(const target of ['/missing','/releases/secret.txt','/releases/%2e%2e/secret.txt','/releases/%2Fetc%2Fpasswd']) assert.equal((await request(target)).status,404);});
 test('rejects unsupported methods', async()=>{const request=await fixture();const r=await request('/releases/index.json','POST');assert.equal(r.status,405);assert.equal(r.headers.get('allow'),'GET, HEAD');});

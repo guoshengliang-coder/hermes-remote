@@ -7,7 +7,8 @@ hostname was migrated to `mrlgs.net` on 2026-08-30.
 
 - HK Gateway: `/opt/hermes-remote`, managed by `hermes-remote-gateway.service`
 - Gateway configuration: `/etc/hermes-remote`, with separate service-readable token files
-- Public endpoint: `https://mrlgs.net:8444`
+- Public endpoint: `https://mrlgs.net` (HTTPS/WSS 443)
+- Edge router: Nginx on 443; Gateway upstream `127.0.0.1:8444`, release upstream `127.0.0.1:9443`
 - Mac Connector: `~/Library/Application Support/Hermes Remote`
 - Connector service: `~/Library/LaunchAgents/com.hermesremote.connector.plist`
 - Connector control-channel heartbeat: 15 seconds; a missed pong forces an automatic reconnect after sleep or network changes.
@@ -33,7 +34,7 @@ hook copies the renewed certificate into `/etc/hermes-remote/tls` before restart
 Gateway health:
 
 ```bash
-curl https://mrlgs.net:8444/health
+curl https://mrlgs.net/relay-health
 ```
 
 Gateway status and logs:
@@ -70,3 +71,8 @@ replacement target and Xray is already stopped. With deployment authorization, r
 `CONFIRM_PRODUCTION_DEPLOY=mrlgs.net scripts/deploy-release-server.sh`; it stops the old service,
 starts and verifies the new one, and restarts the old service on failure. Capabilities do not solve a
 port collision.
+
+For the unified standard-port deployment, run `scripts/deploy-edge-router.sh` as root with
+`CONFIRM_PRODUCTION_DEPLOY=mrlgs.net`. The script installs Nginx, preserves the current release
+configuration for rollback, keeps `/health` and `/releases/*` on the release service, and routes
+`/api/*` plus `/v1/connect` to the Gateway without redirects.

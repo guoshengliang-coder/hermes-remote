@@ -1,0 +1,8 @@
+{
+  "channel": "internal",
+  "releaseNotes": [
+    "Relay、WebSocket 和应用更新统一使用 mrlgs.net 标准 HTTPS/WSS 443 端口，改善 Clash 和移动网络兼容性。",
+    "自动把已保存的 mrlgs.net:8444 和旧 sslip.io:8444 Relay 地址迁移到 https://mrlgs.net。",
+    "APK 下载服务支持标准字节范围和断点续传，下载全程不再跳转到非常规端口。"
+  ]
+}

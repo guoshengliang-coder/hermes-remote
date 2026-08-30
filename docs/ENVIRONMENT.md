@@ -14,9 +14,9 @@ Collected on 2026-08-29. Concrete IP addresses, hostnames, SSH users, and creden
 ## HK relay host
 
 - Ubuntu 26.04 LTS, x86_64, 4 CPU, about 7 GiB RAM
-- No Docker, Caddy, or Nginx currently installed
-- Ports `80`, `443`, and `8443` are occupied by existing services
-- Selected Hermes Remote port: `8444/TCP`
+- Nginx owns public HTTPS/WSS 443 and performs path-based routing
+- Ports `80` and `8443` remain owned by existing services
+- Gateway upstream: `8444/TCP`; release upstream: loopback `9443/TCP`
 - The Gateway uses a Certbot certificate for `mrlgs.net`, with the legacy hostname retained as a SAN during migration
 - Deployment style: Node.js build output managed by systemd
 

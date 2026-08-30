@@ -6,6 +6,27 @@ import {fileURLToPath} from 'node:url';
 import {MAX_INDEX_BYTES, validateIndex} from './schema.mjs';
 
 const send = (res,status,headers={},body='') => {res.writeHead(status,headers);res.end(body);};
+
+function parseRange(value, size) {
+  if (!value) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(value.trim());
+  if (!match || (!match[1] && !match[2])) return false;
+  let start;
+  let end;
+  if (!match[1]) {
+    const suffixLength = Number(match[2]);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return false;
+    start = Math.max(0, size - suffixLength);
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] ? Number(match[2]) : size - 1;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)) return false;
+  }
+  if (start < 0 || start >= size || end < start) return false;
+  return {start, end: Math.min(end, size - 1)};
+}
+
 export function createReleaseHandler(dataRoot) {
   return async (req,res) => {
     try {
@@ -25,16 +46,20 @@ export function createReleaseHandler(dataRoot) {
       if(!version) return send(res,404);
       const filePath=path.join(dataRoot,fileName);const file=await open(filePath,constants.O_RDONLY|constants.O_NOFOLLOW);const info=await file.stat();
       if(!info.isFile()||info.size!==version.sizeBytes){await file.close();return send(res,404);}
-      const headers={'Content-Type':'application/vnd.android.package-archive','Content-Length':String(info.size),'Content-Disposition':`attachment; filename="${fileName}"`,'Cache-Control':'public, max-age=31536000, immutable','X-Content-Type-Options':'nosniff'};
-      if(req.method==='HEAD'){await file.close();return send(res,200,headers);}
-      res.writeHead(200,headers);file.createReadStream({autoClose:true}).pipe(res);
+      const range=parseRange(req.headers?.range,info.size);
+      if(range===false){await file.close();return send(res,416,{'Content-Range':`bytes */${info.size}`,'Accept-Ranges':'bytes'});}
+      const contentLength=range?range.end-range.start+1:info.size;
+      const headers={'Content-Type':'application/vnd.android.package-archive','Content-Length':String(contentLength),'Content-Disposition':`attachment; filename="${fileName}"`,'Cache-Control':'public, max-age=31536000, immutable','X-Content-Type-Options':'nosniff','Accept-Ranges':'bytes'};
+      if(range) headers['Content-Range']=`bytes ${range.start}-${range.end}/${info.size}`;
+      if(req.method==='HEAD'){await file.close();return send(res,range?206:200,headers);}
+      res.writeHead(range?206:200,headers);file.createReadStream({autoClose:true,...(range??{})}).pipe(res);
     } catch (error) {if(['ENOENT','ELOOP'].includes(error?.code)) return send(res,404); console.error(error);send(res,500);}
   };
 }
 
 if (process.argv[1]===fileURLToPath(import.meta.url)) {
-  const {TLS_CERT,TLS_KEY,RELEASE_DATA_ROOT,PORT='443'}=process.env;
+  const {TLS_CERT,TLS_KEY,RELEASE_DATA_ROOT,PORT='443',HOST='0.0.0.0'}=process.env;
   if(!TLS_CERT||!TLS_KEY||!RELEASE_DATA_ROOT) throw new Error('TLS_CERT, TLS_KEY and RELEASE_DATA_ROOT are required');
   const [cert,key]=await Promise.all([readFile(TLS_CERT),readFile(TLS_KEY)]);
-  https.createServer({cert,key},createReleaseHandler(RELEASE_DATA_ROOT)).listen(Number(PORT));
+  https.createServer({cert,key},createReleaseHandler(RELEASE_DATA_ROOT)).listen(Number(PORT),HOST);
 }

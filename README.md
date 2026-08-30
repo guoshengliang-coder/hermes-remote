@@ -36,7 +36,8 @@ and deployment rules.
 
 See `docs/SMOKE_TEST.md` for the WebSocket test message.
 
-The initial real host profile uses direct TLS on port `8444` with systemd; see `docs/ENVIRONMENT.md`.
+Production clients use a single HTTPS/WSS edge at `https://mrlgs.net` on port 443. Nginx routes
+Gateway and release paths to private service ports; see `docs/ENVIRONMENT.md`.
 
 For the Android base, configure the public Gateway URL and the Gateway `APP_TOKEN` in token mode. The public token terminates in Hong Kong; the separate local Hermes credential exists only on the Mac Connector.
 

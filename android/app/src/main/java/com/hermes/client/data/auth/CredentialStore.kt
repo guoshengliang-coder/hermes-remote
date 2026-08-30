@@ -2,7 +2,7 @@ package com.hermes.client.data.auth
 
 import java.net.URI
 
-const val DEFAULT_REMOTE_GATEWAY_URL = "https://mrlgs.net:8444"
+const val DEFAULT_REMOTE_GATEWAY_URL = "https://mrlgs.net"
 
 data class GatewayConfig(
     val baseUrl: String,
@@ -42,8 +42,17 @@ fun normalizeGatewayBaseUrl(raw: String): String = runCatching {
     require(scheme == "https" || isLocalAddress(uri.host)) {
         "Remote gateways must use HTTPS"
     }
-    scheme + trimmed.substring(uri.scheme.length)
+    val normalized = scheme + trimmed.substring(uri.scheme.length)
+    if (
+        scheme == "https" &&
+        uri.port == LEGACY_REMOTE_GATEWAY_PORT &&
+        uri.host.lowercase() in LEGACY_REMOTE_GATEWAY_HOSTS &&
+        (uri.rawPath.isNullOrEmpty() || uri.rawPath == "/")
+    ) DEFAULT_REMOTE_GATEWAY_URL else normalized
 }.getOrElse { throw IllegalArgumentException(it.message ?: "Invalid gateway URL") }
+
+private const val LEGACY_REMOTE_GATEWAY_PORT = 8444
+private val LEGACY_REMOTE_GATEWAY_HOSTS = setOf("mrlgs.net", "47.239.30.253.sslip.io")
 
 private fun isLocalAddress(host: String): Boolean {
     val normalized = host.removePrefix("[").removeSuffix("]").lowercase()

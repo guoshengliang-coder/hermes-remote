@@ -56,7 +56,9 @@ class EncryptedCredentialStore(private val context: Context) : CredentialStore {
         }
 
     override fun load(): GatewayConfig? {
-        val url = prefs.getString("base_url", null) ?: return null
+        val storedUrl = prefs.getString("base_url", null) ?: return null
+        val url = runCatching { normalizeGatewayBaseUrl(storedUrl) }.getOrDefault(storedUrl)
+        if (url != storedUrl) prefs.edit().putString("base_url", url).apply()
         return GatewayConfig(
             baseUrl = url,
             token = prefs.getString("token", null) ?: "",

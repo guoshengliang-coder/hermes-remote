@@ -19,7 +19,7 @@
 
 ## Production follow-ups
 
-- Put Caddy or Nginx in front of the Gateway for TLS and rate limiting.
+- Add connection-level rate limiting at the Nginx edge.
 - Replace static MVP credentials with short-lived, device-bound tokens.
 - Add replay protection, request limits, persisted sessions, and push notifications.
 - Define Hermes-specific event normalization for assistant text, tool calls, tool results, files, and errors.
@@ -28,7 +28,10 @@
 
 The selected Android base already implements the Hermes REST and `/api/ws` JSON-RPC surfaces. To retain its sessions and management features, the production Gateway will expose compatible public routes and tunnel them through the Connector. The public app credential is validated in Hong Kong and is never forwarded to the Mac; the Connector adds the separate localhost Hermes credential.
 
-The first HK deployment terminates TLS directly in the Node.js Gateway on port `8444` because ports `80`, `443`, and `8443` are already occupied. The Gateway supports certificate and private-key paths through environment variables; the dedicated service user must receive narrowly scoped read access to those files.
+Production exposes only `mrlgs.net:443` to Android and the Mac Connector. Nginx terminates the public
+connection and routes `/api/*` plus `/v1/connect` to the TLS Gateway on `127.0.0.1:8444`; all other
+paths go to the TLS release server on `127.0.0.1:9443`. Port 8444 remains temporarily public only for
+old-client compatibility and can be closed after migration.
 
 ### REST flow
 
@@ -45,4 +48,5 @@ The first HK deployment terminates TLS directly in the Node.js Gateway on port `
 3. Connector uses its local Cookie session to mint a single-use Hermes WS Ticket.
 4. Raw JSON-RPC frames, including `gateway.ready` and streaming events, travel bidirectionally without being reinterpreted by the relay.
 
-The relay applies request-size, pending-request, WebSocket-count, and timeout limits. Production deployment should additionally restrict the cloud security group to port `8444`, add connection-level rate limiting, and rotate both relay credentials after installation.
+The relay applies request-size, pending-request, WebSocket-count, and timeout limits. The edge preserves
+WebSocket upgrades and never redirects APK or Relay traffic to a non-standard public port.

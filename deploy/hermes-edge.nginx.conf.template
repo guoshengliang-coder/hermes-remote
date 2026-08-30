@@ -1,0 +1,99 @@
+# Installed as /etc/nginx/conf.d/hermes-edge.conf.
+# Public clients use only mrlgs.net:443. The two TLS upstreams remain private implementation details.
+map $http_upgrade $hermes_connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
+log_format hermes_edge '$remote_addr - $remote_user [$time_local] '
+                       '"$request_method $uri $server_protocol" $status $body_bytes_sent '
+                       '"$http_referer" "$http_user_agent"';
+
+upstream hermes_gateway_tls {
+    server 127.0.0.1:8444;
+    keepalive 16;
+}
+
+upstream hermes_releases_tls {
+    server 127.0.0.1:9443;
+    keepalive 8;
+}
+
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name mrlgs.net;
+
+    ssl_certificate /etc/hermes-edge/tls/fullchain.pem;
+    ssl_certificate_key /etc/hermes-edge/tls/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:HermesTLS:10m;
+    ssl_session_timeout 1d;
+
+    access_log /var/log/nginx/hermes-edge.access.log hermes_edge;
+    client_max_body_size 10m;
+
+    # Gateway REST and WebSocket compatibility surface.
+    location ^~ /api/ {
+        proxy_pass https://hermes_gateway_tls;
+        proxy_http_version 1.1;
+        proxy_set_header Host mrlgs.net;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $hermes_connection_upgrade;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 75s;
+        proxy_send_timeout 75s;
+        proxy_ssl_server_name on;
+        proxy_ssl_name mrlgs.net;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+    }
+
+    # The Mac Connector keeps its long-lived outbound WebSocket on standard WSS/443.
+    location = /v1/connect {
+        proxy_pass https://hermes_gateway_tls;
+        proxy_http_version 1.1;
+        proxy_set_header Host mrlgs.net;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $hermes_connection_upgrade;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 75s;
+        proxy_send_timeout 75s;
+        proxy_ssl_server_name on;
+        proxy_ssl_name mrlgs.net;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+    }
+
+    # Preserve /health for the APK repository and expose Gateway health separately for operations.
+    location = /relay-health {
+        proxy_pass https://hermes_gateway_tls/health;
+        proxy_set_header Host mrlgs.net;
+        proxy_ssl_server_name on;
+        proxy_ssl_name mrlgs.net;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+    }
+
+    # APK index and files are proxied, never redirected to a non-standard port.
+    location / {
+        proxy_pass https://hermes_releases_tls;
+        proxy_http_version 1.1;
+        proxy_set_header Host mrlgs.net;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_ssl_server_name on;
+        proxy_ssl_name mrlgs.net;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+    }
+}

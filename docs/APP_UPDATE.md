@@ -4,7 +4,7 @@ This is the authority for the internal Android update channel and the HTTPS vers
 
 ## Security and architecture
 
-The update service on `mrlgs.net:443` is separate from the Gateway on 8444. Android constructs a new,
+The update service and Gateway share the `mrlgs.net:443` Nginx edge and remain separate upstreams. Android constructs a new,
 minimal OkHttpClient for the index request; it has no Gateway cookie jar, authenticator, interceptor,
 or token. Only HTTPS URLs on `mrlgs.net` (default/443), `com.hermes.remote`, channel `internal`, and the
 certificate digest defined once in `android/app/build.gradle.kts` are accepted. Beta and future stable
@@ -12,9 +12,10 @@ application IDs/channels cannot install into internal.
 
 `release-server` is a Node HTTPS listener with no runtime dependency. It reads, but never generates,
 the data-root `index.json`; only filenames registered there are served. `/health` and `/ping` support
-GET/HEAD, `/releases/index.json` is `no-store`, registered APKs are immutable, and `/` redirects to the
-latest versioned APK. Traversal and arbitrary-file reads fail closed. TLS is mandatory through
-`TLS_CERT`, `TLS_KEY`, `RELEASE_DATA_ROOT`, and optional `PORT` (default 443).
+GET/HEAD, `/releases/index.json` is `no-store`, registered APKs are immutable, byte ranges support
+resumable downloads, and `/` redirects to the latest versioned APK. Traversal and arbitrary-file reads
+fail closed. TLS is mandatory through `TLS_CERT`, `TLS_KEY`, `RELEASE_DATA_ROOT`, `HOST` (production
+`127.0.0.1`), and `PORT` (production `9443`).
 
 ## Manifest schema
 
@@ -67,14 +68,15 @@ legal empty index, TLS directory, environment, and systemd unit. Test locally wi
 APK/metadata pair to `scripts/import-android-release-history.sh`; it uses the same `publishRelease`
 validation and transaction. SSH authentication remains external and no script contains a password.
 
-Port 443's old `apk-server.service` is the authorized replacement target; Xray is already stopped.
-`scripts/deploy-release-server.sh` stops it, deploys and verifies the new service, and restores it on
-failure. `CAP_NET_BIND_SERVICE` permits a low-port bind but does not resolve port conflicts.
+`scripts/deploy-edge-router.sh` installs and validates Nginx, moves the release server to loopback 9443,
+and claims public 443 only after both upstreams pass health checks. It restores the previous release
+environment and service if activation fails.
 
 Replace the old combined Hermes Certbot hook with `deploy/certbot-hermes-services-hook.sh.template`,
 but retain the derper hook. It atomically copies the `mrlgs.net` files into `/etc/hermes-remote/tls`
-as `root:hermes-remote` and `/etc/hermes-release-server/tls` as `root:kkk`, both mode `0640`, then
-verifies both restarts. Services never read the live Certbot private key. The unit fixes `ReadOnlyPaths=/srv/hermes-releases` and enforces
+as `root:hermes-remote`, `/etc/hermes-release-server/tls` as `root:kkk`, and the Nginx edge certificate
+as `root:root`. It verifies both upstream restarts and reloads Nginx. Services never read the live
+Certbot private key. The unit fixes `ReadOnlyPaths=/srv/hermes-releases` and enforces
 `UMask=0077`, restricted address families, and native syscall architecture.
 
 ## Verification and recovery

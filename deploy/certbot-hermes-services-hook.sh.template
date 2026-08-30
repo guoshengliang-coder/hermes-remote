@@ -2,6 +2,12 @@
 set -eu
 SOURCE=/etc/letsencrypt/live/mrlgs.net
 
+install -d -o root -g root -m 0700 /etc/hermes-edge/tls
+install -o root -g root -m 0600 "$SOURCE/fullchain.pem" /etc/hermes-edge/tls/fullchain.pem.new
+install -o root -g root -m 0600 "$SOURCE/privkey.pem" /etc/hermes-edge/tls/privkey.pem.new
+mv -f /etc/hermes-edge/tls/fullchain.pem.new /etc/hermes-edge/tls/fullchain.pem
+mv -f /etc/hermes-edge/tls/privkey.pem.new /etc/hermes-edge/tls/privkey.pem
+
 install -d -o root -g hermes-remote -m 0750 /etc/hermes-remote/tls
 install -o root -g hermes-remote -m 0640 "$SOURCE/fullchain.pem" /etc/hermes-remote/tls/fullchain.pem.new
 install -o root -g hermes-remote -m 0640 "$SOURCE/privkey.pem" /etc/hermes-remote/tls/privkey.pem.new
@@ -15,5 +21,8 @@ mv -f /etc/hermes-release-server/tls/fullchain.pem.new /etc/hermes-release-serve
 mv -f /etc/hermes-release-server/tls/privkey.pem.new /etc/hermes-release-server/tls/privkey.pem
 systemctl try-restart hermes-remote-gateway.service || { echo "gateway restart failed" >&2; exit 1; }
 systemctl try-restart hermes-release-server.service || { echo "release-server restart failed" >&2; exit 1; }
+nginx -t || { echo "edge nginx configuration invalid" >&2; exit 1; }
+systemctl reload nginx.service || { echo "edge nginx reload failed" >&2; exit 1; }
 systemctl is-active --quiet hermes-remote-gateway.service
 systemctl is-active --quiet hermes-release-server.service
+systemctl is-active --quiet nginx.service
