@@ -1040,6 +1040,59 @@ private fun chatMarkdownComponents(): MarkdownComponents =
                 CodeWithCopy(code, language, style)
             }
         },
+        // Section headings get breathing room above so long answers read in visual chapters
+        // (approved normal-content mockup): spacing carries the hierarchy, not decoration.
+        heading2 = { m ->
+            Column(Modifier.padding(top = 10.dp)) {
+                com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h2)
+            }
+        },
+        heading3 = { m ->
+            Column(Modifier.padding(top = 6.dp)) {
+                com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h3)
+            }
+        },
+        // Tables: bordered rounded container with a tinted, semibold header row instead of the
+        // library's bare default.
+        table = { m ->
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                ),
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.padding(vertical = 4.dp),
+            ) {
+                com.mikepenz.markdown.compose.elements.MarkdownTable(
+                    m.content,
+                    m.node,
+                    style = m.typography.table,
+                    headerBlock = { content, header, tableWidth, style ->
+                        Box(
+                            Modifier.background(
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                            ),
+                        ) {
+                            com.mikepenz.markdown.compose.elements.MarkdownTableHeader(
+                                content,
+                                header,
+                                tableWidth,
+                                style.copy(fontWeight = FontWeight.SemiBold),
+                            )
+                        }
+                    },
+                    rowBlock = { content, row, tableWidth, style ->
+                        com.mikepenz.markdown.compose.elements.MarkdownTableRow(
+                            content,
+                            row,
+                            tableWidth,
+                            style,
+                        )
+                    },
+                )
+            }
+        },
     )
 
 @Composable
