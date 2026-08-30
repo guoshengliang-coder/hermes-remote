@@ -67,11 +67,12 @@ downgrade is not supported.”
 The repository includes `.github/workflows/android-release.yml`. Normal pushes and pull requests run
 CI only. Publishing runs when a tag named `android-v<appVersionName>` is pushed, or when the workflow
 is manually dispatched from `main`. The job uses the `production` environment and a concurrency lock,
-so configure a required reviewer for that environment in GitHub Settings → Environments before using
-it in production. The workflow then performs the protocol tests, provisions the canonical debug key,
+so configure a required reviewer for that environment in GitHub Settings → Environments when the
+repository plan supports environment reviewers. The workflow then performs the protocol tests, provisions the canonical debug key,
 runs the package gate, publishes through the existing SSH publisher, and verifies the public APK and
 `index.json`. A tag whose version does not match `android/app/build.gradle.kts` or whose commit is not
-the current `origin/main` is rejected.
+the current `origin/main` is rejected. Even without reviewer protection, the deliberate version tag,
+main-commit check, clean-worktree check, and public hash/index verification remain mandatory gates.
 
 Configure these repository secrets once (never commit their values):
 
