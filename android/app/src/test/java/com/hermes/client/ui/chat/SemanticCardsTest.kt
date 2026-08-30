@@ -49,6 +49,46 @@ class SemanticCardsTest {
         assertFalse(looksLikeDiff(prose, null))
     }
 
+    @Test fun todosParseFromPayload() {
+        val meta = parseToolPayloadMeta(
+            """{"todos": [
+                {"id": "1", "content": "检查配置", "status": "completed"},
+                {"id": "2", "content": "重载服务", "status": "in_progress"},
+                {"id": "3", "content": "验证健康", "status": "pending"},
+                {"id": "4", "content": "回滚预案", "status": "cancelled"}
+            ]}""",
+        )
+        assertEquals(4, meta?.todos?.size)
+        assertEquals("completed", meta?.todos?.get(0)?.status)
+        val (done, total) = todoProgress(meta!!.todos)
+        assertEquals(1, done)
+        assertEquals(3, total) // cancelled excluded from total
+    }
+
+    @Test fun consecutiveToolsCollapseIntoTimeline() {
+        fun tool(id: String) = com.hermes.client.domain.ToolCall(
+            id = id, name = "Bash", status = com.hermes.client.domain.ToolStatus.DONE,
+        )
+        val todoTool = com.hermes.client.domain.ToolCall(
+            id = "todo", name = "TodoWrite", status = com.hermes.client.domain.ToolStatus.DONE,
+            todos = listOf(com.hermes.client.domain.TodoItem("x", "pending")),
+        )
+        // 3 consecutive -> one timeline
+        val g1 = groupToolsForDisplay(listOf(tool("a"), tool("b"), tool("c")))
+        assertEquals(1, g1.size)
+        assertTrue(g1[0] is ToolDisplayGroup.Timeline)
+        // 2 consecutive -> singles
+        val g2 = groupToolsForDisplay(listOf(tool("a"), tool("b")))
+        assertEquals(2, g2.size)
+        assertTrue(g2.all { it is ToolDisplayGroup.Single })
+        // todo breaks the run: 3 + todo + 1 -> timeline, single(todo), single
+        val g3 = groupToolsForDisplay(listOf(tool("a"), tool("b"), tool("c"), todoTool, tool("d")))
+        assertEquals(3, g3.size)
+        assertTrue(g3[0] is ToolDisplayGroup.Timeline)
+        assertTrue(g3[1] is ToolDisplayGroup.Single)
+        assertTrue(g3[2] is ToolDisplayGroup.Single)
+    }
+
     @Test fun diffLinesClassified() {
         val lines = parseDiffLines("--- a/f\n+++ b/f\n@@ -1 +1 @@\n context\n+added\n-removed")
         assertEquals(DiffLineKind.HUNK, lines[0].kind)

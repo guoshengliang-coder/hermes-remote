@@ -872,7 +872,12 @@ private fun AssistantTurn(
                 .combinedClickable(onClick = {}, onLongClick = { menuOpen = true }),
         ) {
             if (msg.thinking.isNotBlank()) ThinkingCard(msg.id, msg.thinking)
-            msg.tools.forEach { SemanticToolCard(it) }
+            remember(msg.tools) { groupToolsForDisplay(msg.tools) }.forEach { group ->
+                when (group) {
+                    is ToolDisplayGroup.Single -> SemanticToolCard(group.tool)
+                    is ToolDisplayGroup.Timeline -> ToolTimelineCard(group.tools)
+                }
+            }
             if (msg.images.isNotEmpty()) {
                 ChatImageGrid(msg.images, onImageSave, onImageSaveAs, onImageShare, savingImageId)
                 if (renderedText.isNotBlank() || msg.files.isNotEmpty()) Spacer(Modifier.height(8.dp))

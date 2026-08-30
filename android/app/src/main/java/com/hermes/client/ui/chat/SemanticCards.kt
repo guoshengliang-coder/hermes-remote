@@ -7,6 +7,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -51,12 +52,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hermes.client.domain.TodoItem
 import com.hermes.client.domain.ToolCall
 import com.hermes.client.domain.ToolStatus
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.theme.LocalToolCallTechnical
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -75,6 +78,7 @@ internal data class ToolPayloadMeta(
     val exitCode: Int?,
     val durationMs: Long?,
     val outputBody: String?,
+    val todos: List<TodoItem> = emptyList(),
 )
 
 private val metaJson = Json { ignoreUnknownKeys = true; isLenient = true }
@@ -92,9 +96,16 @@ internal fun parseToolPayloadMeta(raw: String): ToolPayloadMeta? {
     val outputBody = str("output", "stdout", "result_text")
     val exitCode = prim("exit_code", "exitCode")?.intOrNull
     val durationMs = prim("duration_ms", "durationMs")?.longOrNull
-    // Only claim the command shape when it actually looks like one.
-    if (command == null && exitCode == null && outputBody == null) return null
-    return ToolPayloadMeta(command, exitCode, durationMs, outputBody)
+    val todos = (obj["todos"] as? JsonArray)?.mapNotNull { element ->
+        val item = element as? JsonObject ?: return@mapNotNull null
+        val content = (item["content"] as? JsonPrimitive)?.contentOrNull?.ifBlank { null }
+            ?: return@mapNotNull null
+        val status = (item["status"] as? JsonPrimitive)?.contentOrNull?.lowercase() ?: "pending"
+        TodoItem(content, status)
+    }.orEmpty()
+    // Only claim the shape when it actually carries something semantic.
+    if (command == null && exitCode == null && outputBody == null && todos.isEmpty()) return null
+    return ToolPayloadMeta(command, exitCode, durationMs, outputBody, todos)
 }
 
 internal fun formatToolDuration(durationMs: Long): String =
@@ -180,6 +191,10 @@ private fun ToolStatusDot(running: Boolean, failed: Boolean) {
  */
 @Composable
 internal fun SemanticToolCard(tool: ToolCall) {
+    if (tool.todos.isNotEmpty()) {
+        TodoCard(tool)
+        return
+    }
     val language = LocalAppLanguage.current
     val clipboard = LocalClipboardManager.current
     val technical = LocalToolCallTechnical.current
@@ -389,3 +404,293 @@ internal fun DiffBlock(code: String) {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Display grouping: a long agent run emits many consecutive tool calls; three
+// or more in a row collapse into ONE timeline card instead of a wall of cards.
+// Task-list payloads always stand alone as checklist cards.
+// ---------------------------------------------------------------------------
+
+internal sealed interface ToolDisplayGroup {
+    data class Single(val tool: ToolCall) : ToolDisplayGroup
+    data class Timeline(val tools: List<ToolCall>) : ToolDisplayGroup
+}
+
+internal fun groupToolsForDisplay(
+    tools: List<ToolCall>,
+    timelineThreshold: Int = 3,
+): List<ToolDisplayGroup> {
+    val groups = mutableListOf<ToolDisplayGroup>()
+    val run = mutableListOf<ToolCall>()
+    fun flush() {
+        if (run.size >= timelineThreshold) {
+            groups += ToolDisplayGroup.Timeline(run.toList())
+        } else {
+            run.forEach { groups += ToolDisplayGroup.Single(it) }
+        }
+        run.clear()
+    }
+    for (tool in tools) {
+        if (tool.todos.isNotEmpty()) {
+            flush()
+            groups += ToolDisplayGroup.Single(tool)
+        } else {
+            run += tool
+        }
+    }
+    flush()
+    return groups
+}
+
+/** Progress over a task list: done counts completed; total excludes cancelled. */
+internal fun todoProgress(todos: List<TodoItem>): Pair<Int, Int> {
+    var done = 0
+    var total = 0
+    for (todo in todos) {
+        if (todo.status == "cancelled") continue
+        total++
+        if (todo.status == "completed") done++
+    }
+    return done to total
+}
+
+/** Checklist card for task-list payloads: progress bar plus per-item state. */
+@Composable
+internal fun TodoCard(tool: ToolCall) {
+    val language = LocalAppLanguage.current
+    val (done, total) = todoProgress(tool.todos)
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+        ),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+    ) {
+        Column(
+            Modifier.padding(horizontal = 13.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TodoStateBox(status = "in_progress")
+                Text(
+                    localized(language, "任务清单", "Task list"),
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "$done/$total",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (total > 0) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(done / total.toFloat())
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                tool.todos.forEach { todo ->
+                    val doneOrCancelled = todo.status == "completed" || todo.status == "cancelled"
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TodoStateBox(status = todo.status)
+                        Text(
+                            todo.content,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = if (todo.status == "in_progress") FontWeight.SemiBold else FontWeight.Normal,
+                                textDecoration = if (doneOrCancelled) {
+                                    androidx.compose.ui.text.style.TextDecoration.LineThrough
+                                } else {
+                                    null
+                                },
+                            ),
+                            color = when {
+                                doneOrCancelled -> MaterialTheme.colorScheme.outline
+                                todo.status == "in_progress" -> MaterialTheme.colorScheme.onSurface
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.padding(start = 9.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TodoStateBox(status: String) {
+    val shape = RoundedCornerShape(4.dp)
+    when (status) {
+        "completed" -> Box(
+            Modifier.size(15.dp).clip(shape).background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Rounded.Check,
+                contentDescription = null,
+                modifier = Modifier.size(11.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+        "in_progress" -> Box(
+            Modifier.size(15.dp).clip(shape).border(1.5.dp, MaterialTheme.colorScheme.primary, shape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(6.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+        }
+        "cancelled" -> Box(
+            Modifier.size(15.dp).clip(shape).border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, shape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Rounded.Close,
+                contentDescription = null,
+                modifier = Modifier.size(10.dp),
+                tint = MaterialTheme.colorScheme.outline,
+            )
+        }
+        else -> Box(
+            Modifier.size(15.dp).clip(shape).border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, shape),
+        )
+    }
+}
+
+/**
+ * Timeline card: three or more consecutive calls in one shell, one row per call
+ * with the command (or first output line) as the summary; tapping a row expands
+ * its output inline behind the hierarchy rail.
+ */
+@Composable
+internal fun ToolTimelineCard(tools: List<ToolCall>) {
+    val language = LocalAppLanguage.current
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+        ),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+    ) {
+        Column(Modifier.padding(horizontal = 13.dp, vertical = 7.dp)) {
+            tools.forEach { tool ->
+                var expanded by rememberSaveable("timeline-${tool.id}") { mutableStateOf(false) }
+                val running = tool.status == ToolStatus.RUNNING
+                val failed = !running && (tool.exitCode ?: 0) != 0
+                val summary = tool.command
+                    ?: tool.output.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .let { base ->
+                            if (tool.output.isNotBlank()) {
+                                base.then(
+                                    Modifier.background(androidx.compose.ui.graphics.Color.Transparent),
+                                )
+                            } else {
+                                base
+                            }
+                        }
+                        .padding(vertical = 5.dp)
+                        .then(
+                            if (tool.output.isNotBlank()) {
+                                Modifier.clickableNoIndication { expanded = !expanded }
+                            } else {
+                                Modifier
+                            },
+                        ),
+                ) {
+                    ToolStatusDot(running = running, failed = failed)
+                    Text(
+                        tool.name,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                    if (summary.isNotBlank()) {
+                        Text(
+                            summary,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                            ),
+                            color = if (running) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(start = 8.dp).weight(1f, fill = false),
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = when {
+                            running -> localized(language, "运行中…", "Running…")
+                            failed -> "exit ${tool.exitCode}"
+                            tool.durationMs != null -> formatToolDuration(tool.durationMs)
+                            else -> ""
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when {
+                            running -> MaterialTheme.colorScheme.primary
+                            failed -> MaterialTheme.colorScheme.tertiary
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+                if (expanded && tool.output.isNotBlank()) {
+                    Row(Modifier.height(IntrinsicSize.Min).padding(bottom = 6.dp)) {
+                        Box(
+                            Modifier
+                                .padding(start = 7.dp, end = 10.dp)
+                                .width(2.dp)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(MaterialTheme.colorScheme.outlineVariant),
+                        )
+                        SelectionContainer(Modifier.weight(1f)) {
+                            Text(
+                                tool.output.take(12_000),
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp,
+                                    lineHeight = 18.sp,
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                                    .padding(horizontal = 11.dp, vertical = 9.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Rows toggle without a ripple so the card reads as one quiet timeline.
+private fun Modifier.clickableNoIndication(onClick: () -> Unit): Modifier = this.then(
+    Modifier.clickable(onClick = onClick),
+)

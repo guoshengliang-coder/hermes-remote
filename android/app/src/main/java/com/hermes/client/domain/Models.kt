@@ -40,6 +40,15 @@ data class ToolCall(
     val command: String? = null,
     val exitCode: Int? = null,
     val durationMs: Long? = null,
+    // A task-list payload (the gateway sends the full list on tool.complete) renders as a
+    // checklist card with progress instead of a generic tool card.
+    val todos: List<TodoItem> = emptyList(),
+)
+
+/** One entry of an agent task list; status is completed / in_progress / pending / cancelled. */
+data class TodoItem(
+    val content: String,
+    val status: String,
 )
 
 /** A chat image is stored as a small reference; full image bytes live in the app cache. */

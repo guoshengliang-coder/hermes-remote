@@ -548,6 +548,7 @@ fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
                     command = meta?.command,
                     exitCode = meta?.exitCode,
                     durationMs = meta?.durationMs,
+                    todos = meta?.todos.orEmpty(),
                 ) else it
             })
         }
