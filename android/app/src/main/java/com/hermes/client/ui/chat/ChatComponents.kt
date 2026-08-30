@@ -72,7 +72,9 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -170,7 +172,11 @@ fun ChatMessageList(
             val newest = latestTail
             if (newest !== snapshotSource) {
                 snapshotSource = newest
-                renderedTail = newest?.stabilizedForStreaming(latestPlaceholder)
+                // Regex-based organization of a long tail is a few milliseconds — enough to steal
+                // from a 16ms frame, so snapshot off the main thread and publish the result.
+                renderedTail = if (newest == null) null else withContext(Dispatchers.Default) {
+                    newest.stabilizedForStreaming(latestPlaceholder)
+                }
             }
             delay(STREAM_RENDER_INTERVAL_MS)
         }

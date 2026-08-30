@@ -357,15 +357,20 @@ internal fun stabilizeStreamingMarkdown(raw: String, toolDataPlaceholder: String
     return closeOpenFence(raw)
 }
 
+/**
+ * Render snapshot for a streaming tail: mask the unfinished trailing payload, then run the SAME
+ * display organization the completion pass uses. A tool payload that balances mid-stream thereby
+ * becomes a collapsed tool card in the very next snapshot — instead of first exploding into raw
+ * markdown and then collapsing again at message.complete, the two largest visible jumps left.
+ * Running this per token would approach O(n²); per 64ms snapshot on a background dispatcher it is
+ * a few regex passes over one record.
+ */
 internal fun ChatMessage.stabilizedForStreaming(toolDataPlaceholder: String): ChatMessage =
-    if (text.isBlank()) this else copy(text = stabilizeStreamingMarkdown(text, toolDataPlaceholder))
+    if (text.isBlank()) this
+    else copy(text = stabilizeStreamingMarkdown(text, toolDataPlaceholder)).organizedForDisplay()
 
 private val fenceLine = Regex("(?m)^\\s*```")
 private val streamedJsonLineStart = Regex("(?m)^\\s*\\{\\s*\"")
-
-// Small trailing objects balance within a snapshot or two; hiding them would only flicker the
-// placeholder. Only blobs at least this long are worth masking.
-private const val MIN_MASKED_JSON_CHARS = 160
 
 private fun closeOpenFence(text: String): String =
     if (fenceLine.findAll(text).count() % 2 == 1) "$text\n```" else text
@@ -374,13 +379,13 @@ private fun String.withStreamingPlaceholder(placeholder: String): String =
     if (placeholder.isBlank()) this else trimEnd() + "\n\n*$placeholder*"
 
 /**
- * Index of a trailing, still-unbalanced `{"…` object large enough to mask, or -1. Brace counting
- * is deliberately naive (braces inside JSON strings count too): a wrong verdict only means the
- * tail is masked until the completion pass restores it, or rendered raw as before.
+ * Index of a trailing, still-unbalanced `{"…` object, or -1. Masking starts with the blob's very
+ * first characters: showing raw payload and yanking it back later is itself a visible jump. Brace
+ * counting is deliberately naive (braces inside JSON strings count too): a wrong verdict only
+ * means the tail stays masked until the organization pass extracts it, or renders raw as before.
  */
 private fun findTrailingUnbalancedJson(text: String): Int {
     val start = streamedJsonLineStart.findAll(text).lastOrNull()?.range?.first ?: return -1
-    if (text.length - start < MIN_MASKED_JSON_CHARS) return -1
     var depth = 0
     for (index in start until text.length) {
         when (text[index]) {

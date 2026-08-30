@@ -47,9 +47,13 @@ class StreamingMarkdownStabilizerTest {
         assertEquals(text, stabilizeStreamingMarkdown(text, "P"))
     }
 
-    @Test fun smallTrailingObjectIsNotMasked() {
-        val text = "quick:\n{\"a\": 1"
-        assertEquals(text, stabilizeStreamingMarkdown(text, "P"))
+    @Test fun tinyTrailingObjectIsMaskedImmediately() {
+        // Showing the raw payload prefix and yanking it back once a size threshold trips is
+        // itself a visible jump, so masking starts with the blob's very first characters.
+        val out = stabilizeStreamingMarkdown("quick:\n{\"a\": 1", "接收中")
+        assertFalse(out.contains("{\"a\""))
+        assertTrue(out.contains("接收中"))
+        assertTrue(out.startsWith("quick:"))
     }
 
     @Test fun maskedJsonInsideOpenFenceStillClosesTheFence() {
