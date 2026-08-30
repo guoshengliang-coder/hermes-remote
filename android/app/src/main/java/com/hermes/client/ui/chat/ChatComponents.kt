@@ -69,8 +69,11 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import androidx.compose.ui.Alignment
@@ -202,6 +205,21 @@ fun ChatMessageList(
     // stream following, the bottom button, and layout observation all issued independent scrolls;
     // those mutators cancelled one another and left the list at arbitrary offsets.
     LaunchedEffect(sessionId, listState, scrollRequests) {
+        // A user drag owns the scroll mutex at UserInput priority; a programmatic snap runs at
+        // Default. Whenever the two collide — a drag starting mid-snap, or a snap issued while a
+        // finger is down — the losing snap surfaces as a CancellationException. Uncaught, that one
+        // exception used to cancel this whole executor, and because its keys never change the
+        // executor stayed dead for the rest of the screen: the jump button and stream following
+        // silently stopped working forever. A stolen mutex is just one failed snap; only rethrow
+        // when this effect itself is actually being cancelled.
+        suspend fun snapTo(index: Int): Boolean = try {
+            listState.scrollToItem(index)
+            true
+        } catch (stolen: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            false
+        }
+
         suspend fun waitForTailItem(): Boolean {
             repeat(90) {
                 if (listState.layoutInfo.totalItemsCount > latestEndAnchorIndex) return true
@@ -224,7 +242,8 @@ fun ChatMessageList(
                     withFrameNanos { }
                     continue
                 }
-                listState.scrollToItem(target)
+                // The user grabbing the list mid-settle means they want control; stop competing.
+                if (!snapTo(target)) return false
                 withFrameNanos { }
                 stableFrames = if (listState.layoutInfo.isAtConversationTail()) stableFrames + 1 else 0
             }
@@ -250,7 +269,9 @@ fun ChatMessageList(
                         latestScrollMode == ChatScrollMode.FOLLOWING_TAIL
                     ) {
                         val target = latestEndAnchorIndex
-                        if (listState.layoutInfo.totalItemsCount > target) listState.scrollToItem(target)
+                        // A follow snap losing the mutex to a user drag is fine: the drag's
+                        // onPreScroll flips the mode to USER_BROWSING right after.
+                        if (listState.layoutInfo.totalItemsCount > target) snapTo(target)
                     }
                 }
                 ChatScrollRequest.JUMP_TO_TAIL -> {
