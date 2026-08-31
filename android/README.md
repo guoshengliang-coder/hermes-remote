@@ -159,6 +159,11 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   1.7dp stroke icon set at reference sizes with the avatar initial at 35% of its circle, and the
   remaining Hermes GO renames (wordmark, QS tile, About, crash report, diagnostics subject,
   table-export filename) plus the theme quick-switch and current-model rows.
+- Version 0.1.57 fixes the landscape toggle bouncing back when auto-rotate is off (orientation
+  reset moved to explicit close paths), makes the fullscreen table viewer edge-to-edge and
+  immersive on the dialog's own window, draws a faint full grid on tables, and replaces the
+  inference-based send-to-bottom with an action-driven tick so background history reconciliation
+  can no longer yank readers to the bottom.
 - Version 0.1.55 adds a connection-aware startup gate using the current multicolour icon: configured
   cold starts wait for `gateway.ready`, unconfigured first runs go straight to Setup, healthy warm
   returns preserve the current screen, and interrupted returns show bounded recovery with retry,
@@ -262,7 +267,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.56-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.57-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
