@@ -20,11 +20,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.DarkMode
-import androidx.compose.material.icons.rounded.Schedule
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.SystemUpdate
-import androidx.compose.material.icons.rounded.Widgets
+import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.ViewInAr
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -111,7 +111,7 @@ fun CardPage(
                     modifier = Modifier.size(44.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Settings, contentDescription = localized(language, "设置", "Settings"))
+                        Icon(Icons.Outlined.Settings, contentDescription = localized(language, "设置", "Settings"))
                     }
                 }
             }
@@ -148,7 +148,7 @@ fun CardPage(
                 Row(Modifier.padding(vertical = 18.dp)) {
                     StatCell(
                         title = localized(language, "本周用量", "This week"),
-                        value = state.weekTokens?.let { compactTokens(it) + " token" } ?: "—",
+                        value = state.weekTokens?.let { compactTokens(it) } ?: "—",
                         sub = state.weekCost?.let { localized(language, "预估 $%.2f".format(it), "est. $%.2f".format(it)) },
                         modifier = Modifier.weight(1f).clickable { onNavigate("usage") },
                     )
@@ -172,28 +172,28 @@ fun CardPage(
             // ── Shortcut rows: icon + label | current value + chevron ────────────────
             Column(Modifier.padding(top = 10.dp)) {
                 ShortcutRow(
-                    icon = Icons.Rounded.Schedule,
+                    icon = Icons.Outlined.Schedule,
                     label = localized(language, "定时任务", "Scheduled jobs"),
                     badge = state.cronAlerts.takeIf { it > 0 },
                     onClick = { onNavigate("cron") },
                 )
                 HorizontalDivider(color = hairline)
                 ShortcutRow(
-                    icon = Icons.Rounded.DarkMode,
+                    icon = Icons.Outlined.DarkMode,
                     label = localized(language, "主题", "Theme"),
                     value = themeLabel(themeMode, language),
                     onClick = { themeSheet = true },
                 )
                 HorizontalDivider(color = hairline)
                 ShortcutRow(
-                    icon = Icons.Rounded.Widgets,
+                    icon = Icons.Outlined.ViewInAr,
                     label = localized(language, "模型", "Model"),
                     value = state.defaultModel ?: "—",
                     onClick = { onNavigate("models") },
                 )
                 HorizontalDivider(color = hairline)
                 ShortcutRow(
-                    icon = Icons.Rounded.SystemUpdate,
+                    icon = Icons.Outlined.SystemUpdate,
                     label = localized(language, "检查更新", "App updates"),
                     value = "v${com.hermes.client.BuildConfig.VERSION_NAME}",
                     onClick = { onNavigate("app_update") },
@@ -236,16 +236,34 @@ private fun StatCell(
     modifier: Modifier = Modifier,
     subColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
+    // Typography pinned to the reference shot: 15sp regular grey label, 27sp bold value with
+    // tight tracking, 15sp grey sub-line — explicit sp so theme scale tweaks can't drift it.
     Column(modifier.padding(horizontal = 18.dp)) {
-        Text(title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Text(
             value,
-            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+            style = MaterialTheme.typography.headlineSmall.copy(
+                fontSize = 27.sp,
+                lineHeight = 33.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.4).sp,
+            ),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(vertical = 2.dp),
+            modifier = Modifier.padding(top = 4.dp, bottom = 3.dp),
         )
-        sub?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = subColor, maxLines = 1) }
+        sub?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
+                color = subColor,
+                maxLines = 1,
+            )
+        }
     }
 }
 
