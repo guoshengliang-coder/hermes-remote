@@ -90,3 +90,32 @@ With Gateway and Connector running locally and `FILES_ROOT` pointing at a dedica
    `MAX_FILE_BYTES`). Confirm the download completes and the Connector remains online afterward.
 5. Attempt a path outside `FILES_ROOT`, an upload above `MAX_UPLOAD_BYTES`, and a download above
    `MAX_FILE_BYTES`. Expect request-scoped 403/413 errors with no control-WebSocket disconnect.
+
+## Single-screen navigation and profile-scope smoke test (2026-08 redesign)
+
+These flows need a device or emulator against a running Gateway/Connector; JVM unit tests cover the
+logic but not the interaction feel.
+
+1. **Card page and profile switch.** From the session list tap the top-left avatar. Confirm the
+   card page opens with the current identity hero, other profiles (with running/waiting sub-lines
+   when applicable), usage/remote-device tiles, and the cron/settings/update entry rows. Switch to
+   another profile: the list, projects, archived, cron, usage, models, skills, and messaging
+   screens must all show ONLY that profile's data afterwards.
+2. **Switch failure.** Stop the Connector (or drop the network) and attempt a switch. Confirm a
+   "couldn't switch" toast, the avatar and list stay on the previous profile, and nothing renders
+   the target profile's data.
+3. **Needs-you and collapsing.** Drive a session into an approval wait. Confirm it jumps to the
+   需要你处理 group at the top; collapse each group header and confirm counts stay visible and the
+   state survives rotation.
+4. **Cron alert strip.** Make a cron job fail (or overdue). Confirm the strip appears above the
+   list, opens the cron screen, and disappears once resolved.
+5. **Archived segment.** Archive a session, switch the segment control to 已归档, unarchive it, and
+   confirm it returns to the list without a restart.
+6. **Search.** Open search from the top-right icon: title matches must appear instantly (archived
+   rows tagged 已归档), and the keyboard search action must return message-content matches. All
+   results stay within the active profile.
+7. **Legacy deep links.** Send `hermes://tab/activity` and `hermes://tab/you` (e.g. via `adb shell
+   am start -a android.intent.action.VIEW -d ...`). Both must land on the session list, never
+   crash. The launcher widget must show only New chat and Chats.
+8. **Remote device tile.** With the Connector attached, confirm the card page shows its DEVICE_ID
+   and Connected · latency; kill the Connector and confirm the tile flips to offline.

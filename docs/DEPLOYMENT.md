@@ -31,7 +31,8 @@ hook copies the renewed certificate into `/etc/hermes-remote/tls` before restart
 
 ## Operations
 
-Gateway health:
+Gateway health (the JSON includes `connectors` — the attached-connector count — and `devices`,
+a `[{deviceId, online}]` list added for the app's remote-device tile):
 
 ```bash
 curl https://mrlgs.net/relay-health
