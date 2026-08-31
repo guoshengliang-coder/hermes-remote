@@ -166,6 +166,10 @@ fun ChatScreen(
     // "Retry with another model": the model sheet doubles as the picker; when this flag is set,
     // a successful switch immediately re-submits the last prompt on the new model.
     var retryAfterModelSwitch by rememberSaveable(sessionId) { mutableStateOf(false) }
+    // Raw markdown of the table currently viewed fullscreen. Hoisted to the SCREEN level (and
+    // saveable) because anything living inside the markdown tree vanishes during the re-parse
+    // window on rotation, taking a dialog hosted there down with it.
+    var fullscreenTableRaw by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
     val commands by vm.commands.collectAsStateWithLifecycle()
     val pathItems by vm.pathItems.collectAsStateWithLifecycle()
     val speaking by vm.speaking.collectAsStateWithLifecycle()
@@ -1000,6 +1004,7 @@ fun ChatScreen(
                             retryAfterModelSwitch = true
                             modelSheetOpen = true
                         },
+                        onOpenTableFullscreen = { fullscreenTableRaw = it },
                         isSpeaking = speaking,
                         onReadAloud = { vm.readAloud(it) },
                         onStopReading = { vm.stopReading() },
@@ -1151,6 +1156,10 @@ fun ChatScreen(
     }
 
     LaunchedEffect(modelSheetOpen) { if (modelSheetOpen) vm.ensureProviders() }
+    fullscreenTableRaw?.let { raw ->
+        com.hermes.client.ui.chat.TableFullscreenDialog(raw = raw, onDismiss = { fullscreenTableRaw = null })
+    }
+
     if (modelSheetOpen) {
         val providersLoading by vm.providersLoading.collectAsStateWithLifecycle()
         val providersError by vm.providersError.collectAsStateWithLifecycle()

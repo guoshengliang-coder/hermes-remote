@@ -64,6 +64,16 @@ fun ComponentGalleryScreen(onBack: () -> Unit) {
     }
 }
 
+@Composable
+private fun GalleryTableCard(raw: String) {
+    val fullscreenState = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var fullscreen = fullscreenState.value
+    ChatTableCard(raw, onOpenFullscreen = { fullscreenState.value = true }) { StyledMarkdownTableSample(raw) }
+    if (fullscreenState.value) {
+        com.hermes.client.ui.chat.TableFullscreenDialog(raw) { fullscreenState.value = false }
+    }
+}
+
 private fun streamingMsg(text: String = "", thinking: String = "", tools: List<ToolCall> = emptyList()) =
     ChatMessage(
         id = "g", role = Role.ASSISTANT, text = text, thinking = thinking, tools = tools,
@@ -129,8 +139,8 @@ private val gallerySections: List<Pair<String, @Composable () -> Unit>> = listOf
             ),
         )
     },
-    "表格卡 · 窄（3 列一屏）" to { ChatTableCard(SAMPLE_TABLE_NARROW) { StyledMarkdownTableSample(SAMPLE_TABLE_NARROW) } },
-    "表格卡 · 宽（5 列横滚）" to { ChatTableCard(SAMPLE_TABLE_WIDE) { StyledMarkdownTableSample(SAMPLE_TABLE_WIDE) } },
+    "表格卡 · 窄（3 列一屏）" to { GalleryTableCard(SAMPLE_TABLE_NARROW) },
+    "表格卡 · 宽（5 列横滚）" to { GalleryTableCard(SAMPLE_TABLE_WIDE) },
     "代码块 · 语言头部栏" to {
         CodeWithCopy(
             code = "val atBottom by remember(listState) {\n    derivedStateOf { listState.firstVisibleItemIndex == 0 }\n}",

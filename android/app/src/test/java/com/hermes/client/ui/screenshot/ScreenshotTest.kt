@@ -73,7 +73,7 @@ class ScreenshotTest {
 
     @Test fun tableCardNarrow() = snap("table-card-narrow") {
         val raw = "| 项目 | 期望值 | 实际值 |\n|---|---|---|\n| 证书深度 | 4 | 2 |\n| 读超时 | 75s | 75s |"
-        com.hermes.client.ui.chat.ChatTableCard(raw) {
+        com.hermes.client.ui.chat.ChatTableCard(raw, onOpenFullscreen = {}) {
             com.hermes.client.ui.chat.StyledMarkdownTableSample(raw)
         }
     }

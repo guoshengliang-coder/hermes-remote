@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -158,6 +159,7 @@ fun ChatMessageList(
     onEditResend: (String) -> Unit = {},
     onRegenerate: () -> Unit = {},
     onRetryWithModel: () -> Unit = {},
+    onOpenTableFullscreen: (String) -> Unit = {},
     isSpeaking: Boolean = false,
     onReadAloud: (String) -> Unit = {},
     onStopReading: () -> Unit = {},
@@ -410,6 +412,7 @@ fun ChatMessageList(
                         onEditResend,
                         onRegenerate,
                         onRetryWithModel,
+                        onOpenTableFullscreen,
                         isSpeaking,
                         onReadAloud,
                         onStopReading,
@@ -532,6 +535,7 @@ private fun MessageBubble(
     onEditResend: (String) -> Unit,
     onRegenerate: () -> Unit,
     onRetryWithModel: () -> Unit,
+    onOpenTableFullscreen: (String) -> Unit,
     isSpeaking: Boolean,
     onReadAloud: (String) -> Unit,
     onStopReading: () -> Unit,
@@ -545,7 +549,7 @@ private fun MessageBubble(
 ) {
     when (msg.role) {
         Role.USER -> UserBubble(msg, onEditResend, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted)
-        else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, isSpeaking, onReadAloud, onStopReading, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted)
+        else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted)
     }
 }
 
@@ -916,6 +920,7 @@ private fun AssistantTurn(
     showActions: Boolean,
     onRegenerate: () -> Unit,
     onRetryWithModel: () -> Unit,
+    onOpenTableFullscreen: (String) -> Unit,
     isSpeaking: Boolean,
     onReadAloud: (String) -> Unit,
     onStopReading: () -> Unit,
@@ -982,7 +987,7 @@ private fun AssistantTurn(
                         )
                     }
                 } else {
-                    val mdComponents = remember { chatMarkdownComponents() }
+                    val mdComponents = remember(onOpenTableFullscreen) { chatMarkdownComponents(onOpenTableFullscreen) }
                     val body = MaterialTheme.typography.bodyLarge.copy(
                         fontSize = 17.sp,
                         lineHeight = 29.sp,
@@ -1162,7 +1167,7 @@ private fun copyToClipboard(
  * renderer already extracts the clean code text and hands it to this block, so we just overlay a
  * copy affordance on the default code rendering.
  */
-private fun chatMarkdownComponents(): MarkdownComponents =
+private fun chatMarkdownComponents(onOpenTableFullscreen: (String) -> Unit): MarkdownComponents =
     markdownComponents(
         codeFence = { m ->
             MarkdownCodeFence(m.content, m.node, style = m.typography.code) { code, language, style ->
@@ -1193,7 +1198,7 @@ private fun chatMarkdownComponents(): MarkdownComponents =
             val raw = remember(m.content, m.node) {
                 m.content.substring(m.node.startOffset, m.node.endOffset)
             }
-            ChatTableCard(raw = raw) {
+            ChatTableCard(raw = raw, onOpenFullscreen = { onOpenTableFullscreen(raw) }) {
                 StyledMarkdownTable(m.content, m.node, m.typography.table)
             }
         },
@@ -1252,14 +1257,83 @@ internal fun StyledMarkdownTableSample(raw: String) {
     )
 }
 
+internal enum class TableExportAction { SAVE, SHARE }
+
+/**
+ * Renders [raw] as a FULL-WIDTH table on a zero-sized, non-clipping host: the content records
+ * into a GraphicsLayer without ever drawing to screen, so exports contain every column even
+ * when the on-screen card shows a scrollable slice. immediate parsing guarantees the table is
+ * present on the first frame; two frame-waits let layout+draw complete before capture.
+ */
 @Composable
-internal fun ChatTableCard(raw: String, content: @Composable () -> Unit) {
+internal fun OffscreenTableExporter(raw: String, action: TableExportAction, onDone: () -> Unit) {
+    val context = LocalContext.current
+    val language = LocalAppLanguage.current
+    val layer = androidx.compose.ui.graphics.rememberGraphicsLayer()
+    val columns = remember(raw) { markdownTableColumnCount(raw) }
+    val tableWidth = (columns.coerceAtLeast(1) * 170 + 24).dp
+    val mdState = com.mikepenz.markdown.model.rememberMarkdownState(raw, immediate = true)
+    Box(
+        Modifier
+            .size(0.dp)
+            .wrapContentSize(align = Alignment.TopStart, unbounded = true),
+    ) {
+        Column(
+            Modifier
+                .width(tableWidth)
+                .background(MaterialTheme.colorScheme.background)
+                // record only — no drawLayer, so nothing appears on screen.
+                .drawWithContent { layer.record { this@drawWithContent.drawContent() } },
+        ) {
+            Markdown(
+                markdownState = mdState,
+                modifier = Modifier.fillMaxWidth(),
+                colors = markdownColor(),
+                typography = markdownTypography(
+                    table = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 24.sp),
+                ),
+                components = markdownComponents(
+                    table = { m -> StyledMarkdownTable(m.content, m.node, m.typography.table) },
+                ),
+                dimens = markdownDimens(tableCellWidth = 170.dp, tableCellPadding = 10.dp),
+            )
+        }
+    }
+    LaunchedEffect(raw, action) {
+        androidx.compose.runtime.withFrameNanos { }
+        androidx.compose.runtime.withFrameNanos { }
+        runCatching {
+            val bmp = layer.toImageBitmap().asAndroidBitmap()
+            when (action) {
+                TableExportAction.SAVE -> {
+                    val uri = TableExport.saveToGallery(context, bmp)
+                    Toast.makeText(
+                        context,
+                        if (uri != null) localized(language, "已保存到相册", "Saved to gallery")
+                        else localized(language, "保存失败", "Couldn't save"),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                TableExportAction.SHARE ->
+                    TableExport.share(context, bmp, localized(language, "分享表格图片", "Share table image"))
+            }
+        }.onFailure {
+            Toast.makeText(context, localized(language, "导出失败", "Export failed"), Toast.LENGTH_SHORT).show()
+        }
+        onDone()
+    }
+}
+
+@Composable
+internal fun ChatTableCard(
+    raw: String,
+    onOpenFullscreen: () -> Unit,
+    content: @Composable () -> Unit,
+) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val language = LocalAppLanguage.current
-    // rememberSaveable: rotating the device recreates the Activity; a plain remember lost the
-    // open state, silently closing the fullscreen viewer on rotation.
-    var fullscreen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var exportAction by remember { mutableStateOf<TableExportAction?>(null) }
     Surface(
         shape = RoundedCornerShape(12.dp),
         border = androidx.compose.foundation.BorderStroke(
@@ -1297,7 +1371,29 @@ internal fun ChatTableCard(raw: String, content: @Composable () -> Unit) {
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                IconButton(onClick = { fullscreen = true }, modifier = Modifier.size(36.dp)) {
+                IconButton(
+                    onClick = { if (exportAction == null) exportAction = TableExportAction.SAVE },
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        Icons.Rounded.Download,
+                        contentDescription = localized(language, "保存为图片", "Save as image"),
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(
+                    onClick = { if (exportAction == null) exportAction = TableExportAction.SHARE },
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        Icons.Rounded.Share,
+                        contentDescription = localized(language, "分享表格图片", "Share table image"),
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = onOpenFullscreen, modifier = Modifier.size(36.dp)) {
                     Icon(
                         Icons.Rounded.OpenInFull,
                         contentDescription = localized(language, "全屏查看", "View fullscreen"),
@@ -1309,8 +1405,8 @@ internal fun ChatTableCard(raw: String, content: @Composable () -> Unit) {
             content()
         }
     }
-    if (fullscreen) {
-        TableFullscreenDialog(raw = raw, onDismiss = { fullscreen = false })
+    exportAction?.let { action ->
+        OffscreenTableExporter(raw, action) { exportAction = null }
     }
 }
 
@@ -1322,29 +1418,10 @@ private tailrec fun android.content.Context.findActivity(): android.app.Activity
 }
 
 @Composable
-private fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
+internal fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
     val language = LocalAppLanguage.current
-    val context = LocalContext.current
     val activity = LocalContext.current.findActivity()
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    // The export layer records the FULL-WIDTH table node (the outer horizontalScroll gives the
-    // node its complete intrinsic width), so the exported PNG contains every column even when
-    // the screen shows only part of the table.
-    val exportLayer = androidx.compose.ui.graphics.rememberGraphicsLayer()
-    var exporting by remember { mutableStateOf(false) }
-    fun exportBitmap(onBitmap: suspend (android.graphics.Bitmap) -> Unit) {
-        if (exporting) return
-        exporting = true
-        scope.launch {
-            runCatching {
-                val image = exportLayer.toImageBitmap()
-                onBitmap(image.asAndroidBitmap())
-            }.onFailure {
-                Toast.makeText(context, localized(language, "导出失败", "Export failed"), Toast.LENGTH_SHORT).show()
-            }
-            exporting = false
-        }
-    }
+    var exportAction by remember { mutableStateOf<TableExportAction?>(null) }
     val isLandscape =
         LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     // Leaving the viewer always hands orientation back to the sensor, including dismiss-by-back
@@ -1376,18 +1453,7 @@ private fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     )
                     IconButton(
-                        onClick = {
-                            exportBitmap { bmp ->
-                                val uri = TableExport.saveToGallery(context, bmp)
-                                Toast.makeText(
-                                    context,
-                                    if (uri != null) localized(language, "已保存到相册", "Saved to gallery")
-                                    else localized(language, "保存失败", "Couldn't save"),
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                            }
-                        },
-                        enabled = !exporting,
+                        onClick = { if (exportAction == null) exportAction = TableExportAction.SAVE },
                         modifier = Modifier.size(48.dp),
                     ) {
                         Icon(
@@ -1398,12 +1464,7 @@ private fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
                         )
                     }
                     IconButton(
-                        onClick = {
-                            exportBitmap { bmp ->
-                                TableExport.share(context, bmp, localized(language, "分享表格图片", "Share table image"))
-                            }
-                        },
-                        enabled = !exporting,
+                        onClick = { if (exportAction == null) exportAction = TableExportAction.SHARE },
                         modifier = Modifier.size(48.dp),
                     ) {
                         Icon(
@@ -1450,11 +1511,7 @@ private fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
                     Column(
                         Modifier
                             .width(tableWidth)
-                            .background(MaterialTheme.colorScheme.background)
-                            .drawWithContent {
-                                exportLayer.record { this@drawWithContent.drawContent() }
-                                drawLayer(exportLayer)
-                            },
+                            .background(MaterialTheme.colorScheme.background),
                     ) {
                         Markdown(
                             markdownState = mdState,
@@ -1471,6 +1528,9 @@ private fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
                     }
                     }
                     Spacer(Modifier.height(24.dp))
+                }
+                exportAction?.let { action ->
+                    OffscreenTableExporter(raw, action) { exportAction = null }
                 }
             }
         }
