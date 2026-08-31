@@ -203,6 +203,16 @@ class SessionRuntimeStore(
         if (!handle.isNullOrBlank()) scheduleProcessPolling(key, PROCESS_DISCOVERY_GRACE_POLLS)
     }
 
+    /**
+     * Resolve a transient gateway runtime handle to the durable session/profile used by REST
+     * history and navigation. Notifications must use this rather than treating every event id as
+     * a stored conversation id; otherwise tapping a completion alert can open an empty chat.
+     */
+    fun notificationTarget(eventSessionId: String?): SessionRuntimeKey? {
+        val id = eventSessionId?.takeIf { it.isNotBlank() } ?: return null
+        return aliases[id] ?: _runtimes.value.keys.firstOrNull { it.sessionId == id }
+    }
+
     fun setVisible(key: SessionRuntimeKey, value: Boolean) {
         if (value) {
             visible += key
@@ -395,6 +405,10 @@ class SessionRuntimeStore(
     /** Fold sanitized Relay observations into the same state read by session/chat/activity UIs. */
     fun applyObservedLifecycle(event: LifecycleEventDto) {
         val key = observedLifecycleKey(event)
+        // Connector observations are the authoritative bridge between Hermes' short-lived runtime
+        // handle and its durable database key. Preserve both aliases so a later WebSocket
+        // completion/progress notification always opens the stored conversation.
+        event.runtimeSessionId.takeIf { it.isNotBlank() }?.let { aliases[it] = key }
         val now = System.currentTimeMillis()
         updateRuntime(key) { runtime ->
             when (event.event) {

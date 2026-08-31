@@ -30,6 +30,7 @@ class GatewayConnectionService : Service() {
     @Inject lateinit var lifecycleEvents: com.hermes.client.data.repository.LifecycleEventRepository
     @Inject lateinit var lifecycleDispatcher: LifecycleNotificationDispatcher
     @Inject lateinit var languages: com.hermes.client.ui.localization.AppLanguageProvider
+    @Inject lateinit var runtimes: com.hermes.client.data.progress.SessionRuntimeStore
 
     // Held separately (not just scope.coroutineContext[Job]) so onDestroy can register an
     // invokeOnCompletion callback on it directly — see onDestroy for why.
@@ -108,7 +109,13 @@ class GatewayConnectionService : Service() {
                 // One malformed/unexpected event must not crash the process — mirror the guard
                 // ChatViewModel's reduce() uses around event handling.
                 runCatching {
-                    toNotificationSpec(event, latestPrefs, appInForeground, languages.current)
+                    toNotificationSpec(
+                        event,
+                        latestPrefs,
+                        appInForeground,
+                        languages.current,
+                        routeTarget = runtimes.notificationTarget(event.sessionId),
+                    )
                         ?.let { notifier.post(it) }
                     updateRunProgress(event)
                 }
@@ -128,7 +135,11 @@ class GatewayConnectionService : Service() {
         // colour across two different tenants — see RunProgress.reduce's kdoc.
         val activeProfile = profiles.active.value
         runProgress = runProgress.reduce(event, activeProfile)
-        val spec = runProgress.toSpec(latestPrefs, languages.current)
+        val spec = runProgress.toSpec(
+            latestPrefs,
+            languages.current,
+            routeTarget = runtimes.notificationTarget(runProgress.sessionId),
+        )
         if (spec == lastRunSpec) return
         lastRunSpec = spec
         if (spec != null) notifier.postRunProgress(spec, runProgress.profile)

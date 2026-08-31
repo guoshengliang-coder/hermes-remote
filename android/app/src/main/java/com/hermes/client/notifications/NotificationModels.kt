@@ -1,5 +1,8 @@
 package com.hermes.client.notifications
 
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+
 /** User's notification preferences (persisted); off by default. */
 data class NotificationPrefs(
     val enabled: Boolean = false,
@@ -47,6 +50,20 @@ data class RunProgressSpec(
     val route: String?,
     val shortText: String?,
 )
+
+/**
+ * Route a notification to the durable stored conversation, optionally pinned to its profile.
+ * WebSocket events may carry a short-lived runtime handle; callers must resolve that handle before
+ * invoking this helper whenever [SessionRuntimeStore] already knows the mapping.
+ */
+internal fun notificationChatRoute(sessionId: String, profile: String? = null): String {
+    val id = encodeNotificationRouteValue(sessionId)
+    val selectedProfile = profile?.takeIf { it.isNotBlank() } ?: return "chat/$id"
+    return "chat/$id?profile=${encodeNotificationRouteValue(selectedProfile)}"
+}
+
+private fun encodeNotificationRouteValue(value: String): String =
+    URLEncoder.encode(value, StandardCharsets.UTF_8.name()).replace("+", "%20")
 
 /** Channel ids, gateway event-type strings, and action names in one place. */
 object Notif {

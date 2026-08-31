@@ -6,8 +6,6 @@ import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.AppLanguageProvider
 import com.hermes.client.ui.localization.localized
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -19,7 +17,12 @@ fun toLifecycleNotificationSpec(
     language: AppLanguage = AppLanguage.EN,
 ): NotificationSpec? {
     if (!prefs.enabled || coveredByLiveSocket) return null
-    val route = chatRoute(event.storedSessionId, event.profile)
+    // Connector lifecycle events always carry the durable stored id. A missing profile is Hermes'
+    // default identity, not whichever profile happens to be selected when the notification opens.
+    val route = notificationChatRoute(
+        event.storedSessionId,
+        event.profile?.takeIf { it.isNotBlank() } ?: "default",
+    )
     return when (event.event) {
         "run.waiting" -> if (!prefs.approvals) null else NotificationSpec(
             id = stableNotificationId(Notif.EVENT_APPROVAL, event.storedSessionId),
@@ -103,14 +106,3 @@ private fun stableNotificationId(eventType: String, sessionId: String): Int {
     }
     return id
 }
-
-private fun chatRoute(sessionId: String, profile: String?): String {
-    val id = encodeRouteValue(sessionId)
-    // A missing profile on a Connector event means Hermes' default identity, not "whichever
-    // profile happens to be active when the notification is tapped".
-    val selectedProfile = profile?.takeIf { it.isNotBlank() } ?: "default"
-    return "chat/$id?profile=${encodeRouteValue(selectedProfile)}"
-}
-
-private fun encodeRouteValue(value: String): String =
-    URLEncoder.encode(value, StandardCharsets.UTF_8.name()).replace("+", "%20")

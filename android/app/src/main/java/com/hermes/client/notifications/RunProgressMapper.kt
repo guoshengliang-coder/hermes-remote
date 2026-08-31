@@ -1,6 +1,7 @@
 package com.hermes.client.notifications
 
 import com.hermes.client.data.progress.RunProgress
+import com.hermes.client.data.progress.SessionRuntimeKey
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.localized
 
@@ -12,6 +13,7 @@ import com.hermes.client.ui.localization.localized
 fun RunProgress.toSpec(
     prefs: NotificationPrefs,
     language: AppLanguage = AppLanguage.EN,
+    routeTarget: SessionRuntimeKey? = null,
 ): RunProgressSpec? {
     if (!prefs.enabled || !prefs.runProgress) return null
     if (!running) return null
@@ -26,7 +28,9 @@ fun RunProgress.toSpec(
         done = done,
         total = total,
         indeterminate = !determinate,
-        route = sessionId?.let { "chat/$it" },
+        route = (routeTarget?.sessionId ?: sessionId)?.let {
+            notificationChatRoute(it, routeTarget?.profile ?: profile)
+        },
         shortText = if (determinate) "$done/$total" else null,
     )
 }

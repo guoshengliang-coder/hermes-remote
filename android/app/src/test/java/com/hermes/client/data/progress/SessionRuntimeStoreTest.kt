@@ -89,6 +89,27 @@ class SessionRuntimeStoreTest {
         )
     }
 
+    @Test fun notificationTargetMapsALiveHandleBackToItsStoredConversation() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("stored-42", "artist")
+        fixture.store.bindLiveHandle(key, "runtime-17")
+
+        assertEquals(key, fixture.store.notificationTarget("runtime-17"))
+        assertEquals(key, fixture.store.notificationTarget("stored-42"))
+    }
+
+    @Test fun observedLifecycleBindsItsRuntimeIdToTheStoredConversation() = runTest {
+        val fixture = fixture()
+        val observed = lifecycle("run.started", sessionId = "stored-42", profile = "artist")
+
+        fixture.store.applyObservedLifecycle(observed)
+
+        assertEquals(
+            SessionRuntimeKey("artist", "stored-42"),
+            fixture.store.notificationTarget("runtime-stored-42"),
+        )
+    }
+
     @Test fun intentionalDisconnectMarksAnActiveTurnForResume() = runTest {
         val fixture = fixture()
         val key = fixture.store.register("s1", "personal")

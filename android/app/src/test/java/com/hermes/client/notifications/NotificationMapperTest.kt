@@ -1,6 +1,7 @@
 package com.hermes.client.notifications
 
 import com.hermes.client.data.network.ServerEvent
+import com.hermes.client.data.progress.SessionRuntimeKey
 import com.hermes.client.ui.localization.AppLanguage
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -102,6 +103,31 @@ class NotificationMapperTest {
         assertEquals(Notif.CHANNEL_ACTIVITY, spec.channelId)
         assertEquals("chat/c1", spec.route)
         assertNull(toNotificationSpec(e, on, appInForeground = true))
+    }
+
+    @Test fun runtime_completion_routes_to_the_durable_stored_conversation() {
+        val e = event(Notif.EVENT_MESSAGE_COMPLETE, "runtime-17")
+        val spec = toNotificationSpec(
+            e,
+            on,
+            appInForeground = false,
+            routeTarget = SessionRuntimeKey("artist", "stored-42"),
+        )!!
+
+        assertEquals("chat/stored-42?profile=artist", spec.route)
+    }
+
+    @Test fun approval_route_uses_stored_target_but_action_keeps_live_handle() {
+        val e = event(Notif.EVENT_APPROVAL, "runtime-17", "command" to "render")
+        val spec = toNotificationSpec(
+            e,
+            on,
+            appInForeground = false,
+            routeTarget = SessionRuntimeKey("artist", "stored-42"),
+        )!!
+
+        assertEquals("chat/stored-42?profile=artist", spec.route)
+        assertTrue(spec.actions.all { it.sessionId == "runtime-17" })
     }
 
     @Test fun message_complete_off_when_pref_off() {

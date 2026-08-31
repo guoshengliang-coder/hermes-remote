@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -157,6 +158,15 @@ class HermesNotifier(
         intent.setClassName(context, MainActivity::class.java.name)
         intent.flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         route?.let { intent.putExtra("extra_route", it) }
+        // PendingIntent identity ignores extras. Give every notification destination stable,
+        // route-specific data so Android can never reuse a stale/new-chat target merely because a
+        // request-code hash collides or a previous notification used the same component.
+        intent.data = Uri.Builder()
+            .scheme("hermes-internal")
+            .authority("notification")
+            .appendPath(id.toString())
+            .appendQueryParameter("route", route.orEmpty())
+            .build()
         // Flags spelled out at the creation site rather than via a helper: static analysis
         // constant-folds a literal here, but not a value returned from a function, and an
         // unprovable FLAG_IMMUTABLE reads as a mutable PendingIntent.

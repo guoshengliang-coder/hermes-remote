@@ -1,6 +1,7 @@
 package com.hermes.client.notifications
 
 import com.hermes.client.data.progress.RunProgress
+import com.hermes.client.data.progress.SessionRuntimeKey
 import com.hermes.client.ui.localization.AppLanguage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -20,7 +21,7 @@ class RunProgressMapperTest {
         assertEquals("acme · agent running", spec.title)
         assertEquals("Working…", spec.body)
         assertTrue(spec.indeterminate)
-        assertEquals("chat/s1", spec.route)
+        assertEquals("chat/s1?profile=acme", spec.route)
         assertNull(spec.shortText)
     }
 
@@ -64,6 +65,12 @@ class RunProgressMapperTest {
     @Test fun a_run_with_no_session_id_has_no_route() {
         val spec = RunProgress(running = true, sessionId = null, profile = "acme").toSpec(on)!!
         assertNull(spec.route)
+    }
+
+    @Test fun a_runtime_handle_routes_progress_to_the_stored_conversation() {
+        val spec = RunProgress(running = true, sessionId = "runtime-17", profile = "artist")
+            .toSpec(on, routeTarget = SessionRuntimeKey("artist", "stored-42"))!!
+        assertEquals("chat/stored-42?profile=artist", spec.route)
     }
 
     @Test fun the_title_comes_from_the_runs_latched_profile_not_a_passed_in_name() {
