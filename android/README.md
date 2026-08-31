@@ -136,6 +136,11 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   bottom-sheet message actions with retry-on-another-model, wrapping table cells, code-block
   language header bars, proportional user-bubble width, a one-time post-pairing notification
   onboarding sheet, and Home surfacing sessions blocked on approval/clarification.
+- Version 0.1.42 adds durable cross-device task monitoring without changing Hermes itself: the Mac
+  Connector observes session lifecycle read-only, the Relay persists acknowledged transitions, and
+  Android restores running/waiting/completed state after backgrounding or reconnecting. Smart
+  monitoring stays real-time while the app or a phone-started task is active, falls back to a
+  low-frequency system job when idle, and exposes Realtime/Smart/Power-saving choices in Settings.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
@@ -157,7 +162,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.41-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.42-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
