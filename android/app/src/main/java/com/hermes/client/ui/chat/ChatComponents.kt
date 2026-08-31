@@ -177,15 +177,27 @@ fun ChatMessageList(
             renderedTail = null
             return@LaunchedEffect
         }
-        var snapshotSource: ChatMessage? = null
+        // Typewriter reveal: decouple the display from the network's bursty delta cadence.
+        // Received text accumulates in the tail message; each tick reveals a paced prefix so the
+        // pinned viewport grows in small uniform steps instead of multi-line lurches. The pace
+        // adapts to backlog (nextRevealCount) so display latency stays bounded.
+        var revealed = 0
+        var revealedSource: ChatMessage? = null
         while (isActive) {
             val newest = latestTail
-            if (newest !== snapshotSource) {
-                snapshotSource = newest
-                // Regex-based organization of a long tail is a few milliseconds — enough to steal
-                // from a 16ms frame, so snapshot off the main thread and publish the result.
-                renderedTail = if (newest == null) null else withContext(Dispatchers.Default) {
-                    newest.stabilizedForStreaming(latestPlaceholder)
+            if (newest != null) {
+                val target = newest.text.length
+                val paced = nextRevealCount(revealed, target)
+                if (newest !== revealedSource || paced != revealed) {
+                    revealedSource = newest
+                    revealed = paced
+                    val cut = surrogateSafeCut(newest.text, revealed)
+                    val visible = if (cut >= target) newest else newest.copy(text = newest.text.take(cut))
+                    // Regex-based organization of a long tail is a few milliseconds — enough to
+                    // steal from a 16ms frame, so snapshot off the main thread.
+                    renderedTail = withContext(Dispatchers.Default) {
+                        visible.stabilizedForStreaming(latestPlaceholder)
+                    }
                 }
             }
             delay(STREAM_RENDER_INTERVAL_MS)

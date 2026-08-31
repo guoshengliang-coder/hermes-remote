@@ -108,6 +108,38 @@ internal fun parseToolPayloadMeta(raw: String): ToolPayloadMeta? {
     return ToolPayloadMeta(command, exitCode, durationMs, outputBody, todos)
 }
 
+/**
+ * Typewriter pacing: how many characters of the received text to reveal on this tick. Network
+ * deltas arrive in bursts; revealing them verbatim shoves several lines into the pinned viewport
+ * at once — the residual streaming jitter. A floor keeps the reveal moving at a readable pace and
+ * the backlog-proportional term bounds display latency to about [catchUpTicks] ticks, so the
+ * display can never fall behind indefinitely.
+ */
+internal fun nextRevealCount(
+    current: Int,
+    target: Int,
+    minStep: Int = 8,
+    catchUpDivisor: Int = 4,
+    maxStep: Int = 64,
+    snapBacklog: Int = 1500,
+): Int {
+    if (target <= current) return target
+    val backlog = target - current
+    // A reconnect can replay thousands of characters at once; fast-forward past the bulk in one
+    // hop (one deliberate jump beats seconds of sped-up scrolling) and pace only the recent tail.
+    if (backlog > snapBacklog) return target - snapBacklog / 2
+    // Steady state settles where step == arrival rate, i.e. backlog ≈ catchUpDivisor ticks of
+    // latency (~250ms), while maxStep bounds any single visual jump to about a line and a half.
+    val step = (backlog / catchUpDivisor).coerceIn(minStep, maxStep)
+    return minOf(target, current + step)
+}
+
+/** Never cut a UTF-16 surrogate pair in half; back off one unit when the cut would. */
+internal fun surrogateSafeCut(text: String, index: Int): Int {
+    if (index <= 0 || index >= text.length) return index.coerceIn(0, text.length)
+    return if (Character.isLowSurrogate(text[index])) index - 1 else index
+}
+
 internal fun formatToolDuration(durationMs: Long): String =
     if (durationMs < 1000) "${durationMs}ms" else "%.1fs".format(durationMs / 1000f)
 

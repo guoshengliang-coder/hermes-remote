@@ -89,6 +89,38 @@ class SemanticCardsTest {
         assertTrue(g3[2] is ToolDisplayGroup.Single)
     }
 
+    @Test fun revealPacingIsBoundedBothWays() {
+        // Small backlog: floor keeps the reveal moving.
+        assertEquals(108, nextRevealCount(current = 100, target = 110))
+        // Medium backlog: proportional catch-up, capped per tick.
+        assertEquals(164, nextRevealCount(current = 100, target = 500))
+        // Huge backlog (reconnect replay): one fast-forward hop, then pace the recent tail.
+        assertEquals(4250, nextRevealCount(current = 100, target = 5000))
+        // Never overshoots; target shrink (defensive) clamps down.
+        assertEquals(110, nextRevealCount(current = 109, target = 110))
+        assertEquals(50, nextRevealCount(current = 100, target = 50))
+    }
+
+    @Test fun revealConvergesAfterStreamStops() {
+        var revealed = 0
+        val target = 900
+        var ticks = 0
+        while (revealed < target && ticks < 100) {
+            revealed = nextRevealCount(revealed, target)
+            ticks++
+        }
+        assertEquals(target, revealed)
+        assertTrue("took $ticks ticks", ticks <= 30)
+    }
+
+    @Test fun surrogatePairsAreNeverSplit() {
+        val text = "ab\uD83D\uDE00cd" // ab😀cd
+        assertEquals(2, surrogateSafeCut(text, 3)) // cutting inside the pair backs off
+        assertEquals(4, surrogateSafeCut(text, 4))
+        assertEquals(0, surrogateSafeCut(text, 0))
+        assertEquals(text.length, surrogateSafeCut(text, 99))
+    }
+
     @Test fun diffLinesClassified() {
         val lines = parseDiffLines("--- a/f\n+++ b/f\n@@ -1 +1 @@\n context\n+added\n-removed")
         assertEquals(DiffLineKind.HUNK, lines[0].kind)
