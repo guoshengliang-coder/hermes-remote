@@ -2,7 +2,6 @@ package com.hermes.client.ui.nav
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,11 +19,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.ui.graphics.vector.path
-import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material.icons.outlined.DarkMode
-import androidx.compose.material.icons.outlined.Schedule
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.SystemUpdateAlt
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -43,6 +37,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -84,14 +80,16 @@ fun CardPage(
         androidx.compose.ui.unit.Density(baseDensity.density, fontScale = minOf(baseDensity.fontScale, 1.0f))
     }
 
-    val dark = isSystemInDarkTheme()
-    // The base design's containers are NEUTRAL light grey; in dark theme fall back to the
-    // theme's surfaceVariant so contrast holds.
-    // Measured off the reference: card fill sits 1-2 grey steps from the sheet (near-white),
-    // the outline carried by a whisper of shadow — not by a heavy fill.
-    val tile = if (dark) MaterialTheme.colorScheme.surfaceVariant else Color(0xFFFAFAF8)
+    // Dark is decided by the THEME actually in effect (the in-app theme picker included),
+    // never by the system setting alone — isSystemInDarkTheme() here painted light cards onto
+    // a dark theme whenever the two disagreed.
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    // Measured off the reference: card fill sits 1-2 grey steps from the sheet, the outline
+    // carried by a whisper of shadow — the same "faint card" language in BOTH themes (dark
+    // lifts the surface one small step instead of jumping to the heavy surfaceVariant).
+    val tile = if (dark) lerp(MaterialTheme.colorScheme.surface, Color.White, 0.06f) else Color(0xFFFAFAF8)
     val tileShadow = if (dark) 0.dp else 1.dp
-    val hairline = if (dark) MaterialTheme.colorScheme.outlineVariant else Color(0xFFECECEA)
+    val hairline = if (dark) lerp(MaterialTheme.colorScheme.surface, Color.White, 0.14f) else Color(0xFFECECEA)
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
     ModalDrawerSheet(
@@ -113,19 +111,20 @@ fun CardPage(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "Hermes",
+                    "Hermes GO",
                     style = MaterialTheme.typography.headlineSmall.copy(fontSize = 26.sp, fontWeight = FontWeight.Bold),
                     modifier = Modifier.weight(1f),
                 )
                 Surface(
                     onClick = { onNavigate("settings") },
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface,
-                    shadowElevation = 6.dp,
+                    // Dark shadows are invisible; the button needs a one-step fill instead.
+                    color = if (dark) tile else MaterialTheme.colorScheme.surface,
+                    shadowElevation = if (dark) 0.dp else 6.dp,
                     modifier = Modifier.size(44.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Outlined.Settings, contentDescription = localized(language, "设置", "Settings"))
+                        Icon(GearIcon, contentDescription = localized(language, "设置", "Settings"), modifier = Modifier.size(22.dp))
                     }
                 }
             }
@@ -150,7 +149,7 @@ fun CardPage(
                             color = muted,
                         )
                     }
-                    Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = muted, modifier = Modifier.size(24.dp))
+                    Icon(ThinChevron, contentDescription = null, tint = muted, modifier = Modifier.size(20.dp))
                 }
             }
 
@@ -204,14 +203,14 @@ fun CardPage(
             // ── Shortcut rows: icon + label | current value + chevron ────────────────
             Column(Modifier.padding(top = 10.dp)) {
                 ShortcutRow(
-                    icon = Icons.Outlined.Schedule,
+                    icon = ClockIcon,
                     label = localized(language, "定时任务", "Scheduled jobs"),
                     badge = state.cronAlerts.takeIf { it > 0 },
                     onClick = { onNavigate("cron") },
                 )
                 HorizontalDivider(color = hairline)
                 ShortcutRow(
-                    icon = Icons.Outlined.DarkMode,
+                    icon = MoonIcon,
                     label = localized(language, "主题", "Theme"),
                     value = themeLabel(themeMode, language),
                     onClick = { themeSheet = true },
@@ -225,7 +224,7 @@ fun CardPage(
                 )
                 HorizontalDivider(color = hairline)
                 ShortcutRow(
-                    icon = Icons.Outlined.SystemUpdateAlt,
+                    icon = DownloadBoxIcon,
                     label = localized(language, "检查更新", "App updates"),
                     value = "v${com.hermes.client.BuildConfig.VERSION_NAME}",
                     onClick = { onNavigate("app_update") },
@@ -312,7 +311,7 @@ private fun ShortcutRow(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 21.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
+        Icon(icon, contentDescription = null, modifier = Modifier.size(25.dp))
         Text(
             label,
             style = MaterialTheme.typography.bodyLarge.copy(fontSize = 20.sp),
@@ -342,10 +341,10 @@ private fun ShortcutRow(
             )
         }
         Icon(
-            Icons.Rounded.ChevronRight,
+            ThinChevron,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 2.dp).size(22.dp),
+            modifier = Modifier.padding(start = 2.dp).size(20.dp),
         )
     }
 }
@@ -425,6 +424,91 @@ private fun AutoShrinkText(
         },
         modifier = modifier,
     )
+}
+
+
+// ── Hand-drawn thin-stroke icon set ─────────────────────────────────────────────────────────
+// Material's outlined icons are cut for a 2dp stroke and read heavy against the reference,
+// whose glyphs sit at ~1.7dp. These five are drawn to the reference paths with the same
+// brush as CubeIcon: 1.7 stroke, round caps/joins, tinted by Icon like any vector.
+
+private fun strokeIcon(
+    name: String,
+    block: androidx.compose.ui.graphics.vector.PathBuilder.() -> Unit,
+): androidx.compose.ui.graphics.vector.ImageVector =
+    androidx.compose.ui.graphics.vector.ImageVector.Builder(
+        name = name,
+        defaultWidth = 24.dp, defaultHeight = 24.dp,
+        viewportWidth = 24f, viewportHeight = 24f,
+    ).apply {
+        path(
+            fill = null,
+            stroke = androidx.compose.ui.graphics.SolidColor(Color.Black),
+            strokeLineWidth = 1.7f,
+            strokeLineCap = androidx.compose.ui.graphics.StrokeCap.Round,
+            strokeLineJoin = androidx.compose.ui.graphics.StrokeJoin.Round,
+            pathBuilder = block,
+        )
+    }.build()
+
+/** Sun-style gear from the reference: hub circle + eight tick strokes. */
+private val GearIcon by lazy {
+    strokeIcon("ThinGear") {
+        moveTo(9f, 12f)
+        arcTo(3f, 3f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 15f, y1 = 12f)
+        arcTo(3f, 3f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 9f, y1 = 12f)
+        moveTo(12f, 3.5f); lineTo(12f, 5.5f)
+        moveTo(12f, 18.5f); lineTo(12f, 20.5f)
+        moveTo(20.5f, 12f); lineTo(18.5f, 12f)
+        moveTo(5.5f, 12f); lineTo(3.5f, 12f)
+        moveTo(18f, 6f); lineTo(16.6f, 7.4f)
+        moveTo(7.4f, 16.6f); lineTo(6f, 18f)
+        moveTo(18f, 18f); lineTo(16.6f, 16.6f)
+        moveTo(7.4f, 7.4f); lineTo(6f, 6f)
+    }
+}
+
+private val ClockIcon by lazy {
+    strokeIcon("ThinClock") {
+        moveTo(3.5f, 12f)
+        arcTo(8.5f, 8.5f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 20.5f, y1 = 12f)
+        arcTo(8.5f, 8.5f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 3.5f, y1 = 12f)
+        moveTo(12f, 7.5f); lineTo(12f, 12f); lineTo(15f, 14f)
+    }
+}
+
+private val MoonIcon by lazy {
+    strokeIcon("ThinMoon") {
+        moveTo(20f, 14.5f)
+        arcTo(8.5f, 8.5f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 9.5f, y1 = 4f)
+        arcToRelative(7f, 7f, 0f, isMoreThanHalf = false, isPositiveArc = false, dx1 = 10.5f, dy1 = 10.5f)
+        close()
+    }
+}
+
+/** Rounded box with a down arrow — the reference's update glyph. */
+private val DownloadBoxIcon by lazy {
+    strokeIcon("ThinDownloadBox") {
+        moveTo(7.5f, 3.5f)
+        lineTo(16.5f, 3.5f)
+        arcTo(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 19.5f, y1 = 6.5f)
+        lineTo(19.5f, 17.5f)
+        arcTo(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 16.5f, y1 = 20.5f)
+        lineTo(7.5f, 20.5f)
+        arcTo(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 4.5f, y1 = 17.5f)
+        lineTo(4.5f, 6.5f)
+        arcTo(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 7.5f, y1 = 3.5f)
+        close()
+        moveTo(12f, 8f); lineTo(12f, 14f)
+        moveTo(9.2f, 11.4f); lineTo(12f, 14.2f); lineTo(14.8f, 11.4f)
+    }
+}
+
+/** Thin chevron for trailing arrows. */
+private val ThinChevron by lazy {
+    strokeIcon("ThinChevron") {
+        moveTo(9.5f, 5.5f); lineTo(16f, 12f); lineTo(9.5f, 18.5f)
+    }
 }
 
 /**

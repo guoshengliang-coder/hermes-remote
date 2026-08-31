@@ -31,7 +31,7 @@ import com.hermes.client.ui.localization.l10n
 fun CrashReportScreen(report: String, onShare: () -> Unit, onDismiss: () -> Unit) {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {
-            Text(l10n("Hermes Beta 崩溃了", "Hermes Beta crashed"), style = MaterialTheme.typography.headlineSmall)
+            Text(l10n("Hermes GO 崩溃了", "Hermes GO crashed"), style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(8.dp))
             Text(
                 l10n("这是崩溃详情。点击分享发送给开发者，然后继续。", "This is the crash details. Tap Share to send it to the developer, then continue."),

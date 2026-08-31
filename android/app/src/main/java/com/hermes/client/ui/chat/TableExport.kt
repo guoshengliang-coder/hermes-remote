@@ -22,7 +22,7 @@ import java.util.Locale
  */
 internal object TableExport {
     private fun exportName(): String =
-        "Hermes-Table-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}.png"
+        "HermesGO-Table-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}.png"
 
     suspend fun saveToGallery(context: Context, bitmap: Bitmap): Uri? = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver

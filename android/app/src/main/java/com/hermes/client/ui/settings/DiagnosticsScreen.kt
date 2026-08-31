@@ -56,7 +56,7 @@ fun DiagnosticsScreen(
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            val shareSubject = l10n("Hermes 诊断日志", "Hermes diagnostic log")
+            val shareSubject = l10n("Hermes GO 诊断日志", "Hermes GO diagnostic log")
             val shareTitle = l10n("分享诊断日志", "Share diagnostic log")
             ListItem(
                 headlineContent = { Text(l10n("诊断日志", "Diagnostic logging")) },

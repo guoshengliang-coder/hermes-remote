@@ -159,7 +159,11 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   returns preserve the current screen, and interrupted returns show bounded recovery with retry,
   settings and cached-UI actions. It also upgrades the model selector with current/default/session
   scope visibility, collapsible provider groups, search expansion and stable localized model errors;
-  updates the public name to Hermes GO without changing the install identity; and locks the card page
+  updates the public name to Hermes GO without changing the install identity (wordmark, QS tile,
+  About, crash report, diagnostics subject, and table-export filename included); fixes card-page
+  dark mode (theme-truth via surface luminance, one-step lifted cards and gear button); redraws the
+  card icon set as 1.7dp stroke vectors at reference sizes with the avatar initial scaled to 35% of
+  its circle; and locks the card page
   to design scale with lockstep stat sizing, near-white cards and reference-proportioned typography.
 - Version 0.1.54 upgrades the fit strategy to shrink-then-wrap: values shrink to the minimum
   acceptable size on one line first, and only if the floor still overflows do they wrap to two

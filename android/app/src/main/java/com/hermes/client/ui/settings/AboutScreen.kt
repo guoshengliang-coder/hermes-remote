@@ -46,7 +46,7 @@ fun AboutScreen(
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             ListItem(
-                headlineContent = { Text("Hermes Android") }, // l10n-allow: product name
+                headlineContent = { Text("Hermes GO") }, // l10n-allow: product name
                 supportingContent = { Text(localized(language, "版本 $appVersion", "Version $appVersion")) },
             )
             HorizontalDivider()
