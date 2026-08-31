@@ -3,7 +3,6 @@ package com.hermes.client.ui.sessions
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.HermesApiException
-import com.hermes.client.data.network.SearchResultDto
 import com.hermes.client.data.network.bool
 import com.hermes.client.data.progress.SessionRuntime
 import com.hermes.client.data.progress.SessionRuntimeKey
@@ -50,6 +49,7 @@ class SessionsViewModel @Inject constructor(
     private val pinStore: PinStore,
     private val viewModeStore: ViewModeStore,
     private val runtimeStore: SessionRuntimeStore,
+    private val tools: com.hermes.client.data.repository.ToolsRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(
         SessionsUiState(
@@ -106,6 +106,44 @@ class SessionsViewModel @Inject constructor(
     private val _projects = MutableStateFlow(ProjectsUiState())
     val projectsState: StateFlow<ProjectsUiState> = _projects.asStateFlow()
 
+    /** Archived sessions for the ARCHIVED segment (scoped to the active profile). */
+    data class ArchivedUiState(
+        val sessions: List<Session> = emptyList(),
+        val loading: Boolean = false,
+        val error: String? = null,
+    )
+    private val _archived = MutableStateFlow(ArchivedUiState())
+    val archivedState: StateFlow<ArchivedUiState> = _archived.asStateFlow()
+
+    fun loadArchived() = viewModelScope.launch {
+        _archived.value = _archived.value.copy(loading = true, error = null)
+        try {
+            val active = profileManager.active.value
+            val all = sessions.archivedAllProfiles()
+            val list = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
+            _archived.value = ArchivedUiState(sessions = list)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _archived.value = ArchivedUiState(error = e.message ?: "Failed to load")
+        }
+    }
+
+    fun unarchive(session: Session) = viewModelScope.launch {
+        runCatching { sessions.archive(session.id, archived = false, session.profile) }
+            .onSuccess { loadArchived(); refresh() }
+    }
+
+    /** Cron jobs failed/overdue for the active profile — drives the list's alert strip. */
+    private val _cronAlerts = MutableStateFlow(0)
+    val cronAlerts: StateFlow<Int> = _cronAlerts.asStateFlow()
+
+    private fun refreshCronAlerts() = viewModelScope.launch {
+        runCatching { tools.cronJobs(profileManager.active.value) }.onSuccess { jobs ->
+            _cronAlerts.value = com.hermes.client.ui.activity.needsAttention(jobs, System.currentTimeMillis()).size
+        }
+    }
+
     /** Persist the chosen view mode; the [viewMode] observer in init fetches the tree when needed. */
     fun setViewMode(mode: ViewMode) {
         viewModelScope.launch { viewModeStore.set(mode) }
@@ -155,7 +193,9 @@ class SessionsViewModel @Inject constructor(
         viewModelScope.launch {
             profileManager.active.collect {
                 refresh()
+                refreshCronAlerts()
                 if (_projects.value.tree.isNotEmpty() || viewMode.value == ViewMode.PROJECTS) loadProjectTree()
+                if (viewMode.value == ViewMode.ARCHIVED) loadArchived()
             }
         }
         // The gateway auto-titles a new chat after its first message and pushes a `session.title`
@@ -179,6 +219,9 @@ class SessionsViewModel @Inject constructor(
             viewModeStore.mode.collect { mode ->
                 if (mode == ViewMode.PROJECTS && _projects.value.tree.isEmpty() && !_projects.value.loading) {
                     loadProjectTree()
+                }
+                if (mode == ViewMode.ARCHIVED && _archived.value.sessions.isEmpty() && !_archived.value.loading) {
+                    loadArchived()
                 }
             }
         }
@@ -247,35 +290,6 @@ class SessionsViewModel @Inject constructor(
             refresh()
             delay(3_000L)
             refresh()
-        }
-    }
-
-    // ── Search ──────────────────────────────────────────────────────────────────────────
-    // The title filter is applied to [state.sessions] in the UI as the query changes (instant,
-    // offline). A message-content search hits the gateway only on the explicit Search action.
-    private val _query = MutableStateFlow("")
-    val query: StateFlow<String> = _query.asStateFlow()
-
-    private val _messageResults = MutableStateFlow<List<SearchResultDto>>(emptyList())
-    val messageResults: StateFlow<List<SearchResultDto>> = _messageResults.asStateFlow()
-
-    fun onQueryChange(q: String) {
-        _query.value = q
-        if (q.isBlank()) _messageResults.value = emptyList()
-    }
-
-    private var searchJob: kotlinx.coroutines.Job? = null
-
-    /** Full-text search of message content across this profile's sessions. Cancels any in-flight
-     *  search first so a slow older query can't overwrite newer results. */
-    fun searchMessages() {
-        searchJob?.cancel()
-        searchJob = viewModelScope.launch {
-            val q = _query.value.trim()
-            if (q.isBlank()) { _messageResults.value = emptyList(); return@launch }
-            runCatching { sessions.search(q, profileManager.active.value) }
-                .onSuccess { _messageResults.value = it }
-                .onFailure { _messageResults.value = emptyList() }
         }
     }
 

@@ -279,8 +279,4 @@ object AppModule {
     fun providePromptStore(@ApplicationContext context: Context): com.hermes.client.data.repository.PromptStore =
         com.hermes.client.data.repository.PromptStore(context)
 
-    @Provides
-    @Singleton
-    fun provideAudioRecorder(@ApplicationContext context: Context): com.hermes.client.data.audio.AudioRecorder =
-        com.hermes.client.data.audio.MediaAudioRecorder(context)
 }

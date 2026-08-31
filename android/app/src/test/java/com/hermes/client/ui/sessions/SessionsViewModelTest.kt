@@ -33,6 +33,7 @@ class SessionsViewModelTest {
     private val pinStore = mockk<PinStore>(relaxed = true)
     private val viewModeStore = mockk<com.hermes.client.data.repository.ViewModeStore>(relaxed = true)
     private val runtimeStore = mockk<SessionRuntimeStore>(relaxed = true)
+    private val toolsRepo = mockk<com.hermes.client.data.repository.ToolsRepository>(relaxed = true)
     // Controllable so tests can flip the persisted view mode (drives the VM's launch/toggle load).
     private val modeFlow = MutableStateFlow(ViewMode.SESSIONS)
 
@@ -51,7 +52,7 @@ class SessionsViewModelTest {
     )
 
     private fun buildVm() = SessionsViewModel(
-        sessionRepo, chatRepo, profileManager, pinStore, viewModeStore, runtimeStore,
+        sessionRepo, chatRepo, profileManager, pinStore, viewModeStore, runtimeStore, toolsRepo,
     )
 
     private fun repoSession(id: String, repo: String?, profile: String = "personal") = Session(
@@ -99,22 +100,23 @@ class SessionsViewModelTest {
         assertNull(vm.switchFailed.value)
     }
 
-    @Test fun searchMessages_populates_results_and_clear_resets() = runTest {
+    // Ported from the deleted ArchivedSessionsViewModelTest: the ARCHIVED segment loads the
+    // active profile's archived sessions, and unarchive re-pulls both lists.
+    @Test fun archived_segment_loads_scoped_list_and_unarchive_reloads() = runTest {
         coEvery { sessionRepo.listAllProfiles() } returns emptyList()
-        coEvery { sessionRepo.search(any(), any()) } returns listOf(
-            com.hermes.client.data.network.SearchResultDto(sessionId = "s9", snippet = "found it"),
+        coEvery { sessionRepo.archivedAllProfiles() } returns listOf(
+            session("x", "Old chat", profile = "personal"),
+            session("y", "Other tenant", profile = "work"),
         )
         val vm = buildVm()
+        vm.loadArchived()
         advanceUntilIdle()
+        assertEquals(listOf("x"), vm.archivedState.value.sessions.map { it.id })
 
-        vm.onQueryChange("invoice")
-        vm.searchMessages()
+        coEvery { sessionRepo.archive("x", false, "personal") } returns Unit
+        vm.unarchive(vm.archivedState.value.sessions.first())
         advanceUntilIdle()
-        assertEquals(listOf("s9"), vm.messageResults.value.map { it.sessionId })
-
-        vm.onQueryChange("")
-        advanceUntilIdle()
-        assertTrue("clearing the query clears message results", vm.messageResults.value.isEmpty())
+        io.mockk.coVerify { sessionRepo.archive("x", false, "personal") }
     }
 
     @Test fun refresh_resurfaces_newly_added_session() = runTest {

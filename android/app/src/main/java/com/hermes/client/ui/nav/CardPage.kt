@@ -59,6 +59,7 @@ fun CardPage(
     val switching by vm.switching.collectAsStateWithLifecycle()
     val switchFailed by vm.switchFailed.collectAsStateWithLifecycle()
     val health by vm.health.collectAsStateWithLifecycle()
+    val profileActivity by vm.profileActivity.collectAsStateWithLifecycle()
 
     LaunchedEffect(switchFailed) {
         switchFailed?.let {
@@ -99,9 +100,17 @@ fun CardPage(
                     modifier = Modifier.padding(start = 16.dp, bottom = 4.dp),
                 )
                 others.forEach { p ->
+                    val activity = profileActivity[p.name]
+                    val subline = when {
+                        activity == null -> null
+                        activity.waiting > 0 -> localized(language, "${activity.waiting} 待处理", "${activity.waiting} waiting")
+                        activity.running > 0 -> localized(language, "${activity.running} 个进行中", "${activity.running} running")
+                        else -> null
+                    }
                     ListItem(
                         leadingContent = { ProfileAvatar(p.name, size = 36.dp) },
                         headlineContent = { Text(p.name) },
+                        supportingContent = subline?.let { { Text(it) } },
                         trailingContent = if (switching == p.name) ({
                             CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         }) else null,

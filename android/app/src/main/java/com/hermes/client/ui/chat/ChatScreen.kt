@@ -525,6 +525,9 @@ fun ChatScreen(
                 IconButton(onClick = onMenu) {
                     Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = localized(language, "返回", "Back"))
                 }
+                // 24dp identity avatar — the chat's only identity signal (no profile text).
+                val chatProfile by vm.activeProfile.collectAsStateWithLifecycle()
+                com.hermes.client.ui.components.ProfileAvatar(sessionProfile ?: chatProfile, size = 24.dp)
                 Box(
                     Modifier
                         .weight(1f)
@@ -629,7 +632,7 @@ fun ChatScreen(
                             )
                             DropdownMenuItem(
                                 leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(localized(language, "切换身份", "Switch profile")) },
+                                text = { Text(localized(language, "切换人格", "Switch persona")) },
                                 onClick = {
                                     transcriptMenu = false
                                     vm.loadPersonas()

@@ -189,20 +189,17 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             composable("sessions") {
                 SessionsScreen(
                     onOpen = openChat,
-                    onOpenArchived = { nav.navigate("archived") },
                     onOpenCard = openCard,
+                    onOpenSearch = { nav.navigate("search") { launchSingleTop = true } },
+                    onOpenCron = { push("cron") },
                     onUnauthorized = onUnauthorized,
                 )
+            }
+            composable("search") {
+                com.hermes.client.ui.sessions.SearchScreen(onOpen = openChat, onBack = back)
             }
 
             // ---- Pushed screens (back arrow) ----
-            composable("archived") {
-                com.hermes.client.ui.sessions.ArchivedSessionsScreen(
-                    onOpen = openChat,
-                    onBack = back,
-                    onUnauthorized = onUnauthorized,
-                )
-            }
             composable(
                 route = "chat/{id}?profile={profile}&title={title}&new={new}",
                 arguments = listOf(

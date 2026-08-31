@@ -23,12 +23,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Unarchive
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Archive
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -70,9 +74,6 @@ import com.hermes.client.data.progress.SessionRunPhase
 import com.hermes.client.data.progress.SessionRuntime
 import com.hermes.client.data.progress.isActive
 import com.hermes.client.data.repository.SessionReadStore
-import com.hermes.client.ui.record.RecordPhase
-import com.hermes.client.ui.record.RecordTaskSheet
-import com.hermes.client.ui.record.RecordTaskViewModel
 import com.hermes.client.ui.chat.ChatLaunch
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
@@ -84,15 +85,16 @@ fun SessionsScreen(
     vm: SessionsViewModel = hiltViewModel(),
     onOpen: (ChatLaunch) -> Unit,
     onOpenCard: () -> Unit = {},
-    onOpenArchived: () -> Unit = {},
+    onOpenSearch: () -> Unit = {},
+    onOpenCron: () -> Unit = {},
     onUnauthorized: () -> Unit = {},
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val activeProfile by vm.activeProfile.collectAsStateWithLifecycle()
     val profiles by vm.profiles.collectAsStateWithLifecycle()
     val pinnedTokens by vm.pinnedTokens.collectAsStateWithLifecycle()
-    val query by vm.query.collectAsStateWithLifecycle()
-    val messageResults by vm.messageResults.collectAsStateWithLifecycle()
+    val archivedState by vm.archivedState.collectAsStateWithLifecycle()
+    val cronAlerts by vm.cronAlerts.collectAsStateWithLifecycle()
     val viewMode by vm.viewMode.collectAsStateWithLifecycle()
     val projectsState by vm.projectsState.collectAsStateWithLifecycle()
     val runtimes by vm.runtimes.collectAsStateWithLifecycle()
@@ -138,38 +140,6 @@ fun SessionsScreen(
         }
     }
 
-    // Record-a-task: mic entry point on the home session list. The sheet's own show/hide state
-    // lives here (not in the VM) so it survives recomposition without coupling the VM to
-    // navigation visibility; recordVm drives the actual record/transcribe pipeline.
-    val recordVm: RecordTaskViewModel = hiltViewModel()
-    var showRecord by rememberSaveable { mutableStateOf(false) }
-    val recordUi by recordVm.ui.collectAsStateWithLifecycle()
-    val micPermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            showRecord = true
-            recordVm.startRecording()
-        } else {
-            Toast.makeText(context, localized(language, "录制任务需要麦克风权限", "Microphone permission is needed to record a task"), Toast.LENGTH_SHORT).show()
-        }
-    }
-    fun onMicTap() {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            showRecord = true
-            recordVm.startRecording()
-        } else {
-            micPermission.launch(Manifest.permission.RECORD_AUDIO)
-        }
-    }
-    LaunchedEffect(Unit) {
-        recordVm.navigateTo.collect { id ->
-            showRecord = false
-            onOpen(ChatLaunch.unknown(id, activeProfile))
-        }
-    }
 
     // Re-fetch on every resume — notably when returning from a chat. The "sessions" nav entry
     // (and its ViewModel) stays alive across navigation, so init() runs only once; without this
@@ -191,37 +161,19 @@ fun SessionsScreen(
                             com.hermes.client.ui.components.ProfileAvatar(activeProfile, size = 36.dp)
                         }
                     },
+                    centered = true,
                     actions = {
-                        IconButton(onClick = { onMicTap() }) {
-                            Icon(Icons.Rounded.Mic, contentDescription = localized(language, "录制任务", "Record a task"))
+                        IconButton(onClick = onOpenSearch) {
+                            Icon(Icons.Rounded.Search, contentDescription = localized(language, "搜索", "Search"))
                         }
-                        TextButton(
-                            onClick = onOpenArchived,
-                            colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.onSurface,
-                            ),
-                        ) { Text(localized(language, "已归档", "Archived")) }
                     },
                 )
-                // Same tenant switcher as Agent Activity: a chip row, active one selected. Tapping
-                // switches the active profile and the list re-fetches.
-                // Sessions mode spans all profiles (REST); Projects mode is single-profile (the
-                // gateway's bound profile — projects.tree takes no profile param), so the switcher
-                // would be misleading there. Show a caption instead.
-                if (viewMode == ViewMode.SESSIONS) {
-                    if (profiles.size > 1) {
-                        com.hermes.client.ui.components.ProfileSwitcher(
-                            names = profiles.map { it.name },
-                            active = activeProfile,
-                            onSelect = vm::switchProfile,
-                        )
-                    }
-                }
                 val accent = MaterialTheme.colorScheme.primary
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
                     val tabs = listOf(
                         ViewMode.SESSIONS to localized(language, "会话", "Sessions"),
                         ViewMode.PROJECTS to localized(language, "项目", "Projects"),
+                        ViewMode.ARCHIVED to localized(language, "已归档", "Archived"),
                     )
                     tabs.forEachIndexed { i, (mode, label) ->
                         SegmentedButton(
@@ -288,24 +240,72 @@ fun SessionsScreen(
                         else -> ProjectOverview(projectsState.tree, onOpenProject = { vm.enterProject(it) })
                     }
                 }
-            } else {
-                // ── Sessions mode (flat recency) ─────────────────────────────────────────────
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = vm::onQueryChange,
-                    placeholder = { Text(localized(language, "搜索会话…", "Search sessions…")) },
-                    singleLine = true,
-                    trailingIcon = {
-                        if (query.isNotBlank()) {
-                            IconButton(onClick = { vm.onQueryChange("") }) {
-                                Icon(Icons.Rounded.Close, contentDescription = localized(language, "清除搜索", "Clear search"))
+            } else if (viewMode == ViewMode.ARCHIVED) {
+                // ── Archived mode (was its own pushed screen; now the third segment) ────────
+                Box(Modifier.fillMaxSize()) {
+                    when {
+                        archivedState.loading && archivedState.sessions.isEmpty() ->
+                            com.hermes.client.ui.components.LoadingState()
+                        archivedState.error != null ->
+                            com.hermes.client.ui.components.ErrorState(
+                                message = archivedState.error!!,
+                                onRetry = { vm.loadArchived() },
+                            )
+                        archivedState.sessions.isEmpty() ->
+                            com.hermes.client.ui.components.EmptyState(
+                                title = localized(language, "暂无归档会话", "Nothing archived"),
+                                subtitle = localized(language, "长按会话可将它归档。", "Long-press a session to archive it."),
+                            )
+                        else -> LazyColumn {
+                            items(archivedState.sessions, key = { "a-${it.profile.orEmpty()}:${it.id}" }) { s ->
+                                ListItem(
+                                    headlineContent = { Text(s.title) },
+                                    supportingContent = { Text(s.model ?: "") },
+                                    trailingContent = {
+                                        IconButton(onClick = { vm.unarchive(s) }) {
+                                            Icon(
+                                                Icons.Rounded.Unarchive,
+                                                contentDescription = localized(language, "取消归档", "Unarchive"),
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.clickable { openExisting(s) },
+                                )
+                                HorizontalDivider()
                             }
                         }
-                    },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { vm.searchMessages() }),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                )
+                    }
+                }
+            } else {
+                // ── Sessions mode ───────────────────────────────────────────────────────────
+                // Cron alert strip: HealthStrip's pattern — only rendered when something needs
+                // attention, tap goes to the cron screen.
+                if (cronAlerts > 0) {
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.errorContainer)
+                            .clickable { onOpenCron() }
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Rounded.Schedule, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(end = 8.dp),
+                        )
+                        Text(
+                            localized(language, "$cronAlerts 个定时任务需要处理", "$cronAlerts scheduled job(s) need attention"),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                    }
+                }
                 Box(Modifier.fillMaxSize()) {
                     when {
                         state.loading && state.sessions.isEmpty() -> com.hermes.client.ui.components.LoadingState()
@@ -313,7 +313,7 @@ fun SessionsScreen(
                             message = state.error!!,
                             onRetry = { vm.refresh() },
                         )
-                        state.sessions.isEmpty() && query.isBlank() && messageResults.isEmpty() ->
+                        state.sessions.isEmpty() ->
                             com.hermes.client.ui.components.EmptyState(
                                 title = localized(language, "暂无会话", "No sessions yet"),
                                 subtitle = localized(language, "点击右下角的加号开始对话。", "Tap the plus button to start a conversation."),
@@ -321,76 +321,94 @@ fun SessionsScreen(
                                 onAction = ::createSession,
                             )
                         else -> {
-                            val q = query.trim()
-                            val matches = if (q.isEmpty()) state.sessions
-                            else state.sessions.filter {
-                                it.title.contains(q, ignoreCase = true) ||
-                                    it.workspace.contains(q, ignoreCase = true)
-                            }
                             val isPinned = { s: Session ->
                                 com.hermes.client.data.repository.PinStore.token(s.profile, s.id) in pinnedTokens
                             }
-                            val pinned = matches.filter(isPinned)
-                            val recent = sessionsByRecency(matches.filterNot(isPinned))
+                            // Sessions blocked on the user jump the whole order — then pins,
+                            // then plain recency.
+                            val (needsYou, others) = splitNeedsYou(state.sessions) { s ->
+                                vm.runtimeFor(s, runtimes)?.phase
+                            }
+                            val pinned = others.filter(isPinned)
+                            val recent = sessionsByRecency(others.filterNot(isPinned))
 
+                            // Collapsible groups (Mission Control's pattern): tap the header to
+                            // fold, the count stays visible so nothing silently disappears.
+                            var collapsed by androidx.compose.runtime.saveable.rememberSaveable {
+                                androidx.compose.runtime.mutableStateOf(emptyList<String>())
+                            }
+                            val toggle: (String) -> Unit = { k ->
+                                collapsed = if (k in collapsed) collapsed - k else collapsed + k
+                            }
                             LazyColumn {
-                                if (messageResults.isNotEmpty()) {
-                                    item(key = "h-msg") { SectionHeader(localized(language, "消息匹配", "Message matches"), messageResults.size) }
-                                    items(messageResults) { r ->
-                                        ListItem(
-                                            headlineContent = {
-                                                Text(r.snippet?.take(140)?.replace("\n", " ") ?: r.sessionId)
-                                            },
-                                            supportingContent = { Text(r.model ?: r.role ?: "") },
-                                            modifier = Modifier.clickable {
-                                                val session = state.sessions.firstOrNull { it.id == r.sessionId }
-                                                if (session != null) openExisting(session)
-                                                else onOpen(ChatLaunch.unknown(r.sessionId, activeProfile))
-                                            },
+                                if (needsYou.isNotEmpty()) {
+                                    item(key = "h-needs") {
+                                        SectionHeader(
+                                            localized(language, "需要你处理", "Needs you"), needsYou.size,
+                                            collapsed = "needs" in collapsed, onToggle = { toggle("needs") },
                                         )
-                                        HorizontalDivider()
                                     }
-                                }
-                                if (q.isNotEmpty() && matches.isEmpty() && messageResults.isEmpty()) {
-                                    item(key = "no-title-match") {
-                                        Text(
-                                            localized(language, "没有标题匹配“$q”。按键盘上的搜索键可搜索消息正文。", "No titles match \"$q\". Press search on the keyboard to search message text."),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(16.dp),
-                                        )
+                                    if ("needs" !in collapsed) {
+                                        items(needsYou, key = { "n-${it.profile.orEmpty()}:${it.id}" }) { s ->
+                                            SessionRow(
+                                                session = s, isPinned = isPinned(s), profileCount = profiles.size,
+                                                runtime = vm.runtimeFor(s, runtimes),
+                                                unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
+                                                onOpen = { openExisting(s) },
+                                                onTogglePin = { vm.togglePin(s) },
+                                                onRename = { vm.rename(s, it) },
+                                                onArchive = { vm.archive(s) },
+                                                onDelete = { vm.delete(s) },
+                                                modifier = Modifier.animateItem(),
+                                            )
+                                        }
                                     }
                                 }
                                 if (pinned.isNotEmpty()) {
-                                    item(key = "h-pinned") { SectionHeader(localized(language, "已置顶", "Pinned"), pinned.size, note = localized(language, "仅此设备", "Device only")) }
-                                    items(pinned, key = { "p-${it.id}" }) { s ->
-                                        SessionRow(
-                                            session = s, isPinned = true, profileCount = profiles.size,
-                                            runtime = vm.runtimeFor(s, runtimes),
-                                            unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
-                                            onOpen = { openExisting(s) },
-                                            onTogglePin = { vm.togglePin(s) },
-                                            onRename = { vm.rename(s, it) },
-                                            onArchive = { vm.archive(s) },
-                                            onDelete = { vm.delete(s) },
-                                            modifier = Modifier.animateItem(),
+                                    item(key = "h-pinned") {
+                                        SectionHeader(
+                                            localized(language, "已置顶", "Pinned"), pinned.size,
+                                            note = localized(language, "仅此设备", "Device only"),
+                                            collapsed = "pinned" in collapsed, onToggle = { toggle("pinned") },
                                         )
+                                    }
+                                    if ("pinned" !in collapsed) {
+                                        items(pinned, key = { "p-${it.id}" }) { s ->
+                                            SessionRow(
+                                                session = s, isPinned = true, profileCount = profiles.size,
+                                                runtime = vm.runtimeFor(s, runtimes),
+                                                unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
+                                                onOpen = { openExisting(s) },
+                                                onTogglePin = { vm.togglePin(s) },
+                                                onRename = { vm.rename(s, it) },
+                                                onArchive = { vm.archive(s) },
+                                                onDelete = { vm.delete(s) },
+                                                modifier = Modifier.animateItem(),
+                                            )
+                                        }
                                     }
                                 }
                                 if (recent.isNotEmpty()) {
-                                    item(key = "h-recent") { SectionHeader(localized(language, "最近", "Recent"), recent.size) }
-                                    items(recent, key = { "${it.profile.orEmpty()}:${it.id}" }) { s ->
-                                        SessionRow(
-                                            session = s, isPinned = false, profileCount = profiles.size,
-                                            runtime = vm.runtimeFor(s, runtimes),
-                                            unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
-                                            onOpen = { openExisting(s) },
-                                            onTogglePin = { vm.togglePin(s) },
-                                            onRename = { vm.rename(s, it) },
-                                            onArchive = { vm.archive(s) },
-                                            onDelete = { vm.delete(s) },
-                                            modifier = Modifier.animateItem(),
+                                    item(key = "h-recent") {
+                                        SectionHeader(
+                                            localized(language, "最近", "Recent"), recent.size,
+                                            collapsed = "recent" in collapsed, onToggle = { toggle("recent") },
                                         )
+                                    }
+                                    if ("recent" !in collapsed) {
+                                        items(recent, key = { "${it.profile.orEmpty()}:${it.id}" }) { s ->
+                                            SessionRow(
+                                                session = s, isPinned = false, profileCount = profiles.size,
+                                                runtime = vm.runtimeFor(s, runtimes),
+                                                unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
+                                                onOpen = { openExisting(s) },
+                                                onTogglePin = { vm.togglePin(s) },
+                                                onRename = { vm.rename(s, it) },
+                                                onArchive = { vm.archive(s) },
+                                                onDelete = { vm.delete(s) },
+                                                modifier = Modifier.animateItem(),
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -406,25 +424,21 @@ fun SessionsScreen(
         }
     }
 
-    if (showRecord) {
-        RecordTaskSheet(
-            ui = recordUi,
-            onStop = { recordVm.stopAndTranscribe() },
-            onCancel = { recordVm.cancel(); showRecord = false },
-            onRetry = { recordVm.dismissError(); recordVm.startRecording() },
-            onDismiss = {
-                if (recordUi.phase == RecordPhase.RECORDING) recordVm.cancel()
-                recordVm.dismissError()
-                showRecord = false
-            },
-        )
-    }
 }
 
 @Composable
-private fun SectionHeader(label: String, count: Int, note: String? = null) {
+private fun SectionHeader(
+    label: String,
+    count: Int,
+    note: String? = null,
+    collapsed: Boolean = false,
+    onToggle: (() -> Unit)? = null,
+) {
+    val language = LocalAppLanguage.current
     androidx.compose.foundation.layout.Row(
-        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+        Modifier.fillMaxWidth()
+            .then(if (onToggle != null) Modifier.clickable(onClick = onToggle) else Modifier)
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -445,6 +459,15 @@ private fun SectionHeader(label: String, count: Int, note: String? = null) {
             style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
             color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (onToggle != null) {
+            Icon(
+                if (collapsed) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess,
+                contentDescription = if (collapsed) localized(language, "展开 $label", "Expand $label")
+                else localized(language, "收起 $label", "Collapse $label"),
+                tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
     }
 }
 

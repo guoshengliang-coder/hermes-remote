@@ -22,6 +22,8 @@ fun HermesTopBar(
     title: String,
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
     subtitle: String? = null,
+    // Centered = the session-list root (M3 center-aligned bar); pushed screens stay start-aligned.
+    centered: Boolean = false,
     navigationIcon: @Composable () -> Unit = {},
     actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
 ) {
@@ -33,6 +35,21 @@ fun HermesTopBar(
         navigationIconContentColor = barOn,
         actionIconContentColor = barOn,
     )
+    if (centered) {
+        androidx.compose.material3.CenterAlignedTopAppBar(
+            modifier = modifier,
+            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                containerColor = barBg,
+                titleContentColor = barOn,
+                navigationIconContentColor = barOn,
+                actionIconContentColor = barOn,
+            ),
+            title = { Text(title, style = MaterialTheme.typography.titleLarge, color = barOn) },
+            navigationIcon = navigationIcon,
+            actions = actions,
+        )
+        return
+    }
     TopAppBar(
         modifier = modifier,
         colors = colors,

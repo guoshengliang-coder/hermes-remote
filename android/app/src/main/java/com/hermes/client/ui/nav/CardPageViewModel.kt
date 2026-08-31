@@ -8,6 +8,9 @@ import com.hermes.client.data.network.ProfileDto
 import com.hermes.client.data.repository.AnalyticsRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.ToolsRepository
+import com.hermes.client.data.progress.SessionRunPhase
+import com.hermes.client.data.progress.SessionRuntimeStore
+import com.hermes.client.data.progress.isActive
 import com.hermes.client.ui.activity.needsAttention
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,6 +43,7 @@ class CardPageViewModel @Inject constructor(
     private val analytics: AnalyticsRepository,
     private val rest: HermesRestApi,
     healthMonitor: com.hermes.client.data.network.GatewayHealthMonitor,
+    runtimeStore: SessionRuntimeStore,
 ) : ViewModel() {
     val profiles: StateFlow<List<ProfileDto>> = profileManager.list
     val active: StateFlow<String?> = profileManager.active
@@ -49,6 +53,33 @@ class CardPageViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(CardPageUiState())
     val state: StateFlow<CardPageUiState> = _state.asStateFlow()
+
+    /** Per-profile (running, waiting) counts for the switch list's sub-lines — the one
+     *  deliberate cross-profile read: the switcher is where you decide where to go next. */
+    data class ProfileActivity(val running: Int = 0, val waiting: Int = 0)
+    private val _profileActivity = MutableStateFlow<Map<String, ProfileActivity>>(emptyMap())
+    val profileActivity: StateFlow<Map<String, ProfileActivity>> = _profileActivity.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            runtimeStore.runtimes.collect { runtimes ->
+                _profileActivity.value = runtimes.entries
+                    .groupBy { it.key.profile ?: "default" }
+                    .mapValues { (_, entries) ->
+                        ProfileActivity(
+                            running = entries.count { it.value.phase.isActive },
+                            waiting = entries.count {
+                                it.value.phase in setOf(
+                                    SessionRunPhase.WAITING_APPROVAL,
+                                    SessionRunPhase.WAITING_CLARIFICATION,
+                                    SessionRunPhase.WAITING_ATTENTION,
+                                )
+                            },
+                        )
+                    }
+            }
+        }
+    }
 
     /** Profile a switch is in flight for (row spinner), or null. */
     private val _switching = MutableStateFlow<String?>(null)
