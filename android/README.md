@@ -154,6 +154,10 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   the header bar) via a record-only offscreen exporter, and makes fullscreen viewing genuinely
   rotation-proof by hoisting its state to the screen level — the previous in-tree fix was lost
   during the markdown re-parse window on Activity recreation.
+- Version 0.1.48 aligns the card page with the design: the drawer keeps a scrim gap (86% width,
+  360dp cap), sits on plain surface with end-only rounded corners, and the settings sub-line
+  ellipsizes. The remote-device tile now reads the production edge's /relay-health (bare /health
+  belongs to the release server there), fixing the false "connector offline".
 - Version 0.1.47 is the single-screen redesign: the session list becomes the only main screen
   (bottom tabs, Home feed, You/Management/Profiles/Session-admin screens removed). A card page off
   the top-left avatar is the app's one profile-switch point, with weekly-usage and remote-device
@@ -189,7 +193,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.47-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.48-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

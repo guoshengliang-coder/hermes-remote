@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -72,7 +73,16 @@ fun CardPage(
         }
     }
 
-    ModalDrawerSheet(drawerShape = MaterialTheme.shapes.large) {
+    // Match the design: the sheet never spans the full screen (>=56dp of scrim stays visible),
+    // sits on plain surface (the M3 default surfaceContainerLow reads purple against our mint
+    // palette), and rounds only its end corners.
+    ModalDrawerSheet(
+        modifier = Modifier.fillMaxWidth(0.86f).widthIn(max = 360.dp),
+        drawerShape = androidx.compose.foundation.shape.RoundedCornerShape(
+            topStart = 0.dp, topEnd = 22.dp, bottomEnd = 22.dp, bottomStart = 0.dp,
+        ),
+        drawerContainerColor = MaterialTheme.colorScheme.surface,
+    ) {
         Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState()).statusBarsPadding()) {
             // ── Hero: who am I right now ─────────────────────────────────────────────
             Row(
@@ -201,7 +211,7 @@ private fun EntryRow(
     ListItem(
         leadingContent = icon,
         headlineContent = { Text(label) },
-        supportingContent = sub?.let { { Text(it, maxLines = 1) } },
+        supportingContent = sub?.let { { Text(it, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) } },
         trailingContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 badge?.let { Badge { Text(it.toString()) } }

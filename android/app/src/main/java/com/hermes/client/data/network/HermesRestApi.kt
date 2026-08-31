@@ -98,8 +98,14 @@ class HermesRestApi(
     /** Public /api/status — gateway version + running state. */
     suspend fun gatewayStatus(): GatewayStatusDto = get("/api/status")
 
-    /** Relay /health — which Mac connectors are currently attached (deviceId + online). */
-    suspend fun relayHealth(): RelayHealthDto = get("/health")
+    /** Relay health — which Mac connectors are currently attached (deviceId + online).
+     *  The production edge maps the gateway's /health to /relay-health (bare /health belongs to
+     *  the release server there); a direct gateway connection only has /health. Try the edge
+     *  path first, then fall back. */
+    suspend fun relayHealth(): RelayHealthDto =
+        runCatching { get<RelayHealthDto>("/relay-health") }.getOrNull()
+            ?.takeIf { it.ok }
+            ?: get("/health")
 
     /** Durable Relay-owned lifecycle inbox; available even while the Mac Connector is offline. */
     suspend fun lifecycleEvents(after: Long, limit: Int = 100): LifecycleEventPageDto {
