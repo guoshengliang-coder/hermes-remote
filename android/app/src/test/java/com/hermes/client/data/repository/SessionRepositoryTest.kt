@@ -9,6 +9,8 @@ import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionRepositoryTest {
@@ -22,6 +24,7 @@ class SessionRepositoryTest {
     // messaging-platform source, plus empty (0-message) sessions. Local sources (tui/cli/…), the
     // app's own hermes-dispatch sessions, and unknown/null sources are kept.
     @Test fun listAllProfiles_hides_excluded_sources_and_empty_sessions() = runTest {
+        assertFalse(repo.hasLoadedAllProfiles())
         coEvery { rest.profileSessions(any(), false) } returns ProfileSessionsDto(
             sessions = listOf(
                 dto("keep-tui", "tui", 5),
@@ -38,6 +41,7 @@ class SessionRepositoryTest {
             listOf("keep-tui", "keep-dispatch", "keep-null-source"),
             repo.listAllProfiles().map { it.id },
         )
+        assertTrue(repo.hasLoadedAllProfiles())
     }
 
     @Test fun archivedAllProfiles_also_hides_cron_and_empty() = runTest {

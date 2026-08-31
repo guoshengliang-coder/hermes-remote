@@ -6,6 +6,8 @@ import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.ConnectivityChecker
 import com.hermes.client.data.repository.ChatRepository
+import com.hermes.client.data.repository.ProfileManager
+import com.hermes.client.data.repository.SessionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -25,13 +27,15 @@ enum class StartupReason { COLD_START, CONNECTION_RECOVERY }
 enum class StartupFailure(val code: String) {
     DEVICE_OFFLINE("HR-CONN-001"),
     CONNECTION_FAILED("HR-CONN-002"),
+    INITIAL_DATA_FAILED("HR-RPC-001"),
 }
 
 enum class StartupPhase(val progress: Float) {
     CONFIGURATION(0.12f),
     NETWORK(0.28f),
     AUTHENTICATION(0.52f),
-    CONNECTION(0.78f),
+    CONNECTION(0.74f),
+    INITIAL_DATA(0.9f),
     READY(1f),
 }
 
@@ -50,15 +54,17 @@ sealed interface StartupUiState {
 }
 
 /**
- * Coordinates only the minimum work required to make the app usable: configuration, network,
- * authentication and the WebSocket `gateway.ready` handshake. Destination data keeps loading
- * progressively behind the gate and never makes startup wait on optional APIs.
+ * Coordinates the work required for the first usable screen: configuration, network,
+ * authentication, the WebSocket `gateway.ready` handshake, active-profile metadata and the first
+ * session-list snapshot. Optional destinations still load progressively after the gate.
  */
 @HiltViewModel
 class StartupViewModel @Inject constructor(
     private val credentials: CredentialStore,
     private val connectivity: ConnectivityChecker,
     private val chat: ChatRepository,
+    private val sessions: SessionRepository,
+    private val profiles: ProfileManager,
 ) : ViewModel() {
     private val _state = MutableStateFlow<StartupUiState>(StartupUiState.Hidden)
     val state: StateFlow<StartupUiState> = _state.asStateFlow()
@@ -70,8 +76,15 @@ class StartupViewModel @Inject constructor(
         // failure actions are visible, dismiss the gate without requiring an unnecessary tap.
         viewModelScope.launch {
             chat.connectionState.collect { connection ->
-                if (connection is ConnectionState.Connected && _state.value is StartupUiState.Failed) {
-                    _state.value = StartupUiState.Hidden
+                val failed = _state.value as? StartupUiState.Failed
+                if (connection is ConnectionState.Connected && failed != null) {
+                    when {
+                        failed.reason == StartupReason.COLD_START &&
+                            failed.failure != StartupFailure.INITIAL_DATA_FAILED ->
+                            startAttempt(StartupReason.COLD_START, debounceMs = 0L)
+                        failed.reason == StartupReason.CONNECTION_RECOVERY ->
+                            _state.value = StartupUiState.Hidden
+                    }
                 }
             }
         }
@@ -90,8 +103,13 @@ class StartupViewModel @Inject constructor(
             _state.value = StartupUiState.Hidden
             return
         }
+        val failed = _state.value as? StartupUiState.Failed
         if (chat.connectionState.value is ConnectionState.Connected && connectivity.isOnline()) {
-            _state.value = StartupUiState.Hidden
+            if (failed?.reason == StartupReason.COLD_START) {
+                startAttempt(StartupReason.COLD_START, debounceMs = 0L)
+            } else {
+                _state.value = StartupUiState.Hidden
+            }
             return
         }
         startAttempt(StartupReason.CONNECTION_RECOVERY, debounceMs = HOT_START_DEBOUNCE_MS)
@@ -102,11 +120,20 @@ class StartupViewModel @Inject constructor(
             _state.value = StartupUiState.Hidden
             return
         }
-        if (chat.connectionState.value is ConnectionState.Connected && connectivity.isOnline()) {
+        val failed = _state.value as? StartupUiState.Failed
+        if (
+            failed?.reason != StartupReason.COLD_START &&
+            chat.connectionState.value is ConnectionState.Connected &&
+            connectivity.isOnline()
+        ) {
             _state.value = StartupUiState.Hidden
             return
         }
-        startAttempt(StartupReason.CONNECTION_RECOVERY, debounceMs = 0L, forceReconnect = true)
+        startAttempt(
+            reason = failed?.reason ?: StartupReason.CONNECTION_RECOVERY,
+            debounceMs = 0L,
+            forceReconnect = chat.connectionState.value !is ConnectionState.Connected,
+        )
     }
 
     /** Lets cached UI remain usable; the next foreground transition will evaluate again. */
@@ -128,7 +155,10 @@ class StartupViewModel @Inject constructor(
         attemptJob = viewModelScope.launch {
             if (debounceMs > 0) {
                 delay(debounceMs)
-                if (chat.connectionState.value is ConnectionState.Connected) return@launch
+                if (
+                    chat.connectionState.value is ConnectionState.Connected &&
+                    connectivity.isOnline()
+                ) return@launch
                 _state.value = StartupUiState.Loading(reason, StartupPhase.CONFIGURATION)
             }
 
@@ -169,7 +199,11 @@ class StartupViewModel @Inject constructor(
                             _state.value = StartupUiState.Loading(
                                 reason,
                                 when (connection) {
-                                    is ConnectionState.Connected -> StartupPhase.READY
+                                    is ConnectionState.Connected -> if (reason == StartupReason.COLD_START) {
+                                        StartupPhase.INITIAL_DATA
+                                    } else {
+                                        StartupPhase.READY
+                                    }
                                     else -> StartupPhase.CONNECTION
                                 },
                             )
@@ -178,6 +212,28 @@ class StartupViewModel @Inject constructor(
                 } != null
 
                 if (connected) {
+                    if (reason == StartupReason.COLD_START) {
+                        _state.value = StartupUiState.Loading(reason, StartupPhase.INITIAL_DATA)
+                        val initialized = try {
+                            withTimeoutOrNull(INITIAL_DATA_TIMEOUT_MS) {
+                                profiles.refresh()
+                                sessions.listAllProfiles()
+                                true
+                            } == true
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            false
+                        }
+                        if (!initialized) {
+                            minimumDisplay?.cancel()
+                            _state.value = StartupUiState.Failed(
+                                reason,
+                                StartupFailure.INITIAL_DATA_FAILED,
+                            )
+                            return@coroutineScope
+                        }
+                    }
                     _state.value = StartupUiState.Loading(reason, StartupPhase.READY)
                     minimumDisplay?.await()
                     _state.value = StartupUiState.Hidden
@@ -196,5 +252,6 @@ class StartupViewModel @Inject constructor(
         const val HOT_START_DEBOUNCE_MS = 200L
         const val MINIMUM_COLD_START_MS = 450L
         const val CONNECTION_TIMEOUT_MS = 15_000L
+        const val INITIAL_DATA_TIMEOUT_MS = 15_000L
     }
 }

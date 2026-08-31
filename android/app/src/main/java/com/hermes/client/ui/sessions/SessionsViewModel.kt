@@ -256,7 +256,7 @@ class SessionsViewModel @Inject constructor(
         // Keep an already-rendered list completely steady during background reconciliation. The
         // blocking skeleton is only for the first load; terminal/reconnect refreshes stay invisible.
         _state.value = _state.value.copy(
-            loading = _state.value.sessions.isEmpty(),
+            loading = _state.value.sessions.isEmpty() && !sessions.hasLoadedAllProfiles(),
             error = null,
             unauthorized = false,
         )

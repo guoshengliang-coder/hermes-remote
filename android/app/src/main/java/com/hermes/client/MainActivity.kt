@@ -30,6 +30,8 @@ import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.AppLanguageProvider
 import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.startup.StartupScreen
+import com.hermes.client.ui.startup.StartupReason
+import com.hermes.client.ui.startup.StartupUiState
 import com.hermes.client.ui.startup.StartupViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.lifecycle.lifecycleScope
@@ -104,11 +106,22 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 androidx.compose.foundation.layout.Box {
                                     val deepLinkRoute by pendingRoute
-                                    HermesNav(
-                                        hasConfig = hasConfig,
-                                        deepLinkRoute = deepLinkRoute,
-                                        onDeepLinkConsumed = { pendingRoute.value = null },
-                                    )
+                                    val coldGateVisible = when (val currentStartup = startupState) {
+                                        is StartupUiState.Loading -> currentStartup.reason == StartupReason.COLD_START
+                                        is StartupUiState.Failed -> currentStartup.reason == StartupReason.COLD_START
+                                        StartupUiState.Hidden -> false
+                                    }
+                                    // Do not construct the cold-start destination behind the gate.
+                                    // The startup coordinator preloads its first snapshot; creating
+                                    // SessionsViewModel afterward lets it render the cache immediately.
+                                    // Warm recovery keeps the existing navigation tree alive in place.
+                                    if (!coldGateVisible) {
+                                        HermesNav(
+                                            hasConfig = hasConfig,
+                                            deepLinkRoute = deepLinkRoute,
+                                            onDeepLinkConsumed = { pendingRoute.value = null },
+                                        )
+                                    }
                                     StartupScreen(
                                         state = startupState,
                                         onRetry = startupViewModel::retry,

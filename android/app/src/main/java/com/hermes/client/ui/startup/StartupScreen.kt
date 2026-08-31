@@ -35,8 +35,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.hermes.client.R
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
@@ -59,24 +61,45 @@ fun StartupScreen(
     Box(
         modifier = Modifier.fillMaxSize().background(StartupBackground),
     ) {
-        Box(
+        Column(
             modifier = Modifier
                 .align(Alignment.Center)
-                .offset(y = (-56).dp)
-                .size(340.dp)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(Color(0x14258BF4), Color.Transparent),
-                    ),
-                    RoundedCornerShape(170.dp),
-                ),
-            contentAlignment = Alignment.Center,
+                .offset(y = (-48).dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Image(
-                painter = painterResource(R.mipmap.ic_launcher_foreground),
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.size(250.dp),
+            Box(
+                modifier = Modifier
+                    .size(300.dp)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(Color(0x14258BF4), Color.Transparent),
+                        ),
+                        RoundedCornerShape(150.dp),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    painter = painterResource(R.mipmap.ic_launcher_foreground),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(250.dp),
+                )
+            }
+            Text(
+                text = "HERMES GO", // l10n-allow: official product name is language-invariant
+                color = Color(0xFF252B33),
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 4.sp,
+                ),
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = "Your AI agent, in your pocket.", // l10n-allow: official English brand slogan
+                color = StartupText,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
             )
         }
 
@@ -120,6 +143,7 @@ private fun LoadingFooter(state: StartupUiState.Loading) {
             } else {
                 localized(language, "正在恢复安全连接…", "Restoring the secure connection…")
             }
+            StartupPhase.INITIAL_DATA -> localized(language, "正在准备会话…", "Preparing conversations…")
             StartupPhase.READY -> localized(language, "连接就绪", "Connection ready")
         },
         color = StartupText,
@@ -167,6 +191,11 @@ private fun FailureFooter(
             language,
             "无法连接 Relay，请重试。",
             "Couldn't connect to the Relay. Retry.",
+        )
+        StartupFailure.INITIAL_DATA_FAILED -> localized(
+            language,
+            "无法加载首屏数据，请重试。",
+            "Couldn't load the initial screen. Retry.",
         )
     }
     Text(

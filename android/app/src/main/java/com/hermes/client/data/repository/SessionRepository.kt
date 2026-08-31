@@ -19,6 +19,7 @@ private fun Session.isInteractive(): Boolean =
 
 class SessionRepository(private val rest: HermesRestApi) {
     @Volatile private var allProfilesCache: List<Session> = emptyList()
+    @Volatile private var allProfilesLoaded: Boolean = false
     private val historyCache = object : LinkedHashMap<String, List<ChatMessage>>(12, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<ChatMessage>>?): Boolean =
             size > 10
@@ -52,10 +53,14 @@ class SessionRepository(private val rest: HermesRestApi) {
         val loaded = rest.profileSessions().sessions.map { it.toDomain() }
             .filter { !it.archived && it.isInteractive() }
         allProfilesCache = loaded
+        allProfilesLoaded = true
         return loaded
     }
 
     fun cachedAllProfiles(): List<Session> = allProfilesCache
+
+    /** Distinguishes a successfully loaded empty list from a list that has not been fetched yet. */
+    fun hasLoadedAllProfiles(): Boolean = allProfilesLoaded
 
     fun cachedSession(sessionId: String, profile: String? = null): Session? =
         allProfilesCache.firstOrNull {

@@ -223,13 +223,18 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 ## Startup and connection recovery
 
 - A configured process-cold launch shows the branded startup gate until the shared WebSocket has
-  received `gateway.ready`; optional destination data continues loading progressively afterward.
+  received `gateway.ready`, the active profile is resolved, and the first session-list snapshot is
+  cached. The Sessions destination is created only afterward, so it renders the cached first screen
+  instead of replacing the startup gate with a second blocking loader.
 - A first launch with no stored Relay configuration skips the custom gate and opens Setup directly.
 - Foreground returns keep the existing navigation stack. A healthy connection shows no gate; a
   disconnected connection gets a 200 ms no-flash recovery window before the gate overlays the
   current destination.
 - Recovery stops blocking after 15 seconds and offers retry, connection settings, or temporary
   access to cached UI. Device-offline and connection failures use the registered `HR-CONN-*` codes.
+- The startup brand lockup keeps `HERMES GO` and the official slogan
+  `Your AI agent, in your pocket.` in English; operational status and recovery actions still follow
+  the in-app language setting.
 
 ## Build
 

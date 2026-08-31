@@ -5,9 +5,14 @@ import com.hermes.client.data.auth.GatewayConfig
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.ConnectivityChecker
 import com.hermes.client.data.repository.ChatRepository
+import com.hermes.client.data.repository.ProfileManager
+import com.hermes.client.data.repository.SessionRepository
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +33,8 @@ class StartupViewModelTest {
     private val credentials = mockk<CredentialStore>(relaxed = true)
     private val connectivity = mockk<ConnectivityChecker>()
     private val chat = mockk<ChatRepository>(relaxed = true)
+    private val sessions = mockk<SessionRepository>(relaxed = true)
+    private val profiles = mockk<ProfileManager>(relaxed = true)
     private val connection = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     private val config = GatewayConfig("https://relay.example", "token")
 
@@ -36,11 +43,12 @@ class StartupViewModelTest {
         every { credentials.load() } returns config
         every { connectivity.isOnline() } returns true
         every { chat.connectionState } returns connection
+        coEvery { sessions.listAllProfiles() } returns emptyList()
     }
 
     @After fun tearDown() = Dispatchers.resetMain()
 
-    private fun vm() = StartupViewModel(credentials, connectivity, chat)
+    private fun vm() = StartupViewModel(credentials, connectivity, chat, sessions, profiles)
 
     @Test fun firstLaunchWithoutConfigurationSkipsStartupScreen() = runTest {
         every { credentials.load() } returns null
@@ -54,7 +62,9 @@ class StartupViewModelTest {
         verify(exactly = 0) { chat.connect() }
     }
 
-    @Test fun configuredColdStartWaitsForGatewayReadyAndMinimumBrandMoment() = runTest {
+    @Test fun configuredColdStartWaitsForGatewayReadyInitialSessionsAndMinimumBrandMoment() = runTest {
+        val initialSessions = CompletableDeferred<List<com.hermes.client.domain.Session>>()
+        coEvery { sessions.listAllProfiles() } coAnswers { initialSessions.await() }
         val vm = vm()
 
         vm.onActivityCreated(processColdStart = true)
@@ -65,11 +75,48 @@ class StartupViewModelTest {
 
         connection.value = ConnectionState.Connected
         runCurrent()
+        assertEquals(StartupPhase.INITIAL_DATA, (vm.state.value as StartupUiState.Loading).phase)
+        coVerify(exactly = 1) { profiles.refresh() }
+
+        initialSessions.complete(emptyList())
+        runCurrent()
         assertEquals(StartupPhase.READY, (vm.state.value as StartupUiState.Loading).phase)
 
         advanceTimeBy(StartupViewModel.MINIMUM_COLD_START_MS)
         runCurrent()
         assertEquals(StartupUiState.Hidden, vm.state.value)
+    }
+
+    @Test fun coldStartInitialSessionFailureStaysOnStartupWithRetryableCode() = runTest {
+        coEvery { sessions.listAllProfiles() } throws RuntimeException("sessions unavailable")
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        connection.value = ConnectionState.Connected
+        runCurrent()
+
+        val failed = vm.state.value as StartupUiState.Failed
+        assertEquals(StartupReason.COLD_START, failed.reason)
+        assertEquals(StartupFailure.INITIAL_DATA_FAILED, failed.failure)
+        assertEquals("HR-RPC-001", failed.failure.code)
+    }
+
+    @Test fun retryAfterInitialSessionFailureRepeatsColdPreloadWithoutReconnectingHealthySocket() = runTest {
+        connection.value = ConnectionState.Connected
+        coEvery { sessions.listAllProfiles() } throws RuntimeException("first failure") andThen emptyList()
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        assertTrue(vm.state.value is StartupUiState.Failed)
+
+        vm.retry()
+        runCurrent()
+
+        assertEquals(StartupPhase.READY, (vm.state.value as StartupUiState.Loading).phase)
+        coVerify(exactly = 2) { sessions.listAllProfiles() }
+        verify(exactly = 0) { chat.reconnect() }
     }
 
     @Test fun healthyHotStartLeavesCurrentScreenVisible() = runTest {
@@ -83,6 +130,7 @@ class StartupViewModelTest {
         assertEquals(StartupUiState.Hidden, vm.state.value)
         verify(exactly = 0) { chat.connect() }
         verify(exactly = 0) { chat.reconnect() }
+        coVerify(exactly = 0) { sessions.listAllProfiles() }
     }
 
     @Test fun disconnectedHotStartUsesDebounceThenRestoresInPlace() = runTest {
@@ -141,7 +189,11 @@ class StartupViewModelTest {
 
         connection.value = ConnectionState.Connected
         runCurrent()
+        assertEquals(StartupPhase.READY, (vm.state.value as StartupUiState.Loading).phase)
+        advanceTimeBy(StartupViewModel.MINIMUM_COLD_START_MS)
+        runCurrent()
         assertEquals(StartupUiState.Hidden, vm.state.value)
+        coVerify(exactly = 1) { sessions.listAllProfiles() }
     }
 
     @Test fun continueOfflineHidesRecoveryUntilNextForeground() = runTest {
