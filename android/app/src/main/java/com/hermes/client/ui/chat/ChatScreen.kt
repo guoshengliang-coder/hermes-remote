@@ -753,14 +753,9 @@ fun ChatScreen(
                                         Icon(Icons.Rounded.Mic, contentDescription = localized(language, "语音输入", "Voice input"), modifier = Modifier.size(24.dp))
                                     }
                                 }
-                                // Model chip: plain text while following the default; a tonal
-                                // container plus a "此对话" tag when this chat runs an override,
-                                // so the answer to "which model am I on" is one glance away.
-                                val modelOverridden by vm.sessionModelOverridden.collectAsStateWithLifecycle()
                                 Surface(
                                     onClick = { modelSheetOpen = true },
-                                    color = if (modelOverridden) MaterialTheme.colorScheme.secondaryContainer
-                                    else androidx.compose.ui.graphics.Color.Transparent,
+                                    color = androidx.compose.ui.graphics.Color.Transparent,
                                     shape = RoundedCornerShape(18.dp),
                                 ) {
                                     Row(
@@ -768,29 +763,10 @@ fun ChatScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Text(
-                                            // "默认模型", not "自动": before the config loads we only
-                                            // know the session follows the default — there is no
-                                            // auto-routing to suggest.
-                                            if (currentModel.isNullOrBlank()) localized(language, "默认模型", "Default model") else compactModelLabel(currentModel),
+                                            if (currentModel.isNullOrBlank()) localized(language, "自动", "Auto") else compactModelLabel(currentModel),
                                             style = MaterialTheme.typography.titleMedium,
-                                            color = if (currentModel.isNullOrBlank()) MaterialTheme.colorScheme.onSurfaceVariant
-                                            else MaterialTheme.colorScheme.onSurface,
                                             maxLines = 1,
                                         )
-                                        if (modelOverridden) {
-                                            Text(
-                                                localized(language, "此对话", "This chat"),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                modifier = Modifier
-                                                    .padding(start = 6.dp)
-                                                    .background(
-                                                        MaterialTheme.colorScheme.primaryContainer,
-                                                        RoundedCornerShape(8.dp),
-                                                    )
-                                                    .padding(horizontal = 6.dp, vertical = 1.dp),
-                                            )
-                                        }
                                         Icon(
                                             Icons.Rounded.ArrowDropDown,
                                             contentDescription = localized(language, "切换模型", "Switch model"),
