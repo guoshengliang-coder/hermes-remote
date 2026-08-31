@@ -6,6 +6,8 @@ import com.hermes.client.data.network.SkillDto
 import com.hermes.client.data.network.ToolsetDto
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.ToolsRepository
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,7 +19,7 @@ data class ToolsUiState(
     val skills: List<SkillDto> = emptyList(),
     val toolsets: List<ToolsetDto> = emptyList(),
     val loading: Boolean = true,
-    val error: String? = null,
+    val error: AppError? = null,
 )
 
 @HiltViewModel
@@ -43,7 +45,9 @@ class ToolsViewModel @Inject constructor(
             skills = skills ?: emptyList(),
             toolsets = toolsets ?: emptyList(),
             loading = false,
-            error = if (skills == null && toolsets == null) "Failed to load" else null,
+            error = if (skills == null && toolsets == null) {
+                AppError(AppErrorCode.RPC_FAILED, retryable = true, stage = "agents_tools_load")
+            } else null,
         )
     }
 

@@ -57,6 +57,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.hermes.client.ui.localization.l10n
+import com.hermes.client.ui.localization.AppLanguage
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.LocalizedText
+import com.hermes.client.ui.localization.localizedText
 
 data class CronEditState(
     val name: String = "",
@@ -65,7 +69,7 @@ data class CronEditState(
     val isNew: Boolean = true,
     val loading: Boolean = false,
     val saved: Boolean = false,
-    val message: String? = null,
+    val message: LocalizedText? = null,
 )
 
 @HiltViewModel
@@ -78,12 +82,12 @@ class CronEditViewModel @Inject constructor(
     private var jobId: String = "new"
     private val profile: String? get() = profileManager.active.value
 
-    fun load(id: String) {
+    fun load(id: String, language: AppLanguage) {
         jobId = id
         val template = cronTemplate(id)
         if (id == "new" || template != null) {
             _state.value = if (template != null) {
-                CronEditState(schedule = template.schedule, prompt = template.prompt, isNew = true)
+                CronEditState(schedule = template.schedule, prompt = template.prompt(language), isNew = true)
             } else {
                 CronEditState(isNew = true)
             }
@@ -101,7 +105,7 @@ class CronEditViewModel @Inject constructor(
                         loading = false,
                     )
                 }
-                .onFailure { _state.value = _state.value.copy(loading = false, message = "Load failed: ${it.message}") }
+                .onFailure { _state.value = _state.value.copy(loading = false, message = localizedText("加载失败（HR-RPC-001）", "Load failed (HR-RPC-001)")) }
         }
     }
 
@@ -113,7 +117,10 @@ class CronEditViewModel @Inject constructor(
         val s = _state.value
         val advancedInvalid = s.schedule is Schedule.Advanced && !isValidCron((s.schedule as Schedule.Advanced).expr)
         if (s.prompt.isBlank() || advancedInvalid) {
-            _state.value = s.copy(message = if (s.prompt.isBlank()) "Prompt is required" else "Schedule is not a valid cron expression")
+            _state.value = s.copy(
+                message = if (s.prompt.isBlank()) localizedText("请输入提示词", "Prompt is required")
+                else localizedText("计划不是有效的 cron 表达式", "Schedule is not a valid cron expression"),
+            )
             return@launch
         }
         val cron = s.schedule.toCron()
@@ -121,7 +128,7 @@ class CronEditViewModel @Inject constructor(
             if (s.isNew) tools.createCron(s.prompt, cron, s.name, profile)
             else tools.updateCron(jobId, s.prompt, cron, s.name, profile)
         }.onSuccess { _state.value = s.copy(saved = true) }
-            .onFailure { _state.value = s.copy(message = "Save failed: ${it.message}") }
+            .onFailure { _state.value = s.copy(message = localizedText("保存失败（HR-RPC-001）", "Save failed (HR-RPC-001)")) }
     }
 
     fun clearMessage() { _state.value = _state.value.copy(message = null) }
@@ -135,10 +142,12 @@ fun CronEditScreen(
     vm: CronEditViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val language = LocalAppLanguage.current
+    val stateMessage = state.message?.resolve(language)
     val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(jobId) { vm.load(jobId) }
+    LaunchedEffect(jobId) { vm.load(jobId, language) }
     LaunchedEffect(state.saved) { if (state.saved) onDone() }
-    LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
+    LaunchedEffect(stateMessage) { stateMessage?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
 
     Scaffold(
         topBar = {
@@ -245,11 +254,11 @@ private fun ScheduleBuilder(schedule: Schedule, onChange: (Schedule) -> Unit, no
         }
         Spacer(Modifier.height(8.dp))
         val next = schedule.nextRun(nowMs)?.let { epochMs ->
-            " · Next: " + com.hermes.client.ui.util.formatIso(
+            l10n(" · 下次：", " · Next: ") + com.hermes.client.ui.util.formatIso(
                 java.time.Instant.ofEpochMilli(epochMs).atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime().toString()
             )
         }.orEmpty()
-        Text(schedule.describe() + next, style = MaterialTheme.typography.bodyMedium, color = accent)
+        Text(schedule.describe(LocalAppLanguage.current) + next, style = MaterialTheme.typography.bodyMedium, color = accent)
     }
 }
 
@@ -269,7 +278,7 @@ private fun MinutePicker(minute: Int, onPick: (Int) -> Unit) {
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             (0..59).forEach { minuteOption ->
                 DropdownMenuItem(
-                    text = { Text(":%02d".format(minuteOption)) },
+                    text = { Text(":%02d".format(minuteOption)) }, // l10n-allow: numeric time value
                     onClick = { onPick(minuteOption); expanded = false },
                 )
             }
@@ -316,7 +325,7 @@ private fun WeekdayChips(days: Set<Weekday>, onChange: (Set<Weekday>) -> Unit) {
                     val next = if (selected) days - day else days + day
                     if (next.isNotEmpty()) onChange(next)
                 },
-                label = { Text(day.short) },
+                label = { Text(day.short(LocalAppLanguage.current)) },
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = accent,
                     selectedLabelColor = MaterialTheme.colorScheme.onPrimary,

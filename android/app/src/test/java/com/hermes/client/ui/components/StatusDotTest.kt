@@ -10,6 +10,6 @@ class StatusDotTest {
         assertEquals("Connecting…", connectionLabel(ConnectionState.Connecting))
         assertEquals("Reconnecting…", connectionLabel(ConnectionState.Reconnecting))
         assertEquals("Offline", connectionLabel(ConnectionState.Disconnected))
-        assertEquals("Error: boom", connectionLabel(ConnectionState.Error("boom")))
+        assertEquals("Connection error", connectionLabel(ConnectionState.Error("boom")))
     }
 }

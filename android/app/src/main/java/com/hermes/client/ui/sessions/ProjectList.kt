@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.hermes.client.domain.Project
 import com.hermes.client.domain.Session
+import com.hermes.client.ui.localization.l10n
 
 /** Parse the gateway's "#RRGGBB" project color; fall back to the tenant accent when null/invalid. */
 @Composable
@@ -41,9 +42,9 @@ fun ProjectOverview(projects: List<Project>, onOpenProject: (Project) -> Unit) {
 @Composable
 fun ProjectCard(project: Project, onClick: () -> Unit) {
     ListItem(
-        headlineContent = { Text(project.label) },
+        headlineContent = { Text(projectDisplayLabel(project)) },
         supportingContent = {
-            Text("${project.sessionCount} session${if (project.sessionCount == 1) "" else "s"}")
+            Text(l10n("${project.sessionCount} 个会话", "${project.sessionCount} session${if (project.sessionCount == 1) "" else "s"}"))
         },
         leadingContent = {
             Icon(Icons.Rounded.Folder, contentDescription = null, tint = projectTint(project.color), modifier = Modifier.size(24.dp))
@@ -71,8 +72,8 @@ fun ProjectScopeView(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Start,
             ) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp))
-                Text(project.label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = l10n("返回", "Back"), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp))
+                Text(projectDisplayLabel(project), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
             }
         }
         lanes.forEach { (repo, lane) ->
@@ -97,7 +98,7 @@ fun ProjectScopeView(
         if (lanes.isEmpty()) {
             item(key = "empty-scope") {
                 Text(
-                    "No sessions in this project.",
+                    l10n("这个项目中还没有会话。", "No sessions in this project."),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(16.dp),
@@ -106,3 +107,7 @@ fun ProjectScopeView(
         }
     }
 }
+
+@Composable
+private fun projectDisplayLabel(project: Project): String =
+    if (project.id == NO_PROJECT_ID) l10n("无项目", "No project") else project.label

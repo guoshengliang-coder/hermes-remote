@@ -33,7 +33,7 @@ fun AgentsToolsScreen(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
                 title = l10n("智能体与工具", "Agents & tools"),
-                navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+                navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = l10n("返回", "Back")) } },
             )
         },
     ) { padding ->
@@ -41,13 +41,13 @@ fun AgentsToolsScreen(
             when {
                 state.loading -> com.hermes.client.ui.components.LoadingState()
                 state.error != null -> com.hermes.client.ui.components.ErrorState(
-                    message = state.error!!, onRetry = { vm.load() },
+                    error = state.error!!, onRetry = { vm.load() },
                 )
                 state.skills.isEmpty() && state.toolsets.isEmpty() -> com.hermes.client.ui.components.EmptyState(
                     title = l10n("暂无智能体或工具", "No agents or tools"),
                 )
                 else -> LazyColumn(Modifier.fillMaxSize()) {
-                    item { SectionHeader("Skills (${state.skills.size})") }
+                    item { SectionHeader(l10n("技能（${state.skills.size}）", "Skills (${state.skills.size})")) }
                     items(state.skills, key = { it.name }) { skill ->
                         ListItem(
                             headlineContent = { Text(skill.name) },
@@ -66,14 +66,17 @@ fun AgentsToolsScreen(
                         )
                     }
 
-                    item { SectionHeader("Toolsets (${state.toolsets.size})") }
+                    item { SectionHeader(l10n("工具集（${state.toolsets.size}）", "Toolsets (${state.toolsets.size})")) }
                     items(state.toolsets, key = { it.name }) { ts ->
                         ListItem(
                             headlineContent = { Text(ts.label ?: ts.name) },
                             supportingContent = {
-                                Text("${ts.tools.size} tools" + if (!ts.available) " · unavailable" else "")
+                                Text(
+                                    l10n("${ts.tools.size} 个工具", "${ts.tools.size} tools") +
+                                        if (!ts.available) l10n(" · 不可用", " · unavailable") else "",
+                                )
                             },
-                            trailingContent = { Text(if (ts.enabled) "on" else "off") },
+                            trailingContent = { Text(if (ts.enabled) l10n("开启", "on") else l10n("关闭", "off")) },
                         )
                     }
                 }

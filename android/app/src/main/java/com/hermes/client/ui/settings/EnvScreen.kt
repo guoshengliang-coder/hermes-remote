@@ -44,13 +44,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.hermes.client.ui.localization.l10n
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.LocalizedText
+import com.hermes.client.ui.localization.localizedText
 
 data class EnvUiState(
     val vars: List<Pair<String, EnvVarDto>> = emptyList(),
     val query: String = "",
     val loading: Boolean = true,
-    val error: String? = null,
-    val message: String? = null,
+    val error: AppError? = null,
+    val message: LocalizedText? = null,
 ) {
     val filtered: List<Pair<String, EnvVarDto>>
         get() = if (query.isBlank()) vars
@@ -76,15 +81,20 @@ class EnvViewModel @Inject constructor(
                 val sorted = m.toList().sortedWith(compareByDescending<Pair<String, EnvVarDto>> { it.second.isSet }.thenBy { it.first })
                 _state.value = _state.value.copy(vars = sorted, loading = false)
             }
-            .onFailure { _state.value = _state.value.copy(loading = false, error = it.message ?: "Failed to load") }
+            .onFailure {
+                _state.value = _state.value.copy(
+                    loading = false,
+                    error = AppError(AppErrorCode.RPC_FAILED, retryable = true, technicalCause = it.message, stage = "env_load"),
+                )
+            }
     }
 
     fun onQuery(q: String) { _state.value = _state.value.copy(query = q) }
 
     fun set(key: String, value: String) = viewModelScope.launch {
         runCatching { env.set(key, value, profile) }
-            .onSuccess { _state.value = _state.value.copy(message = "$key saved"); load() }
-            .onFailure { _state.value = _state.value.copy(message = "Save failed: ${it.message}") }
+            .onSuccess { _state.value = _state.value.copy(message = localizedText("已保存 $key", "$key saved")); load() }
+            .onFailure { _state.value = _state.value.copy(message = localizedText("保存失败（HR-RPC-001）", "Save failed (HR-RPC-001)")) }
     }
 
     fun clearMessage() { _state.value = _state.value.copy(message = null) }
@@ -99,13 +109,15 @@ fun EnvScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var editing by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
+    val language = LocalAppLanguage.current
+    val stateMessage = state.message?.resolve(language)
+    LaunchedEffect(stateMessage) { stateMessage?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
 
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
                 title = l10n("API 密钥与环境变量", "API keys & env"),
-                navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+                navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = l10n("返回", "Back")) } },
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
@@ -113,7 +125,10 @@ fun EnvScreen(
         Box(Modifier.padding(padding).fillMaxSize()) {
             when {
                 state.loading -> com.hermes.client.ui.components.LoadingState()
-                state.error != null -> Text(state.error!!, Modifier.align(Alignment.Center))
+                state.error != null -> com.hermes.client.ui.components.ErrorState(
+                    error = state.error!!,
+                    onRetry = vm::load,
+                )
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     item {
                         OutlinedTextField(
@@ -130,7 +145,7 @@ fun EnvScreen(
                             supportingContent = { Text(dto.description ?: dto.category ?: "") },
                             trailingContent = {
                                 Text(
-                                    if (dto.isSet) "set" else "—",
+                                    if (dto.isSet) l10n("已设置", "set") else "—",
                                     color = if (dto.isSet) MaterialTheme.colorScheme.primary
                                     else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )

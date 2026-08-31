@@ -17,15 +17,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
+enum class SetupResult { CONNECTED, UNREACHABLE, INVALID_URL }
+
 data class SetupUiState(
     val url: String = DEFAULT_REMOTE_GATEWAY_URL,
     val token: String = "",
     val username: String = "",
     val password: String = "",
-    val testResult: String? = null,
+    val testResult: SetupResult? = null,
     val connecting: Boolean = false,
     val saved: Boolean = false,
-    val scanError: String? = null,
+    val scanError: Boolean = false,
 )
 
 @HiltViewModel
@@ -50,7 +52,7 @@ class SetupViewModel @Inject constructor(
     fun test() = viewModelScope.launch {
         val s = _state.value
         val url = runCatching { normalizeGatewayBaseUrl(s.url) }.getOrElse {
-            _state.value = s.copy(testResult = it.message ?: "Invalid gateway URL")
+            _state.value = s.copy(testResult = SetupResult.INVALID_URL)
             return@launch
         }
         val ok = if (s.username.isNotBlank()) {
@@ -58,7 +60,7 @@ class SetupViewModel @Inject constructor(
         } else {
             rest.statusFor(url, s.token)
         }
-        _state.value = _state.value.copy(testResult = if (ok) "Connected" else "Unreachable")
+        _state.value = _state.value.copy(testResult = if (ok) SetupResult.CONNECTED else SetupResult.UNREACHABLE)
     }
 
     /**
@@ -71,7 +73,7 @@ class SetupViewModel @Inject constructor(
         if (s.connecting) return@launch
         _state.value = s.copy(connecting = true, testResult = null)
         val url = runCatching { normalizeGatewayBaseUrl(s.url) }.getOrElse {
-            _state.value = _state.value.copy(connecting = false, testResult = it.message ?: "Invalid gateway URL")
+            _state.value = _state.value.copy(connecting = false, testResult = SetupResult.INVALID_URL)
             return@launch
         }
         val ok = if (s.username.isNotBlank()) {
@@ -80,17 +82,17 @@ class SetupViewModel @Inject constructor(
             rest.statusFor(url, s.token)
         }
         if (!ok) {
-            _state.value = _state.value.copy(connecting = false, testResult = "Unreachable")
+            _state.value = _state.value.copy(connecting = false, testResult = SetupResult.UNREACHABLE)
             return@launch
         }
-        _state.value = _state.value.copy(connecting = false, testResult = "Connected")
+        _state.value = _state.value.copy(connecting = false, testResult = SetupResult.CONNECTED)
         save()
     }
 
     fun save() {
         val s = _state.value
         val url = runCatching { normalizeGatewayBaseUrl(s.url) }.getOrElse {
-            _state.value = s.copy(testResult = it.message ?: "Invalid gateway URL", saved = false)
+            _state.value = s.copy(testResult = SetupResult.INVALID_URL, saved = false)
             return
         }
         store.save(GatewayConfig(url, s.token, s.username.trim(), s.password))
@@ -102,17 +104,17 @@ class SetupViewModel @Inject constructor(
     fun applyPairing(raw: String) {
         val p = parsePairingPayload(raw)
         if (p == null) {
-            _state.value = _state.value.copy(scanError = "Not a Hermes pairing code")
+            _state.value = _state.value.copy(scanError = true)
             return
         }
         _state.value = _state.value.copy(
             url = p.url, token = p.token, username = p.username, password = p.password,
-            scanError = null, testResult = null,
+            scanError = false, testResult = null,
         )
         test()
     }
 
     fun clearScanError() {
-        if (_state.value.scanError != null) _state.value = _state.value.copy(scanError = null)
+        if (_state.value.scanError) _state.value = _state.value.copy(scanError = false)
     }
 }

@@ -42,6 +42,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hermes.client.ui.util.formatEpoch
 import com.hermes.client.ui.util.formatIso
 import com.hermes.client.ui.localization.l10n
+import com.hermes.client.ui.localization.LocalAppLanguage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,13 +53,15 @@ fun CronDetailScreen(
     vm: CronDetailViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val language = LocalAppLanguage.current
+    val stateMessage = state.message?.resolve(language)
     val snackbar = remember { SnackbarHostState() }
     var confirmingDelete by remember { mutableStateOf(false) }
 
     LaunchedEffect(jobId) { vm.load(jobId) }
     LaunchedEffect(state.deleted) { if (state.deleted) onBack() }
-    LaunchedEffect(state.message) {
-        state.message?.let { snackbar.showSnackbar(it); vm.clearMessage() }
+    LaunchedEffect(stateMessage) {
+        stateMessage?.let { snackbar.showSnackbar(it); vm.clearMessage() }
     }
 
     Scaffold(
@@ -79,8 +82,14 @@ fun CronDetailScreen(
     ) { padding ->
         when {
             state.loading -> com.hermes.client.ui.components.LoadingState()
-            state.job == null -> com.hermes.client.ui.components.ErrorState(
-                message = state.error ?: l10n("无法加载该定时任务", "Couldn't load this cron job"),
+            state.job == null -> state.error?.let {
+                com.hermes.client.ui.components.ErrorState(
+                    error = it,
+                    modifier = Modifier.padding(padding).fillMaxSize(),
+                    onRetry = { vm.load(jobId) },
+                )
+            } ?: com.hermes.client.ui.components.ErrorState(
+                message = l10n("无法加载该定时任务", "Couldn't load this cron job"),
                 modifier = Modifier.padding(padding).fillMaxSize(),
                 onRetry = { vm.load(jobId) },
             )
@@ -100,13 +109,19 @@ fun CronDetailScreen(
                                         var errorExpanded by rememberSaveable(err) { mutableStateOf(false) }
                                         Spacer(Modifier.height(6.dp))
                                         Text(
-                                            err,
+                                            l10n("上次运行失败（HR-RPC-001）", "Last run failed (HR-RPC-001)"),
                                             color = MaterialTheme.colorScheme.error,
                                             style = MaterialTheme.typography.bodySmall,
-                                            maxLines = if (errorExpanded) Int.MAX_VALUE else 3,
-                                            overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.clickable { errorExpanded = !errorExpanded },
                                         )
+                                        if (errorExpanded) {
+                                            Text(
+                                                err,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                modifier = Modifier.padding(top = 4.dp),
+                                            )
+                                        }
                                         Text(
                                             if (errorExpanded) l10n("收起", "Show less") else l10n("展开", "Show more"),
                                             style = MaterialTheme.typography.labelSmall,

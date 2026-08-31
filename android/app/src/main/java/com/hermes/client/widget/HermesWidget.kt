@@ -23,14 +23,19 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import com.hermes.client.data.repository.SettingsStore
+import com.hermes.client.ui.localization.AppLanguage
+import com.hermes.client.ui.localization.localized
+import kotlinx.coroutines.flow.first
 
 class HermesWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        provideContent { Content(context) }
+        val language = SettingsStore(context).appLanguage.first()
+        provideContent { Content(context, language) }
     }
 
     @Composable
-    private fun Content(context: Context) {
+    private fun Content(context: Context, language: AppLanguage) {
         Column(
             modifier = GlanceModifier.fillMaxSize()
                 // Brand mint (Mint40) — the widget predates the palette and wore a stray purple.
@@ -38,8 +43,8 @@ class HermesWidget : GlanceAppWidget() {
                 .padding(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Item(context, "New chat", "hermes://new")
-            Item(context, "Chats", "hermes://tab/sessions")
+            Item(context, localized(language, "新建会话", "New chat"), "hermes://new")
+            Item(context, localized(language, "会话", "Chats"), "hermes://tab/sessions")
         }
     }
 

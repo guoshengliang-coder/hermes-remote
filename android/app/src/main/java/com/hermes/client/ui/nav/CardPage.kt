@@ -162,7 +162,7 @@ fun CardPage(
                         value = state.deviceId ?: localized(language, "未连接", "Offline"),
                         sub = when {
                             healthy != null && state.deviceId != null ->
-                                localized(language, "已连接", "Connected") + (healthy.latencyMs?.let { " · ${it} ms" } ?: "")
+                                localized(language, "已连接", "Connected") + (healthy.latencyMs?.let { " · " + formatLatency(it) } ?: "")
                             state.deviceId == null -> localized(language, "连接器离线", "Connector offline")
                             else -> null
                         },
@@ -242,7 +242,10 @@ private fun StatCell(
     // Type ramp derived from the reference by INTERNAL ratio (label anchored at 15sp):
     // 15sp label / 23sp bold value / 15sp sub. The value auto-shrinks (never truncates a
     // number) down to 17sp so narrow screens and long device names still fit their cell.
-    Column(modifier.padding(horizontal = 22.dp)) {
+    // Content completeness beats type size: on large system font scales the fixed cell width
+    // shrinks in sp terms, so BOTH the value and the sub-line auto-shrink (deep floors) instead
+    // of ellipsizing "mac-…" / "已连接 · 2…".
+    Column(modifier.padding(horizontal = 16.dp)) {
         Text(
             title,
             style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
@@ -256,16 +259,14 @@ private fun StatCell(
                 fontWeight = FontWeight.Bold,
                 letterSpacing = (-0.3).sp,
             ),
-            minFontSize = 17.sp,
+            minFontSize = 13.sp,
             modifier = Modifier.padding(top = 5.dp, bottom = 4.dp),
         )
         sub?.let {
-            Text(
+            AutoShrinkText(
                 it,
-                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
-                color = subColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp, color = subColor),
+                minFontSize = 11.sp,
             )
         }
     }
@@ -302,15 +303,14 @@ private fun ShortcutRow(
             }
         }
         value?.let {
-            Text(
+            AutoShrinkText(
                 it,
-                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 16.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                // Proportional cap, not a fixed dp: on narrow sheets the label keeps priority
-                // while long values (model ids) ellipsize gracefully.
-                modifier = Modifier.widthIn(max = 150.dp).padding(start = 8.dp),
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 16.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+                minFontSize = 12.sp,
+                modifier = Modifier.widthIn(max = 160.dp).padding(start = 8.dp),
             )
         }
         Icon(
@@ -333,6 +333,7 @@ private fun AutoShrinkText(
     minFontSize: androidx.compose.ui.unit.TextUnit,
     modifier: Modifier = Modifier,
 ) {
+    // Re-measure from the top size whenever the text OR the available width regime changes.
     var fontSize by remember(text) { mutableStateOf(style.fontSize) }
     Text(
         text,
@@ -341,13 +342,20 @@ private fun AutoShrinkText(
         softWrap = false,
         overflow = TextOverflow.Ellipsis,
         onTextLayout = { result ->
-            if (result.didOverflowWidth && fontSize.value > minFontSize.value) {
+            // With overflow=Ellipsis, didOverflowWidth is FALSE once the text has been
+            // ellipsized — isLineEllipsized is the signal that actually fires.
+            val overflowed = result.didOverflowWidth || result.isLineEllipsized(0)
+            if (overflowed && fontSize.value > minFontSize.value) {
                 fontSize = (fontSize.value - 1f).coerceAtLeast(minFontSize.value).sp
             }
         },
         modifier = modifier,
     )
 }
+
+/** "242 ms" below a second, "1.1 s" above — four-digit ms never earns its width. */
+private fun formatLatency(ms: Long): String =
+    if (ms < 1000) "$ms ms" else "%.1f s".format(ms / 1000.0)
 
 private fun compactTokens(v: Long): String = when {
     v >= 1_000_000 -> "%.1fM".format(v / 1_000_000.0)

@@ -27,6 +27,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.hermes.client.ui.components.SlideToConfirm
+import com.hermes.client.ui.localization.l10n
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,6 +37,12 @@ fun ApprovalSheet(req: ApprovalRequest, onRespond: (ApprovalChoice) -> Unit, onD
     val error = MaterialTheme.colorScheme.error
     val badge = if (tier == ApprovalTier.ELEVATED) error else accent
     val label = req.patternKeys.firstOrNull()?.let { " · $it" } ?: ""
+    val allowOnceText = l10n("仅允许一次", "Allow once")
+    val allowRunText = l10n("本次运行允许", "Allow this run")
+    val allowAlwaysText = l10n("始终允许", "Always allow")
+    val denyText = l10n("拒绝", "Deny")
+    val toggleScopeText = l10n("切换允许范围", "Toggle allow scope")
+    val slideToAllowText = l10n("滑动以允许", "Slide to allow")
 
     // An approval must be an explicit choice: veto the Hidden transition so a swipe / scrim-tap
     // can't dismiss the sheet while pendingApproval is still set (which would desync — sheet gone
@@ -45,7 +52,7 @@ fun ApprovalSheet(req: ApprovalRequest, onRespond: (ApprovalChoice) -> Unit, onD
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
             Text(
-                (if (tier == ApprovalTier.ELEVATED) "Elevated" else "Approval needed") + label,
+                (if (tier == ApprovalTier.ELEVATED) l10n("高风险审批", "Elevated approval") else l10n("需要审批", "Approval needed")) + label,
                 style = MaterialTheme.typography.titleMedium,
                 color = badge,
             )
@@ -60,7 +67,7 @@ fun ApprovalSheet(req: ApprovalRequest, onRespond: (ApprovalChoice) -> Unit, onD
 
             if (req.patternKeys.isNotEmpty()) {
                 Text(
-                    "Grants: ${req.patternKeys.joinToString(", ")}",
+                    l10n("授权范围：${req.patternKeys.joinToString(", ")}", "Grants: ${req.patternKeys.joinToString(", ")}"),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
@@ -68,7 +75,7 @@ fun ApprovalSheet(req: ApprovalRequest, onRespond: (ApprovalChoice) -> Unit, onD
             }
             if (req.smartDenied) {
                 Text(
-                    "Owner override — approve only this one operation.",
+                    l10n("所有者已阻止自动执行——仅在确认本次操作安全时批准。", "Owner override — approve only this one operation."),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(bottom = 8.dp),
@@ -79,45 +86,45 @@ fun ApprovalSheet(req: ApprovalRequest, onRespond: (ApprovalChoice) -> Unit, onD
                 Button(
                     onClick = { onRespond(ApprovalChoice.ONCE) },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                        .semantics { contentDescription = "Allow once" },
+                        .semantics { contentDescription = allowOnceText },
                     colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = MaterialTheme.colorScheme.onPrimary),
-                ) { Text("Allow once") }
+                ) { Text(allowOnceText) }
                 OutlinedButton(
                     onClick = { onRespond(ApprovalChoice.SESSION) },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                        .semantics { contentDescription = "Allow this run" },
-                ) { Text("Allow this run") }
+                        .semantics { contentDescription = allowRunText },
+                ) { Text(allowRunText) }
                 OutlinedButton(
                     onClick = { onRespond(ApprovalChoice.ALWAYS) },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                        .semantics { contentDescription = "Always allow" },
-                ) { Text("Always allow") }
+                        .semantics { contentDescription = allowAlwaysText },
+                ) { Text(allowAlwaysText) }
                 TextButton(
                     onClick = { onRespond(ApprovalChoice.DENY) },
-                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Deny" },
-                ) { Text("Deny") }
+                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = denyText },
+                ) { Text(denyText) }
             } else {
                 // Elevated: Deny is prominent; Allow requires a deliberate slide.
                 var thisRun by remember { mutableStateOf(false) }
                 Button(
                     onClick = { onRespond(ApprovalChoice.DENY) },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                        .semantics { contentDescription = "Deny" },
+                        .semantics { contentDescription = denyText },
                     colors = ButtonDefaults.buttonColors(containerColor = error),
-                ) { Text("Deny") }
+                ) { Text(denyText) }
                 TextButton(
                     onClick = { thisRun = !thisRun },
                     modifier = Modifier.fillMaxWidth()
-                        .semantics { contentDescription = "Toggle allow scope" },
+                        .semantics { contentDescription = toggleScopeText },
                 ) {
-                    Text(if (thisRun) "Scope: allow for this run" else "Scope: allow once")
+                    Text(if (thisRun) l10n("范围：本次运行", "Scope: allow for this run") else l10n("范围：仅本次操作", "Scope: allow once"))
                 }
                 SlideToConfirm(
-                    label = if (thisRun) "  → slide to allow this run" else "  → slide to allow once",
+                    label = if (thisRun) l10n("  → 滑动以允许本次运行", "  → slide to allow this run") else l10n("  → 滑动以允许一次", "  → slide to allow once"),
                     accent = accent,
                     onConfirm = { onRespond(if (thisRun) ApprovalChoice.SESSION else ApprovalChoice.ONCE) },
                     modifier = Modifier.padding(vertical = 8.dp)
-                        .semantics { contentDescription = "Slide to allow" },
+                        .semantics { contentDescription = slideToAllowText },
                 )
             }
         }

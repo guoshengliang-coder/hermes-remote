@@ -6,6 +6,10 @@ import com.hermes.client.data.network.CronJobDto
 import com.hermes.client.data.network.CronRunDto
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.ToolsRepository
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
+import com.hermes.client.ui.localization.LocalizedText
+import com.hermes.client.ui.localization.localizedText
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,8 +21,8 @@ data class CronDetailUiState(
     val job: CronJobDto? = null,
     val runs: List<CronRunDto> = emptyList(),
     val loading: Boolean = true,
-    val error: String? = null,
-    val message: String? = null,
+    val error: AppError? = null,
+    val message: LocalizedText? = null,
     val deleted: Boolean = false,
 )
 
@@ -40,27 +44,30 @@ class CronDetailViewModel @Inject constructor(
             val job = runCatching { tools.cronJob(id, profile) }.getOrNull()
             val runs = runCatching { tools.cronRuns(id, profile) }.getOrNull() ?: emptyList()
             _state.value = if (job == null) {
-                _state.value.copy(loading = false, error = "Failed to load cron job")
+                _state.value.copy(
+                    loading = false,
+                    error = AppError(AppErrorCode.RPC_FAILED, retryable = true, stage = "cron_detail_load"),
+                )
             } else {
                 _state.value.copy(job = job, runs = runs, loading = false)
             }
         }
     }
 
-    private fun act(label: String, block: suspend () -> Unit) = viewModelScope.launch {
+    private fun act(success: LocalizedText, block: suspend () -> Unit) = viewModelScope.launch {
         runCatching { block() }
-            .onSuccess { _state.value = _state.value.copy(message = label); load(jobId) }
-            .onFailure { _state.value = _state.value.copy(message = "$label failed: ${it.message}") }
+            .onSuccess { _state.value = _state.value.copy(message = success); load(jobId) }
+            .onFailure { _state.value = _state.value.copy(message = localizedText("操作失败（HR-RPC-001）", "Operation failed (HR-RPC-001)")) }
     }
 
-    fun pause() = act("Paused") { tools.pauseCron(jobId, profile) }
-    fun resume() = act("Resumed") { tools.resumeCron(jobId, profile) }
-    fun trigger() = act("Triggered") { tools.triggerCron(jobId, profile) }
+    fun pause() = act(localizedText("已暂停", "Paused")) { tools.pauseCron(jobId, profile) }
+    fun resume() = act(localizedText("已恢复", "Resumed")) { tools.resumeCron(jobId, profile) }
+    fun trigger() = act(localizedText("已触发", "Triggered")) { tools.triggerCron(jobId, profile) }
 
     fun delete() = viewModelScope.launch {
         runCatching { tools.deleteCron(jobId, profile) }
             .onSuccess { _state.value = _state.value.copy(deleted = true) }
-            .onFailure { _state.value = _state.value.copy(message = "Delete failed: ${it.message}") }
+            .onFailure { _state.value = _state.value.copy(message = localizedText("删除失败（HR-RPC-001）", "Delete failed (HR-RPC-001)")) }
     }
 
     fun clearMessage() { _state.value = _state.value.copy(message = null) }

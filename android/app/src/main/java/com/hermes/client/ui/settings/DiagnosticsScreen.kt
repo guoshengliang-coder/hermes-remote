@@ -51,7 +51,7 @@ fun DiagnosticsScreen(
             com.hermes.client.ui.components.HermesTopBar(
                 title = l10n("诊断", "Diagnostics"),
             // captured for use inside onClick lambdas (l10n is composition-scoped)
-                navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+                navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = l10n("返回", "Back")) } },
             )
         },
     ) { padding ->

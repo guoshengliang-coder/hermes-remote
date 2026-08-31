@@ -16,13 +16,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.hermes.client.ui.localization.LocalizedText
+import com.hermes.client.ui.localization.localizedText
 
 data class ConnectionUiState(
     val url: String = "",
     val token: String = "",
     val username: String = "",
     val password: String = "",
-    val testResult: String? = null,
+    val testResult: LocalizedText? = null,
     val saved: Boolean = false,
 )
 
@@ -55,7 +57,7 @@ class ConnectionSettingsViewModel @Inject constructor(
     fun test() = viewModelScope.launch {
         val s = _state.value
         val url = runCatching { normalizeGatewayBaseUrl(s.url) }.getOrElse {
-            _state.value = s.copy(testResult = it.message ?: "Invalid gateway URL")
+            _state.value = s.copy(testResult = localizedText("Relay 地址无效（HR-CONFIG-003）", "Invalid Relay URL (HR-CONFIG-003)"))
             return@launch
         }
         val ok = if (s.username.isNotBlank()) {
@@ -63,19 +65,22 @@ class ConnectionSettingsViewModel @Inject constructor(
         } else {
             rest.statusFor(url, s.token)
         }
-        _state.value = _state.value.copy(testResult = if (ok) "Connected ✓" else "Failed — check the details")
+        _state.value = _state.value.copy(
+            testResult = if (ok) localizedText("连接成功 ✓", "Connected ✓")
+            else localizedText("连接失败，请检查配置（HR-CONN-002）", "Connection failed — check the configuration (HR-CONN-002)"),
+        )
     }
 
     /** Persist the new server/credentials, drop any stale session, then reconnect. */
     fun save() {
         val s = _state.value
         val url = runCatching { normalizeGatewayBaseUrl(s.url) }.getOrElse {
-            _state.value = s.copy(testResult = it.message ?: "Invalid gateway URL", saved = false)
+            _state.value = s.copy(testResult = localizedText("Relay 地址无效（HR-CONFIG-003）", "Invalid Relay URL (HR-CONFIG-003)"), saved = false)
             return
         }
         store.save(GatewayConfig(url, s.token.trim(), s.username.trim(), s.password))
         gatedAuth.cookieJar.clear() // force a fresh login with the new credentials
         runCatching { chat.reconnect() }
-        _state.value = _state.value.copy(saved = true, testResult = "Saved — reconnecting")
+        _state.value = _state.value.copy(saved = true, testResult = localizedText("已保存，正在重新连接", "Saved — reconnecting"))
     }
 }

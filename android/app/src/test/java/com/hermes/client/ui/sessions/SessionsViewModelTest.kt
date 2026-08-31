@@ -147,7 +147,8 @@ class SessionsViewModelTest {
 
         assertEquals(listOf("s1"), vm.state.value.sessions.map { it.id })
         assertFalse(vm.state.value.loading)
-        assertEquals("offline", vm.state.value.error)
+        assertEquals(com.hermes.client.data.error.AppErrorCode.RPC_FAILED, vm.state.value.error?.code)
+        assertTrue(vm.state.value.error?.sanitizedDiagnostic()?.contains("offline") == true)
     }
 
     // Regression: after a new chat's first message, the gateway auto-generates a title and pushes a

@@ -39,6 +39,10 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.hermes.client.ui.localization.LocalizedText
+import com.hermes.client.ui.localization.localizedText
+import com.hermes.client.ui.localization.AppLanguage
+import com.hermes.client.ui.localization.localized
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
@@ -68,6 +72,18 @@ class ChatViewModel @Inject constructor(
 
     private val _sessionTitle = MutableStateFlow("新会话")
     val sessionTitle: StateFlow<String> = _sessionTitle.asStateFlow()
+    private var appLanguage: AppLanguage = AppLanguage.ZH
+
+    fun setAppLanguage(language: AppLanguage) {
+        val oldNew = localized(appLanguage, "新会话", "New session")
+        val oldChat = localized(appLanguage, "会话", "Chat")
+        appLanguage = language
+        _sessionTitle.value = when (_sessionTitle.value) {
+            oldNew -> localized(language, "新会话", "New session")
+            oldChat -> localized(language, "会话", "Chat")
+            else -> _sessionTitle.value
+        }
+    }
 
     val connectionState: StateFlow<ConnectionState> = chat.connectionState
 
@@ -149,7 +165,7 @@ class ChatViewModel @Inject constructor(
         val query: String = "",
         val scope: com.hermes.client.ui.models.ModelScope = com.hermes.client.ui.models.ModelScope.SESSION,
         val pending: Boolean = false,
-        val error: String? = null,
+        val error: LocalizedText? = null,
     )
     // Model-LIST loading state (the sheet's pending/error covers selection, not the list).
     private val _providersLoading = MutableStateFlow(false)
@@ -214,7 +230,9 @@ class ChatViewModel @Inject constructor(
         requestedProfile: String? = null,
         initialTitle: String? = null,
         isNewSession: Boolean = false,
+        language: AppLanguage = AppLanguage.ZH,
     ) {
+        setAppLanguage(language)
         sendJob?.cancel()
         resumeJob?.cancel()
         liveHandleGate.completeExceptionally(CancellationException("session changed"))
@@ -228,7 +246,7 @@ class ChatViewModel @Inject constructor(
         runtimeKey = key
         runtimeStore.setVisible(key, true)
         val cachedMeta = sessions.cachedSession(id, profile)
-        val fallbackTitle = if (isNewSession) "新会话" else "会话"
+        val fallbackTitle = if (isNewSession) localized(language, "新会话", "New session") else localized(language, "会话", "Chat")
         _sessionTitle.value = when {
             !initialTitle.isNullOrBlank() -> displaySessionTitle(initialTitle, fallbackTitle)
             cachedMeta != null -> displaySessionTitle(cachedMeta.title, fallbackTitle)
@@ -284,11 +302,17 @@ class ChatViewModel @Inject constructor(
             } catch (e: HermesApiException) {
                 com.hermes.client.data.diagnostics.DebugLog.log("error", "history($id) failed: ${e.code} ${e.message}")
                 if (e.code == 401) { _unauthorized.value = true; return@launch }
-                runtimeStore.historyFailed(key, e.message ?: "无法加载历史消息")
+                runtimeStore.historyFailed(
+                    key,
+                    localized(appLanguage, "无法加载历史消息（HR-RPC-001）", "Couldn't load message history (HR-RPC-001)"),
+                )
             } catch (e: Exception) {
                 // Keep a cached/live transcript visible if history refresh fails.
                 com.hermes.client.data.diagnostics.DebugLog.log("error", "history($id) failed: ${e.message}")
-                runtimeStore.historyFailed(key, e.message ?: "无法加载历史消息")
+                runtimeStore.historyFailed(
+                    key,
+                    localized(appLanguage, "无法加载历史消息（HR-RPC-001）", "Couldn't load message history (HR-RPC-001)"),
+                )
             }
             // A share may have handed off an image; stage it so it shows as a chip and is
             // flushed to the gateway on the next send (rather than attaching immediately).
@@ -305,7 +329,7 @@ class ChatViewModel @Inject constructor(
                         .onSuccess { bytes -> stageAttachment(bytes, imgMime, share.attachmentName ?: "attachment") }
                         .onFailure { e ->
                             if (e is kotlinx.coroutines.CancellationException) throw e
-                            appendError("Attach failed: ${e.message}")
+                            appendError(localizedText("附件处理失败（HR-FILE-001）", "Attachment failed (HR-FILE-001)"))
                         }
                 }
             }
@@ -477,7 +501,7 @@ class ChatViewModel @Inject constructor(
                         } else file
                     }
                 }
-                appendError(e.message ?: "Failed to send message")
+                appendError(localizedText("消息发送失败（HR-RPC-001）", "Failed to send the message (HR-RPC-001)"))
             }
         }
     }
@@ -665,7 +689,7 @@ class ChatViewModel @Inject constructor(
                 .onFailure {
                     if (it is kotlinx.coroutines.CancellationException) throw it
                     // The sheet is already gone; surface the failure so a lost approve/deny is visible.
-                    appendError("Couldn't send your approval — check the connection and try again.")
+                    appendError(localizedText("审批结果发送失败，请检查连接后重试（HR-RPC-001）。", "Couldn't send your approval. Check the connection and retry (HR-RPC-001)."))
                 }
         }
     }
@@ -680,10 +704,10 @@ class ChatViewModel @Inject constructor(
     }
 
     /** Appends a non-fatal error as a system message and stops the generating spinner. */
-    private fun appendError(text: String) {
+    private fun appendError(text: LocalizedText) {
         val failed = _state.value.copy(
             messages = _state.value.messages + ChatMessage(
-                id = "e-${_state.value.messages.size}", role = Role.SYSTEM, text = text, isError = true,
+                id = "e-${_state.value.messages.size}", role = Role.SYSTEM, text = text.resolve(appLanguage), isError = true,
             ),
             isGenerating = false,
         )
@@ -723,21 +747,20 @@ class ChatViewModel @Inject constructor(
                             if (e is kotlinx.coroutines.CancellationException) throw e
                             _modelSheet.value = _modelSheet.value.copy(
                                 pending = false,
-                                error = e.message ?: "Couldn't switch model.",
+                                error = localizedText("切换模型失败（HR-RPC-001）", "Couldn't switch model (HR-RPC-001)."),
                             )
                         }
                 com.hermes.client.ui.models.ModelScope.DEFAULT ->
                     runCatching { modelRepo.set(provider, model, profileManager.active.value) }
                         .onSuccess {
                             _modelSheet.value = _modelSheet.value.copy(pending = false, error = null)
-                            appendSystem("Default set to $model")
                             onDone()
                         }
                         .onFailure { e ->
                             if (e is kotlinx.coroutines.CancellationException) throw e
                             _modelSheet.value = _modelSheet.value.copy(
                                 pending = false,
-                                error = e.message ?: "Couldn't set default model.",
+                                error = localizedText("设置默认模型失败（HR-RPC-001）", "Couldn't set the default model (HR-RPC-001)."),
                             )
                         }
             }
@@ -752,7 +775,7 @@ class ChatViewModel @Inject constructor(
         val personas: List<Persona> = emptyList(),
         val active: String? = null,
         val loading: Boolean = false,
-        val error: String? = null,
+        val error: LocalizedText? = null,
     )
     private val _personaUi = MutableStateFlow(PersonaUi())
     val personaUi: StateFlow<PersonaUi> = _personaUi.asStateFlow()
@@ -765,7 +788,7 @@ class ChatViewModel @Inject constructor(
                 .onSuccess { cfg -> _personaUi.value = PersonaUi(parsePersonas(cfg), activePersonaOf(cfg)) }
                 .onFailure { e ->
                     if (e is kotlinx.coroutines.CancellationException) throw e
-                    _personaUi.value = _personaUi.value.copy(loading = false, error = "Couldn't load personas")
+                    _personaUi.value = _personaUi.value.copy(loading = false, error = localizedText("加载角色失败（HR-CONFIG-001）", "Couldn't load personas (HR-CONFIG-001)"))
                 }
         }
     }
@@ -778,14 +801,14 @@ class ChatViewModel @Inject constructor(
             runCatching { chat.slashExec(sessionId, "/personality $wire") }
                 .onSuccess { out ->
                     if (out != null && out.contains("unknown", ignoreCase = true)) {
-                        _personaUi.value = _personaUi.value.copy(loading = false, error = "Couldn't apply that persona")
+                        _personaUi.value = _personaUi.value.copy(loading = false, error = localizedText("应用角色失败（HR-RPC-001）", "Couldn't apply that persona (HR-RPC-001)"))
                     } else {
                         _personaUi.value = _personaUi.value.copy(loading = false, active = if (wire == "none") null else wire)
                     }
                 }
                 .onFailure { e ->
                     if (e is kotlinx.coroutines.CancellationException) throw e
-                    _personaUi.value = _personaUi.value.copy(loading = false, error = "Couldn't apply persona")
+                    _personaUi.value = _personaUi.value.copy(loading = false, error = localizedText("应用角色失败（HR-RPC-001）", "Couldn't apply persona (HR-RPC-001)"))
                 }
         }
     }

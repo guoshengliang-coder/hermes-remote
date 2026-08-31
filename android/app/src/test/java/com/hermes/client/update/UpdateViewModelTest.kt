@@ -19,11 +19,11 @@ class UpdateViewModelTest {
 
     @Test fun `refresh success and failure update state`()=runTest {
         val success=FakeRepository(index=index);val vm=UpdateViewModel(success);vm.refresh();advanceUntilIdle();assertEquals(900,vm.state.value.latestVersionCode);assertEquals(classifyVersion(version,com.hermes.client.BuildConfig.VERSION_CODE,com.hermes.client.BuildConfig.APPLICATION_ID,UPDATE_CHANNEL,cert,android.os.Build.VERSION.SDK_INT),vm.state.value.rows.single().eligibility)
-        val failure=UpdateViewModel(FakeRepository(fetchError=IllegalStateException("offline")));failure.refresh();advanceUntilIdle();assertEquals("offline",failure.state.value.error)
+        val failure=UpdateViewModel(FakeRepository(fetchError=IllegalStateException("offline")));failure.refresh();advanceUntilIdle();assertEquals(com.hermes.client.data.error.AppErrorCode.UPDATE_FAILED,failure.state.value.error?.code)
     }
-    @Test fun `enqueue failure becomes retryable failed state`()=runTest { val vm=UpdateViewModel(FakeRepository(enqueueError=IllegalStateException("queue unavailable")));vm.download(version);advanceUntilIdle();assertEquals(DownloadPhase.FAILED,vm.state.value.phase);assertEquals("queue unavailable",vm.state.value.error) }
+    @Test fun `enqueue failure becomes retryable failed state`()=runTest { val vm=UpdateViewModel(FakeRepository(enqueueError=IllegalStateException("queue unavailable")));vm.download(version);advanceUntilIdle();assertEquals(DownloadPhase.FAILED,vm.state.value.phase);assertEquals(com.hermes.client.data.error.AppErrorCode.UPDATE_FAILED,vm.state.value.error?.code) }
     @Test fun `completed and recovered task verifies to installable`()=runTest { val file=File("verified.apk");val repo=FakeRepository(saved=7L to version,snapshots=mutableListOf(DownloadSnapshot(android.app.DownloadManager.STATUS_SUCCESSFUL,3,3,"file:///safe.apk",0)),verified=file);val vm=UpdateViewModel(repo);advanceUntilIdle();assertEquals(DownloadPhase.INSTALLABLE,vm.state.value.phase);assertEquals(file,vm.state.value.verifiedFile) }
-    @Test fun `failed download exposes friendly reason and can retry`()=runTest { val repo=FakeRepository(snapshots=mutableListOf(DownloadSnapshot(android.app.DownloadManager.STATUS_FAILED,0,3,null,android.app.DownloadManager.ERROR_INSUFFICIENT_SPACE)));val vm=UpdateViewModel(repo);vm.download(version);advanceUntilIdle();assertEquals(DownloadPhase.FAILED,vm.state.value.phase);assertTrue(vm.state.value.error!!.contains("storage"));repo.snapshots.add(DownloadSnapshot(android.app.DownloadManager.STATUS_SUCCESSFUL,3,3,"file:///safe.apk",0));vm.download(version);advanceUntilIdle();assertEquals(DownloadPhase.INSTALLABLE,vm.state.value.phase) }
+    @Test fun `failed download exposes friendly reason and can retry`()=runTest { val repo=FakeRepository(snapshots=mutableListOf(DownloadSnapshot(android.app.DownloadManager.STATUS_FAILED,0,3,null,android.app.DownloadManager.ERROR_INSUFFICIENT_SPACE)));val vm=UpdateViewModel(repo);vm.download(version);advanceUntilIdle();assertEquals(DownloadPhase.FAILED,vm.state.value.phase);assertTrue(vm.state.value.error!!.sanitizedDiagnostic().contains("storage"));repo.snapshots.add(DownloadSnapshot(android.app.DownloadManager.STATUS_SUCCESSFUL,3,3,"file:///safe.apk",0));vm.download(version);advanceUntilIdle();assertEquals(DownloadPhase.INSTALLABLE,vm.state.value.phase) }
 
     @Test fun `switching A to B cancels old monitor and only B updates state`()=runTest {
         val a=version.copy(versionName="8.0.0",versionCode=800,fileName="Hermes-Remote-8.0.0-debug.apk",downloadUrl="https://mrlgs.net/releases/Hermes-Remote-8.0.0-debug.apk")
@@ -47,8 +47,8 @@ class UpdateViewModelTest {
 
     @Test fun `structured install outcomes become retryable messages`()=runTest {
         val repo=FakeRepository(snapshots=mutableListOf(DownloadSnapshot(android.app.DownloadManager.STATUS_SUCCESSFUL,3,3,"file:///safe.apk",0)),installResult=InstallResult.PermissionRequired)
-        val vm=UpdateViewModel(repo);vm.download(version);advanceUntilIdle();vm.install();assertTrue(vm.state.value.error!!.contains("permission"))
-        repo.installResult=InstallResult.Failure("installer unavailable");vm.install();assertEquals("installer unavailable",vm.state.value.error)
+        val vm=UpdateViewModel(repo);vm.download(version);advanceUntilIdle();vm.install();assertEquals(com.hermes.client.data.error.AppErrorCode.INSTALL_PERMISSION_REQUIRED,vm.state.value.error?.code)
+        repo.installResult=InstallResult.Failure("installer unavailable");vm.install();assertEquals(com.hermes.client.data.error.AppErrorCode.UPDATE_FAILED,vm.state.value.error?.code)
     }
 
     private class FakeRepository(var index:UpdateIndex?=null,var fetchError:Throwable?=null,var enqueueError:Throwable?=null,var saved:Pair<Long,UpdateVersion>?=null,val snapshots:MutableList<DownloadSnapshot> = mutableListOf(),var verified:File=File("verified.apk"),val enqueueIds:MutableList<Long> = mutableListOf(),val snapshotsById:MutableMap<Long,MutableList<DownloadSnapshot>> = mutableMapOf(),var installResult:InstallResult=InstallResult.InstallerOpened):UpdateRepositoryContract {

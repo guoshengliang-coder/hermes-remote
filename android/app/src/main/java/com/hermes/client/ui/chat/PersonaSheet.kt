@@ -23,6 +23,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.hermes.client.ui.localization.l10n
+import com.hermes.client.ui.localization.LocalAppLanguage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,11 +35,12 @@ fun PersonaSheet(
     onDismiss: () -> Unit,
 ) {
     val accent = MaterialTheme.colorScheme.primary
+    val language = LocalAppLanguage.current
     val sheetState = rememberModalBottomSheetState()
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
-            Text("Persona", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
+            Text(l10n("角色", "Persona"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
 
             when {
                 ui.loading -> {
@@ -46,17 +49,17 @@ fun PersonaSheet(
                     }
                 }
                 ui.error != null -> {
-                    Text(ui.error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(bottom = 8.dp))
-                    TextButton(onClick = onRetry) { Text("Retry") }
+                    Text(ui.error.resolve(language), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(bottom = 8.dp))
+                    TextButton(onClick = onRetry) { Text(l10n("重试", "Retry")) }
                 }
                 else -> {
                     LazyColumn(Modifier.fillMaxWidth()) {
                         item {
                             ListItem(
-                                headlineContent = { Text("None (default)") },
+                                headlineContent = { Text(l10n("无（默认）", "None (default)")) },
                                 trailingContent = {
                                     if (ui.active == null) {
-                                        Icon(Icons.Rounded.Check, contentDescription = "Active", tint = accent)
+                                        Icon(Icons.Rounded.Check, contentDescription = l10n("当前角色", "Active"), tint = accent)
                                     }
                                 },
                                 modifier = Modifier.clickable { onPick(null) },
@@ -65,7 +68,7 @@ fun PersonaSheet(
                         if (ui.personas.isEmpty()) {
                             item {
                                 Text(
-                                    "No personas configured — add them in your gateway config.",
+                                    l10n("尚未配置角色，请在网关配置中添加。", "No personas configured — add them in your gateway config."),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -80,7 +83,7 @@ fun PersonaSheet(
                                 } else null,
                                 trailingContent = {
                                     if (p.name == ui.active) {
-                                        Icon(Icons.Rounded.Check, contentDescription = "Active", tint = accent)
+                                        Icon(Icons.Rounded.Check, contentDescription = l10n("当前角色", "Active"), tint = accent)
                                     }
                                 },
                                 modifier = Modifier.clickable { onPick(p.name) },

@@ -13,7 +13,8 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -39,14 +40,14 @@ class SetupViewModelTest {
         assertEquals("https://h.ts.net", s.url)
         assertEquals("a", s.username)
         assertEquals("p", s.password)
-        assertNull(s.scanError)
+        assertFalse(s.scanError)
     }
 
     @Test fun applyPairing_sets_scanError_and_keeps_default_relay_on_garbage() {
         val vm = vm()
         vm.applyPairing("not a hermes code")
         val s = vm.state.value
-        assertEquals("Not a Hermes pairing code", s.scanError)
+        assertTrue(s.scanError)
         assertEquals(DEFAULT_REMOTE_GATEWAY_URL, s.url)
         assertEquals("", s.password)
     }
@@ -55,6 +56,6 @@ class SetupViewModelTest {
         val vm = vm()
         vm.applyPairing("garbage")
         vm.clearScanError()
-        assertNull(vm.state.value.scanError)
+        assertFalse(vm.state.value.scanError)
     }
 }

@@ -30,6 +30,7 @@ import com.hermes.client.ui.chat.StyledMarkdownTableSample
 import com.hermes.client.ui.chat.TodoCard
 import com.hermes.client.ui.chat.ToolTimelineCard
 import com.hermes.client.ui.chat.TypingIndicator
+import com.hermes.client.ui.localization.l10n
 
 /**
  * Component gallery: every chat component rendered from FIXED FAKE DATA, one scroll away.
@@ -42,10 +43,10 @@ fun ComponentGalleryScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "组件展廊 (debug)",
+                title = l10n("组件展廊（调试）", "Component gallery (debug)"),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = l10n("返回", "Back"))
                     }
                 },
             )

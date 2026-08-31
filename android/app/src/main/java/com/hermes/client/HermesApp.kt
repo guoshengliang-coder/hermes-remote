@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import javax.inject.Inject
+import androidx.glance.appwidget.updateAll
+import com.hermes.client.widget.HermesWidget
 
 @HiltAndroidApp
 class HermesApp : Application() {
@@ -38,7 +40,10 @@ class HermesApp : Application() {
         // channel creation when the in-app language changes so their names follow the user's choice.
         settingsStore.appLanguage
             .distinctUntilChanged()
-            .onEach { notifier.ensureChannels(it) }
+            .onEach {
+                notifier.ensureChannels(it)
+                HermesWidget().updateAll(this)
+            }
             .launchIn(appScope)
         lifecycleMonitoring.start()
     }

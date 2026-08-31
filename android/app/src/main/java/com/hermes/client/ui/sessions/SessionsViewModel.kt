@@ -14,6 +14,8 @@ import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.data.repository.ViewModeStore
 import com.hermes.client.domain.Project
 import com.hermes.client.domain.Session
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -28,7 +30,7 @@ import javax.inject.Inject
 data class SessionsUiState(
     val sessions: List<Session> = emptyList(),
     val loading: Boolean = false,
-    val error: String? = null,
+    val error: AppError? = null,
     // I1: true when the server returned 401 — nav should route to Setup
     val unauthorized: Boolean = false,
 )
@@ -37,7 +39,7 @@ data class SessionsUiState(
 data class ProjectsUiState(
     val tree: List<Project> = emptyList(),
     val loading: Boolean = false,
-    val error: String? = null,
+    val error: AppError? = null,
     val scope: Project? = null,
 )
 
@@ -110,7 +112,7 @@ class SessionsViewModel @Inject constructor(
     data class ArchivedUiState(
         val sessions: List<Session> = emptyList(),
         val loading: Boolean = false,
-        val error: String? = null,
+        val error: AppError? = null,
     )
     private val _archived = MutableStateFlow(ArchivedUiState())
     val archivedState: StateFlow<ArchivedUiState> = _archived.asStateFlow()
@@ -125,7 +127,9 @@ class SessionsViewModel @Inject constructor(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            _archived.value = ArchivedUiState(error = e.message ?: "Failed to load")
+            _archived.value = ArchivedUiState(
+                error = AppError(AppErrorCode.RPC_FAILED, retryable = true, technicalCause = e.message, stage = "archived_load"),
+            )
         }
     }
 
@@ -169,7 +173,10 @@ class SessionsViewModel @Inject constructor(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _projects.value = _projects.value.copy(loading = false, error = e.message ?: "Failed to load projects")
+                _projects.value = _projects.value.copy(
+                    loading = false,
+                    error = AppError(AppErrorCode.RPC_FAILED, retryable = true, technicalCause = e.message, stage = "projects_load"),
+                )
             }
         }
     }
@@ -272,10 +279,16 @@ class SessionsViewModel @Inject constructor(
             if (e.code == 401) {
                 _state.value = SessionsUiState(unauthorized = true)
             } else {
-                _state.value = _state.value.copy(loading = false, error = e.message ?: "Failed to load")
+                _state.value = _state.value.copy(
+                    loading = false,
+                    error = AppError(AppErrorCode.RPC_FAILED, retryable = true, technicalCause = e.message, stage = "sessions_load"),
+                )
             }
         } catch (e: Exception) {
-            _state.value = _state.value.copy(loading = false, error = e.message ?: "Failed to load")
+            _state.value = _state.value.copy(
+                loading = false,
+                error = AppError(AppErrorCode.RPC_FAILED, retryable = true, technicalCause = e.message, stage = "sessions_load"),
+            )
         }
     }
 

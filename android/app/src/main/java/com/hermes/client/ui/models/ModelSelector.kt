@@ -29,6 +29,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.hermes.client.data.network.ModelProviderDto
 import com.hermes.client.data.repository.favKey
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.l10n
+import com.hermes.client.ui.localization.localized
 
 /** Which model slot a selection applies to. */
 enum class ModelScope { SESSION, DEFAULT }
@@ -41,7 +44,11 @@ data class ModelRow(
 )
 
 sealed interface ModelListItem {
-    data class Header(val title: String, val isCurrent: Boolean = false) : ModelListItem
+    data class Header(
+        val title: String,
+        val isCurrent: Boolean = false,
+        val isFavorites: Boolean = false,
+    ) : ModelListItem
     data class Row(val row: ModelRow) : ModelListItem
 }
 
@@ -74,7 +81,7 @@ fun modelSelectorRows(
         .filter { (prov, m) -> favKey(prov, m) in favorites && matches(prov, m) }
         .map { (prov, m) -> rowOf(prov, m) }
     if (favRows.isNotEmpty()) {
-        items += ModelListItem.Header("Favorites")
+        items += ModelListItem.Header("Favorites", isFavorites = true)
         favRows.forEach { items += ModelListItem.Row(it) }
     }
 
@@ -113,19 +120,19 @@ fun ModelSelectorContent(
                     selected = scope == ModelScope.SESSION,
                     onClick = { onScopeChange(ModelScope.SESSION) },
                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                ) { Text("This chat") }
+                ) { Text(l10n("当前会话", "This chat")) }
                 SegmentedButton(
                     selected = scope == ModelScope.DEFAULT,
                     onClick = { onScopeChange(ModelScope.DEFAULT) },
                     shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                ) { Text("Default") }
+                ) { Text(l10n("默认", "Default")) }
             }
         }
 
         OutlinedTextField(
             value = query,
             onValueChange = onQueryChange,
-            placeholder = { Text("Search models…") },
+            placeholder = { Text(l10n("搜索模型…", "Search models…")) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         )
@@ -145,7 +152,7 @@ fun ModelSelectorContent(
         // Empty-list states: the catalog fetch is lazy and can fail on a flaky link. Never show
         // a silent empty shell — say what's happening and offer a retry.
         if (items.isEmpty()) {
-            val language = com.hermes.client.ui.localization.LocalAppLanguage.current
+            val language = LocalAppLanguage.current
             Column(
                 Modifier.fillMaxWidth().padding(vertical = 28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -154,7 +161,7 @@ fun ModelSelectorContent(
                     listLoading -> {
                         CircularProgressIndicator()
                         Text(
-                            com.hermes.client.ui.localization.localized(language, "正在加载模型列表…", "Loading models…"),
+                            localized(language, "正在加载模型列表…", "Loading models…"),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 12.dp),
@@ -162,18 +169,18 @@ fun ModelSelectorContent(
                     }
                     listError -> {
                         Text(
-                            com.hermes.client.ui.localization.localized(language, "模型列表加载失败", "Couldn't load the model list"),
+                            localized(language, "模型列表加载失败", "Couldn't load the model list"),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         if (onRetryLoad != null) {
                             androidx.compose.material3.TextButton(onClick = onRetryLoad, modifier = Modifier.padding(top = 4.dp)) {
-                                Text(com.hermes.client.ui.localization.localized(language, "重试", "Retry"))
+                                Text(localized(language, "重试", "Retry"))
                             }
                         }
                     }
                     else -> Text(
-                        com.hermes.client.ui.localization.localized(language, "暂无可用模型", "No models available"),
+                        localized(language, "暂无可用模型", "No models available"),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -185,7 +192,8 @@ fun ModelSelectorContent(
             items(items) { item ->
                 when (item) {
                     is ModelListItem.Header -> Text(
-                        text = item.title + if (item.isCurrent) "  (current)" else "",
+                        text = (if (item.isFavorites) l10n("收藏", "Favorites") else item.title) +
+                            if (item.isCurrent) l10n("  （当前）", "  (current)") else "",
                         style = MaterialTheme.typography.titleSmall,
                         color = if (item.isCurrent) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -204,6 +212,7 @@ private fun ModelRowItem(
     onToggleFavorite: (String, String) -> Unit,
     onSelect: (String, String) -> Unit,
 ) {
+    val language = LocalAppLanguage.current
     Row(
         Modifier
             .fillMaxWidth()
@@ -213,7 +222,7 @@ private fun ModelRowItem(
     ) {
         Column(Modifier.weight(1f)) {
             Text(
-                row.model + if (row.isCurrent) "  ·  current" else "",
+                row.model + if (row.isCurrent) localized(language, "  ·  当前", "  ·  current") else "",
                 style = MaterialTheme.typography.bodyLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -229,7 +238,7 @@ private fun ModelRowItem(
         IconButton(onClick = { onToggleFavorite(row.provider, row.model) }) {
             Icon(
                 imageVector = if (row.isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                contentDescription = if (row.isFavorite) "Unfavorite" else "Favorite",
+                contentDescription = if (row.isFavorite) localized(language, "取消收藏", "Unfavorite") else localized(language, "收藏", "Favorite"),
                 tint = if (row.isFavorite) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -257,7 +266,7 @@ fun ModelSelectorSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Text(
-            "Select model",
+            l10n("选择模型", "Select model"),
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(start = 20.dp, top = 4.dp, bottom = 4.dp),
         )

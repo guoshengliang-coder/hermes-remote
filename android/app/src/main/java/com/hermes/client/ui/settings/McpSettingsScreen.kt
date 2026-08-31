@@ -44,14 +44,19 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import javax.inject.Inject
 import com.hermes.client.ui.localization.l10n
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.LocalizedText
+import com.hermes.client.ui.localization.localizedText
 
 data class McpServer(val name: String, val transport: String, val json: String)
 
 data class McpUiState(
     val servers: List<McpServer> = emptyList(),
     val loading: Boolean = true,
-    val error: String? = null,
-    val message: String? = null,
+    val error: AppError? = null,
+    val message: LocalizedText? = null,
 )
 
 @HiltViewModel
@@ -78,21 +83,26 @@ class McpSettingsViewModel @Inject constructor(
                 } ?: emptyList()
                 _state.value = McpUiState(servers = servers, loading = false)
             }
-            .onFailure { _state.value = McpUiState(loading = false, error = it.message ?: "Failed to load") }
+            .onFailure {
+                _state.value = McpUiState(
+                    loading = false,
+                    error = AppError(AppErrorCode.CONFIG_READ_FAILED, retryable = true, technicalCause = it.message, stage = "mcp_load"),
+                )
+            }
     }
 
     /** Parse the edited JSON and write mcp_servers[name] via a whole-config update. */
     fun save(name: String, jsonText: String) = viewModelScope.launch {
         val parsed = runCatching { Json.decodeFromString(JsonObject.serializer(), jsonText) }.getOrNull()
-        if (parsed == null) { _state.value = _state.value.copy(message = "Invalid JSON"); return@launch }
+        if (parsed == null) { _state.value = _state.value.copy(message = localizedText("JSON 格式无效", "Invalid JSON")); return@launch }
         runCatching {
             config.update(profile) { cfg ->
                 val servers = (cfg["mcp_servers"] as? JsonObject)?.toMutableMap() ?: mutableMapOf()
                 servers[name] = parsed
                 cfg["mcp_servers"] = JsonObject(servers)
             }
-        }.onSuccess { _state.value = _state.value.copy(message = "Saved $name"); load() }
-            .onFailure { _state.value = _state.value.copy(message = "Save failed: ${it.message}") }
+        }.onSuccess { _state.value = _state.value.copy(message = localizedText("已保存 $name", "Saved $name")); load() }
+            .onFailure { _state.value = _state.value.copy(message = localizedText("保存失败（HR-CONFIG-002）", "Save failed (HR-CONFIG-002)")) }
     }
 
     fun remove(name: String) = viewModelScope.launch {
@@ -102,8 +112,8 @@ class McpSettingsViewModel @Inject constructor(
                 servers.remove(name)
                 cfg["mcp_servers"] = JsonObject(servers)
             }
-        }.onSuccess { _state.value = _state.value.copy(message = "Removed $name"); load() }
-            .onFailure { _state.value = _state.value.copy(message = "Remove failed: ${it.message}") }
+        }.onSuccess { _state.value = _state.value.copy(message = localizedText("已移除 $name", "Removed $name")); load() }
+            .onFailure { _state.value = _state.value.copy(message = localizedText("移除失败（HR-CONFIG-002）", "Remove failed (HR-CONFIG-002)")) }
     }
 
     fun clearMessage() { _state.value = _state.value.copy(message = null) }
@@ -118,13 +128,15 @@ fun McpSettingsScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var selected by remember { mutableStateOf<McpServer?>(null) }
-    LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
+    val language = LocalAppLanguage.current
+    val stateMessage = state.message?.resolve(language)
+    LaunchedEffect(stateMessage) { stateMessage?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
 
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
                 title = l10n("MCP 服务器", "MCP servers"),
-                navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+                navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = l10n("返回", "Back")) } },
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
@@ -133,7 +145,12 @@ fun McpSettingsScreen(
             com.hermes.client.ui.components.LoadingState(); return@Scaffold
         }
         if (state.error != null) {
-            Text(state.error!!, Modifier.padding(padding).padding(24.dp)); return@Scaffold
+            com.hermes.client.ui.components.ErrorState(
+                error = state.error!!,
+                modifier = Modifier.padding(padding).fillMaxSize(),
+                onRetry = vm::load,
+            )
+            return@Scaffold
         }
         Column(Modifier.padding(padding).fillMaxSize()) {
             state.servers.forEach { server ->

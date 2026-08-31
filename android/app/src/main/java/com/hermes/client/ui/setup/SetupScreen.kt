@@ -132,7 +132,7 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
                 OutlinedTextField(
                     value = state.token,
                     onValueChange = vm::onTokenChange,
-                    label = { Text("App Token") },
+                    label = { Text("App Token") }, // l10n-allow: protocol credential name
                     leadingIcon = { Icon(Icons.Rounded.Key, contentDescription = null) },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
@@ -146,11 +146,15 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
                         Icon(
                             Icons.Rounded.CloudDone,
                             contentDescription = null,
-                            tint = if (result == "Connected") MaterialTheme.colorScheme.primary
+                            tint = if (result == SetupResult.CONNECTED) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.error,
                         )
                         Text(
-                            if (result == "Connected") localized(language, "Relay 与 Mac 已连接", "Relay and Mac are connected") else localized(language, "暂时无法连接，请检查地址和 Token", "Couldn't connect. Check the URL and token."),
+                            when (result) {
+                                SetupResult.CONNECTED -> localized(language, "Relay 与 Mac 已连接", "Relay and Mac are connected")
+                                SetupResult.INVALID_URL -> localized(language, "Relay 地址无效（HR-CONFIG-003）", "Invalid Relay URL (HR-CONFIG-003)")
+                                SetupResult.UNREACHABLE -> localized(language, "暂时无法连接，请检查地址和 Token（HR-CONN-002）", "Couldn't connect. Check the URL and token (HR-CONN-002).")
+                            },
                             modifier = Modifier.padding(start = 8.dp),
                             style = MaterialTheme.typography.bodyMedium,
                         )
@@ -191,7 +195,7 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
             Icon(Icons.Rounded.QrCodeScanner, contentDescription = null)
             Text(localized(language, "扫描配对二维码", "Scan pairing QR code"), modifier = Modifier.padding(start = 8.dp))
         }
-        state.scanError?.let {
+        if (state.scanError) {
             Text(
                 localized(language, "二维码不是有效的 Hermes Remote 配置", "This QR code isn't a valid Hermes Remote configuration"),
                 color = MaterialTheme.colorScheme.error,

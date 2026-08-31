@@ -19,6 +19,9 @@ import androidx.compose.ui.unit.dp
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.error.AppError
 import com.hermes.client.data.error.AppErrorCode
+import com.hermes.client.ui.localization.AppLanguage
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.localized
 
 data class ConnectionBannerModel(
     val message: String,
@@ -26,12 +29,12 @@ data class ConnectionBannerModel(
     val error: AppError? = null,
 )
 
-fun connectionLabel(state: ConnectionState): String = when (state) {
-    ConnectionState.Connected -> "Connected"
-    ConnectionState.Connecting -> "Connecting…"
-    ConnectionState.Reconnecting -> "Reconnecting…"
-    ConnectionState.Disconnected -> "Offline"
-    is ConnectionState.Error -> "Error: ${state.reason}"
+fun connectionLabel(state: ConnectionState, language: AppLanguage = AppLanguage.EN): String = when (state) {
+    ConnectionState.Connected -> localized(language, "已连接", "Connected")
+    ConnectionState.Connecting -> localized(language, "正在连接…", "Connecting…")
+    ConnectionState.Reconnecting -> localized(language, "正在重新连接…", "Reconnecting…")
+    ConnectionState.Disconnected -> localized(language, "离线", "Offline")
+    is ConnectionState.Error -> localized(language, "连接错误", "Connection error")
 }
 
 /** Friendlier, sentence-form copy for the chat offline/error banner (vs the terse [connectionLabel]). */
@@ -83,7 +86,7 @@ fun StatusDot(state: ConnectionState, modifier: Modifier = Modifier, showLabel: 
         )
         if (showLabel) {
             Text(
-                text = connectionLabel(state),
+                text = connectionLabel(state, LocalAppLanguage.current),
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(start = 6.dp),
             )

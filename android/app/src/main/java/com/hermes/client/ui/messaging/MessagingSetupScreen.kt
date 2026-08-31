@@ -41,12 +41,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.hermes.client.ui.localization.l10n
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.LocalizedText
+import com.hermes.client.ui.localization.localizedText
 
 data class MessagingSetupState(
     val platform: MessagingPlatformDto? = null,
     val loading: Boolean = true,
     val saving: Boolean = false,
-    val message: String? = null,
+    val message: LocalizedText? = null,
     val done: Boolean = false,
 )
 
@@ -73,7 +76,7 @@ class MessagingSetupViewModel @Inject constructor(
         val env = values.filterValues { it.isNotBlank() }
         runCatching { tools.configureMessaging(id, env, enabled = true, profile = profileManager.active.value) }
             .onSuccess { _state.value = _state.value.copy(saving = false, done = true) }
-            .onFailure { _state.value = _state.value.copy(saving = false, message = "Save failed: ${it.message}") }
+            .onFailure { _state.value = _state.value.copy(saving = false, message = localizedText("保存失败（HR-RPC-001）", "Save failed (HR-RPC-001)")) }
     }
 
     fun clearMessage() { _state.value = _state.value.copy(message = null) }
@@ -88,12 +91,14 @@ fun MessagingSetupScreen(
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    val language = LocalAppLanguage.current
+    val stateMessage = state.message?.resolve(language)
     val context = LocalContext.current
     val values = remember { mutableStateMapOf<String, String>() }
 
     LaunchedEffect(platformId) { vm.load(platformId) }
     LaunchedEffect(state.done) { if (state.done) onDone() }
-    LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
+    LaunchedEffect(stateMessage) { stateMessage?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
 
     Scaffold(
         topBar = {
@@ -146,7 +151,9 @@ fun MessagingSetupScreen(
                         value = values[v.key] ?: "",
                         onValueChange = { values[v.key] = it },
                         label = {
-                            Text((v.prompt ?: v.key) + if (v.required) " *" else "" + if (v.isSet) "  (set)" else "")
+                            val requiredSuffix = if (v.required) " *" else ""
+                            val configuredSuffix = if (v.isSet) l10n("  （已设置）", "  (set)") else ""
+                            Text((v.prompt ?: v.key) + requiredSuffix + configuredSuffix)
                         },
                         supportingText = { v.description?.let { Text(it, maxLines = 2) } },
                         singleLine = true,

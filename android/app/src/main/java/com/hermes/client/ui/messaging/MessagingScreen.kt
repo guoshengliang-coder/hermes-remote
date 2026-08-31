@@ -33,12 +33,17 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.hermes.client.ui.localization.l10n
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.LocalizedText
+import com.hermes.client.ui.localization.localizedText
 
 data class MessagingUiState(
     val platforms: List<MessagingPlatformDto> = emptyList(),
     val loading: Boolean = true,
-    val error: String? = null,
-    val message: String? = null,
+    val error: AppError? = null,
+    val message: LocalizedText? = null,
 )
 
 @HiltViewModel
@@ -59,7 +64,10 @@ class MessagingViewModel @Inject constructor(
         runCatching { tools.messagingPlatforms(profileManager.active.value) }
             .onSuccess { _state.value = _state.value.copy(platforms = it, loading = false, error = null) }
             .onFailure {
-                _state.value = _state.value.copy(loading = false, error = it.message ?: "Failed to load")
+                _state.value = _state.value.copy(
+                    loading = false,
+                    error = AppError(AppErrorCode.RPC_FAILED, retryable = true, technicalCause = it.message, stage = "messaging_load"),
+                )
             }
     }
 
@@ -69,8 +77,16 @@ class MessagingViewModel @Inject constructor(
             platforms = _state.value.platforms.map { if (it.id == id) it.copy(enabled = enabled) else it },
         )
         runCatching { tools.setMessagingEnabled(id, enabled, profileManager.active.value) }
-            .onSuccess { _state.value = _state.value.copy(message = if (enabled) "$id enabled" else "$id disabled"); load() }
-            .onFailure { _state.value = _state.value.copy(message = "Failed: ${it.message}"); load() }
+            .onSuccess {
+                _state.value = _state.value.copy(
+                    message = if (enabled) localizedText("已启用 $id", "$id enabled") else localizedText("已停用 $id", "$id disabled"),
+                )
+                load()
+            }
+            .onFailure {
+                _state.value = _state.value.copy(message = localizedText("操作失败（HR-RPC-001）", "Operation failed (HR-RPC-001)"))
+                load()
+            }
     }
 
     fun clearMessage() { _state.value = _state.value.copy(message = null) }
@@ -84,16 +100,18 @@ fun MessagingScreen(
     vm: MessagingViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val language = LocalAppLanguage.current
+    val stateMessage = state.message?.resolve(language)
     val snackbar = androidx.compose.runtime.remember { androidx.compose.material3.SnackbarHostState() }
-    androidx.compose.runtime.LaunchedEffect(state.message) {
-        state.message?.let { snackbar.showSnackbar(it); vm.clearMessage() }
+    androidx.compose.runtime.LaunchedEffect(stateMessage) {
+        stateMessage?.let { snackbar.showSnackbar(it); vm.clearMessage() }
     }
 
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
                 title = l10n("消息渠道", "Messaging"),
-                navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+                navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = l10n("返回", "Back")) } },
             )
         },
         snackbarHost = { androidx.compose.material3.SnackbarHost(snackbar) },
@@ -101,7 +119,10 @@ fun MessagingScreen(
         Box(Modifier.padding(padding).fillMaxSize()) {
             when {
                 state.loading -> com.hermes.client.ui.components.LoadingState()
-                state.error != null -> Text(state.error!!, Modifier.align(Alignment.Center))
+                state.error != null -> com.hermes.client.ui.components.ErrorState(
+                    error = state.error!!,
+                    onRetry = vm::load,
+                )
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(state.platforms, key = { it.id }) { p ->
                         val status = when {
@@ -114,7 +135,8 @@ fun MessagingScreen(
                             headlineContent = { Text(p.name ?: p.id) },
                             supportingContent = {
                                 Column {
-                                    Text("${p.description ?: ""}  ·  Tap to set up")
+                                    val setup = l10n("点击进行设置", "Tap to set up")
+                                    Text(listOfNotNull(p.description?.takeIf { it.isNotBlank() }, setup).joinToString("  ·  "))
                                     Text(status, style = MaterialTheme.typography.labelSmall,
                                         color = if (p.enabled) MaterialTheme.colorScheme.primary
                                         else MaterialTheme.colorScheme.onSurfaceVariant)

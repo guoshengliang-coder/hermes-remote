@@ -219,7 +219,7 @@ fun SessionsScreen(
                             com.hermes.client.ui.components.LoadingState()
                         projectsState.error != null ->
                             com.hermes.client.ui.components.ErrorState(
-                                message = projectsState.error!!,
+                                error = projectsState.error!!,
                                 onRetry = { vm.loadProjectTree() },
                             )
                         projectsState.scope != null ->
@@ -248,7 +248,7 @@ fun SessionsScreen(
                             com.hermes.client.ui.components.LoadingState()
                         archivedState.error != null ->
                             com.hermes.client.ui.components.ErrorState(
-                                message = archivedState.error!!,
+                                error = archivedState.error!!,
                                 onRetry = { vm.loadArchived() },
                             )
                         archivedState.sessions.isEmpty() ->
@@ -310,7 +310,7 @@ fun SessionsScreen(
                     when {
                         state.loading && state.sessions.isEmpty() -> com.hermes.client.ui.components.LoadingState()
                         state.error != null && state.sessions.isEmpty() -> com.hermes.client.ui.components.ErrorState(
-                            message = state.error!!,
+                            error = state.error!!,
                             onRetry = { vm.refresh() },
                         )
                         state.sessions.isEmpty() ->

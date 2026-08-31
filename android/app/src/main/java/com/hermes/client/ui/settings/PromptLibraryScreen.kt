@@ -71,7 +71,7 @@ fun PromptLibraryScreen(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
                 title = l10n("常用提示", "Saved prompts"),
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = l10n("返回", "Back")) } },
                 actions = {
                     IconButton(onClick = { adding = true }) {
                         Icon(Icons.Rounded.Add, contentDescription = l10n("新建", "New"))
@@ -110,7 +110,7 @@ fun PromptLibraryScreen(
         val dismiss = { adding = false; editing = null }
         AlertDialog(
             onDismissRequest = dismiss,
-            title = { Text(if (current == null) "New prompt" else "Edit prompt") },
+            title = { Text(if (current == null) l10n("新建提示词", "New prompt") else l10n("编辑提示词", "Edit prompt")) },
             text = {
                 androidx.compose.foundation.layout.Column {
                     OutlinedTextField(

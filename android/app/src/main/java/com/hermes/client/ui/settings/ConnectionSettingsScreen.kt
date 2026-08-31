@@ -60,7 +60,7 @@ fun ConnectionSettingsScreen(
             OutlinedTextField(
                 value = state.token,
                 onValueChange = vm::onTokenChange,
-                label = { Text("App Token") },
+                label = { Text("App Token") }, // l10n-allow: protocol credential name
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -68,7 +68,7 @@ fun ConnectionSettingsScreen(
                 OutlinedButton(onClick = { vm.test() }) { Text(localized(language, "测试连接", "Test connection")) }
                 Button(onClick = { vm.save() }) { Text(localized(language, "保存并重连", "Save and reconnect")) }
             }
-            state.testResult?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            state.testResult?.let { Text(it.resolve(language), style = MaterialTheme.typography.bodyMedium) }
         }
     }
 }

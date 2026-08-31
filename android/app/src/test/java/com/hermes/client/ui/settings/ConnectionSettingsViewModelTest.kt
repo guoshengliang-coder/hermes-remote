@@ -58,6 +58,6 @@ class ConnectionSettingsViewModelTest {
         advanceUntilIdle()
         coVerify { rest.statusFor("https://h", "t") }
         verify(exactly = 0) { store.save(any()) }
-        assertEquals("Connected ✓", vm.state.value.testResult)
+        assertEquals("Connected ✓", vm.state.value.testResult?.resolve(com.hermes.client.ui.localization.AppLanguage.EN))
     }
 }

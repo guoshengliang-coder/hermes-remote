@@ -37,6 +37,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.hermes.client.ui.localization.l10n
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
 
 data class UsageUiState(
     /** Store-wide session stats (formerly the session-admin screen): total/archived/messages. */
@@ -51,7 +53,7 @@ data class UsageUiState(
     val topModels: List<ModelUsageDto> = emptyList(),
     val daily: List<com.hermes.client.data.network.UsageDayDto> = emptyList(),
     val loading: Boolean = true,
-    val error: String? = null,
+    val error: AppError? = null,
 )
 
 @HiltViewModel
@@ -75,7 +77,10 @@ class UsageViewModel @Inject constructor(
         // Store stats came from the deleted session-admin screen; best-effort, never blocks usage.
         val stats = runCatching { sessions.stats(p) }.getOrNull()
         if (usage == null) {
-            _state.value = UsageUiState(loading = false, error = "Failed to load usage")
+            _state.value = UsageUiState(
+                loading = false,
+                error = AppError(AppErrorCode.RPC_FAILED, retryable = true, stage = "usage_load"),
+            )
             return@launch
         }
         _state.value = UsageUiState(
@@ -112,7 +117,7 @@ fun UsageScreen(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
                 title = l10n("用量", "Usage"),
-                navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+                navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = l10n("返回", "Back")) } },
             )
         },
     ) { padding ->
@@ -120,7 +125,7 @@ fun UsageScreen(
             when {
                 state.loading -> com.hermes.client.ui.components.LoadingState()
                 state.error != null -> com.hermes.client.ui.components.ErrorState(
-                    message = state.error!!, onRetry = { vm.load() },
+                    error = state.error!!, onRetry = { vm.load() },
                 )
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     item {

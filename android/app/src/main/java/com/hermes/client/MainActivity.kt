@@ -26,6 +26,8 @@ import com.hermes.client.ui.theme.HermesTheme
 import com.hermes.client.ui.theme.LocalToolCallTechnical
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.AppLanguageProvider
+import com.hermes.client.ui.localization.localized
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.lifecycle.lifecycleScope
 import javax.inject.Inject
@@ -40,6 +42,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var avatarColorStore: com.hermes.client.data.repository.AvatarColorStore
     @Inject lateinit var chat: com.hermes.client.data.repository.ChatRepository
     @Inject lateinit var pendingShare: com.hermes.client.share.PendingShareStore
+    @Inject lateinit var languages: AppLanguageProvider
 
     /**
      * Route requested by a tapped notification (see `HermesNotifier.openIntent`'s
@@ -126,10 +129,13 @@ class MainActivity : ComponentActivity() {
     private fun shareCrash(report: String) {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "Hermes Beta crash report")
+            putExtra(
+                Intent.EXTRA_SUBJECT,
+                localized(languages.current, "Hermes Beta 崩溃报告", "Hermes Beta crash report"),
+            )
             putExtra(Intent.EXTRA_TEXT, report)
         }
-        startActivity(Intent.createChooser(intent, "Share crash report"))
+        startActivity(Intent.createChooser(intent, localized(languages.current, "分享崩溃报告", "Share crash report")))
     }
 
     /** Create a fresh chat and navigate to it (widget "New chat" / hermes://new). No-op if unconfigured. */
@@ -146,7 +152,9 @@ class MainActivity : ComponentActivity() {
                     .onFailure { e ->
                         if (e is kotlinx.coroutines.CancellationException) throw e
                         android.widget.Toast.makeText(
-                            this@MainActivity, "Couldn't start a chat", android.widget.Toast.LENGTH_SHORT,
+                            this@MainActivity,
+                            localized(languages.current, "无法新建会话（HR-RPC-001）", "Couldn't start a chat (HR-RPC-001)"),
+                            android.widget.Toast.LENGTH_SHORT,
                         ).show()
                     }
             } finally {
@@ -204,7 +212,9 @@ class MainActivity : ComponentActivity() {
                 }
                 if (read == null) {
                     android.widget.Toast.makeText(
-                        this@MainActivity, "Couldn't read the attachment", android.widget.Toast.LENGTH_SHORT,
+                        this@MainActivity,
+                        localized(languages.current, "无法读取附件（HR-FILE-001）", "Couldn't read the attachment (HR-FILE-001)"),
+                        android.widget.Toast.LENGTH_SHORT,
                     ).show()
                     if (caption == null) return@launch  // nothing left to share
                 } else {
@@ -240,7 +250,9 @@ class MainActivity : ComponentActivity() {
                 .onFailure { e ->
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     android.widget.Toast.makeText(
-                        this@MainActivity, "Couldn't start a chat", android.widget.Toast.LENGTH_SHORT,
+                        this@MainActivity,
+                        localized(languages.current, "无法新建会话（HR-RPC-001）", "Couldn't start a chat (HR-RPC-001)"),
+                        android.widget.Toast.LENGTH_SHORT,
                     ).show()
                 }
         }

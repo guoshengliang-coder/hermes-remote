@@ -1,5 +1,7 @@
 package com.hermes.client.ui.cron
 
+import com.hermes.client.ui.localization.AppLanguage
+import com.hermes.client.ui.localization.localized
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -37,6 +39,25 @@ fun Schedule.describe(): String = when (this) {
         if (days.size == 7) "Every day at ${hm(hour, minute)}"
         else "${days.sortedBy { it.cron }.joinToString(", ") { it.short }} at ${hm(hour, minute)}"
     is Schedule.Monthly -> "Day $dayOfMonth of each month at ${hm(hour, minute)}"
+    is Schedule.Advanced -> expr
+}
+
+fun Weekday.short(language: AppLanguage): String = localized(
+    language,
+    when (this) {
+        Weekday.SUN -> "周日"; Weekday.MON -> "周一"; Weekday.TUE -> "周二"; Weekday.WED -> "周三"
+        Weekday.THU -> "周四"; Weekday.FRI -> "周五"; Weekday.SAT -> "周六"
+    },
+    short,
+)
+
+fun Schedule.describe(language: AppLanguage): String = if (language == AppLanguage.EN) describe() else when (this) {
+    is Schedule.Hourly -> if (minute == 0) "每小时" else "每小时的 %02d 分".format(minute)
+    is Schedule.Daily -> "每天 ${hm(hour, minute)}"
+    is Schedule.Weekly ->
+        if (days.size == 7) "每天 ${hm(hour, minute)}"
+        else "${days.sortedBy { it.cron }.joinToString("、") { it.short(language) }} ${hm(hour, minute)}"
+    is Schedule.Monthly -> "每月 $dayOfMonth 日 ${hm(hour, minute)}"
     is Schedule.Advanced -> expr
 }
 

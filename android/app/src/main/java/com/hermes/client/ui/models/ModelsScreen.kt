@@ -18,6 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hermes.client.ui.localization.l10n
+import com.hermes.client.ui.localization.LocalAppLanguage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,16 +29,18 @@ fun ModelsScreen(
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    val language = LocalAppLanguage.current
+    val stateMessage = state.message?.resolve(language)
 
-    LaunchedEffect(state.message) {
-        state.message?.let { snackbar.showSnackbar(it); vm.clearMessage() }
+    LaunchedEffect(stateMessage) {
+        stateMessage?.let { snackbar.showSnackbar(it); vm.clearMessage() }
     }
 
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
-                title = "Models",
-                navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+                title = l10n("模型", "Models"),
+                navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = l10n("返回", "Back")) } },
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
@@ -44,7 +48,10 @@ fun ModelsScreen(
         Box(Modifier.padding(padding).fillMaxSize()) {
             when {
                 state.loading -> com.hermes.client.ui.components.LoadingState()
-                state.error != null -> Text(state.error!!, Modifier.align(Alignment.Center))
+                state.error != null -> com.hermes.client.ui.components.ErrorState(
+                    error = state.error!!,
+                    onRetry = vm::load,
+                )
                 else -> {
                     val favorites by vm.favorites.collectAsStateWithLifecycle()
                     val items = com.hermes.client.ui.models.modelSelectorRows(

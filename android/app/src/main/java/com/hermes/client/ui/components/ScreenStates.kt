@@ -23,6 +23,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.hermes.client.ui.localization.l10n
+import com.hermes.client.data.error.AppError
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.localizedMessage
 
 // Shared screen-state surfaces so loading/empty/error look identical everywhere instead of
 // the ad-hoc CircularProgressIndicator + bare `Text(error!!)` that was copy-pasted across
@@ -69,10 +73,21 @@ fun ErrorState(
         )
         if (onRetry != null) {
             Spacer(Modifier.height(16.dp))
-            OutlinedButton(onClick = onRetry) { Text("Retry") }
+            OutlinedButton(onClick = onRetry) { Text(l10n("重试", "Retry")) }
         }
     }
 }
+
+@Composable
+fun ErrorState(
+    error: AppError,
+    modifier: Modifier = Modifier.fillMaxSize(),
+    onRetry: (() -> Unit)? = null,
+) = ErrorState(
+    message = error.localizedMessage(LocalAppLanguage.current),
+    modifier = modifier,
+    onRetry = onRetry,
+)
 
 @Composable
 fun EmptyState(

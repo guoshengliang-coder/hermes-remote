@@ -130,8 +130,9 @@ fun ChatScreen(
 ) {
     val language = LocalAppLanguage.current
     LaunchedEffect(sessionId, sessionProfile, initialTitle, isNewSession) {
-        vm.open(sessionId, sessionProfile, initialTitle, isNewSession)
+        vm.open(sessionId, sessionProfile, initialTitle, isNewSession, language)
     }
+    LaunchedEffect(language) { vm.setAppLanguage(language) }
     val state by vm.state.collectAsStateWithLifecycle()
     val connState by vm.connectionState.collectAsStateWithLifecycle()
     var connectionWasInterrupted by remember(sessionId) { mutableStateOf(false) }
@@ -270,7 +271,7 @@ fun ChatScreen(
     fun showAttachmentError(message: String?) {
         android.widget.Toast.makeText(
             context,
-            message ?: localized(language, "无法读取附件", "Unable to read attachment"),
+            message ?: localized(language, "无法读取附件（HR-FILE-001）", "Unable to read attachment (HR-FILE-001)"),
             android.widget.Toast.LENGTH_LONG,
         ).show()
     }
@@ -296,7 +297,7 @@ fun ChatScreen(
             saved.onSuccess {
                 showImageMessage(localized(language, "图片已保存", "Image saved"))
             }.onFailure {
-                showImageMessage(it.message ?: localized(language, "保存图片失败", "Unable to save image"), long = true)
+                showImageMessage(localized(language, "保存图片失败（HR-MEDIA-001）", "Unable to save image (HR-MEDIA-001)"), long = true)
             }
         }
     }
@@ -324,7 +325,7 @@ fun ChatScreen(
                         localized(language, "已保存到相册：${result.displayName}", "Saved to Photos: ${result.displayName}"),
                     )
                 }.onFailure {
-                    showImageMessage(it.message ?: localized(language, "保存图片失败", "Unable to save image"), long = true)
+                    showImageMessage(localized(language, "保存图片失败（HR-MEDIA-001）", "Unable to save image (HR-MEDIA-001)"), long = true)
                 }
             }
         } else saveImageAs(image)
@@ -351,9 +352,9 @@ fun ChatScreen(
                             localized(language, "分享图片", "Share image"),
                         ),
                     )
-                }.onFailure { showImageMessage(it.message ?: localized(language, "无法分享图片", "Unable to share image"), long = true) }
+                }.onFailure { showImageMessage(localized(language, "无法分享图片（HR-MEDIA-001）", "Unable to share image (HR-MEDIA-001)"), long = true) }
             }.onFailure {
-                showImageMessage(it.message ?: localized(language, "图片尚未加载完成", "Image is not ready"), long = true)
+                showImageMessage(localized(language, "图片尚未加载完成（HR-MEDIA-001）", "Image is not ready (HR-MEDIA-001)"), long = true)
             }
         }
     }
@@ -366,7 +367,7 @@ fun ChatScreen(
                 }
             }.onSuccess { attachment ->
                 vm.stageAttachment(attachment.bytes, attachment.mimeType, attachment.name)
-            }.onFailure { showAttachmentError(it.message) }
+            }.onFailure { showAttachmentError(null) }
         }
     }
 
@@ -397,8 +398,8 @@ fun ChatScreen(
                     context.startActivity(
                         if (share) android.content.Intent.createChooser(intent, file.name) else intent,
                     )
-                }.onFailure { showAttachmentError(it.message) }
-            }.onFailure { showAttachmentError(it.message) }
+                }.onFailure { showAttachmentError(null) }
+            }.onFailure { showAttachmentError(null) }
         }
     }
 
@@ -479,7 +480,7 @@ fun ChatScreen(
             captureUri = null
             captureFilePath?.let(::File)?.delete()
             captureFilePath = null
-            showAttachmentError(it.message)
+            showAttachmentError(null)
         }
     }
 
@@ -594,7 +595,7 @@ fun ChatScreen(
                                 leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null, Modifier.size(20.dp)) },
                                 text = { Text(localized(language, "复制全部对话", "Copy transcript")) },
                                 onClick = {
-                                    val t = transcriptText(state.messages)
+                                    val t = transcriptText(state.messages, language)
                                     if (t.isBlank()) {
                                         android.widget.Toast.makeText(context, localized(language, "暂无可导出的内容", "Nothing to export yet"), android.widget.Toast.LENGTH_SHORT).show()
                                     } else {
@@ -612,7 +613,7 @@ fun ChatScreen(
                                 leadingIcon = { Icon(Icons.Rounded.Share, contentDescription = null, Modifier.size(20.dp)) },
                                 text = { Text(localized(language, "分享对话", "Share transcript")) },
                                 onClick = {
-                                    val t = transcriptText(state.messages)
+                                    val t = transcriptText(state.messages, language)
                                     if (t.isBlank()) {
                                         android.widget.Toast.makeText(context, localized(language, "暂无可导出的内容", "Nothing to export yet"), android.widget.Toast.LENGTH_SHORT).show()
                                     } else {
@@ -1133,7 +1134,7 @@ fun ChatScreen(
                                     Uri.parse("package:${context.packageName}"),
                                 ),
                             )
-                        }.onFailure { showAttachmentError(it.message) }
+                        }.onFailure { showAttachmentError(null) }
                     },
                 ) { Text(localized(language, "打开设置", "Open settings")) }
             },
@@ -1183,7 +1184,7 @@ fun ChatScreen(
                     }
                 }
             },
-            pending = modelSheet.pending, error = modelSheet.error,
+            pending = modelSheet.pending, error = modelSheet.error?.resolve(language),
             onDismiss = { modelSheetOpen = false; retryAfterModelSwitch = false },
             listLoading = providersLoading,
             listError = providersError,

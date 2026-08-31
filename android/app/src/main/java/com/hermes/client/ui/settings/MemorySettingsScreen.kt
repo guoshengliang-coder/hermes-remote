@@ -46,6 +46,11 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 import com.hermes.client.ui.localization.l10n
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.LocalizedText
+import com.hermes.client.ui.localization.localizedText
 
 data class MemorySettingsState(
     val memoryEnabled: Boolean = true,
@@ -55,8 +60,8 @@ data class MemorySettingsState(
     val userCharLimit: Int = 0,
     val defaultModel: String = "—",
     val loading: Boolean = true,
-    val error: String? = null,
-    val message: String? = null,
+    val error: AppError? = null,
+    val message: LocalizedText? = null,
 )
 
 @HiltViewModel
@@ -87,7 +92,12 @@ class MemorySettingsViewModel @Inject constructor(
                     loading = false,
                 )
             }
-            .onFailure { _state.value = MemorySettingsState(loading = false, error = it.message ?: "Failed to load") }
+            .onFailure {
+                _state.value = MemorySettingsState(
+                    loading = false,
+                    error = AppError(AppErrorCode.CONFIG_READ_FAILED, retryable = true, technicalCause = it.message, stage = "memory_load"),
+                )
+            }
     }
 
     /** Whole-config GET-modify-PUT: only the named memory field changes; everything else is preserved. */
@@ -98,8 +108,8 @@ class MemorySettingsViewModel @Inject constructor(
                 changes.forEach { (k, v) -> mem[k] = v }
                 cfg["memory"] = JsonObject(mem)
             }
-        }.onSuccess { _state.value = _state.value.copy(message = "Saved"); load() }
-            .onFailure { _state.value = _state.value.copy(message = "Save failed: ${it.message}") }
+        }.onSuccess { _state.value = _state.value.copy(message = localizedText("已保存", "Saved")); load() }
+            .onFailure { _state.value = _state.value.copy(message = localizedText("保存失败（HR-CONFIG-002）", "Save failed (HR-CONFIG-002)")) }
     }
 
     fun setMemoryEnabled(b: Boolean) { _state.value = _state.value.copy(memoryEnabled = b); updateMemory("memory_enabled" to JsonPrimitive(b)) }
@@ -119,13 +129,15 @@ fun MemorySettingsScreen(
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
+    val language = LocalAppLanguage.current
+    val stateMessage = state.message?.resolve(language)
+    LaunchedEffect(stateMessage) { stateMessage?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
 
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
                 title = l10n("模型与记忆", "Models & memory"),
-                navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+                navigationIcon = { IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = l10n("返回", "Back")) } },
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
@@ -135,7 +147,11 @@ fun MemorySettingsScreen(
             return@Scaffold
         }
         if (state.error != null) {
-            Text(state.error!!, Modifier.padding(padding).padding(24.dp))
+            com.hermes.client.ui.components.ErrorState(
+                error = state.error!!,
+                modifier = Modifier.padding(padding).fillMaxSize(),
+                onRetry = vm::load,
+            )
             return@Scaffold
         }
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {

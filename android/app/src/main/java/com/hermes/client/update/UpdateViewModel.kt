@@ -13,13 +13,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import java.io.File
 import javax.inject.Inject
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
 
 data class UpdateUiState(
     val loading: Boolean = false,
     val rows: List<UpdateRow> = emptyList(),
     val latestVersionName: String? = null,
     val latestVersionCode: Int? = null,
-    val error: String? = null,
+    val error: AppError? = null,
     val activeVersionCode: Int? = null,
     val phase: DownloadPhase = DownloadPhase.IDLE,
     val percent: Int? = null,
@@ -48,7 +50,12 @@ class UpdateViewModel @Inject constructor(private val repository: UpdateReposito
                     latestVersionCode = latest?.versionCode,
                 )
             }
-            .onFailure { _state.value = _state.value.copy(loading = false, error = it.message ?: "Update check failed") }
+            .onFailure {
+                _state.value = _state.value.copy(
+                    loading = false,
+                    error = AppError(AppErrorCode.UPDATE_FAILED, retryable = true, technicalCause = it.message, stage = "update_check"),
+                )
+            }
     }
 
     fun download(version: UpdateVersion) {
@@ -62,7 +69,11 @@ class UpdateViewModel @Inject constructor(private val repository: UpdateReposito
                 }
                 .onFailure {
                     if (generation == monitorGeneration) {
-                        _state.value = _state.value.copy(activeVersionCode=version.versionCode,phase=DownloadPhase.FAILED,error=it.message ?: "Unable to start download")
+                        _state.value = _state.value.copy(
+                            activeVersionCode = version.versionCode,
+                            phase = DownloadPhase.FAILED,
+                            error = AppError(AppErrorCode.UPDATE_FAILED, retryable = true, technicalCause = it.message, stage = "download_enqueue"),
+                        )
                     }
                 }
         }
@@ -80,19 +91,47 @@ class UpdateViewModel @Inject constructor(private val repository: UpdateReposito
         fun active() = generation == monitorGeneration && _state.value.activeVersionCode in setOf(null, version.versionCode)
         while (true) {
             if (!active()) return
-            val snapshot = repository.query(id) ?: run { if(active()) _state.value=_state.value.copy(activeVersionCode=version.versionCode,phase=DownloadPhase.FAILED,error="Download record is no longer available"); return }
+            val snapshot = repository.query(id) ?: run {
+                if (active()) _state.value = _state.value.copy(
+                    activeVersionCode = version.versionCode,
+                    phase = DownloadPhase.FAILED,
+                    error = AppError(AppErrorCode.UPDATE_FAILED, retryable = true, stage = "download_record"),
+                )
+                return
+            }
             val phase = mapDownloadStatus(snapshot.status)
             if (!active()) return
             _state.value = _state.value.copy(activeVersionCode=version.versionCode,phase=phase,percent=downloadPercent(snapshot.downloaded,snapshot.total))
             if (phase == DownloadPhase.DOWNLOADED) {
-                val localUri=snapshot.localUri ?: run { _state.value=_state.value.copy(phase=DownloadPhase.FAILED,error="Downloaded file is unavailable"); return }
+                val localUri = snapshot.localUri ?: run {
+                    _state.value = _state.value.copy(
+                        phase = DownloadPhase.FAILED,
+                        error = AppError(AppErrorCode.UPDATE_FAILED, retryable = true, stage = "downloaded_file"),
+                    )
+                    return
+                }
                 _state.value=_state.value.copy(phase=DownloadPhase.VERIFYING)
                 runCatching { repository.verify(version,localUri) }
                     .onSuccess { if(active()) _state.value=_state.value.copy(phase=DownloadPhase.INSTALLABLE,verifiedFile=it,error=null) }
-                    .onFailure { if(active()) _state.value=_state.value.copy(phase=DownloadPhase.FAILED,error="APK verification failed") }
+                    .onFailure {
+                        if (active()) _state.value = _state.value.copy(
+                            phase = DownloadPhase.FAILED,
+                            error = AppError(AppErrorCode.UPDATE_FAILED, retryable = true, technicalCause = it.message, stage = "apk_verification"),
+                        )
+                    }
                 return
             }
-            if (phase==DownloadPhase.FAILED) { _state.value=_state.value.copy(error=friendlyDownloadError(snapshot.reason)); return }
+            if (phase == DownloadPhase.FAILED) {
+                _state.value = _state.value.copy(
+                    error = AppError(
+                        AppErrorCode.UPDATE_FAILED,
+                        retryable = true,
+                        technicalCause = friendlyDownloadError(snapshot.reason),
+                        stage = "download_failed",
+                    ),
+                )
+                return
+            }
             delay(750)
         }
     }
@@ -101,8 +140,12 @@ class UpdateViewModel @Inject constructor(private val repository: UpdateReposito
         val file = _state.value.verifiedFile ?: return
         when (val result = repository.install(file)) {
             InstallResult.InstallerOpened -> _state.value = _state.value.copy(error = null)
-            InstallResult.PermissionRequired -> _state.value = _state.value.copy(error = "Install permission is required; grant it and retry")
-            is InstallResult.Failure -> _state.value = _state.value.copy(error = result.message)
+            InstallResult.PermissionRequired -> _state.value = _state.value.copy(
+                error = AppError(AppErrorCode.INSTALL_PERMISSION_REQUIRED, retryable = true, stage = "installer_permission"),
+            )
+            is InstallResult.Failure -> _state.value = _state.value.copy(
+                error = AppError(AppErrorCode.UPDATE_FAILED, retryable = true, technicalCause = result.message, stage = "installer_open"),
+            )
         }
     }
 }

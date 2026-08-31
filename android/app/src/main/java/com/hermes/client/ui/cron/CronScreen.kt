@@ -45,6 +45,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.widget.Toast
 import com.hermes.client.ui.localization.l10n
+import com.hermes.client.ui.localization.LocalAppLanguage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,6 +56,8 @@ fun CronScreen(
     vm: CronViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val language = LocalAppLanguage.current
+    val stateMessage = state.message?.resolve(language)
     // Reload when returning to this screen (e.g. after create/edit/delete) so the list is fresh.
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { vm.load() }
 
@@ -63,7 +66,7 @@ fun CronScreen(
             com.hermes.client.ui.components.HermesTopBar(
                 title = l10n("定时任务", "Cron jobs"),
                 subtitle = state.profile?.let { l10n("身份：$it", "Profile: $it") },
-                navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+                navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = l10n("返回", "Back")) } },
             )
         },
         floatingActionButton = {
@@ -80,15 +83,15 @@ fun CronScreen(
             when {
                 state.loading -> com.hermes.client.ui.components.LoadingState()
                 state.error != null -> com.hermes.client.ui.components.ErrorState(
-                    message = state.error!!, onRetry = { vm.load() },
+                    error = state.error!!, onRetry = { vm.load() },
                 )
                 state.jobs.isEmpty() -> CronEmpty(onNew = onNew)
                 else -> {
                     val nowMs = remember(state.jobs) { System.currentTimeMillis() }
                     val menuFor = remember { mutableStateOf<String?>(null) }
                     val context = LocalContext.current
-                    LaunchedEffect(state.message) {
-                        state.message?.let {
+                    LaunchedEffect(stateMessage) {
+                        stateMessage?.let {
                             Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
                             vm.clearMessage()
                         }
@@ -110,8 +113,8 @@ fun CronScreen(
                                 overlineContent = {
                                     Text(
                                         job.scheduleText + when {
-                                            job.isPaused -> "  · paused"
-                                            !job.enabled -> "  · disabled"
+                                            job.isPaused -> l10n("  · 已暂停", "  · paused")
+                                            !job.enabled -> l10n("  · 已停用", "  · disabled")
                                             else -> ""
                                         },
                                         color = if (job.enabled && !job.isPaused) MaterialTheme.colorScheme.primary
@@ -131,7 +134,7 @@ fun CronScreen(
                                 trailingContent = {
                                     Box {
                                         IconButton(onClick = { menuFor.value = job.id }) {
-                                            Icon(Icons.Rounded.MoreVert, contentDescription = "Actions")
+                                            Icon(Icons.Rounded.MoreVert, contentDescription = l10n("操作", "Actions"))
                                         }
                                         DropdownMenu(expanded = menuFor.value == job.id, onDismissRequest = { menuFor.value = null }) {
                                             DropdownMenuItem(
@@ -178,7 +181,7 @@ private fun CronEmpty(onNew: (String) -> Unit) {
         Spacer(Modifier.height(16.dp))
         CRON_TEMPLATES.forEach { t ->
             OutlinedButton(onClick = { onNew(t.id) }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                Text(t.label)
+                Text(l10n(t.labelZh, t.labelEn))
             }
         }
         Spacer(Modifier.height(12.dp))

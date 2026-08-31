@@ -5,6 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.CronJobDto
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.ToolsRepository
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
+import com.hermes.client.ui.localization.LocalizedText
+import com.hermes.client.ui.localization.localizedText
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,8 +22,8 @@ data class CronUiState(
     val jobs: List<CronJobDto> = emptyList(),
     val profile: String? = null,
     val loading: Boolean = true,
-    val error: String? = null,
-    val message: String? = null,
+    val error: AppError? = null,
+    val message: LocalizedText? = null,
 )
 
 @HiltViewModel
@@ -41,7 +45,10 @@ class CronViewModel @Inject constructor(
         runCatching { tools.cronJobs(p) }
             .onSuccess { _state.value = _state.value.copy(jobs = it, loading = false) }
             .onFailure {
-                _state.value = _state.value.copy(loading = false, error = it.message ?: "Failed to load cron jobs")
+                _state.value = _state.value.copy(
+                    loading = false,
+                    error = AppError(AppErrorCode.RPC_FAILED, retryable = true, technicalCause = it.message, stage = "cron_load"),
+                )
             }
     }
 
@@ -54,8 +61,12 @@ class CronViewModel @Inject constructor(
                 CronAction.RUN -> tools.triggerCron(jobId, p)
             }
         }.isSuccess
-        val verb = when (action) { CronAction.PAUSE -> "Paused"; CronAction.RESUME -> "Resumed"; CronAction.RUN -> "Triggered" }
-        _state.value = _state.value.copy(message = if (ok) "$verb $name" else "Couldn't ${verb.lowercase()} $name")
+        val message = when (action) {
+            CronAction.PAUSE -> if (ok) localizedText("已暂停 $name", "Paused $name") else localizedText("无法暂停 $name（HR-RPC-001）", "Couldn't pause $name (HR-RPC-001)")
+            CronAction.RESUME -> if (ok) localizedText("已恢复 $name", "Resumed $name") else localizedText("无法恢复 $name（HR-RPC-001）", "Couldn't resume $name (HR-RPC-001)")
+            CronAction.RUN -> if (ok) localizedText("已触发 $name", "Triggered $name") else localizedText("无法触发 $name（HR-RPC-001）", "Couldn't trigger $name (HR-RPC-001)")
+        }
+        _state.value = _state.value.copy(message = message)
         if (ok) runCatching { tools.cronJobs(p) }.onSuccess { jobs -> _state.value = _state.value.copy(jobs = jobs) }
     }
 

@@ -154,6 +154,10 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   the header bar) via a record-only offscreen exporter, and makes fullscreen viewing genuinely
   rotation-proof by hoisting its state to the screen level — the previous in-tree fix was lost
   during the markdown re-parse window on Activity recreation.
+- Version 0.1.53 makes the stats card resilient to large system font scales: auto-shrink now
+  actually fires under overflow=Ellipsis (isLineEllipsized, not didOverflowWidth), the sub-lines
+  and shortcut values shrink too (deep floors), cell padding is trimmed, and latency above 999ms
+  formats as seconds — "mac-…"/"已连接 · 2…" truncation is gone.
 - Version 0.1.52 re-derives the card page type ramp from the reference by internal ratio
   (label anchored at 15sp): 23sp auto-shrinking stat values (numbers never truncate, floor
   17sp), 20sp shortcut rows with 28dp icons and 16sp trailing values, 32sp wordmark, 24dp page
@@ -211,7 +215,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.52-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.53-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
