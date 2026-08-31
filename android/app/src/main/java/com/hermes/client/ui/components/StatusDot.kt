@@ -17,6 +17,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.hermes.client.data.network.ConnectionState
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
+
+data class ConnectionBannerModel(
+    val message: String,
+    val progress: Boolean,
+    val error: AppError? = null,
+)
 
 fun connectionLabel(state: ConnectionState): String = when (state) {
     ConnectionState.Connected -> "Connected"
@@ -29,9 +37,33 @@ fun connectionLabel(state: ConnectionState): String = when (state) {
 /** Friendlier, sentence-form copy for the chat offline/error banner (vs the terse [connectionLabel]). */
 fun bannerLabel(state: ConnectionState, zh: Boolean = false): String = when (state) {
     ConnectionState.Disconnected ->
-        if (zh) "当前离线——重新连接后消息会自动发送。" else "You're offline — new messages send when you reconnect."
-    is ConnectionState.Error -> if (zh) "连接出错——点击重试。" else "Connection error — tap Retry."
-    else -> connectionLabel(state)
+        if (zh) "连接已中断，将自动恢复（HR-CONN-004）。" else "Connection interrupted; restoring automatically (HR-CONN-004)."
+    is ConnectionState.Error ->
+        if (zh) "无法连接 Relay（HR-CONN-002），请重试。" else "Couldn't connect to the Relay (HR-CONN-002). Retry."
+    ConnectionState.Connecting -> if (zh) "正在连接 Relay…" else "Connecting to the Relay…"
+    ConnectionState.Reconnecting -> if (zh) "正在重新连接并恢复会话…" else "Reconnecting and restoring the conversation…"
+    ConnectionState.Connected -> if (zh) "已连接" else "Connected"
+}
+
+fun connectionBannerModel(state: ConnectionState, zh: Boolean = false): ConnectionBannerModel = when (state) {
+    ConnectionState.Connecting, ConnectionState.Reconnecting ->
+        ConnectionBannerModel(bannerLabel(state, zh), progress = true)
+    ConnectionState.Disconnected -> ConnectionBannerModel(
+        bannerLabel(state, zh),
+        progress = false,
+        error = AppError(AppErrorCode.CONNECTION_INTERRUPTED, retryable = true, stage = "websocket"),
+    )
+    is ConnectionState.Error -> ConnectionBannerModel(
+        bannerLabel(state, zh),
+        progress = false,
+        error = AppError(
+            AppErrorCode.CONNECTION_FAILED,
+            retryable = true,
+            technicalCause = state.reason,
+            stage = "websocket",
+        ),
+    )
+    ConnectionState.Connected -> ConnectionBannerModel(bannerLabel(state, zh), progress = false)
 }
 
 @Composable

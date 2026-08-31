@@ -1,6 +1,7 @@
 package com.hermes.client.notifications
 
 import com.hermes.client.data.network.LifecycleEventDto
+import com.hermes.client.ui.localization.AppLanguage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -47,6 +48,26 @@ class LifecycleNotificationMapperTest {
             coveredByLiveSocket = true,
         ))
         assertNull(toLifecycleNotificationSpec(event("run.started"), prefs, appInForeground = false))
+    }
+
+    @Test fun missingProfileRoutesToTheCanonicalDefaultIdentity() {
+        val spec = toLifecycleNotificationSpec(
+            event("run.completed").copy(profile = null),
+            prefs,
+            appInForeground = false,
+        )
+        assertEquals("chat/session-1?profile=default", spec!!.route)
+    }
+
+    @Test fun lifecycleFallbackUsesTheSelectedAppLanguage() {
+        val spec = toLifecycleNotificationSpec(
+            event("run.completed").copy(title = null),
+            prefs,
+            appInForeground = false,
+            language = AppLanguage.ZH,
+        )!!
+        assertEquals("任务已完成", spec.title)
+        assertEquals("智能体已经完成，点击查看结果。", spec.body)
     }
 
     private fun event(kind: String) = LifecycleEventDto(

@@ -1,6 +1,7 @@
 package com.hermes.client.notifications
 
 import com.hermes.client.data.progress.RunProgress
+import com.hermes.client.ui.localization.AppLanguage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -68,5 +69,12 @@ class RunProgressMapperTest {
     @Test fun the_title_comes_from_the_runs_latched_profile_not_a_passed_in_name() {
         val spec = RunProgress(running = true, profile = "globex").toSpec(on)!!
         assertEquals("globex · agent running", spec.title)
+    }
+
+    @Test fun progressUsesTheSelectedAppLanguage() {
+        val spec = RunProgress(running = true, tool = "web_search", profile = "默认身份")
+            .toSpec(on, AppLanguage.ZH)!!
+        assertEquals("默认身份 · 智能体运行中", spec.title)
+        assertEquals("正在调用工具：web_search", spec.body)
     }
 }

@@ -207,4 +207,43 @@ class HermesGatewayClientTest {
             tearDownClient(client, okHttp)
         }
     }
+
+    @Test fun connect_after_an_idle_close_opens_a_fresh_socket_without_manual_retry() = runTest {
+        repeat(2) {
+            serverRule.server.enqueue(
+                MockResponse.Builder().webSocketUpgrade(
+                    object : WebSocketListener() {
+                        override fun onOpen(webSocket: WebSocket, response: Response) {
+                            webSocket.send(GATEWAY_READY_FRAME)
+                        }
+
+                        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                            webSocket.close(code, reason)
+                        }
+                    },
+                ).build(),
+            )
+        }
+        val (client, okHttp) = makeClientAndHttp(serverRule.server)
+        try {
+            withContext(Dispatchers.Default) {
+                client.connect()
+                withTimeout(5_000) {
+                    while (client.connectionState.value != ConnectionState.Connected) kotlinx.coroutines.delay(10)
+                }
+                client.close()
+                assertEquals(ConnectionState.Disconnected, client.connectionState.value)
+
+                // This is the foreground coordinator path. connect(), not reconnectNow(), must
+                // clear the intentional-close latch and establish a new socket.
+                client.connect()
+                withTimeout(5_000) {
+                    while (client.connectionState.value != ConnectionState.Connected) kotlinx.coroutines.delay(10)
+                }
+                assertEquals(2, serverRule.server.requestCount)
+            }
+        } finally {
+            tearDownClient(client, okHttp)
+        }
+    }
 }

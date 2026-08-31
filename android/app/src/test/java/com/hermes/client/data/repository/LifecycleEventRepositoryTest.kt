@@ -23,7 +23,7 @@ class LifecycleEventRepositoryTest {
         assertEquals(listOf("fetch:0", "consume:e1", "ack:e1", "cursor:1"), operations)
         assertEquals(1, result.processed)
         assertTrue(result.hasActiveSessions)
-        assertEquals(setOf(LifecycleSessionKey("mac-mini", null, "session-1")), repository.activeSessions.value)
+        assertEquals(setOf(LifecycleSessionKey("mac-mini", "default", "session-1")), repository.activeSessions.value)
     }
 
     @Test
@@ -62,7 +62,7 @@ class LifecycleEventRepositoryTest {
 
         assertEquals(3, result.processed)
         assertFalse(result.moreAvailable)
-        assertEquals(setOf(LifecycleSessionKey("mac-mini", null, "b")), repository.activeSessions.value)
+        assertEquals(setOf(LifecycleSessionKey("mac-mini", "default", "b")), repository.activeSessions.value)
     }
 
     @Test

@@ -113,8 +113,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hermes.client.data.network.ConnectionState
-import com.hermes.client.ui.components.bannerLabel
-import com.hermes.client.ui.components.connectionLabel
+import com.hermes.client.ui.components.connectionBannerModel
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 
@@ -136,6 +135,26 @@ fun ChatScreen(
     }
     val state by vm.state.collectAsStateWithLifecycle()
     val connState by vm.connectionState.collectAsStateWithLifecycle()
+    var connectionWasInterrupted by remember(sessionId) { mutableStateOf(false) }
+    var recoveryNotice by remember(sessionId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(connState, sessionId) {
+        when (connState) {
+            ConnectionState.Connected -> if (connectionWasInterrupted) {
+                recoveryNotice = localized(
+                    language,
+                    "连接已恢复，正在同步会话…",
+                    "Connection restored. Synchronizing the conversation…",
+                )
+                connectionWasInterrupted = false
+                kotlinx.coroutines.delay(3_000L)
+                recoveryNotice = null
+            }
+            else -> {
+                connectionWasInterrupted = true
+                recoveryNotice = null
+            }
+        }
+    }
     val unauthorized by vm.unauthorized.collectAsStateWithLifecycle()
     val sessionTitle by vm.sessionTitle.collectAsStateWithLifecycle()
     val currentModel by vm.currentModel.collectAsStateWithLifecycle()
@@ -854,6 +873,8 @@ fun ChatScreen(
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (!connected) {
                 ConnectionBanner(connState, onRetry = { vm.reconnect() })
+            } else {
+                recoveryNotice?.let { ConnectionRecoveryBanner(it) }
             }
             if (slashMatches.isNotEmpty()) {
                 // Typing "/" turns the message area into a full, scrollable command picker.
@@ -1267,21 +1288,41 @@ private fun AttachmentActionCard(
 @Composable
 private fun ConnectionBanner(state: ConnectionState, onRetry: () -> Unit) {
     val language = LocalAppLanguage.current
+    val model = connectionBannerModel(
+        state,
+        zh = language == com.hermes.client.ui.localization.AppLanguage.ZH,
+    )
+    var showDetails by remember(state) { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
     Row(
         Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.errorContainer)
+            .background(
+                if (model.progress) MaterialTheme.colorScheme.secondaryContainer
+                else MaterialTheme.colorScheme.errorContainer,
+            )
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (model.progress) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Spacer(Modifier.width(8.dp))
+        }
         Text(
-            text = bannerLabel(state, zh = language == com.hermes.client.ui.localization.AppLanguage.ZH),
-            color = MaterialTheme.colorScheme.onErrorContainer,
+            text = model.message,
+            color = if (model.progress) MaterialTheme.colorScheme.onSecondaryContainer
+                else MaterialTheme.colorScheme.onErrorContainer,
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.weight(1f),
         )
-        // While Connecting the client is already trying — no point offering a manual retry.
-        if (state !is ConnectionState.Connecting) {
+        if (model.error != null) {
+            TextButton(onClick = { showDetails = true }) {
+                Text(localized(language, "详情", "Details"))
+            }
             TextButton(
                 onClick = onRetry,
                 colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
@@ -1289,6 +1330,53 @@ private fun ConnectionBanner(state: ConnectionState, onRetry: () -> Unit) {
                 ),
             ) { Text(localized(language, "重试", "Retry")) }
         }
+    }
+    if (showDetails && model.error != null) {
+        val diagnostic = model.error.sanitizedDiagnostic()
+        AlertDialog(
+            onDismissRequest = { showDetails = false },
+            title = { Text(localized(language, "连接错误详情", "Connection error details")) },
+            text = {
+                Text(
+                    localized(language, "错误码：", "Error code: ") + model.error.code.value +
+                        "\n\n" + model.message + "\n\n" + diagnostic,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    clipboard.setText(AnnotatedString(diagnostic))
+                    showDetails = false
+                }) { Text(localized(language, "复制诊断", "Copy diagnostics")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDetails = false }) {
+                    Text(localized(language, "关闭", "Close"))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ConnectionRecoveryBanner(message: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(16.dp),
+            strokeWidth = 2.dp,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        Text(
+            message,
+            modifier = Modifier.padding(start = 8.dp),
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 

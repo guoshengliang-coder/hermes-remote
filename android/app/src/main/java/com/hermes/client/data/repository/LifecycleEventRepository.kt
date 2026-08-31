@@ -88,7 +88,14 @@ class LifecycleEventRepository(
     private fun reduce(events: List<LifecycleEventDto>) {
         val next = _activeSessions.value.toMutableSet()
         for (event in events) {
-            val key = LifecycleSessionKey(event.deviceId, event.profile, event.storedSessionId)
+            // Connector events omit the profile for Hermes' default identity. Session rows use the
+            // explicit "default" label, so normalize here as well to keep active-session state and
+            // Android runtime state on the same identity.
+            val key = LifecycleSessionKey(
+                event.deviceId,
+                event.profile?.trim()?.ifBlank { null } ?: DEFAULT_PROFILE,
+                event.storedSessionId,
+            )
             when (event.event) {
                 "run.started", "run.waiting", "run.resumed" -> next += key
                 "run.completed", "run.interrupted", "run.unknown" -> next -= key
@@ -98,6 +105,7 @@ class LifecycleEventRepository(
     }
 
     private companion object {
+        const val DEFAULT_PROFILE = "default"
         const val PAGE_SIZE = 100
         const val MAX_PAGES_PER_SYNC = 10
     }

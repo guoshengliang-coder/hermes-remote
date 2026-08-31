@@ -3,6 +3,9 @@ package com.hermes.client.notifications
 import com.hermes.client.data.network.LifecycleEventDto
 import com.hermes.client.data.progress.SessionRunPhase
 import com.hermes.client.data.progress.SessionRuntimeStore
+import com.hermes.client.ui.localization.AppLanguage
+import com.hermes.client.ui.localization.AppLanguageProvider
+import com.hermes.client.ui.localization.localized
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import javax.inject.Inject
@@ -13,6 +16,7 @@ fun toLifecycleNotificationSpec(
     prefs: NotificationPrefs,
     appInForeground: Boolean,
     coveredByLiveSocket: Boolean = false,
+    language: AppLanguage = AppLanguage.EN,
 ): NotificationSpec? {
     if (!prefs.enabled || coveredByLiveSocket) return null
     val route = chatRoute(event.storedSessionId, event.profile)
@@ -20,9 +24,9 @@ fun toLifecycleNotificationSpec(
         "run.waiting" -> if (!prefs.approvals) null else NotificationSpec(
             id = stableNotificationId(Notif.EVENT_APPROVAL, event.storedSessionId),
             channelId = Notif.CHANNEL_APPROVALS,
-            title = "Hermes needs attention",
+            title = localized(language, "Hermes 需要你处理", "Hermes needs attention"),
             body = event.title?.takeIf { it.isNotBlank() }
-                ?: "A task is waiting for input or approval.",
+                ?: localized(language, "任务正在等待输入或审批。", "A task is waiting for input or approval."),
             route = route,
             actions = emptyList(),
             groupKey = "approval",
@@ -30,9 +34,9 @@ fun toLifecycleNotificationSpec(
         "run.completed" -> if (!prefs.runFinished || appInForeground) null else NotificationSpec(
             id = stableNotificationId(Notif.EVENT_MESSAGE_COMPLETE, event.storedSessionId),
             channelId = Notif.CHANNEL_ACTIVITY,
-            title = "Run finished",
+            title = localized(language, "任务已完成", "Run finished"),
             body = event.title?.takeIf { it.isNotBlank() }
-                ?: "Your agent finished — tap to view.",
+                ?: localized(language, "智能体已经完成，点击查看结果。", "Your agent finished — tap to view."),
             route = route,
             actions = emptyList(),
             groupKey = "run",
@@ -40,9 +44,13 @@ fun toLifecycleNotificationSpec(
         "run.interrupted", "run.unknown" -> if (!prefs.runFinished || appInForeground) null else NotificationSpec(
             id = stableNotificationId(Notif.EVENT_ERROR, event.storedSessionId),
             channelId = Notif.CHANNEL_ACTIVITY,
-            title = "Run needs checking",
-            body = event.title?.takeIf { it.isNotBlank() }
-                ?: "The task stopped without a confirmed completion.",
+            title = localized(language, "任务需要检查", "Run needs checking"),
+            body = event.title?.takeIf { it.isNotBlank() }?.let { "$it (HR-SYNC-001)" }
+                ?: localized(
+                    language,
+                    "任务停止但未确认完成（HR-SYNC-001），点击检查。",
+                    "The task stopped without a confirmed completion (HR-SYNC-001).",
+                ),
             route = route,
             actions = emptyList(),
             groupKey = "run",
@@ -55,6 +63,7 @@ fun toLifecycleNotificationSpec(
 class LifecycleNotificationDispatcher @Inject constructor(
     private val notifier: HermesNotifier,
     private val runtimes: SessionRuntimeStore,
+    private val languages: AppLanguageProvider,
 ) {
     fun dispatch(events: List<LifecycleEventDto>, prefs: NotificationPrefs, appInForeground: Boolean) {
         events.forEach { event ->
@@ -72,7 +81,13 @@ class LifecycleNotificationDispatcher @Inject constructor(
                     }
             }
             runtimes.applyObservedLifecycle(event)
-            toLifecycleNotificationSpec(event, prefs, appInForeground, covered)?.let(notifier::post)
+            toLifecycleNotificationSpec(
+                event,
+                prefs,
+                appInForeground,
+                coveredByLiveSocket = covered,
+                language = languages.current,
+            )?.let(notifier::post)
         }
     }
 
@@ -91,7 +106,9 @@ private fun stableNotificationId(eventType: String, sessionId: String): Int {
 
 private fun chatRoute(sessionId: String, profile: String?): String {
     val id = encodeRouteValue(sessionId)
-    val selectedProfile = profile?.takeIf { it.isNotBlank() } ?: return "chat/$id"
+    // A missing profile on a Connector event means Hermes' default identity, not "whichever
+    // profile happens to be active when the notification is tapped".
+    val selectedProfile = profile?.takeIf { it.isNotBlank() } ?: "default"
     return "chat/$id?profile=${encodeRouteValue(selectedProfile)}"
 }
 

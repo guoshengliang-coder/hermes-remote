@@ -1,6 +1,7 @@
 package com.hermes.client.notifications
 
 import com.hermes.client.data.network.ServerEvent
+import com.hermes.client.ui.localization.AppLanguage
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -111,15 +112,27 @@ class NotificationMapperTest {
     @Test fun error_maps_to_run_failed_with_message() {
         val spec = toNotificationSpec(event(Notif.EVENT_ERROR, "c1", "message" to "boom"), on, appInForeground = false)!!
         assertEquals("Run failed", spec.title)
-        assertEquals("boom", spec.body)
+        assertEquals("boom (HR-RPC-001)", spec.body)
         assertEquals(Notif.CHANNEL_ACTIVITY, spec.channelId)
         assertNull(toNotificationSpec(event(Notif.EVENT_ERROR, "c1"), on, appInForeground = true))
     }
 
     @Test fun error_falls_back_to_default_body_when_message_missing_or_blank() {
-        val fallback = "The agent run failed — tap to view."
+        val fallback = "The agent run failed (HR-RPC-001) — tap to view."
         assertEquals(fallback, toNotificationSpec(event(Notif.EVENT_ERROR, "c1"), on, appInForeground = false)!!.body)
         assertEquals(fallback, toNotificationSpec(event(Notif.EVENT_ERROR, "c1", "message" to "   "), on, appInForeground = false)!!.body)
+    }
+
+    @Test fun app_selected_chinese_localizes_static_notification_chrome() {
+        val spec = toNotificationSpec(
+            event(Notif.EVENT_CLARIFY, "c1"),
+            on,
+            appInForeground = false,
+            language = AppLanguage.ZH,
+        )!!
+        assertEquals("需要你的回答", spec.title)
+        assertEquals("智能体有一个问题。", spec.body)
+        assertEquals("回复", spec.actions.single().label)
     }
 
     // Regression: the gateway's /api/ws never emits run.completed/run.failed (those are on the

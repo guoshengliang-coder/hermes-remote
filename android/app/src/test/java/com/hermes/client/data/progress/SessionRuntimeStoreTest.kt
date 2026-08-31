@@ -42,14 +42,19 @@ class SessionRuntimeStoreTest {
     private data class Fixture(
         val store: SessionRuntimeStore,
         val events: MutableSharedFlow<ServerEvent>,
+        val connection: MutableStateFlow<ConnectionState>,
     )
 
-    private fun lifecycle(kind: String, sessionId: String = "external") = LifecycleEventDto(
+    private fun lifecycle(
+        kind: String,
+        sessionId: String = "external",
+        profile: String? = "personal",
+    ) = LifecycleEventDto(
         type = "session.lifecycle",
         version = 1,
         eventId = "event-$kind-$sessionId",
         deviceId = "mac-mini",
-        profile = "personal",
+        profile = profile,
         runtimeSessionId = "runtime-$sessionId",
         storedSessionId = sessionId,
         event = kind,
@@ -67,7 +72,8 @@ class SessionRuntimeStoreTest {
         val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
         val chat = mockk<ChatRepository>(relaxed = true)
         every { chat.events } returns events
-        every { chat.connectionState } returns MutableStateFlow<ConnectionState>(ConnectionState.Connected)
+        val connection = MutableStateFlow<ConnectionState>(ConnectionState.Connected)
+        every { chat.connectionState } returns connection
         val profiles = mockk<ProfileManager>(relaxed = true)
         every { profiles.active } returns MutableStateFlow<String?>("personal")
         val eagerScope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
@@ -79,7 +85,25 @@ class SessionRuntimeStoreTest {
                 sessionRepository = sessions,
             ),
             events,
+            connection,
         )
+    }
+
+    @Test fun intentionalDisconnectMarksAnActiveTurnForResume() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("s1", "personal")
+        fixture.store.beginPrompt(key, "继续处理")
+        fixture.events.emit(event("message.start", "s1"))
+        fixture.events.emit(event("message.delta", "s1", "半截内容"))
+        runCurrent()
+
+        fixture.connection.value = ConnectionState.Disconnected
+        runCurrent()
+
+        val runtime = fixture.store.runtimes.value.getValue(key)
+        assertEquals(SessionRunPhase.RECONNECTING, runtime.phase)
+        assertTrue(runtime.chat.isGenerating)
+        assertEquals("半截内容", runtime.chat.messages.last().text)
     }
 
     @Test fun offscreen_stream_is_retained_and_marked_running() = runTest {
@@ -258,5 +282,36 @@ class SessionRuntimeStoreTest {
         store.applyObservedLifecycle(lifecycle("run.completed"))
         assertEquals(SessionRunPhase.COMPLETED_UNREAD, store.runtimes.value.getValue(key).phase)
         assertTrue("personal/external" in store.unreadTokens.value)
+    }
+
+    @Test fun profileless_completion_finishes_and_reconciles_the_default_profile_runtime() = runTest {
+        val sessions = mockk<com.hermes.client.data.repository.SessionRepository>()
+        val persisted = listOf(
+            ChatMessage("persisted-user", Role.USER, "查询"),
+            ChatMessage("persisted-answer", Role.ASSISTANT, "服务端已经生成完成的完整回答"),
+        )
+        coEvery { sessions.history("s-default", "default") } returns persisted
+        val (store, events) = fixture(sessions)
+        val key = store.register("s-default", "default")
+        store.beginPrompt(key, "查询")
+        events.emit(event("message.start", "s-default"))
+        events.emit(event("message.delta", "s-default", "手机离开前收到的部分回答"))
+        advanceUntilIdle()
+
+        store.applyObservedLifecycle(
+            lifecycle("run.completed", sessionId = "s-default", profile = null),
+        )
+        runCurrent()
+
+        assertEquals(1, store.runtimes.value.keys.count { it.sessionId == "s-default" })
+        assertFalse(store.runtimes.value.getValue(key).chat.isGenerating)
+        assertEquals(SessionRunPhase.COMPLETED_UNREAD, store.runtimes.value.getValue(key).phase)
+
+        advanceTimeBy(250L)
+        runCurrent()
+        assertEquals(
+            "服务端已经生成完成的完整回答",
+            store.runtimes.value.getValue(key).chat.messages.last().text,
+        )
     }
 }

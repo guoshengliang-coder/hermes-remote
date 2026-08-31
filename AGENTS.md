@@ -129,6 +129,27 @@ Do not claim device verification when only JVM tests were run.
 - Commit and push only when the user or orchestrating workflow authorizes it. Never include
   `environment.md` in a commit.
 
+## User-visible error contract
+
+All new or changed user-visible failures must follow `docs/ERROR_HANDLING.md`. This applies to the
+Android UI and notifications, Gateway and Connector responses, deployment/update tooling, and any
+new component added later.
+
+- Every user-visible error must include a stable `HR-<AREA>-<NNN>` error code and a short,
+  localized explanation. Never show a raw exception, HTTP body, or English-only fallback as the
+  primary message.
+- Register every new code in `docs/ERROR_HANDLING.md` before using it. Released codes are immutable
+  and must never be reused for a different condition.
+- Map low-level failures to the shared structured error model at component boundaries. Preserve the
+  technical cause for diagnostics, but keep it behind a details/copy-diagnostics action and redact
+  credentials and personal data.
+- Provide a recovery action when one is meaningful (for example Retry, Reconnect, Open settings, or
+  View details), and declare whether the failure is retryable.
+- Add tests for the code, Chinese and English summaries, retryability, serialization when applicable,
+  and diagnostic redaction. When touching legacy raw-string error handling, migrate the affected path
+  instead of adding another unstructured message.
+- Treat error-code review as part of every iteration's test-impact review and definition of done.
+
 ## Documentation consistency
 
 Update the relevant documentation when behavior, configuration, deployment, endpoints, or operator

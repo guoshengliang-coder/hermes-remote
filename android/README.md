@@ -145,6 +145,11 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   theme-primary color (no more per-profile neon egg), the model selector loads lazily with
   loading/failed-retry states instead of a silent empty sheet, and tables tighten their fixed
   column width, gain a header bar with copy-as-cells, and open a fullscreen viewing dialog.
+- Version 0.1.44 makes background recovery self-healing: a short background switch keeps a 45-second
+  socket lease, returning to the foreground reconnects immediately, and interrupted turns reattach
+  and reconcile against authoritative history so partial output and stale “generating” state do not
+  linger. Connection recovery is visible in chat, failures carry stable error codes with redacted
+  diagnostics, and notification/channel/action copy follows the language selected inside the app.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
@@ -166,7 +171,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.43-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.44-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

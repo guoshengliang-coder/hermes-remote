@@ -29,6 +29,7 @@ class GatewayConnectionService : Service() {
     @Inject lateinit var profiles: com.hermes.client.data.repository.ProfileManager
     @Inject lateinit var lifecycleEvents: com.hermes.client.data.repository.LifecycleEventRepository
     @Inject lateinit var lifecycleDispatcher: LifecycleNotificationDispatcher
+    @Inject lateinit var languages: com.hermes.client.ui.localization.AppLanguageProvider
 
     // Held separately (not just scope.coroutineContext[Job]) so onDestroy can register an
     // invokeOnCompletion callback on it directly — see onDestroy for why.
@@ -107,7 +108,8 @@ class GatewayConnectionService : Service() {
                 // One malformed/unexpected event must not crash the process — mirror the guard
                 // ChatViewModel's reduce() uses around event handling.
                 runCatching {
-                    toNotificationSpec(event, latestPrefs, appInForeground)?.let { notifier.post(it) }
+                    toNotificationSpec(event, latestPrefs, appInForeground, languages.current)
+                        ?.let { notifier.post(it) }
                     updateRunProgress(event)
                 }
             }
@@ -126,7 +128,7 @@ class GatewayConnectionService : Service() {
         // colour across two different tenants — see RunProgress.reduce's kdoc.
         val activeProfile = profiles.active.value
         runProgress = runProgress.reduce(event, activeProfile)
-        val spec = runProgress.toSpec(latestPrefs)
+        val spec = runProgress.toSpec(latestPrefs, languages.current)
         if (spec == lastRunSpec) return
         lastRunSpec = spec
         if (spec != null) notifier.postRunProgress(spec, runProgress.profile)
@@ -160,10 +162,9 @@ class GatewayConnectionService : Service() {
         // instance isn't retained (and no event can hit a defunct instance in a deferred window).
         lifecycleObserver?.let { androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.removeObserver(it) }
         lifecycleObserver = null
-        // The service owns the background socket. Closing it only while the process is actually
-        // backgrounded preserves foreground chat, but removes the idle 20-second ping wakeups that
-        // caused the earlier battery drain.
-        if (!appInForeground) client.close()
+        // LifecycleMonitoringCoordinator owns socket suspension. Do not close here: Service
+        // destruction can be delivered after ON_START, and an old service closing the singleton
+        // client would race and kill the newly restored foreground connection.
         super.onDestroy()
     }
 

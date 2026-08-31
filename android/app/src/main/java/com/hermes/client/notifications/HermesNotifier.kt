@@ -13,27 +13,49 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
 import com.hermes.client.MainActivity
 import com.hermes.client.R
+import com.hermes.client.ui.localization.AppLanguage
+import com.hermes.client.ui.localization.AppLanguageProvider
+import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.theme.accentArgb
 
 /** Owns notification channels and turns a [NotificationSpec] into a posted Android notification. */
-class HermesNotifier(private val context: Context) {
+class HermesNotifier(
+    private val context: Context,
+    private val languages: AppLanguageProvider,
+) {
     private val mgr = NotificationManagerCompat.from(context)
 
-    fun ensureChannels() {
+    fun ensureChannels(language: AppLanguage = languages.current) {
         val sys = context.getSystemService(NotificationManager::class.java)
         sys.createNotificationChannel(
-            NotificationChannel(Notif.CHANNEL_APPROVALS, "Approvals", NotificationManager.IMPORTANCE_HIGH).apply {
+            NotificationChannel(
+                Notif.CHANNEL_APPROVALS,
+                localized(language, "审批与待处理", "Approvals and attention"),
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
             },
         )
         sys.createNotificationChannel(
-            NotificationChannel(Notif.CHANNEL_SERVICE, "Connection", NotificationManager.IMPORTANCE_MIN),
+            NotificationChannel(
+                Notif.CHANNEL_SERVICE,
+                localized(language, "后台连接", "Background connection"),
+                NotificationManager.IMPORTANCE_MIN,
+            ),
         )
         sys.createNotificationChannel(
-            NotificationChannel(Notif.CHANNEL_ACTIVITY, "Activity", NotificationManager.IMPORTANCE_DEFAULT),
+            NotificationChannel(
+                Notif.CHANNEL_ACTIVITY,
+                localized(language, "任务动态", "Task activity"),
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ),
         )
         sys.createNotificationChannel(
-            NotificationChannel(Notif.CHANNEL_RUN_PROGRESS, "Run progress", NotificationManager.IMPORTANCE_LOW),
+            NotificationChannel(
+                Notif.CHANNEL_RUN_PROGRESS,
+                localized(language, "运行进度", "Run progress"),
+                NotificationManager.IMPORTANCE_LOW,
+            ),
         )
     }
 
@@ -41,7 +63,11 @@ class HermesNotifier(private val context: Context) {
         NotificationCompat.Builder(context, Notif.CHANNEL_SERVICE)
             .setSmallIcon(R.drawable.ic_stat_hermes)
             .setContentTitle("Hermes")
-            .setContentText("A task is running — monitoring in real time")
+            .setContentText(localized(
+                languages.current,
+                "任务正在运行，正在实时监控",
+                "A task is running — monitoring in real time",
+            ))
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .build()
@@ -57,7 +83,9 @@ class HermesNotifier(private val context: Context) {
             .setContentIntent(openIntent(spec.route, spec.id))
         spec.actions.forEach { a ->
             if (a.reply) {
-                val remoteInput = RemoteInput.Builder(Notif.KEY_REPLY_TEXT).setLabel("Reply…").build()
+                val remoteInput = RemoteInput.Builder(Notif.KEY_REPLY_TEXT)
+                    .setLabel(localized(languages.current, "回复…", "Reply…"))
+                    .build()
                 val action = NotificationCompat.Action.Builder(0, a.label, replyIntent(a, spec.id))
                     .addRemoteInput(remoteInput)
                     .setAllowGeneratedReplies(false)

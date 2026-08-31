@@ -128,7 +128,9 @@ class SessionRuntimeStore(
         appScope.launch {
             var previous: ConnectionState? = null
             chatRepository.connectionState.collect { current ->
-                if (current is ConnectionState.Reconnecting || current is ConnectionState.Error) {
+                if (current is ConnectionState.Reconnecting || current is ConnectionState.Error ||
+                    current is ConnectionState.Disconnected
+                ) {
                     _runtimes.update { map ->
                         map.mapValues { (_, runtime) ->
                             if (runtime.phase.isActive) runtime.copy(phase = SessionRunPhase.RECONNECTING)
@@ -142,7 +144,17 @@ class SessionRuntimeStore(
                     // active/visible transcript so any events produced in the gap are recovered.
                     _runtimes.value.values
                         .filter { it.phase.isActive || it.key in visible || it.chat.isGenerating }
-                        .forEach { scheduleHistoryReconciliation(it.key, expectationFor(it)) }
+                        .forEach { runtime ->
+                            val expectation = expectationFor(runtime).let { expected ->
+                                // A stream interrupted mid-answer may not be a literal prefix of
+                                // Hermes' persisted final formatting. Preserve the user-turn guard,
+                                // but let authoritative REST replace the partial assistant body.
+                                if (runtime.phase == SessionRunPhase.RECONNECTING || runtime.chat.isGenerating) {
+                                    expected.copy(lastAssistantText = "")
+                                } else expected
+                            }
+                            scheduleHistoryReconciliation(runtime.key, expectation)
+                        }
                 }
                 previous = current
             }
@@ -382,7 +394,7 @@ class SessionRuntimeStore(
 
     /** Fold sanitized Relay observations into the same state read by session/chat/activity UIs. */
     fun applyObservedLifecycle(event: LifecycleEventDto) {
-        val key = key(event.storedSessionId, event.profile)
+        val key = observedLifecycleKey(event)
         val now = System.currentTimeMillis()
         updateRuntime(key) { runtime ->
             when (event.event) {
@@ -421,10 +433,41 @@ class SessionRuntimeStore(
         when (event.event) {
             "run.completed" -> {
                 if (key in visible) markRead(key) else markUnread(key)
-                _runtimes.value[key]?.let { scheduleHistoryReconciliation(key, expectationFor(it)) }
+                _runtimes.value[key]?.let { runtime ->
+                    // The observer confirms that Hermes has finished, but it does not carry the
+                    // final assistant body. A phone that was backgrounded may only hold an early
+                    // streaming prefix (or a differently formatted partial snapshot), so requiring
+                    // REST to contain that exact assistant text can reject the authoritative final
+                    // answer forever. Preserve the user-turn identity/count guard, but let the
+                    // completed REST assistant turn replace the partial body.
+                    scheduleHistoryReconciliation(
+                        key,
+                        expectationFor(runtime).copy(lastAssistantText = ""),
+                    )
+                }
             }
             "run.interrupted", "run.unknown" -> if (key !in visible) markUnread(key)
         }
+    }
+
+    /**
+     * Connector events omit `profile` for Hermes' default identity while session-list rows
+     * normalize the same identity to "default". Prefer an already registered runtime for the
+     * session (and specifically its default-profile variant) so completion does not update a
+     * shadow `(null, session)` entry while the visible `(default, session)` chat stays generating.
+     * If the process has no runtime yet, retaining null is safe: the notification route explicitly
+     * opens the default profile and its fresh history request is authoritative.
+     */
+    private fun observedLifecycleKey(event: LifecycleEventDto): SessionRuntimeKey {
+        val profile = event.profile?.trim()?.ifBlank { null }
+        val candidates = _runtimes.value.keys.filter { it.sessionId == event.storedSessionId }
+        if (profile != null) {
+            candidates.firstOrNull { it.profile == profile }?.let { return it }
+        } else {
+            candidates.singleOrNull()?.let { return it }
+            candidates.firstOrNull { it.profile == null || it.profile == DEFAULT_PROFILE }?.let { return it }
+        }
+        return key(event.storedSessionId, profile)
     }
 
     private fun updateRuntime(
@@ -692,7 +735,16 @@ class SessionRuntimeStore(
                         it.copy(phase = if (it.chat.isGenerating) SessionRunPhase.THINKING else SessionRunPhase.IDLE)
                     }
                 }
-                .onFailure { markInterrupted(runtime.key) }
+                .onFailure { error ->
+                    // Resume can race a task completing while the socket was down. Do not invent
+                    // an interruption: lifecycle sync and authoritative history decide whether it
+                    // finished, is still running, or genuinely stopped.
+                    DebugLog.log("session", "resume after reconnect ${runtime.key.sessionId} failed: ${error.message}")
+                    scheduleHistoryReconciliation(
+                        runtime.key,
+                        expectationFor(runtime).copy(lastAssistantText = ""),
+                    )
+                }
         }
     }
 
@@ -700,6 +752,7 @@ class SessionRuntimeStore(
         const val PROCESS_POLL_MS = 5_000L
         const val PROCESS_DISCOVERY_GRACE_POLLS = 4
         const val PROCESS_OUTPUT_TAIL_CHARS = 4_000
+        const val DEFAULT_PROFILE = "default"
         val HISTORY_RECONCILE_DELAYS_MS = longArrayOf(250L, 1_000L, 3_000L, 10_000L)
         /** Keep recent idle histories warm without retaining every session opened in this process. */
         const val MAX_CACHED_IDLE_RUNTIMES = 20

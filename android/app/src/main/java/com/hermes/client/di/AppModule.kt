@@ -249,8 +249,9 @@ object AppModule {
     @Singleton
     fun provideHermesNotifier(
         @ApplicationContext context: Context,
+        languageProvider: com.hermes.client.ui.localization.AppLanguageProvider,
     ): com.hermes.client.notifications.HermesNotifier =
-        com.hermes.client.notifications.HermesNotifier(context)
+        com.hermes.client.notifications.HermesNotifier(context, languageProvider)
 
     @Provides
     @Singleton

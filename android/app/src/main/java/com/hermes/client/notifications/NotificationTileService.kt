@@ -38,6 +38,7 @@ class NotificationTileService : TileService() {
     @Inject lateinit var settings: NotificationSettings
     @Inject lateinit var strategies: NotificationMonitoringStrategyStore
     @Inject lateinit var runtimes: SessionRuntimeStore
+    @Inject lateinit var languages: com.hermes.client.ui.localization.AppLanguageProvider
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -95,7 +96,13 @@ class NotificationTileService : TileService() {
         tile.state = if (enabled) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = "Hermes"
         tile.icon = Icon.createWithResource(this, R.drawable.ic_stat_hermes)
-        if (Build.VERSION.SDK_INT >= 29) tile.subtitle = if (enabled) "On" else "Off"
+        if (Build.VERSION.SDK_INT >= 29) {
+            tile.subtitle = com.hermes.client.ui.localization.localized(
+                languages.current,
+                if (enabled) "已开启" else "已关闭",
+                if (enabled) "On" else "Off",
+            )
+        }
         tile.updateTile()
     }
 

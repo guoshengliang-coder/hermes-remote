@@ -34,6 +34,12 @@ class HermesApp : Application() {
             .distinctUntilChanged()
             .onEach { DebugLog.setEnabled(it) }
             .launchIn(appScope)
+        // Notification channels live outside Compose and Android keeps them after creation. Re-run
+        // channel creation when the in-app language changes so their names follow the user's choice.
+        settingsStore.appLanguage
+            .distinctUntilChanged()
+            .onEach { notifier.ensureChannels(it) }
+            .launchIn(appScope)
         lifecycleMonitoring.start()
     }
 }
