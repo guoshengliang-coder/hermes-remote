@@ -143,15 +143,31 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val drawerScope = androidx.compose.runtime.rememberCoroutineScope()
     val openCard: () -> Unit = { drawerScope.launch { drawerState.open() } }
+    // Navigating from the card closes it for the pushed screen, but ARMS a reopen: pressing back
+    // from that screen returns to the card (not the bare list) — the card is where you came from.
+    var reopenCardOnSessions by androidx.compose.runtime.remember { mutableStateOf(false) }
     val closeCardAnd: (String) -> Unit = { dest ->
         drawerScope.launch { drawerState.close() }
+        reopenCardOnSessions = true
         push(dest)
+    }
+    LaunchedEffect(route) {
+        if (reopenCardOnSessions && route == "sessions") {
+            reopenCardOnSessions = false
+            drawerState.open()
+        }
+    }
+
+    // Belt-and-braces: back must NEVER finish the activity while the card is open. The sheet's
+    // own predictive-back handler (composed later) takes precedence when available.
+    androidx.activity.compose.BackHandler(enabled = drawerState.isOpen) {
+        drawerScope.launch { drawerState.close() }
     }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
         gesturesEnabled = drawerState.isOpen || route == "sessions",
-        drawerContent = { CardPage(onNavigate = closeCardAnd) },
+        drawerContent = { CardPage(onNavigate = closeCardAnd, drawerState = drawerState) },
     ) {
     Scaffold(
         // Let each destination's own Scaffold own the top/side insets; this outer one

@@ -50,6 +50,7 @@ import com.hermes.client.ui.localization.localized
 @Composable
 fun CardPage(
     onNavigate: (String) -> Unit,
+    drawerState: androidx.compose.material3.DrawerState? = null,
     vm: CardPageViewModel = hiltViewModel(),
 ) {
     val language = LocalAppLanguage.current
@@ -76,7 +77,10 @@ fun CardPage(
     // Match the design: the sheet never spans the full screen (>=56dp of scrim stays visible),
     // sits on plain surface (the M3 default surfaceContainerLow reads purple against our mint
     // palette), and rounds only its end corners.
+    // Wiring drawerState into the sheet is what gives it (predictive) back handling: the
+    // system back gesture/key closes the card instead of finishing the activity.
     ModalDrawerSheet(
+        drawerState = drawerState ?: androidx.compose.material3.rememberDrawerState(androidx.compose.material3.DrawerValue.Open),
         modifier = Modifier.fillMaxWidth(0.86f).widthIn(max = 360.dp),
         drawerShape = androidx.compose.foundation.shape.RoundedCornerShape(
             topStart = 0.dp, topEnd = 22.dp, bottomEnd = 22.dp, bottomStart = 0.dp,
@@ -136,7 +140,7 @@ fun CardPage(
             ) {
                 InfoTile(
                     title = localized(language, "本周用量", "This week"),
-                    value = state.weekTokens?.let { compactTokens(it) + " tok" } ?: "—",
+                    value = state.weekTokens?.let { compactTokens(it) + " token" } ?: "—",
                     sub = state.weekCost?.let { localized(language, "预估 $%.2f".format(it), "est. $%.2f".format(it)) },
                     modifier = Modifier.weight(1f).clickable { onNavigate("usage") },
                 )
