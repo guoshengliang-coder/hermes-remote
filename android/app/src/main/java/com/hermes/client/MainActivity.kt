@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
@@ -28,6 +29,8 @@ import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.AppLanguageProvider
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.startup.StartupScreen
+import com.hermes.client.ui.startup.StartupViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.lifecycle.lifecycleScope
 import javax.inject.Inject
@@ -43,6 +46,8 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var chat: com.hermes.client.data.repository.ChatRepository
     @Inject lateinit var pendingShare: com.hermes.client.share.PendingShareStore
     @Inject lateinit var languages: AppLanguageProvider
+    private val startupViewModel: StartupViewModel by viewModels()
+    private val processColdStart = PROCESS_UI_LAUNCH_CLAIMED.compareAndSet(false, true)
 
     /**
      * Route requested by a tapped notification (see `HermesNotifier.openIntent`'s
@@ -54,6 +59,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        startupViewModel.onActivityCreated(processColdStart)
         val dlData = intent?.data
         if (dlData != null && isNewChatLink(dlData.toString())) {
             openNewChat()
@@ -77,6 +83,7 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.DARK -> true
             }
             val avatarColors by avatarColorStore.overrides.collectAsState(initial = emptyMap())
+            val startupState by startupViewModel.state.collectAsState()
             CompositionLocalProvider(
                 LocalAppLanguage provides language,
                 com.hermes.client.ui.theme.LocalAvatarColors provides avatarColors,
@@ -95,18 +102,34 @@ class MainActivity : ComponentActivity() {
                                     onDismiss = { CrashReporter.clear(this@MainActivity); report = null },
                                 )
                             } else {
-                                val deepLinkRoute by pendingRoute
-                                HermesNav(
-                                    hasConfig = hasConfig,
-                                    deepLinkRoute = deepLinkRoute,
-                                    onDeepLinkConsumed = { pendingRoute.value = null },
-                                )
+                                androidx.compose.foundation.layout.Box {
+                                    val deepLinkRoute by pendingRoute
+                                    HermesNav(
+                                        hasConfig = hasConfig,
+                                        deepLinkRoute = deepLinkRoute,
+                                        onDeepLinkConsumed = { pendingRoute.value = null },
+                                    )
+                                    StartupScreen(
+                                        state = startupState,
+                                        onRetry = startupViewModel::retry,
+                                        onOpenConnectionSettings = {
+                                            startupViewModel.continueOffline()
+                                            pendingRoute.value = "settings_connection"
+                                        },
+                                        onContinueOffline = startupViewModel::continueOffline,
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        startupViewModel.onForeground()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -256,5 +279,9 @@ class MainActivity : ComponentActivity() {
                     ).show()
                 }
         }
+    }
+
+    private companion object {
+        val PROCESS_UI_LAUNCH_CLAIMED = java.util.concurrent.atomic.AtomicBoolean(false)
     }
 }

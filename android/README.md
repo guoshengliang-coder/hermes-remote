@@ -218,6 +218,17 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 - `LocalizationCoverageTest` rejects newly added raw Compose UI literals unless the line includes a
   reviewed `l10n-allow` reason for one of those intentional exceptions.
 
+## Startup and connection recovery
+
+- A configured process-cold launch shows the branded startup gate until the shared WebSocket has
+  received `gateway.ready`; optional destination data continues loading progressively afterward.
+- A first launch with no stored Relay configuration skips the custom gate and opens Setup directly.
+- Foreground returns keep the existing navigation stack. A healthy connection shows no gate; a
+  disconnected connection gets a 200 ms no-flash recovery window before the gate overlays the
+  current destination.
+- Recovery stops blocking after 15 seconds and offers retry, connection settings, or temporary
+  access to cached UI. Device-offline and connection failures use the registered `HR-CONN-*` codes.
+
 ## Build
 
 For local development checks, Gradle remains available directly. For every APK distributed to a
