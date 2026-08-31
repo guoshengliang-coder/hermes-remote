@@ -17,6 +17,9 @@ services:
       PORT: "8787"
       APP_TOKEN: "${APP_TOKEN}"
       CONNECTOR_TOKEN: "${CONNECTOR_TOKEN}"
+      LIFECYCLE_EVENT_STORE_FILE: "/var/lib/hermes-remote/lifecycle-events.json"
+    volumes:
+      - hermes_gateway_data:/var/lib/hermes-remote
     ports:
       - "127.0.0.1:8787:8787"
     healthcheck:
@@ -29,3 +32,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  hermes_gateway_data:

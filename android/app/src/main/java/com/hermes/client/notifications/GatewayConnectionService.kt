@@ -11,6 +11,9 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -24,6 +27,8 @@ class GatewayConnectionService : Service() {
     @Inject lateinit var settings: NotificationSettings
     @Inject lateinit var notifier: HermesNotifier
     @Inject lateinit var profiles: com.hermes.client.data.repository.ProfileManager
+    @Inject lateinit var lifecycleEvents: com.hermes.client.data.repository.LifecycleEventRepository
+    @Inject lateinit var lifecycleDispatcher: LifecycleNotificationDispatcher
 
     // Held separately (not just scope.coroutineContext[Job]) so onDestroy can register an
     // invokeOnCompletion callback on it directly — see onDestroy for why.
@@ -85,6 +90,19 @@ class GatewayConnectionService : Service() {
         // events arrive; also picks up mid-run toggles (e.g. approvals turned off).
         scope.launch { settings.prefs.collect { latestPrefs = it } }
         scope.launch {
+            while (currentCoroutineContext().isActive) {
+                val prefs = latestPrefs
+                val moreAvailable = if (prefs.enabled) {
+                    runCatching {
+                        lifecycleEvents.sync { batch ->
+                            lifecycleDispatcher.dispatch(batch, prefs, appInForeground)
+                        }.moreAvailable
+                    }.getOrDefault(false)
+                } else false
+                if (!moreAvailable) delay(LIFECYCLE_POLL_MS)
+            }
+        }
+        scope.launch {
             client.events.collect { event ->
                 // One malformed/unexpected event must not crash the process — mirror the guard
                 // ChatViewModel's reduce() uses around event handling.
@@ -142,10 +160,16 @@ class GatewayConnectionService : Service() {
         // instance isn't retained (and no event can hit a defunct instance in a deferred window).
         lifecycleObserver?.let { androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.removeObserver(it) }
         lifecycleObserver = null
+        // The service owns the background socket. Closing it only while the process is actually
+        // backgrounded preserves foreground chat, but removes the idle 20-second ping wakeups that
+        // caused the earlier battery drain.
+        if (!appInForeground) client.close()
         super.onDestroy()
     }
 
     companion object {
+        private const val LIFECYCLE_POLL_MS = 3_000L
+
         fun start(context: Context) {
             val i = Intent(context, GatewayConnectionService::class.java)
             androidx.core.content.ContextCompat.startForegroundService(context, i)

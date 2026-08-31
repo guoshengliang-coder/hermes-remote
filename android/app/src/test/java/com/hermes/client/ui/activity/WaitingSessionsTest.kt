@@ -16,14 +16,16 @@ class WaitingSessionsTest {
             runtime("a", SessionRunPhase.STREAMING),
             runtime("b", SessionRunPhase.WAITING_APPROVAL, at = 10),
             runtime("c", SessionRunPhase.WAITING_CLARIFICATION, at = 20),
+            runtime("e", SessionRunPhase.WAITING_ATTENTION, at = 30),
             runtime("d", SessionRunPhase.IDLE),
         ).associateBy { it.key }
         val alerts = waitingSessionAlerts(runtimes, profile = null) { "T-$it" }
-        assertEquals(listOf("c", "b"), alerts.map { it.sessionId }) // newest first
-        assertEquals(SessionAlertReason.WAITING_CLARIFICATION, alerts[0].reason)
-        assertEquals(SessionAlertReason.WAITING_APPROVAL, alerts[1].reason)
-        assertEquals("T-b", alerts[1].title)
-        assertEquals("chat/b", alerts[1].route)
+        assertEquals(listOf("e", "c", "b"), alerts.map { it.sessionId }) // newest first
+        assertEquals(SessionAlertReason.WAITING_ATTENTION, alerts[0].reason)
+        assertEquals(SessionAlertReason.WAITING_CLARIFICATION, alerts[1].reason)
+        assertEquals(SessionAlertReason.WAITING_APPROVAL, alerts[2].reason)
+        assertEquals("T-b", alerts[2].title)
+        assertEquals("chat/b", alerts[2].route)
     }
 
     @Test fun profileScopingKeepsOwnAndUnscoped() {

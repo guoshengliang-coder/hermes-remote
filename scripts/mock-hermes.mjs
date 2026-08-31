@@ -71,7 +71,9 @@ wss.on("connection", (socket) => {
     socket.send(JSON.stringify({
       jsonrpc: "2.0",
       id: request.id,
-      result: { ok: true, method: request.method },
+      result: request.method === "session.active_list"
+        ? { sessions: [] }
+        : { ok: true, method: request.method },
     }));
   });
 });

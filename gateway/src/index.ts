@@ -2,6 +2,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
+import { resolve } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   PROTOCOL_VERSION,
@@ -10,6 +11,7 @@ import {
   type HelloMessage,
   type WireMessage,
 } from "@hermes-remote/protocol";
+import { LifecycleEventStore } from "./lifecycle-event-store.js";
 
 const port = positiveIntEnv("PORT", 8787, 65_535);
 const host = process.env.HOST ?? "0.0.0.0";
@@ -26,6 +28,14 @@ const maxControlConnections = positiveIntEnv("MAX_CONTROL_CONNECTIONS", 32);
 const maxWirePayloadBytes = positiveIntEnv("MAX_WIRE_PAYLOAD_BYTES", 20 * 1024 * 1024);
 const maxAppPayloadBytes = positiveIntEnv("MAX_APP_WS_PAYLOAD_BYTES", 12 * 1024 * 1024);
 const maxSocketBufferedBytes = positiveIntEnv("MAX_SOCKET_BUFFERED_BYTES", 24 * 1024 * 1024);
+const lifecycleEventStoreFile = resolve(
+  process.env.LIFECYCLE_EVENT_STORE_FILE
+    ?? (process.env.NODE_ENV === "production"
+      ? "/var/lib/hermes-remote/lifecycle-events.json"
+      : ".data/lifecycle-events.json"),
+);
+const maxLifecycleEvents = positiveIntEnv("MAX_LIFECYCLE_EVENTS", 10_000, 1_000_000);
+const lifecycleEvents = new LifecycleEventStore(lifecycleEventStoreFile, maxLifecycleEvents);
 
 type Peer = {
   socket: WebSocket;
@@ -241,6 +251,13 @@ async function handleHttpRequest(request: IncomingMessage, response: ServerRespo
     return;
   }
 
+  // These endpoints are owned by the Relay. They remain available while the Mac is offline and
+  // must never be forwarded through the Connector to Hermes.
+  if (url.pathname.startsWith("/api/mobile/events")) {
+    await handleMobileEventsRequest(request, response, url);
+    return;
+  }
+
   const deviceId = firstHeader(request, "x-hermes-device-id") ?? defaultDeviceId;
   const connector = connectors.get(deviceId);
   if (!connector) {
@@ -278,6 +295,49 @@ async function handleHttpRequest(request: IncomingMessage, response: ServerRespo
   });
 }
 
+async function handleMobileEventsRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  url: URL,
+): Promise<void> {
+  if (url.pathname === "/api/mobile/events" && request.method === "GET") {
+    const after = nonNegativeIntegerQuery(url, "after", 0);
+    const limit = positiveIntegerQuery(url, "limit", 100, 500);
+    if (after === undefined || limit === undefined) {
+      sendHttpError(response, 400, "invalid_query");
+      return;
+    }
+    const page = await lifecycleEvents.list(after, limit);
+    sendJson(response, 200, page);
+    return;
+  }
+
+  if ((url.pathname === "/api/mobile/events/ack" || url.pathname === "/api/mobile/events/read")
+      && request.method === "POST") {
+    let body: Buffer;
+    try {
+      body = await readRequestBody(request, Math.min(maxBodyBytes, 256 * 1024));
+    } catch {
+      sendHttpError(response, 413, "request_too_large");
+      return;
+    }
+    let eventIds: string[];
+    try {
+      eventIds = parseEventIds(body);
+    } catch {
+      sendHttpError(response, 400, "invalid_request");
+      return;
+    }
+    const changed = url.pathname.endsWith("/read")
+      ? await lifecycleEvents.markRead(eventIds)
+      : await lifecycleEvents.markDelivered(eventIds);
+    sendJson(response, 200, { ok: true, changed });
+    return;
+  }
+
+  sendHttpError(response, 404, "not_found");
+}
+
 function route(peer: Peer, message: WireMessage): void {
   if (peer.role === "app" && message.type === "command") {
     const connector = connectors.get(message.targetDeviceId);
@@ -302,6 +362,26 @@ function route(peer: Peer, message: WireMessage): void {
 
   if (peer.role !== "connector") {
     send(peer.socket, errorMessage("forbidden_message", "Message is not valid for this peer"));
+    return;
+  }
+
+  if (message.type === "session.lifecycle") {
+    if (message.deviceId !== peer.deviceId) {
+      send(peer.socket, errorMessage("device_mismatch", "Lifecycle event device does not match Connector"));
+      return;
+    }
+    // ACK only after the transition is durable. If the socket drops first, the Connector retains
+    // the event in its local outbox and resends it; ingest() deduplicates by the stable event ID.
+    void lifecycleEvents.ingest(message).then(() => {
+      send(peer.socket, {
+        type: "session.lifecycle.ack",
+        version: PROTOCOL_VERSION,
+        eventId: message.eventId,
+      });
+    }).catch((error) => {
+      console.error("Unable to persist lifecycle event", safeError(error));
+      send(peer.socket, errorMessage("lifecycle_store_failed", "Unable to persist lifecycle event"));
+    });
     return;
   }
 
@@ -559,6 +639,46 @@ function sendHttpError(response: ServerResponse, status: number, code: string): 
   }
   response.writeHead(status, { "content-type": "application/json" });
   response.end(JSON.stringify({ error: code }));
+}
+
+function sendJson(response: ServerResponse, status: number, value: unknown): void {
+  response.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+  response.end(JSON.stringify(value));
+}
+
+function parseEventIds(body: Buffer): string[] {
+  const value: unknown = JSON.parse(body.toString("utf8"));
+  if (!isRecord(value) || !Array.isArray(value.event_ids) || value.event_ids.length > 500) {
+    throw new Error("invalid_event_ids");
+  }
+  return value.event_ids.map((eventId) => {
+    if (typeof eventId !== "string" || eventId.length < 1 || eventId.length > 256) {
+      throw new Error("invalid_event_id");
+    }
+    return eventId;
+  });
+}
+
+function nonNegativeIntegerQuery(url: URL, name: string, fallback: number): number | undefined {
+  const raw = url.searchParams.get(name);
+  if (raw === null) return fallback;
+  if (!/^\d+$/.test(raw)) return undefined;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) ? value : undefined;
+}
+
+function positiveIntegerQuery(
+  url: URL,
+  name: string,
+  fallback: number,
+  max: number,
+): number | undefined {
+  const value = nonNegativeIntegerQuery(url, name, fallback);
+  return value !== undefined && value > 0 && value <= max ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function rejectUpgrade(socket: NodeJS.WritableStream, status: number, message: string): void {

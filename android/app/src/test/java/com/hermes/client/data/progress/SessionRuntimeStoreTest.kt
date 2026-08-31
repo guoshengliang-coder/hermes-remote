@@ -1,6 +1,7 @@
 package com.hermes.client.data.progress
 
 import com.hermes.client.data.network.ConnectionState
+import com.hermes.client.data.network.LifecycleEventDto
 import com.hermes.client.data.network.ServerEvent
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ProfileManager
@@ -41,6 +42,23 @@ class SessionRuntimeStoreTest {
     private data class Fixture(
         val store: SessionRuntimeStore,
         val events: MutableSharedFlow<ServerEvent>,
+    )
+
+    private fun lifecycle(kind: String, sessionId: String = "external") = LifecycleEventDto(
+        type = "session.lifecycle",
+        version = 1,
+        eventId = "event-$kind-$sessionId",
+        deviceId = "mac-mini",
+        profile = "personal",
+        runtimeSessionId = "runtime-$sessionId",
+        storedSessionId = sessionId,
+        event = kind,
+        state = when (kind) {
+            "run.waiting" -> "waiting"
+            "run.completed" -> "idle"
+            else -> "working"
+        },
+        occurredAt = "2026-08-31T08:30:00.000Z",
     )
 
     private fun kotlinx.coroutines.test.TestScope.fixture(
@@ -223,5 +241,22 @@ class SessionRuntimeStoreTest {
         assertTrue(active in store.runtimes.value)
         assertEquals(SessionRunPhase.SUBMITTING, store.runtimes.value.getValue(active).phase)
         assertTrue(store.runtimes.value.size <= 21)
+    }
+
+    @Test fun observed_external_run_updates_list_state_without_becoming_phone_owned() = runTest {
+        val (store, _) = fixture()
+        val key = SessionRuntimeKey("personal", "external")
+
+        store.applyObservedLifecycle(lifecycle("run.started"))
+        assertEquals(SessionRunPhase.THINKING, store.runtimes.value.getValue(key).phase)
+        assertTrue(store.runtimes.value.getValue(key).hasActiveWork)
+        assertFalse(store.runtimes.value.getValue(key).startedLocally)
+
+        store.applyObservedLifecycle(lifecycle("run.waiting"))
+        assertEquals(SessionRunPhase.WAITING_ATTENTION, store.runtimes.value.getValue(key).phase)
+
+        store.applyObservedLifecycle(lifecycle("run.completed"))
+        assertEquals(SessionRunPhase.COMPLETED_UNREAD, store.runtimes.value.getValue(key).phase)
+        assertTrue("personal/external" in store.unreadTokens.value)
     }
 }

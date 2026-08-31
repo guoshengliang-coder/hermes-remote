@@ -32,6 +32,55 @@ test("round-trips a tunneled HTTP request", () => {
   assert.deepEqual(parseWireMessage(encodeWireMessage(message)), message);
 });
 
+test("round-trips a sanitized session lifecycle event and acknowledgement", () => {
+  const event = {
+    type: "session.lifecycle" as const,
+    version: PROTOCOL_VERSION,
+    eventId: "life-1",
+    deviceId: "mac-mini",
+    profile: "default",
+    runtimeSessionId: "runtime-1",
+    storedSessionId: "stored-1",
+    event: "run.waiting" as const,
+    state: "waiting" as const,
+    occurredAt: "2026-08-31T08:30:00.000Z",
+    title: "Research",
+  };
+  const ack = {
+    type: "session.lifecycle.ack" as const,
+    version: PROTOCOL_VERSION,
+    eventId: event.eventId,
+  };
+  assert.deepEqual(parseWireMessage(encodeWireMessage(event)), event);
+  assert.deepEqual(parseWireMessage(encodeWireMessage(ack)), ack);
+});
+
+test("rejects unsafe or malformed lifecycle fields", () => {
+  const valid = {
+    type: "session.lifecycle",
+    version: PROTOCOL_VERSION,
+    eventId: "life-1",
+    deviceId: "mac-mini",
+    runtimeSessionId: "runtime-1",
+    storedSessionId: "stored-1",
+    event: "run.completed",
+    state: "idle",
+    occurredAt: "2026-08-31T08:30:00.000Z",
+  };
+  assert.throws(
+    () => parseWireMessage(JSON.stringify({ ...valid, event: "message.delta" })),
+    /invalid_lifecycle_event/,
+  );
+  assert.throws(
+    () => parseWireMessage(JSON.stringify({ ...valid, occurredAt: "not-a-date" })),
+    /invalid_occurred_at/,
+  );
+  assert.throws(
+    () => parseWireMessage(JSON.stringify({ ...valid, prompt: "secret" })),
+    /invalid_lifecycle_fields/,
+  );
+});
+
 test("round-trips an acknowledged streaming HTTP response", () => {
   const messages = [
     {

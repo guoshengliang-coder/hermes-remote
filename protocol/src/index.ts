@@ -43,6 +43,42 @@ export interface DeviceStatus {
   online: boolean;
 }
 
+export type SessionLifecycleEventKind =
+  | "run.started"
+  | "run.waiting"
+  | "run.resumed"
+  | "run.completed"
+  | "run.interrupted"
+  | "run.unknown";
+
+export type SessionLifecycleState = "starting" | "working" | "waiting" | "idle" | "unknown";
+
+/**
+ * A small, sanitized lifecycle transition observed through Hermes' read-only
+ * `session.active_list` RPC. It deliberately carries no prompt, model output,
+ * tool result, command, file path, credential, or approval payload.
+ */
+export interface SessionLifecycleEvent {
+  type: "session.lifecycle";
+  version: typeof PROTOCOL_VERSION;
+  eventId: string;
+  deviceId: string;
+  profile?: string;
+  runtimeSessionId: string;
+  storedSessionId: string;
+  event: SessionLifecycleEventKind;
+  state: SessionLifecycleState;
+  occurredAt: string;
+  title?: string;
+}
+
+/** Relay acknowledgement: the event is durable and the Connector may drop it from its outbox. */
+export interface SessionLifecycleAck {
+  type: "session.lifecycle.ack";
+  version: typeof PROTOCOL_VERSION;
+  eventId: string;
+}
+
 export interface ErrorMessage {
   type: "error";
   version: typeof PROTOCOL_VERSION;
@@ -132,6 +168,8 @@ export type WireMessage =
   | ChatCommand
   | RelayEvent
   | DeviceStatus
+  | SessionLifecycleEvent
+  | SessionLifecycleAck
   | ErrorMessage
   | TunnelHttpRequest
   | TunnelHttpResponse
@@ -206,6 +244,41 @@ export function parseWireMessage(raw: string): WireMessage {
         version: PROTOCOL_VERSION,
         deviceId: boundedString(value.deviceId, "invalid_device_id", 1, 128),
         online: booleanValue(value.online, "invalid_online"),
+      };
+    case "session.lifecycle": {
+      assertOnlyKeys(value, new Set([
+        "type", "version", "eventId", "deviceId", "profile", "runtimeSessionId",
+        "storedSessionId", "event", "state", "occurredAt", "title",
+      ]), "invalid_lifecycle_fields");
+      const profile = optionalString(value.profile, "invalid_profile", 128);
+      const title = optionalString(value.title, "invalid_title", 256);
+      return {
+        type: "session.lifecycle",
+        version: PROTOCOL_VERSION,
+        eventId: boundedString(value.eventId, "invalid_event_id", 1, 128),
+        deviceId: boundedString(value.deviceId, "invalid_device_id", 1, 128),
+        ...(profile === undefined ? {} : { profile }),
+        runtimeSessionId: boundedString(value.runtimeSessionId, "invalid_runtime_session_id", 1, 256),
+        storedSessionId: boundedString(value.storedSessionId, "invalid_stored_session_id", 1, 256),
+        event: oneOf(
+          value.event,
+          ["run.started", "run.waiting", "run.resumed", "run.completed", "run.interrupted", "run.unknown"] as const,
+          "invalid_lifecycle_event",
+        ),
+        state: oneOf(
+          value.state,
+          ["starting", "working", "waiting", "idle", "unknown"] as const,
+          "invalid_lifecycle_state",
+        ),
+        occurredAt: isoTimestamp(value.occurredAt),
+        ...(title === undefined ? {} : { title }),
+      };
+    }
+    case "session.lifecycle.ack":
+      return {
+        type: "session.lifecycle.ack",
+        version: PROTOCOL_VERSION,
+        eventId: boundedString(value.eventId, "invalid_event_id", 1, 128),
       };
     case "error": {
       const requestId = optionalString(value.requestId, "invalid_request_id", 128);
@@ -341,6 +414,16 @@ function optionalString(value: unknown, error: string, maxLength: number): strin
 function optionalBase64(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   return boundedString(value, "invalid_base64_body", 0, MAX_BASE64_CHARS);
+}
+
+function isoTimestamp(value: unknown): string {
+  const timestamp = boundedString(value, "invalid_occurred_at", 1, 64);
+  if (!Number.isFinite(Date.parse(timestamp))) throw new Error("invalid_occurred_at");
+  return timestamp;
+}
+
+function assertOnlyKeys(value: Record<string, unknown>, allowed: ReadonlySet<string>, error: string): void {
+  if (Object.keys(value).some((key) => !allowed.has(key))) throw new Error(error);
 }
 
 function booleanValue(value: unknown, error: string): boolean {

@@ -30,6 +30,7 @@ TLS_KEY_FILE=/etc/letsencrypt/live/<domain>/privkey.pem
 APP_TOKEN_FILE=/etc/hermes-remote/secrets/app-token
 CONNECTOR_TOKEN_FILE=/etc/hermes-remote/secrets/connector-token
 DEFAULT_DEVICE_ID=mac-mini
+LIFECYCLE_EVENT_STORE_FILE=/var/lib/hermes-remote/lifecycle-events.json
 ```
 
 The deployment copies the certificate into `/etc/hermes-remote/tls` with narrowly scoped permissions and refreshes it from a Certbot deploy hook. Because DERP owns port 80, the `mrlgs.net` renewal configuration stops DERP before the standalone HTTP-01 challenge and starts it again afterward. The actual environment file belongs at `/etc/hermes-remote/gateway.env`; tokens are separate files readable only by the service group. None of them may be committed.
@@ -46,3 +47,13 @@ Attachment deployments additionally configure `FILES_ROOT` to the narrowest Mac 
 be returned to the phone. `UPLOAD_ROOT` must remain inside it; its defaults are
 `$HOME/.hermes-remote/uploads`, 6 MiB per upload, 100 MiB per download, 200 cached uploads, 512 MiB
 cached total, and seven-day retention. These are operational limits, not secrets.
+
+The Connector lifecycle observer is enabled by default in live Hermes mode. Its safe local state is
+stored at `$HOME/.hermes-remote/observer-state.json`; override it with `OBSERVER_STATE_FILE` when the
+service account needs another writable directory. `OBSERVER_ACTIVE_POLL_MS` defaults to `2000`,
+`OBSERVER_IDLE_POLL_MS` to `20000`, and `OBSERVER_RPC_TIMEOUT_MS` to `10000`. Set
+`SESSION_OBSERVER_ENABLED=0` to disable only this optional observer. No Hermes source patch is needed.
+
+The Relay lifecycle inbox defaults to `/var/lib/hermes-remote/lifecycle-events.json` in production
+and retains at most 10,000 transitions (`MAX_LIFECYCLE_EVENTS`). Docker Compose mounts that directory
+on the `hermes_gateway_data` volume so Relay restarts do not lose pending notifications.

@@ -13,6 +13,8 @@ import androidx.core.content.ContextCompat
 import com.hermes.client.MainActivity
 import com.hermes.client.R
 import com.hermes.client.data.repository.NotificationSettings
+import com.hermes.client.data.repository.NotificationMonitoringStrategyStore
+import com.hermes.client.data.progress.SessionRuntimeStore
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,8 +26,8 @@ import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 
 /**
- * Quick Settings tile that shows and toggles the notification service — mirrors the
- * Settings > Notifications "Enable" switch. On/off state is [NotificationSettings.prefs].enabled.
+ * Quick Settings tile that toggles notifications — mirrors the Settings > Notifications switch.
+ * On/off state is [NotificationSettings.prefs].enabled; the adaptive coordinator owns the service.
  * The DataStore *write* runs on a service-owned scope so it never blocks the main thread; the
  * click's decision, the activity/foreground-service start, and the tile re-render stay synchronous
  * because a TileService's start-from-background token is only valid during onClick's synchronous
@@ -34,6 +36,8 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class NotificationTileService : TileService() {
     @Inject lateinit var settings: NotificationSettings
+    @Inject lateinit var strategies: NotificationMonitoringStrategyStore
+    @Inject lateinit var runtimes: SessionRuntimeStore
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -44,7 +48,10 @@ class NotificationTileService : TileService() {
 
     override fun onStartListening() {
         super.onStartListening()
-        scope.launch { renderTile(settings.prefs.first().enabled) }
+        scope.launch {
+            strategies.strategy.first() // Warm both DataStore caches before a synchronous click.
+            renderTile(settings.prefs.first().enabled)
+        }
     }
 
     override fun onClick() {
@@ -58,7 +65,19 @@ class NotificationTileService : TileService() {
             PackageManager.PERMISSION_GRANTED
         when (tileClickAction(enabled, canStart)) {
             TileAction.ENABLE -> {
-                GatewayConnectionService.start(this)
+                val strategy = runBlocking { strategies.strategy.first() }
+                val hasActiveLocalRun = runtimes.runtimes.value.values.any { it.hasActiveWork }
+                if (lifecycleMonitoringMode(
+                        notificationsEnabled = true,
+                        appInForeground = false,
+                        hasLocallyStartedRun = hasActiveLocalRun,
+                        strategy = strategy,
+                    ) == LifecycleMonitoringMode.ACTIVE_BACKGROUND
+                ) {
+                    // A Quick Settings click grants a short background-start allowance. Start
+                    // synchronously only when the selected policy actually needs the service.
+                    GatewayConnectionService.start(this)
+                }
                 renderTile(true)
                 scope.launch { settings.setEnabled(true) }
             }

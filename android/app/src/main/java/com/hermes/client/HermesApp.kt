@@ -16,6 +16,8 @@ import javax.inject.Inject
 @HiltAndroidApp
 class HermesApp : Application() {
     @Inject lateinit var settingsStore: SettingsStore
+    @Inject lateinit var lifecycleMonitoring: com.hermes.client.notifications.LifecycleMonitoringCoordinator
+    @Inject lateinit var notifier: com.hermes.client.notifications.HermesNotifier
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -23,11 +25,15 @@ class HermesApp : Application() {
         super.onCreate()
         // Capture uncaught exceptions to a file so the next launch can surface the trace (no adb).
         CrashReporter.install(this)
+        // Channels must exist even when Smart/Power-saving mode never starts the foreground
+        // service; creating channels is local-only and does not open a network connection.
+        notifier.ensureChannels()
         // Restore the diagnostic-logging toggle at launch so capture is active before the
         // Diagnostics screen is ever opened (e.g. to catch a failure on the first session open).
         settingsStore.debugLogging
             .distinctUntilChanged()
             .onEach { DebugLog.setEnabled(it) }
             .launchIn(appScope)
+        lifecycleMonitoring.start()
     }
 }

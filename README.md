@@ -11,8 +11,8 @@ Android App -- HTTPS/WSS --> HK Gateway <-- outbound WSS -- macOS Connector --> 
 The repository contains the first relay MVP:
 
 - `android/` — Kotlin/Compose client derived from the pinned `adebnar/hermes-android` GPLv3 base
-- `gateway/` — public HK relay with app/connector authentication and a Hermes-compatible facade
-- `connector/` — outbound-only macOS agent with Basic Auth, Cookie, WS Ticket, REST, and WebSocket forwarding
+- `gateway/` — public HK relay with app/connector authentication, a Hermes-compatible facade, and a durable mobile event inbox
+- `connector/` — outbound-only macOS agent with Basic Auth, Cookie, WS Ticket, REST/WebSocket forwarding, and read-only task lifecycle observation
 - `protocol/` — shared wire-message types and validation
 - `deploy/` — Docker and macOS launchd templates
 - `docs/` — architecture, intake checklist, and local smoke test

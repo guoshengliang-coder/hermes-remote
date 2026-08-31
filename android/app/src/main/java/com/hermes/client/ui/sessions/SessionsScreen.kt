@@ -612,6 +612,7 @@ private fun runtimeLabel(runtime: SessionRuntime, language: com.hermes.client.ui
     } ?: localized(language, "正在使用工具…", "Using a tool…")
     SessionRunPhase.WAITING_APPROVAL -> localized(language, "等待你的确认", "Waiting for approval")
     SessionRunPhase.WAITING_CLARIFICATION -> localized(language, "等待你的回答", "Waiting for your answer")
+    SessionRunPhase.WAITING_ATTENTION -> localized(language, "等待你处理", "Needs your attention")
     SessionRunPhase.RECONNECTING -> localized(language, "正在恢复连接…", "Reconnecting…")
     SessionRunPhase.COMPLETED_UNREAD -> localized(language, "已完成", "Completed")
     SessionRunPhase.FAILED -> localized(language, "运行失败", "Run failed")
@@ -629,7 +630,8 @@ private fun toolDisplayName(raw: String, language: com.hermes.client.ui.localiza
 
 @Composable
 private fun runtimeColor(phase: SessionRunPhase) = when (phase) {
-    SessionRunPhase.WAITING_APPROVAL, SessionRunPhase.WAITING_CLARIFICATION ->
+    SessionRunPhase.WAITING_APPROVAL, SessionRunPhase.WAITING_CLARIFICATION,
+    SessionRunPhase.WAITING_ATTENTION ->
         MaterialTheme.colorScheme.tertiary
     SessionRunPhase.FAILED -> MaterialTheme.colorScheme.error
     SessionRunPhase.COMPLETED_UNREAD -> LocalProfileAccent.current.accent
@@ -641,7 +643,11 @@ private fun RuntimeIndicator(runtime: SessionRuntime) {
     val phase = runtime.phase
     val color = runtimeColor(phase)
     if ((phase.isActive || runtime.hasRunningProcesses) &&
-        phase !in setOf(SessionRunPhase.WAITING_APPROVAL, SessionRunPhase.WAITING_CLARIFICATION)
+        phase !in setOf(
+            SessionRunPhase.WAITING_APPROVAL,
+            SessionRunPhase.WAITING_CLARIFICATION,
+            SessionRunPhase.WAITING_ATTENTION,
+        )
     ) {
         CircularProgressIndicator(
             modifier = Modifier.size(18.dp),

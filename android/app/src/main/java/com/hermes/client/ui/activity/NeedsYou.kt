@@ -49,7 +49,7 @@ fun needsAttention(
 // single most actionable thing in the app — surface it at the top of Home.
 // ---------------------------------------------------------------------------
 
-enum class SessionAlertReason { WAITING_APPROVAL, WAITING_CLARIFICATION }
+enum class SessionAlertReason { WAITING_APPROVAL, WAITING_CLARIFICATION, WAITING_ATTENTION }
 
 data class SessionAlert(
     val sessionId: String,
@@ -70,7 +70,9 @@ fun waitingSessionAlerts(
     titleOf: (String) -> String?,
 ): List<SessionAlert> = runtimes.values
     .filter {
-        it.phase == SessionRunPhase.WAITING_APPROVAL || it.phase == SessionRunPhase.WAITING_CLARIFICATION
+        it.phase == SessionRunPhase.WAITING_APPROVAL ||
+            it.phase == SessionRunPhase.WAITING_CLARIFICATION ||
+            it.phase == SessionRunPhase.WAITING_ATTENTION
     }
     .filter { profile.isNullOrBlank() || it.key.profile.isNullOrBlank() || it.key.profile == profile }
     .sortedByDescending { it.lastEventAt }
@@ -78,10 +80,10 @@ fun waitingSessionAlerts(
         SessionAlert(
             sessionId = runtime.key.sessionId,
             title = titleOf(runtime.key.sessionId).orEmpty(),
-            reason = if (runtime.phase == SessionRunPhase.WAITING_APPROVAL) {
-                SessionAlertReason.WAITING_APPROVAL
-            } else {
-                SessionAlertReason.WAITING_CLARIFICATION
+            reason = when (runtime.phase) {
+                SessionRunPhase.WAITING_APPROVAL -> SessionAlertReason.WAITING_APPROVAL
+                SessionRunPhase.WAITING_CLARIFICATION -> SessionAlertReason.WAITING_CLARIFICATION
+                else -> SessionAlertReason.WAITING_ATTENTION
             },
             sinceMs = runtime.lastEventAt.takeIf { it > 0 },
         )

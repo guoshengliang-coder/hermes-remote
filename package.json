@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "build": "npm run build -w @hermes-remote/protocol && npm run build -w @hermes-remote/gateway && npm run build -w @hermes-remote/connector",
-    "test": "npm run test -w @hermes-remote/protocol && npm run test -w @hermes-remote/release-server",
+    "test": "npm run test -w @hermes-remote/protocol && npm run test -w @hermes-remote/connector && npm run test -w @hermes-remote/gateway && npm run test -w @hermes-remote/release-server",
     "smoke": "node scripts/smoke-client.mjs",
     "smoke:compat": "node scripts/smoke-compat-client.mjs",
     "mock:hermes": "node scripts/mock-hermes.mjs",

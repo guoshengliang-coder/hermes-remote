@@ -9,12 +9,18 @@ import {
   parseWireMessage,
   type ChatCommand,
   type RelayEvent,
+  type SessionLifecycleEvent,
   type TunnelHttpRequest,
   type TunnelSocketFrame,
   type TunnelSocketOpen,
   type WireMessage,
 } from "@hermes-remote/protocol";
 import { randomUUID } from "node:crypto";
+import {
+  HermesSessionObserver,
+  type ObserverSocket,
+} from "./session-observer-runner.js";
+import { ObserverStateStore } from "./session-observer.js";
 
 const gatewayUrl = process.env.GATEWAY_URL ?? "ws://127.0.0.1:8787/v1/connect";
 const connectorToken = requireSecret("CONNECTOR_TOKEN");
@@ -43,11 +49,21 @@ const httpResponseChunkBytes = Math.min(
   384 * 1024,
 );
 const httpResponseChunkAckTimeoutMs = positiveIntEnv("HTTP_RESPONSE_CHUNK_ACK_TIMEOUT_MS", 30_000);
+const sessionObserverEnabled = process.env.SESSION_OBSERVER_ENABLED !== "0" && hermesMode !== "mock";
+const sessionObserverStateFile = resolve(
+  process.env.OBSERVER_STATE_FILE ?? resolve(homedir(), ".hermes-remote", "observer-state.json"),
+);
+const sessionObserverActivePollMs = positiveIntEnv("OBSERVER_ACTIVE_POLL_MS", 2_000);
+const sessionObserverIdlePollMs = positiveIntEnv("OBSERVER_IDLE_POLL_MS", 20_000);
+const sessionObserverRpcTimeoutMs = positiveIntEnv("OBSERVER_RPC_TIMEOUT_MS", 10_000);
 const localSockets = new Map<string, WebSocket>();
 const pendingSocketFrames = new Map<string, TunnelSocketFrame[]>();
 const responseChunkWaiters = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
 let retryMs = 1_000;
 let controlSocket: WebSocket | undefined;
+let controlAuthenticated = false;
+let stopping = false;
+let lifecycleObserver: HermesSessionObserver | undefined;
 
 if (!isWithinRoot(uploadRoot, filesRoot)) {
   throw new Error("UPLOAD_ROOT must be inside FILES_ROOT so uploaded attachments remain downloadable");
@@ -61,6 +77,7 @@ function connect(): void {
   let heartbeatTimer: NodeJS.Timeout | undefined;
   let awaitingPong = false;
   controlSocket = socket;
+  controlAuthenticated = false;
 
   socket.on("open", () => {
     retryMs = 1_000;
@@ -103,6 +120,7 @@ function connect(): void {
     rejectResponseChunkWaiters(new Error("control_socket_closed"));
     closeLocalSockets();
     if (controlSocket === socket) controlSocket = undefined;
+    if (controlSocket === undefined) controlAuthenticated = false;
     scheduleReconnect();
   });
   socket.on("error", (error) => console.error("Gateway connection error", error.message));
@@ -113,6 +131,11 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
   switch (message.type) {
     case "hello_ack":
       console.log(`Connected to gateway as ${message.deviceId}`);
+      controlAuthenticated = true;
+      lifecycleObserver?.relayConnected();
+      return;
+    case "session.lifecycle.ack":
+      lifecycleObserver?.acknowledge(message.eventId);
       return;
     case "command":
       await handleCommand(socket, message);
@@ -629,18 +652,20 @@ function emit(socket: WebSocket, requestId: string, event: RelayEvent["event"], 
   sendControl(socket, { type: "event", version: PROTOCOL_VERSION, requestId, event, data });
 }
 
-function sendControl(socket: WebSocket, message: WireMessage): void {
-  if (socket.readyState !== WebSocket.OPEN) return;
+function sendControl(socket: WebSocket, message: WireMessage): boolean {
+  if (socket.readyState !== WebSocket.OPEN) return false;
   const encoded = encodeWireMessage(message);
   if (socket.bufferedAmount + Buffer.byteLength(encoded) > maxControlBufferedBytes) {
     console.error("Control socket backpressure limit reached; reconnecting");
     socket.close(1013, "backpressure limit reached");
-    return;
+    return false;
   }
   socket.send(encoded);
+  return true;
 }
 
 function scheduleReconnect(): void {
+  if (stopping) return;
   const delay = retryMs + Math.floor(Math.random() * 500);
   console.log(`Disconnected; reconnecting in ${delay}ms`);
   setTimeout(connect, delay);
@@ -774,6 +799,43 @@ const hermesAuth = new HermesAuth({
 });
 
 connect();
+if (sessionObserverEnabled) {
+  lifecycleObserver = new HermesSessionObserver({
+    deviceId,
+    profile: process.env.HERMES_PROFILE,
+    stateStore: new ObserverStateStore(sessionObserverStateFile),
+    websocketUrl: () => hermesAuth.websocketUrl("/api/ws"),
+    createSocket: (url) => new WebSocket(url, {
+      handshakeTimeout: localSocketConnectTimeoutMs,
+      maxPayload: 1024 * 1024,
+    }) as unknown as ObserverSocket,
+    sendLifecycle: (event: SessionLifecycleEvent): boolean => {
+      const socket = controlSocket;
+      return socket && controlAuthenticated ? sendControl(socket, event) : false;
+    },
+    activePollMs: sessionObserverActivePollMs,
+    idlePollMs: sessionObserverIdlePollMs,
+    rpcTimeoutMs: sessionObserverRpcTimeoutMs,
+    log: (message) => console.log(message),
+  });
+  void lifecycleObserver.start().catch((error) => {
+    console.error("Unable to start Hermes lifecycle observer", safeError(error));
+  });
+}
+
+function shutdown(signal: string): void {
+  if (stopping) return;
+  stopping = true;
+  console.log(`Received ${signal}; closing Connector`);
+  lifecycleObserver?.stop();
+  rejectResponseChunkWaiters(new Error("connector_stopping"));
+  closeLocalSockets();
+  controlSocket?.close(1000, "connector stopping");
+  setTimeout(() => process.exit(0), 250).unref();
+}
+
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));
 
 function safeCloseCode(code?: number): number {
   const standard = code !== undefined && code >= 1000 && code <= 1014

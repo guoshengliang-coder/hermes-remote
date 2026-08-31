@@ -367,6 +367,7 @@ private fun WaitingSessionRow(alert: SessionAlert, nowMs: Long, onClick: () -> U
     val reasonText = when (alert.reason) {
         SessionAlertReason.WAITING_APPROVAL -> localized(language, "等待你的批准", "Waiting for your approval")
         SessionAlertReason.WAITING_CLARIFICATION -> localized(language, "等待你的回答", "Waiting for your answer")
+        SessionAlertReason.WAITING_ATTENTION -> localized(language, "等待你在原客户端处理", "Needs attention in the original client")
     }
     val supporting = listOfNotNull(
         reasonText,

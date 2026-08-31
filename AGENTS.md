@@ -91,6 +91,13 @@ changes for that package have been integrated.
 
 ## Verification
 
+Every iteration must include a test-impact review before implementation. A bug fix needs a regression
+test that fails for the old behavior whenever the boundary is testable; a protocol or API change needs
+parser/consumer tests; and behavior removed or intentionally changed requires its stale tests to be
+updated or deleted. Run the focused suite while iterating, then the component baseline below before
+handoff. If a meaningful case cannot be automated, add it to the relevant smoke-test document and
+state explicitly that it still needs device or production verification.
+
 Run checks proportional to the files changed. The normal baselines are:
 
 ### Gateway, Connector, or Protocol

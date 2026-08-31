@@ -1,8 +1,6 @@
 package com.hermes.client
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -29,10 +27,8 @@ import com.hermes.client.ui.theme.LocalToolCallTechnical
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.LocalAppLanguage
 import dagger.hilt.android.AndroidEntryPoint
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import javax.inject.Inject
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -42,7 +38,6 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var settingsStore: SettingsStore
     @Inject lateinit var profileManager: ProfileManager
     @Inject lateinit var profileAccentStore: com.hermes.client.data.repository.ProfileAccentStore
-    @Inject lateinit var notificationSettings: com.hermes.client.data.repository.NotificationSettings
     @Inject lateinit var chat: com.hermes.client.data.repository.ChatRepository
     @Inject lateinit var pendingShare: com.hermes.client.share.PendingShareStore
 
@@ -69,24 +64,6 @@ class MainActivity : ComponentActivity() {
         handleShare(intent)
         val hasConfig = credentialStore.load() != null
         val crashReport = CrashReporter.read(this)
-        // Resume the notification service if the user previously enabled it.
-        // lifecycleScope (not a bare MainScope) so the coroutine is cancelled with the activity
-        // instead of leaking on every recreation.
-        lifecycleScope.launch {
-            if (notificationSettings.prefs.first().enabled) {
-                // On API 33+ the service posts notifications and needs POST_NOTIFICATIONS at
-                // runtime; if it isn't granted (e.g. revoked since last enable), don't auto-start
-                // — the Settings screen re-requests the permission the next time it's enabled.
-                val canStart = Build.VERSION.SDK_INT < 33 ||
-                    ContextCompat.checkSelfPermission(
-                        this@MainActivity,
-                        Manifest.permission.POST_NOTIFICATIONS,
-                    ) == PackageManager.PERMISSION_GRANTED
-                if (canStart) {
-                    com.hermes.client.notifications.GatewayConnectionService.start(this@MainActivity)
-                }
-            }
-        }
         setContent {
             val mode by settingsStore.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
             val technical by settingsStore.toolCallTechnical.collectAsState(initial = true)

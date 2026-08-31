@@ -26,14 +26,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.repository.NotificationSettings
-import com.hermes.client.notifications.GatewayConnectionService
 import com.hermes.client.notifications.NotificationPrefs
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
@@ -69,7 +67,6 @@ fun NotificationOnboardingSheet(
     vm: NotificationOnboardingViewModel = hiltViewModel(),
 ) {
     val language = LocalAppLanguage.current
-    val context = LocalContext.current
     val prefs by vm.prefs.collectAsStateWithLifecycle()
     val current = prefs ?: return // prefs still loading; render nothing this frame
     if (current.onboardingSeen || current.enabled) {
@@ -80,7 +77,6 @@ fun NotificationOnboardingSheet(
     fun finish(enabled: Boolean) {
         if (enabled) {
             vm.enable()
-            GatewayConnectionService.start(context)
         }
         vm.markSeen()
         onDone()

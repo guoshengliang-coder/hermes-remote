@@ -98,6 +98,39 @@ class HermesRestApi(
     /** Public /api/status — gateway version + running state. */
     suspend fun gatewayStatus(): GatewayStatusDto = get("/api/status")
 
+    /** Durable Relay-owned lifecycle inbox; available even while the Mac Connector is offline. */
+    suspend fun lifecycleEvents(after: Long, limit: Int = 100): LifecycleEventPageDto {
+        require(after >= 0) { "after must be non-negative" }
+        require(limit in 1..500) { "limit must be between 1 and 500" }
+        return get("/api/mobile/events?after=$after&limit=$limit")
+    }
+
+    suspend fun markLifecycleEventsDelivered(eventIds: List<String>) =
+        postLifecycleEventIds("/api/mobile/events/ack", eventIds)
+
+    suspend fun markLifecycleEventsRead(eventIds: List<String>) =
+        postLifecycleEventIds("/api/mobile/events/read", eventIds)
+
+    private suspend fun postLifecycleEventIds(path: String, eventIds: List<String>) =
+        withContext(Dispatchers.IO) {
+            require(eventIds.size <= 500) { "too many lifecycle event ids" }
+            val payload = buildJsonObject {
+                put("event_ids", kotlinx.serialization.json.JsonArray(
+                    eventIds.distinct().map { JsonPrimitive(it) },
+                ))
+            }
+            val requestBody = json.encodeToString(JsonObject.serializer(), payload)
+                .toRequestBody("application/json".toMediaType())
+            restCall(builder(path).post(requestBody).build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw HermesApiException(
+                        response.code,
+                        response.body.string().ifBlank { "HTTP ${response.code}" },
+                    )
+                }
+            }
+        }
+
     suspend fun sessions(limit: Int, offset: Int, profile: String? = null): List<SessionDto> =
         get<SessionListDto>(
             "/api/sessions?limit=$limit&offset=$offset&order=recent${profileParam(profile)}",

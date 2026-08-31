@@ -1,6 +1,7 @@
 package com.hermes.client.data.progress
 
 import com.hermes.client.data.network.ConnectionState
+import com.hermes.client.data.network.LifecycleEventDto
 import com.hermes.client.data.network.ServerEvent
 import com.hermes.client.data.network.bool
 import com.hermes.client.data.network.str
@@ -41,6 +42,7 @@ enum class SessionRunPhase {
     USING_TOOL,
     WAITING_APPROVAL,
     WAITING_CLARIFICATION,
+    WAITING_ATTENTION,
     RECONNECTING,
     COMPLETED_UNREAD,
     FAILED,
@@ -55,6 +57,7 @@ val SessionRunPhase.isActive: Boolean
         SessionRunPhase.USING_TOOL,
         SessionRunPhase.WAITING_APPROVAL,
         SessionRunPhase.WAITING_CLARIFICATION,
+        SessionRunPhase.WAITING_ATTENTION,
         SessionRunPhase.RECONNECTING,
     )
 
@@ -65,6 +68,7 @@ data class SessionRuntime(
     val phase: SessionRunPhase = SessionRunPhase.IDLE,
     val toolName: String? = null,
     val lastEventAt: Long = 0L,
+    val startedLocally: Boolean = false,
 ) {
     val hasRunningProcesses: Boolean get() = chat.backgroundProcesses.any { it.running }
     val hasActiveWork: Boolean get() = phase.isActive || hasRunningProcesses
@@ -300,6 +304,7 @@ class SessionRuntimeStore(
                 phase = SessionRunPhase.SUBMITTING,
                 toolName = null,
                 lastEventAt = System.currentTimeMillis(),
+                startedLocally = true,
             )
         }
         scheduleProcessPolling(key, PROCESS_DISCOVERY_GRACE_POLLS)
@@ -336,6 +341,7 @@ class SessionRuntimeStore(
                 phase = SessionRunPhase.INTERRUPTED,
                 toolName = null,
                 lastEventAt = System.currentTimeMillis(),
+                startedLocally = false,
             )
         }
     }
@@ -347,6 +353,7 @@ class SessionRuntimeStore(
                 phase = SessionRunPhase.FAILED,
                 toolName = null,
                 lastEventAt = System.currentTimeMillis(),
+                startedLocally = false,
             )
         }
     }
@@ -358,6 +365,7 @@ class SessionRuntimeStore(
                 phase = SessionRunPhase.IDLE,
                 toolName = null,
                 lastEventAt = System.currentTimeMillis(),
+                startedLocally = false,
             )
         }
     }
@@ -367,7 +375,55 @@ class SessionRuntimeStore(
             runtime.copy(
                 phase = SessionRunPhase.THINKING,
                 lastEventAt = System.currentTimeMillis(),
+                startedLocally = true,
             )
+        }
+    }
+
+    /** Fold sanitized Relay observations into the same state read by session/chat/activity UIs. */
+    fun applyObservedLifecycle(event: LifecycleEventDto) {
+        val key = key(event.storedSessionId, event.profile)
+        val now = System.currentTimeMillis()
+        updateRuntime(key) { runtime ->
+            when (event.event) {
+                "run.started", "run.resumed" -> runtime.copy(
+                    chat = runtime.chat.copy(isGenerating = true),
+                    phase = SessionRunPhase.THINKING,
+                    toolName = null,
+                    lastEventAt = now,
+                )
+                "run.waiting" -> runtime.copy(
+                    chat = runtime.chat.copy(isGenerating = true),
+                    phase = when (runtime.phase) {
+                        SessionRunPhase.WAITING_APPROVAL,
+                        SessionRunPhase.WAITING_CLARIFICATION -> runtime.phase
+                        else -> SessionRunPhase.WAITING_ATTENTION
+                    },
+                    lastEventAt = now,
+                )
+                "run.completed" -> runtime.copy(
+                    chat = runtime.chat.copy(isGenerating = false),
+                    phase = if (key in visible) SessionRunPhase.IDLE else SessionRunPhase.COMPLETED_UNREAD,
+                    toolName = null,
+                    lastEventAt = now,
+                    startedLocally = false,
+                )
+                "run.interrupted", "run.unknown" -> runtime.copy(
+                    chat = runtime.chat.copy(isGenerating = false),
+                    phase = SessionRunPhase.INTERRUPTED,
+                    toolName = null,
+                    lastEventAt = now,
+                    startedLocally = false,
+                )
+                else -> runtime
+            }
+        }
+        when (event.event) {
+            "run.completed" -> {
+                if (key in visible) markRead(key) else markUnread(key)
+                _runtimes.value[key]?.let { scheduleHistoryReconciliation(key, expectationFor(it)) }
+            }
+            "run.interrupted", "run.unknown" -> if (key !in visible) markUnread(key)
         }
     }
 
@@ -453,6 +509,11 @@ class SessionRuntimeStore(
                     else -> runtime.toolName
                 },
                 lastEventAt = System.currentTimeMillis(),
+                startedLocally = when (event.type) {
+                    "message.complete", "error" -> false
+                    "session.info" -> if (event.bool("running") == false) false else runtime.startedLocally
+                    else -> runtime.startedLocally
+                },
             )
         }
         if (event.type in setOf("tool.complete", "message.complete", "agent.terminal.output")) {

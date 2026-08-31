@@ -9,6 +9,7 @@ User=hermes-remote
 Group=hermes-remote
 WorkingDirectory=/opt/hermes-remote
 EnvironmentFile=/etc/hermes-remote/gateway.env
+StateDirectory=hermes-remote
 ExecStart=/usr/bin/node /opt/hermes-remote/gateway/dist/index.js
 Restart=always
 RestartSec=3
