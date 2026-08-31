@@ -45,6 +45,7 @@ import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.ScreenRotation
 import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.ThumbUp
 import androidx.compose.material.icons.rounded.VolumeUp
@@ -85,9 +86,12 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -110,6 +114,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.asImageBitmap
 import android.widget.Toast
@@ -1230,12 +1235,31 @@ private fun StyledMarkdownTable(content: String, node: org.intellij.markdown.ast
     )
 }
 
+/** Gallery/sample entry: renders a raw markdown table with the chat table styling. */
 @Composable
-private fun ChatTableCard(raw: String, content: @Composable () -> Unit) {
+internal fun StyledMarkdownTableSample(raw: String) {
+    Markdown(
+        content = raw,
+        modifier = Modifier.fillMaxWidth(),
+        colors = markdownColor(),
+        typography = markdownTypography(
+            table = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 22.sp),
+        ),
+        components = markdownComponents(
+            table = { m -> StyledMarkdownTable(m.content, m.node, m.typography.table) },
+        ),
+        dimens = markdownDimens(tableCellWidth = 110.dp, tableCellPadding = 8.dp),
+    )
+}
+
+@Composable
+internal fun ChatTableCard(raw: String, content: @Composable () -> Unit) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val language = LocalAppLanguage.current
-    var fullscreen by remember { mutableStateOf(false) }
+    // rememberSaveable: rotating the device recreates the Activity; a plain remember lost the
+    // open state, silently closing the fullscreen viewer on rotation.
+    var fullscreen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     Surface(
         shape = RoundedCornerShape(12.dp),
         border = androidx.compose.foundation.BorderStroke(
@@ -1291,9 +1315,46 @@ private fun ChatTableCard(raw: String, content: @Composable () -> Unit) {
 }
 
 /** Roomy fullscreen view for wide tables: full width, larger cells, both-axis scrolling. */
+private tailrec fun android.content.Context.findActivity(): android.app.Activity? = when (this) {
+    is android.app.Activity -> this
+    is android.content.ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 @Composable
 private fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
     val language = LocalAppLanguage.current
+    val context = LocalContext.current
+    val activity = LocalContext.current.findActivity()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // The export layer records the FULL-WIDTH table node (the outer horizontalScroll gives the
+    // node its complete intrinsic width), so the exported PNG contains every column even when
+    // the screen shows only part of the table.
+    val exportLayer = androidx.compose.ui.graphics.rememberGraphicsLayer()
+    var exporting by remember { mutableStateOf(false) }
+    fun exportBitmap(onBitmap: suspend (android.graphics.Bitmap) -> Unit) {
+        if (exporting) return
+        exporting = true
+        scope.launch {
+            runCatching {
+                val image = exportLayer.toImageBitmap()
+                onBitmap(image.asAndroidBitmap())
+            }.onFailure {
+                Toast.makeText(context, localized(language, "导出失败", "Export failed"), Toast.LENGTH_SHORT).show()
+            }
+            exporting = false
+        }
+    }
+    val isLandscape =
+        LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    // Leaving the viewer always hands orientation back to the sensor, including dismiss-by-back
+    // while in forced landscape.
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            activity?.requestedOrientation =
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -1314,27 +1375,101 @@ private fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
                         modifier = Modifier.weight(1f),
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     )
-                    // Balances the close button so the title centers optically.
-                    Spacer(Modifier.width(64.dp))
+                    IconButton(
+                        onClick = {
+                            exportBitmap { bmp ->
+                                val uri = TableExport.saveToGallery(context, bmp)
+                                Toast.makeText(
+                                    context,
+                                    if (uri != null) localized(language, "已保存到相册", "Saved to gallery")
+                                    else localized(language, "保存失败", "Couldn't save"),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        },
+                        enabled = !exporting,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            Icons.Rounded.Download,
+                            contentDescription = localized(language, "保存为图片", "Save as image"),
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            exportBitmap { bmp ->
+                                TableExport.share(context, bmp, localized(language, "分享表格图片", "Share table image"))
+                            }
+                        },
+                        enabled = !exporting,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            Icons.Rounded.Share,
+                            contentDescription = localized(language, "分享表格图片", "Share table image"),
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    // Manual rotate for users with auto-rotate locked; sensor rotation also works
+                    // because the open state survives the recreation (rememberSaveable above).
+                    IconButton(
+                        onClick = {
+                            activity?.requestedOrientation = if (isLandscape) {
+                                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                            } else {
+                                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                            }
+                        },
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            Icons.Rounded.ScreenRotation,
+                            contentDescription = localized(language, "旋转屏幕", "Rotate screen"),
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
+                val columns = remember(raw) { markdownTableColumnCount(raw) }
+                val exportCellWidth = 170
+                val tableWidth = (columns.coerceAtLeast(1) * exportCellWidth + 24).dp
                 Column(
                     Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 12.dp),
                 ) {
-                    Markdown(
-                        content = raw,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = markdownColor(),
-                        typography = markdownTypography(
-                            table = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 24.sp),
-                        ),
-                        components = markdownComponents(
-                            table = { m -> StyledMarkdownTable(m.content, m.node, m.typography.table) },
-                        ),
-                        dimens = markdownDimens(tableCellWidth = 170.dp, tableCellPadding = 10.dp),
-                    )
+                    // immediate = true parses synchronously: the async default parsed off the
+                    // first frame and nothing recomposed this subtree afterwards, leaving the
+                    // dialog blank until ANY interaction forced a recomposition.
+                    val mdState = com.mikepenz.markdown.model.rememberMarkdownState(raw, immediate = true)
+                    Box(Modifier.horizontalScroll(rememberScrollState())) {
+                    Column(
+                        Modifier
+                            .width(tableWidth)
+                            .background(MaterialTheme.colorScheme.background)
+                            .drawWithContent {
+                                exportLayer.record { this@drawWithContent.drawContent() }
+                                drawLayer(exportLayer)
+                            },
+                    ) {
+                        Markdown(
+                            markdownState = mdState,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = markdownColor(),
+                            typography = markdownTypography(
+                                table = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 24.sp),
+                            ),
+                            components = markdownComponents(
+                                table = { m -> StyledMarkdownTable(m.content, m.node, m.typography.table) },
+                            ),
+                            dimens = markdownDimens(tableCellWidth = exportCellWidth.dp, tableCellPadding = 10.dp),
+                        )
+                    }
+                    }
                     Spacer(Modifier.height(24.dp))
                 }
             }
@@ -1343,7 +1478,7 @@ private fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun CodeWithCopy(code: String, language: String?, style: TextStyle) {
+internal fun CodeWithCopy(code: String, language: String?, style: TextStyle) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val appLanguage = LocalAppLanguage.current
@@ -1493,7 +1628,7 @@ private fun MessageActionSheet(actions: List<MessageAction>, onDismiss: () -> Un
 }
 
 @Composable
-private fun RunningStatusLine(msg: ChatMessage) {
+internal fun RunningStatusLine(msg: ChatMessage) {
     val language = LocalAppLanguage.current
     val status = runningStatusFor(msg)
     // Live elapsed time, anchored on the turn's real timestamp (not a local counter), so a
@@ -1559,7 +1694,7 @@ private fun RunningStatusLine(msg: ChatMessage) {
 }
 
 @Composable
-private fun TypingIndicator() {
+internal fun TypingIndicator() {
     val transition = rememberInfiniteTransition(label = "typing")
     Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(3) { i ->

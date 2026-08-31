@@ -194,6 +194,13 @@ internal fun runningStatusFor(message: ChatMessage): RunningStatus {
 
 private val tableSeparatorCell = Regex(":?-{2,}:?")
 
+/** Column count of a markdown table (from its header row); 0 when no row parses. */
+internal fun markdownTableColumnCount(raw: String): Int =
+    raw.trim().lineSequence()
+        .firstOrNull { it.contains('|') }
+        ?.trim()?.removePrefix("|")?.removeSuffix("|")
+        ?.split("|")?.size ?: 0
+
 internal fun markdownTableToTsv(raw: String): String =
     raw.trim().lines().mapNotNull { line ->
         val trimmed = line.trim()

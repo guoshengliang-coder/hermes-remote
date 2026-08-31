@@ -28,6 +28,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.roborazzi)
 }
 
 android {
@@ -94,7 +95,11 @@ android {
 
     // Let stubbed android.* calls (e.g. android.util.Log) return defaults instead of throwing
     // in local JVM unit tests, so pure logic that mirrors to logcat stays unit-testable.
-    testOptions { unitTests.isReturnDefaultValues = true }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+        // Robolectric-based screenshot tests render real resources.
+        unitTests.isIncludeAndroidResources = true
+    }
 
     // Build daemon runs on JBR (JDK 21); emit JVM 17 bytecode for Android.
     compileOptions {
@@ -191,6 +196,14 @@ dependencies {
     testImplementation(libs.turbine)
     testImplementation(libs.mockk)
     testImplementation(libs.okhttp.mockwebserver)
+    // Screenshot tests (JVM, Robolectric-rendered) — run via :app:verifyScreenshots, not the
+    // release gate; see ScreenshotTest.kt.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(libs.roborazzi.junit)
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
 
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test.junit4)

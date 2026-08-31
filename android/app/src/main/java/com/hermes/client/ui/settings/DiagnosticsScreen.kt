@@ -14,6 +14,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -38,6 +39,7 @@ import com.hermes.client.ui.localization.l10n
 @Composable
 fun DiagnosticsScreen(
     onBack: () -> Unit,
+    onOpenGallery: () -> Unit = {},
     vm: DiagnosticsViewModel = hiltViewModel(),
 ) {
     val enabled by vm.enabled.collectAsStateWithLifecycle()
@@ -64,6 +66,12 @@ fun DiagnosticsScreen(
                 trailingContent = {
                     Switch(checked = enabled, onCheckedChange = { vm.setEnabled(it) })
                 },
+            )
+            HorizontalDivider()
+            ListItem(
+                headlineContent = { Text(l10n("组件展廊", "Component gallery")) },
+                supportingContent = { Text(l10n("用固定假数据渲染聊天组件的各个状态，用于视觉检查。", "Chat components rendered from fixed fake data, for visual checks.")) },
+                modifier = Modifier.clickable(onClick = onOpenGallery),
             )
             HorizontalDivider()
 

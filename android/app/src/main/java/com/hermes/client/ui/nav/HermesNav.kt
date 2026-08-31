@@ -346,7 +346,13 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 com.hermes.client.ui.settings.ConnectionSettingsScreen(onBack = { nav.popBackStack() })
             }
             composable("settings_diagnostics") {
-                com.hermes.client.ui.settings.DiagnosticsScreen(onBack = { nav.popBackStack() })
+                com.hermes.client.ui.settings.DiagnosticsScreen(
+                    onBack = { nav.popBackStack() },
+                    onOpenGallery = { nav.navigate("component_gallery") { launchSingleTop = true } },
+                )
+            }
+            composable("component_gallery") {
+                com.hermes.client.ui.gallery.ComponentGalleryScreen(onBack = { nav.popBackStack() })
             }
             composable("settings_about") { AboutScreen(onBack = { nav.popBackStack() }) }
             composable("management") {
