@@ -125,6 +125,11 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   bursty WebSocket delta arrival, so the pinned viewport grows in small uniform steps instead of
   multi-line lurches; latency stays bounded (~4 ticks) and reconnect-sized backlogs fast-forward
   in one hop. Probe-verified smooth reveal straight through arrival stalls.
+- Version 0.1.40 is a chat-polish batch aligned with the Claude-app design audit: the action row
+  persists only on the latest assistant turn (history turns use the long-press menu); markdown
+  paragraph/list rhythm gains ~+10dp of measured breathing room; a downward drag on the
+  conversation dismisses the keyboard; and a persistent running-status line shows the active tool
+  command, a one-line reasoning tail, or a breathing "generating" state for the whole run.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
@@ -146,7 +151,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.39-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.40-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
