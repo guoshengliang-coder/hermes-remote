@@ -141,6 +141,10 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   Android restores running/waiting/completed state after backgrounding or reconnecting. Smart
   monitoring stays real-time while the app or a phone-started task is active, falls back to a
   low-frequency system job when idle, and exposes Realtime/Smart/Power-saving choices in Settings.
+- Version 0.1.43 rounds off real-device feedback: the send/stop circle gets a fixed 48dp size and
+  theme-primary color (no more per-profile neon egg), the model selector loads lazily with
+  loading/failed-retry states instead of a silent empty sheet, and tables tighten their fixed
+  column width, gain a header bar with copy-as-cells, and open a fullscreen viewing dialog.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
@@ -162,7 +166,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.42-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.43-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
