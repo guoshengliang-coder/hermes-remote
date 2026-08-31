@@ -1,9 +1,6 @@
 package com.hermes.client.ui.activity
 
 import com.hermes.client.data.network.CronJobDto
-import com.hermes.client.data.progress.SessionRunPhase
-import com.hermes.client.data.progress.SessionRuntime
-import com.hermes.client.data.progress.SessionRuntimeKey
 import com.hermes.client.ui.util.isoToEpochMs
 
 enum class CronAlertReason { FAILED, OVERDUE }
@@ -43,48 +40,3 @@ fun needsAttention(
         else -> null
     }
 }
-
-// ---------------------------------------------------------------------------
-// Waiting sessions: a live run that stopped to ask the user something is the
-// single most actionable thing in the app — surface it at the top of Home.
-// ---------------------------------------------------------------------------
-
-enum class SessionAlertReason { WAITING_APPROVAL, WAITING_CLARIFICATION, WAITING_ATTENTION }
-
-data class SessionAlert(
-    val sessionId: String,
-    val title: String,
-    val reason: SessionAlertReason,
-    val sinceMs: Long? = null,
-) {
-    val route: String get() = "chat/$sessionId"
-}
-
-/**
- * Sessions currently blocked on the user (approval or clarification), newest first. Pure —
- * runtime map and title lookup are passed in so it unit-tests without the store.
- */
-fun waitingSessionAlerts(
-    runtimes: Map<SessionRuntimeKey, SessionRuntime>,
-    profile: String?,
-    titleOf: (String) -> String?,
-): List<SessionAlert> = runtimes.values
-    .filter {
-        it.phase == SessionRunPhase.WAITING_APPROVAL ||
-            it.phase == SessionRunPhase.WAITING_CLARIFICATION ||
-            it.phase == SessionRunPhase.WAITING_ATTENTION
-    }
-    .filter { profile.isNullOrBlank() || it.key.profile.isNullOrBlank() || it.key.profile == profile }
-    .sortedByDescending { it.lastEventAt }
-    .map { runtime ->
-        SessionAlert(
-            sessionId = runtime.key.sessionId,
-            title = titleOf(runtime.key.sessionId).orEmpty(),
-            reason = when (runtime.phase) {
-                SessionRunPhase.WAITING_APPROVAL -> SessionAlertReason.WAITING_APPROVAL
-                SessionRunPhase.WAITING_CLARIFICATION -> SessionAlertReason.WAITING_CLARIFICATION
-                else -> SessionAlertReason.WAITING_ATTENTION
-            },
-            sinceMs = runtime.lastEventAt.takeIf { it > 0 },
-        )
-    }
