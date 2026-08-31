@@ -23,6 +23,11 @@ data class ModelsUiState(
     val error: AppError? = null,
     val message: LocalizedText? = null,
     val query: String = "",
+    // The profile's configured default — this screen edits exactly that slot, so it must show it.
+    val defaultModel: String? = null,
+    val defaultProvider: String? = null,
+    // favKey of the row whose set-default is in flight; non-null disables the list.
+    val pendingKey: String? = null,
 )
 
 @HiltViewModel
@@ -30,6 +35,7 @@ class ModelsViewModel @Inject constructor(
     private val models: ModelRepository,
     private val favoritesStore: com.hermes.client.data.repository.ModelFavoritesStore,
     private val profileManager: ProfileManager,
+    private val configRepo: com.hermes.client.data.repository.ConfigRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ModelsUiState())
     val state: StateFlow<ModelsUiState> = _state.asStateFlow()
@@ -46,12 +52,26 @@ class ModelsViewModel @Inject constructor(
 
     fun load() = viewModelScope.launch {
         _state.value = _state.value.copy(loading = true, error = null)
-        runCatching { models.providers(profileManager.active.value) }
-            .onSuccess { _state.value = _state.value.copy(providers = it, loading = false, error = null) }
+        val profile = profileManager.active.value
+        runCatching { models.providers(profile) }
+            .onSuccess { providers ->
+                // The default model comes from config; its provider from the catalog. Best-effort:
+                // the list is useful even when the config read fails (the summary card just hides).
+                val defaultModel = runCatching {
+                    (configRepo.get(profile)["model"] as? kotlinx.serialization.json.JsonPrimitive)
+                        ?.content?.ifBlank { null }
+                }.getOrNull()
+                _state.value = _state.value.copy(
+                    providers = providers, loading = false, error = null,
+                    defaultModel = defaultModel,
+                    defaultProvider = resolveModelProvider(providers, null, defaultModel)
+                        ?: providers.firstOrNull { it.isCurrent }?.slug,
+                )
+            }
             .onFailure {
                 _state.value = _state.value.copy(
                     loading = false,
-                    error = AppError(AppErrorCode.RPC_FAILED, retryable = true, technicalCause = it.message, stage = "models_load"),
+                    error = AppError(AppErrorCode.MODEL_LIST_FAILED, retryable = true, technicalCause = it.message, stage = "models_load"),
                 )
             }
     }
@@ -61,10 +81,30 @@ class ModelsViewModel @Inject constructor(
     fun toggleFavorite(provider: String, model: String) =
         viewModelScope.launch { favoritesStore.toggle(provider, model) }
 
-    fun select(provider: String, model: String) = viewModelScope.launch {
-        runCatching { models.set(provider, model, profileManager.active.value) }
-            .onSuccess { _state.value = _state.value.copy(message = localizedText("默认模型已设为 $model", "Default set to $model")); load() }
-            .onFailure { _state.value = _state.value.copy(message = localizedText("设置默认模型失败（HR-RPC-001）", "Couldn't set the default model (HR-RPC-001)")) }
+    fun select(provider: String, model: String) {
+        if (_state.value.pendingKey != null) return
+        val key = com.hermes.client.data.repository.favKey(provider, model)
+        _state.value = _state.value.copy(pendingKey = key, message = null)
+        viewModelScope.launch {
+            runCatching { models.set(provider, model, profileManager.active.value) }
+                .onSuccess {
+                    // Optimistic: mark the new default in place instead of flashing a full reload;
+                    // the provider isCurrent flags refresh quietly in the background.
+                    _state.value = _state.value.copy(
+                        pendingKey = null,
+                        defaultModel = model, defaultProvider = provider,
+                        message = localizedText("默认模型已设为 $model", "Default set to $model"),
+                    )
+                    runCatching { models.providers(profileManager.active.value) }
+                        .onSuccess { _state.value = _state.value.copy(providers = it) }
+                }
+                .onFailure {
+                    _state.value = _state.value.copy(
+                        pendingKey = null,
+                        message = localizedText("设置默认模型失败（HR-RPC-005）", "Couldn't set the default model (HR-RPC-005)"),
+                    )
+                }
+        }
     }
 
     fun clearMessage() { _state.value = _state.value.copy(message = null) }

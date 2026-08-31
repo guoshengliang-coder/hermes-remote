@@ -119,3 +119,30 @@ logic but not the interaction feel.
    crash. The launcher widget must show only New chat and Chats.
 8. **Remote device tile.** With the Connector attached, confirm the card page shows its DEVICE_ID
    and Connected · latency; kill the Connector and confirm the tile flips to offline.
+
+## Model selector smoke test (2026-08 collapsible groups + current-model visibility)
+
+JVM unit tests cover the grouping/collapse logic, override tracking, and error codes; these flows
+still need a device or emulator against a running Gateway/Connector. All of them are pending device
+verification for the current iteration.
+
+1. **Default open state.** In a chat, tap the model chip. The sheet must open with the current-model
+   summary strip on top, favorites pinned open, the current model's group expanded with the row
+   highlighted (check mark + scrolled into view), and every other group collapsed to a single
+   "name + count" line.
+2. **Collapse and search.** Toggle a few group headers, then type a query: every group with matches
+   must auto-expand and show its hit count; clearing the query (× button) must restore the previous
+   collapse state.
+3. **Session override loop.** Switch the model with scope 此对话. The chip must gain the tonal
+   background and 此对话 tag, and the sheet summary must read 此对话覆盖 with a 恢复默认 action.
+   Tap 恢复默认: the session returns to the default model and the tag disappears.
+4. **Spaced model names.** Pick a model whose name contains spaces or parentheses (OpenRouter often
+   has them) with scope 此对话. Confirm the switch succeeds — the app quotes `/model` arguments,
+   and the upstream slash parser's handling of quoted arguments has NOT yet been verified against a
+   live Hermes.
+5. **Default scope.** Switch with scope 默认 and confirm the settings Models page shows the new
+   default in its top summary card and highlights the row; a chat that was following the default
+   must show the new model on its chip without reopening.
+6. **Failure surfaces.** Drop the Connector and attempt a switch: the sheet must stay open showing
+   HR-RPC-004 (session) or HR-RPC-005 (default); the model list failure state must show HR-RPC-003
+   with a working Retry.

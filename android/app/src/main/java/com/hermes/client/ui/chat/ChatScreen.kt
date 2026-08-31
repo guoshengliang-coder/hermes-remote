@@ -115,6 +115,7 @@ import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.ui.components.connectionBannerModel
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.localization.localizedMessage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -753,9 +754,14 @@ fun ChatScreen(
                                         Icon(Icons.Rounded.Mic, contentDescription = localized(language, "语音输入", "Voice input"), modifier = Modifier.size(24.dp))
                                     }
                                 }
+                                // Model chip: plain text while following the default; a tonal
+                                // container plus a "此对话" tag when this chat runs an override,
+                                // so the answer to "which model am I on" is one glance away.
+                                val modelOverridden by vm.sessionModelOverridden.collectAsStateWithLifecycle()
                                 Surface(
                                     onClick = { modelSheetOpen = true },
-                                    color = androidx.compose.ui.graphics.Color.Transparent,
+                                    color = if (modelOverridden) MaterialTheme.colorScheme.secondaryContainer
+                                    else androidx.compose.ui.graphics.Color.Transparent,
                                     shape = RoundedCornerShape(18.dp),
                                 ) {
                                     Row(
@@ -763,10 +769,29 @@ fun ChatScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Text(
-                                            if (currentModel.isNullOrBlank()) localized(language, "自动", "Auto") else compactModelLabel(currentModel),
+                                            // "默认模型", not "自动": before the config loads we only
+                                            // know the session follows the default — there is no
+                                            // auto-routing to suggest.
+                                            if (currentModel.isNullOrBlank()) localized(language, "默认模型", "Default model") else compactModelLabel(currentModel),
                                             style = MaterialTheme.typography.titleMedium,
+                                            color = if (currentModel.isNullOrBlank()) MaterialTheme.colorScheme.onSurfaceVariant
+                                            else MaterialTheme.colorScheme.onSurface,
                                             maxLines = 1,
                                         )
+                                        if (modelOverridden) {
+                                            Text(
+                                                localized(language, "此对话", "This chat"),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                modifier = Modifier
+                                                    .padding(start = 6.dp)
+                                                    .background(
+                                                        MaterialTheme.colorScheme.primaryContainer,
+                                                        RoundedCornerShape(8.dp),
+                                                    )
+                                                    .padding(horizontal = 6.dp, vertical = 1.dp),
+                                            )
+                                        }
                                         Icon(
                                             Icons.Rounded.ArrowDropDown,
                                             contentDescription = localized(language, "切换模型", "Switch model"),
@@ -1166,10 +1191,35 @@ fun ChatScreen(
     if (modelSheetOpen) {
         val providersLoading by vm.providersLoading.collectAsStateWithLifecycle()
         val providersError by vm.providersError.collectAsStateWithLifecycle()
+        val modelOverridden by vm.sessionModelOverridden.collectAsStateWithLifecycle()
+        val defaultModel by vm.defaultModel.collectAsStateWithLifecycle()
+        val activeProfileName by vm.activeProfile.collectAsStateWithLifecycle()
+        // The session's provider may be unknown (old metadata); resolve it from the catalog so
+        // the current row/group can be marked.
+        val resolvedCurrentProvider = com.hermes.client.ui.models.resolveModelProvider(
+            providers, currentProvider, currentModel,
+        )
+        // Collapsible groups: null until the user touches a header, meaning "auto" — favorites
+        // pinned open, the current group open, everything else collapsed to one scannable line.
+        var expandedGroups by remember(sessionId) { mutableStateOf<Set<String>?>(null) }
+        val effectiveExpanded = expandedGroups ?: setOfNotNull(resolvedCurrentProvider)
         val items = com.hermes.client.ui.models.modelSelectorRows(
             providers = providers, favorites = favorites, query = modelSheet.query,
-            currentProvider = currentProvider, currentModel = currentModel,
+            currentProvider = resolvedCurrentProvider, currentModel = currentModel,
+            expandedGroups = effectiveExpanded,
         )
+        val currentSummary = currentModel?.takeIf { it.isNotBlank() }?.let { model ->
+            com.hermes.client.ui.models.CurrentModelSummary(
+                model = model,
+                provider = resolvedCurrentProvider,
+                scopeText = if (modelOverridden) {
+                    val default = defaultModel
+                    if (default != null) localized(language, "此对话覆盖（默认是 $default）", "This chat override (default: $default)")
+                    else localized(language, "此对话覆盖", "This chat override")
+                } else localized(language, "跟随默认", "Following default"),
+                showRestore = modelOverridden && defaultModel != null,
+            )
+        }
         com.hermes.client.ui.models.ModelSelectorSheet(
             items = items,
             query = modelSheet.query, onQueryChange = vm::onSheetQuery,
@@ -1184,8 +1234,21 @@ fun ChatScreen(
                     }
                 }
             },
-            pending = modelSheet.pending, error = modelSheet.error?.resolve(language),
-            onDismiss = { modelSheetOpen = false; retryAfterModelSwitch = false },
+            onToggleGroup = { slug ->
+                expandedGroups = if (slug in effectiveExpanded) effectiveExpanded - slug else effectiveExpanded + slug
+            },
+            pendingKey = modelSheet.pendingKey,
+            error = modelSheet.error?.localizedMessage(language),
+            onDismiss = { modelSheetOpen = false; retryAfterModelSwitch = false; vm.onSheetQuery("") },
+            currentSummary = currentSummary,
+            onRestoreDefault = { vm.restoreDefaultModel { modelSheetOpen = false } },
+            scopeHint = if (modelSheet.scope == com.hermes.client.ui.models.ModelScope.SESSION) {
+                localized(language, "只影响当前对话，其余会话仍用默认模型", "Affects only this chat; other chats keep the default")
+            } else {
+                val profileName = activeProfileName
+                if (profileName != null) localized(language, "设为 $profileName 身份所有新会话的默认模型", "Sets the default for all new chats of $profileName")
+                else localized(language, "设为所有新会话的默认模型", "Sets the default for all new chats")
+            },
             listLoading = providersLoading,
             listError = providersError,
             onRetryLoad = { vm.ensureProviders(force = true) },

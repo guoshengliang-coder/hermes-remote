@@ -1,9 +1,9 @@
-# Hermes Remote
+# Hermes GO
 
-Hermes Remote securely connects an Android app to Hermes running on a Mac mini without exposing the Mac to the public internet and without requiring Tailscale or a VPN.
+Your AI agent, in your pocket. Hermes GO securely connects the mobile app to Hermes running on your Mac, without exposing the Mac to the public internet or requiring Tailscale or a VPN. The Mac companion is called **Hermes Go Desktop**.
 
 ```text
-Android App -- HTTPS/WSS --> HK Gateway <-- outbound WSS -- macOS Connector --> localhost Hermes
+Hermes GO Mobile -- HTTPS/WSS --> HK Gateway <-- outbound WSS -- Hermes Go Desktop --> localhost Hermes
 ```
 
 ## Status

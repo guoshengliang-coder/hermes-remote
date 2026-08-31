@@ -70,12 +70,18 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
             shape = CircleShape,
         ) {
             Text(
-                "HERMES REMOTE",
+                "HERMES GO",
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
             )
         }
+        Text(
+            localized(language, "你的随身 AI Agent", "Your AI agent, in your pocket."),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 10.dp),
+        )
         Spacer(Modifier.height(22.dp))
         Text(localized(language, "连接你的 Mac", "Connect your Mac"), style = MaterialTheme.typography.headlineSmall)
         Text(
@@ -183,7 +189,7 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
                 scanLauncher.launch(
                     ScanOptions().apply {
                         setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                        setPrompt(localized(language, "扫描 Hermes Remote 配对二维码", "Scan the Hermes Remote pairing QR code"))
+                        setPrompt(localized(language, "扫描 Hermes Go Desktop 配对二维码", "Scan the Hermes Go Desktop pairing QR code"))
                         setBeepEnabled(false)
                         setOrientationLocked(false)
                     },
@@ -197,7 +203,7 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
         }
         if (state.scanError) {
             Text(
-                localized(language, "二维码不是有效的 Hermes Remote 配置", "This QR code isn't a valid Hermes Remote configuration"),
+                localized(language, "二维码不是有效的 Hermes Go Desktop 配置", "This QR code isn't a valid Hermes Go Desktop configuration"),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 10.dp),

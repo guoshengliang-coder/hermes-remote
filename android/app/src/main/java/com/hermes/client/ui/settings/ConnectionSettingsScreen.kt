@@ -46,7 +46,7 @@ fun ConnectionSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                localized(language, "Hermes Remote 只使用独立的 App Token。Mac 上的 Hermes 用户名和密码不会发送到手机。", "Hermes Remote only uses a dedicated App Token. Your Mac's Hermes username and password are never sent to the phone."),
+                localized(language, "Hermes GO 只使用独立的 App Token。Mac 上的 Hermes 用户名和密码不会发送到手机。", "Hermes GO only uses a dedicated App Token. Your Mac's Hermes username and password are never sent to the phone."),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

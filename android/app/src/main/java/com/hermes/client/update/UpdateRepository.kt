@@ -78,7 +78,7 @@ class UpdateRepository(
         val target = File(downloadDirectory, version.fileName)
         if (target.exists() && !target.delete()) error("Unable to prepare download")
         val request = DownloadManager.Request(Uri.parse(version.downloadUrl))
-            .setTitle("Hermes Remote ${version.versionName}")
+            .setTitle("Hermes GO ${version.versionName}")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, version.fileName)
         val id = downloads.enqueue(request)

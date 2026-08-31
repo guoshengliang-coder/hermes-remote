@@ -11,8 +11,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.hermes.client.ui.theme.LocalAvatarColors
 import com.hermes.client.ui.theme.avatarColorArgb
 
@@ -32,7 +34,13 @@ fun ProfileAvatar(name: String?, modifier: Modifier = Modifier, size: Dp = 28.dp
         Text(
             (name?.takeIf { it.isNotBlank() } ?: "·").take(1).uppercase(),
             color = Color.White,
-            style = if (size >= 40.dp) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge,
+            // The initial scales WITH the circle (reference: cap height ≈ 35% of the diameter,
+            // i.e. font size ≈ 0.47×size) instead of jumping between two fixed styles that left
+            // large avatars with a tiny letter.
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontSize = (size.value * 0.47f).sp,
+                fontWeight = FontWeight.SemiBold,
+            ),
         )
     }
 }

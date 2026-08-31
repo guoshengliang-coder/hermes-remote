@@ -46,8 +46,9 @@ android {
         versionCode = appVersionCode
         versionName = appVersionName
         testInstrumentationRunner = "com.hermes.client.HiltTestRunner"
-        // App name; the beta build type overrides this so both can be installed at once.
-        manifestPlaceholders["appLabel"] = "Hermes Remote"
+        // Public product name; keep the application id and update artifact names stable for
+        // existing installations.
+        manifestPlaceholders["appLabel"] = "Hermes GO"
         buildConfigField("String", "UPDATE_INDEX_URL", "\"https://mrlgs.net/releases/index.json\"")
         buildConfigField("String", "EXPECTED_UPDATE_CERT_SHA256", "\"$expectedDebugCertificateSha256\"")
     }
@@ -87,7 +88,7 @@ android {
             initWith(getByName("release"))
             applicationIdSuffix = ".beta"
             versionNameSuffix = "-beta"
-            manifestPlaceholders["appLabel"] = "Hermes Remote Beta"
+            manifestPlaceholders["appLabel"] = "Hermes GO Beta"
             signingConfig = signingConfigs.findByName("release")
         }
     }

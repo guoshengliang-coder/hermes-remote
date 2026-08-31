@@ -19,12 +19,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SystemUpdateAlt
-import androidx.compose.material.icons.outlined.ViewInAr
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -218,7 +218,7 @@ fun CardPage(
                 )
                 HorizontalDivider(color = hairline)
                 ShortcutRow(
-                    icon = Icons.Outlined.ViewInAr,
+                    icon = CubeIcon,
                     label = localized(language, "模型", "Model"),
                     value = state.defaultModel ?: "—",
                     onClick = { onNavigate("models") },
@@ -425,6 +425,39 @@ private fun AutoShrinkText(
         },
         modifier = modifier,
     )
+}
+
+/**
+ * Plain outlined cube for the model row — drawn to match the sheet's stroke icon set (clock,
+ * moon, boxed arrow): 1.75 stroke, round joins, no scan-frame corners like ViewInAr's.
+ */
+private val CubeIcon: androidx.compose.ui.graphics.vector.ImageVector by lazy {
+    androidx.compose.ui.graphics.vector.ImageVector.Builder(
+        name = "OutlinedCube",
+        defaultWidth = 24.dp, defaultHeight = 24.dp,
+        viewportWidth = 24f, viewportHeight = 24f,
+    ).apply {
+        path(
+            fill = null,
+            stroke = androidx.compose.ui.graphics.SolidColor(Color.Black),
+            strokeLineWidth = 1.75f,
+            strokeLineCap = androidx.compose.ui.graphics.StrokeCap.Round,
+            strokeLineJoin = androidx.compose.ui.graphics.StrokeJoin.Round,
+        ) {
+            // Outer hexagonal silhouette.
+            moveTo(12f, 3f)
+            lineTo(20f, 7.5f)
+            lineTo(20f, 16.5f)
+            lineTo(12f, 21f)
+            lineTo(4f, 16.5f)
+            lineTo(4f, 7.5f)
+            close()
+            // Inner edges toward the front-facing corner.
+            moveTo(12f, 12f); lineTo(4.3f, 7.6f)
+            moveTo(12f, 12f); lineTo(19.7f, 7.6f)
+            moveTo(12f, 12f); lineTo(12f, 20.8f)
+        }
+    }.build()
 }
 
 /** "242 ms" below a second, "1.1 s" above — four-digit ms never earns its width. */

@@ -74,4 +74,71 @@ class ModelSelectorTest {
         val items = modelSelectorRows(providers, favs, "step", null, null)
         assertTrue(headers(items).none { it == "Favorites" })
     }
+
+    // ---- collapsible groups ----
+
+    @Test fun null_expanded_set_keeps_every_group_expanded() {
+        val items = modelSelectorRows(providers, emptySet(), "", null, null, expandedGroups = null)
+        assertEquals(3, rows(items).size)
+        assertTrue(items.filterIsInstance<ModelListItem.Header>().all { it.expanded })
+    }
+
+    @Test fun collapsed_group_contributes_header_only_with_total_count() {
+        val items = modelSelectorRows(providers, emptySet(), "", null, null, expandedGroups = setOf("OpenRouter"))
+        // openai-codex is collapsed: header present, its 2 rows gone; OpenRouter's row remains.
+        assertEquals(listOf("stepfun/step-3.7-flash:free"), rows(items).map { it.model })
+        val codex = items.filterIsInstance<ModelListItem.Header>().first { it.slug == "openai-codex" }
+        assertTrue(!codex.expanded)
+        assertEquals(2, codex.count)
+        val openRouter = items.filterIsInstance<ModelListItem.Header>().first { it.slug == "OpenRouter" }
+        assertTrue(openRouter.expanded)
+    }
+
+    @Test fun favorites_stay_pinned_even_when_their_group_is_collapsed() {
+        val favs = setOf(favKey("openai-codex", "gpt-5.5"))
+        val items = modelSelectorRows(providers, favs, "", null, null, expandedGroups = emptySet())
+        // All groups collapsed: only the pinned favorites row survives as a row.
+        assertEquals(listOf("gpt-5.5"), rows(items).map { it.model })
+        assertTrue((items.first() as ModelListItem.Header).isFavorites)
+    }
+
+    @Test fun query_suspends_collapse_and_reports_hit_counts() {
+        val items = modelSelectorRows(providers, emptySet(), "gpt", null, null, expandedGroups = emptySet())
+        // Collapsed set is ignored during search; only matching groups appear, auto-expanded.
+        val headers = items.filterIsInstance<ModelListItem.Header>()
+        assertEquals(listOf("openai-codex"), headers.map { it.slug })
+        assertTrue(headers.single().searchHits)
+        assertTrue(headers.single().expanded)
+        assertEquals(2, headers.single().count)
+        assertEquals(2, rows(items).size)
+    }
+
+    @Test fun query_matches_provider_display_name() {
+        val named = listOf(
+            ModelProviderDto(slug = "or", name = "Open Router Inc", isCurrent = false, models = listOf("m1")),
+        )
+        assertEquals(1, rows(modelSelectorRows(named, emptySet(), "router", null, null)).size)
+    }
+
+    // ---- provider resolution for the current model ----
+
+    @Test fun resolveModelProvider_passes_known_provider_through() {
+        assertEquals("x", resolveModelProvider(providers, "x", "gpt-5.5"))
+    }
+
+    @Test fun resolveModelProvider_finds_unique_owner() {
+        assertEquals("OpenRouter", resolveModelProvider(providers, null, "stepfun/step-3.7-flash:free"))
+    }
+
+    @Test fun resolveModelProvider_prefers_current_provider_on_ambiguity() {
+        val ambiguous = listOf(
+            ModelProviderDto(slug = "a", name = null, isCurrent = false, models = listOf("shared")),
+            ModelProviderDto(slug = "b", name = null, isCurrent = true, models = listOf("shared")),
+        )
+        assertEquals("b", resolveModelProvider(ambiguous, null, "shared"))
+    }
+
+    @Test fun resolveModelProvider_returns_null_for_unknown_model() {
+        assertEquals(null, resolveModelProvider(providers, null, "nope"))
+    }
 }

@@ -21,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -402,6 +403,87 @@ class ChatViewModelTest {
 
         assertTrue("a failed default switch must surface a sheet error", vm.modelSheet.value.error != null)
         assertFalse("the sheet must stay open on failure", onDoneCalled)
+    }
+
+    // Model names and provider slugs may contain spaces upstream — the slash command must quote
+    // them, or the argument splits and the wrong model (or an error) results.
+    @Test fun sessionModelCommand_quotes_arguments_with_spaces() {
+        assertEquals("/model opus --provider anthropic --session", sessionModelCommand("anthropic", "opus"))
+        assertEquals(
+            "/model \"step 3.7 (flash)\" --provider openrouter --session",
+            sessionModelCommand("openrouter", "step 3.7 (flash)"),
+        )
+        assertEquals("\"say \\\"hi\\\"\"", slashArg("say \"hi\""))
+    }
+
+    // A second tap while a switch is in flight must be ignored — otherwise two slashes race and
+    // the session lands on whichever finishes last.
+    @Test fun onSelectFromSheet_ignores_taps_while_pending() = runTest {
+        coEvery { chatRepo.slashExec("s1", any()) } coAnswers {
+            kotlinx.coroutines.delay(5_000); null
+        }
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+
+        vm.onSelectFromSheet("anthropic", "opus") {}
+        runCurrent()
+        vm.onSelectFromSheet("anthropic", "sonnet") {}
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { chatRepo.slashExec("s1", any()) }
+    }
+
+    // Chip contract: a successful SESSION switch marks the chat as overridden; "恢复默认" pins the
+    // session back to the configured default and clears the override.
+    @Test fun session_override_flag_sets_on_switch_and_clears_on_restore() = runTest {
+        coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "def-model") }
+        coEvery { modelRepo.providers(any()) } returns listOf(
+            com.hermes.client.data.network.ModelProviderDto(
+                slug = "prov", isCurrent = true, models = listOf("def-model", "opus"),
+            ),
+        )
+        val vm = buildVm()
+        // WhileSubscribed: the derived flow only computes under collection.
+        val watcher = launch { vm.sessionModelOverridden.collect {} }
+        vm.open("s1"); advanceUntilIdle()
+
+        assertFalse("a session following the default is not overridden", vm.sessionModelOverridden.value)
+        assertEquals("def-model", vm.currentModel.value)
+
+        vm.onSelectFromSheet("prov", "opus") {}
+        advanceUntilIdle()
+        assertTrue(vm.sessionModelOverridden.value)
+
+        vm.restoreDefaultModel {}
+        advanceUntilIdle()
+        coVerify { chatRepo.slashExec("s1", "/model def-model --provider prov --session") }
+        assertFalse(vm.sessionModelOverridden.value)
+        assertEquals("def-model", vm.currentModel.value)
+        watcher.cancel()
+    }
+
+    // DEFAULT scope: on success the tracked default moves, and a chat that was following the
+    // default follows it to the new model immediately (the chip must not go stale).
+    @Test fun default_scope_success_moves_default_and_following_chip() = runTest {
+        coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "def-model") }
+        coEvery { modelRepo.providers(any()) } returns listOf(
+            com.hermes.client.data.network.ModelProviderDto(
+                slug = "prov", isCurrent = true, models = listOf("def-model", "next"),
+            ),
+        )
+        val vm = buildVm()
+        val watcher = launch { vm.sessionModelOverridden.collect {} }
+        vm.open("s1"); advanceUntilIdle()
+
+        vm.onSheetScope(com.hermes.client.ui.models.ModelScope.DEFAULT)
+        vm.onSelectFromSheet("prov", "next") {}
+        advanceUntilIdle()
+
+        coVerify { modelRepo.set("prov", "next") }
+        assertEquals("next", vm.defaultModel.value)
+        assertEquals("next", vm.currentModel.value)
+        assertFalse(vm.sessionModelOverridden.value)
+        watcher.cancel()
     }
 
     @Test fun selectProfile_calls_profileRepo_setActive() = runTest {

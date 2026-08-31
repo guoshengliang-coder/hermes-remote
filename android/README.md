@@ -154,11 +154,13 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   the header bar) via a record-only offscreen exporter, and makes fullscreen viewing genuinely
   rotation-proof by hoisting its state to the screen level — the previous in-tree fix was lost
   during the markdown re-parse window on Activity recreation.
-- Version 0.1.55 locks the card page to design scale (font-scale capped at 1.0 for this sheet
-  only — every reading surface still honours the system setting), keeps both stat cells' value
-  and sub sizes in lockstep so the row never renders mismatched, lightens the cards to
-  near-white with a 1dp whisper shadow (measured off the reference), and trims the wordmark to
-  26sp / avatar to 48dp / profile name to 20sp per the reference proportions.
+- Version 0.1.55 adds a connection-aware startup gate using the current multicolour icon: configured
+  cold starts wait for `gateway.ready`, unconfigured first runs go straight to Setup, healthy warm
+  returns preserve the current screen, and interrupted returns show bounded recovery with retry,
+  settings and cached-UI actions. It also upgrades the model selector with current/default/session
+  scope visibility, collapsible provider groups, search expansion and stable localized model errors;
+  updates the public name to Hermes GO without changing the install identity; and locks the card page
+  to design scale with lockstep stat sizing, near-white cards and reference-proportioned typography.
 - Version 0.1.54 upgrades the fit strategy to shrink-then-wrap: values shrink to the minimum
   acceptable size on one line first, and only if the floor still overflows do they wrap to two
   lines at that floor — ellipsis remains solely as a two-line last resort (verified with a

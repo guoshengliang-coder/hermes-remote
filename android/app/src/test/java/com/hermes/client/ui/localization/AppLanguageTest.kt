@@ -23,4 +23,22 @@ class AppLanguageTest {
         assertTrue(error.localizedMessage(AppLanguage.ZH).contains("HR-CONFIG-001"))
         assertTrue(error.localizedMessage(AppLanguage.EN).contains("HR-CONFIG-001"))
     }
+
+    @Test fun modelErrors_carryRegisteredCodesAndBothLanguages() {
+        val cases = mapOf(
+            AppErrorCode.MODEL_LIST_FAILED to "HR-RPC-003",
+            AppErrorCode.MODEL_SWITCH_FAILED to "HR-RPC-004",
+            AppErrorCode.MODEL_DEFAULT_FAILED to "HR-RPC-005",
+        )
+        for ((code, hr) in cases) {
+            val error = AppError(code, retryable = true)
+            val zh = error.localizedMessage(AppLanguage.ZH)
+            val en = error.localizedMessage(AppLanguage.EN)
+            assertTrue("$hr zh copy must carry the code", zh.contains(hr))
+            assertTrue("$hr en copy must carry the code", en.contains(hr))
+            assertTrue("$hr zh copy must be Chinese", zh.any { it.code > 0x4E00 })
+            assertTrue("$hr copies must differ per language", zh != en)
+            assertTrue("model errors are retryable", error.retryable)
+        }
+    }
 }

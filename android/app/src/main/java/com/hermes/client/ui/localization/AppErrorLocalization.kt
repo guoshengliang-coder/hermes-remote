@@ -12,6 +12,12 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "连接已中断，请重试。", "The connection was interrupted. Retry.")
         AppErrorCode.RPC_FAILED ->
             localized(language, "Relay 请求失败，请重试。", "The Relay request failed. Retry.")
+        AppErrorCode.MODEL_LIST_FAILED ->
+            localized(language, "无法加载模型列表，请重试。", "Couldn't load the model list. Retry.")
+        AppErrorCode.MODEL_SWITCH_FAILED ->
+            localized(language, "无法切换本会话的模型，请重试。", "Couldn't switch this conversation's model. Retry.")
+        AppErrorCode.MODEL_DEFAULT_FAILED ->
+            localized(language, "无法设置默认模型，请重试。", "Couldn't set the default model. Retry.")
         AppErrorCode.CONFIG_READ_FAILED ->
             localized(language, "无法加载配置，请重试。", "Couldn't load the configuration. Retry.")
         AppErrorCode.CONFIG_WRITE_FAILED ->
