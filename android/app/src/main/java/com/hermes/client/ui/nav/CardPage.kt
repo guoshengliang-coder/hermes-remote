@@ -19,11 +19,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.SystemUpdateAlt
 import androidx.compose.material.icons.outlined.ViewInAr
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -79,8 +79,8 @@ fun CardPage(
     val dark = isSystemInDarkTheme()
     // The base design's containers are NEUTRAL light grey; in dark theme fall back to the
     // theme's surfaceVariant so contrast holds.
-    val tile = if (dark) MaterialTheme.colorScheme.surfaceVariant else Color(0xFFF4F6F5)
-    val hairline = if (dark) MaterialTheme.colorScheme.outlineVariant else Color(0xFFE2E7E4)
+    val tile = if (dark) MaterialTheme.colorScheme.surfaceVariant else Color(0xFFF5F4F2)
+    val hairline = if (dark) MaterialTheme.colorScheme.outlineVariant else Color(0xFFEAE8E4)
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
     ModalDrawerSheet(
@@ -91,7 +91,7 @@ fun CardPage(
     ) {
         Column(
             Modifier.fillMaxHeight().verticalScroll(rememberScrollState())
-                .statusBarsPadding().padding(horizontal = 20.dp),
+                .statusBarsPadding().padding(horizontal = 24.dp),
         ) {
             // ── Wordmark + settings gear ─────────────────────────────────────────────
             Row(
@@ -100,14 +100,14 @@ fun CardPage(
             ) {
                 Text(
                     "Hermes",
-                    style = MaterialTheme.typography.headlineSmall.copy(fontSize = 30.sp, fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.headlineSmall.copy(fontSize = 32.sp, fontWeight = FontWeight.Bold),
                     modifier = Modifier.weight(1f),
                 )
                 Surface(
                     onClick = { onNavigate("settings") },
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.surface,
-                    shadowElevation = 2.dp,
+                    shadowElevation = 6.dp,
                     modifier = Modifier.size(44.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -123,19 +123,19 @@ fun CardPage(
                 color = tile,
             ) {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ProfileAvatar(active, size = 52.dp)
-                    Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                        Text(active ?: "—", style = MaterialTheme.typography.titleLarge)
+                    ProfileAvatar(active, size = 56.dp)
+                    Column(Modifier.weight(1f).padding(start = 18.dp)) {
+                        Text(active ?: "—", style = MaterialTheme.typography.titleLarge.copy(fontSize = 21.sp))
                         Text(
                             localized(language, "当前身份", "Active profile"),
                             style = MaterialTheme.typography.bodyMedium,
                             color = muted,
                         )
                     }
-                    Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = muted)
+                    Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = muted, modifier = Modifier.size(24.dp))
                 }
             }
 
@@ -145,14 +145,17 @@ fun CardPage(
                 color = tile,
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             ) {
-                Row(Modifier.padding(vertical = 18.dp)) {
+                Row(
+                    Modifier.padding(vertical = 18.dp)
+                        .height(androidx.compose.foundation.layout.IntrinsicSize.Min),
+                ) {
                     StatCell(
                         title = localized(language, "本周用量", "This week"),
                         value = state.weekTokens?.let { compactTokens(it) } ?: "—",
                         sub = state.weekCost?.let { localized(language, "预估 $%.2f".format(it), "est. $%.2f".format(it)) },
                         modifier = Modifier.weight(1f).clickable { onNavigate("usage") },
                     )
-                    Box(Modifier.width(1.dp).height(64.dp).background(hairline).align(Alignment.CenterVertically))
+                    Box(Modifier.width(1.dp).fillMaxHeight().background(hairline))
                     val healthy = health as? GatewayHealth.Healthy
                     StatCell(
                         title = localized(language, "远程设备", "Remote device"),
@@ -193,7 +196,7 @@ fun CardPage(
                 )
                 HorizontalDivider(color = hairline)
                 ShortcutRow(
-                    icon = Icons.Outlined.SystemUpdate,
+                    icon = Icons.Outlined.SystemUpdateAlt,
                     label = localized(language, "检查更新", "App updates"),
                     value = "v${com.hermes.client.BuildConfig.VERSION_NAME}",
                     onClick = { onNavigate("app_update") },
@@ -236,25 +239,25 @@ private fun StatCell(
     modifier: Modifier = Modifier,
     subColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
-    // Typography pinned to the reference shot: 15sp regular grey label, 27sp bold value with
-    // tight tracking, 15sp grey sub-line — explicit sp so theme scale tweaks can't drift it.
-    Column(modifier.padding(horizontal = 18.dp)) {
+    // Type ramp derived from the reference by INTERNAL ratio (label anchored at 15sp):
+    // 15sp label / 23sp bold value / 15sp sub. The value auto-shrinks (never truncates a
+    // number) down to 17sp so narrow screens and long device names still fit their cell.
+    Column(modifier.padding(horizontal = 22.dp)) {
         Text(
             title,
             style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(
+        AutoShrinkText(
             value,
             style = MaterialTheme.typography.headlineSmall.copy(
-                fontSize = 27.sp,
-                lineHeight = 33.sp,
+                fontSize = 23.sp,
+                lineHeight = 29.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.4).sp,
+                letterSpacing = (-0.3).sp,
             ),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 4.dp, bottom = 3.dp),
+            minFontSize = 17.sp,
+            modifier = Modifier.padding(top = 5.dp, bottom = 4.dp),
         )
         sub?.let {
             Text(
@@ -262,6 +265,7 @@ private fun StatCell(
                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
                 color = subColor,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -276,14 +280,16 @@ private fun ShortcutRow(
     badge: Int? = null,
 ) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 18.dp),
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 21.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(26.dp))
+        Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
         Text(
             label,
-            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp),
-            modifier = Modifier.weight(1f).padding(start = 16.dp),
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 20.sp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f).padding(start = 20.dp),
         )
         // Neutral badge — same palette as the rest of the sheet, no alert colour.
         badge?.let {
@@ -298,20 +304,49 @@ private fun ShortcutRow(
         value?.let {
             Text(
                 it,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 16.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 130.dp).padding(start = 8.dp),
+                // Proportional cap, not a fixed dp: on narrow sheets the label keeps priority
+                // while long values (model ids) ellipsize gracefully.
+                modifier = Modifier.widthIn(max = 150.dp).padding(start = 8.dp),
             )
         }
         Icon(
-            Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+            Icons.Rounded.ChevronRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 4.dp),
+            modifier = Modifier.padding(start = 2.dp).size(22.dp),
         )
     }
+}
+
+/**
+ * Single-line text that steps its font size down (never below [minFontSize]) until it fits,
+ * instead of ellipsizing — numbers and device names must stay whole on narrow widths.
+ */
+@Composable
+private fun AutoShrinkText(
+    text: String,
+    style: androidx.compose.ui.text.TextStyle,
+    minFontSize: androidx.compose.ui.unit.TextUnit,
+    modifier: Modifier = Modifier,
+) {
+    var fontSize by remember(text) { mutableStateOf(style.fontSize) }
+    Text(
+        text,
+        style = style.copy(fontSize = fontSize),
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
+        onTextLayout = { result ->
+            if (result.didOverflowWidth && fontSize.value > minFontSize.value) {
+                fontSize = (fontSize.value - 1f).coerceAtLeast(minFontSize.value).sp
+            }
+        },
+        modifier = modifier,
+    )
 }
 
 private fun compactTokens(v: Long): String = when {
