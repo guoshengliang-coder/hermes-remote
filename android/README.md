@@ -154,6 +154,11 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   the header bar) via a record-only offscreen exporter, and makes fullscreen viewing genuinely
   rotation-proof by hoisting its state to the screen level — the previous in-tree fix was lost
   during the markdown re-parse window on Activity recreation.
+- Version 0.1.56 ships the card-page polish that missed the 0.1.55 build: the dark-mode fix
+  (theme-truth via surface luminance, one-step lifted cards and gear button), the hand-drawn
+  1.7dp stroke icon set at reference sizes with the avatar initial at 35% of its circle, and the
+  remaining Hermes GO renames (wordmark, QS tile, About, crash report, diagnostics subject,
+  table-export filename) plus the theme quick-switch and current-model rows.
 - Version 0.1.55 adds a connection-aware startup gate using the current multicolour icon: configured
   cold starts wait for `gateway.ready`, unconfigured first runs go straight to Setup, healthy warm
   returns preserve the current screen, and interrupted returns show bounded recovery with retry,
@@ -257,7 +262,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.55-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.56-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
