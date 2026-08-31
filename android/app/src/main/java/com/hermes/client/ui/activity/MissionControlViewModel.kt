@@ -3,6 +3,7 @@ package com.hermes.client.ui.activity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.HermesApiException
+import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.data.repository.ToolsRepository
@@ -20,6 +21,7 @@ data class MissionControlState(
     val error: String? = null,
     val unauthorized: Boolean = false,
     val needsYou: List<CronAlert> = emptyList(),
+    val waitingSessions: List<SessionAlert> = emptyList(),
 )
 
 /**
@@ -32,9 +34,27 @@ class MissionControlViewModel @Inject constructor(
     private val sessions: SessionRepository,
     private val tools: ToolsRepository,
     private val profileManager: ProfileManager,
+    runtimeStore: SessionRuntimeStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MissionControlState())
     val state: StateFlow<MissionControlState> = _state.asStateFlow()
+
+    /** Session titles seen in the last feed load, for naming waiting-session alerts. */
+    private var sessionTitles: Map<String, String> = emptyMap()
+
+    init {
+        // Waiting-on-you sessions come from the live runtime store, not the REST feed, so they
+        // update the moment an approval/clarification request arrives — no refresh needed.
+        viewModelScope.launch {
+            runtimeStore.runtimes.collect { runtimes ->
+                _state.update { current ->
+                    current.copy(
+                        waitingSessions = waitingSessionAlerts(runtimes, profile) { id -> sessionTitles[id] },
+                    )
+                }
+            }
+        }
+    }
 
     /** Lazily-loaded cron-run responses, keyed by sessionId. */
     data class CronResponseUi(val loading: Boolean = false, val text: String? = null, val error: Boolean = false)
@@ -67,15 +87,17 @@ class MissionControlViewModel @Inject constructor(
             val alerts = needsAttention(crons, now)
             val alertIds = alerts.mapTo(mutableSetOf()) { it.jobId }
             val items = sessionsToActivity(scoped) + cronsToActivity(crons.filterNot { it.id in alertIds })
+            sessionTitles = scoped.associate { it.id to it.title }
             _state.value = MissionControlState(
                 sections = groupActivity(items, now),
                 needsYou = alerts,
+                waitingSessions = _state.value.waitingSessions,
             )
         } catch (e: HermesApiException) {
-            if (e.code == 401) _state.value = MissionControlState(unauthorized = true)
-            else _state.value = MissionControlState(error = e.message ?: "Failed to load")
+            if (e.code == 401) _state.value = MissionControlState(unauthorized = true, waitingSessions = _state.value.waitingSessions)
+            else _state.value = MissionControlState(error = e.message ?: "Failed to load", waitingSessions = _state.value.waitingSessions)
         } catch (e: Exception) {
-            _state.value = MissionControlState(error = e.message ?: "Failed to load")
+            _state.value = MissionControlState(error = e.message ?: "Failed to load", waitingSessions = _state.value.waitingSessions)
         }
     }
 

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
@@ -250,17 +251,23 @@ private fun MissionControlContent(
 ) {
     val language = LocalAppLanguage.current
     val needsYou = localized(language, "需要你处理", "Needs you")
+    val waiting = state.waitingSessions
     LazyColumn(Modifier.fillMaxSize()) {
-        if (view.needsYou.isNotEmpty()) {
+        if (view.needsYou.isNotEmpty() || waiting.isNotEmpty()) {
             item(key = "needs-header") {
                 SectionHeader(
                     needsYou,
-                    view.needsYou.size,
+                    view.needsYou.size + waiting.size,
                     collapsed = needsYou in collapsed,
                     onToggle = { onToggleSection(needsYou) },
                 )
             }
             if (needsYou !in collapsed) {
+                // Blocked live sessions outrank cron alerts: the agent is stopped RIGHT NOW
+                // waiting for this user's answer.
+                items(waiting, key = { "waiting-${it.sessionId}" }) { alert ->
+                    WaitingSessionRow(alert, nowMs = nowMs, onClick = { onOpen(alert.route) })
+                }
                 items(view.needsYou, key = { "needs-${it.jobId}" }) { alert ->
                     NeedsYouRow(alert, nowMs = nowMs, onClick = { onOpen(alert.route) }, onRunNow = { onRunNow(alert) })
                 }
@@ -269,7 +276,7 @@ private fun MissionControlContent(
         when {
             state.loading && state.sections.isEmpty() -> item { LoadingState() }
             state.error != null -> item { ErrorState(message = state.error!!, onRetry = onRetry) }
-            view.needsYou.isEmpty() && view.sections.isEmpty() -> item {
+            view.needsYou.isEmpty() && waiting.isEmpty() && view.sections.isEmpty() -> item {
                 if (filter == FeedFilter.ALL) {
                     EmptyState(
                         title = localized(language, "暂时没有动态", "Nothing happening yet"),
@@ -352,6 +359,34 @@ private fun SectionHeader(label: String, count: Int, collapsed: Boolean, onToggl
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+@Composable
+private fun WaitingSessionRow(alert: SessionAlert, nowMs: Long, onClick: () -> Unit) {
+    val language = LocalAppLanguage.current
+    val reasonText = when (alert.reason) {
+        SessionAlertReason.WAITING_APPROVAL -> localized(language, "等待你的批准", "Waiting for your approval")
+        SessionAlertReason.WAITING_CLARIFICATION -> localized(language, "等待你的回答", "Waiting for your answer")
+    }
+    val supporting = listOfNotNull(
+        reasonText,
+        alert.sinceMs?.let { relativeTime(it, nowMs) },
+    ).joinToString(" · ")
+    ListItem(
+        leadingContent = {
+            Icon(
+                Icons.Rounded.HourglassTop,
+                contentDescription = null,
+                tint = LocalProfileAccent.current.accent,
+            )
+        },
+        headlineContent = { Text(alert.title.ifBlank { localized(language, "会话", "Conversation") }) },
+        supportingContent = { Text(supporting) },
+        trailingContent = {
+            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null)
+        },
+        modifier = Modifier.clickable(onClick = onClick),
+    )
 }
 
 @Composable

@@ -6,6 +6,8 @@ data class NotificationPrefs(
     val approvals: Boolean = true,
     val runFinished: Boolean = true,
     val runProgress: Boolean = true,
+    // One-time post-pairing onboarding sheet has been shown (regardless of the choice made).
+    val onboardingSeen: Boolean = false,
 )
 
 /**

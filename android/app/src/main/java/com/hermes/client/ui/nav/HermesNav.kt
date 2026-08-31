@@ -118,6 +118,8 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
     // Chat is the primary Hermes Remote workflow. The richer activity dashboard makes several
     // optional API calls and must never block the user's first successful connection.
     val start = if (hasConfig) "sessions" else "setup"
+    // Set on a fresh successful pairing; the sheet itself no-ops if it was already shown once.
+    var showNotificationOnboarding by rememberSaveable { mutableStateOf(false) }
 
     // Guard the navigate: a hermes:// deep link is untrusted, and even the notification path could
     // carry a stale/unknown route — an unresolved route must be ignored, never crash.
@@ -215,6 +217,11 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             val contentModifier =
                 if (hasConfig && health.isUnhealthy()) Modifier.weight(1f).consumeWindowInsets(WindowInsets.statusBars)
                 else Modifier.weight(1f)
+            if (showNotificationOnboarding) {
+                com.hermes.client.ui.settings.NotificationOnboardingSheet(
+                    onDone = { showNotificationOnboarding = false },
+                )
+            }
             NavHost(
                 navController = nav,
                 startDestination = start,
@@ -223,6 +230,7 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             composable("setup") {
                 SetupScreen(
                     onSaved = {
+                        showNotificationOnboarding = true
                         nav.navigate("sessions") { popUpTo("setup") { inclusive = true } }
                     },
                 )

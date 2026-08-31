@@ -159,6 +159,17 @@ internal sealed interface RunningStatus {
 /** Max characters of a thinking line kept for the one-line preview; the TAIL is what matters. */
 private const val THINKING_PREVIEW_CHARS = 24
 
+/** "12秒" / "1分24秒" (or "12s" / "1m24s"): live elapsed time for the running-status line. */
+internal fun formatElapsedTime(elapsedMs: Long, zh: Boolean): String {
+    val totalSeconds = (elapsedMs / 1000).coerceAtLeast(0)
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return when {
+        minutes <= 0 -> if (zh) "${seconds}秒" else "${seconds}s"
+        else -> if (zh) "${minutes}分${seconds}秒" else "${minutes}m${seconds}s"
+    }
+}
+
 internal fun runningStatusFor(message: ChatMessage): RunningStatus {
     val tool = message.tools.lastOrNull { it.status == ToolStatus.RUNNING }
     if (tool != null) {

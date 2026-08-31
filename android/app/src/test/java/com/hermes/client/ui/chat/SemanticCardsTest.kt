@@ -186,4 +186,12 @@ class SemanticCardsTest {
         val msg = streamingMsg(text = "body", tools = listOf(ToolCall("t", "bash", ToolStatus.DONE, command = "ls")))
         assertEquals(RunningStatus.Generating, runningStatusFor(msg))
     }
+
+    @Test fun elapsedTimeFormats() {
+        assertEquals("0秒", formatElapsedTime(-100, zh = true))
+        assertEquals("12秒", formatElapsedTime(12_400, zh = true))
+        assertEquals("12s", formatElapsedTime(12_400, zh = false))
+        assertEquals("1分24秒", formatElapsedTime(84_000, zh = true))
+        assertEquals("1m24s", formatElapsedTime(84_000, zh = false))
+    }
 }

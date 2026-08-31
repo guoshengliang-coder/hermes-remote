@@ -36,6 +36,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.SelectAll
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.MoreHoriz
@@ -52,6 +55,8 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -88,6 +93,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.input.pointer.pointerInput
@@ -96,11 +102,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.asImageBitmap
 import android.widget.Toast
 import android.graphics.BitmapFactory
@@ -141,6 +150,7 @@ fun ChatMessageList(
     isGenerating: Boolean = false,
     onEditResend: (String) -> Unit = {},
     onRegenerate: () -> Unit = {},
+    onRetryWithModel: () -> Unit = {},
     isSpeaking: Boolean = false,
     onReadAloud: (String) -> Unit = {},
     onStopReading: () -> Unit = {},
@@ -392,6 +402,7 @@ fun ChatMessageList(
                         showAssistantActions,
                         onEditResend,
                         onRegenerate,
+                        onRetryWithModel,
                         isSpeaking,
                         onReadAloud,
                         onStopReading,
@@ -417,8 +428,11 @@ fun ChatMessageList(
                 Icon(
                     Icons.Rounded.KeyboardArrowDown,
                     contentDescription = localized(language, "回到最新消息", "Jump to latest message"),
-                    modifier = Modifier.padding(10.dp).size(24.dp),
-                    tint = LocalProfileAccent.current.accent,
+                    // Neutral tint + 48dp target: this is a navigation aid, not a semantic
+                    // action, so it follows the composer's quiet icon language instead of
+                    // spending accent color (audit: accent density already runs high).
+                    modifier = Modifier.padding(12.dp).size(24.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -510,6 +524,7 @@ private fun MessageBubble(
     showAssistantActions: Boolean,
     onEditResend: (String) -> Unit,
     onRegenerate: () -> Unit,
+    onRetryWithModel: () -> Unit,
     isSpeaking: Boolean,
     onReadAloud: (String) -> Unit,
     onStopReading: () -> Unit,
@@ -523,7 +538,7 @@ private fun MessageBubble(
 ) {
     when (msg.role) {
         Role.USER -> UserBubble(msg, onEditResend, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted)
-        else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, isSpeaking, onReadAloud, onStopReading, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted)
+        else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, isSpeaking, onReadAloud, onStopReading, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted)
     }
 }
 
@@ -543,23 +558,27 @@ private fun UserBubble(
     val language = LocalAppLanguage.current
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     var menuOpen by remember { mutableStateOf(false) }
     var selectingText by remember { mutableStateOf(false) }
     val bg = if (msg.isError) MaterialTheme.colorScheme.errorContainer
     else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.78f)
     val accent = LocalProfileAccent.current.accent
     val userShape = RoundedCornerShape(22.dp, 22.dp, 7.dp, 22.dp)
+    // Proportional cap instead of a fixed 320dp: a fixed value reads fine on a phone but
+    // leaves user bubbles oddly narrow on tablets/landscape. ~82% tracks the Claude app.
+    val bubbleMaxWidth = (LocalConfiguration.current.screenWidthDp * 0.82f).dp
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box {
             Column(
                 Modifier
-                    .widthIn(max = 320.dp)
+                    .widthIn(max = bubbleMaxWidth)
                     // Asymmetric corners (a small "tail" corner) mark this as the sender's bubble.
                     .clip(userShape)
                     .background(bg)
                     .then(if (highlighted) Modifier.background(accent.copy(alpha = 0.18f)).border(1.5.dp, accent, userShape) else Modifier)
                     .padding(horizontal = 16.dp, vertical = 11.dp)
-                    .combinedClickable(onClick = {}, onLongClick = { menuOpen = true }),
+                    .combinedClickable(onClick = {}, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); menuOpen = true }),
             ) {
                 if (msg.images.isNotEmpty()) {
                     ChatImageGrid(msg.images, onImageSave, onImageSaveAs, onImageShare, savingImageId)
@@ -580,18 +599,16 @@ private fun UserBubble(
                     )
                 }
             }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text(localized(language, "复制", "Copy")) },
-                    onClick = { copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied")); menuOpen = false },
-                )
-                DropdownMenuItem(
-                    text = { Text(localized(language, "编辑并重新发送", "Edit & resend")) },
-                    onClick = { onEditResend(msg.text); menuOpen = false },
-                )
-                DropdownMenuItem(
-                    text = { Text(localized(language, "选择文本", "Select text")) },
-                    onClick = { selectingText = true; menuOpen = false },
+            if (menuOpen) {
+                MessageActionSheet(
+                    actions = listOf(
+                        MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制", "Copy")) {
+                            copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied"))
+                        },
+                        MessageAction(Icons.Rounded.Edit, localized(language, "编辑并重新发送", "Edit & resend")) { onEditResend(msg.text) },
+                        MessageAction(Icons.Rounded.SelectAll, localized(language, "选择文本", "Select text")) { selectingText = true },
+                    ),
+                    onDismiss = { menuOpen = false },
                 )
             }
             if (selectingText) {
@@ -891,6 +908,7 @@ private fun AssistantTurn(
     canRegenerate: Boolean,
     showActions: Boolean,
     onRegenerate: () -> Unit,
+    onRetryWithModel: () -> Unit,
     isSpeaking: Boolean,
     onReadAloud: (String) -> Unit,
     onStopReading: () -> Unit,
@@ -905,6 +923,7 @@ private fun AssistantTurn(
     val language = LocalAppLanguage.current
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     var menuOpen by remember { mutableStateOf(false) }
     var selectingText by remember { mutableStateOf(false) }
     var feedback by remember(msg.id) { mutableStateOf(0) }
@@ -924,7 +943,7 @@ private fun AssistantTurn(
                 // toggling the highlight causes no layout shift (a conditional .padding would).
                 .then(if (highlighted) Modifier.clip(hlShape).background(accent.copy(alpha = 0.12f)).border(1.5.dp, accent, hlShape) else Modifier)
                 .padding(vertical = 2.dp)
-                .combinedClickable(onClick = {}, onLongClick = { menuOpen = true }),
+                .combinedClickable(onClick = {}, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); menuOpen = true }),
         ) {
             if (msg.thinking.isNotBlank()) ThinkingCard(msg.id, msg.thinking)
             remember(msg.tools) { groupToolsForDisplay(msg.tools) }.forEach { group ->
@@ -1062,29 +1081,27 @@ private fun AssistantTurn(
                 }
             }
         }
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            DropdownMenuItem(
-                text = { Text(localized(language, "复制", "Copy")) },
-                onClick = { copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied")); menuOpen = false },
-            )
-            if (canRegenerate) {
-                DropdownMenuItem(
-                    text = { Text(localized(language, "重新生成", "Regenerate")) },
-                    onClick = { onRegenerate(); menuOpen = false },
-                )
-            }
-            if (speakable && !msg.isError) {
-                DropdownMenuItem(
-                    text = { Text(if (isSpeaking) localized(language, "停止", "Stop") else localized(language, "朗读", "Read aloud")) },
-                    onClick = {
-                        if (isSpeaking) onStopReading() else onReadAloud(msg.text)
-                        menuOpen = false
-                    },
-                )
-            }
-            DropdownMenuItem(
-                text = { Text(localized(language, "选择文本", "Select text")) },
-                onClick = { selectingText = true; menuOpen = false },
+        if (menuOpen) {
+            MessageActionSheet(
+                actions = buildList {
+                    add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制", "Copy")) {
+                        copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied"))
+                    })
+                    if (canRegenerate) {
+                        add(MessageAction(Icons.Rounded.Refresh, localized(language, "重新生成", "Regenerate")) { onRegenerate() })
+                        add(MessageAction(Icons.Rounded.SwapHoriz, localized(language, "换个模型重试", "Retry with another model")) { onRetryWithModel() })
+                    }
+                    if (speakable && !msg.isError) {
+                        add(
+                            MessageAction(
+                                Icons.Rounded.VolumeUp,
+                                if (isSpeaking) localized(language, "停止朗读", "Stop reading") else localized(language, "朗读", "Read aloud"),
+                            ) { if (isSpeaking) onStopReading() else onReadAloud(msg.text) },
+                        )
+                    }
+                    add(MessageAction(Icons.Rounded.SelectAll, localized(language, "选择文本", "Select text")) { selectingText = true })
+                },
+                onDismiss = { menuOpen = false },
             )
         }
         if (selectingText) {
@@ -1182,6 +1199,9 @@ private fun chatMarkdownComponents(): MarkdownComponents =
                                 header,
                                 tableWidth,
                                 style.copy(fontWeight = FontWeight.SemiBold),
+                                // Library default is maxLines = 1 + ellipsis, which silently
+                                // truncated real cell content on device. Wrap instead.
+                                maxLines = Int.MAX_VALUE,
                             )
                         }
                     },
@@ -1191,6 +1211,7 @@ private fun chatMarkdownComponents(): MarkdownComponents =
                             row,
                             tableWidth,
                             style,
+                            maxLines = Int.MAX_VALUE,
                         )
                     },
                 )
@@ -1208,35 +1229,51 @@ private fun CodeWithCopy(code: String, language: String?, style: TextStyle) {
         DiffBlock(code)
         return
     }
-    Box(
+    // Header-bar form (approved phase-3 mockup): language label + copy affordance live in a
+    // slim tinted bar above the code, so the copy button no longer floats over code text and
+    // the language is visible at a glance.
+    Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant),
     ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                .padding(start = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                language?.takeIf { it.isNotBlank() }?.lowercase() ?: "code",
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+            )
+            IconButton(
+                onClick = {
+                    clipboard.setText(AnnotatedString(code))
+                    Toast.makeText(context, localized(appLanguage, "代码已复制", "Code copied"), Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.size(36.dp),
+            ) {
+                Icon(
+                    Icons.Rounded.ContentCopy,
+                    contentDescription = localized(appLanguage, "复制代码", "Copy code"),
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         Text(
             text = code,
             style = style,
             modifier = Modifier
-                // Reserve the copy-button area OUTSIDE the scroll so long code never slides under it.
-                .padding(end = 44.dp)
                 .horizontalScroll(rememberScrollState())
                 .padding(12.dp),
         )
-        IconButton(
-            onClick = {
-                clipboard.setText(AnnotatedString(code))
-                Toast.makeText(context, localized(appLanguage, "代码已复制", "Code copied"), Toast.LENGTH_SHORT).show()
-            },
-            modifier = Modifier.align(Alignment.TopEnd),
-        ) {
-            Icon(
-                Icons.Rounded.ContentCopy,
-                contentDescription = localized(appLanguage, "复制代码", "Copy code"),
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
     }
 }
 
@@ -1292,10 +1329,62 @@ private fun TextSelectionDialog(text: String, onDismiss: () -> Unit) {
 }
 
 /** Three pulsing dots while the agent composes its first token — replaces the literal "…". */
+/** One row of the message action sheet: icon + label, closing the sheet after the action. */
+private data class MessageAction(
+    val icon: ImageVector,
+    val label: String,
+    val onClick: () -> Unit,
+)
+
+// Message actions surface as a bottom sheet instead of a DropdownMenu: the menu anchors to the
+// full-width message composable, so it used to pop far from the finger. A sheet always arrives
+// from the bottom, near the thumb, with roomy icon+label rows.
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MessageActionSheet(actions: List<MessageAction>, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+            actions.forEach { action ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { action.onClick(); onDismiss() }
+                        .padding(horizontal = 24.dp, vertical = 15.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        action.icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(22.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        action.label,
+                        modifier = Modifier.padding(start = 16.dp),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun RunningStatusLine(msg: ChatMessage) {
     val language = LocalAppLanguage.current
     val status = runningStatusFor(msg)
+    // Live elapsed time, anchored on the turn's real timestamp (not a local counter), so a
+    // process restart or reconnect still shows the true duration of the run.
+    var nowTick by remember(msg.id) { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(msg.id) {
+        while (isActive) {
+            nowTick = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
+    val elapsedSuffix = msg.timestamp?.let { start ->
+        " · " + formatElapsedTime(nowTick - start, zh = language == com.hermes.client.ui.localization.AppLanguage.ZH)
+    }.orEmpty()
     val transition = rememberInfiniteTransition(label = "running")
     val pulse by transition.animateFloat(
         initialValue = 0.45f,
@@ -1321,7 +1410,7 @@ private fun RunningStatusLine(msg: ChatMessage) {
         val color = MaterialTheme.colorScheme.onSurfaceVariant
         when (status) {
             is RunningStatus.Tool -> Text(
-                localized(language, "正在运行 ", "Running ") + status.label + "…",
+                localized(language, "正在运行 ", "Running ") + status.label + "…" + elapsedSuffix,
                 style = style.copy(fontFamily = FontFamily.Monospace),
                 color = color,
                 maxLines = 1,
@@ -1329,7 +1418,7 @@ private fun RunningStatusLine(msg: ChatMessage) {
                 modifier = Modifier.alpha(pulse.coerceAtLeast(0.7f)),
             )
             is RunningStatus.Thinking -> Text(
-                status.preview,
+                status.preview + elapsedSuffix,
                 style = style.copy(fontStyle = FontStyle.Italic),
                 color = color,
                 maxLines = 1,
@@ -1337,7 +1426,7 @@ private fun RunningStatusLine(msg: ChatMessage) {
                 modifier = Modifier.alpha(pulse.coerceAtLeast(0.7f)),
             )
             RunningStatus.Generating -> Text(
-                localized(language, "生成中…", "Generating…"),
+                localized(language, "生成中…", "Generating…") + elapsedSuffix,
                 style = style,
                 color = color,
                 modifier = Modifier.alpha(pulse),

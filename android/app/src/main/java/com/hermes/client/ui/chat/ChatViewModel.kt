@@ -280,7 +280,24 @@ class ChatViewModel @Inject constructor(
                 }
             }
             // Load model options, profiles, and the slash-command catalog; failures are non-fatal
-            launch { runCatching { _providers.value = modelRepo.providers() } }
+            launch {
+                runCatching { _providers.value = modelRepo.providers() }
+                // A brand-new session has no model in its metadata yet, which used to render as
+                // "自动" even though Hermes has a definite default. Fall back to the configured
+                // default model (and the provider marked current) so the chip names the real model.
+                if (_currentModel.value.isNullOrBlank()) {
+                    runCatching {
+                        val cfg = configRepo.get(profile)
+                        val defaultModel = (cfg["model"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.ifBlank { null }
+                        if (storedSessionId == id && _currentModel.value.isNullOrBlank() && defaultModel != null) {
+                            _currentModel.value = defaultModel
+                            if (_currentProvider.value.isNullOrBlank()) {
+                                _currentProvider.value = _providers.value.firstOrNull { it.isCurrent }?.slug
+                            }
+                        }
+                    }
+                }
+            }
             launch { runCatching { _profiles.value = profileRepo.list() } }
             launch { runCatching { _commands.value = chat.commandsCatalog() } }
         }

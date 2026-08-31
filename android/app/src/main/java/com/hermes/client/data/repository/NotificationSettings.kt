@@ -19,6 +19,7 @@ class NotificationSettings(private val context: Context) {
     private val kApprovals = booleanPreferencesKey("approvals")
     private val kRunFinished = booleanPreferencesKey("runFinished")
     private val kRunProgress = booleanPreferencesKey("runProgress")
+    private val kOnboardingSeen = booleanPreferencesKey("onboardingSeen")
 
     val prefs: Flow<NotificationPrefs> = context.notificationDataStore.data.map { p ->
         NotificationPrefs(
@@ -26,6 +27,7 @@ class NotificationSettings(private val context: Context) {
             approvals = p[kApprovals] ?: true,
             runFinished = p[kRunFinished] ?: true,
             runProgress = p[kRunProgress] ?: true,
+            onboardingSeen = p[kOnboardingSeen] ?: false,
         )
     }
 
@@ -33,4 +35,5 @@ class NotificationSettings(private val context: Context) {
     suspend fun setApprovals(v: Boolean) = context.notificationDataStore.edit { it[kApprovals] = v }
     suspend fun setRunFinished(v: Boolean) = context.notificationDataStore.edit { it[kRunFinished] = v }
     suspend fun setRunProgress(v: Boolean) = context.notificationDataStore.edit { it[kRunProgress] = v }
+    suspend fun setOnboardingSeen() = context.notificationDataStore.edit { it[kOnboardingSeen] = true }
 }

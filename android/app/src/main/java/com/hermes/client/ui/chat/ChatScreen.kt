@@ -49,6 +49,10 @@ import androidx.compose.material.icons.automirrored.rounded.NoteAdd
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -140,6 +144,9 @@ fun ChatScreen(
     val currentProvider by vm.currentProvider.collectAsStateWithLifecycle()
     val modelSheet by vm.modelSheet.collectAsStateWithLifecycle()
     var modelSheetOpen by rememberSaveable(sessionId) { mutableStateOf(false) }
+    // "Retry with another model": the model sheet doubles as the picker; when this flag is set,
+    // a successful switch immediately re-submits the last prompt on the new model.
+    var retryAfterModelSwitch by rememberSaveable(sessionId) { mutableStateOf(false) }
     val commands by vm.commands.collectAsStateWithLifecycle()
     val pathItems by vm.pathItems.collectAsStateWithLifecycle()
     val speaking by vm.speaking.collectAsStateWithLifecycle()
@@ -219,9 +226,12 @@ fun ChatScreen(
 
     fun submit() {
         if (!canSend) return
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
         vm.send(draft)
         draft = ""
+        // Sending hands the stage to the run: drop the keyboard and the expanded composer so
+        // the viewport shows the new instruction and what happens next.
+        collapseComposer()
     }
 
     // Image attach: read picked/captured bytes and stage them onto the session.
@@ -488,14 +498,10 @@ fun ChatScreen(
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Surface(
-                    shape = androidx.compose.foundation.shape.CircleShape,
-                    color = MaterialTheme.colorScheme.surface,
-                    shadowElevation = 4.dp,
-                ) {
-                    IconButton(onClick = onMenu) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = localized(language, "返回", "Back"))
-                    }
+                // Bare 48dp icon (M3 top-bar convention): the floating white containers read as
+                // separate controls fighting the content; naked icons blend into the bar.
+                IconButton(onClick = onMenu) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = localized(language, "返回", "Back"))
                 }
                 Box(
                     Modifier
@@ -513,45 +519,46 @@ fun ChatScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Surface(
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    shadowElevation = 4.dp,
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        enabled = !creatingSession,
-                        onClick = {
-                            if (creatingSession) return@IconButton
-                            creatingSession = true
-                            attachScope.launch {
-                                val id = vm.createNewSession()
-                                creatingSession = false
-                                if (id != null) {
-                                    collapseComposer(clearDraft = true)
-                                    onNewChat(id)
-                                }
-                                else android.widget.Toast.makeText(
-                                    context, localized(language, "暂时无法新建会话", "Couldn't create a new session"), android.widget.Toast.LENGTH_SHORT,
-                                ).show()
-                            }
-                        },
-                    ) {
+                Box {
+                    IconButton(onClick = { transcriptMenu = true }) {
                         if (creatingSession) {
                             CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         } else {
-                            Icon(Icons.Rounded.Add, contentDescription = localized(language, "新建会话", "New session"))
-                        }
-                    }
-                    Box {
-                        IconButton(onClick = { transcriptMenu = true }) {
                             Icon(
                                 Icons.Rounded.MoreVert,
                                 contentDescription = localized(language, "更多", "More"),
                             )
                         }
-                        DropdownMenu(expanded = transcriptMenu, onDismissRequest = { transcriptMenu = false }) {
+                    }
+                    DropdownMenu(
+                        expanded = transcriptMenu,
+                        onDismissRequest = { transcriptMenu = false },
+                        shape = RoundedCornerShape(16.dp),
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ) {
                             DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Rounded.Add, contentDescription = null, Modifier.size(20.dp)) },
+                                text = { Text(localized(language, "新建会话", "New session")) },
+                                enabled = !creatingSession,
+                                onClick = {
+                                    transcriptMenu = false
+                                    if (creatingSession) return@DropdownMenuItem
+                                    creatingSession = true
+                                    attachScope.launch {
+                                        val id = vm.createNewSession()
+                                        creatingSession = false
+                                        if (id != null) {
+                                            collapseComposer(clearDraft = true)
+                                            onNewChat(id)
+                                        }
+                                        else android.widget.Toast.makeText(
+                                            context, localized(language, "暂时无法新建会话", "Couldn't create a new session"), android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                },
+                            )
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, Modifier.size(20.dp)) },
                                 text = { Text(localized(language, "搜索当前对话", "Search this chat")) },
                                 onClick = {
                                     transcriptMenu = false
@@ -559,6 +566,7 @@ fun ChatScreen(
                                 },
                             )
                             DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null, Modifier.size(20.dp)) },
                                 text = { Text(localized(language, "复制全部对话", "Copy transcript")) },
                                 onClick = {
                                     val t = transcriptText(state.messages)
@@ -576,6 +584,7 @@ fun ChatScreen(
                                 },
                             )
                             DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Rounded.Share, contentDescription = null, Modifier.size(20.dp)) },
                                 text = { Text(localized(language, "分享对话", "Share transcript")) },
                                 onClick = {
                                     val t = transcriptText(state.messages)
@@ -597,6 +606,7 @@ fun ChatScreen(
                                 },
                             )
                             DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null, Modifier.size(20.dp)) },
                                 text = { Text(localized(language, "切换身份", "Switch profile")) },
                                 onClick = {
                                     transcriptMenu = false
@@ -604,8 +614,6 @@ fun ChatScreen(
                                     showPersonaSheet = true
                                 },
                             )
-                        }
-                    }
                     }
                 }
             }
@@ -699,7 +707,9 @@ fun ChatScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                     )
                                 },
-                                minLines = 2,
+                                // Height grows with CONTENT, not with focus: a pre-reserved second line
+                                // made the composer jump a full row the moment it was tapped.
+                                minLines = 1,
                                 maxLines = 6,
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
                                 colors = OutlinedTextFieldDefaults.colors(
@@ -743,21 +753,25 @@ fun ChatScreen(
                                 IconButton(onClick = { showAttachSheet = true }) {
                                     Icon(Icons.Rounded.Add, contentDescription = localized(language, "添加内容", "Add content"), modifier = Modifier.size(28.dp))
                                 }
-                                when {
-                                    state.isGenerating -> IconButton(onClick = { vm.stop() }) {
-                                        Icon(Icons.Rounded.Stop, contentDescription = localized(language, "停止", "Stop"), tint = LocalProfileAccent.current.accent)
-                                    }
-                                    else -> Surface(
-                                        shape = androidx.compose.foundation.shape.CircleShape,
-                                        color = if (canSend) LocalProfileAccent.current.accent
-                                        else MaterialTheme.colorScheme.surfaceVariant,
-                                    ) {
-                                        IconButton(onClick = { submit() }, enabled = canSend) {
+                                // Send and stop are ONE circular button whose glyph swaps (➤ ⇄ ■), so the
+                                // control keeps its place, size, and color through the whole cycle. Empty
+                                // draft renders a quiet bare arrow instead of a grey "broken" disc; the
+                                // button lighting up in accent is itself the "you can send now" signal.
+                                Surface(
+                                    shape = androidx.compose.foundation.shape.CircleShape,
+                                    color = if (state.isGenerating || canSend) LocalProfileAccent.current.accent
+                                    else androidx.compose.ui.graphics.Color.Transparent,
+                                ) {
+                                    when {
+                                        state.isGenerating -> IconButton(onClick = { vm.stop() }) {
+                                            Icon(Icons.Rounded.Stop, contentDescription = localized(language, "停止", "Stop"), tint = MaterialTheme.colorScheme.onPrimary)
+                                        }
+                                        else -> IconButton(onClick = { submit() }, enabled = canSend) {
                                             Icon(
                                                 Icons.AutoMirrored.Rounded.Send,
                                                 contentDescription = localized(language, "发送", "Send"),
                                                 tint = if (canSend) MaterialTheme.colorScheme.onPrimary
-                                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
                                             )
                                         }
                                     }
@@ -798,8 +812,13 @@ fun ChatScreen(
                                 ),
                             )
                             when {
-                                state.isGenerating -> IconButton(onClick = { vm.stop() }) {
-                                    Icon(Icons.Rounded.Stop, contentDescription = localized(language, "停止", "Stop"), tint = LocalProfileAccent.current.accent)
+                                state.isGenerating -> Surface(
+                                    shape = androidx.compose.foundation.shape.CircleShape,
+                                    color = LocalProfileAccent.current.accent,
+                                ) {
+                                    IconButton(onClick = { vm.stop() }) {
+                                        Icon(Icons.Rounded.Stop, contentDescription = localized(language, "停止", "Stop"), tint = MaterialTheme.colorScheme.onPrimary)
+                                    }
                                 }
                                 canSend -> Surface(
                                     shape = androidx.compose.foundation.shape.CircleShape,
@@ -949,6 +968,10 @@ fun ChatScreen(
                         isGenerating = state.isGenerating,
                         onEditResend = { text -> draft = text; focusRequester.requestFocus() },
                         onRegenerate = { vm.regenerate() },
+                        onRetryWithModel = {
+                            retryAfterModelSwitch = true
+                            modelSheetOpen = true
+                        },
                         isSpeaking = speaking,
                         onReadAloud = { vm.readAloud(it) },
                         onStopReading = { vm.stopReading() },
@@ -1109,9 +1132,17 @@ fun ChatScreen(
             query = modelSheet.query, onQueryChange = vm::onSheetQuery,
             scope = modelSheet.scope, onScopeChange = vm::onSheetScope,
             onToggleFavorite = vm::toggleFavorite,
-            onSelect = { p, m -> vm.onSelectFromSheet(p, m) { modelSheetOpen = false } },
+            onSelect = { p, m ->
+                vm.onSelectFromSheet(p, m) {
+                    modelSheetOpen = false
+                    if (retryAfterModelSwitch) {
+                        retryAfterModelSwitch = false
+                        vm.regenerate()
+                    }
+                }
+            },
             pending = modelSheet.pending, error = modelSheet.error,
-            onDismiss = { modelSheetOpen = false },
+            onDismiss = { modelSheetOpen = false; retryAfterModelSwitch = false },
         )
     }
 
@@ -1231,7 +1262,7 @@ private fun ConnectionBanner(state: ConnectionState, onRetry: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = bannerLabel(state),
+            text = bannerLabel(state, zh = language == com.hermes.client.ui.localization.AppLanguage.ZH),
             color = MaterialTheme.colorScheme.onErrorContainer,
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.weight(1f),

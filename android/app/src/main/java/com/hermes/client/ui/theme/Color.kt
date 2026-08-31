@@ -26,7 +26,8 @@ private val LightSurface = Color(0xFFFFFFFF)
 private val LightSurfaceVariant = Color(0xFFEAF2EF)
 private val LightOutline = Color(0xFF6F7975)
 
-private val DarkBackground = Color(0xFF0E1513)
+// Lifted one notch from 0E1513: pure-dark reads harsh on OLED for long night reading.
+private val DarkBackground = Color(0xFF131B17)
 private val DarkSurface = Color(0xFF121B18)
 private val DarkSurfaceVariant = Color(0xFF263630)
 private val DarkOutline = Color(0xFF89938F)

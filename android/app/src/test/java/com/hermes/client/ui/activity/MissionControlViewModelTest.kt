@@ -28,11 +28,14 @@ class MissionControlViewModelTest {
     private val sessions = mockk<SessionRepository>()
     private val tools = mockk<ToolsRepository>(relaxed = true)
     private val profileManager = mockk<ProfileManager>(relaxed = true)
+    private val runtimeStore = mockk<com.hermes.client.data.progress.SessionRuntimeStore> {
+        io.mockk.every { runtimes } returns kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
+    }
 
     @Before fun setUp() { Dispatchers.setMain(dispatcher) }
     @After fun tearDown() { Dispatchers.resetMain() }
 
-    private fun vm() = MissionControlViewModel(sessions, tools, profileManager)
+    private fun vm() = MissionControlViewModel(sessions, tools, profileManager, runtimeStore)
 
     @Test fun loadResponse_sets_text_on_success() = runTest(dispatcher) {
         coEvery { sessions.history("s1", any()) } returns listOf(ChatMessage("m", Role.ASSISTANT, "the answer"))
@@ -74,5 +77,36 @@ class MissionControlViewModelTest {
         coEvery { tools.triggerCron("j1", any()) } throws RuntimeException("boom")
         val vm = vm()
         assertFalse(vm.runCron("j1"))
+    }
+
+    @Test fun waitingRuntimeSurfacesOnState() = runTest(dispatcher) {
+        val flow = kotlinx.coroutines.flow.MutableStateFlow<Map<com.hermes.client.data.progress.SessionRuntimeKey, com.hermes.client.data.progress.SessionRuntime>>(emptyMap())
+        val store = mockk<com.hermes.client.data.progress.SessionRuntimeStore> {
+            io.mockk.every { runtimes } returns flow
+        }
+        val vm = MissionControlViewModel(sessions, tools, profileManager, store)
+        advanceUntilIdle()
+        val key = com.hermes.client.data.progress.SessionRuntimeKey(null, "s-wait")
+        flow.value = mapOf(
+            key to com.hermes.client.data.progress.SessionRuntime(
+                key = key,
+                phase = com.hermes.client.data.progress.SessionRunPhase.WAITING_APPROVAL,
+                lastEventAt = 123L,
+            ),
+        )
+        advanceUntilIdle()
+        val waiting = vm.state.value.waitingSessions
+        assertEquals(1, waiting.size)
+        assertEquals("s-wait", waiting[0].sessionId)
+        assertEquals(SessionAlertReason.WAITING_APPROVAL, waiting[0].reason)
+        // resolves back to empty when the phase moves on
+        flow.value = mapOf(
+            key to com.hermes.client.data.progress.SessionRuntime(
+                key = key,
+                phase = com.hermes.client.data.progress.SessionRunPhase.STREAMING,
+            ),
+        )
+        advanceUntilIdle()
+        assertTrue(vm.state.value.waitingSessions.isEmpty())
     }
 }

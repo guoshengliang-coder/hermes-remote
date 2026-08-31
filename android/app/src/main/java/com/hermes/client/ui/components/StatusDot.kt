@@ -27,9 +27,10 @@ fun connectionLabel(state: ConnectionState): String = when (state) {
 }
 
 /** Friendlier, sentence-form copy for the chat offline/error banner (vs the terse [connectionLabel]). */
-fun bannerLabel(state: ConnectionState): String = when (state) {
-    ConnectionState.Disconnected -> "You're offline — new messages send when you reconnect."
-    is ConnectionState.Error -> "Connection error — tap Retry."
+fun bannerLabel(state: ConnectionState, zh: Boolean = false): String = when (state) {
+    ConnectionState.Disconnected ->
+        if (zh) "当前离线——重新连接后消息会自动发送。" else "You're offline — new messages send when you reconnect."
+    is ConnectionState.Error -> if (zh) "连接出错——点击重试。" else "Connection error — tap Retry."
     else -> connectionLabel(state)
 }
 
