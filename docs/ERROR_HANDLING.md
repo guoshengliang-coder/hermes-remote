@@ -115,6 +115,13 @@ expanded without changing the underlying meaning.
 | `HR-AUTH-001` | App Token rejected | App Token 无效或已失效，请重新配置。 | The App Token is invalid or expired. Configure it again. | No |
 | `HR-RPC-001` | Gateway RPC returned an unmapped remote error | Relay 请求失败，请查看详情后重试。 | The Relay request failed. Review the details and retry. | Depends |
 | `HR-RPC-002` | Gateway RPC response timed out | Relay 响应超时，请稍后重试。 | The Relay response timed out. Try again shortly. | Yes |
+| `HR-CONFIG-001` | Configuration could not be loaded | 无法加载配置，请重试。 | Couldn't load the configuration. Retry. | Yes |
+| `HR-CONFIG-002` | Configuration could not be saved | 无法保存配置，请重试。 | Couldn't save the configuration. Retry. | Yes |
+| `HR-CONFIG-003` | Relay URL is invalid | Relay 地址格式无效，请检查后重试。 | The Relay URL is invalid. Check it and retry. | Yes |
+| `HR-UPDATE-001` | Unmapped update check, download, verification, or installer failure | 更新操作失败，请重试。 | The update operation failed. Retry. | Yes |
+| `HR-FILE-001` | A selected attachment could not be read | 无法读取所选文件，请重新选择。 | Couldn't read the selected file. Choose it again. | Yes |
+| `HR-MEDIA-001` | Image save, preparation, or share operation failed | 图片操作失败，请重试。 | The image operation failed. Retry. | Yes |
+| `HR-PERM-003` | Android blocks installation from this source | 需要允许安装未知应用，授权后请重试。 | Permission to install unknown apps is required. Grant it and retry. | Yes |
 | `HR-SESS-001` | Session no longer exists | 会话不存在或已被删除。 | The conversation no longer exists or was deleted. | No |
 | `HR-SESS-002` | Live session handle is stale | 会话连接已失效，正在重新挂接。 | The live conversation handle expired. Reattaching now. | Yes |
 | `HR-SYNC-001` | Final history reconciliation failed | 无法同步完整会话内容，请重试。 | Couldn't synchronize the complete conversation. Retry. | Yes |
