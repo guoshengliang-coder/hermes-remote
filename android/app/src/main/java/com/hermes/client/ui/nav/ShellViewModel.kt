@@ -24,7 +24,16 @@ class ShellViewModel @Inject constructor(
 
     init { viewModelScope.launch { profileManager.refresh() } }
 
-    fun switchProfile(name: String) = viewModelScope.launch { profileManager.switchTo(name) }
+    /** Name of the profile a switch just failed for, or null. UI shows a retry affordance and
+     *  the active profile is left untouched — switchTo is a gateway write and can fail. */
+    private val _switchFailed = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val switchFailed: StateFlow<String?> = _switchFailed
+
+    fun switchProfile(name: String) = viewModelScope.launch {
+        if (!profileManager.switchTo(name)) _switchFailed.value = name
+    }
+
+    fun clearSwitchFailed() { _switchFailed.value = null }
 
     /** Set a custom accent colour for [profile] (persisted; overrides the auto-hashed hue). */
     fun setAccent(profile: String, argb: Int) = viewModelScope.launch { accentStore.setColor(profile, argb) }

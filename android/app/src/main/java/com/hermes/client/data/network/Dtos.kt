@@ -75,6 +75,18 @@ data class ModelOptionDto(
 )
 @Serializable data class ModelOptionsDto(val providers: List<ModelProviderDto> = emptyList())
 
+@Serializable data class RelayDeviceDto(
+    @SerialName("deviceId") val deviceId: String,
+    val online: Boolean = false,
+)
+
+/** Relay /health — connector count plus the per-device list (additive, gateway ≥ this change). */
+@Serializable data class RelayHealthDto(
+    val ok: Boolean = false,
+    val connectors: Int = 0,
+    val devices: List<RelayDeviceDto> = emptyList(),
+)
+
 @Serializable data class SessionStatsDto(
     val total: Int = 0,
     @SerialName("active_store") val activeStore: Int = 0,

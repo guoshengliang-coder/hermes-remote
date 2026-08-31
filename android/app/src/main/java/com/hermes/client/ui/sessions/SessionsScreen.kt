@@ -130,6 +130,15 @@ fun SessionsScreen(
         if (state.unauthorized) onUnauthorized()
     }
 
+    // A profile switch is a gateway write; on failure the UI stays on the old profile — say so.
+    val switchFailed by vm.switchFailed.collectAsStateWithLifecycle()
+    LaunchedEffect(switchFailed) {
+        switchFailed?.let {
+            Toast.makeText(context, localized(language, "切换身份失败，仍在当前身份", "Couldn't switch profile — staying on the current one"), Toast.LENGTH_SHORT).show()
+            vm.clearSwitchFailed()
+        }
+    }
+
     // Record-a-task: mic entry point on the home session list. The sheet's own show/hide state
     // lives here (not in the VM) so it survives recomposition without coupling the VM to
     // navigation visibility; recordVm drives the actual record/transcribe pipeline.
@@ -201,16 +210,6 @@ fun SessionsScreen(
                             onSelect = vm::switchProfile,
                         )
                     }
-                } else {
-                    // Projects are derived from chats across ALL profiles (stopgap until the gateway
-                    // supports per-profile projects.tree), so they span tenants — each row is badged
-                    // with its profile. The per-profile switcher doesn't apply here.
-                    Text(
-                        localized(language, "项目 · 所有身份", "Projects · all profiles"),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                    )
                 }
                 val accent = LocalProfileAccent.current
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
@@ -268,7 +267,6 @@ fun SessionsScreen(
                         projectsState.scope != null ->
                             ProjectScopeView(
                                 project = projectsState.scope!!,
-                                profileCount = profiles.size,
                                 onBack = { vm.exitProject() },
                                 // Projects span profiles, so switch to the session's own profile
                                 // (awaited) before opening, or the chat resumes against the wrong DB.

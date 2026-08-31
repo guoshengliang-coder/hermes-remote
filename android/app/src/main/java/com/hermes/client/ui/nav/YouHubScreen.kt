@@ -67,6 +67,14 @@ fun YouHubScreen(
     val language = LocalAppLanguage.current
     val profiles by vm.profiles.collectAsStateWithLifecycle()
     val active by vm.active.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val switchFailed by vm.switchFailed.collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(switchFailed) {
+        switchFailed?.let {
+            android.widget.Toast.makeText(context, localized(language, "切换身份失败，仍在当前身份", "Couldn't switch profile — staying on the current one"), android.widget.Toast.LENGTH_SHORT).show()
+            vm.clearSwitchFailed()
+        }
+    }
     var showColorPicker by remember { mutableStateOf(false) }
     val currentOverride = active?.let { com.hermes.client.ui.theme.LocalProfileAccentOverrides.current[it] }
 

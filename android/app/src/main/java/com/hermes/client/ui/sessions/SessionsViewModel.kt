@@ -75,8 +75,17 @@ class SessionsViewModel @Inject constructor(
     /** All profiles, for the in-place profile switcher on the Chats top bar. */
     val profiles: StateFlow<List<com.hermes.client.data.network.ProfileDto>> = profileManager.list
 
-    /** Switch the active profile; the list re-fetches automatically (init collects active). */
-    fun switchProfile(name: String) = viewModelScope.launch { profileManager.switchTo(name) }
+    /** Name of the profile a switch just failed for (gateway write refused); null otherwise. */
+    private val _switchFailed = MutableStateFlow<String?>(null)
+    val switchFailed: StateFlow<String?> = _switchFailed.asStateFlow()
+
+    fun clearSwitchFailed() { _switchFailed.value = null }
+
+    /** Switch the active profile; the list re-fetches automatically (init collects active).
+     *  On failure the active profile is left untouched and [switchFailed] carries the name. */
+    fun switchProfile(name: String) = viewModelScope.launch {
+        if (!profileManager.switchTo(name)) _switchFailed.value = name
+    }
 
     /**
      * Raw pinned tokens ("<profile>/<sessionId>", device-local). The list spans all profiles, so
@@ -110,11 +119,14 @@ class SessionsViewModel @Inject constructor(
         projectTreeJob = viewModelScope.launch {
             _projects.value = _projects.value.copy(loading = true, error = null)
             try {
-                // Stopgap: derive Projects from the cross-profile session list (all profiles),
-                // because the gateway's projects.tree is pinned to the launch profile and can't
-                // serve a selected tenant's projects. Re-wire to a per-profile gateway RPC (see
-                // ProjectsRepository) once the gateway accepts a `profile` param.
-                val derived = deriveProjectsFromSessions(sessions.listAllProfiles())
+                // Stopgap: the gateway's projects.tree is pinned to the launch profile, so derive
+                // projects client-side from the session list — filtered to the ACTIVE profile,
+                // per the app-wide scope rule (everything follows the current profile). Re-wire
+                // to a per-profile gateway RPC (see ProjectsRepository) once available.
+                val active = profileManager.active.value
+                val all = sessions.listAllProfiles()
+                val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
+                val derived = deriveProjectsFromSessions(scoped)
                 _projects.value = _projects.value.copy(loading = false, tree = derived)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -139,7 +151,13 @@ class SessionsViewModel @Inject constructor(
         viewModelScope.launch { profileManager.refresh() }
         // The list is scoped to the active profile (like the desktop, one tenant at a time), so it
         // reloads whenever the selected profile changes — including the first value once it loads.
-        viewModelScope.launch { profileManager.active.collect { refresh() } }
+        // The derived project tree is scoped the same way, so rebuild it too when it was loaded.
+        viewModelScope.launch {
+            profileManager.active.collect {
+                refresh()
+                if (_projects.value.tree.isNotEmpty() || viewMode.value == ViewMode.PROJECTS) loadProjectTree()
+            }
+        }
         // The gateway auto-titles a new chat after its first message and pushes a `session.title`
         // event; re-fetch so the AI title replaces "Untitled" (and the now-non-empty chat appears).
         // This VM stays in the back stack while a chat is open, so it catches the event live.

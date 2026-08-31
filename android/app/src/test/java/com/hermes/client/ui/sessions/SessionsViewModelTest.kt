@@ -67,6 +67,38 @@ class SessionsViewModelTest {
     // Typing a query is an instant client-side concern; only the explicit Search action hits
     // the gateway. searchMessages must populate messageResults from the repo, and clearing the
     // query must clear results.
+    // Scope rule: the derived project tree must only contain the ACTIVE profile's sessions.
+    // Before the fix it derived from listAllProfiles() unfiltered, so switching tenants still
+    // showed every other tenant's projects.
+    @Test fun projectTree_is_filtered_to_the_active_profile() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns listOf(
+            repoSession("a", "/repo/one", profile = "personal"),
+            repoSession("b", "/repo/two", profile = "work"),
+        )
+        val vm = buildVm()
+        vm.loadProjectTree()
+        advanceUntilIdle()
+        val sessions = vm.projectsState.value.tree
+            .flatMap { it.repos }.flatMap { it.lanes }.flatMap { it.sessions }
+        assertEquals(listOf("a"), sessions.map { it.id })
+    }
+
+    // switchTo is a gateway write and can fail; a refused switch must surface via switchFailed
+    // and must NOT pretend the profile changed (the UI keeps rendering the old profile).
+    @Test fun switchProfile_failure_sets_switchFailed_and_success_does_not() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        coEvery { profileManager.switchTo("work") } returns false
+        coEvery { profileManager.switchTo("personal") } returns true
+        val vm = buildVm()
+        vm.switchProfile("work")
+        advanceUntilIdle()
+        assertEquals("work", vm.switchFailed.value)
+        vm.clearSwitchFailed()
+        vm.switchProfile("personal")
+        advanceUntilIdle()
+        assertNull(vm.switchFailed.value)
+    }
+
     @Test fun searchMessages_populates_results_and_clear_resets() = runTest {
         coEvery { sessionRepo.listAllProfiles() } returns emptyList()
         coEvery { sessionRepo.search(any(), any()) } returns listOf(
@@ -259,8 +291,9 @@ class SessionsViewModelTest {
         io.mockk.coVerify { viewModeStore.set(ViewMode.PROJECTS) }
     }
 
-    @Test fun projects_derive_from_cross_profile_sessions_when_view_mode_becomes_projects() = runTest {
-        // Two profiles, two repos → two projects derived client-side (no gateway call).
+    @Test fun projects_derive_only_from_the_active_profiles_sessions() = runTest {
+        // Scope rule (2026-08 redesign): projects follow the active profile like everything else.
+        // The other tenant's repo must NOT appear even though listAllProfiles returns it.
         coEvery { sessionRepo.listAllProfiles() } returns listOf(
             repoSession("a", "/u/andrew/personal/travel-business", profile = "personal"),
             repoSession("b", "/u/andrew/work/clients/dito/Southington", profile = "dito"),
@@ -272,7 +305,7 @@ class SessionsViewModelTest {
         advanceUntilIdle()
 
         assertEquals(
-            setOf("/u/andrew/personal/travel-business", "/u/andrew/work/clients/dito/Southington"),
+            setOf("/u/andrew/personal/travel-business"),
             vm.projectsState.value.tree.map { it.id }.toSet(),
         )
     }

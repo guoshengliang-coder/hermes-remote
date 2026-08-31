@@ -23,7 +23,6 @@ import androidx.compose.ui.unit.dp
 import com.hermes.client.domain.Project
 import com.hermes.client.domain.Session
 import com.hermes.client.ui.theme.LocalProfileAccent
-import com.hermes.client.ui.localization.LocalAppLanguage
 
 /** Parse the gateway's "#RRGGBB" project color; fall back to the tenant accent when null/invalid. */
 @Composable
@@ -40,23 +39,12 @@ fun ProjectOverview(projects: List<Project>, onOpenProject: (Project) -> Unit) {
     }
 }
 
-/** Distinct profiles (tenants) a project's chats belong to — projects span profiles in this view. */
-private fun Project.tenantProfiles(): List<String> =
-    repos.asSequence()
-        .flatMap { it.lanes.asSequence() }
-        .flatMap { it.sessions.asSequence() }
-        .mapNotNull { it.profile?.takeIf { p -> p.isNotBlank() } }
-        .distinct()
-        .toList()
-
 @Composable
 fun ProjectCard(project: Project, onClick: () -> Unit) {
     ListItem(
         headlineContent = { Text(project.label) },
         supportingContent = {
-            val tenants = project.tenantProfiles()
-            val tenantText = if (tenants.isEmpty()) "" else " · ${tenants.joinToString(", ")}"
-            Text("${project.sessionCount} session${if (project.sessionCount == 1) "" else "s"}$tenantText")
+            Text("${project.sessionCount} session${if (project.sessionCount == 1) "" else "s"}")
         },
         leadingContent = {
             Icon(Icons.Rounded.Folder, contentDescription = null, tint = projectTint(project.color), modifier = Modifier.size(24.dp))
@@ -72,11 +60,9 @@ fun ProjectCard(project: Project, onClick: () -> Unit) {
 @Composable
 fun ProjectScopeView(
     project: Project,
-    profileCount: Int,
     onBack: () -> Unit,
     onOpenSession: (Session) -> Unit,
 ) {
-    val language = LocalAppLanguage.current
     val lanes = project.repos.flatMap { repo -> repo.lanes.map { repo to it } }
     val multi = lanes.size > 1
     LazyColumn(Modifier.fillMaxWidth()) {
@@ -104,15 +90,7 @@ fun ProjectScopeView(
             items(lane.sessions, key = { "sess-${it.id}" }) { s ->
                 ListItem(
                     headlineContent = { Text(s.title) },
-                    // Badge the tenant since a project can span profiles.
-                    supportingContent = {
-                        Text(
-                            listOfNotNull(
-                                profileDisplayLabel(s.profile, profileCount, language),
-                                s.model?.ifBlank { null },
-                            ).joinToString(" · "),
-                        )
-                    },
+                    supportingContent = { Text(s.model?.ifBlank { null } ?: "") },
                     modifier = Modifier.clickable { onOpenSession(s) },
                 )
             }

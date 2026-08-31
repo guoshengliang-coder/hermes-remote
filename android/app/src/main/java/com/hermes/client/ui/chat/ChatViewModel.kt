@@ -168,7 +168,7 @@ class ChatViewModel @Inject constructor(
         _providersLoading.value = true
         _providersError.value = false
         viewModelScope.launch {
-            runCatching { modelRepo.providers() }
+            runCatching { modelRepo.providers(profileManager.active.value) }
                 .onSuccess {
                     _providers.value = it
                     _providersError.value = it.isEmpty()
@@ -311,7 +311,7 @@ class ChatViewModel @Inject constructor(
             }
             // Load model options, profiles, and the slash-command catalog; failures are non-fatal
             launch {
-                runCatching { _providers.value = modelRepo.providers() }
+                runCatching { _providers.value = modelRepo.providers(profileManager.active.value) }
                 // A brand-new session has no model in its metadata yet, which used to render as
                 // "自动" even though Hermes has a definite default. Fall back to the configured
                 // default model (and the provider marked current) so the chip names the real model.
@@ -727,7 +727,7 @@ class ChatViewModel @Inject constructor(
                             )
                         }
                 com.hermes.client.ui.models.ModelScope.DEFAULT ->
-                    runCatching { modelRepo.set(provider, model) }
+                    runCatching { modelRepo.set(provider, model, profileManager.active.value) }
                         .onSuccess {
                             _modelSheet.value = _modelSheet.value.copy(pending = false, error = null)
                             appendSystem("Default set to $model")

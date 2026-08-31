@@ -98,6 +98,9 @@ class HermesRestApi(
     /** Public /api/status — gateway version + running state. */
     suspend fun gatewayStatus(): GatewayStatusDto = get("/api/status")
 
+    /** Relay /health — which Mac connectors are currently attached (deviceId + online). */
+    suspend fun relayHealth(): RelayHealthDto = get("/health")
+
     /** Durable Relay-owned lifecycle inbox; available even while the Mac Connector is offline. */
     suspend fun lifecycleEvents(after: Long, limit: Int = 100): LifecycleEventPageDto {
         require(after >= 0) { "after must be non-negative" }
@@ -227,16 +230,19 @@ class HermesRestApi(
     suspend fun activeProfile(): String? =
         get<ActiveProfileDto>("/api/profiles/active").let { it.current ?: it.active }
 
-    /** Raw provider list (each provider carries its model strings + an is_current flag). */
-    suspend fun modelProviders(): List<ModelProviderDto> =
-        get<ModelOptionsDto>("/api/model/options").providers
+    /** Raw provider list (each provider carries its model strings + an is_current flag).
+     *  [profile] scopes the picker to that profile's config — upstream reads the SAME profile
+     *  /api/model/set writes, so options and set must carry the same value. */
+    suspend fun modelProviders(profile: String? = null): List<ModelProviderDto> =
+        get<ModelOptionsDto>("/api/model/options${profileParam(profile, first = true)}").providers
 
-    suspend fun modelOptions(): List<ModelOptionDto> =
-        get<ModelOptionsDto>("/api/model/options").providers.flatMap { p ->
+    suspend fun modelOptions(profile: String? = null): List<ModelOptionDto> =
+        get<ModelOptionsDto>("/api/model/options${profileParam(profile, first = true)}").providers.flatMap { p ->
             p.models.map { m -> ModelOptionDto(provider = p.slug, model = m, label = m) }
         }
 
-    suspend fun setModel(provider: String, model: String) = withContext(Dispatchers.IO) {
+    /** Writes model.provider + model.default into [profile]'s config; affects NEW sessions only. */
+    suspend fun setModel(provider: String, model: String, profile: String? = null) = withContext(Dispatchers.IO) {
         val obj: JsonObject = buildJsonObject {
             put("scope", "main")   // required by /api/model/set (the primary model slot)
             put("provider", provider)
@@ -244,7 +250,7 @@ class HermesRestApi(
         }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
             .toRequestBody("application/json".toMediaType())
-        restCall(builder("/api/model/set").post(payload).build()).execute().use { resp ->
+        restCall(builder("/api/model/set${profileParam(profile, first = true)}").post(payload).build()).execute().use { resp ->
             if (!resp.isSuccessful) throw HermesApiException(resp.code, "set model failed")
         }
     }
@@ -437,30 +443,33 @@ class HermesRestApi(
         }
     }
 
-    suspend fun skills(): List<SkillDto> = get("/api/skills")
+    suspend fun skills(profile: String? = null): List<SkillDto> =
+        get("/api/skills${profileParam(profile, first = true)}")
 
-    suspend fun toggleSkill(name: String, enabled: Boolean) = withContext(Dispatchers.IO) {
+    suspend fun toggleSkill(name: String, enabled: Boolean, profile: String? = null) = withContext(Dispatchers.IO) {
         val obj: JsonObject = buildJsonObject { put("name", name); put("enabled", enabled) }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
             .toRequestBody("application/json".toMediaType())
-        restCall(builder("/api/skills/toggle").put(payload).build()).execute().use { resp ->
+        restCall(builder("/api/skills/toggle${profileParam(profile, first = true)}").put(payload).build()).execute().use { resp ->
             if (!resp.isSuccessful) throw HermesApiException(resp.code, "toggle skill failed")
         }
     }
 
-    suspend fun toolsets(): List<ToolsetDto> = get("/api/tools/toolsets")
+    suspend fun toolsets(profile: String? = null): List<ToolsetDto> =
+        get("/api/tools/toolsets${profileParam(profile, first = true)}")
 
-    suspend fun messagingPlatforms(): List<MessagingPlatformDto> =
-        get<MessagingPlatformsDto>("/api/messaging/platforms").platforms
+    suspend fun messagingPlatforms(profile: String? = null): List<MessagingPlatformDto> =
+        get<MessagingPlatformsDto>("/api/messaging/platforms${profileParam(profile, first = true)}").platforms
 
-    suspend fun setMessagingEnabled(platformId: String, enabled: Boolean) =
-        configureMessaging(platformId, emptyMap(), enabled)
+    suspend fun setMessagingEnabled(platformId: String, enabled: Boolean, profile: String? = null) =
+        configureMessaging(platformId, emptyMap(), enabled, profile)
 
     /** Configure a messaging platform: set env vars and/or enable/disable it. */
     suspend fun configureMessaging(
         platformId: String,
         env: Map<String, String>,
         enabled: Boolean?,
+        profile: String? = null,
     ) = withContext(Dispatchers.IO) {
         val obj = buildJsonObject {
             if (enabled != null) put("enabled", enabled)
@@ -468,7 +477,7 @@ class HermesRestApi(
         }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
             .toRequestBody("application/json".toMediaType())
-        restCall(builder("/api/messaging/platforms/$platformId").put(payload).build())
+        restCall(builder("/api/messaging/platforms/$platformId${profileParam(profile, first = true)}").put(payload).build())
             .execute().use { resp ->
                 if (!resp.isSuccessful) {
                     val body = resp.body?.string().orEmpty().take(180)

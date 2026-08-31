@@ -24,6 +24,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.MessagingPlatformDto
+import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.ToolsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,15 +44,19 @@ data class MessagingUiState(
 @HiltViewModel
 class MessagingViewModel @Inject constructor(
     private val tools: ToolsRepository,
+    private val profileManager: ProfileManager,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MessagingUiState())
     val state: StateFlow<MessagingUiState> = _state.asStateFlow()
 
-    init { load() }
+    init {
+        // Messaging platform state is per-profile — reload on profile switch.
+        viewModelScope.launch { profileManager.active.collect { load() } }
+    }
 
     fun load() = viewModelScope.launch {
         _state.value = _state.value.copy(loading = true, error = null)
-        runCatching { tools.messagingPlatforms() }
+        runCatching { tools.messagingPlatforms(profileManager.active.value) }
             .onSuccess { _state.value = _state.value.copy(platforms = it, loading = false, error = null) }
             .onFailure {
                 _state.value = _state.value.copy(loading = false, error = it.message ?: "Failed to load")
@@ -63,7 +68,7 @@ class MessagingViewModel @Inject constructor(
         _state.value = _state.value.copy(
             platforms = _state.value.platforms.map { if (it.id == id) it.copy(enabled = enabled) else it },
         )
-        runCatching { tools.setMessagingEnabled(id, enabled) }
+        runCatching { tools.setMessagingEnabled(id, enabled, profileManager.active.value) }
             .onSuccess { _state.value = _state.value.copy(message = if (enabled) "$id enabled" else "$id disabled"); load() }
             .onFailure { _state.value = _state.value.copy(message = "Failed: ${it.message}"); load() }
     }

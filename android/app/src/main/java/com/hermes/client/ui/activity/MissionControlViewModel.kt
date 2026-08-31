@@ -104,12 +104,11 @@ class MissionControlViewModel @Inject constructor(
     fun refresh() = load(profile)
 
     /** Make [profile] the app-wide active profile (awaited) before opening one of its items, so the
-     *  chat/cron screens act against the correct per-profile DB. No-op if already active. */
-    suspend fun switchTo(profile: String?) {
-        if (!profile.isNullOrBlank() && profile != profileManager.active.value) {
+     *  chat/cron screens act against the correct per-profile DB. No-op (true) if already active;
+     *  false when the gateway refused the switch — the caller must NOT navigate then. */
+    suspend fun switchTo(profile: String?): Boolean =
+        profile.isNullOrBlank() || profile == profileManager.active.value ||
             profileManager.switchTo(profile)
-        }
-    }
 
     /**
      * Fetch a cron run's response on demand (one REST history call), caching by sessionId. A loaded

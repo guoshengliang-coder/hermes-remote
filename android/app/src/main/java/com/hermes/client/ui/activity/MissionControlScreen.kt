@@ -193,8 +193,18 @@ private fun MissionControlPage(profile: String?, dark: Boolean, onNavigate: (Str
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refresh() }
 
     // Opening an item makes this page's tenant the active profile (awaited) before navigating, so
-    // the chat/cron screen acts against the right per-profile DB.
-    val onOpen: (String) -> Unit = { route -> scope.launch { vm.switchTo(profile); onNavigate(route) } }
+    // the chat/cron screen acts against the right per-profile DB. A refused switch must not
+    // navigate — the screen would act against the wrong profile.
+    val onOpen: (String) -> Unit = { route ->
+        scope.launch {
+            if (vm.switchTo(profile)) onNavigate(route)
+            else Toast.makeText(
+                context,
+                localized(language, "无法切换到该身份，请稍后重试", "Couldn't switch profile. Try again."),
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
 
     // Pull-to-refresh: the indicator shows only for an explicit pull (not the ON_RESUME reload),
     // and clears when the load finishes.

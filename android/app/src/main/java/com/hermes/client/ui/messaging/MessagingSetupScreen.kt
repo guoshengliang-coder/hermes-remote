@@ -32,6 +32,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.MessagingPlatformDto
+import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.ToolsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,6 +53,7 @@ data class MessagingSetupState(
 @HiltViewModel
 class MessagingSetupViewModel @Inject constructor(
     private val tools: ToolsRepository,
+    private val profileManager: ProfileManager,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MessagingSetupState())
     val state: StateFlow<MessagingSetupState> = _state.asStateFlow()
@@ -61,7 +63,7 @@ class MessagingSetupViewModel @Inject constructor(
         id = platformId
         viewModelScope.launch {
             _state.value = _state.value.copy(loading = true)
-            val p = runCatching { tools.messagingPlatforms() }.getOrNull()?.firstOrNull { it.id == platformId }
+            val p = runCatching { tools.messagingPlatforms(profileManager.active.value) }.getOrNull()?.firstOrNull { it.id == platformId }
             _state.value = _state.value.copy(platform = p, loading = false)
         }
     }
@@ -69,7 +71,7 @@ class MessagingSetupViewModel @Inject constructor(
     fun saveAndEnable(values: Map<String, String>) = viewModelScope.launch {
         _state.value = _state.value.copy(saving = true)
         val env = values.filterValues { it.isNotBlank() }
-        runCatching { tools.configureMessaging(id, env, enabled = true) }
+        runCatching { tools.configureMessaging(id, env, enabled = true, profile = profileManager.active.value) }
             .onSuccess { _state.value = _state.value.copy(saving = false, done = true) }
             .onFailure { _state.value = _state.value.copy(saving = false, message = "Save failed: ${it.message}") }
     }

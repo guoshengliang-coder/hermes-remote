@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.ModelProviderDto
 import com.hermes.client.data.repository.ModelRepository
+import com.hermes.client.data.repository.ProfileManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +25,7 @@ data class ModelsUiState(
 class ModelsViewModel @Inject constructor(
     private val models: ModelRepository,
     private val favoritesStore: com.hermes.client.data.repository.ModelFavoritesStore,
+    private val profileManager: ProfileManager,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ModelsUiState())
     val state: StateFlow<ModelsUiState> = _state.asStateFlow()
@@ -31,11 +33,16 @@ class ModelsViewModel @Inject constructor(
     val favorites: StateFlow<Set<String>> =
         favoritesStore.favorites.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptySet())
 
-    init { load() }
+    init {
+        // Model options/current are per-profile (upstream scopes both read and write) —
+        // reload whenever the active profile changes so a stale back-stack entry can't
+        // show another profile's models.
+        viewModelScope.launch { profileManager.active.collect { load() } }
+    }
 
     fun load() = viewModelScope.launch {
         _state.value = _state.value.copy(loading = true, error = null)
-        runCatching { models.providers() }
+        runCatching { models.providers(profileManager.active.value) }
             .onSuccess { _state.value = _state.value.copy(providers = it, loading = false, error = null) }
             .onFailure { _state.value = _state.value.copy(loading = false, error = it.message ?: "Failed to load models") }
     }
@@ -46,7 +53,7 @@ class ModelsViewModel @Inject constructor(
         viewModelScope.launch { favoritesStore.toggle(provider, model) }
 
     fun select(provider: String, model: String) = viewModelScope.launch {
-        runCatching { models.set(provider, model) }
+        runCatching { models.set(provider, model, profileManager.active.value) }
             .onSuccess { _state.value = _state.value.copy(message = "Default set to $model"); load() }
             .onFailure { _state.value = _state.value.copy(message = "Failed to set model: ${it.message}") }
     }
