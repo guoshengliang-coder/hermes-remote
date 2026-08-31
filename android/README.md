@@ -145,6 +145,11 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   theme-primary color (no more per-profile neon egg), the model selector loads lazily with
   loading/failed-retry states instead of a silent empty sheet, and tables tighten their fixed
   column width, gain a header bar with copy-as-cells, and open a fullscreen viewing dialog.
+- Version 0.1.45 adds table image export (fullscreen viewer saves/shares a PNG containing every
+  column via a GraphicsLayer recording of the full-width node), rotation-proof fullscreen viewing
+  with a manual landscape toggle, a synchronous-parse fix for the blank-on-open dialog, a debug
+  component gallery (settings -> diagnostics), Roborazzi screenshot tests with six goldens, and a
+  one-command dev stack under scripts/dev/.
 - Version 0.1.44 makes background recovery self-healing: a short background switch keeps a 45-second
   socket lease, returning to the foreground reconnects immediately, and interrupted turns reattach
   and reconcile against authoritative history so partial output and stale “generating” state do not
@@ -171,7 +176,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.44-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.45-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
