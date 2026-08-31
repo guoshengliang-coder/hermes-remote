@@ -323,8 +323,9 @@ private fun ShortcutRow(
 }
 
 /**
- * Single-line text that steps its font size down (never below [minFontSize]) until it fits,
- * instead of ellipsizing — numbers and device names must stay whole on narrow widths.
+ * Fit strategy, in order: (1) step the font size down to [minFontSize] on ONE line; (2) still
+ * overflowing at the floor → keep the floor size and wrap to TWO lines; (3) only a two-line
+ * overflow ellipsizes. Numbers and device names should never truncate before all of that.
  */
 @Composable
 private fun AutoShrinkText(
@@ -333,20 +334,31 @@ private fun AutoShrinkText(
     minFontSize: androidx.compose.ui.unit.TextUnit,
     modifier: Modifier = Modifier,
 ) {
-    // Re-measure from the top size whenever the text OR the available width regime changes.
+    // Re-measure from the top size whenever the text changes.
     var fontSize by remember(text) { mutableStateOf(style.fontSize) }
+    var lines by remember(text) { mutableStateOf(1) }
     Text(
         text,
-        style = style.copy(fontSize = fontSize),
-        maxLines = 1,
-        softWrap = false,
+        style = style.copy(
+            fontSize = fontSize,
+            // Keep the leading proportional once shrunk/wrapped; the original lineHeight
+            // belongs to the full-size single-line form.
+            lineHeight = (fontSize.value * 1.25f).sp,
+        ),
+        maxLines = lines,
+        softWrap = lines > 1,
         overflow = TextOverflow.Ellipsis,
         onTextLayout = { result ->
             // With overflow=Ellipsis, didOverflowWidth is FALSE once the text has been
             // ellipsized — isLineEllipsized is the signal that actually fires.
-            val overflowed = result.didOverflowWidth || result.isLineEllipsized(0)
-            if (overflowed && fontSize.value > minFontSize.value) {
-                fontSize = (fontSize.value - 1f).coerceAtLeast(minFontSize.value).sp
+            val overflowed = result.didOverflowWidth ||
+                result.isLineEllipsized(result.lineCount - 1)
+            if (overflowed) {
+                if (fontSize.value > minFontSize.value) {
+                    fontSize = (fontSize.value - 1f).coerceAtLeast(minFontSize.value).sp
+                } else if (lines == 1) {
+                    lines = 2
+                }
             }
         },
         modifier = modifier,

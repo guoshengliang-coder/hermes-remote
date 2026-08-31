@@ -154,6 +154,10 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   the header bar) via a record-only offscreen exporter, and makes fullscreen viewing genuinely
   rotation-proof by hoisting its state to the screen level — the previous in-tree fix was lost
   during the markdown re-parse window on Activity recreation.
+- Version 0.1.54 upgrades the fit strategy to shrink-then-wrap: values shrink to the minimum
+  acceptable size on one line first, and only if the floor still overflows do they wrap to two
+  lines at that floor — ellipsis remains solely as a two-line last resort (verified with a
+  23-char device name at fontScale 1.3).
 - Version 0.1.53 makes the stats card resilient to large system font scales: auto-shrink now
   actually fires under overflow=Ellipsis (isLineEllipsized, not didOverflowWidth), the sub-lines
   and shortcut values shrink too (deep floors), cell padding is trimmed, and latency above 999ms
@@ -198,6 +202,17 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
 
+## Runtime language contract
+
+- Chinese remains the default, and changing the in-app language updates Compose screens, widgets,
+  notifications, setup and crash-recovery surfaces without requiring an app restart.
+- ViewModels and background components carry language-independent `LocalizedText` or stable
+  `AppError` values; user-facing copy is resolved only at the display boundary.
+- Product and protocol names, model or project identifiers, user/assistant content, server release
+  notes, command output, and expanded diagnostic details remain in their source language.
+- `LocalizationCoverageTest` rejects newly added raw Compose UI literals unless the line includes a
+  reviewed `l10n-allow` reason for one of those intentional exceptions.
+
 ## Build
 
 For local development checks, Gradle remains available directly. For every APK distributed to a
@@ -215,7 +230,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.53-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.54-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
