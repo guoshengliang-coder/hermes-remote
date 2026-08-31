@@ -167,7 +167,7 @@ class MainActivity : ComponentActivity() {
             type = "text/plain"
             putExtra(
                 Intent.EXTRA_SUBJECT,
-                localized(languages.current, "Hermes Beta 崩溃报告", "Hermes Beta crash report"),
+                localized(languages.current, "Hermes GO 崩溃报告", "Hermes GO crash report"),
             )
             putExtra(Intent.EXTRA_TEXT, report)
         }

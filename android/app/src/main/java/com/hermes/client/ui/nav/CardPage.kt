@@ -308,16 +308,16 @@ private fun ShortcutRow(
     badge: Int? = null,
 ) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 21.dp),
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(25.dp))
+        Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
         Text(
             label,
-            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 20.sp),
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).padding(start = 20.dp),
+            modifier = Modifier.weight(1f).padding(start = 16.dp),
         )
         // Neutral badge — same palette as the rest of the sheet, no alert colour.
         badge?.let {
@@ -333,7 +333,7 @@ private fun ShortcutRow(
             AutoShrinkText(
                 it,
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    fontSize = 16.sp,
+                    fontSize = 15.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 ),
                 minFontSize = 12.sp,
@@ -451,21 +451,36 @@ private fun strokeIcon(
         )
     }.build()
 
-/** Sun-style gear from the reference: hub circle + eight tick strokes. */
+/**
+ * Proper toothed gear (stroke style): cog ring outline + centre hole. The earlier hub+ticks
+ * simplification read as a brightness/sun glyph next to the theme row. Ring path per the
+ * classic stroke-gear construction (Lucide-style), same 1.7 brush as the rest of the set.
+ */
 private val GearIcon by lazy {
-    strokeIcon("ThinGear") {
-        moveTo(9f, 12f)
-        arcTo(3f, 3f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 15f, y1 = 12f)
-        arcTo(3f, 3f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 9f, y1 = 12f)
-        moveTo(12f, 3.5f); lineTo(12f, 5.5f)
-        moveTo(12f, 18.5f); lineTo(12f, 20.5f)
-        moveTo(20.5f, 12f); lineTo(18.5f, 12f)
-        moveTo(5.5f, 12f); lineTo(3.5f, 12f)
-        moveTo(18f, 6f); lineTo(16.6f, 7.4f)
-        moveTo(7.4f, 16.6f); lineTo(6f, 18f)
-        moveTo(18f, 18f); lineTo(16.6f, 16.6f)
-        moveTo(7.4f, 7.4f); lineTo(6f, 6f)
-    }
+    androidx.compose.ui.graphics.vector.ImageVector.Builder(
+        name = "ThinGear",
+        defaultWidth = 24.dp, defaultHeight = 24.dp,
+        viewportWidth = 24f, viewportHeight = 24f,
+    ).apply {
+        addPath(
+            pathData = androidx.compose.ui.graphics.vector.addPathNodes(
+                "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08" +
+                    "a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51" +
+                    "a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08" +
+                    "a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18" +
+                    "a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39" +
+                    "a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09" +
+                    "a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25" +
+                    "a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" +
+                    "M9 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0",
+            ),
+            fill = null,
+            stroke = androidx.compose.ui.graphics.SolidColor(Color.Black),
+            strokeLineWidth = 1.7f,
+            strokeLineCap = androidx.compose.ui.graphics.StrokeCap.Round,
+            strokeLineJoin = androidx.compose.ui.graphics.StrokeJoin.Round,
+        )
+    }.build()
 }
 
 private val ClockIcon by lazy {
@@ -489,18 +504,18 @@ private val MoonIcon by lazy {
 /** Rounded box with a down arrow — the reference's update glyph. */
 private val DownloadBoxIcon by lazy {
     strokeIcon("ThinDownloadBox") {
-        moveTo(7.5f, 3.5f)
-        lineTo(16.5f, 3.5f)
-        arcTo(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 19.5f, y1 = 6.5f)
-        lineTo(19.5f, 17.5f)
-        arcTo(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 16.5f, y1 = 20.5f)
-        lineTo(7.5f, 20.5f)
-        arcTo(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 4.5f, y1 = 17.5f)
-        lineTo(4.5f, 6.5f)
-        arcTo(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 7.5f, y1 = 3.5f)
+        moveTo(7f, 3f)
+        lineTo(17f, 3f)
+        arcTo(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 20f, y1 = 6f)
+        lineTo(20f, 18f)
+        arcTo(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 17f, y1 = 21f)
+        lineTo(7f, 21f)
+        arcTo(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 4f, y1 = 18f)
+        lineTo(4f, 6f)
+        arcTo(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 7f, y1 = 3f)
         close()
-        moveTo(12f, 8f); lineTo(12f, 14f)
-        moveTo(9.2f, 11.4f); lineTo(12f, 14.2f); lineTo(14.8f, 11.4f)
+        moveTo(12f, 7.5f); lineTo(12f, 14.5f)
+        moveTo(8.8f, 11.3f); lineTo(12f, 14.5f); lineTo(15.2f, 11.3f)
     }
 }
 
