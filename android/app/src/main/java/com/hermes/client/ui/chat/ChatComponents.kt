@@ -22,6 +22,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -90,6 +93,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.draw.alpha
@@ -169,7 +173,7 @@ fun ChatMessageList(
     onFileOpen: (ChatFile) -> Unit = {},
     onFileShare: (ChatFile) -> Unit = {},
     highlightIndex: Int? = null,
-    externalScrollActive: Boolean = false,
+    scrollToBottomTick: Long = 0L,
     onBlankAreaTap: () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
@@ -276,19 +280,13 @@ fun ChatMessageList(
         }
     }
 
-    // Sending always returns to the bottom, even from deep in history — it is the user's own
-    // action. Keyed on the newest USER turn's stable render key, not raw list size, so history
-    // reconciliation and session-resume backfill cannot fake it.
-    val lastTurnKey = displayKeys.lastOrNull()
-    val lastTurnIsUser = displayMessages.lastOrNull()?.role == Role.USER
-    var followedUserTurnKey by remember(sessionId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(lastTurnKey, lastTurnIsUser) {
-        if (!lastTurnIsUser || lastTurnKey == null) return@LaunchedEffect
-        val previous = followedUserTurnKey
-        followedUserTurnKey = lastTurnKey
-        if (previous != null && previous != lastTurnKey && !externalScrollActive) {
-            bottomRequests.trySend(Unit)
-        }
+    // Sending returns to the bottom because the USER pressed send — driven directly by that
+    // action via [scrollToBottomTick]. The previous inference (watching the last user turn's
+    // content-derived render key) misfired whenever background history reconciliation nudged
+    // that key (text normalization, image metadata hydration, occurrence shifts), yanking a
+    // reader mid-history to the bottom. Data changes must never steal the viewport.
+    LaunchedEffect(scrollToBottomTick) {
+        if (scrollToBottomTick > 0L) bottomRequests.trySend(Unit)
     }
 
     // Search-highlight navigation, mapped from turn order to the reversed list order. The size is
@@ -1206,15 +1204,32 @@ private fun chatMarkdownComponents(onOpenTableFullscreen: (String) -> Unit): Mar
 /** The styled table body shared by the in-chat card and the fullscreen dialog. */
 @Composable
 private fun StyledMarkdownTable(content: String, node: org.intellij.markdown.ast.ASTNode, style: TextStyle) {
+    // Faint full grid (WorkBuddy-style): light enough to stay quiet, present enough that a
+    // wrapped multi-line cell reads unambiguously as one column.
+    val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+    fun Modifier.tableGrid(cells: Int, drawTop: Boolean = false): Modifier = drawBehind {
+        val stroke = 1.dp.toPx()
+        if (drawTop) drawLine(gridColor, Offset(0f, 0f), Offset(size.width, 0f), stroke)
+        drawLine(gridColor, Offset(0f, size.height), Offset(size.width, size.height), stroke)
+        if (cells > 1) {
+            val cellWidth = size.width / cells
+            for (i in 1 until cells) {
+                val x = cellWidth * i
+                drawLine(gridColor, Offset(x, 0f), Offset(x, size.height), stroke)
+            }
+        }
+    }
+    fun cellCount(rowNode: org.intellij.markdown.ast.ASTNode): Int =
+        rowNode.children.count { it.type == org.intellij.markdown.flavours.gfm.GFMTokenTypes.CELL }.coerceAtLeast(1)
     com.mikepenz.markdown.compose.elements.MarkdownTable(
         content,
         node,
         style = style,
         headerBlock = { c, header, tableWidth, s ->
             Box(
-                Modifier.background(
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-                ),
+                Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f))
+                    .tableGrid(cellCount(header)),
             ) {
                 com.mikepenz.markdown.compose.elements.MarkdownTableHeader(
                     c,
@@ -1228,13 +1243,15 @@ private fun StyledMarkdownTable(content: String, node: org.intellij.markdown.ast
             }
         },
         rowBlock = { c, row, tableWidth, s ->
-            com.mikepenz.markdown.compose.elements.MarkdownTableRow(
-                c,
-                row,
-                tableWidth,
-                s,
-                maxLines = Int.MAX_VALUE,
-            )
+            Box(Modifier.tableGrid(cellCount(row))) {
+                com.mikepenz.markdown.compose.elements.MarkdownTableRow(
+                    c,
+                    row,
+                    tableWidth,
+                    s,
+                    maxLines = Int.MAX_VALUE,
+                )
+            }
         },
     )
 }
@@ -1423,28 +1440,48 @@ internal fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
     var exportAction by remember { mutableStateOf<TableExportAction?>(null) }
     val isLandscape =
         LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-    // Leaving the viewer always hands orientation back to the sensor, including dismiss-by-back
-    // while in forced landscape.
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        onDispose {
-            activity?.requestedOrientation =
-                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
+    // Orientation is reset ONLY on the explicit close paths (button / back-dismiss). The previous
+    // composition-teardown hook also fired during the rotation-triggered Activity recreation and
+    // yanked a freshly forced landscape straight back to portrait when auto-rotate was off.
+    fun close() {
+        activity?.requestedOrientation =
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        onDismiss()
     }
     Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        onDismissRequest = { close() },
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
+        // Immersive while viewing: the DIALOG owns its own window (hiding bars on the Activity
+        // window does nothing while the dialog holds focus). Swipe from an edge brings them
+        // back transiently; closing the dialog restores them automatically with the window.
+        val dialogView = androidx.compose.ui.platform.LocalView.current
+        LaunchedEffect(Unit) {
+            val window = (dialogView.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window
+                ?: return@LaunchedEffect
+            val controller = androidx.core.view.WindowCompat.getInsetsController(window, dialogView)
+            controller.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
         Surface(
             color = MaterialTheme.colorScheme.background,
             modifier = Modifier.fillMaxSize(),
         ) {
-            Column(Modifier.fillMaxSize()) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    // Edge-to-edge window: keep interactive chrome clear of cutouts/bars while the
+                    // background paints the full screen.
+                    .windowInsetsPadding(
+                        androidx.compose.foundation.layout.WindowInsets.displayCutout,
+                    ),
+            ) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TextButton(onClick = onDismiss) { Text(localized(language, "关闭", "Close")) }
+                    TextButton(onClick = { close() }) { Text(localized(language, "关闭", "Close")) }
                     Text(
                         localized(language, "表格", "Table"),
                         style = MaterialTheme.typography.titleMedium,

@@ -171,6 +171,8 @@ fun ChatScreen(
     // saveable) because anything living inside the markdown tree vanishes during the re-parse
     // window on rotation, taking a dialog hosted there down with it.
     var fullscreenTableRaw by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    // Monotonic signal: bumped by submit(); the message list scrolls to bottom when it changes.
+    var sendToBottomTick by remember(sessionId) { mutableStateOf(0L) }
     val commands by vm.commands.collectAsStateWithLifecycle()
     val pathItems by vm.pathItems.collectAsStateWithLifecycle()
     val speaking by vm.speaking.collectAsStateWithLifecycle()
@@ -254,7 +256,9 @@ fun ChatScreen(
         vm.send(draft)
         draft = ""
         // Sending hands the stage to the run: drop the keyboard and the expanded composer so
-        // the viewport shows the new instruction and what happens next.
+        // the viewport shows the new instruction and what happens next. The scroll-to-bottom is
+        // driven by THIS action (tick), never inferred from data changes.
+        sendToBottomTick = System.currentTimeMillis()
         collapseComposer()
     }
 
@@ -1024,7 +1028,7 @@ fun ChatScreen(
                         sessionId = sessionId,
                         listState = listState,
                         highlightIndex = highlightIndex,
-                        externalScrollActive = searchOpen,
+                        scrollToBottomTick = sendToBottomTick,
                         isGenerating = state.isGenerating,
                         onEditResend = { text -> draft = text; focusRequester.requestFocus() },
                         onRegenerate = { vm.regenerate() },
