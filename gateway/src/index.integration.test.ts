@@ -84,6 +84,19 @@ test("Relay durably acknowledges and serves Connector lifecycle events", {
       assert.equal(response.status, 200);
       assert.equal((await response.json() as { changed: number }).changed, 1);
     }
+    // /health lists each connected connector as a device (additively to the legacy count),
+    // so clients can show WHICH Mac is online. Assert while the connector is still attached.
+    const healthResponse = await fetch(`http://127.0.0.1:${port}/health`);
+    assert.equal(healthResponse.status, 200);
+    const health = await healthResponse.json() as {
+      ok: boolean;
+      connectors: number;
+      devices: Array<{ deviceId: string; online: boolean }>;
+    };
+    assert.equal(health.ok, true);
+    assert.equal(health.connectors, 1);
+    assert.deepEqual(health.devices, [{ deviceId: "mac-mini", online: true }]);
+
     connector.close();
   } finally {
     child.kill("SIGTERM");

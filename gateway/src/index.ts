@@ -236,7 +236,15 @@ async function handleHttpRequest(request: IncomingMessage, response: ServerRespo
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
   if (url.pathname === "/health") {
     response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({ ok: true, connectors: connectors.size }));
+    // `connectors` (count) is kept for existing probes; `devices` lists each connected
+    // Mac connector so clients can show WHICH device is online (the card page's
+    // "remote device" tile). Only currently-connected connectors appear, all online:true —
+    // the relay has no persistence for previously-seen devices.
+    response.end(JSON.stringify({
+      ok: true,
+      connectors: connectors.size,
+      devices: [...connectors.keys()].map((deviceId) => ({ deviceId, online: true })),
+    }));
     return;
   }
 
