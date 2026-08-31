@@ -84,8 +84,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.testTag
@@ -116,6 +120,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.compose.components.MarkdownComponents
@@ -125,6 +130,7 @@ import com.mikepenz.markdown.compose.elements.MarkdownCodeFence
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
+import com.mikepenz.markdown.model.markdownPadding
 
 @Composable
 fun ChatMessageList(
@@ -306,6 +312,18 @@ fun ChatMessageList(
         return
     }
 
+    // Claude-style keyboard dismissal: a downward drag on the conversation collapses the IME
+    // instead of requiring a tap on whitespace. Observation-only — it never consumes scroll.
+    val keyboard = LocalSoftwareKeyboardController.current
+    val imeDismissConnection = remember(keyboard) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && available.y > 4f) keyboard?.hide()
+                return Offset.Zero
+            }
+        }
+    }
+
     Box(modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
@@ -319,6 +337,7 @@ fun ChatMessageList(
                 // A simple tap on conversation whitespace exits the expanded composer. Drag gestures
                 // remain scrolling gestures, and taps consumed by message actions are left alone.
                 .pointerInput(onBlankAreaTap) { detectTapGestures { onBlankAreaTap() } }
+                .nestedScroll(imeDismissConnection)
                 .padding(horizontal = 22.dp, vertical = 10.dp),
         ) {
             // Index 0 is a PERMANENT slot pinned to the bottom edge. When the processes card lived
@@ -351,7 +370,10 @@ fun ChatMessageList(
             ) { reversed, msg ->
                 val index = turnCount - 1 - reversed
                 val canRegenerate = msg.id == lastAssistantId && !isGenerating
-                val showAssistantActions = !(isGenerating && index == displayMessages.lastIndex)
+                // The action row is persistent only on the LATEST assistant turn; every earlier
+                // turn reaches the same actions through its long-press menu. A row under every
+                // turn put 6+ icons on screen per answer and duplicated that menu.
+                val showAssistantActions = msg.id == lastAssistantId && !isGenerating
                 val previousTs = if (index > 0) displayMessages[index - 1].timestamp else null
                 Column(Modifier.padding(top = TURN_SPACING)) {
                     if (showsTimeSeparator(previousTs, msg.timestamp)) {
@@ -964,11 +986,29 @@ private fun AssistantTurn(
                             table = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 22.sp),
                         ),
                         components = mdComponents,
+                        // Paragraph rhythm: the library default (block = 2dp) leaves paragraph
+                        // gaps visually identical to line gaps — long answers read as one wall of
+                        // text. Pixel-measured against the Claude app's ~8-10dp paragraph breaks.
+                        // block padding applies to BOTH sides of every block, so 5dp yields
+                        // ~+10dp between paragraphs (measured on device; library default 2dp
+                        // left paragraph gaps visually identical to line gaps).
+                        padding = markdownPadding(
+                            block = 5.dp,
+                            listItemTop = 2.dp,
+                            listItemBottom = 2.dp,
+                        ),
                     )
                 }
             }
-            if (msg.isStreaming && msg.text.isBlank() && msg.tools.isEmpty()) {
-                TypingIndicator()
+            if (msg.isStreaming) {
+                // The status line is PERSISTENT for the whole run. The previous indicator only
+                // showed before the first text/tool arrived, so mid-run turns (waiting on a tool,
+                // planning between output blocks) looked finished while the agent was still busy.
+                if (msg.text.isBlank() && msg.tools.isEmpty() && msg.thinking.isBlank()) {
+                    TypingIndicator()
+                } else {
+                    RunningStatusLine(msg)
+                }
             }
             if (showActions && !msg.isStreaming && msg.text.isNotBlank() && !msg.isError) {
                 Row(
@@ -1106,12 +1146,12 @@ private fun chatMarkdownComponents(): MarkdownComponents =
         // Section headings get breathing room above so long answers read in visual chapters
         // (approved normal-content mockup): spacing carries the hierarchy, not decoration.
         heading2 = { m ->
-            Column(Modifier.padding(top = 10.dp)) {
+            Column(Modifier.padding(top = 6.dp)) {
                 com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h2)
             }
         },
         heading3 = { m ->
-            Column(Modifier.padding(top = 6.dp)) {
+            Column(Modifier.padding(top = 4.dp)) {
                 com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h3)
             }
         },
@@ -1252,6 +1292,60 @@ private fun TextSelectionDialog(text: String, onDismiss: () -> Unit) {
 }
 
 /** Three pulsing dots while the agent composes its first token — replaces the literal "…". */
+@Composable
+private fun RunningStatusLine(msg: ChatMessage) {
+    val language = LocalAppLanguage.current
+    val status = runningStatusFor(msg)
+    val transition = rememberInfiniteTransition(label = "running")
+    val pulse by transition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "pulse",
+    )
+    Row(
+        Modifier.padding(top = 8.dp).fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .padding(end = 8.dp)
+                .size(7.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = pulse)),
+        )
+        val style = MaterialTheme.typography.bodySmall
+        val color = MaterialTheme.colorScheme.onSurfaceVariant
+        when (status) {
+            is RunningStatus.Tool -> Text(
+                localized(language, "正在运行 ", "Running ") + status.label + "…",
+                style = style.copy(fontFamily = FontFamily.Monospace),
+                color = color,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.alpha(pulse.coerceAtLeast(0.7f)),
+            )
+            is RunningStatus.Thinking -> Text(
+                status.preview,
+                style = style.copy(fontStyle = FontStyle.Italic),
+                color = color,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.alpha(pulse.coerceAtLeast(0.7f)),
+            )
+            RunningStatus.Generating -> Text(
+                localized(language, "生成中…", "Generating…"),
+                style = style,
+                color = color,
+                modifier = Modifier.alpha(pulse),
+            )
+        }
+    }
+}
+
 @Composable
 private fun TypingIndicator() {
     val transition = rememberInfiniteTransition(label = "typing")

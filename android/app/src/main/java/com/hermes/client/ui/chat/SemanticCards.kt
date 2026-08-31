@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.TodoItem
 import com.hermes.client.domain.ToolCall
 import com.hermes.client.domain.ToolStatus
@@ -142,6 +143,38 @@ internal fun surrogateSafeCut(text: String, index: Int): Int {
 
 internal fun formatToolDuration(durationMs: Long): String =
     if (durationMs < 1000) "${durationMs}ms" else "%.1fs".format(durationMs / 1000f)
+
+// ---------------------------------------------------------------------------
+// Running-status line: what a still-streaming turn is doing RIGHT NOW. The
+// old indicator vanished as soon as the first text or tool arrived, leaving
+// long turns looking finished while the agent was still mid-run.
+// ---------------------------------------------------------------------------
+
+internal sealed interface RunningStatus {
+    data class Tool(val label: String) : RunningStatus
+    data class Thinking(val preview: String) : RunningStatus
+    data object Generating : RunningStatus
+}
+
+/** Max characters of a thinking line kept for the one-line preview; the TAIL is what matters. */
+private const val THINKING_PREVIEW_CHARS = 24
+
+internal fun runningStatusFor(message: ChatMessage): RunningStatus {
+    val tool = message.tools.lastOrNull { it.status == ToolStatus.RUNNING }
+    if (tool != null) {
+        val label = tool.command?.takeIf { it.isNotBlank() } ?: tool.name
+        return RunningStatus.Tool(label.lineSequence().first().take(64))
+    }
+    if (message.text.isBlank() && message.thinking.isNotBlank()) {
+        val line = message.thinking.trimEnd().lineSequence().lastOrNull { it.isNotBlank() }?.trim().orEmpty()
+        if (line.isNotEmpty()) {
+            val truncated = line.length > THINKING_PREVIEW_CHARS
+            val cut = surrogateSafeCut(line, line.length - THINKING_PREVIEW_CHARS)
+            return RunningStatus.Thinking(if (truncated) "…" + line.substring(cut) else line)
+        }
+    }
+    return RunningStatus.Generating
+}
 
 // ---------------------------------------------------------------------------
 // Diff parsing: unified-diff code fences render with red/green line semantics.

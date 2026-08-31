@@ -1,5 +1,9 @@
 package com.hermes.client.ui.chat
 
+import com.hermes.client.domain.ChatMessage
+import com.hermes.client.domain.Role
+import com.hermes.client.domain.ToolCall
+import com.hermes.client.domain.ToolStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -129,5 +133,57 @@ class SemanticCardsTest {
         assertEquals(DiffLineKind.CONTEXT, lines[3].kind)
         assertEquals(DiffLineKind.ADD, lines[4].kind)
         assertEquals(DiffLineKind.DEL, lines[5].kind)
+    }
+
+    // ---- running-status line ------------------------------------------------
+
+    private fun streamingMsg(
+        text: String = "",
+        thinking: String = "",
+        tools: List<ToolCall> = emptyList(),
+    ) = ChatMessage(id = "m1", role = Role.ASSISTANT, text = text, thinking = thinking, tools = tools, isStreaming = true)
+
+    @Test fun runningToolWinsOverEverything() {
+        val msg = streamingMsg(
+            text = "some text already streamed",
+            thinking = "planning...",
+            tools = listOf(
+                ToolCall("t1", "bash", ToolStatus.DONE, command = "ls"),
+                ToolCall("t2", "bash", ToolStatus.RUNNING, command = "npm test"),
+            ),
+        )
+        assertEquals(RunningStatus.Tool("npm test"), runningStatusFor(msg))
+    }
+
+    @Test fun runningToolFallsBackToNameAndFirstLine() {
+        val msg = streamingMsg(tools = listOf(ToolCall("t", "web_search", ToolStatus.RUNNING)))
+        assertEquals(RunningStatus.Tool("web_search"), runningStatusFor(msg))
+        val multi = streamingMsg(tools = listOf(ToolCall("t", "bash", ToolStatus.RUNNING, command = "line1\nline2")))
+        assertEquals(RunningStatus.Tool("line1"), runningStatusFor(multi))
+    }
+
+    @Test fun thinkingPreviewShowsTailOfLastLine() {
+        val msg = streamingMsg(thinking = "first line\n这是一段相当长的思考内容需要截断只保留最后二十四个字符用于单行预览显示")
+        val status = runningStatusFor(msg)
+        assertTrue(status is RunningStatus.Thinking)
+        val preview = (status as RunningStatus.Thinking).preview
+        assertTrue(preview.startsWith("…"))
+        assertTrue(preview.endsWith("预览显示"))
+        assertTrue(preview.length <= 25)
+    }
+
+    @Test fun shortThinkingLineIsNotTruncated() {
+        val msg = streamingMsg(thinking = "查资料中")
+        assertEquals(RunningStatus.Thinking("查资料中"), runningStatusFor(msg))
+    }
+
+    @Test fun textPresentDowngradesThinkingToGenerating() {
+        val msg = streamingMsg(text = "answer body", thinking = "old reasoning")
+        assertEquals(RunningStatus.Generating, runningStatusFor(msg))
+    }
+
+    @Test fun doneToolsWithoutActivityMeanGenerating() {
+        val msg = streamingMsg(text = "body", tools = listOf(ToolCall("t", "bash", ToolStatus.DONE, command = "ls")))
+        assertEquals(RunningStatus.Generating, runningStatusFor(msg))
     }
 }
