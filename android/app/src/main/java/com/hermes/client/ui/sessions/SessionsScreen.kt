@@ -41,7 +41,6 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import com.hermes.client.ui.theme.LocalProfileAccent
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -192,7 +191,7 @@ fun SessionsScreen(
                         TextButton(
                             onClick = onOpenArchived,
                             colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                                contentColor = com.hermes.client.ui.components.AccentChrome.onBar,
+                                contentColor = MaterialTheme.colorScheme.onSurface,
                             ),
                         ) { Text(localized(language, "已归档", "Archived")) }
                     },
@@ -211,7 +210,7 @@ fun SessionsScreen(
                         )
                     }
                 }
-                val accent = LocalProfileAccent.current
+                val accent = MaterialTheme.colorScheme.primary
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
                     val tabs = listOf(
                         ViewMode.SESSIONS to localized(language, "会话", "Sessions"),
@@ -223,8 +222,8 @@ fun SessionsScreen(
                             onClick = { vm.setViewMode(mode) },
                             shape = SegmentedButtonDefaults.itemShape(i, tabs.size),
                             colors = SegmentedButtonDefaults.colors(
-                                activeContainerColor = accent.accent,
-                                activeContentColor = accent.onAccent,
+                                activeContainerColor = accent,
+                                activeContentColor = MaterialTheme.colorScheme.onPrimary,
                             ),
                         ) { Text(label) }
                     }
@@ -234,14 +233,14 @@ fun SessionsScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = ::createSession,
-                containerColor = com.hermes.client.ui.components.AccentChrome.fabContainer,
-                contentColor = com.hermes.client.ui.components.AccentChrome.onFab,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
             ) {
                 if (creatingSession) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(24.dp),
                         strokeWidth = 2.5.dp,
-                        color = com.hermes.client.ui.components.AccentChrome.onFab,
+                        color = MaterialTheme.colorScheme.onPrimary,
                     )
                 } else {
                     Icon(
@@ -424,7 +423,7 @@ private fun SectionHeader(label: String, count: Int, note: String? = null) {
         Text(
             label.uppercase(),
             style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
-            color = LocalProfileAccent.current.accent,
+            color = MaterialTheme.colorScheme.primary,
         )
         note?.let {
             Text(
@@ -478,7 +477,7 @@ private fun SessionRow(
                         Icons.Rounded.PushPin,
                         contentDescription = localized(language, "已置顶", "Pinned"),
                         modifier = Modifier.size(20.dp),
-                        tint = LocalProfileAccent.current.accent,
+                        tint = MaterialTheme.colorScheme.primary,
                     )
                 }
             } else null,
@@ -632,7 +631,7 @@ private fun runtimeColor(phase: SessionRunPhase) = when (phase) {
     SessionRunPhase.WAITING_ATTENTION ->
         MaterialTheme.colorScheme.tertiary
     SessionRunPhase.FAILED -> MaterialTheme.colorScheme.error
-    SessionRunPhase.COMPLETED_UNREAD -> LocalProfileAccent.current.accent
+    SessionRunPhase.COMPLETED_UNREAD -> MaterialTheme.colorScheme.primary
     else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
@@ -666,6 +665,6 @@ private fun UnreadIndicator() {
     Box(
         Modifier
             .size(9.dp)
-            .background(LocalProfileAccent.current.accent, androidx.compose.foundation.shape.CircleShape),
+            .background(MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape),
     )
 }

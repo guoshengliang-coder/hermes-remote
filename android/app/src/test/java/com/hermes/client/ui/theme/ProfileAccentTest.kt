@@ -1,7 +1,6 @@
 package com.hermes.client.ui.theme
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -21,7 +20,7 @@ class ProfileAccentTest {
         }
     }
 
-    // The whole point of profile-color is that tenants look different. Require the real
+    // The whole point of the avatar colour is that tenants look different. Require the real
     // profiles to land on visibly distinct hues (>= 20° apart pairwise).
     @Test fun real_profiles_get_distinct_hues() {
         val hues = profiles.map { it to profileHue(it) }
@@ -33,86 +32,38 @@ class ProfileAccentTest {
         }
     }
 
-    @Test fun accent_is_deterministic_per_mode() {
-        assertEquals(accentArgb("odos", dark = false), accentArgb("odos", dark = false))
-        assertNotEquals(accentArgb("odos", dark = false), accentArgb("odos", dark = true))
+    @Test fun avatar_color_is_deterministic_and_null_safe() {
+        assertEquals(avatarColorArgb("odos"), avatarColorArgb("odos"))
+        // Null/blank falls back to the brand hue rather than crashing.
+        assertEquals(avatarColorArgb(null), avatarColorArgb(""))
     }
 
-    // Chrome tinting must stay legible: the chosen on-color needs at least large-text
-    // contrast (WCAG AA large = 3.0) against both the accent and the soft container, in
-    // light and dark, for every profile — otherwise the tint fails a11y on some tenant.
-    @Test fun on_colors_meet_large_text_contrast() {
-        for (p in profiles) for (dark in listOf(false, true)) {
-            val accent = accentArgb(p, dark)
-            val container = containerArgb(p, dark)
-            assertTrue(
-                "accent contrast for $p dark=$dark",
-                contrastRatio(accent, onColorFor(accent)) >= 3.0,
-            )
-            assertTrue(
-                "container contrast for $p dark=$dark",
-                contrastRatio(container, onColorFor(container)) >= 3.0,
-            )
+    // The avatar always renders WHITE text on the solid hashed colour. This must hold for EVERY
+    // possible hue, not just today's tenant names — the fixed lightness (0.32) is the guarantee,
+    // and this test is what pins it: white must clear WCAG AA-large (3.0:1) on all 360 hues.
+    @Test fun white_text_clears_aa_large_on_every_hue() {
+        val white = 0xFFFFFFFF.toInt()
+        for (hue in 0 until 360) {
+            val argb = hslToArgb(hue.toFloat(), 0.62f, 0.32f)
+            val ratio = contrastRatioForTest(argb, white)
+            assertTrue("hue $hue: white contrast $ratio < 3.0", ratio >= 3.0)
         }
     }
 
-    @Test fun null_profile_falls_back_to_brand_hue() {
-        assertEquals(accentArgb(null, dark = false), accentArgb("", dark = false))
-    }
-
-    @Test fun hsl_primaries_are_correct() {
-        assertEquals(0xFFFF0000.toInt(), hslToArgb(0f, 1f, 0.5f))   // red
-        assertEquals(0xFF00FF00.toInt(), hslToArgb(120f, 1f, 0.5f)) // green
-        assertEquals(0xFF0000FF.toInt(), hslToArgb(240f, 1f, 0.5f)) // blue
-        assertEquals(0xFFFFFFFF.toInt(), hslToArgb(0f, 0f, 1f))     // white
-        assertEquals(0xFF000000.toInt(), hslToArgb(0f, 0f, 0f))     // black
-    }
-
-    // Every picker swatch must keep its on-colour legible — the contrast guarantee for the
-    // user-settable accent feature (its adaptive on-colour clears AA-large).
-    @Test fun all_swatches_are_contrast_safe() {
-        assertEquals(12, ACCENT_SWATCHES.size)
-        ACCENT_SWATCHES.forEach {
-            assertTrue(
-                "swatch ${Integer.toHexString(it)}",
-                contrastRatio(it, onColorFor(it)) >= 3.0,
-            )
-        }
-    }
-
-    // The adaptive on-colour keeps *any* opaque colour legible — even a mid-grey, where black wins.
-    @Test fun adaptive_on_colour_keeps_any_colour_legible() {
-        for (argb in listOf(0xFF808080.toInt(), 0xFF3366CC.toInt(), 0xFFEEDD00.toInt())) {
-            assertTrue(contrastRatio(argb, onColorFor(argb)) >= 3.0)
-        }
-    }
-
-    @Test fun argb_to_hsl_known_values() {
-        val (hr, sr, lr) = argbToHsl(0xFFFF0000.toInt())
-        assertEquals(0f, hr, 1f); assertEquals(1f, sr, 0.02f); assertEquals(0.5f, lr, 0.02f)
-        val (_, sg, lg) = argbToHsl(0xFF808080.toInt())
-        assertEquals(0f, sg, 0.02f); assertEquals(0.5f, lg, 0.02f) // grey → ~0 saturation
-    }
-
-    // Any colour the free HSL picker can produce keeps its adaptive on-colour legible — the basis
-    // for allowing a free picker with no rejection.
-    @Test fun custom_hsl_colours_stay_legible() {
-        var h = 0
-        while (h < 360) {
-            for (l in listOf(0.15f, 0.44f, 0.7f, 0.9f)) {
-                val argb = hslToColorArgb(h.toFloat(), 0.6f, l)
-                assertTrue("hsl($h,0.6,$l)", contrastRatio(argb, onColorFor(argb)) >= 3.0)
+    // --- Minimal WCAG math kept test-side only (the production adaptive-on-colour machinery
+    // was deleted with the chrome-tinting feature; the invariant it guaranteed lives here). ---
+    private fun contrastRatioForTest(a: Int, b: Int): Double {
+        fun lum(argb: Int): Double {
+            fun lin(channel: Int): Double {
+                val c = channel / 255.0
+                return if (c <= 0.03928) c / 12.92 else Math.pow((c + 0.055) / 1.055, 2.4)
             }
-            h += 30
+            return 0.2126 * lin((argb shr 16) and 0xFF) +
+                0.7152 * lin((argb shr 8) and 0xFF) +
+                0.0722 * lin(argb and 0xFF)
         }
-    }
-
-    // The soft container derived from any chosen swatch must also stay legible in both modes.
-    @Test fun soft_container_stays_legible() {
-        for (argb in ACCENT_SWATCHES) for (dark in listOf(false, true)) {
-            val c = softContainerFrom(argb, dark)
-            assertTrue("container for ${Integer.toHexString(argb)} dark=$dark",
-                contrastRatio(c, onColorFor(c)) >= 3.0)
-        }
+        val la = lum(a)
+        val lb = lum(b)
+        return (maxOf(la, lb) + 0.05) / (minOf(la, lb) + 0.05)
     }
 }

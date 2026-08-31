@@ -76,7 +76,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
-import com.hermes.client.ui.theme.LocalProfileAccent
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -885,7 +884,7 @@ fun ChatScreen(
                 Text(
                     localized(language, "命令", "COMMANDS"),
                     style = MaterialTheme.typography.labelMedium,
-                    color = LocalProfileAccent.current.accent,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
                 )
                 LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
@@ -902,7 +901,7 @@ fun ChatScreen(
                 Text(
                     localized(language, "附件 / 提及", "ATTACH / MENTION"),
                     style = MaterialTheme.typography.labelMedium,
-                    color = LocalProfileAccent.current.accent,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
                 )
                 LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
@@ -917,7 +916,7 @@ fun ChatScreen(
             } else {
                 Column(Modifier.fillMaxSize()) {
                     if (searchOpen) {
-                        val accent = LocalProfileAccent.current.accent
+                        val accent = MaterialTheme.colorScheme.primary
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,

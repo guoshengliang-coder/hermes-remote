@@ -27,15 +27,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.hermes.client.ui.components.SlideToConfirm
-import com.hermes.client.ui.theme.LocalProfileAccent
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ApprovalSheet(req: ApprovalRequest, onRespond: (ApprovalChoice) -> Unit, onDismiss: () -> Unit) {
-    val accent = LocalProfileAccent.current
+    val accent = MaterialTheme.colorScheme.primary
     val tier = tierFor(req.allowPermanent)
     val error = MaterialTheme.colorScheme.error
-    val badge = if (tier == ApprovalTier.ELEVATED) error else accent.accent
+    val badge = if (tier == ApprovalTier.ELEVATED) error else accent
     val label = req.patternKeys.firstOrNull()?.let { " · $it" } ?: ""
 
     // An approval must be an explicit choice: veto the Hidden transition so a swipe / scrim-tap
@@ -81,7 +80,7 @@ fun ApprovalSheet(req: ApprovalRequest, onRespond: (ApprovalChoice) -> Unit, onD
                     onClick = { onRespond(ApprovalChoice.ONCE) },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                         .semantics { contentDescription = "Allow once" },
-                    colors = ButtonDefaults.buttonColors(containerColor = accent.accent, contentColor = accent.onAccent),
+                    colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = MaterialTheme.colorScheme.onPrimary),
                 ) { Text("Allow once") }
                 OutlinedButton(
                     onClick = { onRespond(ApprovalChoice.SESSION) },
@@ -115,7 +114,7 @@ fun ApprovalSheet(req: ApprovalRequest, onRespond: (ApprovalChoice) -> Unit, onD
                 }
                 SlideToConfirm(
                     label = if (thisRun) "  → slide to allow this run" else "  → slide to allow once",
-                    accent = accent.accent,
+                    accent = accent,
                     onConfirm = { onRespond(if (thisRun) ApprovalChoice.SESSION else ApprovalChoice.ONCE) },
                     modifier = Modifier.padding(vertical = 8.dp)
                         .semantics { contentDescription = "Slide to allow" },

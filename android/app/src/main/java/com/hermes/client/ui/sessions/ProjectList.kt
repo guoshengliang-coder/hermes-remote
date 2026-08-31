@@ -22,12 +22,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.hermes.client.domain.Project
 import com.hermes.client.domain.Session
-import com.hermes.client.ui.theme.LocalProfileAccent
 
 /** Parse the gateway's "#RRGGBB" project color; fall back to the tenant accent when null/invalid. */
 @Composable
 private fun projectTint(color: String?): Color {
-    val accent = LocalProfileAccent.current.accent
+    val accent = MaterialTheme.colorScheme.primary
     return color?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() } ?: accent
 }
 
@@ -72,8 +71,8 @@ fun ProjectScopeView(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Start,
             ) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = LocalProfileAccent.current.accent, modifier = Modifier.padding(end = 8.dp))
-                Text(project.label, style = MaterialTheme.typography.titleSmall, color = LocalProfileAccent.current.accent)
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp))
+                Text(project.label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
             }
         }
         lanes.forEach { (repo, lane) ->

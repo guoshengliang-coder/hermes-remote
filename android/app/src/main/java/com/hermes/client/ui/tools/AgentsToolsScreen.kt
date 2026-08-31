@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.hermes.client.ui.theme.LocalProfileAccent
 import com.hermes.client.ui.localization.l10n
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -88,7 +87,7 @@ private fun SectionHeader(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.labelLarge,
-        color = LocalProfileAccent.current.accent,
+        color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
     )
 }

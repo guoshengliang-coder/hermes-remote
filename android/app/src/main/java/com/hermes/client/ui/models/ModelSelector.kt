@@ -15,7 +15,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import com.hermes.client.ui.theme.LocalProfileAccent
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
@@ -188,7 +187,7 @@ fun ModelSelectorContent(
                     is ModelListItem.Header -> Text(
                         text = item.title + if (item.isCurrent) "  (current)" else "",
                         style = MaterialTheme.typography.titleSmall,
-                        color = if (item.isCurrent) LocalProfileAccent.current.accent
+                        color = if (item.isCurrent) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 4.dp),
                     )
@@ -231,7 +230,7 @@ private fun ModelRowItem(
             Icon(
                 imageVector = if (row.isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
                 contentDescription = if (row.isFavorite) "Unfavorite" else "Favorite",
-                tint = if (row.isFavorite) LocalProfileAccent.current.accent
+                tint = if (row.isFavorite) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

@@ -17,7 +17,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import com.hermes.client.ui.theme.LocalProfileAccent
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -128,13 +127,13 @@ fun UsageScreen(
                             }
                             if (state.daily.isNotEmpty()) {
                                 Text(l10n("每日 TOKEN", "DAILY TOKENS"), style = MaterialTheme.typography.labelMedium,
-                                    color = LocalProfileAccent.current.accent,
+                                    color = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.padding(top = 20.dp, bottom = 8.dp))
                                 DailyTokensChart(state.daily)
                             }
                         }
                         Text(l10n("常用模型", "TOP MODELS"), style = MaterialTheme.typography.labelMedium,
-                            color = LocalProfileAccent.current.accent,
+                            color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp))
                     }
                     // No key: model names can repeat across providers (e.g. two "gemma"),

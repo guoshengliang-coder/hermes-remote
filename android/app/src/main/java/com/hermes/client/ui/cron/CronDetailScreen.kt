@@ -20,7 +20,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import com.hermes.client.ui.theme.LocalProfileAccent
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -111,7 +110,7 @@ fun CronDetailScreen(
                                         Text(
                                             if (errorExpanded) l10n("收起", "Show less") else l10n("展开", "Show more"),
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = LocalProfileAccent.current.accent,
+                                            color = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.padding(top = 2.dp).clickable { errorExpanded = !errorExpanded },
                                         )
                                     }
@@ -134,7 +133,7 @@ fun CronDetailScreen(
                             job.prompt?.takeIf { it.isNotBlank() }?.let {
                                 Spacer(Modifier.padding(top = 12.dp))
                                 Text(l10n("提示词", "PROMPT"), style = MaterialTheme.typography.labelSmall,
-                                    color = LocalProfileAccent.current.accent)
+                                    color = MaterialTheme.colorScheme.primary)
                                 Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 8,
                                     overflow = TextOverflow.Ellipsis)
                             }
@@ -142,7 +141,7 @@ fun CronDetailScreen(
                         Text(
                             l10n("运行历史（${state.runs.size}）", "RUN HISTORY (${state.runs.size})"),
                             style = MaterialTheme.typography.labelMedium,
-                            color = LocalProfileAccent.current.accent,
+                            color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
                         )
                     }

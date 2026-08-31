@@ -179,7 +179,7 @@ fun CronEditScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ScheduleBuilder(schedule: Schedule, onChange: (Schedule) -> Unit, nowMs: Long) {
-    val accent = com.hermes.client.ui.theme.LocalProfileAccent.current
+    val accent = MaterialTheme.colorScheme.primary
     val kinds = listOf(
         l10n("每小时", "Hourly"), l10n("每天", "Daily"), l10n("每周", "Weekly"),
         l10n("每月", "Monthly"), l10n("高级", "Advanced"),
@@ -211,7 +211,7 @@ private fun ScheduleBuilder(schedule: Schedule, onChange: (Schedule) -> Unit, no
                         })
                     },
                     shape = SegmentedButtonDefaults.itemShape(i, kinds.size),
-                    colors = SegmentedButtonDefaults.colors(activeContainerColor = accent.accent, activeContentColor = accent.onAccent),
+                    colors = SegmentedButtonDefaults.colors(activeContainerColor = accent, activeContentColor = MaterialTheme.colorScheme.onPrimary),
                 ) { Text(label, maxLines = 1) }
             }
         }
@@ -249,7 +249,7 @@ private fun ScheduleBuilder(schedule: Schedule, onChange: (Schedule) -> Unit, no
                 java.time.Instant.ofEpochMilli(epochMs).atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime().toString()
             )
         }.orEmpty()
-        Text(schedule.describe() + next, style = MaterialTheme.typography.bodyMedium, color = accent.accent)
+        Text(schedule.describe() + next, style = MaterialTheme.typography.bodyMedium, color = accent)
     }
 }
 
@@ -303,7 +303,7 @@ private fun DayOfMonthPicker(day: Int, onPick: (Int) -> Unit) {
 
 @Composable
 private fun WeekdayChips(days: Set<Weekday>, onChange: (Set<Weekday>) -> Unit) {
-    val accent = com.hermes.client.ui.theme.LocalProfileAccent.current
+    val accent = MaterialTheme.colorScheme.primary
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -318,8 +318,8 @@ private fun WeekdayChips(days: Set<Weekday>, onChange: (Set<Weekday>) -> Unit) {
                 },
                 label = { Text(day.short) },
                 colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = accent.accent,
-                    selectedLabelColor = accent.onAccent,
+                    selectedContainerColor = accent,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             )
         }
@@ -329,11 +329,11 @@ private fun WeekdayChips(days: Set<Weekday>, onChange: (Set<Weekday>) -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TimeRow(hour: Int, minute: Int, onPick: (Int, Int) -> Unit) {
-    val accent = com.hermes.client.ui.theme.LocalProfileAccent.current
+    val accent = MaterialTheme.colorScheme.primary
     var showDialog by remember { mutableStateOf(false) }
     OutlinedButton(
         onClick = { showDialog = true },
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = accent.accent),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = accent),
     ) {
         Text(l10n("时间 ", "At ") + "%02d:%02d".format(hour, minute))
     }

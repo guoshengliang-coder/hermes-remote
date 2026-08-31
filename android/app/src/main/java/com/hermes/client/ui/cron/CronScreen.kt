@@ -30,7 +30,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
-import com.hermes.client.ui.theme.LocalProfileAccent
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -72,8 +71,8 @@ fun CronScreen(
                 onClick = { onNew("new") },
                 text = { Text(l10n("新建", "New")) },
                 icon = { Icon(androidx.compose.material.icons.Icons.Rounded.Add, contentDescription = null) },
-                containerColor = com.hermes.client.ui.components.AccentChrome.fabContainer,
-                contentColor = com.hermes.client.ui.components.AccentChrome.onFab,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
             )
         },
     ) { padding ->
@@ -104,7 +103,7 @@ fun CronScreen(
                                         CronRowStatus.PAUSED ->
                                             Icons.Rounded.PauseCircleOutline to MaterialTheme.colorScheme.onSurfaceVariant
                                         CronRowStatus.OK ->
-                                            Icons.Rounded.CheckCircle to com.hermes.client.ui.theme.LocalProfileAccent.current.accent
+                                            Icons.Rounded.CheckCircle to MaterialTheme.colorScheme.primary
                                     }
                                     Icon(icon, contentDescription = null, tint = tint)
                                 },
@@ -115,7 +114,7 @@ fun CronScreen(
                                             !job.enabled -> "  · disabled"
                                             else -> ""
                                         },
-                                        color = if (job.enabled && !job.isPaused) LocalProfileAccent.current.accent
+                                        color = if (job.enabled && !job.isPaused) MaterialTheme.colorScheme.primary
                                         else MaterialTheme.colorScheme.error,
                                     )
                                 },
@@ -165,13 +164,13 @@ fun CronScreen(
 
 @Composable
 private fun CronEmpty(onNew: (String) -> Unit) {
-    val accent = com.hermes.client.ui.theme.LocalProfileAccent.current
+    val accent = MaterialTheme.colorScheme.primary
     Column(
         Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(Icons.Rounded.Schedule, contentDescription = null, tint = accent.accent, modifier = Modifier.size(40.dp))
+        Icon(Icons.Rounded.Schedule, contentDescription = null, tint = accent, modifier = Modifier.size(40.dp))
         Spacer(Modifier.height(12.dp))
         Text(l10n("暂无定时任务", "No cron jobs"), style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(4.dp))

@@ -6,7 +6,6 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
@@ -17,7 +16,7 @@ import com.hermes.client.R
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.AppLanguageProvider
 import com.hermes.client.ui.localization.localized
-import com.hermes.client.ui.theme.accentArgb
+import com.hermes.client.ui.theme.avatarColorArgb
 
 /** Owns notification channels and turns a [NotificationSpec] into a posted Android notification. */
 class HermesNotifier(
@@ -120,12 +119,9 @@ class HermesNotifier(
 
     fun cancelRunProgress() = mgr.cancel(RUN_PROGRESS_NOTIFICATION_ID)
 
-    /** Tenant accent, resolved against the system's current night mode. Chrome only. */
-    private fun accentFor(profile: String?): Int {
-        val dark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
-            Configuration.UI_MODE_NIGHT_YES
-        return accentArgb(profile, dark)
-    }
+    /** Tenant identity colour — the same solid hashed hue as the profile's avatar, so a
+     *  notification from a non-active profile still reads as "whose" it is. */
+    private fun accentFor(profile: String?): Int = avatarColorArgb(profile)
 
     @androidx.annotation.RequiresApi(36)
     private fun buildPromoted(spec: RunProgressSpec, accent: Int): Notification =

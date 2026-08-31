@@ -24,7 +24,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.hermes.client.data.network.GatewayHealth
-import com.hermes.client.ui.theme.LocalProfileAccent
 
 /** Visual severity of the strip. Kept separate from color so it is unit-testable. */
 enum class HealthStripStyle { ERROR, NEUTRAL, NONE }
@@ -108,7 +107,7 @@ fun HealthStrip(health: GatewayHealth, onClick: () -> Unit, modifier: Modifier =
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HealthSheet(health: GatewayHealth, onRecheck: () -> Unit, onDismiss: () -> Unit) {
-    val accent = LocalProfileAccent.current.accent
+    val accent = MaterialTheme.colorScheme.primary
     val zh = com.hermes.client.ui.localization.LocalAppLanguage.current == com.hermes.client.ui.localization.AppLanguage.ZH
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(24.dp)) {

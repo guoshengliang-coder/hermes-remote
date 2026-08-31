@@ -64,7 +64,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import com.hermes.client.ui.theme.LocalProfileAccent
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -574,7 +573,7 @@ private fun UserBubble(
     var selectingText by remember { mutableStateOf(false) }
     val bg = if (msg.isError) MaterialTheme.colorScheme.errorContainer
     else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.78f)
-    val accent = LocalProfileAccent.current.accent
+    val accent = MaterialTheme.colorScheme.primary
     val userShape = RoundedCornerShape(22.dp, 22.dp, 7.dp, 22.dp)
     // Proportional cap instead of a fixed 320dp: a fixed value reads fine on a phone but
     // leaves user bubbles oddly narrow on tablets/landscape. ~82% tracks the Claude app.
@@ -945,7 +944,7 @@ private fun AssistantTurn(
     // The read-aloud affordance is meaningless mid-stream; skipping the regex strip until the
     // turn settles avoids running it on every render snapshot.
     val speakable = if (msg.isStreaming) false else remember(msg.text) { speechText(msg.text).isNotBlank() }
-    val accent = LocalProfileAccent.current.accent
+    val accent = MaterialTheme.colorScheme.primary
     val hlShape = RoundedCornerShape(12.dp)
     Box {
         Column(

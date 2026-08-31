@@ -16,11 +16,9 @@ val LocalToolCallTechnical = compositionLocalOf { false }
 @Composable
 fun HermesTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Material You is opt-in and acts only as a neutral base — the per-profile accent still
-    // wins for chrome. Off by default so the curated palette is the stable, screenshot-ready look.
+    // Material You is opt-in and acts only as a neutral base. Off by default so the curated
+    // palette is the stable, screenshot-ready look.
     dynamicColor: Boolean = false,
-    // Active profile name → chrome accent. Null keeps the brand (no-profile) accent.
-    profile: String? = null,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -30,10 +28,10 @@ fun HermesTheme(
         darkTheme -> HermesDarkColors
         else -> HermesLightColors
     }
-    // Honour a user-chosen colour for the active profile (falls back to the hashed hue).
-    val accent = profileAccentColors(profile, darkTheme, LocalProfileAccentOverrides.current[profile])
-
-    CompositionLocalProvider(LocalProfileAccent provides accent) {
+    // Transitional: LocalProfileAccent now always carries the BRAND accent (chrome no longer
+    // follows the profile — identity lives in the avatar alone). Only the screens deleted in
+    // the nav-rework phase still read it; this provider goes away with them.
+    CompositionLocalProvider(LocalProfileAccent provides brandAccentColors(darkTheme)) {
         MaterialTheme(
             colorScheme = colors,
             typography = HermesTypography,

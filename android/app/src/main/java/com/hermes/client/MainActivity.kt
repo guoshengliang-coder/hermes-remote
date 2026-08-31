@@ -37,7 +37,6 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var credentialStore: CredentialStore
     @Inject lateinit var settingsStore: SettingsStore
     @Inject lateinit var profileManager: ProfileManager
-    @Inject lateinit var profileAccentStore: com.hermes.client.data.repository.ProfileAccentStore
     @Inject lateinit var chat: com.hermes.client.data.repository.ChatRepository
     @Inject lateinit var pendingShare: com.hermes.client.share.PendingShareStore
 
@@ -68,20 +67,15 @@ class MainActivity : ComponentActivity() {
             val mode by settingsStore.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
             val technical by settingsStore.toolCallTechnical.collectAsState(initial = true)
             val language by settingsStore.appLanguage.collectAsState(initial = AppLanguage.ZH)
-            val activeProfile by profileManager.active.collectAsState()
-            val accentOverrides by profileAccentStore.overrides.collectAsState(initial = emptyMap())
             val dark = when (mode) {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
             }
-            // Provide the user's per-profile colour overrides above the theme so HermesTheme and
-            // every accent call site (Mission Control pages, You-tab avatars) can honour them.
             CompositionLocalProvider(
-                com.hermes.client.ui.theme.LocalProfileAccentOverrides provides accentOverrides,
                 LocalAppLanguage provides language,
             ) {
-                HermesTheme(darkTheme = dark, profile = activeProfile) {
+                HermesTheme(darkTheme = dark) {
                     CompositionLocalProvider(LocalToolCallTechnical provides technical) {
                         Surface {
                             // If the previous run crashed, show the saved trace first so it can be

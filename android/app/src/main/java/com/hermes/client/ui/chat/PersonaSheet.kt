@@ -23,7 +23,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.hermes.client.ui.theme.LocalProfileAccent
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,7 +32,7 @@ fun PersonaSheet(
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val accent = LocalProfileAccent.current.accent
+    val accent = MaterialTheme.colorScheme.primary
     val sheetState = rememberModalBottomSheetState()
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {

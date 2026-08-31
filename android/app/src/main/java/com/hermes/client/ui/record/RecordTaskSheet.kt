@@ -21,7 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.hermes.client.ui.theme.LocalProfileAccent
 
 /**
  * Bottom sheet driving the record -> transcribe -> new-chat flow. The host (SessionsScreen) owns
@@ -37,7 +36,7 @@ fun RecordTaskSheet(
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val accent = LocalProfileAccent.current.accent
+    val accent = MaterialTheme.colorScheme.primary
     val sheetState = rememberModalBottomSheetState()
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
