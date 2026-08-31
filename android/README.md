@@ -154,6 +154,15 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   the header bar) via a record-only offscreen exporter, and makes fullscreen viewing genuinely
   rotation-proof by hoisting its state to the screen level — the previous in-tree fix was lost
   during the markdown re-parse window on Activity recreation.
+- Version 0.1.47 is the single-screen redesign: the session list becomes the only main screen
+  (bottom tabs, Home feed, You/Management/Profiles/Session-admin screens removed). A card page off
+  the top-left avatar is the app's one profile-switch point, with weekly-usage and remote-device
+  tiles plus cron/settings/update entries; switching profiles now scopes EVERYTHING (sessions,
+  projects, archived, search, cron, usage, models, skills, messaging) and a refused switch keeps
+  the old profile with a retry toast. The list gains 会话/项目/已归档 segments, a collapsible
+  needs-you group that jumps approval-blocked runs to the top, and a cron alert strip; search moves
+  to its own screen (archived included). Per-profile chrome tinting is retired — identity lives in
+  the solid avatar colour alone — and legacy tab deep links land on the list.
 - Version 0.1.44 makes background recovery self-healing: a short background switch keeps a 45-second
   socket lease, returning to the foreground reconnects immediately, and interrupted turns reattach
   and reconcile against authoritative history so partial output and stale “generating” state do not
@@ -180,7 +189,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.46-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.47-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
