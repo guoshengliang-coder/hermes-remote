@@ -105,6 +105,23 @@ class ChatViewModel @Inject constructor(
     private val _currentProvider = MutableStateFlow<String?>(null)
     val currentProvider: kotlinx.coroutines.flow.StateFlow<String?> = _currentProvider.asStateFlow()
 
+    // The profile's configured default model/provider (from config + the provider marked current).
+    // Read on open so the UI can distinguish "following the default" from a session override.
+    private val _defaultModel = MutableStateFlow<String?>(null)
+    val defaultModel: StateFlow<String?> = _defaultModel.asStateFlow()
+    private val _defaultProvider = MutableStateFlow<String?>(null)
+    val defaultProvider: StateFlow<String?> = _defaultProvider.asStateFlow()
+
+    // Set the moment a SESSION-scope switch succeeds; comparison alone can't tell an override
+    // to the same model as the default apart from following it.
+    private val _explicitSessionOverride = MutableStateFlow(false)
+
+    /** True when this chat runs a session override instead of the profile default. */
+    val sessionModelOverridden: StateFlow<Boolean> =
+        kotlinx.coroutines.flow.combine(_currentModel, _defaultModel, _explicitSessionOverride) { cur, def, explicit ->
+            explicit || (cur != null && def != null && cur != def)
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), false)
+
     // Text handed off from a share (Share-to-Hermes). ChatScreen pre-fills the composer with it once.
     private val _initialDraft = MutableStateFlow<String?>(null)
     val initialDraft: StateFlow<String?> = _initialDraft.asStateFlow()
@@ -164,8 +181,10 @@ class ChatViewModel @Inject constructor(
     data class ModelSheetUi(
         val query: String = "",
         val scope: com.hermes.client.ui.models.ModelScope = com.hermes.client.ui.models.ModelScope.SESSION,
-        val pending: Boolean = false,
-        val error: LocalizedText? = null,
+        // favKey of the row whose selection is in flight; non-null disables the list (no double
+        // submits) and shows the spinner on that row.
+        val pendingKey: String? = null,
+        val error: com.hermes.client.data.error.AppError? = null,
     )
     // Model-LIST loading state (the sheet's pending/error covers selection, not the list).
     private val _providersLoading = MutableStateFlow(false)
@@ -188,12 +207,32 @@ class ChatViewModel @Inject constructor(
                 .onSuccess {
                     _providers.value = it
                     _providersError.value = it.isEmpty()
+                    backfillProvidersFromCatalog()
                 }
                 .onFailure { e ->
                     if (e is CancellationException) throw e
                     _providersError.value = true
                 }
             _providersLoading.value = false
+        }
+    }
+
+    /**
+     * Old session metadata can carry a model without its provider, and the default provider is
+     * only knowable from the catalog — recompute both whenever the catalog lands so the sheet
+     * can mark the current row (P0: unreliable "current" highlight).
+     */
+    private fun backfillProvidersFromCatalog() {
+        val catalog = _providers.value
+        if (_defaultProvider.value.isNullOrBlank()) {
+            _defaultProvider.value = com.hermes.client.ui.models.resolveModelProvider(
+                catalog, null, _defaultModel.value,
+            ) ?: catalog.firstOrNull { it.isCurrent }?.slug
+        }
+        if (_currentProvider.value.isNullOrBlank()) {
+            _currentProvider.value = com.hermes.client.ui.models.resolveModelProvider(
+                catalog, null, _currentModel.value,
+            )
         }
     }
 
@@ -254,6 +293,7 @@ class ChatViewModel @Inject constructor(
         }
         _currentModel.value = cachedMeta?.model?.ifBlank { null }
         _currentProvider.value = cachedMeta?.provider?.ifBlank { null }
+        _explicitSessionOverride.value = false
         val cachedHistory = sessions.cachedHistory(id, profile)?.map { it.organizedForDisplay() }
         runtimeStore.markHistoryLoading(key, cachedHistory)
         collectJob?.cancel()
@@ -336,19 +376,20 @@ class ChatViewModel @Inject constructor(
             // Load model options, profiles, and the slash-command catalog; failures are non-fatal
             launch {
                 runCatching { _providers.value = modelRepo.providers(profileManager.active.value) }
-                // A brand-new session has no model in its metadata yet, which used to render as
-                // "自动" even though Hermes has a definite default. Fall back to the configured
-                // default model (and the provider marked current) so the chip names the real model.
-                if (_currentModel.value.isNullOrBlank()) {
-                    runCatching {
-                        val cfg = configRepo.get(profile)
-                        val defaultModel = (cfg["model"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.ifBlank { null }
-                        if (storedSessionId == id && _currentModel.value.isNullOrBlank() && defaultModel != null) {
+                // The configured default is read on every open: the chip and sheet need it to
+                // tell "following the default" from a session override, and a brand-new session
+                // (no model in its metadata yet) falls back to it so the chip names the real
+                // model instead of a placeholder.
+                runCatching {
+                    val cfg = configRepo.get(profile)
+                    val defaultModel = (cfg["model"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.ifBlank { null }
+                    if (storedSessionId == id) {
+                        _defaultModel.value = defaultModel
+                        _defaultProvider.value = null
+                        if (_currentModel.value.isNullOrBlank() && defaultModel != null) {
                             _currentModel.value = defaultModel
-                            if (_currentProvider.value.isNullOrBlank()) {
-                                _currentProvider.value = _providers.value.firstOrNull { it.isCurrent }?.slug
-                            }
                         }
+                        backfillProvidersFromCatalog()
                     }
                 }
             }
@@ -728,42 +769,96 @@ class ChatViewModel @Inject constructor(
 
     /**
      * Apply a model chosen in the sheet. SESSION → the /model --session slash (overrides just this
-     * chat); DEFAULT → the global default via REST. On failure the gateway message is surfaced in
-     * the sheet (kept open); on success the sheet is dismissed by the caller via [onDone].
+     * chat); DEFAULT → the global default via REST. On failure the code is surfaced in the sheet
+     * (kept open); on success the sheet is dismissed by the caller via [onDone]. A second tap
+     * while one selection is in flight is ignored (pendingKey gates the whole list).
      */
     fun onSelectFromSheet(provider: String, model: String, onDone: () -> Unit) {
-        _modelSheet.value = _modelSheet.value.copy(pending = true, error = null)
+        if (_modelSheet.value.pendingKey != null) return
+        val key = com.hermes.client.data.repository.favKey(provider, model)
+        _modelSheet.value = _modelSheet.value.copy(pendingKey = key, error = null)
         viewModelScope.launch {
             when (_modelSheet.value.scope) {
                 com.hermes.client.ui.models.ModelScope.SESSION ->
-                    runCatching { chat.slashExec(sessionId, "/model $model --provider $provider --session") }
+                    runCatching { chat.slashExec(sessionId, sessionModelCommand(provider, model)) }
                         .onSuccess {
                             _currentModel.value = model
                             _currentProvider.value = provider
+                            _explicitSessionOverride.value = true
                             _modelSheet.value = ModelSheetUi()  // reset + clear pending/error
                             onDone()
                         }
                         .onFailure { e ->
                             if (e is kotlinx.coroutines.CancellationException) throw e
                             _modelSheet.value = _modelSheet.value.copy(
-                                pending = false,
-                                error = localizedText("切换模型失败（HR-RPC-001）", "Couldn't switch model (HR-RPC-001)."),
+                                pendingKey = null,
+                                error = com.hermes.client.data.error.AppError(
+                                    com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_FAILED,
+                                    retryable = true, technicalCause = e.message, stage = "model_session_switch",
+                                ),
                             )
                         }
                 com.hermes.client.ui.models.ModelScope.DEFAULT ->
                     runCatching { modelRepo.set(provider, model, profileManager.active.value) }
                         .onSuccess {
-                            _modelSheet.value = _modelSheet.value.copy(pending = false, error = null)
+                            val followedDefault = !sessionModelOverridden.value
+                            _defaultModel.value = model
+                            _defaultProvider.value = provider
+                            // A session without its own override keeps following the default —
+                            // reflect the new default in the chip immediately.
+                            if (followedDefault) {
+                                _currentModel.value = model
+                                _currentProvider.value = provider
+                            }
+                            _modelSheet.value = _modelSheet.value.copy(pendingKey = null, error = null)
                             onDone()
                         }
                         .onFailure { e ->
                             if (e is kotlinx.coroutines.CancellationException) throw e
                             _modelSheet.value = _modelSheet.value.copy(
-                                pending = false,
-                                error = localizedText("设置默认模型失败（HR-RPC-001）", "Couldn't set the default model (HR-RPC-001)."),
+                                pendingKey = null,
+                                error = com.hermes.client.data.error.AppError(
+                                    com.hermes.client.data.error.AppErrorCode.MODEL_DEFAULT_FAILED,
+                                    retryable = true, technicalCause = e.message, stage = "model_default_set",
+                                ),
                             )
                         }
             }
+        }
+    }
+
+    /**
+     * "恢复默认" from the sheet's current-model strip: pins this session back to the configured
+     * default model. (The upstream slash has no "clear override" verb, so this re-points the
+     * session at the default explicitly — same effective model.)
+     */
+    fun restoreDefaultModel(onDone: () -> Unit) {
+        val model = _defaultModel.value ?: return
+        val provider = _defaultProvider.value ?: com.hermes.client.ui.models.resolveModelProvider(
+            _providers.value, null, model,
+        ) ?: return
+        if (_modelSheet.value.pendingKey != null) return
+        val key = com.hermes.client.data.repository.favKey(provider, model)
+        _modelSheet.value = _modelSheet.value.copy(pendingKey = key, error = null)
+        viewModelScope.launch {
+            runCatching { chat.slashExec(sessionId, sessionModelCommand(provider, model)) }
+                .onSuccess {
+                    _currentModel.value = model
+                    _currentProvider.value = provider
+                    _explicitSessionOverride.value = false
+                    _modelSheet.value = ModelSheetUi()
+                    onDone()
+                }
+                .onFailure { e ->
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    _modelSheet.value = _modelSheet.value.copy(
+                        pendingKey = null,
+                        error = com.hermes.client.data.error.AppError(
+                            com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_FAILED,
+                            retryable = true, technicalCause = e.message, stage = "model_restore_default",
+                        ),
+                    )
+                }
         }
     }
 
@@ -813,6 +908,18 @@ class ChatViewModel @Inject constructor(
         }
     }
 }
+
+/**
+ * Quote a `/model` slash argument when it contains whitespace (provider slugs and model names may
+ * carry spaces upstream); space-free values pass through unchanged so the wire format the gateway
+ * already accepts is untouched.
+ */
+internal fun slashArg(value: String): String =
+    if (value.any { it.isWhitespace() }) "\"" + value.replace("\"", "\\\"") + "\"" else value
+
+/** The session-scope model switch slash. */
+internal fun sessionModelCommand(provider: String, model: String): String =
+    "/model ${slashArg(model)} --provider ${slashArg(provider)} --session"
 
 internal fun displaySessionTitle(raw: String?, fallback: String = "新会话"): String {
     val title = raw?.trim().orEmpty()

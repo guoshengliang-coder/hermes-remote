@@ -76,11 +76,22 @@ fun CardPage(
     val themeMode by vm.themeMode.collectAsStateWithLifecycle()
     var themeSheet by remember { mutableStateOf(false) }
 
+    // The card page renders at design scale regardless of the system font size — the user's
+    // explicit call after outsized text on large-font devices. Scoped to this sheet only; every
+    // reading surface (chat, lists, settings) still honours the system preference.
+    val baseDensity = androidx.compose.ui.platform.LocalDensity.current
+    val cardDensity = remember(baseDensity) {
+        androidx.compose.ui.unit.Density(baseDensity.density, fontScale = minOf(baseDensity.fontScale, 1.0f))
+    }
+
     val dark = isSystemInDarkTheme()
     // The base design's containers are NEUTRAL light grey; in dark theme fall back to the
     // theme's surfaceVariant so contrast holds.
-    val tile = if (dark) MaterialTheme.colorScheme.surfaceVariant else Color(0xFFF5F4F2)
-    val hairline = if (dark) MaterialTheme.colorScheme.outlineVariant else Color(0xFFEAE8E4)
+    // Measured off the reference: card fill sits 1-2 grey steps from the sheet (near-white),
+    // the outline carried by a whisper of shadow — not by a heavy fill.
+    val tile = if (dark) MaterialTheme.colorScheme.surfaceVariant else Color(0xFFFAFAF8)
+    val tileShadow = if (dark) 0.dp else 1.dp
+    val hairline = if (dark) MaterialTheme.colorScheme.outlineVariant else Color(0xFFECECEA)
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
     ModalDrawerSheet(
@@ -89,6 +100,9 @@ fun CardPage(
         drawerShape = RoundedCornerShape(topStart = 0.dp, topEnd = 22.dp, bottomEnd = 22.dp, bottomStart = 0.dp),
         drawerContainerColor = MaterialTheme.colorScheme.surface,
     ) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.ui.platform.LocalDensity provides cardDensity,
+        ) {
         Column(
             Modifier.fillMaxHeight().verticalScroll(rememberScrollState())
                 .statusBarsPadding().padding(horizontal = 24.dp),
@@ -100,7 +114,7 @@ fun CardPage(
             ) {
                 Text(
                     "Hermes",
-                    style = MaterialTheme.typography.headlineSmall.copy(fontSize = 32.sp, fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.headlineSmall.copy(fontSize = 26.sp, fontWeight = FontWeight.Bold),
                     modifier = Modifier.weight(1f),
                 )
                 Surface(
@@ -121,14 +135,15 @@ fun CardPage(
                 onClick = { onNavigate("profiles") },
                 shape = RoundedCornerShape(20.dp),
                 color = tile,
+                shadowElevation = tileShadow,
             ) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ProfileAvatar(active, size = 56.dp)
+                    ProfileAvatar(active, size = 48.dp)
                     Column(Modifier.weight(1f).padding(start = 18.dp)) {
-                        Text(active ?: "—", style = MaterialTheme.typography.titleLarge.copy(fontSize = 21.sp))
+                        Text(active ?: "—", style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp))
                         Text(
                             localized(language, "当前身份", "Active profile"),
                             style = MaterialTheme.typography.bodyMedium,
@@ -143,29 +158,43 @@ fun CardPage(
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 color = tile,
+                shadowElevation = tileShadow,
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             ) {
+                // The two cells SHARE one value size and one sub size: when either overflows,
+                // both step down together, so "14.7M" and "mac-mini" never render at
+                // mismatched sizes on the same row.
+                val weekValue = state.weekTokens?.let { compactTokens(it) } ?: "—"
+                val deviceValue = state.deviceId ?: localized(language, "未连接", "Offline")
+                var statValueSp by remember(weekValue, deviceValue) { mutableStateOf(23f) }
+                var statSubSp by remember(weekValue, deviceValue) { mutableStateOf(15f) }
                 Row(
                     Modifier.padding(vertical = 18.dp)
                         .height(androidx.compose.foundation.layout.IntrinsicSize.Min),
                 ) {
                     StatCell(
                         title = localized(language, "本周用量", "This week"),
-                        value = state.weekTokens?.let { compactTokens(it) } ?: "—",
+                        value = weekValue,
                         sub = state.weekCost?.let { localized(language, "预估 $%.2f".format(it), "est. $%.2f".format(it)) },
+                        valueSp = statValueSp, subSp = statSubSp,
+                        onValueOverflow = { if (statValueSp > 13f) statValueSp -= 1f },
+                        onSubOverflow = { if (statSubSp > 11f) statSubSp -= 1f },
                         modifier = Modifier.weight(1f).clickable { onNavigate("usage") },
                     )
                     Box(Modifier.width(1.dp).fillMaxHeight().background(hairline))
                     val healthy = health as? GatewayHealth.Healthy
                     StatCell(
                         title = localized(language, "远程设备", "Remote device"),
-                        value = state.deviceId ?: localized(language, "未连接", "Offline"),
+                        value = deviceValue,
                         sub = when {
                             healthy != null && state.deviceId != null ->
                                 localized(language, "已连接", "Connected") + (healthy.latencyMs?.let { " · " + formatLatency(it) } ?: "")
                             state.deviceId == null -> localized(language, "连接器离线", "Connector offline")
                             else -> null
                         },
+                        valueSp = statValueSp, subSp = statSubSp,
+                        onValueOverflow = { if (statValueSp > 13f) statValueSp -= 1f },
+                        onSubOverflow = { if (statSubSp > 11f) statSubSp -= 1f },
                         subColor = if (state.deviceId == null) MaterialTheme.colorScheme.error else muted,
                         modifier = Modifier.weight(1f),
                     )
@@ -203,6 +232,7 @@ fun CardPage(
                 )
             }
         }
+        }
     }
 
     if (themeSheet) {
@@ -236,37 +266,35 @@ private fun StatCell(
     title: String,
     value: String,
     sub: String?,
+    valueSp: Float,
+    subSp: Float,
+    onValueOverflow: () -> Unit,
+    onSubOverflow: () -> Unit,
     modifier: Modifier = Modifier,
     subColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
-    // Type ramp derived from the reference by INTERNAL ratio (label anchored at 15sp):
-    // 15sp label / 23sp bold value / 15sp sub. The value auto-shrinks (never truncates a
-    // number) down to 17sp so narrow screens and long device names still fit their cell.
-    // Content completeness beats type size: on large system font scales the fixed cell width
-    // shrinks in sp terms, so BOTH the value and the sub-line auto-shrink (deep floors) instead
-    // of ellipsizing "mac-…" / "已连接 · 2…".
+    // Sizes are CONTROLLED by the parent so both cells stay in lockstep; the wrap-to-two-lines
+    // fallback stays per-cell (only the overlong value needs it).
     Column(modifier.padding(horizontal = 16.dp)) {
         Text(
             title,
             style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        AutoShrinkText(
+        FitText(
             value,
             style = MaterialTheme.typography.headlineSmall.copy(
-                fontSize = 23.sp,
-                lineHeight = 29.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = (-0.3).sp,
             ),
-            minFontSize = 13.sp,
+            fontSizeSp = valueSp, minSp = 13f, onOverflow = onValueOverflow,
             modifier = Modifier.padding(top = 5.dp, bottom = 4.dp),
         )
         sub?.let {
-            AutoShrinkText(
+            FitText(
                 it,
-                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp, color = subColor),
-                minFontSize = 11.sp,
+                style = MaterialTheme.typography.bodyMedium.copy(color = subColor),
+                fontSizeSp = subSp, minSp = 11f, onOverflow = onSubOverflow,
             )
         }
     }
@@ -327,6 +355,40 @@ private fun ShortcutRow(
  * overflowing at the floor → keep the floor size and wrap to TWO lines; (3) only a two-line
  * overflow ellipsizes. Numbers and device names should never truncate before all of that.
  */
+/**
+ * Parent-controlled fit text: font size comes from shared state (both stat cells shrink in
+ * lockstep via [onOverflow]); at [minSp] the text wraps to two lines; only a two-line overflow
+ * ellipsizes.
+ */
+@Composable
+private fun FitText(
+    text: String,
+    style: androidx.compose.ui.text.TextStyle,
+    fontSizeSp: Float,
+    minSp: Float,
+    onOverflow: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var lines by remember(text) { mutableStateOf(1) }
+    Text(
+        text,
+        style = style.copy(fontSize = fontSizeSp.sp, lineHeight = (fontSizeSp * 1.25f).sp),
+        maxLines = lines,
+        softWrap = lines > 1,
+        overflow = TextOverflow.Ellipsis,
+        onTextLayout = { result ->
+            // With overflow=Ellipsis, didOverflowWidth is FALSE once ellipsized —
+            // isLineEllipsized is the signal that actually fires.
+            val overflowed = result.didOverflowWidth ||
+                result.isLineEllipsized(result.lineCount - 1)
+            if (overflowed) {
+                if (fontSizeSp > minSp) onOverflow() else if (lines == 1) lines = 2
+            }
+        },
+        modifier = modifier,
+    )
+}
+
 @Composable
 private fun AutoShrinkText(
     text: String,
