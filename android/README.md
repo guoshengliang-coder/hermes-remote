@@ -130,6 +130,12 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   paragraph/list rhythm gains ~+10dp of measured breathing room; a downward drag on the
   conversation dismisses the keyboard; and a persistent running-status line shows the active tool
   command, a one-line reasoning tail, or a breathing "generating" state for the whole run.
+- Version 0.1.41 is the second experience batch: de-chromed top bar (bare icons, + folded into a
+  restyled overflow menu), a composer that grows with content and unifies send/stop into one
+  accent circle (collapsing after send), a live elapsed timer on the running-status line,
+  bottom-sheet message actions with retry-on-another-model, wrapping table cells, code-block
+  language header bars, proportional user-bubble width, a one-time post-pairing notification
+  onboarding sheet, and Home surfacing sessions blocked on approval/clarification.
 - The production Relay hostname is resolved directly inside the app so Chinese carrier DNS cannot
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
@@ -151,7 +157,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.40-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.41-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
