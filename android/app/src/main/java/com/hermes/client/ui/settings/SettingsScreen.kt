@@ -47,6 +47,10 @@ fun SettingsScreen(
             HorizontalDivider()
             Entry(localized(language, "常用提示", "Saved prompts"), localized(language, "在输入框中复用的提示词", "Reusable prompts for the composer")) { onNavigate("settings_prompts") }
             HorizontalDivider()
+            Entry(localized(language, "消息渠道", "Messaging"), localized(language, "Telegram 等渠道的接入与开关", "Connect and toggle messaging platforms")) { onNavigate("messaging") }
+            HorizontalDivider()
+            Entry(localized(language, "智能体与工具", "Agents & tools"), localized(language, "开关技能、查看工具集", "Toggle skills, view toolsets")) { onNavigate("agents_tools") }
+            HorizontalDivider()
             Entry(localized(language, "MCP 服务器", "MCP servers"), localized(language, "查看和编辑已连接的 MCP 服务器", "View and edit connected MCP servers")) { onNavigate("settings_mcp") }
             HorizontalDivider()
             Entry(localized(language, "API 密钥与环境变量", "API keys & env"), localized(language, "模型服务密钥和工具环境变量", "Provider keys and tool env vars")) { onNavigate("settings_env") }

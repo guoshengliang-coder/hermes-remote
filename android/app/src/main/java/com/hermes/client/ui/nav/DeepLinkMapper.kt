@@ -1,6 +1,9 @@
 package com.hermes.client.ui.nav
 
-private val TAB_ROUTES = setOf("sessions", "activity", "you")
+// Routes older builds shipped in notifications/widgets. The activity ("Home") and you tabs no
+// longer exist — the session list is the single main screen — but links to them must still land
+// somewhere sensible, so every legacy tab resolves to "sessions".
+private val LEGACY_TAB_ROUTES = setOf("sessions", "activity", "you")
 
 /**
  * Map a `hermes://` URI string to an internal nav route, or null if it isn't a recognised link.
@@ -14,7 +17,7 @@ fun deepLinkRouteFor(raw: String): String? {
     val host = uri.host ?: return null
     val segs = uri.path.orEmpty().split('/').filter { it.isNotBlank() }
     return when (host) {
-        "tab" -> segs.singleOrNull()?.takeIf { it in TAB_ROUTES }
+        "tab" -> segs.singleOrNull()?.takeIf { it in LEGACY_TAB_ROUTES }?.let { "sessions" }
         "chat" -> segs.singleOrNull()?.takeIf { it.isNotBlank() && '/' !in it }?.let { "chat/$it" }
         else -> null
     }

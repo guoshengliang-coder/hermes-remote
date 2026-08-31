@@ -7,25 +7,15 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.tween
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Chat
-import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -35,21 +25,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import kotlinx.coroutines.launch
 import com.hermes.client.data.network.isUnhealthy
-import com.hermes.client.ui.admin.SessionAdminScreen
 import com.hermes.client.ui.chat.ChatScreen
 import com.hermes.client.ui.chat.ChatLaunch
 import com.hermes.client.ui.components.HealthSheet
@@ -57,11 +45,9 @@ import com.hermes.client.ui.components.HealthStrip
 import com.hermes.client.ui.cron.CronDetailScreen
 import com.hermes.client.ui.cron.CronEditScreen
 import com.hermes.client.ui.cron.CronScreen
-import com.hermes.client.ui.management.ManagementScreen
 import com.hermes.client.ui.messaging.MessagingScreen
 import com.hermes.client.ui.messaging.MessagingSetupScreen
 import com.hermes.client.ui.models.ModelsScreen
-import com.hermes.client.ui.profiles.ProfilesScreen
 import com.hermes.client.ui.sessions.SessionsScreen
 import com.hermes.client.ui.settings.AboutScreen
 import com.hermes.client.ui.settings.AppearanceScreen
@@ -77,14 +63,6 @@ import com.hermes.client.ui.usage.UsageScreen
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 
-private data class Tab(val route: String, val label: String, val icon: ImageVector)
-
-private val TABS = listOf(
-    Tab("activity", "Home", Icons.Rounded.Home),
-    Tab("sessions", "Chats", Icons.AutoMirrored.Rounded.Chat),
-    Tab("you", "You", Icons.Rounded.Person),
-)
-
 private fun chatRoute(target: ChatLaunch): String = buildString {
     append("chat/")
     append(Uri.encode(target.sessionId))
@@ -97,11 +75,10 @@ private fun chatRoute(target: ChatLaunch): String = buildString {
 }
 
 /**
- * Root navigation host with a three-tab bottom bar (Chats · Agent Activity · You).
- *
- * The bottom bar shows only on the three tab roots; pushed screens (chat, detail/edit, settings
- * sub-pages, admin, archived) are full-screen with a back arrow. First-launch gating: when
- * [hasConfig] is false the start destination is "setup" and the bar is hidden there.
+ * Root navigation host. The session list is the ONLY main screen; everything else is either a
+ * pushed screen (chat, cron, settings, archived — back arrow) or lives on the card page, a
+ * modal drawer opened from the list's avatar. The drawer is the app's single profile-switch
+ * point. First-launch gating: when [hasConfig] is false the start destination is "setup".
  *
  * onUnauthorized clears the back stack and routes to "setup" so an expired token forces re-entry.
  *
@@ -160,53 +137,26 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
     // Drill into a screen from a tab hub (Agent Activity / You).
     val push: (String) -> Unit = { dest -> nav.navigate(dest) { launchSingleTop = true } }
     val openChat: (ChatLaunch) -> Unit = { target -> nav.navigate(chatRoute(target)) }
-    // Switch top-level tab with state save/restore so each tab keeps its own back stack position.
-    val switchTab: (String) -> Unit = { dest ->
-        nav.navigate(dest) {
-            popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
-        }
+
+    // Card page: modal drawer off the session list. Gestures only on the list root so a swipe
+    // inside a chat can't accidentally drag it out; the avatar button opens it anywhere it shows.
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val drawerScope = androidx.compose.runtime.rememberCoroutineScope()
+    val openCard: () -> Unit = { drawerScope.launch { drawerState.open() } }
+    val closeCardAnd: (String) -> Unit = { dest ->
+        drawerScope.launch { drawerState.close() }
+        push(dest)
     }
 
-    val showBottomBar = route in TABS.map { it.route }.toSet()
-
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = drawerState.isOpen || route == "sessions",
+        drawerContent = { CardPage(onNavigate = closeCardAnd) },
+    ) {
     Scaffold(
-        // Let each destination's own Scaffold own the top/side insets; this outer one exists
-        // only to host the bottom bar, so it contributes bottom padding and nothing else
-        // (otherwise the status-bar inset would be applied twice and push titles down).
+        // Let each destination's own Scaffold own the top/side insets; this outer one
+        // contributes nothing itself (otherwise the status-bar inset would apply twice).
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        bottomBar = {
-            AnimatedVisibility(
-                visible = showBottomBar,
-                enter = fadeIn(tween(140)) + slideInVertically(tween(180)) { it / 3 },
-                exit = fadeOut(tween(110)) + slideOutVertically(tween(150)) { it / 3 },
-            ) {
-                NavigationBar {
-                    TABS.forEach { tab ->
-                        val label = when (tab.route) {
-                            "activity" -> localized(language, "首页", "Home")
-                            "sessions" -> localized(language, "会话", "Chats")
-                            else -> localized(language, "我的", "You")
-                        }
-                        NavigationBarItem(
-                            selected = route == tab.route,
-                            onClick = { switchTab(tab.route) },
-                            icon = {
-                                if (tab.route == "you" && hasConfig && health.isUnhealthy()) {
-                                    BadgedBox(badge = { Badge() }) {
-                                        Icon(tab.icon, contentDescription = label)
-                                    }
-                                } else {
-                                    Icon(tab.icon, contentDescription = label)
-                                }
-                            },
-                            label = { Text(label) },
-                        )
-                    }
-                }
-            }
-        },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding())) {
             // Renders nothing when healthy. When shown it owns the status-bar inset, so the content
@@ -240,11 +190,10 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 SessionsScreen(
                     onOpen = openChat,
                     onOpenArchived = { nav.navigate("archived") },
+                    onOpenCard = openCard,
                     onUnauthorized = onUnauthorized,
                 )
             }
-            composable("activity") { com.hermes.client.ui.activity.MissionControlScreen(onNavigate = push) }
-            composable("you") { YouHubScreen(onNavigate = push) }
 
             // ---- Pushed screens (back arrow) ----
             composable("archived") {
@@ -289,7 +238,6 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 )
             }
             composable("models") { ModelsScreen(onMenu = back) }
-            composable("profiles") { ProfilesScreen(onMenu = back) }
             composable("cron") {
                 CronScreen(
                     onMenu = back,
@@ -355,21 +303,10 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 com.hermes.client.ui.gallery.ComponentGalleryScreen(onBack = { nav.popBackStack() })
             }
             composable("settings_about") { AboutScreen(onBack = { nav.popBackStack() }) }
-            composable("management") {
-                ManagementScreen(
-                    onMenu = back,
-                    onNavigate = { dest -> nav.navigate(dest) { launchSingleTop = true } },
-                )
-            }
-            composable("session_admin") {
-                SessionAdminScreen(
-                    onMenu = back,
-                    onOpen = { id -> openChat(ChatLaunch.unknown(id)) },
-                )
-            }
             composable("agents_tools") { AgentsToolsScreen(onMenu = back) }
             }
         }
+    }
     }
 
     if (showHealthSheet) {

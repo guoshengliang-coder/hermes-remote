@@ -33,13 +33,13 @@ class HermesWidget : GlanceAppWidget() {
     private fun Content(context: Context) {
         Column(
             modifier = GlanceModifier.fillMaxSize()
-                .background(ColorProvider(Color(0xFF3B3BAF)))
+                // Brand mint (Mint40) — the widget predates the palette and wore a stray purple.
+                .background(ColorProvider(Color(0xFF087A5C)))
                 .padding(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Item(context, "New chat", "hermes://new")
             Item(context, "Chats", "hermes://tab/sessions")
-            Item(context, "Home", "hermes://tab/activity")
         }
     }
 

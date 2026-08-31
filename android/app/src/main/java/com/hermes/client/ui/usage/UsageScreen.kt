@@ -39,6 +39,10 @@ import javax.inject.Inject
 import com.hermes.client.ui.localization.l10n
 
 data class UsageUiState(
+    /** Store-wide session stats (formerly the session-admin screen): total/archived/messages. */
+    val statsTotal: Int? = null,
+    val statsArchived: Int? = null,
+    val statsMessages: Int? = null,
     val inputTokens: Long = 0,
     val outputTokens: Long = 0,
     val estimatedCost: Double = 0.0,
@@ -53,6 +57,7 @@ data class UsageUiState(
 @HiltViewModel
 class UsageViewModel @Inject constructor(
     private val analytics: AnalyticsRepository,
+    private val sessions: com.hermes.client.data.repository.SessionRepository,
     private val profileManager: ProfileManager,
 ) : ViewModel() {
     private val _state = MutableStateFlow(UsageUiState())
@@ -67,11 +72,16 @@ class UsageViewModel @Inject constructor(
         _state.value = _state.value.copy(loading = true, error = null)
         val usage = runCatching { analytics.usage(p) }.getOrNull()
         val models = runCatching { analytics.models(p) }.getOrNull() ?: emptyList()
+        // Store stats came from the deleted session-admin screen; best-effort, never blocks usage.
+        val stats = runCatching { sessions.stats(p) }.getOrNull()
         if (usage == null) {
             _state.value = UsageUiState(loading = false, error = "Failed to load usage")
             return@launch
         }
         _state.value = UsageUiState(
+            statsTotal = stats?.total,
+            statsArchived = stats?.archived,
+            statsMessages = stats?.messages,
             inputTokens = usage.daily.sumOf { it.inputTokens },
             outputTokens = usage.daily.sumOf { it.outputTokens },
             estimatedCost = usage.daily.sumOf { it.estimatedCost },
@@ -124,6 +134,16 @@ fun UsageScreen(
                                     "${state.inputTokens.compact()} / ${state.outputTokens.compact()}",
                                     Modifier.weight(1f))
                                 Stat(l10n("预估费用", "Est. cost"), "$" + "%.2f".format(state.estimatedCost), Modifier.weight(1f))
+                            }
+                            if (state.statsTotal != null) {
+                                Row(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                                    Stat(l10n("会话总数", "All sessions"), state.statsTotal.toString(), Modifier.weight(1f))
+                                    Stat(
+                                        l10n("已归档 / 消息", "Archived / msgs"),
+                                        "${state.statsArchived ?: 0} / ${state.statsMessages ?: 0}",
+                                        Modifier.weight(1f),
+                                    )
+                                }
                             }
                             if (state.daily.isNotEmpty()) {
                                 Text(l10n("每日 TOKEN", "DAILY TOKENS"), style = MaterialTheme.typography.labelMedium,

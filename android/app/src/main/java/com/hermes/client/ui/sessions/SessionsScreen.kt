@@ -83,7 +83,7 @@ import kotlinx.coroutines.launch
 fun SessionsScreen(
     vm: SessionsViewModel = hiltViewModel(),
     onOpen: (ChatLaunch) -> Unit,
-    onMenu: () -> Unit = {},
+    onOpenCard: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
     onUnauthorized: () -> Unit = {},
 ) {
@@ -184,6 +184,13 @@ fun SessionsScreen(
             Column {
                 com.hermes.client.ui.components.HermesTopBar(
                     title = localized(language, "会话", "Chats"),
+                    navigationIcon = {
+                        // The active profile's avatar IS the identity signal — and the door to
+                        // the card page, the app's only profile-switch point.
+                        IconButton(onClick = onOpenCard) {
+                            com.hermes.client.ui.components.ProfileAvatar(activeProfile, size = 36.dp)
+                        }
+                    },
                     actions = {
                         IconButton(onClick = { onMicTap() }) {
                             Icon(Icons.Rounded.Mic, contentDescription = localized(language, "录制任务", "Record a task"))

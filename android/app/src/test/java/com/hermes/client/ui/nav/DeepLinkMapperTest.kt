@@ -9,8 +9,9 @@ import org.junit.Test
 class DeepLinkMapperTest {
     @Test fun tab_routes_map() {
         assertEquals("sessions", deepLinkRouteFor("hermes://tab/sessions"))
-        assertEquals("activity", deepLinkRouteFor("hermes://tab/activity"))
-        assertEquals("you", deepLinkRouteFor("hermes://tab/you"))
+        // Legacy tabs from older notifications/widgets land on the single main screen.
+        assertEquals("sessions", deepLinkRouteFor("hermes://tab/activity"))
+        assertEquals("sessions", deepLinkRouteFor("hermes://tab/you"))
     }
 
     @Test fun chat_id_maps() {
