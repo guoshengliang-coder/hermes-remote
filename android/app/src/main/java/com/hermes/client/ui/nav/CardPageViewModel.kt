@@ -6,7 +6,12 @@ import com.hermes.client.data.network.GatewayHealth
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.network.ProfileDto
 import com.hermes.client.data.repository.AnalyticsRepository
+import com.hermes.client.data.repository.ConfigRepository
 import com.hermes.client.data.repository.ProfileManager
+import com.hermes.client.data.repository.SettingsStore
+import com.hermes.client.data.repository.ThemeMode
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import com.hermes.client.data.repository.ToolsRepository
 import com.hermes.client.data.progress.SessionRunPhase
 import com.hermes.client.data.progress.SessionRuntimeStore
@@ -29,6 +34,8 @@ data class CardPageUiState(
     val weekTokens: Long? = null,
     /** Last-7-days estimated cost for the active profile; null until loaded. */
     val weekCost: Double? = null,
+    /** The active profile's configured default model (config "model"); null while unknown. */
+    val defaultModel: String? = null,
 )
 
 /**
@@ -41,6 +48,8 @@ class CardPageViewModel @Inject constructor(
     private val profileManager: ProfileManager,
     private val tools: ToolsRepository,
     private val analytics: AnalyticsRepository,
+    private val configRepo: ConfigRepository,
+    private val settingsStore: SettingsStore,
     private val rest: HermesRestApi,
     healthMonitor: com.hermes.client.data.network.GatewayHealthMonitor,
     runtimeStore: SessionRuntimeStore,
@@ -50,6 +59,12 @@ class CardPageViewModel @Inject constructor(
 
     /** Gateway health for the device tile's connected/latency line. */
     val health: StateFlow<GatewayHealth> = healthMonitor.health
+
+    /** Current theme mode for the quick-switch row (shared store with the appearance page). */
+    val themeMode: StateFlow<ThemeMode> =
+        settingsStore.themeMode.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThemeMode.SYSTEM)
+
+    fun setThemeMode(mode: ThemeMode) = viewModelScope.launch { settingsStore.setThemeMode(mode) }
 
     private val _state = MutableStateFlow(CardPageUiState())
     val state: StateFlow<CardPageUiState> = _state.asStateFlow()
@@ -123,6 +138,12 @@ class CardPageViewModel @Inject constructor(
                 _state.value = _state.value.copy(
                     deviceId = h.devices.firstOrNull { it.online }?.deviceId,
                 )
+            }
+        }
+        viewModelScope.launch {
+            runCatching { configRepo.get(p) }.onSuccess { cfg ->
+                val model = (cfg["model"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.ifBlank { null }
+                _state.value = _state.value.copy(defaultModel = model)
             }
         }
         viewModelScope.launch {

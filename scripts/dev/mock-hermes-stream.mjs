@@ -47,8 +47,8 @@ const server = createServer(async (request, response) => {
   if (/^\/api\/sessions\/[^/]+\/messages$/.test(p)) return json(response, { messages: [] });
   if (/^\/api\/sessions\/[^/]+$/.test(p)) return json(response, { session: { id: p.split("/")[3], title: "Mock" } });
   if (p === "/api/sessions" || p === "/api/sessions/search") return json(response, { sessions: [] });
-  if (p === "/api/profiles") return json(response, { profiles: [] });
-  if (p === "/api/profiles/active") return json(response, {});
+  if (p === "/api/profiles") return json(response, { profiles: [{ name: "default", is_default: true }, { name: "Work" }, { name: "Personal" }] });
+  if (p === "/api/profiles/active") return json(response, { active: "default" });
   if (p === "/api/profiles/sessions") return json(response, { sessions: [] });
   if (p === "/api/model/options") return json(response, { providers: [] });
   if (p === "/api/config") return json(response, {});

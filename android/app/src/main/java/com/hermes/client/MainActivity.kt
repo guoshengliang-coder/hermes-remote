@@ -37,6 +37,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var credentialStore: CredentialStore
     @Inject lateinit var settingsStore: SettingsStore
     @Inject lateinit var profileManager: ProfileManager
+    @Inject lateinit var avatarColorStore: com.hermes.client.data.repository.AvatarColorStore
     @Inject lateinit var chat: com.hermes.client.data.repository.ChatRepository
     @Inject lateinit var pendingShare: com.hermes.client.share.PendingShareStore
 
@@ -72,8 +73,10 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
             }
+            val avatarColors by avatarColorStore.overrides.collectAsState(initial = emptyMap())
             CompositionLocalProvider(
                 LocalAppLanguage provides language,
+                com.hermes.client.ui.theme.LocalAvatarColors provides avatarColors,
             ) {
                 HermesTheme(darkTheme = dark) {
                     CompositionLocalProvider(LocalToolCallTechnical provides technical) {

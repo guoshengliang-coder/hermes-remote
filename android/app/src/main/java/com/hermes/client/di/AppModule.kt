@@ -264,6 +264,11 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideAvatarColorStore(@ApplicationContext context: Context): com.hermes.client.data.repository.AvatarColorStore =
+        com.hermes.client.data.repository.AvatarColorStore(context)
+
+    @Provides
+    @Singleton
     fun provideEnvRepository(rest: HermesRestApi): com.hermes.client.data.repository.EnvRepository =
         com.hermes.client.data.repository.EnvRepository(rest)
 

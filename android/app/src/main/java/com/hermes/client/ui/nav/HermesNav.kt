@@ -251,6 +251,9 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                 )
             }
             composable("models") { ModelsScreen(onMenu = back) }
+            composable("profiles") {
+                com.hermes.client.ui.profiles.ProfilePickerScreen(onBack = back)
+            }
             composable("cron") {
                 CronScreen(
                     onMenu = back,

@@ -46,6 +46,28 @@ fun avatarColorArgb(profile: String?): Int {
     return hslToArgb(hue, AVATAR_SATURATION, AVATAR_LIGHTNESS)
 }
 
+/** User overrides (profile → ARGB) from AvatarColorStore, provided at the app root. */
+val LocalAvatarColors = staticCompositionLocalOf<Map<String, Int>> { emptyMap() }
+
+/**
+ * Curated avatar swatches: ten hues plus a neutral and near-black, all at the avatar
+ * lightness so white initials clear AA-large on every pick.
+ */
+val AVATAR_SWATCHES: List<Int> = listOf(
+    hslToArgb(20f, 0.62f, 0.32f),
+    hslToArgb(65f, 0.62f, 0.32f),
+    hslToArgb(105f, 0.62f, 0.32f),
+    hslToArgb(140f, 0.62f, 0.32f),
+    hslToArgb(180f, 0.62f, 0.32f),
+    hslToArgb(214f, 0.62f, 0.32f),
+    hslToArgb(258f, 0.62f, 0.32f),
+    hslToArgb(292f, 0.62f, 0.32f),
+    hslToArgb(338f, 0.62f, 0.32f),
+    hslToArgb(0f, 0.62f, 0.32f),
+    0xFF5B6763.toInt(),
+    0xFF17201D.toInt(),
+)
+
 internal fun hslToArgb(hDeg: Float, s: Float, l: Float): Int {
     val h = ((hDeg % 360f) + 360f) % 360f / 360f
     val q = if (l < 0.5f) l * (1 + s) else l + s - l * s

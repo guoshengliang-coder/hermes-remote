@@ -1,52 +1,68 @@
 package com.hermes.client.ui.nav
 
-import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SystemUpdate
-import androidx.compose.material3.Badge
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hermes.client.data.network.GatewayHealth
+import com.hermes.client.data.repository.ThemeMode
 import com.hermes.client.ui.components.ProfileAvatar
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 
 /**
- * The card page (modal drawer off the session list) — the app's ONLY profile-switch point,
- * plus the account-level tiles and entries: current-identity hero, switch list, usage/device
- * tiles, and the cron/settings/update entry rows (icon + title + optional badge + chevron).
+ * The card page (modal drawer off the session list), v3 — matched to the real-device base
+ * design: "Hermes" wordmark + settings gear up top; an identity card showing ONLY the current
+ * profile (tap → the dedicated profile picker); one stats container (weekly usage | remote
+ * device); then four shortcut rows — scheduled jobs, theme, model, app updates — icon + label
+ * left, current value + chevron right.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CardPage(
     onNavigate: (String) -> Unit,
@@ -54,180 +70,230 @@ fun CardPage(
     vm: CardPageViewModel = hiltViewModel(),
 ) {
     val language = LocalAppLanguage.current
-    val context = LocalContext.current
-    val profiles by vm.profiles.collectAsStateWithLifecycle()
     val active by vm.active.collectAsStateWithLifecycle()
     val state by vm.state.collectAsStateWithLifecycle()
-    val switching by vm.switching.collectAsStateWithLifecycle()
-    val switchFailed by vm.switchFailed.collectAsStateWithLifecycle()
     val health by vm.health.collectAsStateWithLifecycle()
-    val profileActivity by vm.profileActivity.collectAsStateWithLifecycle()
+    val themeMode by vm.themeMode.collectAsStateWithLifecycle()
+    var themeSheet by remember { mutableStateOf(false) }
 
-    LaunchedEffect(switchFailed) {
-        switchFailed?.let {
-            Toast.makeText(
-                context,
-                localized(language, "切换身份失败，仍在当前身份", "Couldn't switch profile — staying on the current one"),
-                Toast.LENGTH_SHORT,
-            ).show()
-            vm.clearSwitchFailed()
-        }
-    }
+    val dark = isSystemInDarkTheme()
+    // The base design's containers are NEUTRAL light grey; in dark theme fall back to the
+    // theme's surfaceVariant so contrast holds.
+    val tile = if (dark) MaterialTheme.colorScheme.surfaceVariant else Color(0xFFF4F6F5)
+    val hairline = if (dark) MaterialTheme.colorScheme.outlineVariant else Color(0xFFE2E7E4)
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
-    // Match the design: the sheet never spans the full screen (>=56dp of scrim stays visible),
-    // sits on plain surface (the M3 default surfaceContainerLow reads purple against our mint
-    // palette), and rounds only its end corners.
-    // Wiring drawerState into the sheet is what gives it (predictive) back handling: the
-    // system back gesture/key closes the card instead of finishing the activity.
     ModalDrawerSheet(
         drawerState = drawerState ?: androidx.compose.material3.rememberDrawerState(androidx.compose.material3.DrawerValue.Open),
         modifier = Modifier.fillMaxWidth(0.86f).widthIn(max = 360.dp),
-        drawerShape = androidx.compose.foundation.shape.RoundedCornerShape(
-            topStart = 0.dp, topEnd = 22.dp, bottomEnd = 22.dp, bottomStart = 0.dp,
-        ),
+        drawerShape = RoundedCornerShape(topStart = 0.dp, topEnd = 22.dp, bottomEnd = 22.dp, bottomStart = 0.dp),
         drawerContainerColor = MaterialTheme.colorScheme.surface,
     ) {
-        Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState()).statusBarsPadding()) {
-            // ── Hero: who am I right now ─────────────────────────────────────────────
+        Column(
+            Modifier.fillMaxHeight().verticalScroll(rememberScrollState())
+                .statusBarsPadding().padding(horizontal = 20.dp),
+        ) {
+            // ── Wordmark + settings gear ─────────────────────────────────────────────
             Row(
-                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp),
+                Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 18.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ProfileAvatar(active, size = 48.dp)
-                Column(Modifier.padding(start = 16.dp)) {
-                    Text(active ?: "—", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        localized(language, "当前身份", "Active profile"),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            // ── Switch list: every OTHER profile ─────────────────────────────────────
-            val others = profiles.filter { it.name != active }
-            if (others.isNotEmpty()) {
                 Text(
-                    localized(language, "切换身份", "SWITCH PROFILE"),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 16.dp, bottom = 4.dp),
-                )
-                others.forEach { p ->
-                    val activity = profileActivity[p.name]
-                    val subline = when {
-                        activity == null -> null
-                        activity.waiting > 0 -> localized(language, "${activity.waiting} 待处理", "${activity.waiting} waiting")
-                        activity.running > 0 -> localized(language, "${activity.running} 个进行中", "${activity.running} running")
-                        else -> null
-                    }
-                    ListItem(
-                        leadingContent = { ProfileAvatar(p.name, size = 36.dp) },
-                        headlineContent = { Text(p.name) },
-                        supportingContent = subline?.let { { Text(it) } },
-                        trailingContent = if (switching == p.name) ({
-                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        }) else null,
-                        modifier = Modifier.clickable(enabled = switching == null) { vm.switchProfile(p.name) },
-                    )
-                }
-            }
-
-            // ── Info tiles: weekly usage + remote device ─────────────────────────────
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                InfoTile(
-                    title = localized(language, "本周用量", "This week"),
-                    value = state.weekTokens?.let { compactTokens(it) + " token" } ?: "—",
-                    sub = state.weekCost?.let { localized(language, "预估 $%.2f".format(it), "est. $%.2f".format(it)) },
-                    modifier = Modifier.weight(1f).clickable { onNavigate("usage") },
-                )
-                val healthy = health as? GatewayHealth.Healthy
-                InfoTile(
-                    title = localized(language, "远程设备", "Remote device"),
-                    value = state.deviceId ?: localized(language, "未连接", "Offline"),
-                    sub = when {
-                        healthy != null && state.deviceId != null ->
-                            localized(language, "已连接", "Connected") + (healthy.latencyMs?.let { " · ${it} ms" } ?: "")
-                        state.deviceId == null -> localized(language, "连接器离线", "Connector offline")
-                        else -> null
-                    },
-                    subColor = if (healthy != null && state.deviceId != null) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.error,
+                    "Hermes",
+                    style = MaterialTheme.typography.headlineSmall.copy(fontSize = 30.sp, fontWeight = FontWeight.Bold),
                     modifier = Modifier.weight(1f),
                 )
+                Surface(
+                    onClick = { onNavigate("settings") },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 2.dp,
+                    modifier = Modifier.size(44.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Settings, contentDescription = localized(language, "设置", "Settings"))
+                    }
+                }
             }
 
-            HorizontalDivider()
+            // ── Identity card: current profile only; tap → profile picker ────────────
+            Surface(
+                onClick = { onNavigate("profiles") },
+                shape = RoundedCornerShape(20.dp),
+                color = tile,
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ProfileAvatar(active, size = 52.dp)
+                    Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                        Text(active ?: "—", style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            localized(language, "当前身份", "Active profile"),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = muted,
+                        )
+                    }
+                    Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = muted)
+                }
+            }
 
-            // ── Entry rows: icon + title (+badge) + chevron, one shape for all ───────
-            EntryRow(
-                icon = { Icon(Icons.Rounded.Schedule, contentDescription = null) },
-                label = localized(language, "定时任务", "Scheduled jobs"),
-                badge = state.cronAlerts.takeIf { it > 0 },
-                onClick = { onNavigate("cron") },
-            )
-            EntryRow(
-                icon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
-                label = localized(language, "设置", "Settings"),
-                sub = localized(language, "连接、外观、消息渠道、智能体与工具…", "Connection, appearance, messaging, agents…"),
-                onClick = { onNavigate("settings") },
-            )
-            EntryRow(
-                icon = { Icon(Icons.Rounded.SystemUpdate, contentDescription = null) },
-                label = localized(language, "检查更新", "App updates"),
-                sub = localized(language, "当前 v${com.hermes.client.BuildConfig.VERSION_NAME}", "Current v${com.hermes.client.BuildConfig.VERSION_NAME}"),
-                onClick = { onNavigate("app_update") },
-            )
+            // ── Stats: one container, two halves, hairline between ───────────────────
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = tile,
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            ) {
+                Row(Modifier.padding(vertical = 18.dp)) {
+                    StatCell(
+                        title = localized(language, "本周用量", "This week"),
+                        value = state.weekTokens?.let { compactTokens(it) + " token" } ?: "—",
+                        sub = state.weekCost?.let { localized(language, "预估 $%.2f".format(it), "est. $%.2f".format(it)) },
+                        modifier = Modifier.weight(1f).clickable { onNavigate("usage") },
+                    )
+                    Box(Modifier.width(1.dp).height(64.dp).background(hairline).align(Alignment.CenterVertically))
+                    val healthy = health as? GatewayHealth.Healthy
+                    StatCell(
+                        title = localized(language, "远程设备", "Remote device"),
+                        value = state.deviceId ?: localized(language, "未连接", "Offline"),
+                        sub = when {
+                            healthy != null && state.deviceId != null ->
+                                localized(language, "已连接", "Connected") + (healthy.latencyMs?.let { " · ${it} ms" } ?: "")
+                            state.deviceId == null -> localized(language, "连接器离线", "Connector offline")
+                            else -> null
+                        },
+                        subColor = if (state.deviceId == null) MaterialTheme.colorScheme.error else muted,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
 
-            Spacer(Modifier.weight(1f))
+            // ── Shortcut rows: icon + label | current value + chevron ────────────────
+            Column(Modifier.padding(top = 10.dp)) {
+                ShortcutRow(
+                    icon = Icons.Rounded.Schedule,
+                    label = localized(language, "定时任务", "Scheduled jobs"),
+                    badge = state.cronAlerts.takeIf { it > 0 },
+                    onClick = { onNavigate("cron") },
+                )
+                HorizontalDivider(color = hairline)
+                ShortcutRow(
+                    icon = Icons.Rounded.DarkMode,
+                    label = localized(language, "主题", "Theme"),
+                    value = themeLabel(themeMode, language),
+                    onClick = { themeSheet = true },
+                )
+                HorizontalDivider(color = hairline)
+                ShortcutRow(
+                    icon = Icons.Rounded.Widgets,
+                    label = localized(language, "模型", "Model"),
+                    value = state.defaultModel ?: "—",
+                    onClick = { onNavigate("models") },
+                )
+                HorizontalDivider(color = hairline)
+                ShortcutRow(
+                    icon = Icons.Rounded.SystemUpdate,
+                    label = localized(language, "检查更新", "App updates"),
+                    value = "v${com.hermes.client.BuildConfig.VERSION_NAME}",
+                    onClick = { onNavigate("app_update") },
+                )
+            }
+        }
+    }
+
+    if (themeSheet) {
+        ModalBottomSheet(onDismissRequest = { themeSheet = false }) {
+            Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+                Text(
+                    localized(language, "主题", "Theme"),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(start = 24.dp, bottom = 8.dp),
+                )
+                listOf(ThemeMode.SYSTEM, ThemeMode.LIGHT, ThemeMode.DARK).forEach { mode ->
+                    ListItem(
+                        leadingContent = { RadioButton(selected = themeMode == mode, onClick = null) },
+                        headlineContent = { Text(themeLabel(mode, language)) },
+                        modifier = Modifier.clickable { vm.setThemeMode(mode); themeSheet = false },
+                    )
+                }
+            }
         }
     }
 }
 
+private fun themeLabel(mode: ThemeMode, language: com.hermes.client.ui.localization.AppLanguage): String = when (mode) {
+    ThemeMode.SYSTEM -> localized(language, "随系统", "System")
+    ThemeMode.LIGHT -> localized(language, "浅色", "Light")
+    ThemeMode.DARK -> localized(language, "深色", "Dark")
+}
+
 @Composable
-private fun InfoTile(
+private fun StatCell(
     title: String,
     value: String,
     sub: String?,
     modifier: Modifier = Modifier,
-    subColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    subColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium, modifier = modifier) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-            sub?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = subColor, maxLines = 1) }
-        }
+    Column(modifier.padding(horizontal = 18.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            value,
+            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(vertical = 2.dp),
+        )
+        sub?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = subColor, maxLines = 1) }
     }
 }
 
 @Composable
-private fun EntryRow(
-    icon: @Composable () -> Unit,
+private fun ShortcutRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onClick: () -> Unit,
-    sub: String? = null,
+    value: String? = null,
     badge: Int? = null,
 ) {
-    ListItem(
-        leadingContent = icon,
-        headlineContent = { Text(label) },
-        supportingContent = sub?.let { { Text(it, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) } },
-        trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                badge?.let { Badge { Text(it.toString()) } }
-                Icon(
-                    Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(26.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp),
+            modifier = Modifier.weight(1f).padding(start = 16.dp),
+        )
+        // Neutral badge — same palette as the rest of the sheet, no alert colour.
+        badge?.let {
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
+                Text(
+                    it.toString(),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }
-        },
-        modifier = Modifier.clickable(onClick = onClick),
-    )
+        }
+        value?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 130.dp).padding(start = 8.dp),
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp),
+        )
+    }
 }
 
 private fun compactTokens(v: Long): String = when {

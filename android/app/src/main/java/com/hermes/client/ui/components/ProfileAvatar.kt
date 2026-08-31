@@ -13,6 +13,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.hermes.client.ui.theme.LocalAvatarColors
 import com.hermes.client.ui.theme.avatarColorArgb
 
 /**
@@ -22,8 +23,10 @@ import com.hermes.client.ui.theme.avatarColorArgb
  */
 @Composable
 fun ProfileAvatar(name: String?, modifier: Modifier = Modifier, size: Dp = 28.dp) {
+    // A user-chosen colour (device-local) wins; otherwise the name-hashed auto colour.
+    val argb = name?.let { LocalAvatarColors.current[it] } ?: avatarColorArgb(name)
     Box(
-        Modifier.size(size).clip(CircleShape).background(Color(avatarColorArgb(name))).then(modifier),
+        Modifier.size(size).clip(CircleShape).background(Color(argb)).then(modifier),
         contentAlignment = Alignment.Center,
     ) {
         Text(
