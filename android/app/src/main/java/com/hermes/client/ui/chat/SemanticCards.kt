@@ -188,6 +188,23 @@ internal fun runningStatusFor(message: ChatMessage): RunningStatus {
 }
 
 // ---------------------------------------------------------------------------
+// Table export: markdown table source -> tab-separated text, so a copied table
+// pastes straight into Excel / Sheets / Feishu as real cells.
+// ---------------------------------------------------------------------------
+
+private val tableSeparatorCell = Regex(":?-{2,}:?")
+
+internal fun markdownTableToTsv(raw: String): String =
+    raw.trim().lines().mapNotNull { line ->
+        val trimmed = line.trim()
+        if (!trimmed.contains('|')) return@mapNotNull null
+        val cells = trimmed.removePrefix("|").removeSuffix("|").split("|").map { it.trim() }
+        // Drop the |---|:---:| alignment row.
+        if (cells.isNotEmpty() && cells.all { it.isEmpty() || tableSeparatorCell.matches(it) }) null
+        else cells.joinToString("\t")
+    }.joinToString("\n")
+
+// ---------------------------------------------------------------------------
 // Diff parsing: unified-diff code fences render with red/green line semantics.
 // ---------------------------------------------------------------------------
 

@@ -103,6 +103,9 @@ fun ModelSelectorContent(
     pending: Boolean,
     error: String?,
     modifier: Modifier = Modifier,
+    listLoading: Boolean = false,
+    listError: Boolean = false,
+    onRetryLoad: (() -> Unit)? = null,
 ) {
     Column(modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         if (scope != null) {
@@ -138,6 +141,45 @@ fun ModelSelectorContent(
         }
         if (pending) {
             CircularProgressIndicator(Modifier.padding(vertical = 8.dp))
+        }
+
+        // Empty-list states: the catalog fetch is lazy and can fail on a flaky link. Never show
+        // a silent empty shell — say what's happening and offer a retry.
+        if (items.isEmpty()) {
+            val language = com.hermes.client.ui.localization.LocalAppLanguage.current
+            Column(
+                Modifier.fillMaxWidth().padding(vertical = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                when {
+                    listLoading -> {
+                        CircularProgressIndicator()
+                        Text(
+                            com.hermes.client.ui.localization.localized(language, "正在加载模型列表…", "Loading models…"),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                    }
+                    listError -> {
+                        Text(
+                            com.hermes.client.ui.localization.localized(language, "模型列表加载失败", "Couldn't load the model list"),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (onRetryLoad != null) {
+                            androidx.compose.material3.TextButton(onClick = onRetryLoad, modifier = Modifier.padding(top = 4.dp)) {
+                                Text(com.hermes.client.ui.localization.localized(language, "重试", "Retry"))
+                            }
+                        }
+                    }
+                    else -> Text(
+                        com.hermes.client.ui.localization.localized(language, "暂无可用模型", "No models available"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
 
         LazyColumn(Modifier.fillMaxWidth()) {
@@ -209,6 +251,9 @@ fun ModelSelectorSheet(
     pending: Boolean,
     error: String?,
     onDismiss: () -> Unit,
+    listLoading: Boolean = false,
+    listError: Boolean = false,
+    onRetryLoad: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
@@ -223,6 +268,7 @@ fun ModelSelectorSheet(
             onToggleFavorite = onToggleFavorite, onSelect = onSelect,
             pending = pending, error = error,
             modifier = Modifier.padding(bottom = 24.dp),
+            listLoading = listLoading, listError = listError, onRetryLoad = onRetryLoad,
         )
     }
 }

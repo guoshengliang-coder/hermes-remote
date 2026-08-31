@@ -151,6 +151,36 @@ class ChatViewModel @Inject constructor(
         val pending: Boolean = false,
         val error: String? = null,
     )
+    // Model-LIST loading state (the sheet's pending/error covers selection, not the list).
+    private val _providersLoading = MutableStateFlow(false)
+    val providersLoading: kotlinx.coroutines.flow.StateFlow<Boolean> = _providersLoading.asStateFlow()
+    private val _providersError = MutableStateFlow(false)
+    val providersError: kotlinx.coroutines.flow.StateFlow<Boolean> = _providersError.asStateFlow()
+
+    /**
+     * Fetch the provider/model catalog if it isn't loaded. The open()-time fetch is best-effort
+     * and swallowed on failure, which used to leave the model sheet a silent empty shell for the
+     * rest of the session; the sheet now calls this on open (and on explicit retry).
+     */
+    fun ensureProviders(force: Boolean = false) {
+        if (_providersLoading.value) return
+        if (_providers.value.isNotEmpty() && !force) return
+        _providersLoading.value = true
+        _providersError.value = false
+        viewModelScope.launch {
+            runCatching { modelRepo.providers() }
+                .onSuccess {
+                    _providers.value = it
+                    _providersError.value = it.isEmpty()
+                }
+                .onFailure { e ->
+                    if (e is CancellationException) throw e
+                    _providersError.value = true
+                }
+            _providersLoading.value = false
+        }
+    }
+
     private val _modelSheet = MutableStateFlow(ModelSheetUi())
     val modelSheet: kotlinx.coroutines.flow.StateFlow<ModelSheetUi> = _modelSheet.asStateFlow()
 

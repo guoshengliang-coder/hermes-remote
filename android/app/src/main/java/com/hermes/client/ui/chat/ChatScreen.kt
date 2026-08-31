@@ -757,10 +757,15 @@ fun ChatScreen(
                                 // control keeps its place, size, and color through the whole cycle. Empty
                                 // draft renders a quiet bare arrow instead of a grey "broken" disc; the
                                 // button lighting up in accent is itself the "you can send now" signal.
+                                // Explicit square size: CircleShape on content-measured bounds
+                                // rendered as an EGG on some OEM ROMs (non-square measurement).
+                                // Theme primary, not the per-profile hashed hue — a global core
+                                // control shouldn't change color with the active profile.
                                 Surface(
                                     shape = androidx.compose.foundation.shape.CircleShape,
-                                    color = if (state.isGenerating || canSend) LocalProfileAccent.current.accent
+                                    color = if (state.isGenerating || canSend) MaterialTheme.colorScheme.primary
                                     else androidx.compose.ui.graphics.Color.Transparent,
+                                    modifier = Modifier.size(48.dp),
                                 ) {
                                     when {
                                         state.isGenerating -> IconButton(onClick = { vm.stop() }) {
@@ -814,7 +819,8 @@ fun ChatScreen(
                             when {
                                 state.isGenerating -> Surface(
                                     shape = androidx.compose.foundation.shape.CircleShape,
-                                    color = LocalProfileAccent.current.accent,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(48.dp),
                                 ) {
                                     IconButton(onClick = { vm.stop() }) {
                                         Icon(Icons.Rounded.Stop, contentDescription = localized(language, "停止", "Stop"), tint = MaterialTheme.colorScheme.onPrimary)
@@ -822,7 +828,8 @@ fun ChatScreen(
                                 }
                                 canSend -> Surface(
                                     shape = androidx.compose.foundation.shape.CircleShape,
-                                    color = LocalProfileAccent.current.accent,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(48.dp),
                                 ) {
                                     IconButton(onClick = { submit() }) {
                                         Icon(Icons.AutoMirrored.Rounded.Send, localized(language, "发送", "Send"), tint = MaterialTheme.colorScheme.onPrimary)
@@ -1122,7 +1129,10 @@ fun ChatScreen(
         )
     }
 
+    LaunchedEffect(modelSheetOpen) { if (modelSheetOpen) vm.ensureProviders() }
     if (modelSheetOpen) {
+        val providersLoading by vm.providersLoading.collectAsStateWithLifecycle()
+        val providersError by vm.providersError.collectAsStateWithLifecycle()
         val items = com.hermes.client.ui.models.modelSelectorRows(
             providers = providers, favorites = favorites, query = modelSheet.query,
             currentProvider = currentProvider, currentModel = currentModel,
@@ -1143,6 +1153,9 @@ fun ChatScreen(
             },
             pending = modelSheet.pending, error = modelSheet.error,
             onDismiss = { modelSheetOpen = false; retryAfterModelSwitch = false },
+            listLoading = providersLoading,
+            listError = providersError,
+            onRetryLoad = { vm.ensureProviders(force = true) },
         )
     }
 

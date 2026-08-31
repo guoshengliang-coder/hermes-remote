@@ -50,6 +50,7 @@ import androidx.compose.material.icons.rounded.ThumbUp
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.InsertDriveFile
+import androidx.compose.material.icons.rounded.OpenInFull
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Download
@@ -139,6 +140,7 @@ import com.mikepenz.markdown.compose.elements.MarkdownCodeFence
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
+import com.mikepenz.markdown.model.markdownDimens
 import com.mikepenz.markdown.model.markdownPadding
 
 @Composable
@@ -1016,6 +1018,13 @@ private fun AssistantTurn(
                             listItemTop = 2.dp,
                             listItemBottom = 2.dp,
                         ),
+                        // The library sizes table columns by a FIXED cell width (default is
+                        // generous), so short columns waste space and narrow tables scroll for
+                        // no reason. Tighter cells fit 3 CJK columns on one phone screen.
+                        dimens = markdownDimens(
+                            tableCellWidth = 110.dp,
+                            tableCellPadding = 8.dp,
+                        ),
                     )
                 }
             }
@@ -1172,52 +1181,166 @@ private fun chatMarkdownComponents(): MarkdownComponents =
                 com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h3)
             }
         },
-        // Tables: bordered rounded container with a tinted, semibold header row instead of the
-        // library's bare default.
+        // Tables render as a card with a header bar (label + copy-as-TSV + fullscreen), matching
+        // the code-block header pattern. Copy produces tab-separated text that pastes into
+        // Excel/Sheets as real cells; fullscreen opens a roomy dialog for wide tables.
         table = { m ->
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
-                ),
-                color = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.padding(vertical = 4.dp),
-            ) {
-                com.mikepenz.markdown.compose.elements.MarkdownTable(
-                    m.content,
-                    m.node,
-                    style = m.typography.table,
-                    headerBlock = { content, header, tableWidth, style ->
-                        Box(
-                            Modifier.background(
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-                            ),
-                        ) {
-                            com.mikepenz.markdown.compose.elements.MarkdownTableHeader(
-                                content,
-                                header,
-                                tableWidth,
-                                style.copy(fontWeight = FontWeight.SemiBold),
-                                // Library default is maxLines = 1 + ellipsis, which silently
-                                // truncated real cell content on device. Wrap instead.
-                                maxLines = Int.MAX_VALUE,
-                            )
-                        }
-                    },
-                    rowBlock = { content, row, tableWidth, style ->
-                        com.mikepenz.markdown.compose.elements.MarkdownTableRow(
-                            content,
-                            row,
-                            tableWidth,
-                            style,
-                            maxLines = Int.MAX_VALUE,
-                        )
-                    },
-                )
+            val raw = remember(m.content, m.node) {
+                m.content.substring(m.node.startOffset, m.node.endOffset)
+            }
+            ChatTableCard(raw = raw) {
+                StyledMarkdownTable(m.content, m.node, m.typography.table)
             }
         },
     )
+
+/** The styled table body shared by the in-chat card and the fullscreen dialog. */
+@Composable
+private fun StyledMarkdownTable(content: String, node: org.intellij.markdown.ast.ASTNode, style: TextStyle) {
+    com.mikepenz.markdown.compose.elements.MarkdownTable(
+        content,
+        node,
+        style = style,
+        headerBlock = { c, header, tableWidth, s ->
+            Box(
+                Modifier.background(
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                ),
+            ) {
+                com.mikepenz.markdown.compose.elements.MarkdownTableHeader(
+                    c,
+                    header,
+                    tableWidth,
+                    s.copy(fontWeight = FontWeight.SemiBold),
+                    // Library default is maxLines = 1 + ellipsis, which silently truncated
+                    // real cell content on device. Wrap instead.
+                    maxLines = Int.MAX_VALUE,
+                )
+            }
+        },
+        rowBlock = { c, row, tableWidth, s ->
+            com.mikepenz.markdown.compose.elements.MarkdownTableRow(
+                c,
+                row,
+                tableWidth,
+                s,
+                maxLines = Int.MAX_VALUE,
+            )
+        },
+    )
+}
+
+@Composable
+private fun ChatTableCard(raw: String, content: @Composable () -> Unit) {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    val language = LocalAppLanguage.current
+    var fullscreen by remember { mutableStateOf(false) }
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+        ),
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.padding(vertical = 4.dp),
+    ) {
+        Column {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                    .padding(start = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    localized(language, "表格", "Table"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(
+                    onClick = {
+                        clipboard.setText(AnnotatedString(markdownTableToTsv(raw)))
+                        Toast.makeText(context, localized(language, "表格已复制，可直接粘贴为单元格", "Table copied as cells"), Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        Icons.Rounded.ContentCopy,
+                        contentDescription = localized(language, "复制表格", "Copy table"),
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = { fullscreen = true }, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        Icons.Rounded.OpenInFull,
+                        contentDescription = localized(language, "全屏查看", "View fullscreen"),
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            content()
+        }
+    }
+    if (fullscreen) {
+        TableFullscreenDialog(raw = raw, onDismiss = { fullscreen = false })
+    }
+}
+
+/** Roomy fullscreen view for wide tables: full width, larger cells, both-axis scrolling. */
+@Composable
+private fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
+    val language = LocalAppLanguage.current
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.background,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = onDismiss) { Text(localized(language, "关闭", "Close")) }
+                    Text(
+                        localized(language, "表格", "Table"),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                    // Balances the close button so the title centers optically.
+                    Spacer(Modifier.width(64.dp))
+                }
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp),
+                ) {
+                    Markdown(
+                        content = raw,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = markdownColor(),
+                        typography = markdownTypography(
+                            table = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 24.sp),
+                        ),
+                        components = markdownComponents(
+                            table = { m -> StyledMarkdownTable(m.content, m.node, m.typography.table) },
+                        ),
+                        dimens = markdownDimens(tableCellWidth = 170.dp, tableCellPadding = 10.dp),
+                    )
+                    Spacer(Modifier.height(24.dp))
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun CodeWithCopy(code: String, language: String?, style: TextStyle) {

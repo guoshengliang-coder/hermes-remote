@@ -194,4 +194,22 @@ class SemanticCardsTest {
         assertEquals("1分24秒", formatElapsedTime(84_000, zh = true))
         assertEquals("1m24s", formatElapsedTime(84_000, zh = false))
     }
+
+    @Test fun markdownTableConvertsToTsv() {
+        val raw = """
+            | 排名 | 进程 | CPU |
+            |:----|-----:|-----|
+            | 1 | Android 模拟器 | 约 54% |
+            | 2 | WorkBuddy | 约 8% |
+        """.trimIndent()
+        val tsv = markdownTableToTsv(raw)
+        val lines = tsv.lines()
+        assertEquals(3, lines.size) // separator row dropped
+        assertEquals("排名\t进程\tCPU", lines[0])
+        assertEquals("1\tAndroid 模拟器\t约 54%", lines[1])
+    }
+
+    @Test fun tsvIgnoresProseAroundTable() {
+        assertEquals("a\tb", markdownTableToTsv("some text\n| a | b |\n|---|---|"))
+    }
 }
