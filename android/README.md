@@ -168,6 +168,14 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   (per-role ordinal alignment) and list keys become ids verbatim, so viewport anchors survive
   every background history swap — fixing the random jump-to-bottom / position-drift class of
   bugs at the data layer. Anchor/key diagnostics probes ship behind the diagnostics toggle.
+- Version 0.1.61 moves the brand colour from mint to the launcher icon's blue (#0B5FD0 light,
+  #A9C7FF dark, hue 215) and re-tints the neutrals cool to sit under it. It also splits status
+  colour out of the brand: a shared StatusColors palette backs both the connection traffic light
+  — which gains the dark tier it never had, its green and red previously sitting at ~3.2:1 on the
+  dark surface — and the session list's completed state, which used to resolve to primary and
+  under a blue brand would read the same as the section headers and FAB around it. The startup
+  screen was already icon-blue while the app was mint, so the splash no longer changes colour on
+  the first frame. Palette values and their contrast floors are pinned by StatusColorsTest.
 - Version 0.1.58 settles the card page's density and iconography: shortcut rows drop to 17sp
   text / 22dp icons / 15sp trailing values with tighter padding (user-picked density), the gear
   becomes a proper toothed cog (the hub-and-ticks simplification read as a brightness glyph),
@@ -281,7 +289,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.60-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.61-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
