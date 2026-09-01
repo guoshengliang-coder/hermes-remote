@@ -187,7 +187,12 @@ fun ChatScreen(
     var searchOpen by rememberSaveable(sessionId) { mutableStateOf(false) }
     var query by rememberSaveable(sessionId) { mutableStateOf("") }
     var currentMatch by rememberSaveable(sessionId) { mutableStateOf(0) }
-    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    // Keyed by session: without the key, opening a different session in this screen slot
+    // inherited the previous session's scroll position.
+    val listState = androidx.compose.runtime.saveable.rememberSaveable(
+        sessionId,
+        saver = androidx.compose.foundation.lazy.LazyListState.Saver,
+    ) { androidx.compose.foundation.lazy.LazyListState() }
     // Search the same merged turns rendered by ChatMessageList so highlight indices stay aligned.
     val conversationTurns = remember(state.messages, searchOpen) {
         if (searchOpen) state.messages.organizedConversationTurns() else emptyList()

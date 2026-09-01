@@ -114,6 +114,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -289,41 +290,33 @@ fun ChatMessageList(
         if (scrollToBottomTick > 0L) bottomRequests.trySend(Unit)
     }
 
-    // ---- Diagnostics probes (no-op unless Settings→诊断 is on) --------------------------
-    // Probe A: viewport anchor movements. A sudden index drop to the bottom without a matching
-    // user gesture is the "random jump to bottom" under investigation.
-    LaunchedEffect(listState, sessionId) {
-        var lastIndex = -1
-        var lastKey: Any? = null
-        androidx.compose.runtime.snapshotFlow {
-            Triple(
-                listState.firstVisibleItemIndex,
-                listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key,
-                listState.isScrollInProgress,
-            )
-        }.collect { (index, key, scrolling) ->
-            if (com.hermes.client.data.diagnostics.DebugLog.isEnabled()) {
-                if (lastIndex > 3 && index <= 1) {
-                    com.hermes.client.data.diagnostics.DebugLog.log(
-                        "anchor",
-                        "JUMP index $lastIndex->$index lastKey=$lastKey newKey=$key scrolling=$scrolling",
-                    )
-                } else if (key != lastKey && lastKey != null && !scrolling) {
-                    com.hermes.client.data.diagnostics.DebugLog.log(
-                        "anchor",
-                        "key-shift@$index $lastKey -> $key (no user scroll)",
-                    )
+    // ---- Diagnostics probes ---------------------------------------------------------------
+    // Installed ONLY while Settings→诊断 is on. The previous always-installed version read
+    // listState.layoutInfo inside snapshotFlow — that made it emit on EVERY layout pass of a
+    // fling and burned a main-thread collect per frame even with diagnostics off, which is
+    // exactly the kind of frame cost that collapses a hard fling into a single-frame jump.
+    val probesEnabled = com.hermes.client.data.diagnostics.DebugLog.isEnabled()
+    if (probesEnabled) {
+        // Probe A: viewport anchor movements. Observes only the anchor INDEX (offset/layoutInfo
+        // deliberately not read); the key is sampled once, only when a jump is detected.
+        LaunchedEffect(listState, sessionId) {
+            var lastIndex = -1
+            androidx.compose.runtime.snapshotFlow { listState.firstVisibleItemIndex }
+                .collect { index ->
+                    if (lastIndex > 3 && index <= 1) {
+                        com.hermes.client.data.diagnostics.DebugLog.log(
+                            "anchor",
+                            "JUMP index $lastIndex->$index key=" +
+                                "${listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key} " +
+                                "scrolling=${listState.isScrollInProgress}",
+                        )
+                    }
+                    lastIndex = index
                 }
-            }
-            lastIndex = index
-            lastKey = key
         }
-    }
-    // Probe B: render-key churn. Logs whenever the key list changes while count stays equal —
-    // the signature of content-hash keys being reshuffled under a reader.
-    var probeKeys by remember(sessionId) { mutableStateOf<List<String>>(emptyList()) }
-    LaunchedEffect(displayKeys) {
-        if (com.hermes.client.data.diagnostics.DebugLog.isEnabled()) {
+        // Probe B: render-key churn — the signature of keys being reshuffled under a reader.
+        var probeKeys by remember(sessionId) { mutableStateOf<List<String>>(emptyList()) }
+        LaunchedEffect(displayKeys) {
             val old = probeKeys
             if (old.isNotEmpty() && old.size == displayKeys.size && old != displayKeys) {
                 val changed = old.indices.count { old[it] != displayKeys[it] }
@@ -332,13 +325,10 @@ fun ChatMessageList(
                     "reshuffle: $changed/${displayKeys.size} keys changed, tail=${displayKeys.takeLast(2)}",
                 )
             } else if (old.size != displayKeys.size) {
-                com.hermes.client.data.diagnostics.DebugLog.log(
-                    "keys",
-                    "count ${old.size} -> ${displayKeys.size}",
-                )
+                com.hermes.client.data.diagnostics.DebugLog.log("keys", "count ${old.size} -> ${displayKeys.size}")
             }
+            probeKeys = displayKeys
         }
-        probeKeys = displayKeys
     }
 
     // Search-highlight navigation, mapped from turn order to the reversed list order. The size is
@@ -385,9 +375,19 @@ fun ChatMessageList(
     val keyboard = LocalSoftwareKeyboardController.current
     val imeDismissConnection = remember(keyboard) {
         object : NestedScrollConnection {
+            // hide() is an IPC; calling it on every pre-scroll frame of a downward drag was a
+            // per-frame cost on the hot scroll path. Latch once per gesture, re-arm on rest.
+            private var hidThisGesture = false
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput && available.y > 4f) keyboard?.hide()
+                if (source == NestedScrollSource.UserInput && available.y > 4f && !hidThisGesture) {
+                    hidThisGesture = true
+                    keyboard?.hide()
+                }
                 return Offset.Zero
+            }
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                hidThisGesture = false
+                return Velocity.Zero
             }
         }
     }
@@ -476,10 +476,20 @@ fun ChatMessageList(
                 }
             }
         }
-        if (!atBottom) {
+        // Hidden while ANY scroll (drag or fling) is in progress: the tap that arrests a hard
+        // fling is the same gesture users aim at the conversation, and with the button already
+        // materialized under the thumb it used to swallow that tap as a click -> scrollToItem(0)
+        // -> the "sudden snap to bottom". While scrolling the node simply does not exist, so the
+        // arresting tap cannot hit it; it fades in ~150ms after the list rests.
+        androidx.compose.animation.AnimatedVisibility(
+            visible = !atBottom && !listState.isScrollInProgress,
+            enter = androidx.compose.animation.fadeIn(tween(150)),
+            exit = androidx.compose.animation.fadeOut(tween(100)),
+            modifier = Modifier.align(Alignment.BottomEnd),
+        ) {
             Surface(
                 onClick = { bottomRequests.trySend(Unit) },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                modifier = Modifier.padding(16.dp),
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 6.dp,
@@ -537,7 +547,9 @@ private fun ChatHistorySkeleton(modifier: Modifier = Modifier) {
     val block = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
     Column(
         modifier.padding(horizontal = 24.dp, vertical = 22.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        // Bottom-anchored like the reverseLayout transcript it precedes, so the skeleton->content
+        // transition doesn't move the visual mass from the top of the pane to the bottom.
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.Bottom),
     ) {
         Box(Modifier.fillMaxWidth(0.82f).height(18.dp).clip(RoundedCornerShape(9.dp)).background(block))
         Box(Modifier.fillMaxWidth(0.94f).height(18.dp).clip(RoundedCornerShape(9.dp)).background(block))

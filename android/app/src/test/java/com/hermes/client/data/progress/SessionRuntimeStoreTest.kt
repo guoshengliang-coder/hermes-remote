@@ -226,6 +226,31 @@ class SessionRuntimeStoreTest {
         assertTrue(chat.messages.none { it.id == "persisted-answer" })
     }
 
+    @Test fun acceptHistory_reusesLiveIds_soListKeysSurviveReopen() = runTest {
+        val (store, events) = fixture()
+        val key = store.register("s1", "personal")
+        store.setVisible(key, true)          // completion while visible -> phase IDLE, keepLive=false
+        store.beginPrompt(key, "你好")
+        events.emit(event("message.complete", "s1", "答案"))
+        runCurrent()
+        val runtime = store.runtimes.value.getValue(key)
+        val liveIds = runtime.chat.messages.map { it.id }
+        assertTrue(liveIds.none { it.startsWith("h-") })
+        // Reopen path: REST history lands with h-* ids; identity must be reused, not replaced.
+        store.acceptHistory(
+            key,
+            listOf(
+                ChatMessage("h-0-10", Role.USER, "你好"),
+                ChatMessage("h-1-11", Role.ASSISTANT, "答案"),
+            ),
+            requestStartedAt = Long.MAX_VALUE,
+        )
+        val after = store.runtimes.value.getValue(key).chat.messages
+        assertEquals("答案", after.last().text)
+        assertTrue(after.none { it.id.startsWith("h-") })
+        assertEquals(liveIds.take(after.size), after.map { it.id })
+    }
+
     @Test fun completion_while_offscreen_becomes_unread() = runTest {
         val (store, events) = fixture()
         val key = store.register("s1", "personal")

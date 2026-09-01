@@ -56,7 +56,13 @@ const server = createServer(async (request, response) => {
     return json(response, { messages: out });
   }
   if (/^\/api\/sessions\/[^/]+$/.test(p)) return json(response, { session: { id: p.split("/")[3], title: "Mock" } });
-  if (p === "/api/sessions" || p === "/api/sessions/search") return json(response, { sessions: [] });
+  if (p === "/api/sessions" || p === "/api/sessions/search") {
+    // List the stored session once it has content, so "reopen from the list" flows are testable.
+    const sessions = promptCount > 0
+      ? [{ id: STORED_ID, title: "Mock 会话", message_count: promptCount * 2, last_active: Math.floor(Date.now() / 1000) }]
+      : [];
+    return json(response, { sessions });
+  }
   if (p === "/api/profiles") return json(response, { profiles: [{ name: "default", is_default: true }, { name: "Work" }, { name: "Personal" }] });
   if (p === "/api/profiles/active") return json(response, { active: "default" });
   if (p === "/api/profiles/sessions") return json(response, { sessions: [] });

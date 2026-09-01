@@ -273,7 +273,16 @@ class SessionRuntimeStore(
                 )
             runtime.copy(
                 chat = runtime.chat.copy(
-                    messages = if (keepLive) runtime.chat.messages else messages,
+                    // Same identity alignment as acceptReconciledHistory: reuse the retained
+                    // runtime's ids so id-derived list keys survive the swap. Without it,
+                    // reopening a session chatted in this app run replaced every u-*/a-* id
+                    // with h-* in one frame — a full LazyColumn remount (visible ghost flash)
+                    // and a lost viewport anchor.
+                    messages = if (keepLive) {
+                        runtime.chat.messages
+                    } else {
+                        com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages)
+                    },
                     historyLoading = false,
                     historyLoaded = true,
                     historyError = null,

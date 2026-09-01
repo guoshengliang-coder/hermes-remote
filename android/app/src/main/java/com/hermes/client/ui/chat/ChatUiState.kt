@@ -490,7 +490,12 @@ data class ChatUiState(
     val historyLoaded: Boolean = false,
     val historyError: String? = null,
 ) {
-    companion object { fun empty() = ChatUiState() }
+    companion object {
+        // historyLoading = true: the pre-open frame of a freshly composed chat screen must show
+        // the loading skeleton, never the "send a message to start" placeholder — a session with
+        // history rendered that placeholder for one visible frame during the enter animation.
+        fun empty() = ChatUiState(historyLoading = true)
+    }
 }
 
 fun ChatUiState.withUserMessage(
