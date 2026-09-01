@@ -47,7 +47,7 @@ fun ApprovalSheet(req: ApprovalRequest, onRespond: (ApprovalChoice) -> Unit, onD
     // An approval must be an explicit choice: veto the Hidden transition so a swipe / scrim-tap
     // can't dismiss the sheet while pendingApproval is still set (which would desync — sheet gone
     // but state still blocked). The sheet leaves composition only when a choice clears the pending.
-    val sheetState = rememberModalBottomSheetState(confirmValueChange = { it != SheetValue.Hidden })
+    val sheetState = com.hermes.client.ui.components.hermesSheetState(confirmValueChange = { it != SheetValue.Hidden })
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {

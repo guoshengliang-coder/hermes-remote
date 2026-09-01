@@ -1152,6 +1152,7 @@ fun ChatScreen(
     if (showAttachSheet) {
         ModalBottomSheet(
             onDismissRequest = { showAttachSheet = false },
+            sheetState = com.hermes.client.ui.components.hermesSheetState(),
             containerColor = MaterialTheme.colorScheme.background,
         ) {
             Text(
@@ -1348,7 +1349,7 @@ fun ChatScreen(
     }
 
     if (showPromptSheet) {
-        val promptSheetState = rememberModalBottomSheetState()
+        val promptSheetState = com.hermes.client.ui.components.hermesSheetState()
         ModalBottomSheet(onDismissRequest = { showPromptSheet = false }, sheetState = promptSheetState) {
             if (savedPrompts.isEmpty()) {
                 Text(

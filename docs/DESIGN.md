@@ -63,6 +63,17 @@
   同步生效），不染 chrome。
 - 通知强调色用 `avatarColorArgb(profile)` —— 它是身份信号，不是 chrome。
 
+### 2.5 M3 surface 容器族（决策 2026-09-02，`Color.kt`）
+- `surfaceDim/Bright` 与 `surfaceContainerLowest/Low/·/High/Highest` **必须在两套 colorScheme
+  里显式定义**（冷蓝中性系同色相推导）。教训：漏定义的 token 会回落到 Material 3 基线的
+  紫红默认值 —— `ModalBottomSheet` 默认底色取 `surfaceContainerLow`，曾导致所有弹层/菜单/
+  对话框带偏红底色。
+- 取值（light → dark）：ContainerLowest `#FFFFFF→#0D141B`、Low `#F1F4FA→#1A212A`、
+  Container `#EBEFF6→#1E252E`、High `#E5EAF2→#283039`、Highest `#DFE5EE→#333A44`、
+  Dim `#D7DCE4→#121921`、Bright `#F7F9FD→#383F48`。
+- 规则：sheet/menu/dialog 的容器色一律来自 colorScheme（默认值即可），**禁止**依赖 M3
+  基线默认，也禁止为单个弹层硬编码底色来"修"色偏 —— 色偏必须在 token 层修。
+
 ## 3. 字体与文本适配
 
 ### 3.1 全局
@@ -178,6 +189,21 @@
 ### 5.8 间距
 无独立 spacing scale（现状快照）：页边距 24dp（卡片页）/16dp（列表），组件内 16/18dp。
 新界面**沿用最近似的现有页面取值**，不发明新值；如需体系化 scale 另行立项。
+
+### 5.8 自下而上弹层（全局硬规则，决策 2026-09-02）
+- **高度**：所有 `ModalBottomSheet` 一律使用 `ui/components/SheetDefaults.kt` 的
+  `hermesSheetState()`（`skipPartiallyExpanded = true`）：内容多高弹多高，超过屏幕上限
+  封顶全展开，**禁止半展开中间态**（半截可见、需手动上拉的形态是 bug）。需要额外约束
+  （如审批弹层禁滑关）走它的 `confirmValueChange` 参数，不得另起状态。
+- **模型选择弹层**（`ModelSelector.kt`）：标题「选择模型」居中、刷新按钮居右；
+  「当前状态卡」把模型（含作用域/恢复默认）与推理强度合为一张 surfaceVariant 卡
+  （强度是模型的属性，禁止拆成两个并列框）；搜索框为填充式圆角（surfaceVariant 底），
+  弹层圆角统一 16dp。
+- **模型弹层手势**：`sheetGesturesEnabled = false` —— 列表滚动永不收起/关闭弹层；
+  关闭仅三个入口：顶部抓握区点按或短下拉（48dp 阈值，`CloseHandle`）、点遮罩、返回键。
+- **列表待处理项揭示**（`NeedsYouReveal.kt`）：会话新进入「需要你处理」组时，视口在顶部
+  附近（首可见 ≤2）且非拖动中 → 自动滚顶展示；深翻列表时**禁止拽走读者**，改浮
+  「↑ N 个会话需要处理」pill，点按跳顶，抵顶自动消失。
 
 ## 6. 文案
 

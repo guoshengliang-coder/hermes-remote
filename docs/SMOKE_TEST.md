@@ -197,3 +197,27 @@ verification for the current iteration.
    session (row suffixes in the list show each model's memory). Turning 思考 off maps to `none`;
    a failed change must roll back and show HR-RPC-006 in the sheet. The upstream `config.get/set
    {key:"reasoning"}` RPC has NOT yet been verified against a live Hermes from this app.
+
+## Sheet polish smoke test (2026-09 branch claude/ui-polish-sheet-scroll)
+
+Device/emulator flows for the surface-token, sheet-layout, gesture, and list-reveal changes.
+All pending device verification.
+
+1. **No purple cast anywhere.** Open every bottom sheet (model, approval, persona, attach,
+   prompt, theme, session menu, health, clarify, notification onboarding, avatar color) plus
+   menus/dialogs, in BOTH light and dark theme: containers must read as the cool blue-tinted
+   neutrals, never the old reddish/purple cast.
+2. **Model sheet layout.** Title 选择模型 centered with the refresh icon at the right; ONE
+   status card holds the current model (scope line, 恢复默认 when overridden) above a hairline
+   and the 推理强度 row below it, expanding inside the card; the search field is a filled
+   rounded box.
+3. **Model sheet gestures.** Scroll the model list up and down aggressively — the sheet must
+   never collapse or close. Closing works only via: tapping or short-dragging the top grab bar,
+   tapping the scrim, or Back.
+4. **Sheets open full.** Approval, persona and saved-prompt sheets with tall content must open
+   fully expanded — no half-open state that needs a manual pull-up. The approval sheet still
+   refuses swipe-dismiss.
+5. **Needs-you reveal.** With the list at top, drive an off-screen session into an approval
+   wait: the list must auto-scroll so the 需要你处理 header and row are visible. Repeat while
+   scrolled deep into the list: no yank — a ↑ pill appears; tapping it jumps to top; scrolling
+   to top yourself dissolves it.

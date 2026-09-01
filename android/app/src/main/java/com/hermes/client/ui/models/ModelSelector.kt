@@ -2,6 +2,7 @@ package com.hermes.client.ui.models
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.CircularProgressIndicator
@@ -31,12 +33,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,6 +48,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.hermes.client.data.error.AppError
@@ -197,19 +201,30 @@ fun ModelSelectorContent(
     onRetryLoad: (() -> Unit)? = null,
 ) {
     Column(modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        if (currentSummary != null) {
-            CurrentModelStrip(currentSummary, if (currentSummary.showRestore) onRestoreDefault else null)
-        }
+        // Model and reasoning effort are ONE card: effort is a property of the current model
+        // (and remembered per model), so presenting them as separate boxes read as unrelated.
+        CurrentStatusCard(
+            summary = currentSummary,
+            onRestoreDefault = if (currentSummary?.showRestore == true) onRestoreDefault else null,
+            reasoningEffort = reasoningEffort,
+            reasoningPending = reasoningPending,
+            onSelectReasoning = onSelectReasoning,
+        )
 
-        if (onSelectReasoning != null) {
-            ReasoningSection(reasoningEffort, reasoningPending, onSelectReasoning)
-        }
-
-        OutlinedTextField(
+        // Filled rounded search — matches the card language above instead of a lone outline box.
+        TextField(
             value = query,
             onValueChange = onQueryChange,
             placeholder = { Text(l10n("搜索模型或分组…", "Search models or groups…")) },
             singleLine = true,
+            shape = RoundedCornerShape(23.dp),
+            leadingIcon = {
+                Icon(
+                    Icons.Rounded.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
             trailingIcon = if (query.isNotEmpty()) {
                 {
                     IconButton(onClick = { onQueryChange("") }) {
@@ -217,6 +232,14 @@ fun ModelSelectorContent(
                     }
                 }
             } else null,
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                disabledIndicatorColor = Color.Transparent,
+            ),
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         )
 
@@ -295,61 +318,81 @@ fun ModelSelectorContent(
     }
 }
 
+/**
+ * The one "current state" card: the session's model (with scope + restore action) on top and
+ * its reasoning effort below, separated by a hairline — one unit, matching the mental model
+ * that effort belongs to the model. Either half renders alone when the other is absent
+ * (the settings screen has no session, so no effort half).
+ */
 @Composable
-private fun CurrentModelStrip(summary: CurrentModelSummary, onRestoreDefault: (() -> Unit)?) {
+private fun CurrentStatusCard(
+    summary: CurrentModelSummary?,
+    onRestoreDefault: (() -> Unit)?,
+    reasoningEffort: String?,
+    reasoningPending: Boolean,
+    onSelectReasoning: ((String) -> Unit)?,
+) {
+    if (summary == null && onSelectReasoning == null) return
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
     ) {
-        Row(
-            Modifier.padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Rounded.Check,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp),
-            )
-            Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                Text(
-                    summary.model,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    listOfNotNull(summary.provider, summary.scopeText).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+        Column {
+            if (summary != null) {
+                Row(
+                    Modifier.padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Rounded.Check,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                        Text(
+                            summary.model,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            listOfNotNull(summary.provider, summary.scopeText).joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (onRestoreDefault != null) {
+                        TextButton(onClick = onRestoreDefault) { Text(l10n("恢复默认", "Use default")) }
+                    }
+                }
+            }
+            if (summary != null && onSelectReasoning != null) {
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier.padding(horizontal = 14.dp),
                 )
             }
-            if (onRestoreDefault != null) {
-                TextButton(onClick = onRestoreDefault) { Text(l10n("恢复默认", "Use default")) }
+            if (onSelectReasoning != null) {
+                ReasoningRows(reasoningEffort, reasoningPending, onSelectReasoning)
             }
         }
     }
 }
 
 /**
- * Session reasoning-effort control, mirroring the Hermes desktop panel: a 思考 on/off toggle
- * (off = the upstream "none" level) plus the seven effort levels as chips. Collapsed by default
- * to one row showing the current value.
+ * Session reasoning-effort rows inside [CurrentStatusCard], mirroring the Hermes desktop panel:
+ * a 思考 on/off toggle (off = the upstream "none" level) plus the seven effort levels as chips.
+ * Collapsed by default to one row showing the current value; expands in place within the card.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ReasoningSection(effort: String?, pending: Boolean, onSelect: (String) -> Unit) {
+private fun ReasoningRows(effort: String?, pending: Boolean, onSelect: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        color = Color.Transparent,
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-    ) {
         Column {
             Row(
                 Modifier
@@ -419,7 +462,6 @@ private fun ReasoningSection(effort: String?, pending: Boolean, onSelect: (Strin
                 )
             }
         }
-    }
 }
 
 @Composable
@@ -593,23 +635,31 @@ fun ModelSelectorSheet(
     listError: Boolean = false,
     onRetryLoad: (() -> Unit)? = null,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+    val sheetState = com.hermes.client.ui.components.hermesSheetState()
+    // Sheet gestures are OFF: scrolling the model list can never accidentally collapse or
+    // dismiss the sheet. Closing is deliberate only — tap or short pull-down on the grab
+    // handle, tap the scrim, or press back.
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        sheetGesturesEnabled = false,
+        dragHandle = { CloseHandle(onDismiss) },
+    ) {
+        Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
             Text(
                 l10n("选择模型", "Select model"),
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.align(Alignment.Center),
             )
             if (refreshing) {
-                Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier.size(44.dp).align(Alignment.CenterEnd),
+                    contentAlignment = Alignment.Center,
+                ) {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                 }
             } else {
-                IconButton(onClick = onRefresh) {
+                IconButton(onClick = onRefresh, modifier = Modifier.align(Alignment.CenterEnd)) {
                     Icon(
                         Icons.Rounded.Refresh,
                         contentDescription = l10n("刷新模型列表", "Refresh model list"),
@@ -629,5 +679,41 @@ fun ModelSelectorSheet(
             reasoningPending = reasoningPending,
             listLoading = listLoading, listError = listError, onRetryLoad = onRetryLoad,
         )
+    }
+}
+
+/**
+ * The sheet's only touch route to dismissal (gestures elsewhere are disabled): tap the grab
+ * bar, or pull it down a short distance. Deliberately simple — no follow-the-finger animation.
+ */
+@Composable
+private fun CloseHandle(onDismiss: () -> Unit) {
+    val thresholdPx = with(LocalDensity.current) { 48.dp.toPx() }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClickLabel = l10n("关闭", "Close")) { onDismiss() }
+            .pointerInput(Unit) {
+                var dragTotal = 0f
+                var fired = false
+                detectVerticalDragGestures(
+                    onDragStart = { dragTotal = 0f; fired = false },
+                    onVerticalDrag = { change, dragAmount ->
+                        change.consume()
+                        dragTotal += dragAmount
+                        if (!fired && dragTotal > thresholdPx) {
+                            fired = true
+                            onDismiss()
+                        }
+                    },
+                )
+            }
+            .padding(top = 14.dp, bottom = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+            shape = RoundedCornerShape(2.dp),
+        ) { Box(Modifier.size(32.dp, 4.dp)) }
     }
 }

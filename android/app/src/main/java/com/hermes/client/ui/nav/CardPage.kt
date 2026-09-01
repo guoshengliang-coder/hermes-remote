@@ -238,7 +238,7 @@ fun CardPage(
     }
 
     if (themeSheet) {
-        ModalBottomSheet(onDismissRequest = { themeSheet = false }) {
+        ModalBottomSheet(onDismissRequest = { themeSheet = false }, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
             Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
                 Text(
                     localized(language, "主题", "Theme"),
