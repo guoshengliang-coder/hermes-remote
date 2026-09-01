@@ -221,6 +221,35 @@ class SessionRuntimeStore(
         }
     }
 
+    /**
+     * Foreground recovery gate for the conversation currently under the startup overlay. It
+     * refreshes the authoritative transcript and replaces the stale socket handle before the UI
+     * is revealed, so returning to a chat never exposes a second full-screen loading state.
+     */
+    suspend fun recoverVisibleSession(key: SessionRuntimeKey): Boolean {
+        val repository = sessionRepository ?: return false
+        val runtime = _runtimes.value[key] ?: SessionRuntime(key)
+        val expectation = expectationFor(runtime).let { expected ->
+            if (runtime.phase == SessionRunPhase.RECONNECTING || runtime.chat.isGenerating) {
+                expected.copy(lastAssistantText = "")
+            } else expected
+        }
+        return try {
+            val history = repository.history(key.sessionId, key.profile).map { it.organizedForDisplay() }
+            acceptReconciledHistory(key, history, expectation)
+            val handle = chatRepository.resume(key.sessionId, key.profile)
+                ?.takeIf { it.isNotBlank() }
+                ?: return false
+            bindLiveHandle(key, handle)
+            true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            DebugLog.log("history", "foreground recovery ${key.sessionId} failed: ${error.message}")
+            false
+        }
+    }
+
     /** Clear unread only after the chat has successfully loaded, not merely when its row is tapped. */
     fun markRead(key: SessionRuntimeKey) {
         val token = SessionReadStore.token(key.profile, key.sessionId)

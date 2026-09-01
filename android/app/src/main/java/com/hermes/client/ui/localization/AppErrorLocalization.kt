@@ -24,6 +24,8 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "无法保存配置，请重试。", "Couldn't save the configuration. Retry.")
         AppErrorCode.CONFIG_INVALID_URL ->
             localized(language, "Relay 地址格式无效，请检查后重试。", "The Relay URL is invalid. Check it and retry.")
+        AppErrorCode.AUTHENTICATION_FAILED ->
+            localized(language, "App Token 无效或已失效，请重新配置。", "The App Token is invalid or expired. Configure it again.")
         AppErrorCode.UPDATE_FAILED ->
             localized(language, "更新操作失败，请重试。", "The update operation failed. Retry.")
         AppErrorCode.FILE_READ_FAILED ->

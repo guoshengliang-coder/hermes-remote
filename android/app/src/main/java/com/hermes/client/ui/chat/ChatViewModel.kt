@@ -276,6 +276,13 @@ class ChatViewModel @Inject constructor(
     private var liveHandleGate = CompletableDeferred<String>()
     private val resumeMutex = Mutex()
 
+    /** Reconciles this visible transcript and live handle before the warm-start overlay exits. */
+    suspend fun recoverForForeground(): Boolean {
+        val id = storedSessionId.takeIf { it.isNotBlank() } ?: return false
+        val key = runtimeKey ?: SessionRuntimeKey(currentProfile, id)
+        return runtimeStore.recoverVisibleSession(key)
+    }
+
     fun open(
         id: String,
         requestedProfile: String? = null,

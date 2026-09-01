@@ -25,6 +25,15 @@ import java.io.File
 class HermesApiException(val code: Int, message: String) : Exception(message)
 data class UploadedArtifact(val path: String, val name: String, val sizeBytes: Long)
 
+/** Result of the lightweight startup/settings status probe. */
+sealed interface GatewayProbeResult {
+    data object Reachable : GatewayProbeResult
+    data class Unauthorized(val statusCode: Int) : GatewayProbeResult
+    data class ServerFailure(val statusCode: Int) : GatewayProbeResult
+    data class InvalidEndpoint(val statusCode: Int) : GatewayProbeResult
+    data class Unreachable(val cause: String?) : GatewayProbeResult
+}
+
 class HermesRestApi(
     private val okHttp: OkHttpClient,
     private val json: Json,
@@ -79,15 +88,31 @@ class HermesRestApi(
      * T10b: test connectivity using explicitly supplied credentials WITHOUT reading from
      * configProvider. Used by SetupViewModel.test() so unverified creds are never persisted.
      */
-    suspend fun statusFor(baseUrl: String, token: String): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
+    suspend fun probeStatusFor(baseUrl: String, token: String): GatewayProbeResult =
+        withContext(Dispatchers.IO) {
+        try {
             val rb = Request.Builder().url("${baseUrl.trimEnd('/')}/api/status").get()
             if (token.isNotBlank()) rb.header("X-Hermes-Session-Token", token)
             val call = okHttp.newCall(rb.build())
             call.timeout().timeout(CONNECTION_TEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            call.execute().use { it.isSuccessful }
-        }.getOrDefault(false)
+            call.execute().use { response ->
+                when {
+                    response.isSuccessful -> GatewayProbeResult.Reachable
+                    response.code == 401 || response.code == 403 ->
+                        GatewayProbeResult.Unauthorized(response.code)
+                    response.code in 500..599 -> GatewayProbeResult.ServerFailure(response.code)
+                    else -> GatewayProbeResult.InvalidEndpoint(response.code)
+                }
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            GatewayProbeResult.Unreachable(error.javaClass.simpleName)
+        }
     }
+
+    suspend fun statusFor(baseUrl: String, token: String): Boolean =
+        probeStatusFor(baseUrl, token) is GatewayProbeResult.Reachable
 
     /** Delegates to [statusFor] using the current stored config. */
     suspend fun status(): Boolean {

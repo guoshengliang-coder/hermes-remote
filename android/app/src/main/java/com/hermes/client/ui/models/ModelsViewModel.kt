@@ -84,6 +84,41 @@ class ModelsViewModel @Inject constructor(
         viewModelScope.launch { loadDefault(profileManager.active.value) }
     }
 
+    /** Commit a fresh catalog to this visible screen before the warm-start overlay is removed. */
+    suspend fun recoverForForeground(): Boolean {
+        _state.value = _state.value.copy(loading = true, error = null)
+        val profile = profileManager.active.value
+        return try {
+            val providers = models.providers(profile)
+            val defaultModel = runCatching {
+                (configRepo.get(profile)["model"] as? kotlinx.serialization.json.JsonPrimitive)
+                    ?.content?.ifBlank { null }
+            }.getOrNull()
+            _state.value = _state.value.copy(
+                providers = providers,
+                loading = false,
+                error = null,
+                defaultModel = defaultModel,
+                defaultProvider = resolveModelProvider(providers, null, defaultModel)
+                    ?: providers.firstOrNull { it.isCurrent }?.slug,
+            )
+            true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _state.value = _state.value.copy(
+                loading = false,
+                error = AppError(
+                    AppErrorCode.MODEL_LIST_FAILED,
+                    retryable = true,
+                    technicalCause = error.message,
+                    stage = "models_recovery",
+                ),
+            )
+            false
+        }
+    }
+
     /**
      * Best-effort read of the configured default model; its provider resolves from the catalog.
      * The list is useful even when the config read fails (the summary card just hides).

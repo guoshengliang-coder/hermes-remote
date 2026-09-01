@@ -72,7 +72,7 @@ class ConnectionSettingsViewModel @Inject constructor(
     }
 
     /** Persist the new server/credentials, drop any stale session, then reconnect. */
-    fun save() {
+    fun save(reconnect: Boolean = true) {
         val s = _state.value
         val url = runCatching { normalizeGatewayBaseUrl(s.url) }.getOrElse {
             _state.value = s.copy(testResult = localizedText("Relay 地址无效（HR-CONFIG-003）", "Invalid Relay URL (HR-CONFIG-003)"), saved = false)
@@ -80,7 +80,7 @@ class ConnectionSettingsViewModel @Inject constructor(
         }
         store.save(GatewayConfig(url, s.token.trim(), s.username.trim(), s.password))
         gatedAuth.cookieJar.clear() // force a fresh login with the new credentials
-        runCatching { chat.reconnect() }
+        if (reconnect) runCatching { chat.reconnect() }
         _state.value = _state.value.copy(saved = true, testResult = localizedText("已保存，正在重新连接", "Saved — reconnecting"))
     }
 }

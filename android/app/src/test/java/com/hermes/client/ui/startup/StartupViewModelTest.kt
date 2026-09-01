@@ -4,9 +4,15 @@ import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.GatewayConfig
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.ConnectivityChecker
+import com.hermes.client.data.network.GatewayProbeResult
+import com.hermes.client.data.network.HermesRestApi
+import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.repository.ChatRepository
+import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SessionRepository
+import com.hermes.client.data.repository.ViewModeStore
+import com.hermes.client.ui.sessions.ViewMode
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -16,6 +22,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
@@ -35,6 +42,11 @@ class StartupViewModelTest {
     private val chat = mockk<ChatRepository>(relaxed = true)
     private val sessions = mockk<SessionRepository>(relaxed = true)
     private val profiles = mockk<ProfileManager>(relaxed = true)
+    private val rest = mockk<HermesRestApi>()
+    private val models = mockk<ModelRepository>(relaxed = true)
+    private val viewModes = mockk<ViewModeStore>()
+    private val runtimes = mockk<SessionRuntimeStore>(relaxed = true)
+    private val foregroundRecovery = mockk<ForegroundRecoveryCoordinator>()
     private val connection = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     private val config = GatewayConfig("https://relay.example", "token")
 
@@ -44,11 +56,25 @@ class StartupViewModelTest {
         every { connectivity.isOnline() } returns true
         every { chat.connectionState } returns connection
         coEvery { sessions.listAllProfiles() } returns emptyList()
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns GatewayProbeResult.Reachable
+        every { viewModes.mode } returns flowOf(ViewMode.SESSIONS)
+        coEvery { foregroundRecovery.recoverActive() } returns null
     }
 
     @After fun tearDown() = Dispatchers.resetMain()
 
-    private fun vm() = StartupViewModel(credentials, connectivity, chat, sessions, profiles)
+    private fun vm() = StartupViewModel(
+        credentials,
+        connectivity,
+        chat,
+        sessions,
+        profiles,
+        rest,
+        models,
+        viewModes,
+        runtimes,
+        foregroundRecovery,
+    )
 
     @Test fun firstLaunchWithoutConfigurationSkipsStartupScreen() = runTest {
         every { credentials.load() } returns null
@@ -82,7 +108,7 @@ class StartupViewModelTest {
         runCurrent()
         assertEquals(StartupPhase.READY, (vm.state.value as StartupUiState.Loading).phase)
 
-        advanceTimeBy(StartupViewModel.MINIMUM_COLD_START_MS)
+        advanceTimeBy(maxOf(StartupViewModel.MINIMUM_COLD_START_MS, StartupViewModel.SUCCESS_COMPLETION_MS))
         runCurrent()
         assertEquals(StartupUiState.Hidden, vm.state.value)
     }
@@ -134,6 +160,8 @@ class StartupViewModelTest {
     }
 
     @Test fun disconnectedHotStartUsesDebounceThenRestoresInPlace() = runTest {
+        val destinationRecovery = CompletableDeferred<Boolean?>()
+        coEvery { foregroundRecovery.recoverActive() } coAnswers { destinationRecovery.await() }
         val vm = vm()
 
         vm.onActivityCreated(processColdStart = false)
@@ -150,6 +178,12 @@ class StartupViewModelTest {
         verify(exactly = 1) { chat.connect() }
 
         connection.value = ConnectionState.Connected
+        runCurrent()
+        assertEquals(StartupPhase.INITIAL_DATA, (vm.state.value as StartupUiState.Loading).phase)
+        destinationRecovery.complete(true)
+        runCurrent()
+        assertEquals(StartupPhase.READY, (vm.state.value as StartupUiState.Loading).phase)
+        advanceTimeBy(StartupViewModel.SUCCESS_COMPLETION_MS)
         runCurrent()
         assertEquals(StartupUiState.Hidden, vm.state.value)
     }
@@ -190,22 +224,69 @@ class StartupViewModelTest {
         connection.value = ConnectionState.Connected
         runCurrent()
         assertEquals(StartupPhase.READY, (vm.state.value as StartupUiState.Loading).phase)
-        advanceTimeBy(StartupViewModel.MINIMUM_COLD_START_MS)
+        advanceTimeBy(maxOf(StartupViewModel.MINIMUM_COLD_START_MS, StartupViewModel.SUCCESS_COMPLETION_MS))
         runCurrent()
         assertEquals(StartupUiState.Hidden, vm.state.value)
         coVerify(exactly = 1) { sessions.listAllProfiles() }
     }
 
-    @Test fun continueOfflineHidesRecoveryUntilNextForeground() = runTest {
+    @Test fun rejectedTokenRoutesToConfigurationRepair() = runTest {
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
+            GatewayProbeResult.Unauthorized(401)
         val vm = vm()
 
-        vm.onForeground()
-        advanceTimeBy(StartupViewModel.HOT_START_DEBOUNCE_MS)
+        vm.onActivityCreated(processColdStart = true)
         runCurrent()
-        assertTrue(vm.state.value is StartupUiState.Loading)
 
-        vm.continueOffline()
+        val repair = vm.state.value as StartupUiState.RepairRequired
+        assertEquals(StartupFailure.AUTHENTICATION_FAILED, repair.failure)
+        assertEquals(StartupReason.COLD_START, repair.reason)
+        verify(exactly = 0) { chat.connect() }
+    }
+
+    @Test fun savedRepairRerunsStartupAndReturnsToOriginalRouteOnlyAfterReady() = runTest {
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
+            GatewayProbeResult.Unauthorized(401) andThen GatewayProbeResult.Reachable
+        val vm = vm()
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        assertTrue(vm.state.value is StartupUiState.RepairRequired)
+
+        vm.onConfigurationSaved()
+        runCurrent()
+        connection.value = ConnectionState.Connected
+        runCurrent()
+        assertEquals(StartupPhase.READY, (vm.state.value as StartupUiState.Loading).phase)
+        assertEquals(0L, vm.repairCompletion.value)
+
+        advanceTimeBy(maxOf(StartupViewModel.MINIMUM_COLD_START_MS, StartupViewModel.SUCCESS_COMPLETION_MS))
         runCurrent()
         assertEquals(StartupUiState.Hidden, vm.state.value)
+        assertEquals(1L, vm.repairCompletion.value)
+    }
+
+    @Test fun relayServerFailureStaysOnStartupInsteadOfOpeningConfiguration() = runTest {
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
+            GatewayProbeResult.ServerFailure(503)
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+
+        val failed = vm.state.value as StartupUiState.Failed
+        assertEquals(StartupFailure.CONNECTION_FAILED, failed.failure)
+    }
+
+    @Test fun invalidStoredUrlRoutesToConfigurationRepairBeforeNetworkCalls() = runTest {
+        every { credentials.load() } returns GatewayConfig("not a URL", "token")
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+
+        val repair = vm.state.value as StartupUiState.RepairRequired
+        assertEquals(StartupFailure.INVALID_URL, repair.failure)
+        coVerify(exactly = 0) { rest.probeStatusFor(any(), any()) }
+        verify(exactly = 0) { chat.connect() }
     }
 }

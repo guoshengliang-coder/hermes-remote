@@ -40,6 +40,7 @@ import kotlinx.coroutines.launch
 import com.hermes.client.data.network.isUnhealthy
 import com.hermes.client.ui.chat.ChatScreen
 import com.hermes.client.ui.chat.ChatLaunch
+import com.hermes.client.ui.chat.ChatViewModel
 import com.hermes.client.ui.components.HealthSheet
 import com.hermes.client.ui.components.HealthStrip
 import com.hermes.client.ui.cron.CronDetailScreen
@@ -48,7 +49,9 @@ import com.hermes.client.ui.cron.CronScreen
 import com.hermes.client.ui.messaging.MessagingScreen
 import com.hermes.client.ui.messaging.MessagingSetupScreen
 import com.hermes.client.ui.models.ModelsScreen
+import com.hermes.client.ui.models.ModelsViewModel
 import com.hermes.client.ui.sessions.SessionsScreen
+import com.hermes.client.ui.sessions.SessionsViewModel
 import com.hermes.client.ui.settings.AboutScreen
 import com.hermes.client.ui.settings.AppearanceScreen
 import com.hermes.client.ui.settings.EnvScreen
@@ -62,6 +65,9 @@ import com.hermes.client.ui.tools.AgentsToolsScreen
 import com.hermes.client.ui.usage.UsageScreen
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.startup.StartupFailure
+import com.hermes.client.ui.startup.StartupDestination
+import com.hermes.client.ui.startup.ForegroundRecoveryCoordinator
 
 private fun chatRoute(target: ChatLaunch): String = buildString {
     append("chat/")
@@ -89,7 +95,16 @@ private fun chatRoute(target: ChatLaunch): String = buildString {
  * the activity, re-read the same intent extra, and re-navigate to the same chat.
  */
 @Composable
-fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsumed: () -> Unit = {}) {
+fun HermesNav(
+    hasConfig: Boolean,
+    deepLinkRoute: String? = null,
+    onDeepLinkConsumed: () -> Unit = {},
+    configurationRepair: StartupFailure? = null,
+    repairCompletion: Long = 0L,
+    onConnectionConfigurationSaved: () -> Unit = {},
+    onDestinationChanged: (StartupDestination) -> Unit = {},
+    foregroundRecovery: ForegroundRecoveryCoordinator? = null,
+) {
     val language = LocalAppLanguage.current
     val nav = rememberNavController()
     // Chat is the primary Hermes Remote workflow. The richer activity dashboard makes several
@@ -109,6 +124,37 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
 
     val backStackEntry by nav.currentBackStackEntryAsState()
     val route = backStackEntry?.destination?.route
+
+    LaunchedEffect(route, backStackEntry?.arguments) {
+        val destination = when {
+            route == "sessions" -> StartupDestination.Sessions
+            route == "search" -> StartupDestination.Search
+            route == "models" -> StartupDestination.Models
+            route?.startsWith("chat/") == true -> {
+                val id = backStackEntry?.arguments?.getString("id").orEmpty()
+                if (id.isBlank()) StartupDestination.Static else StartupDestination.Chat(
+                    sessionId = id,
+                    profile = backStackEntry?.arguments?.getString("profile"),
+                )
+            }
+            else -> StartupDestination.Static
+        }
+        onDestinationChanged(destination)
+    }
+
+    LaunchedEffect(configurationRepair) {
+        configurationRepair?.let { failure ->
+            nav.navigate(
+                "settings_connection?repair=${failure.name}&completion=${repairCompletion + 1}",
+            ) { launchSingleTop = true }
+        }
+    }
+    val expectedRepairCompletion = backStackEntry?.arguments?.getLong("completion") ?: -1L
+    LaunchedEffect(repairCompletion, expectedRepairCompletion) {
+        if (expectedRepairCompletion >= 0L && repairCompletion >= expectedRepairCompletion) {
+            nav.popBackStack()
+        }
+    }
 
     val shellVm: ShellViewModel = hiltViewModel()
     val health by shellVm.health.collectAsStateWithLifecycle()
@@ -203,7 +249,13 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             }
             // ---- Tab roots ----
             composable("sessions") {
+                val vm: SessionsViewModel = hiltViewModel()
+                DisposableEffect(foregroundRecovery, vm) {
+                    foregroundRecovery?.register("sessions") { vm.recoverForForeground() }
+                    onDispose { foregroundRecovery?.unregister("sessions") }
+                }
                 SessionsScreen(
+                    vm = vm,
                     onOpen = openChat,
                     onOpenCard = openCard,
                     onOpenSearch = { nav.navigate("search") { launchSingleTop = true } },
@@ -236,11 +288,18 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                     fadeOut(tween(120)) + slideOutHorizontally(tween(170)) { it / 12 }
                 },
             ) { entry ->
+                val vm: ChatViewModel = hiltViewModel()
+                val recoveryKey = "chat:${entry.arguments?.getString("id").orEmpty()}"
+                DisposableEffect(foregroundRecovery, vm, recoveryKey) {
+                    foregroundRecovery?.register(recoveryKey) { vm.recoverForForeground() }
+                    onDispose { foregroundRecovery?.unregister(recoveryKey) }
+                }
                 ChatScreen(
                     sessionId = entry.arguments?.getString("id") ?: "",
                     sessionProfile = entry.arguments?.getString("profile"),
                     initialTitle = entry.arguments?.getString("title"),
                     isNewSession = entry.arguments?.getBoolean("new") ?: false,
+                    vm = vm,
                     onMenu = back,
                     onNewChat = { id ->
                         nav.navigate(chatRoute(ChatLaunch.new(id))) {
@@ -250,7 +309,14 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
                     onUnauthorized = onUnauthorized,
                 )
             }
-            composable("models") { ModelsScreen(onMenu = back) }
+            composable("models") {
+                val vm: ModelsViewModel = hiltViewModel()
+                DisposableEffect(foregroundRecovery, vm) {
+                    foregroundRecovery?.register("models") { vm.recoverForForeground() }
+                    onDispose { foregroundRecovery?.unregister("models") }
+                }
+                ModelsScreen(onMenu = back, vm = vm)
+            }
             composable("profiles") {
                 com.hermes.client.ui.profiles.ProfilePickerScreen(onBack = back)
             }
@@ -306,8 +372,27 @@ fun HermesNav(hasConfig: Boolean, deepLinkRoute: String? = null, onDeepLinkConsu
             }
             composable("settings_mcp") { McpSettingsScreen(onBack = { nav.popBackStack() }) }
             composable("settings_env") { EnvScreen(onBack = { nav.popBackStack() }) }
-            composable("settings_connection") {
-                com.hermes.client.ui.settings.ConnectionSettingsScreen(onBack = { nav.popBackStack() })
+            composable(
+                route = "settings_connection?repair={repair}&completion={completion}",
+                arguments = listOf(
+                    navArgument("repair") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                    navArgument("completion") {
+                        type = NavType.LongType
+                        defaultValue = -1L
+                    },
+                ),
+            ) { entry ->
+                val repairFailure = entry.arguments?.getString("repair")
+                    ?.let { raw -> runCatching { StartupFailure.valueOf(raw) }.getOrNull() }
+                com.hermes.client.ui.settings.ConnectionSettingsScreen(
+                    onBack = if (repairFailure == null) ({ nav.popBackStack() }) else null,
+                    repairFailure = repairFailure,
+                    onSaved = if (repairFailure == null) ({}) else onConnectionConfigurationSaved,
+                )
             }
             composable("settings_diagnostics") {
                 com.hermes.client.ui.settings.DiagnosticsScreen(

@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -289,6 +290,42 @@ class SessionsViewModel @Inject constructor(
                 loading = false,
                 error = AppError(AppErrorCode.RPC_FAILED, retryable = true, technicalCause = e.message, stage = "sessions_load"),
             )
+        }
+    }
+
+    /** Refreshes whichever Chats segment is actually visible while the warm-start gate is up. */
+    suspend fun recoverForForeground(): Boolean = when (viewMode.first()) {
+        ViewMode.SESSIONS -> {
+            refreshOnce()
+            !_state.value.unauthorized && _state.value.error == null
+        }
+        ViewMode.PROJECTS -> try {
+            val active = profileManager.active.value
+            val all = sessions.listAllProfiles()
+            val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
+            _projects.value = ProjectsUiState(tree = deriveProjectsFromSessions(scoped))
+            true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _projects.value = ProjectsUiState(
+                error = AppError(AppErrorCode.RPC_FAILED, true, error.message, "projects_recovery"),
+            )
+            false
+        }
+        ViewMode.ARCHIVED -> try {
+            val active = profileManager.active.value
+            val all = sessions.archivedAllProfiles()
+            val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
+            _archived.value = ArchivedUiState(sessions = scoped)
+            true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _archived.value = ArchivedUiState(
+                error = AppError(AppErrorCode.RPC_FAILED, true, error.message, "archived_recovery"),
+            )
+            false
         }
     }
 

@@ -33,6 +33,7 @@ import com.hermes.client.ui.startup.StartupScreen
 import com.hermes.client.ui.startup.StartupReason
 import com.hermes.client.ui.startup.StartupUiState
 import com.hermes.client.ui.startup.StartupViewModel
+import com.hermes.client.ui.startup.ForegroundRecoveryCoordinator
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.lifecycle.lifecycleScope
 import javax.inject.Inject
@@ -48,6 +49,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var chat: com.hermes.client.data.repository.ChatRepository
     @Inject lateinit var pendingShare: com.hermes.client.share.PendingShareStore
     @Inject lateinit var languages: AppLanguageProvider
+    @Inject lateinit var foregroundRecovery: ForegroundRecoveryCoordinator
     private val startupViewModel: StartupViewModel by viewModels()
     private val processColdStart = PROCESS_UI_LAUNCH_CLAIMED.compareAndSet(false, true)
 
@@ -86,6 +88,7 @@ class MainActivity : ComponentActivity() {
             }
             val avatarColors by avatarColorStore.overrides.collectAsState(initial = emptyMap())
             val startupState by startupViewModel.state.collectAsState()
+            val repairCompletion by startupViewModel.repairCompletion.collectAsState()
             CompositionLocalProvider(
                 LocalAppLanguage provides language,
                 com.hermes.client.ui.theme.LocalAvatarColors provides avatarColors,
@@ -109,6 +112,7 @@ class MainActivity : ComponentActivity() {
                                     val coldGateVisible = when (val currentStartup = startupState) {
                                         is StartupUiState.Loading -> currentStartup.reason == StartupReason.COLD_START
                                         is StartupUiState.Failed -> currentStartup.reason == StartupReason.COLD_START
+                                        is StartupUiState.RepairRequired -> false
                                         StartupUiState.Hidden -> false
                                     }
                                     // Do not construct the cold-start destination behind the gate.
@@ -120,16 +124,17 @@ class MainActivity : ComponentActivity() {
                                             hasConfig = hasConfig,
                                             deepLinkRoute = deepLinkRoute,
                                             onDeepLinkConsumed = { pendingRoute.value = null },
+                                            configurationRepair = (startupState as? StartupUiState.RepairRequired)?.failure,
+                                            repairCompletion = repairCompletion,
+                                            onConnectionConfigurationSaved = startupViewModel::onConfigurationSaved,
+                                            onDestinationChanged = startupViewModel::onActiveDestinationChanged,
+                                            foregroundRecovery = foregroundRecovery,
                                         )
                                     }
                                     StartupScreen(
                                         state = startupState,
                                         onRetry = startupViewModel::retry,
-                                        onOpenConnectionSettings = {
-                                            startupViewModel.continueOffline()
-                                            pendingRoute.value = "settings_connection"
-                                        },
-                                        onContinueOffline = startupViewModel::continueOffline,
+                                        onOpenConnectionSettings = startupViewModel::requestConfigurationRepair,
                                     )
                                 }
                             }

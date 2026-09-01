@@ -77,7 +77,7 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
             )
         }
         Text(
-            localized(language, "你的随身 AI Agent", "Your AI agent, in your pocket."),
+            "Your AI agent, in your pocket.", // l10n-allow: official English brand slogan
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 10.dp),

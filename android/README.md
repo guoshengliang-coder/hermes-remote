@@ -274,9 +274,16 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 - A first launch with no stored Relay configuration skips the custom gate and opens Setup directly.
 - Foreground returns keep the existing navigation stack. A healthy connection shows no gate; a
   disconnected connection gets a 200 ms no-flash recovery window before the gate overlays the
-  current destination.
-- Recovery stops blocking after 15 seconds and offers retry, connection settings, or temporary
-  access to cached UI. Device-offline and connection failures use the registered `HR-CONN-*` codes.
+  current destination. The overlay remains until the visible Chats/Projects/Archived, conversation,
+  or Models ViewModel has committed its critical refresh, then returns to that same destination.
+- Device-offline, DNS/timeout, Relay 5xx, and initial-data failures stay on the startup gate with
+  retry and connection-settings actions. Invalid URLs and rejected credentials route to a repair
+  version of Connection Settings with the stored values prefilled and the token masked; saving
+  re-runs the complete startup gate before returning to the previous route. There is no offline
+  bypass because the app has no supported offline mode.
+- The progress bar advances through real startup phases with bounded waiting motion and a moving
+  highlight. Operational copy crossfades between phases and its fixed-width one/two/three-dot
+  suffix animates without adding repeated accessibility announcements.
 - The startup brand lockup keeps `HERMES GO` and the official slogan
   `Your AI agent, in your pocket.` in English; operational status and recovery actions still follow
   the in-app language setting.
