@@ -3,6 +3,7 @@ package com.hermes.client.ui.chat
 import androidx.compose.ui.geometry.Rect
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatViewportControllerTest {
@@ -41,5 +42,29 @@ class ChatViewportControllerTest {
 
         assertEquals(1, controller.restoreGeneration)
         assertEquals("answer:turn", controller.saveAnchor()?.blockKey)
+    }
+
+    @Test fun reflowPreservesReadingProgressInsideBlockInsteadOfOldTopOffset() {
+        val controller = ChatViewportController()
+        controller.setPinnedToBottom(false)
+        controller.updateViewport(Rect(0f, 0f, 400f, 1_000f))
+        controller.updateBlock("answer:markdown:2", Rect(0f, -100f, 400f, 300f))
+        controller.holdCurrent()
+
+        // The block doubles in height after a foldable opens. The same semantic reading point is
+        // now already one pixel from the viewport top; restoring the old block-top offset would
+        // incorrectly request a 100px move.
+        controller.updateBlock("answer:markdown:2", Rect(0f, -200f, 700f, 600f))
+
+        assertEquals(1f, controller.correctionPx()!!, 0.01f)
+    }
+
+    @Test fun pinnedViewportRestoresAsBottomAnchor() {
+        val controller = ChatViewportController()
+        controller.holdCurrent()
+        controller.requestHeldRestore()
+
+        assertTrue(controller.restoringBottom())
+        assertEquals(1, controller.restoreGeneration)
     }
 }

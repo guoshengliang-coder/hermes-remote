@@ -1,6 +1,7 @@
 package com.hermes.client.ui.chat
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
@@ -34,8 +35,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.size
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -111,6 +114,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -127,6 +131,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.asImageBitmap
@@ -161,7 +166,14 @@ import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.markdownDimens
 import com.mikepenz.markdown.model.markdownPadding
 
-data class ChatViewportAnchor(val blockKey: String, val offsetFromTopPx: Float)
+data class ChatViewportAnchor(
+    val blockKey: String,
+    val offsetFromTopPx: Float,
+    /** Position of the reading line inside the old block, resilient to width-driven reflow. */
+    val blockFraction: Float = Float.NaN,
+    /** Position of that same reading line inside the viewport. */
+    val viewportFraction: Float = Float.NaN,
+)
 
 /**
  * Semantic viewport state shared by the transcript and fullscreen overlays. Block coordinates are
@@ -184,17 +196,34 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
     fun setPinnedToBottom(value: Boolean) { pinnedToBottom = value }
 
     fun currentAnchor(): ChatViewportAnchor? {
-        if (pinnedToBottom) return heldAnchor
+        if (pinnedToBottom) return heldAnchor ?: BOTTOM_ANCHOR
         val viewport = viewportBounds ?: return heldAnchor
         val visible = blockBounds.entries.filter { (_, bounds) ->
             bounds.bottom > viewport.top && bounds.top < viewport.bottom
         }
+        // Anchor one physical pixel inside the viewport rather than exactly on its boundary.
+        // That avoids floating-point edge ambiguity while still choosing the smallest Markdown
+        // block crossing the reader's first visible line instead of its much larger whole turn.
+        val readingLine = viewport.top + 1f
         val chosen = visible
-            .filter { (_, bounds) -> bounds.top <= viewport.top && bounds.bottom > viewport.top }
+            .filter { (_, bounds) -> bounds.top <= readingLine && bounds.bottom > readingLine }
             .minByOrNull { (_, bounds) -> bounds.height }
-            ?: visible.minByOrNull { (_, bounds) -> kotlin.math.abs(bounds.top - viewport.top) }
+            ?: visible.minByOrNull { (_, bounds) -> kotlin.math.abs(bounds.top - readingLine) }
             ?: return heldAnchor
-        return ChatViewportAnchor(chosen.key, chosen.value.top - viewport.top)
+        val bounds = chosen.value
+        val referenceY = readingLine.coerceIn(bounds.top, bounds.bottom)
+        val blockFraction = if (bounds.height > 0f) {
+            ((referenceY - bounds.top) / bounds.height).coerceIn(0f, 1f)
+        } else 0f
+        val viewportFraction = if (viewport.height > 0f) {
+            ((referenceY - viewport.top) / viewport.height).coerceIn(0f, 1f)
+        } else 0f
+        return ChatViewportAnchor(
+            blockKey = chosen.key,
+            offsetFromTopPx = bounds.top - viewport.top,
+            blockFraction = blockFraction,
+            viewportFraction = viewportFraction,
+        )
     }
 
     fun holdCurrent() { currentAnchor()?.let { heldAnchor = it } }
@@ -225,10 +254,20 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
 
     fun correctionPx(): Float? {
         val anchor = heldAnchor ?: return null
+        if (anchor.blockKey == BOTTOM_ANCHOR_KEY) return 0f
         val viewport = viewportBounds ?: return null
         val block = blockBounds[anchor.blockKey] ?: return null
-        return block.top - (viewport.top + anchor.offsetFromTopPx)
+        return if (anchor.blockFraction.isFinite() && anchor.viewportFraction.isFinite()) {
+            val currentReadingLine = block.top + block.height * anchor.blockFraction
+            val desiredReadingLine = viewport.top + viewport.height * anchor.viewportFraction
+            currentReadingLine - desiredReadingLine
+        } else {
+            // Backwards-compatible fallback for anchors saved by 0.1.68.
+            block.top - (viewport.top + anchor.offsetFromTopPx)
+        }
     }
+
+    fun restoringBottom(): Boolean = heldAnchor?.blockKey == BOTTOM_ANCHOR_KEY
 
     fun finishRestore(generation: Int) {
         if (generation == restoreGeneration) heldAnchor = null
@@ -237,13 +276,25 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
     fun saveAnchor(): ChatViewportAnchor? = heldAnchor ?: currentAnchor()
 
     companion object {
+        private const val BOTTOM_ANCHOR_KEY = "__chat_bottom__"
+        private val BOTTOM_ANCHOR = ChatViewportAnchor(BOTTOM_ANCHOR_KEY, 0f, 1f, 1f)
+
         val Saver = androidx.compose.runtime.saveable.listSaver<ChatViewportController, Any>(
             save = { controller ->
-                controller.saveAnchor()?.let { listOf(it.blockKey, it.offsetFromTopPx) } ?: emptyList()
+                controller.saveAnchor()?.let {
+                    listOf(it.blockKey, it.offsetFromTopPx, it.blockFraction, it.viewportFraction)
+                } ?: emptyList()
             },
             restore = { values ->
                 if (values.size < 2) ChatViewportController()
-                else ChatViewportController(ChatViewportAnchor(values[0] as String, values[1] as Float))
+                else ChatViewportController(
+                    ChatViewportAnchor(
+                        blockKey = values[0] as String,
+                        offsetFromTopPx = values[1] as Float,
+                        blockFraction = (values.getOrNull(2) as? Float) ?: Float.NaN,
+                        viewportFraction = (values.getOrNull(3) as? Float) ?: Float.NaN,
+                    ),
+                )
             },
         )
     }
@@ -334,11 +385,14 @@ fun ChatMessageList(
                     }
                 }
                 if (!newest.isStreaming && revealedCount >= target) {
-                    // Publish the exact final presentation first, then release the visual buffer on
-                    // the next frame. The settled transcript takes over with identical content, so
-                    // message.complete no longer produces a final full-answer jump.
+                    // Publish the exact final presentation first, then release the visual buffer
+                    // only after its measured height has settled. The settled transcript takes
+                    // over with identical content, so message.complete cannot snap the final row.
                     renderedTail = withContext(Dispatchers.Default) { newest.organizedForDisplay() }
-                    androidx.compose.runtime.withFrameNanos { }
+                    // Keep ownership of the live-tail item until its height animation reaches the
+                    // exact final Markdown measurement. Releasing after one frame disabled that
+                    // animation mid-flight and reintroduced a small completion snap.
+                    delay(STREAM_SIZE_ANIMATION_MS.toLong())
                     if (latestLastMessage?.id == newest.id && latestLastMessage?.isStreaming == false) {
                         activeStreamId = null
                         renderedTail = null
@@ -484,30 +538,43 @@ fun ChatMessageList(
     LaunchedEffect(restoreGeneration, listState) {
         if (restoreGeneration <= 0) return@LaunchedEffect
         var foundAnchor = false
-        for (attempt in 0 until 30) {
+        var stableFrames = 0
+        for (attempt in 0 until VIEWPORT_RESTORE_MAX_FRAMES) {
             androidx.compose.runtime.withFrameNanos { }
+            if (semanticViewport.restoringBottom()) {
+                foundAnchor = true
+                if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) {
+                    stableFrames = 0
+                    try {
+                        listState.scrollToItem(0)
+                    } catch (stolen: CancellationException) {
+                        currentCoroutineContext().ensureActive()
+                        return@LaunchedEffect
+                    }
+                } else {
+                    stableFrames++
+                    if (stableFrames >= VIEWPORT_RESTORE_STABLE_FRAMES) break
+                }
+                continue
+            }
             val correction = semanticViewport.correctionPx() ?: continue
             foundAnchor = true
-            if (kotlin.math.abs(correction) <= 1f) break
-            try {
-                // reverseLayout reverses the scroll axis: a block that moved down by +N pixels
-                // needs a -N programmatic delta to return to its previous window coordinate.
-                listState.scrollBy(-correction)
-            } catch (stolen: CancellationException) {
-                currentCoroutineContext().ensureActive()
-                return@LaunchedEffect
+            if (kotlin.math.abs(correction) <= VIEWPORT_RESTORE_TOLERANCE_PX) {
+                stableFrames++
+                if (stableFrames >= VIEWPORT_RESTORE_STABLE_FRAMES) break
+            } else {
+                stableFrames = 0
+                try {
+                    // reverseLayout reverses the scroll axis: a block that moved down by +N pixels
+                    // needs a -N programmatic delta to return to its previous window coordinate.
+                    listState.scrollBy(-correction)
+                } catch (stolen: CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                    return@LaunchedEffect
+                }
             }
         }
         if (foundAnchor) semanticViewport.finishRestore(restoreGeneration)
-    }
-
-    // Initial presentation gate: cached rows may already exist while the authoritative history
-    // request is still in flight. Showing those rows and replacing them a frame later produced the
-    // cache -> REST -> bottom ghost flash. An actively running transcript remains visible because
-    // its live state is newer than REST and acceptHistory will retain it.
-    if (state.historyLoading && !state.isGenerating) {
-        ChatHistorySkeleton(modifier.fillMaxSize())
-        return
     }
 
     if (displayMessages.isEmpty() && visibleProcesses.isEmpty()) {
@@ -533,6 +600,54 @@ fun ChatMessageList(
         }
         return
     }
+
+    // Loading completion only means that authoritative rows exist. Markdown and LazyColumn still
+    // need several layout frames to measure the newest answer and settle reverseLayout at index 0.
+    // Keep the transcript fully laid out but invisible behind the skeleton until those coordinates
+    // remain unchanged across consecutive frames; otherwise the first visible frame contains a few
+    // user bubbles and the next frame snaps to the correctly measured assistant tail.
+    var initialPresentationReady by remember(sessionId) {
+        mutableStateOf(!state.historyLoading && !state.historyLoaded)
+    }
+    LaunchedEffect(
+        sessionId,
+        state.historyLoading,
+        state.historyLoaded,
+        state.isGenerating,
+        displayMessages.size,
+    ) {
+        when {
+            state.isGenerating -> initialPresentationReady = true
+            state.historyLoading -> initialPresentationReady = false
+            !state.historyLoaded -> initialPresentationReady = true
+            else -> {
+                var previousSignature: List<Triple<Any, Int, Int>>? = null
+                var stableFrames = 0
+                repeat(INITIAL_PRESENTATION_MAX_FRAMES) {
+                    androidx.compose.runtime.withFrameNanos { }
+                    val visible = listState.layoutInfo.visibleItemsInfo
+                    if (visible.isEmpty()) return@repeat
+                    val signature = visible.map { Triple(it.key, it.offset, it.size) }
+                    stableFrames = if (signature == previousSignature) stableFrames + 1 else 0
+                    previousSignature = signature
+                    val settledAtTail = listState.firstVisibleItemIndex == 0 &&
+                        listState.firstVisibleItemScrollOffset == 0
+                    if (settledAtTail && stableFrames >= INITIAL_PRESENTATION_STABLE_FRAMES) {
+                        initialPresentationReady = true
+                        return@LaunchedEffect
+                    }
+                }
+                // Never leave a usable conversation permanently masked on an exotic layout. The
+                // bounded fallback is still much later than the one-frame exposure it replaces.
+                initialPresentationReady = true
+            }
+        }
+    }
+    val transcriptAlpha by animateFloatAsState(
+        targetValue = if (initialPresentationReady) 1f else 0f,
+        animationSpec = tween(durationMillis = INITIAL_PRESENTATION_CROSSFADE_MS),
+        label = "chat-history-reveal",
+    )
 
     // Claude-style keyboard dismissal: a downward drag on the conversation collapses the IME
     // instead of requiring a tap on whitespace. Observation-only — it never consumes scroll.
@@ -566,6 +681,7 @@ fun ChatMessageList(
             reverseLayout = true,
             modifier = Modifier
                 .fillMaxSize()
+                .alpha(transcriptAlpha)
                 .testTag("chat-message-list")
                 .onGloballyPositioned { semanticViewport.updateViewport(it.boundsInWindow()) }
                 .onSizeChanged { semanticViewport.onViewportWidth(it.width) }
@@ -584,12 +700,24 @@ fun ChatMessageList(
             // programmatic scroll at all. The 1dp spacer keeps the empty slot measurable so the
             // at-bottom check stays exactly (index 0, offset 0).
             item(key = "bottom-edge") {
-                if (processesVisible) {
-                    Box(Modifier.padding(top = TURN_SPACING)) {
-                        BackgroundProcessesCard(visibleProcesses)
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .animateContentSize(
+                            animationSpec = tween(
+                                durationMillis = STREAM_SIZE_ANIMATION_MS,
+                                easing = LinearOutSlowInEasing,
+                            ),
+                            alignment = Alignment.BottomStart,
+                        ),
+                ) {
+                    if (processesVisible) {
+                        Box(Modifier.padding(top = TURN_SPACING)) {
+                            BackgroundProcessesCard(visibleProcesses)
+                        }
+                    } else {
+                        Spacer(Modifier.height(1.dp))
                     }
-                } else {
-                    Spacer(Modifier.height(1.dp))
                 }
             }
             // Stable turn keys are independent of list position and gateway ids. The latter can be
@@ -609,6 +737,7 @@ fun ChatMessageList(
                 // turn reaches the same actions through its long-press menu. A row under every
                 // turn put 6+ icons on screen per answer and duplicated that menu.
                 val showAssistantActions = msg.id == lastAssistantId && !isGenerating
+                val smoothLiveResize = index == displayMessages.lastIndex && presentingSource != null
                 val previousTs = if (index > 0) displayMessages[index - 1].timestamp else null
                 val turnAnchorKey = "${msg.id}:turn"
                 val turnViewport = LocalChatViewportController.current
@@ -647,6 +776,7 @@ fun ChatMessageList(
                         savingImageId,
                         onFileOpen,
                         onFileShare,
+                        smoothLiveResize = smoothLiveResize,
                         highlighted = index == highlightIndex,
                     )
                 }
@@ -658,7 +788,7 @@ fun ChatMessageList(
         // -> the "sudden snap to bottom". While scrolling the node simply does not exist, so the
         // arresting tap cannot hit it. Avoid an exit animation here: AnimatedVisibility keeps its
         // exiting subtree interactive until the fade completes, recreating the same ghost target.
-        if (!atBottom && !listState.isScrollInProgress) {
+        if (initialPresentationReady && !atBottom && !listState.isScrollInProgress) {
             Surface(
                 onClick = { bottomRequests.trySend(Unit) },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
@@ -676,6 +806,13 @@ fun ChatMessageList(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+        if (transcriptAlpha < 1f) {
+            ChatHistorySkeleton(
+                Modifier
+                    .fillMaxSize()
+                    .alpha(1f - transcriptAlpha),
+            )
         }
     }
     }
@@ -717,19 +854,49 @@ internal fun ChatMessage.streamContentRevision(): Int =
 
 @Composable
 private fun ChatHistorySkeleton(modifier: Modifier = Modifier) {
-    val block = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+    val base = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    val highlight = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.085f)
+    val animationsEnabled = remember { android.animation.ValueAnimator.areAnimatorsEnabled() }
+    val transition = rememberInfiniteTransition(label = "chat-history-skeleton")
+    val sweep by transition.animateFloat(
+        initialValue = if (animationsEnabled) 0f else 0.5f,
+        targetValue = if (animationsEnabled) 1f else 0.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = SKELETON_SWEEP_MS, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "skeleton-sweep",
+    )
+    fun Modifier.bar(widthFraction: Float): Modifier = this
+        .fillMaxWidth(widthFraction)
+        .height(18.dp)
+        .clip(RoundedCornerShape(9.dp))
+        .drawBehind {
+            val centerX = (-0.55f + sweep * 2.1f) * size.width
+            val halfBand = size.width * 0.34f
+            drawRoundRect(
+                brush = Brush.linearGradient(
+                    colors = listOf(base, highlight, base),
+                    start = Offset(centerX - halfBand, 0f),
+                    end = Offset(centerX + halfBand, 0f),
+                ),
+                cornerRadius = CornerRadius(size.height / 2f, size.height / 2f),
+            )
+        }
     Column(
-        modifier.padding(horizontal = 24.dp, vertical = 22.dp),
+        modifier
+            .testTag("chat-history-skeleton")
+            .padding(horizontal = 24.dp, vertical = 22.dp),
         // Bottom-anchored like the reverseLayout transcript it precedes, so the skeleton->content
         // transition doesn't move the visual mass from the top of the pane to the bottom.
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.Bottom),
     ) {
-        Box(Modifier.fillMaxWidth(0.82f).height(18.dp).clip(RoundedCornerShape(9.dp)).background(block))
-        Box(Modifier.fillMaxWidth(0.94f).height(18.dp).clip(RoundedCornerShape(9.dp)).background(block))
-        Box(Modifier.fillMaxWidth(0.68f).height(18.dp).clip(RoundedCornerShape(9.dp)).background(block))
+        Box(Modifier.bar(0.82f))
+        Box(Modifier.bar(0.94f))
+        Box(Modifier.bar(0.68f))
         Spacer(Modifier.height(18.dp))
-        Box(Modifier.fillMaxWidth(0.9f).height(18.dp).clip(RoundedCornerShape(9.dp)).background(block))
-        Box(Modifier.fillMaxWidth(0.74f).height(18.dp).clip(RoundedCornerShape(9.dp)).background(block))
+        Box(Modifier.bar(0.9f))
+        Box(Modifier.bar(0.74f))
     }
 }
 
@@ -755,11 +922,12 @@ private fun MessageBubble(
     savingImageId: String?,
     onFileOpen: (ChatFile) -> Unit,
     onFileShare: (ChatFile) -> Unit,
+    smoothLiveResize: Boolean = false,
     highlighted: Boolean = false,
 ) {
     when (msg.role) {
         Role.USER -> UserBubble(msg, onEditResend, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted)
-        else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted)
+        else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, highlighted = highlighted)
     }
 }
 
@@ -1140,6 +1308,7 @@ private fun AssistantTurn(
     savingImageId: String?,
     onFileOpen: (ChatFile) -> Unit,
     onFileShare: (ChatFile) -> Unit,
+    smoothLiveResize: Boolean = false,
     highlighted: Boolean = false,
 ) {
     val language = LocalAppLanguage.current
@@ -1161,6 +1330,21 @@ private fun AssistantTurn(
         Column(
             Modifier
                 .fillMaxWidth()
+                // A streamed Markdown tail grows in line-sized steps and may briefly shrink when
+                // an unfinished construct resolves. Animate only the live tail's measured height:
+                // settled history remains immediate, while reverseLayout receives a continuous
+                // size curve instead of alternating one-frame jumps.
+                .then(
+                    if (smoothLiveResize) {
+                        Modifier.animateContentSize(
+                            animationSpec = tween(
+                                durationMillis = STREAM_SIZE_ANIMATION_MS,
+                                easing = LinearOutSlowInEasing,
+                            ),
+                            alignment = Alignment.BottomStart,
+                        )
+                    } else Modifier
+                )
                 // No conditional padding here: background/border draw within existing bounds, so
                 // toggling the highlight causes no layout shift (a conditional .padding would).
                 .then(if (highlighted) Modifier.clip(hlShape).background(accent.copy(alpha = 0.12f)).border(1.5.dp, accent, hlShape) else Modifier)
@@ -1351,6 +1535,14 @@ private fun AssistantMarkdownBlock(
 }
 
 private const val STREAM_RENDER_INTERVAL_MS = 64L
+private const val STREAM_SIZE_ANIMATION_MS = 120
+private const val INITIAL_PRESENTATION_CROSSFADE_MS = 120
+private const val INITIAL_PRESENTATION_MAX_FRAMES = 30
+private const val INITIAL_PRESENTATION_STABLE_FRAMES = 4
+private const val VIEWPORT_RESTORE_MAX_FRAMES = 45
+private const val VIEWPORT_RESTORE_STABLE_FRAMES = 4
+private const val VIEWPORT_RESTORE_TOLERANCE_PX = 0.75f
+private const val SKELETON_SWEEP_MS = 1_350
 private val TURN_SPACING = 22.dp
 
 /** "14:32" today, "昨天 14:32" yesterday, "8月30日 14:32" this year, full date otherwise. */

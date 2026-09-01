@@ -3,6 +3,7 @@ package com.hermes.client.ui
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -29,6 +30,27 @@ class ChatScreenTest {
         rule.setContent { HermesTheme { ChatMessageList(state = state, sessionId = "s1") } }
         rule.onNodeWithText("Hello").assertIsDisplayed()
         rule.onNodeWithText("Hi there").assertIsDisplayed()
+    }
+
+    @Test fun cachedHistoryStaysBehindSkeletonUntilAuthoritativeLayoutSettles() {
+        val state = androidx.compose.runtime.mutableStateOf(
+            ChatUiState(
+                messages = listOf(
+                    ChatMessage(id = "u1", role = Role.USER, text = "cached question"),
+                    ChatMessage(id = "a1", role = Role.ASSISTANT, text = "cached answer"),
+                ),
+                historyLoading = true,
+                historyLoaded = true,
+            ),
+        )
+        rule.setContent { HermesTheme { ChatMessageList(state = state.value, sessionId = "loading") } }
+        rule.onNodeWithTag("chat-history-skeleton").assertIsDisplayed()
+
+        state.value = state.value.copy(historyLoading = false)
+        rule.waitUntil(timeoutMillis = 5_000) {
+            rule.onAllNodesWithTag("chat-history-skeleton").fetchSemanticsNodes().isEmpty()
+        }
+        rule.onNodeWithText("cached answer").assertIsDisplayed()
     }
 
     // Opening an existing session must land at the newest message, not the top —
