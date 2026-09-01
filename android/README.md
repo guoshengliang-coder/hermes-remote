@@ -164,6 +164,10 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   the leftover width (long names ellipsize at one smaller type step), the 此对话 override tag and
   tonal background are removed from the chip (the override state lives in the model sheet's
   summary strip with 恢复默认), and the pre-load placeholder reads 默认模型 instead of 自动.
+- Version 0.1.60 stabilizes message identity: history reconciliation reuses live message ids
+  (per-role ordinal alignment) and list keys become ids verbatim, so viewport anchors survive
+  every background history swap — fixing the random jump-to-bottom / position-drift class of
+  bugs at the data layer. Anchor/key diagnostics probes ship behind the diagnostics toggle.
 - Version 0.1.58 settles the card page's density and iconography: shortcut rows drop to 17sp
   text / 22dp icons / 15sp trailing values with tighter padding (user-picked density), the gear
   becomes a proper toothed cog (the hub-and-ticks simplification read as a brightness glyph),
@@ -277,7 +281,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.59-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.60-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
