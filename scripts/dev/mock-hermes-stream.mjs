@@ -124,6 +124,8 @@ function chunks(text, size) {
 
 let promptCount = 0;
 const promptTexts = [];
+const pendingClarifyAnswers = [];
+let clarifyForm = 0; // rotates: 0 single-choice, 1 multi-select, 2 batch
 const LIVE_ID = "live-mock-1";
 const STORED_ID = "stored-mock-1";
 
@@ -173,6 +175,36 @@ async function streamRun(socket) {
       // Approval window: phase -> WAITING_APPROVAL for ~6s so Home's "needs you" row is observable.
       send("approval.request", { command: "systemctl restart hermes-gateway", description: "重启网关服务以应用配置", allow_permanent: true });
       await sleep(2000);
+      // Clarify exercise: rotate through the three upstream forms so the decision card's
+      // single-select, multi-select, and batch flows are all locally testable.
+      const form = clarifyForm++ % 3;
+      if (form === 0) {
+        send("clarify.request", {
+          request_id: "clr-" + clarifyForm,
+          question: "要用哪种发布方式？",
+          choices: ["滚动发布 (Recommended)", "蓝绿切换", "全量停机重发"],
+        });
+      } else if (form === 1) {
+        send("clarify.request", {
+          request_id: "clr-" + clarifyForm,
+          question: "备份哪些内容？",
+          choices: ["数据库全量 (Recommended)", "上传的用户文件", "环境配置与密钥清单"],
+          multi_select: true,
+        });
+      } else {
+        send("clarify.request", {
+          request_id: "clr-" + clarifyForm,
+          questions: [
+            { qid: "q0", question: "数据库选型？", choices: ["PostgreSQL (Recommended)", "MySQL"] },
+            { qid: "q1", question: "对象存储用哪个？", choices: ["本地 MinIO (Recommended)", "阿里云 OSS"] },
+            { qid: "q2", question: "部署区域备注（自由填写）" },
+          ],
+        });
+      }
+      // Wait up to 60s for the user to answer (single respond for forms 0/1; three for batch).
+      const needed = form === 2 ? 3 : 1;
+      const before = pendingClarifyAnswers.length;
+      for (let w = 0; w < 120 && pendingClarifyAnswers.length - before < needed; w++) await sleep(500);
     }
   }
   send("message.complete", { text: FULL_TEXT });
@@ -203,6 +235,12 @@ wss.on("connection", (socket) => {
       case "session.resume":
         reply({ session_id: LIVE_ID });
         break;
+      case "clarify.respond": {
+        const qid = request.params?.question_id;
+        pendingClarifyAnswers.push({ qid: qid ?? null, answer: request.params?.answer ?? "" });
+        reply({ ok: true, remaining: [] });
+        break;
+      }
       case "prompt.submit":
         promptCount += 1;
         promptTexts.push(String(request.params?.text ?? request.params?.prompt ?? "t"));

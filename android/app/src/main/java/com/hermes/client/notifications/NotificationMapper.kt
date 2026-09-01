@@ -64,7 +64,20 @@ fun toNotificationSpec(
         Notif.EVENT_CLARIFY -> if (!prefs.approvals) null else NotificationSpec(
             id = id, channelId = Notif.CHANNEL_APPROVALS,
             title = localized(language, "需要你的回答", "Needs your input"),
-            body = event.str("question") ?: localized(language, "智能体有一个问题。", "The agent has a question."),
+            // Numbered choice preview: the upstream reply parser accepts a bare number ("1") or
+            // "1,3", so an inline reply can SELECT an option without opening the app.
+            body = run {
+                val parsed = com.hermes.client.ui.chat.parseClarifyRequest(event.payload)
+                val q = parsed.currentQuestion
+                when {
+                    q == null || q.question.isBlank() ->
+                        localized(language, "智能体有一个问题。", "The agent has a question.")
+                    q.choices.isEmpty() -> q.question
+                    else -> q.question + "\n" +
+                        q.choices.mapIndexed { i, c -> "${i + 1}. $c" }.joinToString("\n") +
+                        "\n" + localized(language, "回复序号即可选择", "Reply with a number to choose")
+                }
+            },
             route = route,
             actions = listOf(NotifAction(
                 localized(language, "回复", "Reply"),

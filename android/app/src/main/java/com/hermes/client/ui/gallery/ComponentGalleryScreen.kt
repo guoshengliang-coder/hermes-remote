@@ -133,6 +133,38 @@ private val gallerySections: List<Pair<LocalizedText, @Composable () -> Unit>> =
         )
     },
     galleryTitle("打字指示器", "Typing indicator") to { TypingIndicator() },
+    galleryTitle("决策卡 · 单选", "Clarify · single") to {
+        com.hermes.client.ui.chat.ClarifySheetContent(
+            com.hermes.client.ui.chat.ClarifyRequest(
+                "g1",
+                listOf(com.hermes.client.ui.chat.ClarifyQuestion("", "要用哪种发布方式？", listOf("滚动发布 (Recommended)", "蓝绿切换", "全量停机重发"))),
+            ),
+            onAnswer = {}, onSkip = {},
+        )
+    },
+    galleryTitle("决策卡 · 多选", "Clarify · multi") to {
+        com.hermes.client.ui.chat.ClarifySheetContent(
+            com.hermes.client.ui.chat.ClarifyRequest(
+                "g2",
+                listOf(com.hermes.client.ui.chat.ClarifyQuestion("", "备份哪些内容？", listOf("数据库全量 (Recommended)", "上传的用户文件", "环境配置"), multiSelect = true)),
+            ),
+            onAnswer = {}, onSkip = {},
+        )
+    },
+    galleryTitle("决策卡 · 批量 2/3", "Clarify · batch 2/3") to {
+        com.hermes.client.ui.chat.ClarifySheetContent(
+            com.hermes.client.ui.chat.ClarifyRequest(
+                "g3",
+                listOf(
+                    com.hermes.client.ui.chat.ClarifyQuestion("q0", "数据库选型？", listOf("PostgreSQL")),
+                    com.hermes.client.ui.chat.ClarifyQuestion("q1", "对象存储用哪个？", listOf("本地 MinIO (Recommended)", "阿里云 OSS")),
+                    com.hermes.client.ui.chat.ClarifyQuestion("q2", "部署区域备注"),
+                ),
+                lockedAnswers = mapOf("q0" to "PostgreSQL"),
+            ),
+            onAnswer = {}, onSkip = {},
+        )
+    },
     galleryTitle("工具卡 · 成功", "Tool card · success") to {
         SemanticToolCard(ToolCall("a", "Bash", ToolStatus.DONE, output = "ok", command = "nginx -t", exitCode = 0, durationMs = 412))
     },

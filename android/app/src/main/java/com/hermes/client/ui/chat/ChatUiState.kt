@@ -13,6 +13,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 private val displayJson = Json { prettyPrint = true }
 private val extraBlankLines = Regex("\\n[ \\t]*\\n(?:[ \\t]*\\n)+")
@@ -524,7 +525,75 @@ data class ApprovalRequest(
     val allowPermanent: Boolean,
     val smartDenied: Boolean = false,
 )
-data class ClarifyRequest(val question: String, val options: List<String>, val requestId: String = "")
+/**
+ * One structured question from the agent. Mirrors the upstream clarify tool's wire shape:
+ * up to 4 predefined [choices] (choice 0 already carries the upstream "(Recommended)" label),
+ * an always-available free-text "Other" path, and optional [multiSelect] (checkbox semantics —
+ * the answer is submitted as a comma-separated selection the gateway parser accepts).
+ */
+data class ClarifyQuestion(
+    val qid: String,
+    val question: String,
+    val choices: List<String> = emptyList(),
+    val multiSelect: Boolean = false,
+)
+
+/**
+ * A pending clarify.request. Single-question requests are normalized to a one-element
+ * [questions] list (qid = ""), so the UI has exactly one shape to render. [lockedAnswers]
+ * carries answers already accepted server-side (reconnect replay) keyed by qid.
+ */
+data class ClarifyRequest(
+    val requestId: String,
+    val questions: List<ClarifyQuestion>,
+    val lockedAnswers: Map<String, String> = emptyMap(),
+) {
+    val isBatch: Boolean get() = questions.size > 1
+
+    /** First question not yet locked, or null when everything is answered. */
+    val currentQuestion: ClarifyQuestion?
+        get() = questions.firstOrNull { it.qid !in lockedAnswers }
+}
+
+/** Parse a clarify.request payload: batch `questions[]` wins over single question/choices. */
+fun parseClarifyRequest(payload: kotlinx.serialization.json.JsonObject): ClarifyRequest {
+    fun prim(e: kotlinx.serialization.json.JsonElement?): String? =
+        (e as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull?.ifBlank { null }
+    fun choicesOf(obj: kotlinx.serialization.json.JsonObject): List<String> =
+        (obj["choices"] as? kotlinx.serialization.json.JsonArray)
+            ?.mapNotNull { prim(it) }
+            .orEmpty()
+    val requestId = prim(payload["request_id"]) ?: ""
+    val batch = (payload["questions"] as? kotlinx.serialization.json.JsonArray)
+        ?.mapNotNull { element ->
+            val obj = element as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
+            val question = prim(obj["question"]) ?: return@mapNotNull null
+            ClarifyQuestion(
+                qid = prim(obj["qid"]) ?: "",
+                question = question,
+                choices = choicesOf(obj),
+                multiSelect = (obj["multi_select"] as? kotlinx.serialization.json.JsonPrimitive)
+                    ?.contentOrNull?.toBooleanStrictOrNull() ?: false,
+            )
+        }
+        .orEmpty()
+    val questions = batch.ifEmpty {
+        listOf(
+            ClarifyQuestion(
+                qid = "",
+                question = prim(payload["question"]) ?: "",
+                choices = choicesOf(payload),
+                multiSelect = (payload["multi_select"] as? kotlinx.serialization.json.JsonPrimitive)
+                    ?.contentOrNull?.toBooleanStrictOrNull() ?: false,
+            ),
+        )
+    }
+    val locked = (payload["answers"] as? kotlinx.serialization.json.JsonObject)
+        ?.mapNotNull { (k, v) -> prim(v)?.let { k to it } }
+        ?.toMap()
+        .orEmpty()
+    return ClarifyRequest(requestId = requestId, questions = questions, lockedAnswers = locked)
+}
 
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
@@ -611,6 +680,9 @@ fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
         // discarding every delta until the user reopens the conversation.
         "message.delta" -> state.ensureStreamingAssistant()
             .mutateLastAssistant { it.copy(text = it.text + (event.str("text") ?: "")) }
+            // The agent talking again means the pending clarify expired (upstream self-answers
+            // after ~5min) — drop the stale card instead of letting the user answer a dead request.
+            .copy(pendingClarify = null)
         // Real reasoning arrives as reasoning.delta/reasoning.available (payload.text).
         // thinking.delta is only a transient spinner status, so it's ignored (else branch).
         "reasoning.delta", "reasoning.available" ->
@@ -662,9 +734,7 @@ fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
             ),
         )
         "clarify.request" -> state.copy(
-            pendingClarify = ClarifyRequest(
-                event.str("question") ?: "", emptyList(), event.str("request_id") ?: "",
-            ),
+            pendingClarify = parseClarifyRequest(event.payload),
         )
         "error" -> state.copy(
             messages = state.messages + ChatMessage(

@@ -279,11 +279,18 @@ class ChatRepository(private val client: HermesGatewayClient) {
         })
     }
 
-    suspend fun respondClarify(sessionId: String, requestId: String, answer: String) {
+    suspend fun respondClarify(
+        sessionId: String,
+        requestId: String,
+        answer: String,
+        questionId: String? = null,
+    ) {
         client.call("clarify.respond", buildJsonObject {
             put("session_id", sessionId)
             put("request_id", requestId)
             put("answer", answer)
+            // Batch clarifies lock one answer at a time; the server keys them by qid.
+            if (!questionId.isNullOrEmpty()) put("question_id", questionId)
         })
     }
 }
