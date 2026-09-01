@@ -7,8 +7,9 @@
 # Rules this script enforces (see docs/DESIGN.md §7):
 #   1. Free the host first: stop Gradle daemons, kill leftover qemu/crashpad, restart adb.
 #   2. Cap guest RAM (-memory 2048) and skip snapshots (stale snapshots resume wedged state).
-#   3. Routine verification uses the plain Pixel image only — foldable/OEM AVDs (dual display,
-#      fragile /sdcard + network stacks) are NOT for smoke tests.
+#   3. Pixel image ONLY. The HONOR foldable AVD is retired outright (owner decision,
+#      2026-09-01): dual displays, fragile /sdcard mount and a network stack that never came
+#      up made it a pure time sink — do not boot it for any purpose.
 #   4. Build BEFORE booting, never concurrently (compile + qemu together is what starves vCPUs).
 #   5. If the log shows "hanging thread", kill and relaunch immediately — waiting never helps.
 #
