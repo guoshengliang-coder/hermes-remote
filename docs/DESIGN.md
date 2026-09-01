@@ -33,8 +33,12 @@
 
 ## 2. 色彩
 
-### 2.1 基础（`ui/theme/Color.kt`）
-- 品牌主色 Mint：light primary `#087A5C`（Mint40）、dark primary `#65DBB2`（Mint80）。
+### 2.1 基础（`ui/theme/Color.kt`，icon-blue 决策 0.1.61）
+- 品牌主色 **蓝**：light primary `#0B5FD0`（Blue40）、dark primary `#A9C7FF`（Blue80）；
+  背景冷调（light `#F7F9FD`）。历史：Mint 绿已废弃 —— 它与状态语义冲突（primary 同时
+  兼任"完成"色只因绿恰好像成功），也与彩色启动图标打架。
+- **状态色独立于品牌色**（`ui/theme/StatusColors.kt`，深浅双档、测试钉死）：绿=成功/完成
+  只在状态语义中出现，不再与 primary 混用。chrome 永远蓝，状态永远走 StatusColors。
 - 中性色、错误色等全部走 `MaterialTheme.colorScheme`；**禁止**新增只在单一主题下定义的
   硬编码色（每个颜色必须同时考虑深浅两个模式）。
 
@@ -44,8 +48,9 @@
   系统设置可以不一致，曾导致"应用选深色、卡片仍是浅色白卡"的花屏（0.1.56 修复）。
 
 ### 2.3 淡卡语言（卡片页容器，`ui/nav/CardPage.kt`）
-- 浅色：填充 `#FAFAF8`（与白底仅差 1–2 灰阶，按参考稿像素实测）+ `shadowElevation 1dp`；
-  发丝线 `#ECECEA`。
+- 浅色：填充 `#FAFBFD`（冷调近白，与白底仅差 1–2 灰阶）+ `shadowElevation 1dp`；
+  发丝线 `#EBEDF2`。注意：早期暖白 `#FAFAF8/#ECECEA` 在蓝调环境下泛黄，已随 icon-blue
+  切换修正 —— 淡卡字面量必须与品牌冷暖一致。
 - 深色：`lerp(surface, White, 0.06f)` 微提亮一阶、无阴影；发丝线 `lerp(surface, White, 0.14f)`。
 - 精神：卡片轮廓靠**微差与微影**，不靠重填充；深浅两模式必须同一语言。
 
@@ -140,7 +145,7 @@
 - 行 = `ListItem`（白 surface 底），**无行间分隔线**（搜索结果页除外）。
 - cron 告警条：复用 `HealthStrip` 形态（ERROR=errorContainer / OVERDUE=surfaceVariant），
   仅失败/逾期时出现。
-- 运行状态色：WAITING_* = tertiary；FAILED = error；COMPLETED_UNREAD = primary。
+- 运行状态色走 `StatusColors.kt`（语义色，独立于品牌蓝；深浅双档）。
 
 ### 5.3 项目 / 已归档
 - 项目行：leading 描边文件夹 24dp，项目色着**线条**；随当前身份过滤，无身份标。
