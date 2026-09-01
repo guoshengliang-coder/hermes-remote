@@ -254,6 +254,38 @@ class SessionRuntimeStoreTest {
         assertEquals(liveIds.take(after.size), after.map { it.id })
     }
 
+    @Test fun manualRefreshReportsWhetherStableRowsActuallyChanged() = runTest {
+        val (store, _) = fixture()
+        val key = store.register("s1", "personal")
+        val history = listOf(
+            ChatMessage("server-user", Role.USER, "问题"),
+            ChatMessage("server-answer", Role.ASSISTANT, "答案"),
+        )
+
+        assertEquals(ManualHistoryResult.CHANGED, store.acceptManualHistory(key, history))
+        assertEquals(
+            ManualHistoryResult.UNCHANGED,
+            store.acceptManualHistory(
+                key,
+                history.mapIndexed { index, message -> message.copy(id = "new-server-$index") },
+            ),
+        )
+    }
+
+    @Test fun manualRefreshNeverOverwritesAnActiveTurn() = runTest {
+        val (store, _) = fixture()
+        val key = store.register("s1", "personal")
+        store.beginPrompt(key, "正在处理")
+
+        val result = store.acceptManualHistory(
+            key,
+            listOf(ChatMessage("server-old", Role.ASSISTANT, "旧内容")),
+        )
+
+        assertEquals(ManualHistoryResult.BUSY, result)
+        assertEquals("正在处理", store.runtimes.value.getValue(key).chat.messages.last().text)
+    }
+
     @Test fun completion_while_offscreen_becomes_unread() = runTest {
         val (store, events) = fixture()
         val key = store.register("s1", "personal")

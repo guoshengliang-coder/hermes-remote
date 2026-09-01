@@ -37,18 +37,6 @@ class ChatChromeTest {
         assertEquals(true, withTool.streamContentRevision() > withReasoning.streamContentRevision())
     }
 
-    @Test fun historyLayoutRevision_tracksEarlierTurnReplacement() {
-        val original = listOf(
-            ChatMessage("u1", Role.USER, "旧问题"),
-            ChatMessage("a1", Role.ASSISTANT, "相同结尾"),
-        )
-        val refreshed = original.toMutableList().apply {
-            this[0] = this[0].copy(text = "新问题")
-        }
-
-        assertEquals(false, original.conversationLayoutRevision() == refreshed.conversationLayoutRevision())
-    }
-
     @Test fun composerModelLabel_isCompact() {
         assertEquals("Auto", compactModelLabel(null))
         assertEquals("claude-sonnet-4", compactModelLabel("anthropic/claude-sonnet-4"))

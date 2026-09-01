@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
@@ -209,9 +210,6 @@ fun ChatScreen(
         sessionId,
         saver = ChatViewportController.Saver,
     ) { ChatViewportController() }
-    var conversationLayoutRevision by rememberSaveable(sessionId) {
-        androidx.compose.runtime.mutableIntStateOf(0)
-    }
     LaunchedEffect(refreshingConversation) {
         if (refreshingConversation) viewportController.holdCurrent()
     }
@@ -223,11 +221,10 @@ fun ChatScreen(
                     localized(language, "当前回复完成后将自动刷新", "The conversation will refresh after this reply"),
                     android.widget.Toast.LENGTH_SHORT,
                 ).show()
-                ChatViewModel.ConversationRefreshEvent.SUCCEEDED -> {
-                    // Force message content to be parsed/measured again even when the server
-                    // returned byte-for-byte identical history. The list/controller stay alive,
-                    // so this is a real re-layout without a skeleton or a scroll-state reset.
-                    conversationLayoutRevision++
+                ChatViewModel.ConversationRefreshEvent.SUCCEEDED_CHANGED -> {
+                    // Let the stable-id message updates reach layout before the restore
+                    // transaction samples row/block geometry.
+                    androidx.compose.runtime.withFrameNanos { }
                     viewportController.requestHeldRestore()
                     android.widget.Toast.makeText(
                         context,
@@ -235,8 +232,16 @@ fun ChatScreen(
                         android.widget.Toast.LENGTH_SHORT,
                     ).show()
                 }
+                ChatViewModel.ConversationRefreshEvent.SUCCEEDED_UNCHANGED -> {
+                    viewportController.releaseHeldAnchor()
+                    android.widget.Toast.makeText(
+                        context,
+                        localized(language, "当前对话已刷新", "Conversation refreshed"),
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
                 ChatViewModel.ConversationRefreshEvent.FAILED -> {
-                    viewportController.requestHeldRestore()
+                    viewportController.releaseHeldAnchor()
                     android.widget.Toast.makeText(
                         context,
                         localized(
@@ -593,7 +598,11 @@ fun ChatScreen(
                 // Bare 48dp icon (M3 top-bar convention): the floating white containers read as
                 // separate controls fighting the content; naked icons blend into the bar.
                 IconButton(onClick = onMenu) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = localized(language, "返回", "Back"))
+                    Icon(
+                        Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = localized(language, "返回", "Back"),
+                        modifier = Modifier.offset(x = (-4).dp),
+                    )
                 }
                 Box(
                     Modifier
@@ -615,6 +624,7 @@ fun ChatScreen(
                     Icon(
                         Icons.Rounded.Search,
                         contentDescription = localized(language, "搜索当前对话", "Search this chat"),
+                        modifier = Modifier.offset(x = 4.dp),
                     )
                 }
                 Box {
@@ -622,6 +632,7 @@ fun ChatScreen(
                         Icon(
                             Icons.Rounded.MoreVert,
                             contentDescription = localized(language, "更多", "More"),
+                            modifier = Modifier.offset(x = (-4).dp),
                         )
                     }
                     DropdownMenu(
@@ -638,7 +649,7 @@ fun ChatScreen(
                                         Icon(Icons.Rounded.Refresh, contentDescription = null, Modifier.size(20.dp))
                                     }
                                 },
-                                text = { Text(localized(language, "刷新当前对话", "Refresh conversation")) },
+                                text = { Text(localized(language, "刷新对话", "Refresh conversation")) },
                                 enabled = !refreshingConversation,
                                 onClick = {
                                     transcriptMenu = false
@@ -648,7 +659,7 @@ fun ChatScreen(
                             )
                             DropdownMenuItem(
                                 leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(localized(language, "复制全部对话", "Copy transcript")) },
+                                text = { Text(localized(language, "复制对话", "Copy transcript")) },
                                 onClick = {
                                     val t = transcriptText(state.messages, language)
                                     if (t.isBlank()) {
@@ -1099,7 +1110,6 @@ fun ChatScreen(
                         listState = listState,
                         highlightIndex = highlightIndex,
                         scrollToBottomTick = sendToBottomTick,
-                        layoutRevision = conversationLayoutRevision,
                         viewportController = viewportController,
                         isGenerating = state.isGenerating,
                         onEditResend = { text -> draft = text; focusRequester.requestFocus() },

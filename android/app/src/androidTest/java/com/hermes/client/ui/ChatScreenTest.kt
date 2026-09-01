@@ -54,22 +54,22 @@ class ChatScreenTest {
         rule.onNodeWithText("cached answer").assertIsDisplayed()
     }
 
-    @Test fun manualRelayoutDoesNotBringBackHistorySkeleton() {
-        val revision = androidx.compose.runtime.mutableIntStateOf(0)
-        val state = ChatUiState(
-            messages = listOf(
-                ChatMessage(id = "u1", role = Role.USER, text = "refresh question"),
-                ChatMessage(id = "a1", role = Role.ASSISTANT, text = "refresh answer"),
+    @Test fun manualRefreshUpdatesStableRowsWithoutHistorySkeleton() {
+        val state = androidx.compose.runtime.mutableStateOf(
+            ChatUiState(
+                messages = listOf(
+                    ChatMessage(id = "u1", role = Role.USER, text = "refresh question"),
+                    ChatMessage(id = "a1", role = Role.ASSISTANT, text = "refresh answer"),
+                ),
+                historyLoading = false,
+                historyLoaded = true,
             ),
-            historyLoading = false,
-            historyLoaded = true,
         )
         rule.setContent {
             HermesTheme {
                 ChatMessageList(
-                    state = state,
+                    state = state.value,
                     sessionId = "manual-refresh",
-                    layoutRevision = revision.intValue,
                 )
             }
         }
@@ -77,11 +77,15 @@ class ChatScreenTest {
             rule.onAllNodesWithTag("chat-history-skeleton").fetchSemanticsNodes().isEmpty()
         }
 
-        revision.intValue++
+        state.value = state.value.copy(
+            messages = state.value.messages.map {
+                if (it.id == "a1") it.copy(text = "refreshed answer") else it
+            },
+        )
         rule.waitForIdle()
 
         rule.onAllNodesWithTag("chat-history-skeleton").assertCountEquals(0)
-        rule.onNodeWithText("refresh answer").assertIsDisplayed()
+        rule.onNodeWithText("refreshed answer").assertIsDisplayed()
     }
 
     // Opening an existing session must land at the newest message, not the top —

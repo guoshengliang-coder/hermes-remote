@@ -213,15 +213,37 @@ class ChatViewModelTest {
         advanceUntilIdle()
         assertEquals("before", vm.state.value.messages.single().text)
 
-        vm.refreshCurrentConversation()
-        runCurrent()
-        assertFalse("manual refresh must keep the transcript out of skeleton loading", vm.state.value.historyLoading)
-        advanceUntilIdle()
+        vm.refreshEvents.test {
+            vm.refreshCurrentConversation()
+            runCurrent()
+            assertFalse("manual refresh must keep the transcript out of skeleton loading", vm.state.value.historyLoading)
+            advanceUntilIdle()
+            assertEquals(ChatViewModel.ConversationRefreshEvent.SUCCEEDED_CHANGED, awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
 
         assertEquals("after", vm.state.value.messages.single().text)
         assertFalse(vm.state.value.historyLoading)
         assertFalse(vm.refreshing.value)
         coVerify(exactly = 2) { sessionRepo.history("s1", null) }
+    }
+
+    @Test fun identicalManualRefreshDoesNotRequestTranscriptRelayout() = runTest {
+        val history = listOf(ChatMessage("server", Role.ASSISTANT, "same answer"))
+        coEvery { sessionRepo.history("s1", null) } returnsMany listOf(history, history)
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        vm.refreshEvents.test {
+            vm.refreshCurrentConversation()
+            advanceUntilIdle()
+            assertEquals(ChatViewModel.ConversationRefreshEvent.SUCCEEDED_UNCHANGED, awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        assertEquals("same answer", vm.state.value.messages.single().text)
+        assertFalse(vm.state.value.historyLoading)
     }
 
     @Test fun manualRefreshRequestedDuringStreamingWaitsForCompletion() = runTest {

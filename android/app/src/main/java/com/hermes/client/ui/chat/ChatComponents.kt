@@ -287,6 +287,12 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
         }
     }
 
+    /** Drop a refresh-only capture when no geometry changed or the request failed. */
+    fun releaseHeldAnchor() {
+        if (mode == ChatViewportMode.OVERLAY_LOCKED || mode == ChatViewportMode.LAYOUT_RESTORING) return
+        heldAnchor = null
+    }
+
     fun onViewportWidth(width: Int) {
         if (lastWidth > 0 && width > 0 && width != lastWidth) {
             // onSizeChanged runs before the children's new global positions are published, so the
@@ -334,6 +340,16 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
     fun exactRestoreTarget(lazyKeys: List<String>): ChatExactRestoreTarget? {
         val anchor = heldAnchor ?: return null
         if (anchor.viewportWidthPx <= 0 || lastWidth != anchor.viewportWidthPx) return null
+        return restoreTarget(lazyKeys)
+    }
+
+    /**
+     * First stage of every non-bottom restore. Stable item identity remains useful after a width
+     * change even though its old pixel offset is only approximate: it composes the original turn,
+     * making the finer Markdown/row anchor available for the semantic correction stage.
+     */
+    fun restoreTarget(lazyKeys: List<String>): ChatExactRestoreTarget? {
+        val anchor = heldAnchor ?: return null
         val key = anchor.lazyItemKey
         val index = when {
             key != null -> lazyKeys.indexOf(key).takeIf { it >= 0 }
@@ -425,7 +441,6 @@ fun ChatMessageList(
     onFileShare: (ChatFile) -> Unit = {},
     highlightIndex: Int? = null,
     scrollToBottomTick: Long = 0L,
-    layoutRevision: Int = 0,
     viewportController: ChatViewportController? = null,
     onBlankAreaTap: () -> Unit = {},
 ) {
@@ -688,6 +703,8 @@ fun ChatMessageList(
     LaunchedEffect(restoreGeneration, listState) {
         if (restoreGeneration <= 0 || !semanticViewport.isRestoring()) return@LaunchedEffect
         var stableFrames = 0
+        var coarseTargetApplied = false
+        var settled = false
         for (attempt in 0 until VIEWPORT_RESTORE_MAX_FRAMES) {
             androidx.compose.runtime.withFrameNanos { }
             if (!semanticViewport.isRestoring()) return@LaunchedEffect
@@ -702,40 +719,45 @@ fun ChatMessageList(
                     }
                 } else {
                     stableFrames++
-                    if (stableFrames >= VIEWPORT_RESTORE_STABLE_FRAMES) break
-                }
-                continue
-            }
-            val exact = semanticViewport.exactRestoreTarget(lazyKeys)
-            if (exact != null) {
-                if (
-                    listState.firstVisibleItemIndex != exact.index ||
-                    listState.firstVisibleItemScrollOffset != exact.offset
-                ) {
-                    stableFrames = 0
-                    try {
-                        listState.scrollToItem(exact.index, exact.offset)
-                    } catch (stolen: CancellationException) {
-                        currentCoroutineContext().ensureActive()
-                        return@LaunchedEffect
+                    if (stableFrames >= VIEWPORT_RESTORE_STABLE_FRAMES) {
+                        settled = true
+                        break
                     }
-                } else {
-                    stableFrames++
-                    if (stableFrames >= VIEWPORT_RESTORE_STABLE_FRAMES) break
                 }
                 continue
             }
-            // A fullscreen table may itself rotate. Give the underlying transcript a short window
-            // to return to its captured width; if it does not, semantic block restoration below is
-            // the correct cross-width fallback.
+            // Fullscreen rotation can trigger a short chain of configurations. Prefer returning
+            // to the captured width, but do not require it: after the wait, the same stable turn
+            // is still the correct coarse target at any width.
             if (
                 semanticViewport.waitingForExactWidth() &&
                 attempt < VIEWPORT_EXACT_WIDTH_WAIT_FRAMES
             ) continue
+            if (!coarseTargetApplied) {
+                val target = semanticViewport.restoreTarget(lazyKeys)
+                if (target == null) continue
+                if (
+                    listState.firstVisibleItemIndex != target.index ||
+                    listState.firstVisibleItemScrollOffset != target.offset
+                ) {
+                    try {
+                        listState.scrollToItem(target.index, target.offset)
+                    } catch (stolen: CancellationException) {
+                        currentCoroutineContext().ensureActive()
+                        return@LaunchedEffect
+                    }
+                }
+                coarseTargetApplied = true
+                stableFrames = 0
+                continue
+            }
             val correction = semanticViewport.correctionPx() ?: continue
             if (kotlin.math.abs(correction) <= VIEWPORT_RESTORE_TOLERANCE_PX) {
                 stableFrames++
-                if (stableFrames >= VIEWPORT_RESTORE_STABLE_FRAMES) break
+                if (stableFrames >= VIEWPORT_RESTORE_STABLE_FRAMES) {
+                    settled = true
+                    break
+                }
             } else {
                 stableFrames = 0
                 try {
@@ -748,7 +770,12 @@ fun ChatMessageList(
                 }
             }
         }
-        if (semanticViewport.isRestoring()) semanticViewport.finishRestore(restoreGeneration)
+        // Never discard the semantic anchor merely because async Markdown needed longer than the
+        // bounded frame budget. A later configuration/dismiss request can resume the transaction,
+        // and a user drag still cancels it immediately.
+        if (settled && semanticViewport.isRestoring()) {
+            semanticViewport.finishRestore(restoreGeneration)
+        }
     }
 
     if (displayMessages.isEmpty() && visibleProcesses.isEmpty()) {
@@ -934,31 +961,26 @@ fun ChatMessageList(
                                 .padding(bottom = 10.dp),
                         )
                     }
-                    // Manual refresh deliberately recreates the message presentation subtree even
-                    // when authoritative history compares equal. This reparses Markdown and
-                    // remeasures tables while the LazyColumn and its saved scroll state remain.
-                    key(layoutRevision) {
-                        MessageBubble(
-                            msg,
-                            canRegenerate,
-                            showAssistantActions,
-                            onEditResend,
-                            onRegenerate,
-                            onRetryWithModel,
-                            openTableFullscreen,
-                            isSpeaking,
-                            onReadAloud,
-                            onStopReading,
-                            onImageSave,
-                            onImageSaveAs,
-                            onImageShare,
-                            savingImageId,
-                            onFileOpen,
-                            onFileShare,
-                            smoothLiveResize = smoothLiveResize,
-                            highlighted = index == highlightIndex,
-                        )
-                    }
+                    MessageBubble(
+                        msg,
+                        canRegenerate,
+                        showAssistantActions,
+                        onEditResend,
+                        onRegenerate,
+                        onRetryWithModel,
+                        openTableFullscreen,
+                        isSpeaking,
+                        onReadAloud,
+                        onStopReading,
+                        onImageSave,
+                        onImageSaveAs,
+                        onImageShare,
+                        savingImageId,
+                        onFileOpen,
+                        onFileShare,
+                        smoothLiveResize = smoothLiveResize,
+                        highlighted = index == highlightIndex,
+                    )
                 }
             }
         }
@@ -1003,29 +1025,6 @@ fun ChatMessageList(
  * User text anchors a conversation turn; assistant/system ordinals only advance inside that turn.
  */
 internal fun List<ChatMessage>.conversationRenderKeys(): List<String> = map { it.id }
-
-internal fun List<ChatMessage>.conversationLayoutRevision(): Int = fold(1) { revision, message ->
-    var next = 31 * revision + message.id.hashCode()
-    next = 31 * next + message.text.hashCode()
-    next = 31 * next + message.thinking.hashCode()
-    message.images.forEach { image ->
-        next = 31 * next + image.id.hashCode()
-        next = 31 * next + image.localPath.hashCode()
-        next = 31 * next + image.state.hashCode()
-    }
-    message.files.forEach { file ->
-        next = 31 * next + file.id.hashCode()
-        next = 31 * next + file.localPath.hashCode()
-        next = 31 * next + file.state.hashCode()
-    }
-    message.tools.forEach { tool ->
-        next = 31 * next + tool.id.hashCode()
-        next = 31 * next + tool.name.hashCode()
-        next = 31 * next + tool.output.hashCode()
-        next = 31 * next + tool.status.hashCode()
-    }
-    next
-}
 
 internal fun ChatMessage.streamContentRevision(): Int =
     text.length + thinking.length + images.sumOf { it.localPath.orEmpty().length + it.state.ordinal } + tools.sumOf { tool ->
@@ -1561,15 +1560,14 @@ private fun AssistantTurn(
                         )
                     }
                 } else {
-                    val mdComponents = remember(onOpenTableFullscreen) { chatMarkdownComponents(onOpenTableFullscreen) }
                     val blocks = remember(renderedText) { markdownRenderBlocks(renderedText) }
                     Column {
                         blocks.forEachIndexed { blockIndex, block ->
                             key(blockIndex) {
                                 AssistantMarkdownBlock(
                                     content = block,
-                                    components = mdComponents,
                                     anchorKey = "${msg.id}:markdown:$blockIndex",
+                                    onOpenTableFullscreen = onOpenTableFullscreen,
                                     modifier = Modifier.testTag("chat-block-${msg.id}-$blockIndex"),
                                 )
                             }
@@ -1673,11 +1671,14 @@ private fun AssistantTurn(
 @Composable
 private fun AssistantMarkdownBlock(
     content: String,
-    components: MarkdownComponents,
     anchorKey: String,
+    onOpenTableFullscreen: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val viewport = LocalChatViewportController.current
+    val components = remember(onOpenTableFullscreen, anchorKey) {
+        chatMarkdownComponents(onOpenTableFullscreen, anchorKey)
+    }
     androidx.compose.runtime.DisposableEffect(viewport, anchorKey) {
         onDispose { viewport?.removeBlock(anchorKey) }
     }
@@ -1719,7 +1720,9 @@ private const val STREAM_SIZE_ANIMATION_MS = 120
 private const val INITIAL_PRESENTATION_CROSSFADE_MS = 120
 private const val INITIAL_PRESENTATION_MAX_FRAMES = 30
 private const val INITIAL_PRESENTATION_STABLE_FRAMES = 4
-private const val VIEWPORT_RESTORE_MAX_FRAMES = 45
+// Long enough for a large asynchronously parsed answer after a fold/unfold, still bounded so an
+// exotic missing landmark cannot keep a frame loop alive indefinitely.
+private const val VIEWPORT_RESTORE_MAX_FRAMES = 90
 private const val VIEWPORT_EXACT_WIDTH_WAIT_FRAMES = 18
 private const val VIEWPORT_RESTORE_STABLE_FRAMES = 4
 private const val VIEWPORT_RESTORE_TOLERANCE_PX = 0.75f
@@ -1761,7 +1764,10 @@ private fun copyToClipboard(
  * renderer already extracts the clean code text and hands it to this block, so we just overlay a
  * copy affordance on the default code rendering.
  */
-private fun chatMarkdownComponents(onOpenTableFullscreen: (String) -> Unit): MarkdownComponents =
+private fun chatMarkdownComponents(
+    onOpenTableFullscreen: (String) -> Unit,
+    anchorPrefix: String,
+): MarkdownComponents =
     markdownComponents(
         codeFence = { m ->
             MarkdownCodeFence(m.content, m.node, style = m.typography.code) { code, language, style ->
@@ -1793,14 +1799,24 @@ private fun chatMarkdownComponents(onOpenTableFullscreen: (String) -> Unit): Mar
                 m.content.substring(m.node.startOffset, m.node.endOffset)
             }
             ChatTableCard(raw = raw, onOpenFullscreen = { onOpenTableFullscreen(raw) }) {
-                StyledMarkdownTable(m.content, m.node, m.typography.table)
+                StyledMarkdownTable(
+                    m.content,
+                    m.node,
+                    m.typography.table,
+                    anchorPrefix = "$anchorPrefix:table:${m.node.startOffset}",
+                )
             }
         },
     )
 
 /** The styled table body shared by the in-chat card and the fullscreen dialog. */
 @Composable
-private fun StyledMarkdownTable(content: String, node: org.intellij.markdown.ast.ASTNode, style: TextStyle) {
+private fun StyledMarkdownTable(
+    content: String,
+    node: org.intellij.markdown.ast.ASTNode,
+    style: TextStyle,
+    anchorPrefix: String? = null,
+) {
     // Faint full grid (WorkBuddy-style): light enough to stay quiet, present enough that a
     // wrapped multi-line cell reads unambiguously as one column.
     val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
@@ -1823,8 +1839,9 @@ private fun StyledMarkdownTable(content: String, node: org.intellij.markdown.ast
         node,
         style = style,
         headerBlock = { c, header, tableWidth, s ->
-            Box(
-                Modifier
+            SemanticAnchorBox(
+                anchorKey = anchorPrefix?.let { "$it:header:${header.startOffset}" },
+                modifier = Modifier
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f))
                     .tableGrid(cellCount(header)),
             ) {
@@ -1840,7 +1857,10 @@ private fun StyledMarkdownTable(content: String, node: org.intellij.markdown.ast
             }
         },
         rowBlock = { c, row, tableWidth, s ->
-            Box(Modifier.tableGrid(cellCount(row))) {
+            SemanticAnchorBox(
+                anchorKey = anchorPrefix?.let { "$it:row:${row.startOffset}" },
+                modifier = Modifier.tableGrid(cellCount(row)),
+            ) {
                 com.mikepenz.markdown.compose.elements.MarkdownTableRow(
                     c,
                     row,
@@ -1851,6 +1871,26 @@ private fun StyledMarkdownTable(content: String, node: org.intellij.markdown.ast
             }
         },
     )
+}
+
+/** A zero-style semantic landmark; table rows give cross-width restores line-sized precision. */
+@Composable
+private fun SemanticAnchorBox(
+    anchorKey: String?,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val viewport = LocalChatViewportController.current
+    if (anchorKey == null || viewport == null) {
+        Box(modifier) { content() }
+        return
+    }
+    androidx.compose.runtime.DisposableEffect(viewport, anchorKey) {
+        onDispose { viewport.removeBlock(anchorKey) }
+    }
+    Box(modifier.onGloballyPositioned { viewport.updateBlock(anchorKey, it.boundsInWindow()) }) {
+        content()
+    }
 }
 
 /** Gallery/sample entry: renders a raw markdown table with the chat table styling. */

@@ -34,6 +34,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 data class SessionRuntimeKey(val profile: String?, val sessionId: String)
 
+enum class ManualHistoryResult { CHANGED, UNCHANGED, BUSY }
+
 enum class SessionRunPhase {
     IDLE,
     SUBMITTING,
@@ -350,7 +352,8 @@ class SessionRuntimeStore(
      * If a run starts while the request is in flight, retain the live state and let the caller
      * queue one refresh after completion instead of overwriting unpersisted deltas.
      */
-    fun acceptManualHistory(key: SessionRuntimeKey, messages: List<ChatMessage>): Boolean {
+    fun acceptManualHistory(key: SessionRuntimeKey, messages: List<ChatMessage>): ManualHistoryResult {
+        val previous = _runtimes.value[key]?.chat?.messages
         updateRuntime(key) { runtime ->
             if (runtime.chat.isGenerating || runtime.phase.isActive) return@updateRuntime runtime
             runtime.copy(
@@ -365,12 +368,16 @@ class SessionRuntimeStore(
                 ),
             )
         }
-        val committedRuntime = _runtimes.value[key] ?: return false
-        if (committedRuntime.chat.isGenerating || committedRuntime.phase.isActive) return false
+        val committedRuntime = _runtimes.value[key] ?: return ManualHistoryResult.BUSY
+        if (committedRuntime.chat.isGenerating || committedRuntime.phase.isActive) {
+            return ManualHistoryResult.BUSY
+        }
         val committed = committedRuntime.chat.messages
-        return committed.size == messages.size && committed.zip(messages).all { (a, b) ->
+        val accepted = committed.size == messages.size && committed.zip(messages).all { (a, b) ->
             a.copy(timestamp = null, id = "") == b.copy(timestamp = null, id = "")
         }
+        if (!accepted) return ManualHistoryResult.BUSY
+        return if (previous == committed) ManualHistoryResult.UNCHANGED else ManualHistoryResult.CHANGED
     }
 
     /** Apply asynchronously downloaded thumbnails without replacing newer live text/deltas. */

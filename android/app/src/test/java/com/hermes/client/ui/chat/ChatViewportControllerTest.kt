@@ -115,6 +115,24 @@ class ChatViewportControllerTest {
         )
         assertTrue(controller.waitingForExactWidth())
         assertEquals(null, controller.exactRestoreTarget(listOf("bottom-edge", "table-turn")))
+        assertEquals(
+            ChatExactRestoreTarget(index = 1, offset = 16),
+            controller.restoreTarget(listOf("bottom-edge", "table-turn")),
+        )
+    }
+
+    @Test fun unchangedRefreshCanReleaseCaptureWithoutStartingRestore() {
+        val controller = ChatViewportController()
+        controller.setPinnedToBottom(false)
+        controller.updateViewport(Rect(0f, 0f, 400f, 800f))
+        controller.updateBlock("answer", Rect(0f, -20f, 400f, 500f))
+        controller.holdCurrent()
+
+        controller.releaseHeldAnchor()
+        controller.removeBlock("answer")
+
+        assertEquals(null, controller.saveAnchor())
+        assertFalse(controller.isRestoring())
     }
 
     @Test fun userDragCancelsProgrammaticLayoutRestore() {

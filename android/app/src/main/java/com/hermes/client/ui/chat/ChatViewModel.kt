@@ -9,6 +9,7 @@ import com.hermes.client.data.network.ProfileDto
 import com.hermes.client.data.network.str
 import com.hermes.client.data.progress.SessionRuntimeKey
 import com.hermes.client.data.progress.SessionRuntimeStore
+import com.hermes.client.data.progress.ManualHistoryResult
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ChatMediaRepository
 import com.hermes.client.data.repository.ChatFileRepository
@@ -67,7 +68,7 @@ class ChatViewModel @Inject constructor(
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
-    enum class ConversationRefreshEvent { QUEUED, SUCCEEDED, FAILED }
+    enum class ConversationRefreshEvent { QUEUED, SUCCEEDED_CHANGED, SUCCEEDED_UNCHANGED, FAILED }
 
     private companion object {
         const val LIVE_HANDLE_TIMEOUT_MS = 25_000L
@@ -530,16 +531,30 @@ class ChatViewModel @Inject constructor(
                 }
                 // Navigation may have moved to another session while the request was in flight.
                 if (runtimeKey != key || storedSessionId != id) return@launch
-                if (_state.value.isGenerating || !runtimeStore.acceptManualHistory(key, organizedHistory)) {
+                val result = if (_state.value.isGenerating) {
+                    ManualHistoryResult.BUSY
+                } else {
+                    runtimeStore.acceptManualHistory(key, organizedHistory)
+                }
+                if (result == ManualHistoryResult.BUSY) {
                     manualRefreshQueued = true
                     _refreshEvents.emit(ConversationRefreshEvent.QUEUED)
                     return@launch
                 }
                 runtimeStore.markRead(key)
-                // Tell the screen to remeasure and restore its held viewport immediately after the
-                // atomic history swap. Metadata/media are secondary and must not leave the reader
-                // sitting at an intermediate layout while another network request finishes.
-                _refreshEvents.emit(ConversationRefreshEvent.SUCCEEDED)
+                // Publish the committed runtime before the success event. The normal runtime
+                // collector will observe the same value, but relying on collector scheduling here
+                // could start viewport restoration against the pre-refresh composition.
+                runtimeStore.runtimes.value[key]?.chat?.let { _state.value = it }
+                // Stable-id rows update in place. Only changed geometry needs a viewport restore;
+                // byte-for-byte identical history must not remount/reparse the transcript.
+                _refreshEvents.emit(
+                    if (result == ManualHistoryResult.CHANGED) {
+                        ConversationRefreshEvent.SUCCEEDED_CHANGED
+                    } else {
+                        ConversationRefreshEvent.SUCCEEDED_UNCHANGED
+                    },
+                )
                 launch {
                     val metadata = runCatching {
                         sessions.list(profile).firstOrNull { it.id == id }
