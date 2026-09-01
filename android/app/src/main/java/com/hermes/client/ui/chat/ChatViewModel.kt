@@ -881,6 +881,10 @@ class ChatViewModel @Inject constructor(
     fun clarify(answer: String) {
         val request = _state.value.pendingClarify ?: return
         val current = request.currentQuestion
+        com.hermes.client.data.diagnostics.DebugLog.log(
+            "clarify",
+            "respond req=${request.requestId.ifBlank { "<EMPTY>" }} qid=${current?.qid ?: "-"} answerLen=${answer.length}",
+        )
         if (request.isBatch && current != null) {
             val advanced = request.copy(lockedAnswers = request.lockedAnswers + (current.qid to answer))
             val finished = advanced.currentQuestion == null
@@ -888,13 +892,22 @@ class ChatViewModel @Inject constructor(
             viewModelScope.launch {
                 runCatching { chat.respondClarify(sessionId, request.requestId, answer, current.qid) }
                     .onSuccess { if (finished) runtimeKey?.let(runtimeStore::continueAfterInput) }
-                    .onFailure { mutateState { it.copy(pendingClarify = null) } }
+                    .onFailure { error ->
+                        // Transport failure: put the question back so the user can retry —
+                        // a swallowed error looked exactly like a successful submit.
+                        com.hermes.client.data.diagnostics.DebugLog.log("clarify", "respond FAILED: ${error.message}")
+                        mutateState { it.copy(pendingClarify = request) }
+                    }
             }
         } else {
             mutateState { it.copy(pendingClarify = null) }
             viewModelScope.launch {
                 runCatching { chat.respondClarify(sessionId, request.requestId, answer) }
                     .onSuccess { runtimeKey?.let(runtimeStore::continueAfterInput) }
+                    .onFailure { error ->
+                        com.hermes.client.data.diagnostics.DebugLog.log("clarify", "respond FAILED: ${error.message}")
+                        mutateState { it.copy(pendingClarify = request) }
+                    }
             }
         }
     }

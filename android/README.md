@@ -191,6 +191,11 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.72 hardens the decision card round-trip: single-select now works in two steps
+  (tap to select, explicit Confirm to submit) matching multi-select, a failed clarify.respond
+  restores the card for retry instead of silently dropping the answer, the parser falls back to
+  clarify_id/requestId when request_id is absent, and the clarify path logs request ids and
+  respond outcomes to the diagnostics log for on-device evidence.
 - Version 0.1.71 ships the structured decision card: clarify questions render their upstream
   choices (single-tap answer, multi-select confirm, batch step-through with per-question
   locking), the free-text Other path is always present, skip is explicit (no more silent

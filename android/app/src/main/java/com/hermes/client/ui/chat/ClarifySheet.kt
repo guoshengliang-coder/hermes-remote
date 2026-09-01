@@ -77,6 +77,7 @@ internal fun ClarifySheetContent(
         var otherOpen by remember(request.requestId, question.qid) { mutableStateOf(false) }
         var otherText by remember(request.requestId, question.qid) { mutableStateOf("") }
         var checked by remember(request.requestId, question.qid) { mutableStateOf(setOf<Int>()) }
+        var picked by remember(request.requestId, question.qid) { mutableStateOf(-1) }
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -176,13 +177,16 @@ internal fun ClarifySheetContent(
                 }
             } else {
                 question.choices.forEachIndexed { index, choice ->
-                    val selected = index in checked
+                    val selected = if (question.multiSelect) index in checked else index == picked
                     Surface(
                         onClick = {
                             if (question.multiSelect) {
                                 checked = if (selected) checked - index else checked + index
                             } else {
-                                onAnswer(choice)
+                                // Two-step on purpose: tap selects, the confirm button submits.
+                                // One-tap submit felt like the card vanished out from under the
+                                // user's finger (device feedback) and left no room to reconsider.
+                                picked = if (picked == index) -1 else index
                             }
                         },
                         shape = RoundedCornerShape(14.dp),
@@ -203,7 +207,7 @@ internal fun ClarifySheetContent(
                                 Checkbox(checked = selected, onCheckedChange = null, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.size(10.dp))
                             } else {
-                                RadioButton(selected = false, onClick = null, modifier = Modifier.size(20.dp))
+                                RadioButton(selected = selected, onClick = null, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.size(10.dp))
                             }
                             Text(choice, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
@@ -231,16 +235,26 @@ internal fun ClarifySheetContent(
                         )
                     }
                 }
-                if (question.multiSelect) {
+                if (question.choices.isNotEmpty()) {
                     Button(
                         onClick = {
-                            val labels = checked.sorted().map { question.choices[it] }
-                            if (labels.isNotEmpty()) onAnswer(labels.joinToString(", "))
+                            if (question.multiSelect) {
+                                val labels = checked.sorted().map { question.choices[it] }
+                                if (labels.isNotEmpty()) onAnswer(labels.joinToString(", "))
+                            } else if (picked >= 0) {
+                                onAnswer(question.choices[picked])
+                            }
                         },
-                        enabled = checked.isNotEmpty(),
+                        enabled = if (question.multiSelect) checked.isNotEmpty() else picked >= 0,
                         modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(46.dp),
                     ) {
-                        Text(localized(language, "确认选择（${checked.size} 项）", "Confirm (${checked.size})"))
+                        Text(
+                            if (question.multiSelect) {
+                                localized(language, "确认选择（${checked.size} 项）", "Confirm (${checked.size})")
+                            } else {
+                                localized(language, "确认选择", "Confirm choice")
+                            },
+                        )
                     }
                 }
                 TextButton(

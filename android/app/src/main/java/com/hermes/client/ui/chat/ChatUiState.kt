@@ -563,7 +563,19 @@ fun parseClarifyRequest(payload: kotlinx.serialization.json.JsonObject): Clarify
         (obj["choices"] as? kotlinx.serialization.json.JsonArray)
             ?.mapNotNull { prim(it) }
             .orEmpty()
-    val requestId = prim(payload["request_id"]) ?: ""
+    // Field-name defensiveness: the TUI gateway sends request_id, but Hermes surfaces have
+    // shipped clarify_id / requestId variants historically. An empty id makes clarify.respond
+    // unroutable server-side, so log loudly when none resolves.
+    val requestId = prim(payload["request_id"])
+        ?: prim(payload["clarify_id"])
+        ?: prim(payload["requestId"])
+        ?: ""
+    if (requestId.isEmpty()) {
+        com.hermes.client.data.diagnostics.DebugLog.log(
+            "clarify",
+            "request WITHOUT id — keys=${payload.keys}",
+        )
+    }
     val batch = (payload["questions"] as? kotlinx.serialization.json.JsonArray)
         ?.mapNotNull { element ->
             val obj = element as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null

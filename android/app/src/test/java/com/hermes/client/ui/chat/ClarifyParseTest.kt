@@ -77,4 +77,13 @@ class ClarifyParseTest {
         assertEquals(1, req.questions.size)
         assertEquals("有效", req.currentQuestion!!.question)
     }
+
+    @Test
+    fun fallsBackToAlternateRequestIdFields() {
+        val viaClarifyId = parseClarifyRequest(payload("""{"clarify_id":"cl-9","question":"继续吗？"}"""))
+        assertEquals("cl-9", viaClarifyId.requestId)
+
+        val viaCamelCase = parseClarifyRequest(payload("""{"requestId":"cl-10","question":"继续吗？"}"""))
+        assertEquals("cl-10", viaCamelCase.requestId)
+    }
 }
