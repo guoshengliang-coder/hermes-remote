@@ -363,6 +363,27 @@ class SessionsViewModelTest {
         assertNull(vm.projectsState.value.scope)
     }
 
+    @Test fun foregroundRecoveryKeepsTheOpenProjectAndRefreshesItsSessions() = runTest {
+        modeFlow.value = ViewMode.PROJECTS
+        coEvery { sessionRepo.listAllProfiles() } returns listOf(
+            repoSession("s1", "/u/andrew/p"),
+        )
+        val vm = buildVm()
+        advanceUntilIdle()
+        vm.enterProject(vm.projectsState.value.tree.single())
+
+        coEvery { sessionRepo.listAllProfiles() } returns listOf(
+            repoSession("s1", "/u/andrew/p"),
+            repoSession("s2", "/u/andrew/p"),
+        )
+        assertTrue(vm.recoverForForeground())
+
+        assertEquals("/u/andrew/p", vm.projectsState.value.scope?.id)
+        val ids = vm.projectsState.value.scope?.repos?.single()?.lanes?.single()?.sessions
+            ?.map { it.id }
+        assertEquals(setOf("s1", "s2"), ids?.toSet())
+    }
+
     // Regression: exitProject must cancel an in-flight enterProject so a stale projectSessions
     // result does NOT resurrect the scope. The old code had no job tracking, so rapid exit
     // after enter would let the delayed fetch complete and set scope back to the hydrated

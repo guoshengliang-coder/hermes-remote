@@ -132,6 +132,7 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
                     leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    enabled = !state.connecting,
                     modifier = Modifier.fillMaxWidth(),
                     shape = MaterialTheme.shapes.medium,
                 )
@@ -143,6 +144,7 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    enabled = !state.connecting,
                     modifier = Modifier.fillMaxWidth(),
                     shape = MaterialTheme.shapes.medium,
                 )
@@ -196,6 +198,7 @@ fun SetupScreen(vm: SetupViewModel = hiltViewModel(), onSaved: () -> Unit) {
                 )
             },
             modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(50.dp),
+            enabled = !state.connecting,
             shape = MaterialTheme.shapes.medium,
         ) {
             Icon(Icons.Rounded.QrCodeScanner, contentDescription = null)

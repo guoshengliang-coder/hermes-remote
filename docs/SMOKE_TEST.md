@@ -120,6 +120,35 @@ logic but not the interaction feel.
 8. **Remote device tile.** With the Connector attached, confirm the card page shows its DEVICE_ID
    and Connected · latency; kill the Connector and confirm the tile flips to offline.
 
+## Startup recovery and navigation smoke test (0.1.66)
+
+Run these flows on a device or emulator against a real Gateway/Connector. They guard the startup
+and navigation regression that could pass JVM tests while making every pushed screen unusable.
+
+1. **All entry points stay open.** From Chats, open an existing conversation and create a new one
+   with the add button. Then open Search, Models, Cron and Settings. Every destination must remain
+   visible until Back is pressed; none may flash and immediately return to Chats.
+2. **Unread transition.** Complete a conversation while it is off-screen and confirm its blue unread
+   dot appears. Tap the row: the conversation must open, its history must finish loading, and the dot
+   must clear rather than reappearing because navigation was rejected.
+3. **First pairing readiness.** Clear app data and open the app. The setup page must appear directly,
+   without a decorative startup delay. After a valid Relay URL and App Token are saved, the startup
+   page must complete connection, profile loading, and the initial session snapshot before Chats is
+   revealed; Chats must not show another full-screen loading state.
+4. **Healthy warm return.** Background the connected app from a conversation and return without
+   interrupting the connection. No startup page should appear and the same conversation/scroll
+   position should remain visible.
+5. **Interrupted warm return.** Background the app, interrupt its connection, then return. The
+   startup page must remain until the exact visible destination is refreshed. Repeat from an open
+   chat, flat Chats, an open project, Archived, Search and Models; no destination should show a second
+   full-screen loading state after the startup page disappears.
+6. **Failure routing.** With phone networking disabled, the startup page must show the network error
+   and Retry. With the Connector stopped but Relay reachable, it must report that the Mac/Desktop is
+   offline (HR-CONN-005). With an invalid URL or rejected token, it must open the prefilled connection
+   repair page; saving valid values must rerun readiness and return to the page that was interrupted.
+7. **Connection-test race.** Start a connection test, edit the URL or token before it completes, and
+   confirm the obsolete result is discarded. While a test is active, Test and Save stay disabled.
+
 ## Model selector smoke test (2026-08 collapsible groups + current-model visibility)
 
 JVM unit tests cover the grouping/collapse logic, override tracking, and error codes; these flows

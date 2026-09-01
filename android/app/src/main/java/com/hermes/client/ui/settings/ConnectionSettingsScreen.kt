@@ -85,8 +85,16 @@ fun ConnectionSettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { vm.test() }) { Text(localized(language, "测试连接", "Test connection")) }
-                Button(onClick = { vm.save(reconnect = repairFailure == null) }) {
+                OutlinedButton(onClick = { vm.test() }, enabled = !state.testing) {
+                    Text(
+                        if (state.testing) localized(language, "正在测试…", "Testing…")
+                        else localized(language, "测试连接", "Test connection"),
+                    )
+                }
+                Button(
+                    onClick = { vm.save(reconnect = repairFailure == null) },
+                    enabled = !state.testing,
+                ) {
                     Text(localized(language, "保存并重连", "Save and reconnect"))
                 }
             }

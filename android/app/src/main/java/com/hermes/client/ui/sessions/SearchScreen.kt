@@ -85,13 +85,28 @@ class SearchViewModel @Inject constructor(
 
     init { refresh() }
 
-    fun refresh() = viewModelScope.launch {
+    fun refresh() = viewModelScope.launch { refreshNow() }
+
+    /** Refreshes the visible search source before the warm-start overlay is removed. */
+    suspend fun recoverForForeground(): Boolean = refreshNow()
+
+    private suspend fun refreshNow(): Boolean {
         val active = profileManager.active.value
         fun scope(all: List<Session>) =
             if (active.isNullOrBlank()) all else all.filter { it.profile == active }
-        live = runCatching { sessions.listAllProfiles() }.getOrNull()?.let(::scope) ?: emptyList()
-        archived = runCatching { sessions.archivedAllProfiles() }.getOrNull()?.let(::scope) ?: emptyList()
-        applyFilter()
+        return try {
+            val refreshedLive = sessions.listAllProfiles()
+            val refreshedArchived = sessions.archivedAllProfiles()
+            if (active != profileManager.active.value) return false
+            live = scope(refreshedLive)
+            archived = scope(refreshedArchived)
+            applyFilter()
+            true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        }
     }
 
     fun onQueryChange(q: String) {

@@ -52,6 +52,7 @@ import com.hermes.client.ui.models.ModelsScreen
 import com.hermes.client.ui.models.ModelsViewModel
 import com.hermes.client.ui.sessions.SessionsScreen
 import com.hermes.client.ui.sessions.SessionsViewModel
+import com.hermes.client.ui.sessions.SearchViewModel
 import com.hermes.client.ui.settings.AboutScreen
 import com.hermes.client.ui.settings.AppearanceScreen
 import com.hermes.client.ui.settings.EnvScreen
@@ -80,6 +81,15 @@ private fun chatRoute(target: ChatLaunch): String = buildString {
     if (query.isNotEmpty()) append('?').append(query.joinToString("&"))
 }
 
+/** Only the configuration-repair destination may consume the repair completion signal. */
+internal fun shouldPopCompletedRepair(
+    route: String?,
+    expectedCompletion: Long,
+    actualCompletion: Long,
+): Boolean = route?.startsWith("settings_connection") == true &&
+    expectedCompletion >= 0L &&
+    actualCompletion >= expectedCompletion
+
 /**
  * Root navigation host. The session list is the ONLY main screen; everything else is either a
  * pushed screen (chat, cron, settings, archived — back arrow) or lives on the card page, a
@@ -102,6 +112,7 @@ fun HermesNav(
     configurationRepair: StartupFailure? = null,
     repairCompletion: Long = 0L,
     onConnectionConfigurationSaved: () -> Unit = {},
+    onInitialConfigurationSaved: () -> Unit = {},
     onDestinationChanged: (StartupDestination) -> Unit = {},
     foregroundRecovery: ForegroundRecoveryCoordinator? = null,
 ) {
@@ -112,6 +123,7 @@ fun HermesNav(
     val start = if (hasConfig) "sessions" else "setup"
     // Set on a fresh successful pairing; the sheet itself no-ops if it was already shown once.
     var showNotificationOnboarding by rememberSaveable { mutableStateOf(false) }
+    var pendingSetupCompletion by rememberSaveable { mutableStateOf<Long?>(null) }
 
     // Guard the navigate: a hermes:// deep link is untrusted, and even the notification path could
     // carry a stale/unknown route — an unresolved route must be ignored, never crash.
@@ -149,10 +161,18 @@ fun HermesNav(
             ) { launchSingleTop = true }
         }
     }
-    val expectedRepairCompletion = backStackEntry?.arguments?.getLong("completion") ?: -1L
-    LaunchedEffect(repairCompletion, expectedRepairCompletion) {
-        if (expectedRepairCompletion >= 0L && repairCompletion >= expectedRepairCompletion) {
+    val expectedRepairCompletion = backStackEntry?.arguments?.getLong("completion", -1L) ?: -1L
+    LaunchedEffect(route, repairCompletion, expectedRepairCompletion) {
+        if (shouldPopCompletedRepair(route, expectedRepairCompletion, repairCompletion)) {
             nav.popBackStack()
+        }
+    }
+    LaunchedEffect(route, repairCompletion, pendingSetupCompletion) {
+        val expected = pendingSetupCompletion
+        if (route == "setup" && expected != null && repairCompletion >= expected) {
+            pendingSetupCompletion = null
+            showNotificationOnboarding = true
+            nav.navigate("sessions") { popUpTo("setup") { inclusive = true } }
         }
     }
 
@@ -242,8 +262,8 @@ fun HermesNav(
             composable("setup") {
                 SetupScreen(
                     onSaved = {
-                        showNotificationOnboarding = true
-                        nav.navigate("sessions") { popUpTo("setup") { inclusive = true } }
+                        pendingSetupCompletion = repairCompletion + 1L
+                        onInitialConfigurationSaved()
                     },
                 )
             }
@@ -264,7 +284,12 @@ fun HermesNav(
                 )
             }
             composable("search") {
-                com.hermes.client.ui.sessions.SearchScreen(onOpen = openChat, onBack = back)
+                val vm: SearchViewModel = hiltViewModel()
+                DisposableEffect(foregroundRecovery, vm) {
+                    foregroundRecovery?.register("search") { vm.recoverForForeground() }
+                    onDispose { foregroundRecovery?.unregister("search") }
+                }
+                com.hermes.client.ui.sessions.SearchScreen(onOpen = openChat, onBack = back, vm = vm)
             }
 
             // ---- Pushed screens (back arrow) ----

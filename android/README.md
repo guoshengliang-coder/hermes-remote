@@ -184,6 +184,13 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   (row suffixes mirror the desktop list). The sheet drops the 此对话/默认 scope control —
   it now only changes the current chat, with the profile default edited solely on 设置 › 模型 —
   and both surfaces gain a manual force-refresh button with an in-flight spinner.
+- Version 0.1.66 fixes the navigation completion guard that incorrectly treated every destination
+  as a finished connection-repair screen, so existing chats, New chat, search, models, cron, and
+  settings now stay open instead of immediately returning to Chats. First-time pairing now keeps
+  the startup gate up until the socket, profiles, and initial session snapshot are ready; later
+  foreground disconnects restore the gate and refresh the exact visible chat/list/project/search
+  destination before revealing it. Connector-offline responses are also distinguished from Relay,
+  URL, and token failures, and connection tests cannot save a stale in-flight result.
 - Version 0.1.64 completes the startup experience: phase-based progress now advances continuously
   with a moving highlight and animated status dots; cold and interrupted warm starts stay behind
   the gate until the destination's critical data is ready, while a healthy warm return remains
@@ -319,7 +326,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.65-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.66-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

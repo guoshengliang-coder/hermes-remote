@@ -188,6 +188,69 @@ class StartupViewModelTest {
         assertEquals(StartupUiState.Hidden, vm.state.value)
     }
 
+    @Test fun briefForegroundDisconnectRecoversInsideDebounceWithoutShowingGate() = runTest {
+        connection.value = ConnectionState.Connected
+        val vm = vm()
+        vm.onForeground()
+        runCurrent()
+
+        connection.value = ConnectionState.Reconnecting
+        runCurrent()
+        advanceTimeBy(StartupViewModel.HOT_START_DEBOUNCE_MS - 1L)
+        connection.value = ConnectionState.Connected
+        advanceTimeBy(1L)
+        runCurrent()
+
+        assertEquals(StartupUiState.Hidden, vm.state.value)
+        verify(exactly = 0) { chat.reconnect() }
+    }
+
+    @Test fun disconnectAfterForegroundEntryBringsRecoveryGateBack() = runTest {
+        connection.value = ConnectionState.Connected
+        val destinationRecovery = CompletableDeferred<Boolean?>()
+        coEvery { foregroundRecovery.recoverActive() } coAnswers { destinationRecovery.await() }
+        val vm = vm()
+        vm.onForeground()
+        runCurrent()
+
+        connection.value = ConnectionState.Reconnecting
+        advanceTimeBy(StartupViewModel.HOT_START_DEBOUNCE_MS)
+        runCurrent()
+        assertTrue(vm.state.value is StartupUiState.Loading)
+        verify(exactly = 1) { chat.reconnect() }
+
+        connection.value = ConnectionState.Connected
+        runCurrent()
+        destinationRecovery.complete(true)
+        runCurrent()
+        advanceTimeBy(StartupViewModel.SUCCESS_COMPLETION_MS)
+        runCurrent()
+        assertEquals(StartupUiState.Hidden, vm.state.value)
+    }
+
+    @Test fun firstSetupCompletesSocketProfilesAndSessionsBeforeSignallingNavigation() = runTest {
+        val vm = vm()
+
+        vm.onInitialConfigurationSaved()
+        runCurrent()
+        assertEquals(
+            StartupReason.INITIAL_SETUP,
+            (vm.state.value as StartupUiState.Loading).reason,
+        )
+        verify(exactly = 1) { chat.reconnect() }
+
+        connection.value = ConnectionState.Connected
+        runCurrent()
+        coVerify(exactly = 1) { profiles.refresh() }
+        coVerify(exactly = 1) { sessions.listAllProfiles() }
+        assertEquals(StartupPhase.READY, (vm.state.value as StartupUiState.Loading).phase)
+
+        advanceTimeBy(maxOf(StartupViewModel.MINIMUM_COLD_START_MS, StartupViewModel.SUCCESS_COMPLETION_MS))
+        runCurrent()
+        assertEquals(StartupUiState.Hidden, vm.state.value)
+        assertEquals(1L, vm.repairCompletion.value)
+    }
+
     @Test fun offlineStartupShowsRegisteredRetryableError() = runTest {
         every { connectivity.isOnline() } returns false
         val vm = vm()
@@ -275,6 +338,19 @@ class StartupViewModelTest {
 
         val failed = vm.state.value as StartupUiState.Failed
         assertEquals(StartupFailure.CONNECTION_FAILED, failed.failure)
+    }
+
+    @Test fun connectorOfflineHasItsOwnRecoveryMessageAndCode() = runTest {
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
+            GatewayProbeResult.ServerFailure(503, "device_offline")
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+
+        val failed = vm.state.value as StartupUiState.Failed
+        assertEquals(StartupFailure.CONNECTOR_OFFLINE, failed.failure)
+        assertEquals("HR-CONN-005", failed.failure.code)
     }
 
     @Test fun invalidStoredUrlRoutesToConfigurationRepairBeforeNetworkCalls() = runTest {

@@ -4,6 +4,7 @@ package com.hermes.client.data.error
 enum class AppErrorCode(val value: String) {
     CONNECTION_FAILED("HR-CONN-002"),
     CONNECTION_INTERRUPTED("HR-CONN-004"),
+    CONNECTOR_OFFLINE("HR-CONN-005"),
     RPC_FAILED("HR-RPC-001"),
     MODEL_LIST_FAILED("HR-RPC-003"),
     MODEL_SWITCH_FAILED("HR-RPC-004"),

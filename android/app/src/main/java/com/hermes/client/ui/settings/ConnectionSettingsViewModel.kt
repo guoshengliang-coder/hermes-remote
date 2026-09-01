@@ -6,6 +6,7 @@ import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.GatewayConfig
 import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import com.hermes.client.data.network.GatedAuth
+import com.hermes.client.data.network.GatewayProbeResult
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.repository.ChatRepository
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +26,7 @@ data class ConnectionUiState(
     val username: String = "",
     val password: String = "",
     val testResult: LocalizedText? = null,
+    val testing: Boolean = false,
     val saved: Boolean = false,
 )
 
@@ -41,34 +43,72 @@ class ConnectionSettingsViewModel @Inject constructor(
     private val gatedAuth: GatedAuth,
 ) : ViewModel() {
     private val _state = MutableStateFlow(
-        store.load()?.let {
+        runCatching { store.load() }.getOrNull()?.let {
             ConnectionUiState(url = it.baseUrl, token = it.token, username = it.username, password = it.password)
         } ?: ConnectionUiState(),
     )
     val state: StateFlow<ConnectionUiState> = _state.asStateFlow()
+    private var testRevision = 0L
 
-    fun onUrlChange(v: String) { _state.value = _state.value.copy(url = v.trim(), saved = false, testResult = null) }
-    fun onTokenChange(v: String) { _state.value = _state.value.copy(token = v.trim(), saved = false, testResult = null) }
-    fun onUsernameChange(v: String) { _state.value = _state.value.copy(username = v.trim(), saved = false, testResult = null) }
-    fun onPasswordChange(v: String) { _state.value = _state.value.copy(password = v, saved = false, testResult = null) }
+    fun onUrlChange(v: String) { invalidateTest { copy(url = v.trim(), saved = false, testResult = null) } }
+    fun onTokenChange(v: String) { invalidateTest { copy(token = v.trim(), saved = false, testResult = null) } }
+    fun onUsernameChange(v: String) { invalidateTest { copy(username = v.trim(), saved = false, testResult = null) } }
+    fun onPasswordChange(v: String) { invalidateTest { copy(password = v, saved = false, testResult = null) } }
+
+    private fun invalidateTest(transform: ConnectionUiState.() -> ConnectionUiState) {
+        testRevision += 1L
+        _state.value = _state.value.transform().copy(testing = false)
+    }
 
     /** Test with the entered values WITHOUT persisting: a login probe when a username is set,
      *  otherwise a plain status check. */
     fun test() = viewModelScope.launch {
         val s = _state.value
+        val revision = ++testRevision
+        _state.value = s.copy(testing = true, testResult = null)
         val url = runCatching { normalizeGatewayBaseUrl(s.url) }.getOrElse {
-            _state.value = s.copy(testResult = localizedText("Relay 地址无效（HR-CONFIG-003）", "Invalid Relay URL (HR-CONFIG-003)"))
+            if (revision == testRevision) {
+                _state.value = s.copy(
+                    testing = false,
+                    testResult = localizedText("Relay 地址无效（HR-CONFIG-003）", "Invalid Relay URL (HR-CONFIG-003)"),
+                )
+            }
             return@launch
         }
-        val ok = if (s.username.isNotBlank()) {
-            withContext(Dispatchers.IO) { gatedAuth.probeLogin(url, s.username, s.password) }
+        val result = if (s.username.isNotBlank()) {
+            if (withContext(Dispatchers.IO) { gatedAuth.probeLogin(url, s.username, s.password) }) {
+                localizedText("连接成功 ✓", "Connected ✓")
+            } else {
+                localizedText("连接失败，请检查配置（HR-CONN-002）", "Connection failed — check the configuration (HR-CONN-002)")
+            }
         } else {
-            rest.statusFor(url, s.token)
+            when (val probe = rest.probeStatusFor(url, s.token)) {
+                GatewayProbeResult.Reachable -> localizedText("连接成功 ✓", "Connected ✓")
+                is GatewayProbeResult.Unauthorized -> localizedText(
+                    "App Token 无效或已失效（HR-AUTH-001）",
+                    "The App Token is invalid or expired (HR-AUTH-001)",
+                )
+                is GatewayProbeResult.InvalidEndpoint -> localizedText(
+                    "Relay 地址不是兼容的服务（HR-CONFIG-003）",
+                    "The Relay URL isn't a compatible service (HR-CONFIG-003)",
+                )
+                is GatewayProbeResult.ServerFailure -> if (probe.errorCode == "device_offline") {
+                    localizedText(
+                        "Mac 端当前离线，请启动 Hermes Go Desktop（HR-CONN-005）",
+                        "The Mac is offline. Start Hermes Go Desktop (HR-CONN-005)",
+                    )
+                } else {
+                    localizedText("Relay 暂时不可用（HR-CONN-002）", "The Relay is temporarily unavailable (HR-CONN-002)")
+                }
+                is GatewayProbeResult.Unreachable -> localizedText(
+                    "连接失败，请检查网络和地址（HR-CONN-002）",
+                    "Connection failed — check the network and URL (HR-CONN-002)",
+                )
+            }
         }
-        _state.value = _state.value.copy(
-            testResult = if (ok) localizedText("连接成功 ✓", "Connected ✓")
-            else localizedText("连接失败，请检查配置（HR-CONN-002）", "Connection failed — check the configuration (HR-CONN-002)"),
-        )
+        if (revision == testRevision) {
+            _state.value = _state.value.copy(testing = false, testResult = result)
+        }
     }
 
     /** Persist the new server/credentials, drop any stale session, then reconnect. */

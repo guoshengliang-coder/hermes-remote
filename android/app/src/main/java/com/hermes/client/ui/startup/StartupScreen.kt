@@ -174,12 +174,16 @@ private fun LoadingFooter(state: StartupUiState.Loading) {
         StartupPhase.CONFIGURATION -> localized(language, "正在检查配置", "Checking configuration")
         StartupPhase.NETWORK -> localized(language, "正在检查网络", "Checking network")
         StartupPhase.AUTHENTICATION -> localized(language, "正在验证连接凭据", "Verifying connection credentials")
-        StartupPhase.CONNECTION -> if (state.reason == StartupReason.COLD_START) {
+        StartupPhase.CONNECTION -> if (state.reason != StartupReason.CONNECTION_RECOVERY) {
             localized(language, "正在建立安全连接", "Establishing a secure connection")
         } else {
             localized(language, "正在恢复安全连接", "Restoring the secure connection")
         }
-        StartupPhase.INITIAL_DATA -> localized(language, "正在准备会话", "Preparing conversations")
+        StartupPhase.INITIAL_DATA -> if (state.reason == StartupReason.CONNECTION_RECOVERY) {
+            localized(language, "正在恢复当前页面", "Restoring the current screen")
+        } else {
+            localized(language, "正在准备会话", "Preparing conversations")
+        }
         StartupPhase.READY -> localized(language, "连接就绪", "Connection ready")
     }
     Crossfade(
@@ -292,6 +296,11 @@ private fun FailureFooter(
             "无法连接 Relay，请重试。",
             "Couldn't connect to the Relay. Retry.",
         )
+        StartupFailure.CONNECTOR_OFFLINE -> localized(
+            language,
+            "Mac 端当前离线，请确认 Hermes Go Desktop 正在运行。",
+            "The Mac is offline. Make sure Hermes Go Desktop is running.",
+        )
         StartupFailure.INITIAL_DATA_FAILED -> localized(
             language,
             "无法加载首屏数据，请重试。",
@@ -333,6 +342,7 @@ private fun FailureFooter(
 private fun StartupUiState.Failed.failurePhase(): StartupPhase = when (failure) {
     StartupFailure.DEVICE_OFFLINE -> StartupPhase.NETWORK
     StartupFailure.CONNECTION_FAILED -> StartupPhase.CONNECTION
+    StartupFailure.CONNECTOR_OFFLINE -> StartupPhase.CONNECTION
     StartupFailure.INITIAL_DATA_FAILED -> StartupPhase.INITIAL_DATA
     StartupFailure.CONFIGURATION_FAILED,
     StartupFailure.INVALID_URL -> StartupPhase.CONFIGURATION

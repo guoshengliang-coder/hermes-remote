@@ -294,16 +294,25 @@ class SessionsViewModel @Inject constructor(
     }
 
     /** Refreshes whichever Chats segment is actually visible while the warm-start gate is up. */
-    suspend fun recoverForForeground(): Boolean = when (viewMode.first()) {
+    suspend fun recoverForForeground(): Boolean = when (viewModeStore.mode.first()) {
         ViewMode.SESSIONS -> {
             refreshOnce()
             !_state.value.unauthorized && _state.value.error == null
         }
         ViewMode.PROJECTS -> try {
+            // A launch/profile refresh may still be rebuilding the same tree. Cancel it before
+            // the gate performs its authoritative refresh, otherwise the older response can land
+            // last and reveal stale project contents after recovery completes.
+            projectTreeJob?.cancel()
             val active = profileManager.active.value
             val all = sessions.listAllProfiles()
             val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
-            _projects.value = ProjectsUiState(tree = deriveProjectsFromSessions(scoped))
+            val tree = deriveProjectsFromSessions(scoped)
+            val openProjectId = _projects.value.scope?.id
+            _projects.value = ProjectsUiState(
+                tree = tree,
+                scope = openProjectId?.let { id -> tree.firstOrNull { it.id == id } },
+            )
             true
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled

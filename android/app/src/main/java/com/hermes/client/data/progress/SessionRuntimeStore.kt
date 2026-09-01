@@ -234,20 +234,44 @@ class SessionRuntimeStore(
                 expected.copy(lastAssistantText = "")
             } else expected
         }
-        return try {
-            val history = repository.history(key.sessionId, key.profile).map { it.organizedForDisplay() }
-            acceptReconciledHistory(key, history, expectation)
-            val handle = chatRepository.resume(key.sessionId, key.profile)
-                ?.takeIf { it.isNotBlank() }
-                ?: return false
-            bindLiveHandle(key, handle)
-            true
+        var accepted = false
+        for (delayMs in FOREGROUND_RECOVERY_DELAYS_MS) {
+            if (delayMs > 0L) delay(delayMs)
+            try {
+                val history = repository.history(key.sessionId, key.profile)
+                    .map { it.organizedForDisplay() }
+                accepted = acceptReconciledHistory(key, history, expectation)
+                if (accepted) break
+                DebugLog.log("history", "foreground recovery ${key.sessionId} waiting for complete history")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                DebugLog.log("history", "foreground recovery ${key.sessionId} failed: ${error.message}")
+            }
+        }
+        if (!accepted) return false
+
+        val handle = try {
+            chatRepository.resume(key.sessionId, key.profile)?.takeIf { it.isNotBlank() }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            DebugLog.log("history", "foreground recovery ${key.sessionId} failed: ${error.message}")
-            false
+            DebugLog.log("session", "foreground resume ${key.sessionId} failed: ${error.message}")
+            null
+        } ?: return false
+        bindLiveHandle(key, handle)
+        markRead(key)
+        val media = mediaRepository
+        if (media != null) {
+            runCatching {
+                val committed = _runtimes.value[key]?.chat?.messages.orEmpty()
+                acceptHydratedImages(key, media.hydrateMessages(committed, key.profile))
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                DebugLog.log("media", "foreground hydration ${key.sessionId} failed: ${error.message}")
+            }
         }
+        return true
     }
 
     /** Clear unread only after the chat has successfully loaded, not merely when its row is tapped. */
@@ -814,6 +838,7 @@ class SessionRuntimeStore(
         const val PROCESS_OUTPUT_TAIL_CHARS = 4_000
         const val DEFAULT_PROFILE = "default"
         val HISTORY_RECONCILE_DELAYS_MS = longArrayOf(250L, 1_000L, 3_000L, 10_000L)
+        val FOREGROUND_RECOVERY_DELAYS_MS = longArrayOf(0L, 250L, 750L, 1_500L)
         /** Keep recent idle histories warm without retaining every session opened in this process. */
         const val MAX_CACHED_IDLE_RUNTIMES = 20
     }

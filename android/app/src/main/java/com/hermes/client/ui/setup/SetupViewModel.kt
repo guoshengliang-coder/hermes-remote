@@ -37,7 +37,7 @@ class SetupViewModel @Inject constructor(
     private val gatedAuth: GatedAuth,
 ) : ViewModel() {
     private val _state = MutableStateFlow(
-        store.load()?.let {
+        runCatching { store.load() }.getOrNull()?.let {
             SetupUiState(url = it.baseUrl, token = it.token, username = it.username, password = it.password)
         } ?: SetupUiState(),
     )
@@ -86,15 +86,7 @@ class SetupViewModel @Inject constructor(
             return@launch
         }
         _state.value = _state.value.copy(connecting = false, testResult = SetupResult.CONNECTED)
-        save()
-    }
-
-    fun save() {
-        val s = _state.value
-        val url = runCatching { normalizeGatewayBaseUrl(s.url) }.getOrElse {
-            _state.value = s.copy(testResult = SetupResult.INVALID_URL, saved = false)
-            return
-        }
+        // Persist exactly the values that passed the probe, never newer untested field contents.
         store.save(GatewayConfig(url, s.token, s.username.trim(), s.password))
         gatedAuth.cookieJar.clear()
         _state.value = _state.value.copy(saved = true)

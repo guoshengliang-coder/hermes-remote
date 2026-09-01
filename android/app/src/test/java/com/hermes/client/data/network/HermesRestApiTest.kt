@@ -100,12 +100,15 @@ class HermesRestApiTest {
     @Test fun probeStatusFor_classifies_auth_server_and_wrong_endpoint_failures() = runTest {
         val server = serverRule.server
         server.enqueue(MockResponse.Builder().code(403).build())
-        server.enqueue(MockResponse.Builder().code(503).build())
+        server.enqueue(MockResponse.Builder().code(503).body("{\"error\":\"device_offline\"}").build())
         server.enqueue(MockResponse.Builder().code(404).build())
         val base = server.url("/").toString().trimEnd('/')
 
         assertEquals(GatewayProbeResult.Unauthorized(403), api(server).probeStatusFor(base, "bad"))
-        assertEquals(GatewayProbeResult.ServerFailure(503), api(server).probeStatusFor(base, "token"))
+        assertEquals(
+            GatewayProbeResult.ServerFailure(503, "device_offline"),
+            api(server).probeStatusFor(base, "token"),
+        )
         assertEquals(GatewayProbeResult.InvalidEndpoint(404), api(server).probeStatusFor(base, "token"))
     }
 

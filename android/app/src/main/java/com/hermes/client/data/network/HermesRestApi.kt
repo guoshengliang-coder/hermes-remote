@@ -29,7 +29,7 @@ data class UploadedArtifact(val path: String, val name: String, val sizeBytes: L
 sealed interface GatewayProbeResult {
     data object Reachable : GatewayProbeResult
     data class Unauthorized(val statusCode: Int) : GatewayProbeResult
-    data class ServerFailure(val statusCode: Int) : GatewayProbeResult
+    data class ServerFailure(val statusCode: Int, val errorCode: String? = null) : GatewayProbeResult
     data class InvalidEndpoint(val statusCode: Int) : GatewayProbeResult
     data class Unreachable(val cause: String?) : GatewayProbeResult
 }
@@ -100,7 +100,14 @@ class HermesRestApi(
                     response.isSuccessful -> GatewayProbeResult.Reachable
                     response.code == 401 || response.code == 403 ->
                         GatewayProbeResult.Unauthorized(response.code)
-                    response.code in 500..599 -> GatewayProbeResult.ServerFailure(response.code)
+                    response.code in 500..599 -> {
+                        val errorCode = runCatching {
+                            val body = response.body.string()
+                            ((json.parseToJsonElement(body) as? JsonObject)?.get("error") as? JsonPrimitive)
+                                ?.content
+                        }.getOrNull()
+                        GatewayProbeResult.ServerFailure(response.code, errorCode)
+                    }
                     else -> GatewayProbeResult.InvalidEndpoint(response.code)
                 }
             }

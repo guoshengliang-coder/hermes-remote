@@ -112,6 +112,7 @@ expanded without changing the underlying meaning.
 | `HR-CONN-002` | WebSocket connection failed | 无法连接 Relay，将自动重试。 | Couldn't connect to the Relay. Retrying automatically. | Yes |
 | `HR-CONN-003` | `gateway.ready` handshake timed out | Relay 已连接，但会话握手超时。 | The Relay connected, but the session handshake timed out. | Yes |
 | `HR-CONN-004` | Connection was interrupted during an operation | 连接中断，正在恢复会话。 | The connection was interrupted. Restoring the conversation. | Yes |
+| `HR-CONN-005` | Relay is reachable but the Mac Connector is offline | Mac 端当前离线，请启动 Hermes Go Desktop。 | The Mac is offline. Start Hermes Go Desktop. | Yes |
 | `HR-AUTH-001` | App Token rejected | App Token 无效或已失效，请重新配置。 | The App Token is invalid or expired. Configure it again. | No |
 | `HR-RPC-001` | Gateway RPC returned an unmapped remote error | Relay 请求失败，请查看详情后重试。 | The Relay request failed. Review the details and retry. | Depends |
 | `HR-RPC-002` | Gateway RPC response timed out | Relay 响应超时，请稍后重试。 | The Relay response timed out. Try again shortly. | Yes |

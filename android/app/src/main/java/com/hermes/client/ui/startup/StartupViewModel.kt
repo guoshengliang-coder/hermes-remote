@@ -31,11 +31,12 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-enum class StartupReason { COLD_START, CONNECTION_RECOVERY }
+enum class StartupReason { COLD_START, INITIAL_SETUP, CONNECTION_RECOVERY }
 
 enum class StartupFailure(val code: String) {
     DEVICE_OFFLINE("HR-CONN-001"),
     CONNECTION_FAILED("HR-CONN-002"),
+    CONNECTOR_OFFLINE("HR-CONN-005"),
     INITIAL_DATA_FAILED("HR-RPC-001"),
     CONFIGURATION_FAILED("HR-CONFIG-001"),
     INVALID_URL("HR-CONFIG-003"),
@@ -105,6 +106,7 @@ class StartupViewModel @Inject constructor(
     private var attemptJob: Job? = null
     private var repairReason: StartupReason? = null
     private var activeDestination: StartupDestination = StartupDestination.Sessions
+    @Volatile private var appForeground = false
 
     init {
         // Automatic backoff may recover after the 15-second UI timeout. If that happens while the
@@ -117,6 +119,14 @@ class StartupViewModel @Inject constructor(
                         failed.failure != StartupFailure.INITIAL_DATA_FAILED ->
                             startAttempt(failed.reason, debounceMs = 0L)
                     }
+                } else if (
+                    appForeground &&
+                    connection !is ConnectionState.Connected &&
+                    _state.value is StartupUiState.Hidden &&
+                    attemptJob?.isActive != true &&
+                    runCatching { credentials.load() }.getOrNull() != null
+                ) {
+                    startAttempt(StartupReason.CONNECTION_RECOVERY, HOT_START_DEBOUNCE_MS)
                 }
             }
         }
@@ -132,6 +142,7 @@ class StartupViewModel @Inject constructor(
 
     /** Re-evaluates connection readiness whenever the process returns to the foreground. */
     fun onForeground() {
+        appForeground = true
         if (attemptJob?.isActive == true) return
         if (_state.value is StartupUiState.RepairRequired) return
         val config = loadConfiguration(StartupReason.CONNECTION_RECOVERY) ?: run {
@@ -151,20 +162,25 @@ class StartupViewModel @Inject constructor(
         startAttempt(StartupReason.CONNECTION_RECOVERY, debounceMs = HOT_START_DEBOUNCE_MS)
     }
 
+    fun onBackground() {
+        appForeground = false
+    }
+
     fun onActiveDestinationChanged(destination: StartupDestination) {
         activeDestination = destination
     }
 
     fun retry() {
         if (_state.value is StartupUiState.RepairRequired) return
-        val config = loadConfiguration(StartupReason.CONNECTION_RECOVERY) ?: run {
+        val failed = _state.value as? StartupUiState.Failed
+        val reason = failed?.reason ?: StartupReason.CONNECTION_RECOVERY
+        val config = loadConfiguration(reason) ?: run {
             _state.value = StartupUiState.Hidden
             return
         }
-        if (!isUsableConfiguration(config, StartupReason.CONNECTION_RECOVERY)) return
-        val failed = _state.value as? StartupUiState.Failed
+        if (!isUsableConfiguration(config, reason)) return
         startAttempt(
-            reason = failed?.reason ?: StartupReason.CONNECTION_RECOVERY,
+            reason = reason,
             debounceMs = 0L,
             forceReconnect = chat.connectionState.value !is ConnectionState.Connected,
         )
@@ -193,6 +209,12 @@ class StartupViewModel @Inject constructor(
         startAttempt(reason, debounceMs = 0L, forceReconnect = true)
     }
 
+    /** First-time setup also completes WebSocket, profile and first-screen readiness before entry. */
+    fun onInitialConfigurationSaved() {
+        repairReason = StartupReason.INITIAL_SETUP
+        startAttempt(StartupReason.INITIAL_SETUP, debounceMs = 0L, forceReconnect = true)
+    }
+
     private fun startAttempt(
         reason: StartupReason,
         debounceMs: Long,
@@ -205,11 +227,20 @@ class StartupViewModel @Inject constructor(
         attemptJob = viewModelScope.launch {
             if (debounceMs > 0) {
                 delay(debounceMs)
+                if (
+                    chat.connectionState.value is ConnectionState.Connected &&
+                    connectivity.isOnline()
+                ) {
+                    _state.value = StartupUiState.Hidden
+                    return@launch
+                }
                 _state.value = StartupUiState.Loading(reason, StartupPhase.CONFIGURATION)
             }
 
             coroutineScope {
-                val minimumDisplay = if (reason == StartupReason.COLD_START) {
+                val minimumDisplay = if (
+                    reason == StartupReason.COLD_START || reason == StartupReason.INITIAL_SETUP
+                ) {
                     async { delay(MINIMUM_COLD_START_MS) }
                 } else null
 
@@ -234,7 +265,7 @@ class StartupViewModel @Inject constructor(
                 }
 
                 _state.value = StartupUiState.Loading(reason, StartupPhase.AUTHENTICATION)
-                when (rest.probeStatusFor(config.baseUrl, config.token)) {
+                when (val probe = rest.probeStatusFor(config.baseUrl, config.token)) {
                     GatewayProbeResult.Reachable -> Unit
                     is GatewayProbeResult.Unauthorized -> {
                         minimumDisplay?.cancel()
@@ -246,7 +277,18 @@ class StartupViewModel @Inject constructor(
                         requireConfigurationRepair(reason, StartupFailure.INVALID_URL)
                         return@coroutineScope
                     }
-                    is GatewayProbeResult.ServerFailure,
+                    is GatewayProbeResult.ServerFailure -> {
+                        minimumDisplay?.cancel()
+                        _state.value = StartupUiState.Failed(
+                            reason,
+                            if (probe.errorCode == "device_offline") {
+                                StartupFailure.CONNECTOR_OFFLINE
+                            } else {
+                                StartupFailure.CONNECTION_FAILED
+                            },
+                        )
+                        return@coroutineScope
+                    }
                     is GatewayProbeResult.Unreachable -> {
                         minimumDisplay?.cancel()
                         _state.value = StartupUiState.Failed(reason, StartupFailure.CONNECTION_FAILED)
@@ -281,7 +323,7 @@ class StartupViewModel @Inject constructor(
                     val initialized = try {
                         withTimeoutOrNull(INITIAL_DATA_TIMEOUT_MS) {
                             profiles.refresh()
-                            if (reason == StartupReason.COLD_START) {
+                            if (reason == StartupReason.COLD_START || reason == StartupReason.INITIAL_SETUP) {
                                 sessions.listAllProfiles()
                                 true
                             } else {

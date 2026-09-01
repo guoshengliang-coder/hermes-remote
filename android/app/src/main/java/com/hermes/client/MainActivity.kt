@@ -75,7 +75,7 @@ class MainActivity : ComponentActivity() {
             intent?.data = null
         }
         handleShare(intent)
-        val hasConfig = credentialStore.load() != null
+        val initiallyHasConfig = runCatching { credentialStore.load() }.getOrNull() != null
         val crashReport = CrashReporter.read(this)
         setContent {
             val mode by settingsStore.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
@@ -108,6 +108,7 @@ class MainActivity : ComponentActivity() {
                                 )
                             } else {
                                 androidx.compose.foundation.layout.Box {
+                                    var hasConfig by remember { mutableStateOf(initiallyHasConfig) }
                                     val deepLinkRoute by pendingRoute
                                     val coldGateVisible = when (val currentStartup = startupState) {
                                         is StartupUiState.Loading -> currentStartup.reason == StartupReason.COLD_START
@@ -127,6 +128,10 @@ class MainActivity : ComponentActivity() {
                                             configurationRepair = (startupState as? StartupUiState.RepairRequired)?.failure,
                                             repairCompletion = repairCompletion,
                                             onConnectionConfigurationSaved = startupViewModel::onConfigurationSaved,
+                                            onInitialConfigurationSaved = {
+                                                hasConfig = true
+                                                startupViewModel.onInitialConfigurationSaved()
+                                            },
                                             onDestinationChanged = startupViewModel::onActiveDestinationChanged,
                                             foregroundRecovery = foregroundRecovery,
                                         )
@@ -148,6 +153,11 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         startupViewModel.onForeground()
+    }
+
+    override fun onStop() {
+        startupViewModel.onBackground()
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {

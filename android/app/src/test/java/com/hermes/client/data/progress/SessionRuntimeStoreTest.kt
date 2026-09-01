@@ -9,6 +9,7 @@ import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import io.mockk.every
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CoroutineScope
@@ -43,6 +44,7 @@ class SessionRuntimeStoreTest {
         val store: SessionRuntimeStore,
         val events: MutableSharedFlow<ServerEvent>,
         val connection: MutableStateFlow<ConnectionState>,
+        val chat: ChatRepository,
     )
 
     private fun lifecycle(
@@ -86,6 +88,7 @@ class SessionRuntimeStoreTest {
             ),
             events,
             connection,
+            chat,
         )
     }
 
@@ -303,6 +306,48 @@ class SessionRuntimeStoreTest {
         store.markRead(key) // successful history display clears the unread badge
 
         assertEquals("手机已经收到的完整答案", store.runtimes.value.getValue(key).chat.messages.last().text)
+    }
+
+    @Test fun foregroundRecoveryWaitsForCompleteHistoryBeforeReportingReady() = runTest {
+        val sessions = mockk<com.hermes.client.data.repository.SessionRepository>()
+        val user = ChatMessage("persisted-user", Role.USER, "开始")
+        val answer = ChatMessage("persisted-answer", Role.ASSISTANT, "完整答案")
+        coEvery { sessions.history("s1", "personal") } returnsMany listOf(
+            listOf(user),
+            listOf(user, answer),
+        )
+        val fixture = fixture(sessions)
+        coEvery { fixture.chat.resume("s1", "personal") } returns "runtime-s1"
+        val key = fixture.store.register("s1", "personal")
+        fixture.store.beginPrompt(key, "开始")
+        fixture.events.emit(event("message.delta", "s1", "完整答案"))
+        runCurrent()
+
+        assertTrue(fixture.store.recoverVisibleSession(key))
+
+        coVerify(exactly = 2) { sessions.history("s1", "personal") }
+        coVerify(exactly = 1) { fixture.chat.resume("s1", "personal") }
+        assertEquals("完整答案", fixture.store.runtimes.value.getValue(key).chat.messages.last().text)
+        assertFalse("personal/s1" in fixture.store.unreadTokens.value)
+        // Stop the resumed run so the store's background process poller can settle in runTest.
+        fixture.events.emit(event("error", "s1"))
+        runCurrent()
+    }
+
+    @Test fun foregroundRecoveryDoesNotResumeOrHideGateForPersistentlyStaleHistory() = runTest {
+        val sessions = mockk<com.hermes.client.data.repository.SessionRepository>()
+        val user = ChatMessage("persisted-user", Role.USER, "开始")
+        coEvery { sessions.history("s1", "personal") } returns listOf(user)
+        val fixture = fixture(sessions)
+        val key = fixture.store.register("s1", "personal")
+        fixture.store.beginPrompt(key, "开始")
+        fixture.events.emit(event("message.delta", "s1", "完整答案"))
+        runCurrent()
+
+        assertFalse(fixture.store.recoverVisibleSession(key))
+
+        coVerify(exactly = 4) { sessions.history("s1", "personal") }
+        coVerify(exactly = 0) { fixture.chat.resume(any(), any()) }
     }
 
     @Test fun idle_runtime_cache_is_bounded_but_keeps_active_sessions() = runTest {

@@ -12,8 +12,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -27,6 +30,8 @@ class SearchViewModelTest {
         Dispatchers.setMain(StandardTestDispatcher())
         every { profileManager.active } returns MutableStateFlow<String?>("personal")
     }
+
+    @After fun tearDown() = Dispatchers.resetMain()
 
     private fun session(id: String, title: String, profile: String = "personal") = Session(
         id = id, title = title, model = null, provider = null,
@@ -68,5 +73,32 @@ class SearchViewModelTest {
 
         vm.onQueryChange("")
         assertTrue(vm.state.value.messageResults.isEmpty())
+    }
+
+    @Test fun foregroundRecoveryRefreshesTheVisibleQuerySources() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns
+            listOf(session("old", "Old result")) andThen
+            listOf(session("new", "New result"))
+        coEvery { sessionRepo.archivedAllProfiles() } returns emptyList()
+        val vm = SearchViewModel(sessionRepo, profileManager)
+        advanceUntilIdle()
+        vm.onQueryChange("result")
+        assertEquals(listOf("old"), vm.state.value.titleMatches.map { it.session.id })
+
+        assertTrue(vm.recoverForForeground())
+
+        assertEquals(listOf("new"), vm.state.value.titleMatches.map { it.session.id })
+    }
+
+    @Test fun failedForegroundRecoveryKeepsExistingSearchResults() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns
+            listOf(session("old", "Old result")) andThenThrows RuntimeException("offline")
+        coEvery { sessionRepo.archivedAllProfiles() } returns emptyList()
+        val vm = SearchViewModel(sessionRepo, profileManager)
+        advanceUntilIdle()
+        vm.onQueryChange("result")
+
+        assertFalse(vm.recoverForForeground())
+        assertEquals(listOf("old"), vm.state.value.titleMatches.map { it.session.id })
     }
 }
