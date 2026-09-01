@@ -11,8 +11,8 @@ import androidx.compose.ui.graphics.Color
 //
 // The math is pure (ARGB Int in/out) so it unit-tests without Compose or an Android runtime.
 
-/** Fallback hue for Hermes Remote — the calm mint used by the mobile relay experience. */
-internal const val DEFAULT_ACCENT_HUE = 158f
+/** Fallback hue for Hermes Remote — the icon blue the brand palette is built on. */
+internal const val DEFAULT_ACCENT_HUE = 215f
 
 private const val AVATAR_SATURATION = 0.62f
 private const val AVATAR_LIGHTNESS = 0.32f
@@ -109,14 +109,14 @@ data class ProfileAccentColors(
 fun brandAccentColors(dark: Boolean): ProfileAccentColors =
     if (dark) ProfileAccentColors(
         accent = Color(hslToArgb(DEFAULT_ACCENT_HUE, 0.52f, 0.62f)),
-        onAccent = Color(0xFF003829),
+        onAccent = Color(0xFF00306A),
         container = Color(hslToArgb(DEFAULT_ACCENT_HUE, 0.38f, 0.24f)),
-        onContainer = Color(0xFFB6F2DB),
+        onContainer = Color(0xFFD6E3FF),
     ) else ProfileAccentColors(
         accent = Color(hslToArgb(DEFAULT_ACCENT_HUE, 0.62f, 0.44f)),
         onAccent = Color.White,
         container = Color(hslToArgb(DEFAULT_ACCENT_HUE, 0.42f, 0.90f)),
-        onContainer = Color(0xFF002117),
+        onContainer = Color(0xFF001B3D),
     )
 
 /** Available anywhere in the tree; always the brand accent now (transitional). */

@@ -43,10 +43,14 @@ import com.hermes.client.R
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 
-private val StartupBackground = Color(0xFFFBFAF7)
-private val StartupText = Color(0xFF777775)
-private val ProgressTrack = Color(0xFFE8E8E5)
-private val ProgressColors = listOf(Color(0xFF1689F5), Color(0xFF3CB672), Color(0xFFFFC400))
+// This screen was already icon-coloured while the app itself was mint, so the splash used to
+// change colour on the first frame. The palette now agrees with the brand: the same cool white
+// as @color/startup_background (the window background behind this composable) and a lead
+// progress colour aligned to the brand hue instead of the old 209 degree, slightly cyan blue.
+private val StartupBackground = Color(0xFFF8FAFD)
+private val StartupText = Color(0xFF74777F)
+private val ProgressTrack = Color(0xFFE7ECF6)
+private val ProgressColors = listOf(Color(0xFF1F84FD), Color(0xFF3DA340), Color(0xFFFEC302))
 
 @Composable
 fun StartupScreen(
@@ -72,7 +76,7 @@ fun StartupScreen(
                     .size(300.dp)
                     .background(
                         Brush.radialGradient(
-                            colors = listOf(Color(0x14258BF4), Color.Transparent),
+                            colors = listOf(Color(0x141F84FD), Color.Transparent),
                         ),
                         RoundedCornerShape(150.dp),
                     ),

@@ -14,7 +14,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.error.AppError
@@ -22,6 +21,8 @@ import com.hermes.client.data.error.AppErrorCode
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.theme.StatusTone
+import com.hermes.client.ui.theme.statusColor
 
 data class ConnectionBannerModel(
     val message: String,
@@ -69,13 +70,21 @@ fun connectionBannerModel(state: ConnectionState, zh: Boolean = false): Connecti
     ConnectionState.Connected -> ConnectionBannerModel(bannerLabel(state, zh), progress = false)
 }
 
+/**
+ * The traffic-light meaning of a connection state. Pure so the mapping is testable without a
+ * Compose runtime; the colours themselves live in [com.hermes.client.ui.theme.statusColor].
+ */
+fun connectionTone(state: ConnectionState): StatusTone = when (state) {
+    ConnectionState.Connected -> StatusTone.GOOD
+    ConnectionState.Connecting, ConnectionState.Reconnecting -> StatusTone.WARN
+    else -> StatusTone.BAD
+}
+
 @Composable
 fun StatusDot(state: ConnectionState, modifier: Modifier = Modifier, showLabel: Boolean = false) {
-    val color = when (state) {
-        ConnectionState.Connected -> Color(0xFF2E7D32)
-        ConnectionState.Connecting, ConnectionState.Reconnecting -> Color(0xFFF9A825)
-        else -> Color(0xFFC62828)
-    }
+    // Was three hardcoded, theme-blind values; the dark tier they lacked made the green and red
+    // dots sit at ~3.2:1 on the dark surface. Now both tiers come from the shared status palette.
+    val color = statusColor(connectionTone(state))
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier

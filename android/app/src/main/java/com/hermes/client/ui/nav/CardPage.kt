@@ -87,9 +87,12 @@ fun CardPage(
     // Measured off the reference: card fill sits 1-2 grey steps from the sheet, the outline
     // carried by a whisper of shadow — the same "faint card" language in BOTH themes (dark
     // lifts the surface one small step instead of jumping to the heavy surfaceVariant).
-    val tile = if (dark) lerp(MaterialTheme.colorScheme.surface, Color.White, 0.06f) else Color(0xFFFAFAF8)
+    // The dark branch derives from surface, so it followed the palette on its own. The light
+    // literals did not: #FAFAF8 / #ECECEA are warm whites and read yellow now that the sheet
+    // around them is cool.
+    val tile = if (dark) lerp(MaterialTheme.colorScheme.surface, Color.White, 0.06f) else Color(0xFFFAFBFD)
     val tileShadow = if (dark) 0.dp else 1.dp
-    val hairline = if (dark) lerp(MaterialTheme.colorScheme.surface, Color.White, 0.14f) else Color(0xFFECECEA)
+    val hairline = if (dark) lerp(MaterialTheme.colorScheme.surface, Color.White, 0.14f) else Color(0xFFEBEDF2)
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
     ModalDrawerSheet(

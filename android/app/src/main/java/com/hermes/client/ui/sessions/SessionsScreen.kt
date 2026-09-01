@@ -77,6 +77,8 @@ import com.hermes.client.data.repository.SessionReadStore
 import com.hermes.client.ui.chat.ChatLaunch
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.theme.StatusTone
+import com.hermes.client.ui.theme.statusColor
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -655,14 +657,29 @@ private fun toolDisplayName(raw: String, language: com.hermes.client.ui.localiza
     else -> raw.substringAfterLast('.').replace('_', ' ').take(18)
 }
 
-@Composable
-private fun runtimeColor(phase: SessionRunPhase) = when (phase) {
+/**
+ * Which colour SOURCE a runtime phase draws from. Split out of [runtimeColor] so the mapping is
+ * testable without a Compose runtime — in particular that COMPLETED_UNREAD no longer resolves to
+ * the brand colour.
+ */
+internal enum class SessionStatusPaint { WAITING, FAILED, COMPLETED, NEUTRAL }
+
+internal fun sessionStatusPaint(phase: SessionRunPhase): SessionStatusPaint = when (phase) {
     SessionRunPhase.WAITING_APPROVAL, SessionRunPhase.WAITING_CLARIFICATION,
-    SessionRunPhase.WAITING_ATTENTION ->
-        MaterialTheme.colorScheme.tertiary
-    SessionRunPhase.FAILED -> MaterialTheme.colorScheme.error
-    SessionRunPhase.COMPLETED_UNREAD -> MaterialTheme.colorScheme.primary
-    else -> MaterialTheme.colorScheme.onSurfaceVariant
+    SessionRunPhase.WAITING_ATTENTION -> SessionStatusPaint.WAITING
+    SessionRunPhase.FAILED -> SessionStatusPaint.FAILED
+    SessionRunPhase.COMPLETED_UNREAD -> SessionStatusPaint.COMPLETED
+    else -> SessionStatusPaint.NEUTRAL
+}
+
+@Composable
+private fun runtimeColor(phase: SessionRunPhase) = when (sessionStatusPaint(phase)) {
+    SessionStatusPaint.WAITING -> MaterialTheme.colorScheme.tertiary
+    SessionStatusPaint.FAILED -> MaterialTheme.colorScheme.error
+    // Deliberately NOT primary: with a blue brand, a blue "done" is indistinguishable from the
+    // chrome around it (section headers, FAB). Green carries the status; see StatusColors.kt.
+    SessionStatusPaint.COMPLETED -> statusColor(StatusTone.GOOD)
+    SessionStatusPaint.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 @Composable
