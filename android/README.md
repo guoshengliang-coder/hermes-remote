@@ -184,6 +184,12 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   (row suffixes mirror the desktop list). The sheet drops the 此对话/默认 scope control —
   it now only changes the current chat, with the profile default edited solely on 设置 › 模型 —
   and both surfaces gain a manual force-refresh button with an in-flight spinner.
+- Version 0.1.67 refines the session list: the segmented control drops its selected checkmark
+  (labels no longer shift on switch), Recent splits into 今天 / 前 7 天 / 更早 (rolling 7-day
+  window, newest-first inside each collapsible group), project folders become 1.7dp stroke
+  outlines with the project colour on the line, and archived rows get the matching stroke
+  archive-box leading icon, lose their dividers and trailing button, and gain a long-press
+  sheet with unarchive and delete (restoring the delete action lost in the segment merge).
 - Version 0.1.66 fixes the navigation completion guard that incorrectly treated every destination
   as a finished connection-repair screen, so existing chats, New chat, search, models, cron, and
   settings now stay open instead of immediately returning to Chats. First-time pairing now keeps
@@ -326,7 +332,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.66-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.67-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

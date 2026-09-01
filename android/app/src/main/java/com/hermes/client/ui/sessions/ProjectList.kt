@@ -10,7 +10,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -47,7 +46,8 @@ fun ProjectCard(project: Project, onClick: () -> Unit) {
             Text(l10n("${project.sessionCount} 个会话", "${project.sessionCount} session${if (project.sessionCount == 1) "" else "s"}"))
         },
         leadingContent = {
-            Icon(Icons.Rounded.Folder, contentDescription = null, tint = projectTint(project.color), modifier = Modifier.size(24.dp))
+            // Hollow 1.7dp stroke folder (project colour on the LINE) — the filled glyph read as a solid block.
+            Icon(com.hermes.client.ui.components.FolderStrokeIcon, contentDescription = null, tint = projectTint(project.color), modifier = Modifier.size(24.dp))
         },
         modifier = Modifier.clickable(onClick = onClick),
     )

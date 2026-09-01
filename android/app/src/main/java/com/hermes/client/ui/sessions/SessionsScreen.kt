@@ -186,6 +186,9 @@ fun SessionsScreen(
                                 activeContainerColor = accent,
                                 activeContentColor = MaterialTheme.colorScheme.onPrimary,
                             ),
+                            // No check glyph: its appear/disappear used to shove the labels
+                            // sideways on every switch. Selection reads from the fill alone.
+                            icon = {},
                         ) { Text(label) }
                     }
                 }
@@ -260,20 +263,12 @@ fun SessionsScreen(
                             )
                         else -> LazyColumn {
                             items(archivedState.sessions, key = { "a-${it.profile.orEmpty()}:${it.id}" }) { s ->
-                                ListItem(
-                                    headlineContent = { Text(s.title) },
-                                    supportingContent = { Text(s.model ?: "") },
-                                    trailingContent = {
-                                        IconButton(onClick = { vm.unarchive(s) }) {
-                                            Icon(
-                                                Icons.Rounded.Unarchive,
-                                                contentDescription = localized(language, "取消归档", "Unarchive"),
-                                            )
-                                        }
-                                    },
-                                    modifier = Modifier.clickable { openExisting(s) },
+                                ArchivedRow(
+                                    session = s,
+                                    onOpen = { openExisting(s) },
+                                    onUnarchive = { vm.unarchive(s) },
+                                    onDelete = { vm.delete(s) },
                                 )
-                                HorizontalDivider()
                             }
                         }
                     }
@@ -332,7 +327,10 @@ fun SessionsScreen(
                                 vm.runtimeFor(s, runtimes)?.phase
                             }
                             val pinned = others.filter(isPinned)
-                            val recent = sessionsByRecency(others.filterNot(isPinned))
+                            val groups = groupByRecency(
+                                others.filterNot(isPinned),
+                                nowMs = System.currentTimeMillis(),
+                            )
 
                             // Collapsible groups (Mission Control's pattern): tap the header to
                             // fold, the count stays visible so nothing silently disappears.
@@ -390,15 +388,61 @@ fun SessionsScreen(
                                         }
                                     }
                                 }
-                                if (recent.isNotEmpty()) {
-                                    item(key = "h-recent") {
+                                if (groups.today.isNotEmpty()) {
+                                    item(key = "h-today") {
                                         SectionHeader(
-                                            localized(language, "最近", "Recent"), recent.size,
-                                            collapsed = "recent" in collapsed, onToggle = { toggle("recent") },
+                                            localized(language, "今天", "Today"), groups.today.size,
+                                            collapsed = "today" in collapsed, onToggle = { toggle("today") },
                                         )
                                     }
-                                    if ("recent" !in collapsed) {
-                                        items(recent, key = { "${it.profile.orEmpty()}:${it.id}" }) { s ->
+                                    if ("today" !in collapsed) {
+                                        items(groups.today, key = { "today-${it.profile.orEmpty()}:${it.id}" }) { s ->
+                                            SessionRow(
+                                                session = s, isPinned = false, profileCount = profiles.size,
+                                                runtime = vm.runtimeFor(s, runtimes),
+                                                unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
+                                                onOpen = { openExisting(s) },
+                                                onTogglePin = { vm.togglePin(s) },
+                                                onRename = { vm.rename(s, it) },
+                                                onArchive = { vm.archive(s) },
+                                                onDelete = { vm.delete(s) },
+                                                modifier = Modifier.animateItem(),
+                                            )
+                                        }
+                                    }
+                                }
+                                if (groups.week.isNotEmpty()) {
+                                    item(key = "h-week") {
+                                        SectionHeader(
+                                            localized(language, "前 7 天", "Previous 7 days"), groups.week.size,
+                                            collapsed = "week" in collapsed, onToggle = { toggle("week") },
+                                        )
+                                    }
+                                    if ("week" !in collapsed) {
+                                        items(groups.week, key = { "week-${it.profile.orEmpty()}:${it.id}" }) { s ->
+                                            SessionRow(
+                                                session = s, isPinned = false, profileCount = profiles.size,
+                                                runtime = vm.runtimeFor(s, runtimes),
+                                                unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
+                                                onOpen = { openExisting(s) },
+                                                onTogglePin = { vm.togglePin(s) },
+                                                onRename = { vm.rename(s, it) },
+                                                onArchive = { vm.archive(s) },
+                                                onDelete = { vm.delete(s) },
+                                                modifier = Modifier.animateItem(),
+                                            )
+                                        }
+                                    }
+                                }
+                                if (groups.earlier.isNotEmpty()) {
+                                    item(key = "h-earlier") {
+                                        SectionHeader(
+                                            localized(language, "更早", "Earlier"), groups.earlier.size,
+                                            collapsed = "earlier" in collapsed, onToggle = { toggle("earlier") },
+                                        )
+                                    }
+                                    if ("earlier" !in collapsed) {
+                                        items(groups.earlier, key = { "earlier-${it.profile.orEmpty()}:${it.id}" }) { s ->
                                             SessionRow(
                                                 session = s, isPinned = false, profileCount = profiles.size,
                                                 runtime = vm.runtimeFor(s, runtimes),
@@ -426,6 +470,89 @@ fun SessionsScreen(
         }
     }
 
+}
+
+/**
+ * One archived session: stroke archive-box + title/model (matching the Projects row layout),
+ * no divider. Tap opens; LONG-PRESS offers unarchive and delete — the same sheet pattern as
+ * live session rows (the old trailing unarchive button broke the layout symmetry).
+ */
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@Composable
+private fun ArchivedRow(
+    session: Session,
+    onOpen: () -> Unit,
+    onUnarchive: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val language = LocalAppLanguage.current
+    val haptics = LocalHapticFeedback.current
+    var menuOpen by remember { mutableStateOf(false) }
+    var confirmingDelete by remember { mutableStateOf(false) }
+
+    ListItem(
+        leadingContent = {
+            Icon(
+                com.hermes.client.ui.components.ArchiveBoxIcon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp),
+            )
+        },
+        headlineContent = { Text(session.title) },
+        supportingContent = { Text(session.model ?: "") },
+        modifier = Modifier.combinedClickable(
+            onClick = onOpen,
+            onLongClick = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                menuOpen = true
+            },
+        ),
+    )
+
+    if (menuOpen) {
+        ModalBottomSheet(onDismissRequest = { menuOpen = false }) {
+            Text(
+                session.title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            )
+            ListItem(
+                headlineContent = { Text(localized(language, "取消归档", "Unarchive")) },
+                leadingContent = { Icon(Icons.Rounded.Unarchive, contentDescription = null) },
+                modifier = Modifier.clickable { menuOpen = false; onUnarchive() },
+            )
+            ListItem(
+                headlineContent = { Text(localized(language, "删除", "Delete"), color = MaterialTheme.colorScheme.error) },
+                leadingContent = {
+                    Icon(
+                        Icons.Rounded.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                },
+                modifier = Modifier.clickable { menuOpen = false; confirmingDelete = true },
+            )
+            androidx.compose.foundation.layout.Spacer(Modifier.size(20.dp))
+        }
+    }
+
+    if (confirmingDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmingDelete = false },
+            title = { Text(localized(language, "删除会话？", "Delete session?")) },
+            text = { Text(localized(language, "“${session.title}”将被永久删除。", "\"${session.title}\" will be permanently deleted.")) },
+            confirmButton = {
+                TextButton(onClick = { confirmingDelete = false; onDelete() }) {
+                    Text(localized(language, "删除", "Delete"), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmingDelete = false }) { Text(localized(language, "取消", "Cancel")) }
+            },
+        )
+    }
 }
 
 @Composable

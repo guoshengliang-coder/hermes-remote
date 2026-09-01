@@ -28,3 +28,39 @@ fun splitNeedsYou(
     val (needs, rest) = sessions.partition { phaseOf(it) in WAITING_PHASES }
     return sessionsByRecency(needs) to rest
 }
+
+/** The recency buckets the session list renders below Pinned. */
+data class RecencyGroups(
+    val today: List<Session>,
+    val week: List<Session>,
+    val earlier: List<Session>,
+)
+
+/**
+ * Bucket [sessions] as Today / Previous 7 days / Earlier (ChatGPT's convention — a ROLLING
+ * 7-day window, so nothing dumps into Earlier at a week boundary). "Today" is the device's
+ * local calendar day; the week bucket is the 7 days before it, excluding today; everything
+ * else — sessions with no timestamp included — is Earlier. Each bucket is newest-first.
+ * Pure: [nowMs] and [zone] injected so boundaries unit-test without a clock.
+ */
+fun groupByRecency(
+    sessions: List<Session>,
+    nowMs: Long,
+    zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+): RecencyGroups {
+    val startOfToday = java.time.Instant.ofEpochMilli(nowMs).atZone(zone)
+        .toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
+    val weekFloor = startOfToday - 7L * 24 * 60 * 60 * 1000
+    val today = ArrayList<Session>()
+    val week = ArrayList<Session>()
+    val earlier = ArrayList<Session>()
+    for (s in sessions) {
+        val t = s.lastActive
+        when {
+            t != null && t >= startOfToday -> today.add(s)
+            t != null && t >= weekFloor -> week.add(s)
+            else -> earlier.add(s)
+        }
+    }
+    return RecencyGroups(sessionsByRecency(today), sessionsByRecency(week), sessionsByRecency(earlier))
+}
