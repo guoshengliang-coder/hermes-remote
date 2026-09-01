@@ -22,6 +22,14 @@ import {
 } from "./session-observer-runner.js";
 import { ObserverStateStore } from "./session-observer.js";
 
+// Launchd captures stdout/stderr without timestamps, which made the 2026-09-01
+// reconnect-churn investigation impossible to correlate with server-side events.
+// Prefix every console line with an ISO timestamp at the single choke point.
+for (const level of ["log", "warn", "error"] as const) {
+  const original = console[level].bind(console);
+  console[level] = (...args: unknown[]) => original(new Date().toISOString(), ...args);
+}
+
 const gatewayUrl = process.env.GATEWAY_URL ?? "ws://127.0.0.1:8787/v1/connect";
 const connectorToken = requireSecret("CONNECTOR_TOKEN");
 const deviceId = process.env.DEVICE_ID ?? "mac-mini";
