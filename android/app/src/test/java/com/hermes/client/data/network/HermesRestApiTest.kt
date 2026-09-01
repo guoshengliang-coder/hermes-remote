@@ -6,7 +6,6 @@ import kotlinx.serialization.json.Json
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import mockwebserver3.junit4.MockWebServerRule
-import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -17,7 +16,7 @@ class HermesRestApiTest {
     @get:Rule val serverRule = MockWebServerRule()
     private val json = Json { ignoreUnknownKeys = true }
 
-    private fun api(server: MockWebServer) = HermesRestApi(OkHttpClient(), json) {
+    private fun api(server: MockWebServer) = HermesRestApi(testHttpClient(), json) {
         GatewayConfig(baseUrl = server.url("/").toString().trimEnd('/'), token = "secret")
     }
 
