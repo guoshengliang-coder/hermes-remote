@@ -177,6 +177,13 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   scroll is in progress, fading in on rest) plus per-frame costs on the fling path, and closes
   the 0.1.60 open-path regression: acceptHistory now id-aligns like reconciliation, the pre-open
   frame shows a bottom-anchored skeleton, and the chat list state is keyed per session.
+- Version 0.1.64 completes the startup experience: phase-based progress now advances continuously
+  with a moving highlight and animated status dots; cold and interrupted warm starts stay behind
+  the gate until the destination's critical data is ready, while a healthy warm return remains
+  instant. Network/Relay failures stay retryable on the gate, invalid URLs or rejected credentials
+  open a prefilled repair screen with a masked token, and saving reruns the complete readiness gate
+  before cold starts enter Chats or warm starts return to the exact previous screen. The unsupported
+  offline bypass is removed and the official product slogan stays English in every brand lockup.
 - Version 0.1.61 moves the brand colour from mint to the launcher icon's blue (#0B5FD0 light,
   #A9C7FF dark, hue 215) and re-tints the neutrals cool to sit under it. It also splits status
   colour out of the brand: a shared StatusColors palette backs both the connection traffic light
@@ -305,7 +312,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.63-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.64-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
