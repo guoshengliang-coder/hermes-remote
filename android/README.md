@@ -159,6 +159,11 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   1.7dp stroke icon set at reference sizes with the avatar initial at 35% of its circle, and the
   remaining Hermes GO renames (wordmark, QS tile, About, crash report, diagnostics subject,
   table-export filename) plus the theme quick-switch and current-model rows.
+- Version 0.1.59 fixes the composer model chip displacing the send/attach buttons on real
+  devices: the mic and trailing controls are measured first at fixed size, the chip only takes
+  the leftover width (long names ellipsize at one smaller type step), the 此对话 override tag and
+  tonal background are removed from the chip (the override state lives in the model sheet's
+  summary strip with 恢复默认), and the pre-load placeholder reads 默认模型 instead of 自动.
 - Version 0.1.58 settles the card page's density and iconography: shortcut rows drop to 17sp
   text / 22dp icons / 15sp trailing values with tighter padding (user-picked density), the gear
   becomes a proper toothed cog (the hub-and-ticks simplification read as a brightness glyph),
@@ -272,7 +277,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.58-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.59-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

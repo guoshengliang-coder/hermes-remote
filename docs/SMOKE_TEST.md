@@ -133,9 +133,10 @@ verification for the current iteration.
 2. **Collapse and search.** Toggle a few group headers, then type a query: every group with matches
    must auto-expand and show its hit count; clearing the query (× button) must restore the previous
    collapse state.
-3. **Session override loop.** Switch the model with scope 此对话. The chip must gain the tonal
-   background and 此对话 tag, and the sheet summary must read 此对话覆盖 with a 恢复默认 action.
-   Tap 恢复默认: the session returns to the default model and the tag disappears.
+3. **Session override loop.** Switch the model with scope 此对话. The chip stays in its plain
+   style (name + caret — no tag, no tonal background); reopen the sheet and confirm the summary
+   strip reads 此对话覆盖 with a 恢复默认 action. Tap 恢复默认: the session returns to the default
+   model and the summary flips back to 跟随默认.
 4. **Spaced model names.** Pick a model whose name contains spaces or parentheses (OpenRouter often
    has them) with scope 此对话. Confirm the switch succeeds — the app quotes `/model` arguments,
    and the upstream slash parser's handling of quoted arguments has NOT yet been verified against a
@@ -146,3 +147,7 @@ verification for the current iteration.
 6. **Failure surfaces.** Drop the Connector and attempt a switch: the sheet must stay open showing
    HR-RPC-004 (session) or HR-RPC-005 (default); the model list failure state must show HR-RPC-003
    with a working Retry.
+7. **Composer chip layout.** With a very long model name active (e.g. an OpenRouter
+   `vendor/model:variant`), the mic, attach (+), and send controls must keep their exact size and
+   position — the chip ellipsizes inside the leftover width instead of displacing them. Also check
+   the short-name state (chip hugs left) and the pre-load state (默认模型 placeholder).
