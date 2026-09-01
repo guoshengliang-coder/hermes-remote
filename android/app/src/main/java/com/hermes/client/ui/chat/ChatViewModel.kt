@@ -31,6 +31,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
@@ -49,6 +50,7 @@ class ChatViewModel @Inject constructor(
     private val chat: ChatRepository,
     private val sessions: SessionRepository,
     private val modelRepo: ModelRepository,
+    private val catalogStore: com.hermes.client.data.repository.ModelCatalogStore,
     private val profileRepo: ProfileRepository,
     private val profileManager: ProfileManager,
     private val favoritesStore: com.hermes.client.data.repository.ModelFavoritesStore,
@@ -97,9 +99,15 @@ class ChatViewModel @Inject constructor(
     private val _currentModel = MutableStateFlow<String?>(null)
     val currentModel: StateFlow<String?> = _currentModel.asStateFlow()
 
-    // Provider list for the model sheet (grouped by real slug); loaded alongside options.
-    private val _providers = MutableStateFlow<List<com.hermes.client.data.network.ModelProviderDto>>(emptyList())
-    val providers: kotlinx.coroutines.flow.StateFlow<List<com.hermes.client.data.network.ModelProviderDto>> = _providers.asStateFlow()
+    // Provider list for the model sheet — served from the process-wide catalog store, which is
+    // refreshed in the background on app start/foreground so the sheet opens instantly.
+    val providers: kotlinx.coroutines.flow.StateFlow<List<com.hermes.client.data.network.ModelProviderDto>> =
+        catalogStore.state.map { it.providers }
+            .stateIn(
+                viewModelScope,
+                kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000),
+                catalogStore.state.value.providers,
+            )
 
     // Provider of the confirmed session model (set together with _currentModel on a successful switch).
     private val _currentProvider = MutableStateFlow<String?>(null)
@@ -192,35 +200,24 @@ class ChatViewModel @Inject constructor(
         val pendingKey: String? = null,
         val error: com.hermes.client.data.error.AppError? = null,
     )
-    // Model-LIST loading state (the sheet's pending/error covers selection, not the list).
-    private val _providersLoading = MutableStateFlow(false)
-    val providersLoading: kotlinx.coroutines.flow.StateFlow<Boolean> = _providersLoading.asStateFlow()
-    private val _providersError = MutableStateFlow(false)
-    val providersError: kotlinx.coroutines.flow.StateFlow<Boolean> = _providersError.asStateFlow()
+    // Model-LIST loading/error states (the sheet's pending/error covers selection, not the
+    // list). Loading shows only while the cache is genuinely empty; a background refresh that
+    // fails with a cached list stays silent. "Loaded but empty" still counts as an error so a
+    // gateway that returns no providers doesn't render a silent empty shell.
+    val providersLoading: kotlinx.coroutines.flow.StateFlow<Boolean> =
+        catalogStore.state.map { it.refreshing && it.providers.isEmpty() }
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), false)
+    val providersError: kotlinx.coroutines.flow.StateFlow<Boolean> =
+        catalogStore.state.map { it.providers.isEmpty() && !it.refreshing && (it.failed || it.loaded) }
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), false)
 
     /**
-     * Fetch the provider/model catalog if it isn't loaded. The open()-time fetch is best-effort
-     * and swallowed on failure, which used to leave the model sheet a silent empty shell for the
-     * rest of the session; the sheet now calls this on open (and on explicit retry).
+     * Ask the process-wide catalog store for the provider list. Normally the store is already
+     * warm (app-start background refresh); this remains as the sheet-open safety net and the
+     * explicit-retry path.
      */
     fun ensureProviders(force: Boolean = false) {
-        if (_providersLoading.value) return
-        if (_providers.value.isNotEmpty() && !force) return
-        _providersLoading.value = true
-        _providersError.value = false
-        viewModelScope.launch {
-            runCatching { modelRepo.providers(profileManager.active.value) }
-                .onSuccess {
-                    _providers.value = it
-                    _providersError.value = it.isEmpty()
-                    backfillProvidersFromCatalog()
-                }
-                .onFailure { e ->
-                    if (e is CancellationException) throw e
-                    _providersError.value = true
-                }
-            _providersLoading.value = false
-        }
+        catalogStore.refresh(force = force)
     }
 
     /**
@@ -229,7 +226,7 @@ class ChatViewModel @Inject constructor(
      * can mark the current row (P0: unreliable "current" highlight).
      */
     private fun backfillProvidersFromCatalog() {
-        val catalog = _providers.value
+        val catalog = catalogStore.state.value.providers
         if (_defaultProvider.value.isNullOrBlank()) {
             _defaultProvider.value = com.hermes.client.ui.models.resolveModelProvider(
                 catalog, null, _defaultModel.value,
@@ -239,6 +236,15 @@ class ChatViewModel @Inject constructor(
             _currentProvider.value = com.hermes.client.ui.models.resolveModelProvider(
                 catalog, null, _currentModel.value,
             )
+        }
+    }
+
+    init {
+        // The catalog can land after open() (background refresh) — re-run the provider backfill
+        // whenever it updates so the sheet can mark the current row/group.
+        viewModelScope.launch {
+            catalogStore.state.map { it.providers }.distinctUntilChanged()
+                .collect { if (it.isNotEmpty()) backfillProvidersFromCatalog() }
         }
     }
 
@@ -381,7 +387,8 @@ class ChatViewModel @Inject constructor(
             }
             // Load model options, profiles, and the slash-command catalog; failures are non-fatal
             launch {
-                runCatching { _providers.value = modelRepo.providers(profileManager.active.value) }
+                // Safety net only: the catalog store is normally warm from the app-start refresh.
+                catalogStore.refresh(force = false)
                 // The configured default is read on every open: the chip and sheet need it to
                 // tell "following the default" from a session override, and a brand-new session
                 // (no model in its metadata yet) falls back to it so the chip names the real
@@ -843,7 +850,7 @@ class ChatViewModel @Inject constructor(
     fun restoreDefaultModel(onDone: () -> Unit) {
         val model = _defaultModel.value ?: return
         val provider = _defaultProvider.value ?: com.hermes.client.ui.models.resolveModelProvider(
-            _providers.value, null, model,
+            catalogStore.state.value.providers, null, model,
         ) ?: return
         if (_modelSheet.value.pendingKey != null) return
         val key = com.hermes.client.data.repository.favKey(provider, model)

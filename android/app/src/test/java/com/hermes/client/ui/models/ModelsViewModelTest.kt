@@ -18,6 +18,7 @@ import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -30,6 +31,20 @@ class ModelsViewModelTest {
     private val favoritesStore = mockk<com.hermes.client.data.repository.ModelFavoritesStore>(relaxed = true)
     private val profileManager = mockk<com.hermes.client.data.repository.ProfileManager>(relaxed = true)
     private val configRepo = mockk<com.hermes.client.data.repository.ConfigRepository>(relaxed = true)
+    private val chatRepo = mockk<com.hermes.client.data.repository.ChatRepository> {
+        every { connectionState } returns
+            MutableStateFlow<com.hermes.client.data.network.ConnectionState>(
+                com.hermes.client.data.network.ConnectionState.Disconnected,
+            )
+    }
+    private val credentialStore = mockk<com.hermes.client.data.auth.CredentialStore> {
+        every { load() } returns mockk()
+    }
+    private val connectivityChecker = mockk<com.hermes.client.data.network.ConnectivityChecker> {
+        every { isOnline() } returns true
+    }
+    private val activeProfile = MutableStateFlow<String?>(null)
+    private val storeJobs = mutableListOf<kotlinx.coroutines.Job>()
 
     private val catalog = listOf(
         ModelProviderDto(slug = "prov", isCurrent = true, models = listOf("def-model", "other")),
@@ -37,13 +52,29 @@ class ModelsViewModelTest {
     )
 
     @Before fun setUp() {
-        every { profileManager.active } returns MutableStateFlow<String?>(null)
+        every { profileManager.active } returns activeProfile
         every { favoritesStore.favorites } returns MutableStateFlow(emptySet())
         coEvery { models.providers(any()) } returns catalog
         coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "def-model") }
     }
 
-    private fun buildVm() = ModelsViewModel(models, favoritesStore, profileManager, configRepo)
+    @After fun tearDown() {
+        storeJobs.forEach(kotlinx.coroutines.Job::cancel)
+        storeJobs.clear()
+    }
+
+    // Real catalog store over the mocked repository so the cache semantics are exercised.
+    private fun buildStore(): com.hermes.client.data.repository.ModelCatalogStore {
+        val job = kotlinx.coroutines.SupervisorJob()
+        storeJobs += job
+        return com.hermes.client.data.repository.ModelCatalogStore(
+            models, profileManager, credentialStore, connectivityChecker, chatRepo,
+            kotlinx.coroutines.CoroutineScope(job + kotlinx.coroutines.Dispatchers.Main),
+        )
+    }
+
+    private fun buildVm(store: com.hermes.client.data.repository.ModelCatalogStore = buildStore()) =
+        ModelsViewModel(models, favoritesStore, profileManager, configRepo, store)
 
     // The settings page edits exactly the default slot, so it must show the current default —
     // previously it passed nulls and never marked any row.
@@ -106,6 +137,47 @@ class ModelsViewModelTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) { models.set(any(), any(), any()) }
+    }
+
+    // A store warmed before the screen opens must render instantly — no spinner frame after
+    // the first emission settles.
+    @Test fun warm_store_renders_without_loading() = runTest {
+        val store = buildStore()
+        store.refresh(force = true)
+        advanceUntilIdle()               // cache warmed before the ViewModel exists
+
+        val vm = buildVm(store)
+        advanceUntilIdle()
+
+        assertEquals(catalog, vm.state.value.providers)
+        assertEquals(false, vm.state.value.loading)
+        assertNull(vm.state.value.error)
+        coVerify(exactly = 1) { models.providers(any()) }  // the VM's safety net was a no-op
+    }
+
+    // Per-profile isolation: after a profile switch the old profile's list must never render.
+    @Test fun profile_switch_never_shows_previous_profiles_list() = runTest {
+        val workCatalog = listOf(ModelProviderDto(slug = "work-prov", isCurrent = true, models = listOf("w1")))
+        coEvery { models.providers("work") } returns workCatalog
+        coEvery { models.providers("personal") } coAnswers {
+            kotlinx.coroutines.delay(1_000)
+            listOf(ModelProviderDto(slug = "personal-prov", isCurrent = true, models = listOf("p1")))
+        }
+        activeProfile.value = "work"
+        val store = buildStore()
+        store.startTriggers()
+        val vm = buildVm(store)
+        advanceUntilIdle()
+        assertEquals(workCatalog, vm.state.value.providers)
+
+        activeProfile.value = "personal"
+        runCurrent()
+        // While personal's fetch is in flight, work's list must not be shown for personal.
+        assertTrue(vm.state.value.providers.isEmpty())
+        assertEquals(true, vm.state.value.loading)
+
+        advanceUntilIdle()
+        assertEquals("personal-prov", vm.state.value.providers.single().slug)
     }
 
     @Test fun select_failure_reports_default_set_code() = runTest {

@@ -19,6 +19,7 @@ import com.hermes.client.widget.HermesWidget
 class HermesApp : Application() {
     @Inject lateinit var settingsStore: SettingsStore
     @Inject lateinit var lifecycleMonitoring: com.hermes.client.notifications.LifecycleMonitoringCoordinator
+    @Inject lateinit var modelCatalog: com.hermes.client.data.repository.ModelCatalogStore
     @Inject lateinit var notifier: com.hermes.client.notifications.HermesNotifier
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -46,5 +47,8 @@ class HermesApp : Application() {
             }
             .launchIn(appScope)
         lifecycleMonitoring.start()
+        // Keep the model catalog warm: refresh in the background on every start/foreground so
+        // the model picker opens instantly from cache instead of showing a loading state.
+        modelCatalog.start()
     }
 }

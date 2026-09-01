@@ -55,6 +55,12 @@ class ChatViewModelTest {
     private val tts = mockk<com.hermes.client.data.tts.TextToSpeechController>(relaxed = true)
     private val promptStore = mockk<com.hermes.client.data.repository.PromptStore>(relaxed = true)
     private val configRepo = mockk<com.hermes.client.data.repository.ConfigRepository>(relaxed = true)
+    private val credentialStore = mockk<com.hermes.client.data.auth.CredentialStore> {
+        every { load() } returns mockk()
+    }
+    private val connectivityChecker = mockk<com.hermes.client.data.network.ConnectivityChecker> {
+        every { isOnline() } returns true
+    }
     private val runtimeJobs = mutableListOf<Job>()
 
     private fun event(type: String, sessionId: String, text: String? = null) = ServerEvent(
@@ -90,6 +96,9 @@ class ChatViewModelTest {
         runtimeJobs.clear()
     }
 
+    // Real store over the mocked ModelRepository so cache semantics are exercised for real.
+    private var catalogStore: com.hermes.client.data.repository.ModelCatalogStore? = null
+
     private fun buildVm(): ChatViewModel {
         val runtimeJob = SupervisorJob()
         runtimeJobs += runtimeJob
@@ -98,8 +107,13 @@ class ChatViewModelTest {
             CoroutineScope(runtimeJob + Dispatchers.Main),
             profileManager,
         )
+        val store = com.hermes.client.data.repository.ModelCatalogStore(
+            modelRepo, profileManager, credentialStore, connectivityChecker, chatRepo,
+            CoroutineScope(runtimeJob + Dispatchers.Main),
+        )
+        catalogStore = store
         return ChatViewModel(
-            chatRepo, sessionRepo, modelRepo, profileRepo, profileManager, favoritesStore,
+            chatRepo, sessionRepo, modelRepo, store, profileRepo, profileManager, favoritesStore,
             pendingShareStore, tts, promptStore, configRepo, runtimeStore, mediaRepo, fileRepo,
             mainDispatcherRule.dispatcher,
         )
@@ -484,6 +498,55 @@ class ChatViewModelTest {
         assertEquals("next", vm.currentModel.value)
         assertFalse(vm.sessionModelOverridden.value)
         watcher.cancel()
+    }
+
+    // The process-wide catalog store keeps providers warm: with a cached catalog, opening the
+    // sheet must trigger no new fetch and never show the loading state.
+    @Test fun ensureProviders_uses_warm_cache_without_refetch() = runTest {
+        coEvery { modelRepo.providers(any()) } returns listOf(
+            com.hermes.client.data.network.ModelProviderDto(slug = "prov", isCurrent = true, models = listOf("m")),
+        )
+        val vm = buildVm()
+        val watchers = listOf(
+            launch { vm.providers.collect {} },
+            launch { vm.providersLoading.collect {} },
+        )
+        vm.open("s1"); advanceUntilIdle()   // open()'s safety-net refresh warms the cache
+
+        vm.ensureProviders()                 // sheet open
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { modelRepo.providers(any()) }
+        assertEquals(1, vm.providers.value.size)
+        assertFalse(vm.providersLoading.value)
+        watchers.forEach { it.cancel() }
+    }
+
+    // With NO cache the error state still surfaces, and an explicit retry refetches and clears it.
+    @Test fun providers_error_only_without_cache_and_retry_refetches() = runTest {
+        coEvery { modelRepo.providers(any()) } throws RuntimeException("catalog down")
+        val vm = buildVm()
+        val watchers = listOf(
+            launch { vm.providers.collect {} },
+            launch { vm.providersLoading.collect {} },
+            launch { vm.providersError.collect {} },
+        )
+        vm.open("s1"); advanceUntilIdle()
+        vm.ensureProviders()
+        advanceUntilIdle()
+
+        assertTrue("empty cache + failed fetch must surface the list error", vm.providersError.value)
+        assertFalse(vm.providersLoading.value)
+
+        coEvery { modelRepo.providers(any()) } returns listOf(
+            com.hermes.client.data.network.ModelProviderDto(slug = "prov", isCurrent = true, models = listOf("m")),
+        )
+        vm.ensureProviders(force = true)
+        advanceUntilIdle()
+
+        assertFalse("retry success must clear the list error", vm.providersError.value)
+        assertEquals(1, vm.providers.value.size)
+        watchers.forEach { it.cancel() }
     }
 
     @Test fun selectProfile_calls_profileRepo_setActive() = runTest {

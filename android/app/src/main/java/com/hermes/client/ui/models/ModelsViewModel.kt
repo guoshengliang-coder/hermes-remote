@@ -3,6 +3,7 @@ package com.hermes.client.ui.models
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.ModelProviderDto
+import com.hermes.client.data.repository.ModelCatalogStore
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.error.AppError
@@ -36,6 +37,7 @@ class ModelsViewModel @Inject constructor(
     private val favoritesStore: com.hermes.client.data.repository.ModelFavoritesStore,
     private val profileManager: ProfileManager,
     private val configRepo: com.hermes.client.data.repository.ConfigRepository,
+    private val catalogStore: ModelCatalogStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ModelsUiState())
     val state: StateFlow<ModelsUiState> = _state.asStateFlow()
@@ -44,36 +46,59 @@ class ModelsViewModel @Inject constructor(
         favoritesStore.favorites.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptySet())
 
     init {
-        // Model options/current are per-profile (upstream scopes both read and write) —
-        // reload whenever the active profile changes so a stale back-stack entry can't
-        // show another profile's models.
-        viewModelScope.launch { profileManager.active.collect { load() } }
+        // Providers come from the process-wide catalog store (kept warm by the app-start
+        // background refresh), so a warm cache renders instantly with no spinner. The store's
+        // state is per-active-profile, so a stale back-stack entry can't show another
+        // profile's models. The config-driven default is re-read whenever the profile flips.
+        viewModelScope.launch {
+            var seenProfile = false
+            var lastProfile: String? = null
+            catalogStore.state.collect { catalog ->
+                val empty = catalog.providers.isEmpty()
+                val error = empty && !catalog.refreshing && (catalog.failed || catalog.loaded)
+                _state.value = _state.value.copy(
+                    providers = catalog.providers,
+                    loading = empty && !error,
+                    error = if (error) {
+                        AppError(AppErrorCode.MODEL_LIST_FAILED, retryable = true, stage = "models_load")
+                    } else null,
+                    defaultProvider = resolveModelProvider(catalog.providers, null, _state.value.defaultModel)
+                        ?: _state.value.defaultProvider
+                        ?: catalog.providers.firstOrNull { it.isCurrent }?.slug,
+                )
+                if (!seenProfile || catalog.profile != lastProfile) {
+                    seenProfile = true
+                    lastProfile = catalog.profile
+                    loadDefault(catalog.profile)
+                }
+            }
+        }
+        // Safety net: if the app-start refresh was skipped (offline/unconfigured), entering this
+        // screen fills the missing cache; a warm cache makes this a no-op.
+        catalogStore.refresh(force = false)
     }
 
-    fun load() = viewModelScope.launch {
-        _state.value = _state.value.copy(loading = true, error = null)
-        val profile = profileManager.active.value
-        runCatching { models.providers(profile) }
-            .onSuccess { providers ->
-                // The default model comes from config; its provider from the catalog. Best-effort:
-                // the list is useful even when the config read fails (the summary card just hides).
-                val defaultModel = runCatching {
-                    (configRepo.get(profile)["model"] as? kotlinx.serialization.json.JsonPrimitive)
-                        ?.content?.ifBlank { null }
-                }.getOrNull()
-                _state.value = _state.value.copy(
-                    providers = providers, loading = false, error = null,
-                    defaultModel = defaultModel,
-                    defaultProvider = resolveModelProvider(providers, null, defaultModel)
-                        ?: providers.firstOrNull { it.isCurrent }?.slug,
-                )
-            }
-            .onFailure {
-                _state.value = _state.value.copy(
-                    loading = false,
-                    error = AppError(AppErrorCode.MODEL_LIST_FAILED, retryable = true, technicalCause = it.message, stage = "models_load"),
-                )
-            }
+    /** Explicit retry from the error state — forces a store refresh and re-reads the default. */
+    fun load() {
+        catalogStore.refresh(force = true)
+        viewModelScope.launch { loadDefault(profileManager.active.value) }
+    }
+
+    /**
+     * Best-effort read of the configured default model; its provider resolves from the catalog.
+     * The list is useful even when the config read fails (the summary card just hides).
+     */
+    private suspend fun loadDefault(profile: String?) {
+        val defaultModel = runCatching {
+            (configRepo.get(profile)["model"] as? kotlinx.serialization.json.JsonPrimitive)
+                ?.content?.ifBlank { null }
+        }.getOrNull()
+        val providers = _state.value.providers
+        _state.value = _state.value.copy(
+            defaultModel = defaultModel,
+            defaultProvider = resolveModelProvider(providers, null, defaultModel)
+                ?: providers.firstOrNull { it.isCurrent }?.slug,
+        )
     }
 
     fun onQuery(q: String) { _state.value = _state.value.copy(query = q) }
@@ -89,14 +114,13 @@ class ModelsViewModel @Inject constructor(
             runCatching { models.set(provider, model, profileManager.active.value) }
                 .onSuccess {
                     // Optimistic: mark the new default in place instead of flashing a full reload;
-                    // the provider isCurrent flags refresh quietly in the background.
+                    // the shared store refresh updates isCurrent flags here AND in the chat sheet.
                     _state.value = _state.value.copy(
                         pendingKey = null,
                         defaultModel = model, defaultProvider = provider,
                         message = localizedText("默认模型已设为 $model", "Default set to $model"),
                     )
-                    runCatching { models.providers(profileManager.active.value) }
-                        .onSuccess { _state.value = _state.value.copy(providers = it) }
+                    catalogStore.refresh(force = true)
                 }
                 .onFailure {
                     _state.value = _state.value.copy(

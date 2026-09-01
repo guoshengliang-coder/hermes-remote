@@ -168,6 +168,11 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   (per-role ordinal alignment) and list keys become ids verbatim, so viewport anchors survive
   every background history swap — fixing the random jump-to-bottom / position-drift class of
   bugs at the data layer. Anchor/key diagnostics probes ship behind the diagnostics toggle.
+- Version 0.1.62 keeps the model catalog warm: a process-wide ModelCatalogStore refreshes the
+  provider list in the background on every app start/foreground (plus profile switch and the
+  reconnect edge), so the model picker opens instantly from cache. Loading/error states appear
+  only when nothing is cached; a failed background refresh silently keeps the previous list, and
+  setting a new default refreshes the shared cache so the chat sheet's current markers follow.
 - Version 0.1.61 moves the brand colour from mint to the launcher icon's blue (#0B5FD0 light,
   #A9C7FF dark, hue 215) and re-tints the neutrals cool to sit under it. It also splits status
   colour out of the brand: a shared StatusColors palette backs both the connection traffic light
@@ -289,7 +294,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.61-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.62-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

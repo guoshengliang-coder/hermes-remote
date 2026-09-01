@@ -151,3 +151,9 @@ verification for the current iteration.
    `vendor/model:variant`), the mic, attach (+), and send controls must keep their exact size and
    position — the chip ellipsizes inside the leftover width instead of displacing them. Also check
    the short-name state (chip hugs left) and the pre-load state (默认模型 placeholder).
+8. **Warm catalog (2026-09 startup prefetch).** Cold-start the app, wait a few seconds, then tap
+   the model chip: the sheet must show the list immediately — no loading spinner. Background the
+   app, return (warm start), open the sheet again: still instant. Airplane-mode cold start: the
+   sheet falls back to the old loading→error+Retry path, and reconnecting refreshes the catalog
+   automatically. After changing the default in Settings › Models, the chat sheet's 当前 markers
+   must reflect it without a manual reload.
