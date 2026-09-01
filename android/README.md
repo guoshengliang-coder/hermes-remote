@@ -191,6 +191,13 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.73 finishes the residual viewport and refresh pass: fold/unfold, rotation, and
+  fullscreen-table returns first recover the stable conversation turn, then align the same semantic
+  Markdown or table row across width changes and only release the anchor after several stable frames.
+  Manual refresh no longer remounts the entire transcript — identical history stays pixel-still,
+  changed stable-id rows update in place and restore the reading position, and queued refresh during
+  streaming remains intact. The chat header also tightens its back/search/More icon spacing without
+  shrinking or overlapping their 48dp touch targets, and shortens the Chinese refresh/copy labels.
 - Version 0.1.72 hardens the decision card round-trip: single-select now works in two steps
   (tap to select, explicit Confirm to submit) matching multi-select, a failed clarify.respond
   restores the card for retry instead of silently dropping the answer, the parser falls back to
@@ -363,7 +370,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.72-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.73-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
