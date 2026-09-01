@@ -173,6 +173,10 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   reconnect edge), so the model picker opens instantly from cache. Loading/error states appear
   only when nothing is cached; a failed background refresh silently keeps the previous list, and
   setting a new default refreshes the shared cache so the chat sheet's current markers follow.
+- Version 0.1.63 fixes the fling-arrest mis-tap on the scroll-to-bottom FAB (hidden while any
+  scroll is in progress, fading in on rest) plus per-frame costs on the fling path, and closes
+  the 0.1.60 open-path regression: acceptHistory now id-aligns like reconciliation, the pre-open
+  frame shows a bottom-anchored skeleton, and the chat list state is keyed per session.
 - Version 0.1.61 moves the brand colour from mint to the launcher icon's blue (#0B5FD0 light,
   #A9C7FF dark, hue 215) and re-tints the neutrals cool to sit under it. It also splits status
   colour out of the brand: a shared StatusColors palette backs both the connection traffic light
@@ -294,7 +298,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.62-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.63-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
