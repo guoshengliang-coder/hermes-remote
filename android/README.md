@@ -184,6 +184,13 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   (row suffixes mirror the desktop list). The sheet drops the 此对话/默认 scope control —
   it now only changes the current chat, with the profile default edited solely on 设置 › 模型 —
   and both surfaces gain a manual force-refresh button with an in-flight spinner.
+- Version 0.1.69 completes the residual chat-motion pass: authoritative history remains behind a
+  softly sweeping skeleton until Markdown and reverseLayout stay geometrically stable, then enters
+  through a short crossfade without exposing an intermediate user-bubble frame. Fold/unfold and
+  full-screen table returns restore the reader's relative position inside the same semantic block
+  across several stable frames instead of reusing a stale pixel offset. Live Markdown and the
+  background-process slot animate measured height changes from the bottom edge, preventing the
+  remaining small bidirectional steps during typewriter output and final settlement.
 - Version 0.1.68 stabilizes the entire chat lifecycle: opening conversations is serialized onto one
   canonical navigation destination, back always returns directly to Chats, and profile switches can
   no longer race pending opens. Initial history, live typewriter output, and completion now share one
@@ -339,7 +346,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.68-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.69-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
