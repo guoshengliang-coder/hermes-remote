@@ -96,4 +96,25 @@ class ClarifyParseTest {
         assertTrue(zh.contains("失效"))
         assertTrue(en.contains("expired"))
     }
+
+    @Test
+    fun singleElementBatchKeepsItsRealQid() {
+        // Production Hermes emits EVERY clarify as questions[] — one question is a
+        // one-element batch. The respond MUST carry that qid (routing key in the VM),
+        // even though the UI treats it as a plain single question (isBatch=false).
+        val req = parseClarifyRequest(
+            payload("""{"request_id":"r7","questions":[{"qid":"q0","question":"选哪个颜色？","choices":["红","蓝"]}]}"""),
+        )
+        assertFalse(req.isBatch)
+        assertEquals("q0", req.currentQuestion?.qid)
+    }
+
+    @Test
+    fun legacySinglePayloadHasNoQid() {
+        // Legacy single-question payloads (older Hermes) have no questions[]: the
+        // synthesized question carries an EMPTY qid, and the respond must omit
+        // question_id (older _respond has no batch registry for the request).
+        val req = parseClarifyRequest(payload("""{"request_id":"r8","question":"继续吗？","choices":["是","否"]}"""))
+        assertEquals("", req.currentQuestion?.qid)
+    }
 }

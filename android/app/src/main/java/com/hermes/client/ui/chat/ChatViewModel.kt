@@ -900,7 +900,14 @@ class ChatViewModel @Inject constructor(
             "clarify",
             "respond req=${request.requestId.ifBlank { "<EMPTY>" }} qid=${current?.qid ?: "-"} answerLen=${answer.length}",
         )
-        if (request.isBatch && current != null) {
+        // ROOT CAUSE of "agent didn't receive my answer" (verified live against the
+        // production Hermes on 2026-09-01): newer Hermes emits EVERY clarify as a
+        // questions[] batch — a single question arrives as a one-element batch. A
+        // respond without question_id on a batch request releases the tool's wait,
+        // but the batch answer parser can't attribute the raw string to a qid, so
+        // the agent reads an EMPTY user_response. Route by "the wire gave us a real
+        // qid", never by batch size.
+        if (current != null && current.qid.isNotEmpty()) {
             val advanced = request.copy(lockedAnswers = request.lockedAnswers + (current.qid to answer))
             val finished = advanced.currentQuestion == null
             mutateState { it.copy(pendingClarify = if (finished) null else advanced) }
