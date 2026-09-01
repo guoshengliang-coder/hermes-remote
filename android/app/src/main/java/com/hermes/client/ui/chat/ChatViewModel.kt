@@ -906,7 +906,14 @@ class ChatViewModel @Inject constructor(
             mutateState { it.copy(pendingClarify = if (finished) null else advanced) }
             viewModelScope.launch {
                 runCatching { chat.respondClarify(sessionId, request.requestId, answer, current.qid) }
-                    .onSuccess { if (finished) runtimeKey?.let(runtimeStore::continueAfterInput) }
+                    .onSuccess { status ->
+                        com.hermes.client.data.diagnostics.DebugLog.log("clarify", "respond status=$status")
+                        if (status == "expired") {
+                            onClarifyExpired()
+                        } else if (finished) {
+                            runtimeKey?.let(runtimeStore::continueAfterInput)
+                        }
+                    }
                     .onFailure { error ->
                         // Transport failure: put the question back so the user can retry —
                         // a swallowed error looked exactly like a successful submit.
@@ -918,13 +925,27 @@ class ChatViewModel @Inject constructor(
             mutateState { it.copy(pendingClarify = null) }
             viewModelScope.launch {
                 runCatching { chat.respondClarify(sessionId, request.requestId, answer) }
-                    .onSuccess { runtimeKey?.let(runtimeStore::continueAfterInput) }
+                    .onSuccess { status ->
+                        com.hermes.client.data.diagnostics.DebugLog.log("clarify", "respond status=$status")
+                        if (status == "expired") onClarifyExpired()
+                        else runtimeKey?.let(runtimeStore::continueAfterInput)
+                    }
                     .onFailure { error ->
                         com.hermes.client.data.diagnostics.DebugLog.log("clarify", "respond FAILED: ${error.message}")
                         mutateState { it.copy(pendingClarify = request) }
                     }
             }
         }
+    }
+
+    /**
+     * The server reported the clarify request was already gone ("expired"): the agent was
+     * released earlier — by its timeout, an interrupt, or another client — and never sees an
+     * answer delivered now. Silence here made a lost answer look identical to a delivered one.
+     */
+    private fun onClarifyExpired() {
+        mutateState { it.copy(pendingClarify = null) }
+        appendSystem(clarifyExpiredNotice(appLanguage))
     }
 
     /** Explicit skip of the WHOLE request (empty answer = upstream Skip semantics). */

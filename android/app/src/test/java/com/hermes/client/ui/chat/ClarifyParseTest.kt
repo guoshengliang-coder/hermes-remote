@@ -86,4 +86,14 @@ class ClarifyParseTest {
         val viaCamelCase = parseClarifyRequest(payload("""{"requestId":"cl-10","question":"继续吗？"}"""))
         assertEquals("cl-10", viaCamelCase.requestId)
     }
+
+    @Test
+    fun expiredNoticeCarriesErrorCodeInBothLanguages() {
+        val zh = clarifyExpiredNotice(com.hermes.client.ui.localization.AppLanguage.ZH)
+        val en = clarifyExpiredNotice(com.hermes.client.ui.localization.AppLanguage.EN)
+        assertTrue(zh.contains("HR-CLARIFY-001"))
+        assertTrue(en.contains("HR-CLARIFY-001"))
+        assertTrue(zh.contains("失效"))
+        assertTrue(en.contains("expired"))
+    }
 }

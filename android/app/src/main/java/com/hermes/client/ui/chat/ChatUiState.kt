@@ -556,6 +556,18 @@ data class ClarifyRequest(
 }
 
 /** Parse a clarify.request payload: batch `questions[]` wins over single question/choices. */
+/**
+ * User-visible notice for HR-CLARIFY-001: the answer landed on an expired clarify request.
+ * Registered in docs/ERROR_HANDLING.md; the agent has already moved on without the answer,
+ * so the honest copy tells the user to restate it in chat rather than implying delivery.
+ */
+fun clarifyExpiredNotice(language: com.hermes.client.ui.localization.AppLanguage): String =
+    com.hermes.client.ui.localization.localized(
+        language,
+        "这个提问已失效，agent 没有收到这次回答（HR-CLARIFY-001）。它可能已超时或被继续运行，请直接在输入框把你的选择告诉它。",
+        "This question expired before the answer arrived (HR-CLARIFY-001). The agent has moved on — tell it your choice directly in the composer.",
+    )
+
 fun parseClarifyRequest(payload: kotlinx.serialization.json.JsonObject): ClarifyRequest {
     fun prim(e: kotlinx.serialization.json.JsonElement?): String? =
         (e as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull?.ifBlank { null }

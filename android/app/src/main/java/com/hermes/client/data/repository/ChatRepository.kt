@@ -7,6 +7,7 @@ import com.hermes.client.ui.chat.ApprovalChoice
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -279,18 +280,24 @@ class ChatRepository(private val client: HermesGatewayClient) {
         })
     }
 
+    /**
+     * Returns the server's status string: "ok" when the pending request was released with this
+     * answer, "expired" when the request was already gone server-side (timeout, interrupt, or a
+     * concurrent release) — the agent never sees an answer delivered onto an expired request.
+     */
     suspend fun respondClarify(
         sessionId: String,
         requestId: String,
         answer: String,
         questionId: String? = null,
-    ) {
-        client.call("clarify.respond", buildJsonObject {
+    ): String {
+        val result = client.call("clarify.respond", buildJsonObject {
             put("session_id", sessionId)
             put("request_id", requestId)
             put("answer", answer)
             // Batch clarifies lock one answer at a time; the server keys them by qid.
             if (!questionId.isNullOrEmpty()) put("question_id", questionId)
         })
+        return (result as? JsonObject)?.get("status")?.let { (it as? JsonPrimitive)?.content }.orEmpty()
     }
 }
