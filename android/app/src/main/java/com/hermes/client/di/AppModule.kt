@@ -234,6 +234,13 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideReasoningPresetStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.ReasoningPresetStore =
+        com.hermes.client.data.repository.ReasoningPresetStore(context)
+
+    @Provides
+    @Singleton
     fun provideNotificationSettings(
         @ApplicationContext context: Context,
     ): com.hermes.client.data.repository.NotificationSettings =

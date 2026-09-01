@@ -141,9 +141,10 @@ verification for the current iteration.
    has them) with scope 此对话. Confirm the switch succeeds — the app quotes `/model` arguments,
    and the upstream slash parser's handling of quoted arguments has NOT yet been verified against a
    live Hermes.
-5. **Default scope.** Switch with scope 默认 and confirm the settings Models page shows the new
-   default in its top summary card and highlights the row; a chat that was following the default
-   must show the new model on its chip without reopening.
+5. **Scope separation (2026-09).** The chat sheet has NO scope control — selecting a model always
+   switches only the current chat. The profile default is edited only on 设置 › 模型: change it
+   there and confirm the top summary card and row highlight update; already-open chats keep their
+   model until reopened.
 6. **Failure surfaces.** Drop the Connector and attempt a switch: the sheet must stay open showing
    HR-RPC-004 (session) or HR-RPC-005 (default); the model list failure state must show HR-RPC-003
    with a working Retry.
@@ -157,3 +158,13 @@ verification for the current iteration.
    sheet falls back to the old loading→error+Retry path, and reconnecting refreshes the catalog
    automatically. After changing the default in Settings › Models, the chat sheet's 当前 markers
    must reflect it without a manual reload.
+9. **Manual refresh (2026-09).** Add/remove a model upstream, then tap the refresh icon in the
+   sheet's title row (or the 设置 › 模型 top bar): the list must update and the icon must show a
+   spinner while fetching. Offline, the tap is a silent no-op (no crash, no error toast).
+10. **Reasoning effort (2026-09).** In the sheet, expand 推理强度: the 思考 toggle and seven level
+   chips must reflect the session's effective level (`config.get key=reasoning`). Pick a level:
+   the chip suffix in the composer updates (e.g. `fable-5 · 高`), and the choice is remembered for
+   that model — switch to another model and back, and the remembered level is re-applied to the
+   session (row suffixes in the list show each model's memory). Turning 思考 off maps to `none`;
+   a failed change must roll back and show HR-RPC-006 in the sheet. The upstream `config.get/set
+   {key:"reasoning"}` RPC has NOT yet been verified against a live Hermes from this app.

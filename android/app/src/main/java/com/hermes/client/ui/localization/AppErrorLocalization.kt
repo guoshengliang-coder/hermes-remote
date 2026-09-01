@@ -18,6 +18,8 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "无法切换本会话的模型，请重试。", "Couldn't switch this conversation's model. Retry.")
         AppErrorCode.MODEL_DEFAULT_FAILED ->
             localized(language, "无法设置默认模型，请重试。", "Couldn't set the default model. Retry.")
+        AppErrorCode.MODEL_REASONING_FAILED ->
+            localized(language, "无法调整推理强度，请重试。", "Couldn't change the reasoning effort. Retry.")
         AppErrorCode.CONFIG_READ_FAILED ->
             localized(language, "无法加载配置，请重试。", "Couldn't load the configuration. Retry.")
         AppErrorCode.CONFIG_WRITE_FAILED ->

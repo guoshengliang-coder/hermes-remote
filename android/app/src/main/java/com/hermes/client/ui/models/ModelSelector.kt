@@ -4,7 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -17,19 +20,20 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -52,15 +56,15 @@ import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.l10n
 import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.localization.localizedMessage
-
-/** Which model slot a selection applies to. */
-enum class ModelScope { SESSION, DEFAULT }
+import com.hermes.client.ui.localization.resolve
 
 data class ModelRow(
     val provider: String,       // real provider slug
     val model: String,
     val isFavorite: Boolean,
     val isCurrent: Boolean,
+    // Remembered per-model reasoning effort (device-local preset), shown as a row suffix.
+    val presetEffort: String? = null,
 )
 
 sealed interface ModelListItem {
@@ -104,7 +108,8 @@ fun resolveModelProvider(
  * [expandedGroups]: a collapsed group contributes its header only (`null` means all expanded, the
  * legacy behavior). With a query, collapse is suspended — only providers with matches appear,
  * auto-expanded and flagged [ModelListItem.Header.searchHits]. The query matches the model name,
- * the provider slug, and the provider display name. Deterministic: input order is preserved.
+ * the provider slug, and the provider display name. [presets] (favKey → effort wire value)
+ * annotates rows with their remembered reasoning effort. Deterministic: input order is preserved.
  */
 fun modelSelectorRows(
     providers: List<ModelProviderDto>,
@@ -113,6 +118,7 @@ fun modelSelectorRows(
     currentProvider: String?,
     currentModel: String?,
     expandedGroups: Set<String>? = null,
+    presets: Map<String, String> = emptyMap(),
 ): List<ModelListItem> {
     val q = query.trim().lowercase()
     fun matches(p: ModelProviderDto, model: String) =
@@ -123,6 +129,7 @@ fun modelSelectorRows(
         model = model,
         isFavorite = favKey(provider, model) in favorites,
         isCurrent = provider == currentProvider && model == currentModel,
+        presetEffort = presets[favKey(provider, model)],
     )
 
     val items = mutableListOf<ModelListItem>()
@@ -172,8 +179,6 @@ fun ModelSelectorContent(
     items: List<ModelListItem>,
     query: String,
     onQueryChange: (String) -> Unit,
-    scope: ModelScope?,
-    onScopeChange: (ModelScope) -> Unit,
     onToggleFavorite: (provider: String, model: String) -> Unit,
     onSelect: (provider: String, model: String) -> Unit,
     onToggleGroup: (slug: String) -> Unit,
@@ -182,7 +187,11 @@ fun ModelSelectorContent(
     modifier: Modifier = Modifier,
     currentSummary: CurrentModelSummary? = null,
     onRestoreDefault: (() -> Unit)? = null,
-    scopeHint: String? = null,
+    // Session reasoning effort — the section renders only when a handler is provided
+    // (the settings screen edits the default model only and hides it).
+    reasoningEffort: String? = null,
+    onSelectReasoning: ((String) -> Unit)? = null,
+    reasoningPending: Boolean = false,
     listLoading: Boolean = false,
     listError: Boolean = false,
     onRetryLoad: (() -> Unit)? = null,
@@ -192,27 +201,8 @@ fun ModelSelectorContent(
             CurrentModelStrip(currentSummary, if (currentSummary.showRestore) onRestoreDefault else null)
         }
 
-        if (scope != null) {
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                SegmentedButton(
-                    selected = scope == ModelScope.SESSION,
-                    onClick = { onScopeChange(ModelScope.SESSION) },
-                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                ) { Text(l10n("此对话", "This chat")) }
-                SegmentedButton(
-                    selected = scope == ModelScope.DEFAULT,
-                    onClick = { onScopeChange(ModelScope.DEFAULT) },
-                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                ) { Text(l10n("默认", "Default")) }
-            }
-            if (scopeHint != null) {
-                Text(
-                    scopeHint,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
+        if (onSelectReasoning != null) {
+            ReasoningSection(reasoningEffort, reasoningPending, onSelectReasoning)
         }
 
         OutlinedTextField(
@@ -345,6 +335,93 @@ private fun CurrentModelStrip(summary: CurrentModelSummary, onRestoreDefault: ((
     }
 }
 
+/**
+ * Session reasoning-effort control, mirroring the Hermes desktop panel: a 思考 on/off toggle
+ * (off = the upstream "none" level) plus the seven effort levels as chips. Collapsed by default
+ * to one row showing the current value.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ReasoningSection(effort: String?, pending: Boolean, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = Color.Transparent,
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+    ) {
+        Column {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    l10n("推理强度", "Reasoning effort"),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    reasoningLabel(effort)?.resolve() ?: l10n("默认", "Default"),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+                if (pending) {
+                    CircularProgressIndicator(
+                        Modifier.padding(start = 8.dp).size(14.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = if (expanded) l10n("收起强度选择", "Collapse effort picker")
+                    else l10n("展开强度选择", "Expand effort picker"),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (expanded) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(l10n("思考", "Thinking"), style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.weight(1f))
+                    Switch(
+                        checked = effort != REASONING_OFF,
+                        onCheckedChange = { on ->
+                            onSelect(if (on) REASONING_DEFAULT else REASONING_OFF)
+                        },
+                        enabled = !pending,
+                    )
+                }
+                FlowRow(
+                    Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 6.dp),
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                ) {
+                    REASONING_LEVELS.forEach { level ->
+                        FilterChip(
+                            selected = effort == level,
+                            onClick = { onSelect(level) },
+                            enabled = !pending,
+                            label = { Text(reasoningLabel(level)?.resolve() ?: level) },
+                        )
+                    }
+                }
+                Text(
+                    l10n("仅当前对话；该模型的选择会被记住", "This chat only; remembered for this model"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun FavoritesHeader() {
     Row(
@@ -461,6 +538,15 @@ private fun ModelRowItem(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        // Remembered per-model effort, mirroring the desktop list's High/Med suffix.
+        reasoningLabel(row.presetEffort)?.let { label ->
+            Text(
+                label.resolve(language),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(end = 6.dp),
+            )
+        }
         if (row.isCurrent) {
             Icon(
                 Icons.Rounded.Check,
@@ -490,37 +576,57 @@ fun ModelSelectorSheet(
     items: List<ModelListItem>,
     query: String,
     onQueryChange: (String) -> Unit,
-    scope: ModelScope?,
-    onScopeChange: (ModelScope) -> Unit,
     onToggleFavorite: (provider: String, model: String) -> Unit,
     onSelect: (provider: String, model: String) -> Unit,
     onToggleGroup: (slug: String) -> Unit,
     pendingKey: String?,
     error: String?,
     onDismiss: () -> Unit,
+    onRefresh: () -> Unit,
+    refreshing: Boolean,
     currentSummary: CurrentModelSummary? = null,
     onRestoreDefault: (() -> Unit)? = null,
-    scopeHint: String? = null,
+    reasoningEffort: String? = null,
+    onSelectReasoning: ((String) -> Unit)? = null,
+    reasoningPending: Boolean = false,
     listLoading: Boolean = false,
     listError: Boolean = false,
     onRetryLoad: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Text(
-            l10n("选择模型", "Select model"),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(start = 20.dp, top = 4.dp, bottom = 4.dp),
-        )
+        Row(
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                l10n("选择模型", "Select model"),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            if (refreshing) {
+                Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                }
+            } else {
+                IconButton(onClick = onRefresh) {
+                    Icon(
+                        Icons.Rounded.Refresh,
+                        contentDescription = l10n("刷新模型列表", "Refresh model list"),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
         ModelSelectorContent(
             items = items, query = query, onQueryChange = onQueryChange,
-            scope = scope, onScopeChange = onScopeChange,
             onToggleFavorite = onToggleFavorite, onSelect = onSelect,
             onToggleGroup = onToggleGroup,
             pendingKey = pendingKey, error = error,
             modifier = Modifier.padding(bottom = 24.dp),
             currentSummary = currentSummary, onRestoreDefault = onRestoreDefault,
-            scopeHint = scopeHint,
+            reasoningEffort = reasoningEffort, onSelectReasoning = onSelectReasoning,
+            reasoningPending = reasoningPending,
             listLoading = listLoading, listError = listError, onRetryLoad = onRetryLoad,
         )
     }

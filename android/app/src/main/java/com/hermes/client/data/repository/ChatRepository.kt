@@ -128,6 +128,32 @@ class ChatRepository(private val client: HermesGatewayClient) {
         }
     }
 
+    /**
+     * Current reasoning effort for [sessionId] (`config.get {key:"reasoning"}` — the same RPC
+     * the Hermes desktop client uses). Returns e.g. "medium", "none" (thinking off), or "" when
+     * the provider default applies.
+     */
+    suspend fun reasoningGet(sessionId: String): String? {
+        val result = client.call("config.get", buildJsonObject {
+            put("key", "reasoning")
+            put("session_id", sessionId)
+        })
+        return result.jsonObject["value"]?.jsonPrimitive?.content
+    }
+
+    /**
+     * Session-scoped reasoning-effort override (`config.set {key:"reasoning"}` without a scope —
+     * deliberately never `scope:"global"`, mirroring the desktop picker which never rewrites the
+     * profile default).
+     */
+    suspend fun reasoningSet(sessionId: String, value: String) {
+        client.call("config.set", buildJsonObject {
+            put("key", "reasoning")
+            put("session_id", sessionId)
+            put("value", value)
+        })
+    }
+
     /** Fetch the slash-command catalog for the composer palette ("pairs" = [[name, desc], …]). */
     suspend fun commandsCatalog(): List<Pair<String, String>> {
         val result = client.call("commands.catalog", buildJsonObject {})

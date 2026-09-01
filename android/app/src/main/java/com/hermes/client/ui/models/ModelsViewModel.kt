@@ -29,6 +29,8 @@ data class ModelsUiState(
     val defaultProvider: String? = null,
     // favKey of the row whose set-default is in flight; non-null disables the list.
     val pendingKey: String? = null,
+    // A catalog fetch is in flight (top-bar refresh spinner); the list itself stays visible.
+    val refreshing: Boolean = false,
 )
 
 @HiltViewModel
@@ -59,6 +61,7 @@ class ModelsViewModel @Inject constructor(
                 _state.value = _state.value.copy(
                     providers = catalog.providers,
                     loading = empty && !error,
+                    refreshing = catalog.refreshing,
                     error = if (error) {
                         AppError(AppErrorCode.MODEL_LIST_FAILED, retryable = true, stage = "models_load")
                     } else null,

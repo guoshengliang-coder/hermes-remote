@@ -180,6 +180,22 @@ class ModelsViewModelTest {
         assertEquals("personal-prov", vm.state.value.providers.single().slug)
     }
 
+    // Manual refresh: the top-bar spinner reflects the in-flight fetch while the list stays put.
+    @Test fun manual_refresh_flags_refreshing_and_keeps_list() = runTest {
+        val vm = buildVm()
+        advanceUntilIdle()
+        assertEquals(catalog, vm.state.value.providers)
+
+        coEvery { models.providers(any()) } coAnswers { kotlinx.coroutines.delay(500); catalog }
+        vm.load()
+        runCurrent()
+
+        assertEquals(true, vm.state.value.refreshing)
+        assertEquals("list stays visible during a manual refresh", catalog, vm.state.value.providers)
+        advanceUntilIdle()
+        assertEquals(false, vm.state.value.refreshing)
+    }
+
     @Test fun select_failure_reports_default_set_code() = runTest {
         coEvery { models.set(any(), any(), any()) } throws RuntimeException("nope")
         val vm = buildVm()

@@ -61,6 +61,10 @@ class ChatViewModelTest {
     private val connectivityChecker = mockk<com.hermes.client.data.network.ConnectivityChecker> {
         every { isOnline() } returns true
     }
+    private val presetsFlow = MutableStateFlow<Map<String, String>>(emptyMap())
+    private val reasoningPresetStore = mockk<com.hermes.client.data.repository.ReasoningPresetStore>(relaxed = true) {
+        every { presets } returns presetsFlow
+    }
     private val runtimeJobs = mutableListOf<Job>()
 
     private fun event(type: String, sessionId: String, text: String? = null) = ServerEvent(
@@ -113,9 +117,9 @@ class ChatViewModelTest {
         )
         catalogStore = store
         return ChatViewModel(
-            chatRepo, sessionRepo, modelRepo, store, profileRepo, profileManager, favoritesStore,
-            pendingShareStore, tts, promptStore, configRepo, runtimeStore, mediaRepo, fileRepo,
-            mainDispatcherRule.dispatcher,
+            chatRepo, sessionRepo, store, reasoningPresetStore, profileRepo, profileManager,
+            favoritesStore, pendingShareStore, tts, promptStore, configRepo, runtimeStore,
+            mediaRepo, fileRepo, mainDispatcherRule.dispatcher,
         )
     }
 
@@ -353,21 +357,20 @@ class ChatViewModelTest {
         coVerify(exactly = 1) { chatRepo.resume("s1", null) }
     }
 
-    // Changing the model inside a chat (SESSION scope, the default) must switch THIS session's
-    // model (a `/model … --session` slash), not the global default — otherwise a session pinned
-    // to an unavailable model keeps failing with "model is not available in session" no matter
-    // how often the picker is used.
-    @Test fun onSelectFromSheet_session_success_switches_via_slash() = runTest {
+    // Selecting in the chat sheet ALWAYS switches THIS session's model (the `/model … --session`
+    // slash) — the sheet no longer carries a scope choice; the profile default is edited on the
+    // settings Models screen only.
+    @Test fun onSelectFromSheet_switches_this_session_via_slash() = runTest {
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
 
         var onDoneCalled = false
-        vm.onSheetScope(com.hermes.client.ui.models.ModelScope.SESSION)
         vm.onSelectFromSheet("anthropic", "opus") { onDoneCalled = true }
         advanceUntilIdle()
 
         coVerify { chatRepo.slashExec("s1", "/model opus --provider anthropic --session") }
+        coVerify(exactly = 0) { modelRepo.set(any(), any(), any()) }
         assertEquals("opus", vm.currentModel.value)
         assertTrue("success must clear any sheet error", vm.modelSheet.value.error == null)
         assertTrue("onDone must be invoked so the caller dismisses the sheet", onDoneCalled)
@@ -376,46 +379,16 @@ class ChatViewModelTest {
     // A worker failure ("slash worker closed pipe") throws — it must surface in the sheet's error
     // (not the chat transcript), and the sheet must stay open (onDone not invoked) so the user can
     // retry or pick a different model.
-    @Test fun onSelectFromSheet_session_failure_surfaces_sheet_error() = runTest {
+    @Test fun onSelectFromSheet_failure_surfaces_sheet_error() = runTest {
         coEvery { chatRepo.slashExec("s1", any()) } throws RuntimeException("slash worker closed pipe")
         val vm = buildVm()
         vm.open("s1"); advanceUntilIdle()
 
         var onDoneCalled = false
-        vm.onSheetScope(com.hermes.client.ui.models.ModelScope.SESSION)
         vm.onSelectFromSheet("anthropic", "opus") { onDoneCalled = true }
         advanceUntilIdle()
 
         assertTrue("a failed switch must surface a sheet error", vm.modelSheet.value.error != null)
-        assertFalse("the sheet must stay open on failure", onDoneCalled)
-    }
-
-    // DEFAULT scope sets the global default model via REST, not the session slash.
-    @Test fun onSelectFromSheet_default_success_sets_default_model() = runTest {
-        val vm = buildVm()
-        vm.open("s1"); advanceUntilIdle()
-
-        var onDoneCalled = false
-        vm.onSheetScope(com.hermes.client.ui.models.ModelScope.DEFAULT)
-        vm.onSelectFromSheet("anthropic", "opus") { onDoneCalled = true }
-        advanceUntilIdle()
-
-        coVerify { modelRepo.set("anthropic", "opus") }
-        assertTrue("success must clear any sheet error", vm.modelSheet.value.error == null)
-        assertTrue("onDone must be invoked so the caller dismisses the sheet", onDoneCalled)
-    }
-
-    @Test fun onSelectFromSheet_default_failure_surfaces_sheet_error() = runTest {
-        coEvery { modelRepo.set(any(), any()) } throws RuntimeException("could not set default")
-        val vm = buildVm()
-        vm.open("s1"); advanceUntilIdle()
-
-        var onDoneCalled = false
-        vm.onSheetScope(com.hermes.client.ui.models.ModelScope.DEFAULT)
-        vm.onSelectFromSheet("anthropic", "opus") { onDoneCalled = true }
-        advanceUntilIdle()
-
-        assertTrue("a failed default switch must surface a sheet error", vm.modelSheet.value.error != null)
         assertFalse("the sheet must stay open on failure", onDoneCalled)
     }
 
@@ -476,28 +449,59 @@ class ChatViewModelTest {
         watcher.cancel()
     }
 
-    // DEFAULT scope: on success the tracked default moves, and a chat that was following the
-    // default follows it to the new model immediately (the chip must not go stale).
-    @Test fun default_scope_success_moves_default_and_following_chip() = runTest {
+    // ---- Session reasoning effort ----
+
+    // Changing effort writes a session-scoped override and remembers it as this model's preset
+    // (the desktop-client behavior that makes effort FEEL global).
+    @Test fun setReasoning_success_saves_per_model_preset() = runTest {
         coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "def-model") }
         coEvery { modelRepo.providers(any()) } returns listOf(
             com.hermes.client.data.network.ModelProviderDto(
-                slug = "prov", isCurrent = true, models = listOf("def-model", "next"),
+                slug = "prov", isCurrent = true, models = listOf("def-model"),
             ),
         )
         val vm = buildVm()
-        val watcher = launch { vm.sessionModelOverridden.collect {} }
         vm.open("s1"); advanceUntilIdle()
 
-        vm.onSheetScope(com.hermes.client.ui.models.ModelScope.DEFAULT)
-        vm.onSelectFromSheet("prov", "next") {}
+        vm.setReasoning("high")
         advanceUntilIdle()
 
-        coVerify { modelRepo.set("prov", "next") }
-        assertEquals("next", vm.defaultModel.value)
-        assertEquals("next", vm.currentModel.value)
-        assertFalse(vm.sessionModelOverridden.value)
-        watcher.cancel()
+        coVerify { chatRepo.reasoningSet("s1", "high") }
+        coVerify { reasoningPresetStore.set("prov", "def-model", "high") }
+        assertEquals("high", vm.reasoningEffort.value)
+        assertTrue(vm.modelSheet.value.error == null)
+    }
+
+    @Test fun setReasoning_failure_rolls_back_and_reports_code() = runTest {
+        coEvery { chatRepo.reasoningGet(any()) } returns "medium"
+        coEvery { chatRepo.reasoningSet(any(), any()) } throws RuntimeException("rpc down")
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+        assertEquals("medium", vm.reasoningEffort.value)
+
+        vm.setReasoning("ultra")
+        advanceUntilIdle()
+
+        assertEquals("rollback to the pre-change level", "medium", vm.reasoningEffort.value)
+        assertEquals(
+            com.hermes.client.data.error.AppErrorCode.MODEL_REASONING_FAILED,
+            vm.modelSheet.value.error?.code,
+        )
+    }
+
+    // Selecting a model re-applies that model's remembered effort to the session.
+    @Test fun model_switch_applies_remembered_preset() = runTest {
+        presetsFlow.value = mapOf(
+            com.hermes.client.data.repository.favKey("anthropic", "opus") to "xhigh",
+        )
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+
+        vm.onSelectFromSheet("anthropic", "opus") {}
+        advanceUntilIdle()
+
+        coVerify { chatRepo.reasoningSet("s1", "xhigh") }
+        assertEquals("xhigh", vm.reasoningEffort.value)
     }
 
     // The process-wide catalog store keeps providers warm: with a cached catalog, opening the

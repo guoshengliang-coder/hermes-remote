@@ -141,4 +141,24 @@ class ModelSelectorTest {
     @Test fun resolveModelProvider_returns_null_for_unknown_model() {
         assertEquals(null, resolveModelProvider(providers, null, "nope"))
     }
+
+    // ---- per-model reasoning presets ----
+
+    @Test fun rows_carry_their_remembered_reasoning_preset() {
+        val presets = mapOf(favKey("openai-codex", "gpt-5.5") to "high")
+        val rows = rows(modelSelectorRows(providers, emptySet(), "", null, null, presets = presets))
+        assertEquals("high", rows.first { it.model == "gpt-5.5" }.presetEffort)
+        assertEquals(null, rows.first { it.model == "gpt-5.5-mini" }.presetEffort)
+    }
+
+    @Test fun reasoning_labels_cover_all_levels_and_off() {
+        (REASONING_LEVELS + REASONING_OFF).forEach { level ->
+            val label = reasoningLabel(level)
+            assertTrue("$level must have a label", label != null)
+            assertTrue("$level zh label must be Chinese", label!!.zh.any { it.code > 0x4E00 })
+            assertTrue("$level labels must differ per language", label.zh != label.en)
+        }
+        assertEquals("unknown/blank values show no label", null, reasoningLabel(""))
+        assertEquals(null, reasoningLabel(null))
+    }
 }

@@ -780,11 +780,15 @@ fun ChatScreen(
                                             Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
+                                            // Chip text: model plus this chat's reasoning effort
+                                            // ("fable-5 · 高"). "默认模型", not "自动", pre-load:
+                                            // there is no auto-routing to suggest.
+                                            val reasoningEffort by vm.reasoningEffort.collectAsStateWithLifecycle()
+                                            val effortSuffix = com.hermes.client.ui.models.reasoningLabel(reasoningEffort)
+                                                ?.let { " · " + it.resolve(language) } ?: ""
                                             Text(
-                                                // "默认模型", not "自动": before the config loads we only
-                                                // know the session follows the default — there is no
-                                                // auto-routing to suggest.
-                                                if (currentModel.isNullOrBlank()) localized(language, "默认模型", "Default model") else compactModelLabel(currentModel),
+                                                if (currentModel.isNullOrBlank()) localized(language, "默认模型", "Default model")
+                                                else compactModelLabel(currentModel) + effortSuffix,
                                                 style = MaterialTheme.typography.labelLarge,
                                                 color = if (currentModel.isNullOrBlank()) MaterialTheme.colorScheme.onSurfaceVariant
                                                 else MaterialTheme.colorScheme.onSurface,
@@ -1183,7 +1187,12 @@ fun ChatScreen(
         )
     }
 
-    LaunchedEffect(modelSheetOpen) { if (modelSheetOpen) vm.ensureProviders() }
+    LaunchedEffect(modelSheetOpen) {
+        if (modelSheetOpen) {
+            vm.ensureProviders()
+            vm.refreshReasoning()
+        }
+    }
     fullscreenTableRaw?.let { raw ->
         com.hermes.client.ui.chat.TableFullscreenDialog(raw = raw, onDismiss = { fullscreenTableRaw = null })
     }
@@ -1191,9 +1200,12 @@ fun ChatScreen(
     if (modelSheetOpen) {
         val providersLoading by vm.providersLoading.collectAsStateWithLifecycle()
         val providersError by vm.providersError.collectAsStateWithLifecycle()
+        val catalogRefreshing by vm.catalogRefreshing.collectAsStateWithLifecycle()
         val modelOverridden by vm.sessionModelOverridden.collectAsStateWithLifecycle()
         val defaultModel by vm.defaultModel.collectAsStateWithLifecycle()
-        val activeProfileName by vm.activeProfile.collectAsStateWithLifecycle()
+        val sheetReasoning by vm.reasoningEffort.collectAsStateWithLifecycle()
+        val reasoningPending by vm.reasoningPending.collectAsStateWithLifecycle()
+        val reasoningPresets by vm.reasoningPresetMap.collectAsStateWithLifecycle()
         // The session's provider may be unknown (old metadata); resolve it from the catalog so
         // the current row/group can be marked.
         val resolvedCurrentProvider = com.hermes.client.ui.models.resolveModelProvider(
@@ -1207,6 +1219,7 @@ fun ChatScreen(
             providers = providers, favorites = favorites, query = modelSheet.query,
             currentProvider = resolvedCurrentProvider, currentModel = currentModel,
             expandedGroups = effectiveExpanded,
+            presets = reasoningPresets,
         )
         val currentSummary = currentModel?.takeIf { it.isNotBlank() }?.let { model ->
             com.hermes.client.ui.models.CurrentModelSummary(
@@ -1223,7 +1236,6 @@ fun ChatScreen(
         com.hermes.client.ui.models.ModelSelectorSheet(
             items = items,
             query = modelSheet.query, onQueryChange = vm::onSheetQuery,
-            scope = modelSheet.scope, onScopeChange = vm::onSheetScope,
             onToggleFavorite = vm::toggleFavorite,
             onSelect = { p, m ->
                 vm.onSelectFromSheet(p, m) {
@@ -1240,15 +1252,13 @@ fun ChatScreen(
             pendingKey = modelSheet.pendingKey,
             error = modelSheet.error?.localizedMessage(language),
             onDismiss = { modelSheetOpen = false; retryAfterModelSwitch = false; vm.onSheetQuery("") },
+            onRefresh = { vm.ensureProviders(force = true) },
+            refreshing = catalogRefreshing,
             currentSummary = currentSummary,
             onRestoreDefault = { vm.restoreDefaultModel { modelSheetOpen = false } },
-            scopeHint = if (modelSheet.scope == com.hermes.client.ui.models.ModelScope.SESSION) {
-                localized(language, "只影响当前对话，其余会话仍用默认模型", "Affects only this chat; other chats keep the default")
-            } else {
-                val profileName = activeProfileName
-                if (profileName != null) localized(language, "设为 $profileName 身份所有新会话的默认模型", "Sets the default for all new chats of $profileName")
-                else localized(language, "设为所有新会话的默认模型", "Sets the default for all new chats")
-            },
+            reasoningEffort = sheetReasoning,
+            onSelectReasoning = vm::setReasoning,
+            reasoningPending = reasoningPending,
             listLoading = providersLoading,
             listError = providersError,
             onRetryLoad = { vm.ensureProviders(force = true) },

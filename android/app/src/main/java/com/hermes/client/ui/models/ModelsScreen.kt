@@ -1,9 +1,12 @@
 package com.hermes.client.ui.models
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Refresh
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -42,6 +45,24 @@ fun ModelsScreen(
             com.hermes.client.ui.components.HermesTopBar(
                 title = l10n("模型", "Models"),
                 navigationIcon = { IconButton(onClick = onMenu) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = l10n("返回", "Back")) } },
+                actions = {
+                    // Manual force refresh — the top bar stays mounted through loading/error
+                    // states, so the control is always reachable.
+                    if (state.refreshing) {
+                        Box(Modifier.size(48.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                Modifier.size(20.dp), strokeWidth = 2.dp,
+                            )
+                        }
+                    } else {
+                        IconButton(onClick = vm::load) {
+                            androidx.compose.material3.Icon(
+                                androidx.compose.material.icons.Icons.Rounded.Refresh,
+                                contentDescription = l10n("刷新模型列表", "Refresh model list"),
+                            )
+                        }
+                    }
+                },
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
@@ -64,10 +85,11 @@ fun ModelsScreen(
                         currentProvider = state.defaultProvider, currentModel = state.defaultModel,
                         expandedGroups = effectiveExpanded,
                     )
+                    // Settings edits the profile default only; the session reasoning section is
+                    // deliberately absent here (it belongs to a chat).
                     com.hermes.client.ui.models.ModelSelectorContent(
                         items = items,
                         query = state.query, onQueryChange = vm::onQuery,
-                        scope = null, onScopeChange = {},          // Settings sets the global default only
                         onToggleFavorite = vm::toggleFavorite,
                         onSelect = { p, m -> vm.select(p, m) },
                         onToggleGroup = { slug ->

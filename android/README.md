@@ -177,6 +177,13 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   scroll is in progress, fading in on rest) plus per-frame costs on the fling path, and closes
   the 0.1.60 open-path regression: acceptHistory now id-aligns like reconciliation, the pre-open
   frame shows a bottom-anchored skeleton, and the chat list state is keyed per session.
+- Version 0.1.65 brings the reasoning-effort experience: a 推理强度 panel in the chat model
+  sheet (思考 toggle + seven levels, session-scoped via the same config.set RPC the desktop
+  client uses), the composer chip shows the current effort (fable-5 · 高), and each model's
+  chosen effort is remembered device-locally and re-applied whenever that model is selected
+  (row suffixes mirror the desktop list). The sheet drops the 此对话/默认 scope control —
+  it now only changes the current chat, with the profile default edited solely on 设置 › 模型 —
+  and both surfaces gain a manual force-refresh button with an in-flight spinner.
 - Version 0.1.64 completes the startup experience: phase-based progress now advances continuously
   with a moving highlight and animated status dots; cold and interrupted warm starts stay behind
   the gate until the destination's critical data is ready, while a healthy warm return remains
@@ -312,7 +319,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.64-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.65-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

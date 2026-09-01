@@ -12,7 +12,6 @@ import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ChatMediaRepository
 import com.hermes.client.data.repository.ChatFileRepository
-import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.ProfileRepository
 import com.hermes.client.data.repository.SessionRepository
@@ -34,6 +33,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -49,8 +49,8 @@ import com.hermes.client.ui.localization.localized
 class ChatViewModel @Inject constructor(
     private val chat: ChatRepository,
     private val sessions: SessionRepository,
-    private val modelRepo: ModelRepository,
     private val catalogStore: com.hermes.client.data.repository.ModelCatalogStore,
+    private val reasoningPresets: com.hermes.client.data.repository.ReasoningPresetStore,
     private val profileRepo: ProfileRepository,
     private val profileManager: ProfileManager,
     private val favoritesStore: com.hermes.client.data.repository.ModelFavoritesStore,
@@ -124,12 +124,6 @@ class ChatViewModel @Inject constructor(
     // to the same model as the default apart from following it.
     private val _explicitSessionOverride = MutableStateFlow(false)
 
-    private fun isOverriddenNow(): Boolean {
-        val cur = _currentModel.value
-        val def = _defaultModel.value
-        return _explicitSessionOverride.value || (cur != null && def != null && cur != def)
-    }
-
     /** True when this chat runs a session override instead of the profile default. */
     val sessionModelOverridden: StateFlow<Boolean> =
         kotlinx.coroutines.flow.combine(_currentModel, _defaultModel, _explicitSessionOverride) { cur, def, explicit ->
@@ -194,7 +188,6 @@ class ChatViewModel @Inject constructor(
 
     data class ModelSheetUi(
         val query: String = "",
-        val scope: com.hermes.client.ui.models.ModelScope = com.hermes.client.ui.models.ModelScope.SESSION,
         // favKey of the row whose selection is in flight; non-null disables the list (no double
         // submits) and shows the spinner on that row.
         val pendingKey: String? = null,
@@ -313,6 +306,7 @@ class ChatViewModel @Inject constructor(
         _currentModel.value = cachedMeta?.model?.ifBlank { null }
         _currentProvider.value = cachedMeta?.provider?.ifBlank { null }
         _explicitSessionOverride.value = false
+        _reasoningEffort.value = null
         val cachedHistory = sessions.cachedHistory(id, profile)?.map { it.organizedForDisplay() }
         runtimeStore.markHistoryLoading(key, cachedHistory)
         collectJob?.cancel()
@@ -415,6 +409,7 @@ class ChatViewModel @Inject constructor(
             }
             launch { runCatching { _profiles.value = profileRepo.list() } }
             launch { runCatching { _commands.value = chat.commandsCatalog() } }
+            launch { refreshReasoning() }
         }
         // Resume is independent from REST history. The composer can be used immediately, but any
         // send awaits this gate so a stored database id is never submitted as a live runtime id.
@@ -781,71 +776,40 @@ class ChatViewModel @Inject constructor(
     }
 
     fun onSheetQuery(q: String) { _modelSheet.value = _modelSheet.value.copy(query = q) }
-    fun onSheetScope(s: com.hermes.client.ui.models.ModelScope) {
-        _modelSheet.value = _modelSheet.value.copy(scope = s, error = null)
-    }
     fun toggleFavorite(provider: String, model: String) =
         viewModelScope.launch { favoritesStore.toggle(provider, model) }
 
     /**
-     * Apply a model chosen in the sheet. SESSION → the /model --session slash (overrides just this
-     * chat); DEFAULT → the global default via REST. On failure the code is surfaced in the sheet
-     * (kept open); on success the sheet is dismissed by the caller via [onDone]. A second tap
-     * while one selection is in flight is ignored (pendingKey gates the whole list).
+     * Apply a model chosen in the sheet — always a SESSION switch (the /model --session slash):
+     * the sheet only ever changes THIS chat; the profile default is edited on the settings
+     * Models screen. On failure the code is surfaced in the sheet (kept open); on success the
+     * sheet is dismissed by the caller via [onDone] and the model's remembered reasoning preset
+     * is applied. A second tap while one selection is in flight is ignored.
      */
     fun onSelectFromSheet(provider: String, model: String, onDone: () -> Unit) {
         if (_modelSheet.value.pendingKey != null) return
         val key = com.hermes.client.data.repository.favKey(provider, model)
         _modelSheet.value = _modelSheet.value.copy(pendingKey = key, error = null)
         viewModelScope.launch {
-            when (_modelSheet.value.scope) {
-                com.hermes.client.ui.models.ModelScope.SESSION ->
-                    runCatching { chat.slashExec(sessionId, sessionModelCommand(provider, model)) }
-                        .onSuccess {
-                            _currentModel.value = model
-                            _currentProvider.value = provider
-                            _explicitSessionOverride.value = true
-                            _modelSheet.value = ModelSheetUi()  // reset + clear pending/error
-                            onDone()
-                        }
-                        .onFailure { e ->
-                            if (e is kotlinx.coroutines.CancellationException) throw e
-                            _modelSheet.value = _modelSheet.value.copy(
-                                pendingKey = null,
-                                error = com.hermes.client.data.error.AppError(
-                                    com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_FAILED,
-                                    retryable = true, technicalCause = e.message, stage = "model_session_switch",
-                                ),
-                            )
-                        }
-                com.hermes.client.ui.models.ModelScope.DEFAULT ->
-                    runCatching { modelRepo.set(provider, model, profileManager.active.value) }
-                        .onSuccess {
-                            // Computed directly — the derived StateFlow only updates under
-                            // collection (WhileSubscribed) and may be stale here.
-                            val followedDefault = !isOverriddenNow()
-                            _defaultModel.value = model
-                            _defaultProvider.value = provider
-                            // A session without its own override keeps following the default —
-                            // reflect the new default in the chip immediately.
-                            if (followedDefault) {
-                                _currentModel.value = model
-                                _currentProvider.value = provider
-                            }
-                            _modelSheet.value = _modelSheet.value.copy(pendingKey = null, error = null)
-                            onDone()
-                        }
-                        .onFailure { e ->
-                            if (e is kotlinx.coroutines.CancellationException) throw e
-                            _modelSheet.value = _modelSheet.value.copy(
-                                pendingKey = null,
-                                error = com.hermes.client.data.error.AppError(
-                                    com.hermes.client.data.error.AppErrorCode.MODEL_DEFAULT_FAILED,
-                                    retryable = true, technicalCause = e.message, stage = "model_default_set",
-                                ),
-                            )
-                        }
-            }
+            runCatching { chat.slashExec(sessionId, sessionModelCommand(provider, model)) }
+                .onSuccess {
+                    _currentModel.value = model
+                    _currentProvider.value = provider
+                    _explicitSessionOverride.value = true
+                    _modelSheet.value = ModelSheetUi()  // reset + clear pending/error
+                    applyReasoningPresetFor(provider, model)
+                    onDone()
+                }
+                .onFailure { e ->
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    _modelSheet.value = _modelSheet.value.copy(
+                        pendingKey = null,
+                        error = com.hermes.client.data.error.AppError(
+                            com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_FAILED,
+                            retryable = true, technicalCause = e.message, stage = "model_session_switch",
+                        ),
+                    )
+                }
         }
     }
 
@@ -869,6 +833,7 @@ class ChatViewModel @Inject constructor(
                     _currentProvider.value = provider
                     _explicitSessionOverride.value = false
                     _modelSheet.value = ModelSheetUi()
+                    applyReasoningPresetFor(provider, model)
                     onDone()
                 }
                 .onFailure { e ->
@@ -881,6 +846,87 @@ class ChatViewModel @Inject constructor(
                         ),
                     )
                 }
+        }
+    }
+
+    // ---- Session reasoning effort (config.get/set {key:"reasoning"} — same RPC as desktop) ----
+
+    private val _reasoningEffort = MutableStateFlow<String?>(null)
+    /** Wire value ("medium", "none", …) or null while unknown / provider default. */
+    val reasoningEffort: StateFlow<String?> = _reasoningEffort.asStateFlow()
+    private val _reasoningPending = MutableStateFlow(false)
+    val reasoningPending: StateFlow<Boolean> = _reasoningPending.asStateFlow()
+
+    /** Per-model remembered efforts (device-local), for the sheet's row suffixes. */
+    val reasoningPresetMap: StateFlow<Map<String, String>> =
+        reasoningPresets.presets.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** True while any catalog fetch for the active profile is in flight (refresh-button spinner). */
+    val catalogRefreshing: StateFlow<Boolean> =
+        catalogStore.state.map { it.refreshing }
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), false)
+
+    /** Re-read this session's effective reasoning effort (sheet open / after session changes). */
+    fun refreshReasoning() {
+        val id = sessionId
+        if (id.isBlank()) return
+        viewModelScope.launch {
+            runCatching { chat.reasoningGet(id) }
+                .onSuccess { _reasoningEffort.value = it?.ifBlank { null } }
+            // Failure is silent: the sheet just shows "默认" until a read succeeds.
+        }
+    }
+
+    /**
+     * Session-scoped effort change from the sheet, with optimistic update + rollback. On success
+     * the choice is remembered as this model's preset (what makes effort FEEL global while every
+     * write stays on this session — desktop-client behavior).
+     */
+    fun setReasoning(level: String) {
+        if (_reasoningPending.value) return
+        val previous = _reasoningEffort.value
+        _reasoningPending.value = true
+        _reasoningEffort.value = level
+        _modelSheet.value = _modelSheet.value.copy(error = null)
+        viewModelScope.launch {
+            runCatching { chat.reasoningSet(sessionId, level) }
+                .onSuccess {
+                    val provider = _currentProvider.value
+                    val model = _currentModel.value
+                    if (!provider.isNullOrBlank() && !model.isNullOrBlank()) {
+                        runCatching { reasoningPresets.set(provider, model, level) }
+                    }
+                }
+                .onFailure { e ->
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    _reasoningEffort.value = previous
+                    _modelSheet.value = _modelSheet.value.copy(
+                        error = com.hermes.client.data.error.AppError(
+                            com.hermes.client.data.error.AppErrorCode.MODEL_REASONING_FAILED,
+                            retryable = true, technicalCause = e.message, stage = "reasoning_set",
+                        ),
+                    )
+                }
+            _reasoningPending.value = false
+        }
+    }
+
+    /**
+     * After a successful model switch, re-apply that model's remembered effort to the session
+     * (mirrors the desktop client's applyModelPreset); without a memory, re-read the effective
+     * value so the sheet and chip stay truthful.
+     */
+    private fun applyReasoningPresetFor(provider: String, model: String) {
+        viewModelScope.launch {
+            val preset = runCatching { reasoningPresets.presets.first() }.getOrNull()
+                ?.get(com.hermes.client.data.repository.favKey(provider, model))
+            if (preset != null && preset != _reasoningEffort.value) {
+                runCatching { chat.reasoningSet(sessionId, preset) }
+                    .onSuccess { _reasoningEffort.value = preset }
+                // Failure is silent — the model switch itself succeeded.
+            } else if (preset == null) {
+                refreshReasoning()
+            }
         }
     }
 
