@@ -289,6 +289,58 @@ fun ChatMessageList(
         if (scrollToBottomTick > 0L) bottomRequests.trySend(Unit)
     }
 
+    // ---- Diagnostics probes (no-op unless Settings→诊断 is on) --------------------------
+    // Probe A: viewport anchor movements. A sudden index drop to the bottom without a matching
+    // user gesture is the "random jump to bottom" under investigation.
+    LaunchedEffect(listState, sessionId) {
+        var lastIndex = -1
+        var lastKey: Any? = null
+        androidx.compose.runtime.snapshotFlow {
+            Triple(
+                listState.firstVisibleItemIndex,
+                listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key,
+                listState.isScrollInProgress,
+            )
+        }.collect { (index, key, scrolling) ->
+            if (com.hermes.client.data.diagnostics.DebugLog.isEnabled()) {
+                if (lastIndex > 3 && index <= 1) {
+                    com.hermes.client.data.diagnostics.DebugLog.log(
+                        "anchor",
+                        "JUMP index $lastIndex->$index lastKey=$lastKey newKey=$key scrolling=$scrolling",
+                    )
+                } else if (key != lastKey && lastKey != null && !scrolling) {
+                    com.hermes.client.data.diagnostics.DebugLog.log(
+                        "anchor",
+                        "key-shift@$index $lastKey -> $key (no user scroll)",
+                    )
+                }
+            }
+            lastIndex = index
+            lastKey = key
+        }
+    }
+    // Probe B: render-key churn. Logs whenever the key list changes while count stays equal —
+    // the signature of content-hash keys being reshuffled under a reader.
+    var probeKeys by remember(sessionId) { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(displayKeys) {
+        if (com.hermes.client.data.diagnostics.DebugLog.isEnabled()) {
+            val old = probeKeys
+            if (old.isNotEmpty() && old.size == displayKeys.size && old != displayKeys) {
+                val changed = old.indices.count { old[it] != displayKeys[it] }
+                com.hermes.client.data.diagnostics.DebugLog.log(
+                    "keys",
+                    "reshuffle: $changed/${displayKeys.size} keys changed, tail=${displayKeys.takeLast(2)}",
+                )
+            } else if (old.size != displayKeys.size) {
+                com.hermes.client.data.diagnostics.DebugLog.log(
+                    "keys",
+                    "count ${old.size} -> ${displayKeys.size}",
+                )
+            }
+        }
+        probeKeys = displayKeys
+    }
+
     // Search-highlight navigation, mapped from turn order to the reversed list order. The size is
     // a key on purpose: new turns shift the reversed index of the same logical match. Offset 1
     // skips the permanent bottom-edge slot at index 0.
@@ -450,31 +502,7 @@ fun ChatMessageList(
  * Stable render keys survive local-id to REST-id replacement and adjacent assistant-record merges.
  * User text anchors a conversation turn; assistant/system ordinals only advance inside that turn.
  */
-internal fun List<ChatMessage>.conversationRenderKeys(): List<String> {
-    val userOccurrences = mutableMapOf<Int, Int>()
-    var userAnchor = "conversation-start"
-    var assistantOrdinal = 0
-    var systemOrdinal = 0
-    return map { message ->
-        when (message.role) {
-            Role.USER -> {
-                // Do not include local attachment ids or remote paths: both change after upload and
-                // REST hydration. MIME/count is stable enough, with occurrences disambiguating repeats.
-                val imageSignature = message.images.joinToString(",") { it.mimeType.orEmpty() }
-                val fileSignature = message.files.joinToString(",") { "${it.name}:${it.mimeType}" }
-                val fingerprint = 31 * (31 * message.text.trim().hashCode() + imageSignature.hashCode()) + fileSignature.hashCode()
-                val occurrence = userOccurrences.getOrDefault(fingerprint, 0)
-                userOccurrences[fingerprint] = occurrence + 1
-                userAnchor = "user:$fingerprint:$occurrence"
-                assistantOrdinal = 0
-                systemOrdinal = 0
-                userAnchor
-            }
-            Role.ASSISTANT -> "assistant:$userAnchor:${assistantOrdinal++}"
-            Role.SYSTEM -> "system:$userAnchor:${systemOrdinal++}:${message.isError}"
-        }
-    }
-}
+internal fun List<ChatMessage>.conversationRenderKeys(): List<String> = map { it.id }
 
 internal fun List<ChatMessage>.conversationLayoutRevision(): Int = fold(1) { revision, message ->
     var next = 31 * revision + message.id.hashCode()

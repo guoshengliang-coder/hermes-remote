@@ -213,11 +213,17 @@ class SessionRuntimeStoreTest {
 
         advanceTimeBy(250L)
         runCurrent()
-        assertTrue(store.runtimes.value.getValue(key).chat.messages.none { it.id == "persisted-answer" })
+        // First pass: REST does not yet contain the answer turn — rejected, history not loaded.
+        assertTrue(!store.runtimes.value.getValue(key).chat.historyLoaded)
 
         advanceTimeBy(1_000L)
         runCurrent()
-        assertTrue(store.runtimes.value.getValue(key).chat.messages.any { it.id == "persisted-answer" })
+        // Second pass accepted: persisted CONTENT lands, while identity alignment reuses the
+        // live ids so list keys survive the swap — the REST id must NOT replace the local one.
+        val chat = store.runtimes.value.getValue(key).chat
+        assertTrue(chat.historyLoaded)
+        assertTrue(chat.messages.any { it.text == answer.text })
+        assertTrue(chat.messages.none { it.id == "persisted-answer" })
     }
 
     @Test fun completion_while_offscreen_becomes_unread() = runTest {

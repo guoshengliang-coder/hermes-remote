@@ -44,7 +44,17 @@ const server = createServer(async (request, response) => {
   const p = url.pathname;
   if (p === "/api/status") return json(response, { status: "ok", version: "mock-hermes-stream" });
   if (p === "/api/sessions/stats") return json(response, { total: 0 });
-  if (/^\/api\/sessions\/[^/]+\/messages$/.test(p)) return json(response, { messages: [] });
+  if (/^\/api\/sessions\/[^/]+\/messages$/.test(p)) {
+    // Return a history that COVERS the locally observed turns so the app's reconciliation
+    // acceptance passes — this is what swaps live ids (u-*/a-*) for history ids (h-*), the
+    // suspected trigger for the anchor-jump bug. Content mirrors what streamRun produced.
+    const out = [];
+    for (let i = 0; i < promptCount; i++) {
+      out.push({ id: i * 2 + 1, role: "user", content: promptTexts[i] ?? "t" });
+      out.push({ id: i * 2 + 2, role: "assistant", content: FULL_TEXT });
+    }
+    return json(response, { messages: out });
+  }
   if (/^\/api\/sessions\/[^/]+$/.test(p)) return json(response, { session: { id: p.split("/")[3], title: "Mock" } });
   if (p === "/api/sessions" || p === "/api/sessions/search") return json(response, { sessions: [] });
   if (p === "/api/profiles") return json(response, { profiles: [{ name: "default", is_default: true }, { name: "Work" }, { name: "Personal" }] });
@@ -106,6 +116,8 @@ function chunks(text, size) {
   return out;
 }
 
+let promptCount = 0;
+const promptTexts = [];
 const LIVE_ID = "live-mock-1";
 const STORED_ID = "stored-mock-1";
 
@@ -186,6 +198,8 @@ wss.on("connection", (socket) => {
         reply({ session_id: LIVE_ID });
         break;
       case "prompt.submit":
+        promptCount += 1;
+        promptTexts.push(String(request.params?.text ?? request.params?.prompt ?? "t"));
         reply({ ok: true });
         void streamRun(socket);
         break;

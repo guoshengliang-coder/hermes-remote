@@ -344,11 +344,30 @@ internal fun inheritTimestamps(history: List<ChatMessage>, current: List<ChatMes
         if (live != null && live.role == message.role) message.copy(timestamp = live.timestamp) else message
     }
 
+/**
+ * Reuse existing message IDENTITY across a history swap. Reconciliation replaces locally
+ * streamed messages (local u-/a- prefixed ids) with REST history (h- prefixed ids); if ids change, every list key
+ * derived from them changes too, and the reader's viewport anchor is torn up mid-scroll.
+ * Alignment is per-role ordinal: the k-th USER message of [history] takes the k-th USER id of
+ * [current], and likewise per role. Acceptance already guarantees [history] covers every
+ * locally observed turn, so matched prefixes are the same logical messages; genuinely new
+ * tail messages keep their fresh history ids.
+ */
+internal fun alignMessageIds(history: List<ChatMessage>, current: List<ChatMessage>): List<ChatMessage> {
+    val idsByRole = current.groupBy { it.role }.mapValues { (_, msgs) -> msgs.map { it.id }.iterator() }
+    return history.map { message ->
+        val ids = idsByRole[message.role]
+        if (ids != null && ids.hasNext()) message.copy(id = ids.next()) else message
+    }
+}
+
 /** Merge two already display-ready assistant records without re-running content sanitization. */
 internal fun mergeAssistantTurns(previous: ChatMessage, message: ChatMessage): ChatMessage {
     val toolsById = linkedMapOf<String, ToolCall>()
     (previous.tools + message.tools).forEach { tool -> toolsById[tool.id] = tool }
     return message.copy(
+        // Earliest id: later records fold INTO this turn, so its identity must not move.
+        id = previous.id,
         text = joinTurnParts(previous.text, message.text),
         thinking = joinTurnParts(previous.thinking, message.thinking),
         timestamp = previous.timestamp ?: message.timestamp,

@@ -637,7 +637,8 @@ class SessionRuntimeStore(
                         "reconcile ${key.sessionId}: ${history.size} messages, accepted=$accepted",
                     )
                     if (accepted && mediaRepository != null) {
-                        val hydrated = mediaRepository.hydrateMessages(history, key.profile)
+                        val committed = _runtimes.value[key]?.chat?.messages.orEmpty()
+                        val hydrated = mediaRepository.hydrateMessages(committed, key.profile)
                         acceptHydratedImages(key, hydrated)
                     }
                 }
@@ -666,7 +667,12 @@ class SessionRuntimeStore(
             }
             runtime.copy(
                 chat = runtime.chat.copy(
-                    messages = com.hermes.client.ui.chat.inheritTimestamps(messages, runtime.chat.messages),
+                    // Order matters: identity first (list keys/anchors survive the swap), then
+                    // timestamps inherited onto the aligned list.
+                    messages = com.hermes.client.ui.chat.inheritTimestamps(
+                        com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                        runtime.chat.messages,
+                    ),
                     historyLoading = false,
                     historyLoaded = true,
                     historyError = null,
@@ -675,11 +681,13 @@ class SessionRuntimeStore(
         }
         // StateFlow.update may retry its transform under contention, so keep the transform free of
         // side effects and derive acceptance from the committed snapshot afterward.
-        // Timestamp inheritance mutates the committed list relative to the raw REST result, so
-        // acceptance compares content with stamps normalized out.
+        // Timestamp inheritance and id alignment both mutate the committed list relative to the
+        // raw REST result, so acceptance compares content with stamps AND ids normalized out.
         val committed = _runtimes.value[key]?.chat?.messages ?: return false
         return committed.size == messages.size &&
-            committed.zip(messages).all { (a, b) -> a.copy(timestamp = null) == b.copy(timestamp = null) }
+            committed.zip(messages).all { (a, b) ->
+                a.copy(timestamp = null, id = "") == b.copy(timestamp = null, id = "")
+            }
     }
 
     private fun List<ChatMessage>.covers(expectation: HistoryExpectation): Boolean {
