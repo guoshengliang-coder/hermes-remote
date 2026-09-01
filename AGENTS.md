@@ -11,7 +11,10 @@ and any other coding agent working on Hermes Remote. It applies to the entire re
 3. Do not discard, overwrite, stage, or commit another agent's work. Re-read any file immediately
    before patching it when concurrent work may be active.
 4. Keep the change focused on the user's request. Diagnose first when the user asks only for analysis.
-5. If concurrent agents need overlapping files, stop and coordinate through the orchestrating agent
+5. Any Android UI change must first read and follow `docs/DESIGN.md` (visual/interaction contract:
+   colours, dark-mode rules, icon style, type scales, list/card conventions). When a design decision
+   changes, update `docs/DESIGN.md` in the same change — the document leads, the code follows.
+6. If concurrent agents need overlapping files, stop and coordinate through the orchestrating agent
    instead of resolving the overlap by replacing someone else's changes.
 
 When multiple agents work at the same time, prefer a dedicated branch and worktree per task. Use the
@@ -26,7 +29,8 @@ and release artifact so those operations happen exactly once.
 - `connector/`: outbound-only macOS bridge to the local Hermes service.
 - `protocol/`: shared TypeScript wire protocol used by Gateway and Connector.
 - `deploy/`: deployment and service templates; never store live credentials here.
-- `docs/`: architecture, environment shape, deployment record, and smoke-test instructions.
+- `docs/`: architecture, environment shape, deployment record, smoke-test instructions, and the
+  Android UI design contract (`docs/DESIGN.md`).
 
 Changes to the shared protocol must update its tests and every affected consumer. Preserve the core
 security boundary: the Mac opens the outbound connection, the Mac Hermes credential stays on the Mac,
