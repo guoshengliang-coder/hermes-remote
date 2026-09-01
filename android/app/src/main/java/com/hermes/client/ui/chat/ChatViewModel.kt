@@ -26,8 +26,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -64,6 +67,8 @@ class ChatViewModel @Inject constructor(
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
+    enum class ConversationRefreshEvent { QUEUED, SUCCEEDED, FAILED }
+
     private companion object {
         const val LIVE_HANDLE_TIMEOUT_MS = 25_000L
         const val STALE_SESSION_CODE = 4001
@@ -71,6 +76,11 @@ class ChatViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(ChatUiState.empty())
     val state: StateFlow<ChatUiState> = _state.asStateFlow()
+
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+    private val _refreshEvents = MutableSharedFlow<ConversationRefreshEvent>(extraBufferCapacity = 4)
+    val refreshEvents: SharedFlow<ConversationRefreshEvent> = _refreshEvents
 
     private val _sessionTitle = MutableStateFlow("新会话")
     val sessionTitle: StateFlow<String> = _sessionTitle.asStateFlow()
@@ -239,6 +249,17 @@ class ChatViewModel @Inject constructor(
             catalogStore.state.map { it.providers }.distinctUntilChanged()
                 .collect { if (it.isNotEmpty()) backfillProvidersFromCatalog() }
         }
+        // A manual refresh requested mid-stream waits for the authoritative reply to finish. This
+        // collector owns that one deferred request so repeated taps cannot start competing REST
+        // swaps or overwrite deltas that have not reached history yet.
+        viewModelScope.launch {
+            _state.map { it.isGenerating }.distinctUntilChanged().collect { generating ->
+                if (!generating && manualRefreshQueued) {
+                    manualRefreshQueued = false
+                    startManualRefresh()
+                }
+            }
+        }
     }
 
     private val _modelSheet = MutableStateFlow(ModelSheetUi())
@@ -264,6 +285,8 @@ class ChatViewModel @Inject constructor(
     private var titleJob: Job? = null
     private var resumeJob: Job? = null
     private var sendJob: Job? = null
+    private var refreshJob: Job? = null
+    private var manualRefreshQueued = false
     private var runtimeKey: SessionRuntimeKey? = null
     private var currentProfile: String? = null
     private var liveHandleGate = CompletableDeferred<String>()
@@ -284,6 +307,27 @@ class ChatViewModel @Inject constructor(
         language: AppLanguage = AppLanguage.ZH,
     ) {
         setAppLanguage(language)
+        // Configuration changes recreate the composition and re-run its LaunchedEffect, while the
+        // navigation-scoped ViewModel and runtime remain alive. Reopening the same key used to mark
+        // history loading, restart REST/resume, and show the skeleton for a layout-only change.
+        // Treat open as idempotent for the already active stored session; an explicit profile or
+        // session change still follows the complete path below.
+        val requested = requestedProfile?.ifBlank { null }
+        val profile = requested ?: if (storedSessionId == id) currentProfile else profileManager.active.value
+        val existingKey = runtimeKey
+        if (storedSessionId == id && existingKey == SessionRuntimeKey(profile, id) && collectJob?.isActive == true) {
+            runtimeStore.setVisible(existingKey, true)
+            if (!initialTitle.isNullOrBlank()) {
+                val fallback = if (isNewSession) localized(language, "新会话", "New session")
+                else localized(language, "会话", "Chat")
+                _sessionTitle.value = displaySessionTitle(initialTitle, fallback)
+            }
+            com.hermes.client.data.diagnostics.DebugLog.log("session", "reuse($id)")
+            return
+        }
+        refreshJob?.cancel()
+        _refreshing.value = false
+        manualRefreshQueued = false
         sendJob?.cancel()
         resumeJob?.cancel()
         liveHandleGate.completeExceptionally(CancellationException("session changed"))
@@ -291,7 +335,6 @@ class ChatViewModel @Inject constructor(
         runtimeKey?.let { runtimeStore.setVisible(it, false) }
         sessionId = id
         storedSessionId = id
-        val profile = requestedProfile?.ifBlank { null } ?: profileManager.active.value
         currentProfile = profile
         val key = runtimeStore.register(id, profile)
         runtimeKey = key
@@ -453,6 +496,86 @@ class ChatViewModel @Inject constructor(
                     }
                 }
                 .collect {}
+        }
+    }
+
+    /** Force-sync only the current conversation without reopening its runtime or clearing UI. */
+    fun refreshCurrentConversation() {
+        if (_refreshing.value) return
+        if (_state.value.isGenerating) {
+            if (!manualRefreshQueued) {
+                manualRefreshQueued = true
+                _refreshEvents.tryEmit(ConversationRefreshEvent.QUEUED)
+            }
+            return
+        }
+        startManualRefresh()
+    }
+
+    private fun startManualRefresh() {
+        if (_refreshing.value || refreshJob?.isActive == true) return
+        val key = runtimeKey
+        val id = storedSessionId
+        val profile = currentProfile
+        if (key == null || id.isBlank()) {
+            _refreshEvents.tryEmit(ConversationRefreshEvent.FAILED)
+            return
+        }
+        refreshJob = viewModelScope.launch {
+            _refreshing.value = true
+            try {
+                val rawHistory = sessions.history(id, profile)
+                val organizedHistory = withContext(defaultDispatcher) {
+                    rawHistory.map { it.organizedForDisplay() }
+                }
+                // Navigation may have moved to another session while the request was in flight.
+                if (runtimeKey != key || storedSessionId != id) return@launch
+                if (_state.value.isGenerating || !runtimeStore.acceptManualHistory(key, organizedHistory)) {
+                    manualRefreshQueued = true
+                    _refreshEvents.emit(ConversationRefreshEvent.QUEUED)
+                    return@launch
+                }
+                runtimeStore.markRead(key)
+                // Tell the screen to remeasure and restore its held viewport immediately after the
+                // atomic history swap. Metadata/media are secondary and must not leave the reader
+                // sitting at an intermediate layout while another network request finishes.
+                _refreshEvents.emit(ConversationRefreshEvent.SUCCEEDED)
+                launch {
+                    val metadata = runCatching {
+                        sessions.list(profile).firstOrNull { it.id == id }
+                    }.getOrNull()
+                    if (runtimeKey == key && metadata != null) {
+                        val fallback = localized(appLanguage, "会话", "Chat")
+                        _sessionTitle.value = displaySessionTitle(metadata.title, fallback)
+                        _currentModel.value = metadata.model?.ifBlank { null }
+                        _currentProvider.value = metadata.provider?.ifBlank { null }
+                    }
+                }
+                // Text is authoritative immediately; media hydration may finish just after the
+                // success affordance and merges by stable message identity without blanking rows.
+                launch {
+                    val hydrated = mediaRepository.hydrateMessages(organizedHistory, profile)
+                    if (runtimeKey == key) runtimeStore.acceptHydratedImages(key, hydrated)
+                }
+                com.hermes.client.data.diagnostics.DebugLog.log(
+                    "session", "manual-refresh($id) → ${organizedHistory.size} messages",
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: HermesApiException) {
+                if (error.code == 401) _unauthorized.value = true
+                com.hermes.client.data.diagnostics.DebugLog.log(
+                    "error", "manual-refresh($id) failed: ${error.code} ${error.message}",
+                )
+                _refreshEvents.emit(ConversationRefreshEvent.FAILED)
+            } catch (error: Exception) {
+                com.hermes.client.data.diagnostics.DebugLog.log(
+                    "error", "manual-refresh($id) failed: ${error.message}",
+                )
+                _refreshEvents.emit(ConversationRefreshEvent.FAILED)
+            } finally {
+                _refreshing.value = false
+            }
         }
     }
 

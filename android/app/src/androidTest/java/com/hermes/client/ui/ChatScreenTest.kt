@@ -1,6 +1,7 @@
 package com.hermes.client.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -51,6 +52,36 @@ class ChatScreenTest {
             rule.onAllNodesWithTag("chat-history-skeleton").fetchSemanticsNodes().isEmpty()
         }
         rule.onNodeWithText("cached answer").assertIsDisplayed()
+    }
+
+    @Test fun manualRelayoutDoesNotBringBackHistorySkeleton() {
+        val revision = androidx.compose.runtime.mutableIntStateOf(0)
+        val state = ChatUiState(
+            messages = listOf(
+                ChatMessage(id = "u1", role = Role.USER, text = "refresh question"),
+                ChatMessage(id = "a1", role = Role.ASSISTANT, text = "refresh answer"),
+            ),
+            historyLoading = false,
+            historyLoaded = true,
+        )
+        rule.setContent {
+            HermesTheme {
+                ChatMessageList(
+                    state = state,
+                    sessionId = "manual-refresh",
+                    layoutRevision = revision.intValue,
+                )
+            }
+        }
+        rule.waitUntil(timeoutMillis = 5_000) {
+            rule.onAllNodesWithTag("chat-history-skeleton").fetchSemanticsNodes().isEmpty()
+        }
+
+        revision.intValue++
+        rule.waitForIdle()
+
+        rule.onAllNodesWithTag("chat-history-skeleton").assertCountEquals(0)
+        rule.onNodeWithText("refresh answer").assertIsDisplayed()
     }
 
     // Opening an existing session must land at the newest message, not the top —

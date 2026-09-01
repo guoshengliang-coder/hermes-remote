@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -97,6 +98,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -173,11 +175,25 @@ data class ChatViewportAnchor(
     val blockFraction: Float = Float.NaN,
     /** Position of that same reading line inside the viewport. */
     val viewportFraction: Float = Float.NaN,
+    /** Stable LazyColumn item identity and offset for exact same-width restoration. */
+    val lazyItemKey: String? = null,
+    val lazyItemIndex: Int = -1,
+    val lazyItemOffset: Int = 0,
+    val viewportWidthPx: Int = 0,
+    /** Fullscreen overlays wait briefly for their original width before semantic fallback. */
+    val preferExactWidth: Boolean = false,
+    /** Distinguishes an open overlay from its post-dismiss restore across Activity recreation. */
+    val overlayLocked: Boolean = false,
 )
+
+enum class ChatViewportMode { FOLLOWING_LIVE, BROWSING_HISTORY, OVERLAY_LOCKED, LAYOUT_RESTORING }
+
+data class ChatExactRestoreTarget(val index: Int, val offset: Int)
 
 /**
  * Semantic viewport state shared by the transcript and fullscreen overlays. Block coordinates are
- * deliberately transient; only the stable block key and its visual offset are saveable.
+ * deliberately transient; the semantic reading line plus an exact same-width lazy-item fallback
+ * are saveable across configuration changes.
  */
 class ChatViewportController(restored: ChatViewportAnchor? = null) {
     private val blockBounds = mutableMapOf<String, Rect>()
@@ -186,17 +202,44 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
     private var lastWidth = 0
     private var lastConfigurationWidth = 0
     private var pinnedToBottom = true
+    private var latestLazyItemKey: String? = null
+    private var latestLazyItemIndex = -1
+    private var latestLazyItemOffset = 0
+
+    var mode: ChatViewportMode = when {
+        restored?.overlayLocked == true -> ChatViewportMode.OVERLAY_LOCKED
+        restored != null -> ChatViewportMode.LAYOUT_RESTORING
+        else -> ChatViewportMode.FOLLOWING_LIVE
+    }
+        private set
 
     var restoreGeneration by androidx.compose.runtime.mutableIntStateOf(if (restored == null) 0 else 1)
         private set
 
     fun updateViewport(bounds: Rect) { viewportBounds = bounds }
+    fun updateListPosition(key: String?, index: Int, offset: Int) {
+        latestLazyItemKey = key
+        latestLazyItemIndex = index
+        latestLazyItemOffset = offset
+    }
     fun updateBlock(key: String, bounds: Rect) { blockBounds[key] = bounds }
     fun removeBlock(key: String) { blockBounds.remove(key) }
-    fun setPinnedToBottom(value: Boolean) { pinnedToBottom = value }
+    fun setPinnedToBottom(value: Boolean) {
+        pinnedToBottom = value
+        if (mode != ChatViewportMode.OVERLAY_LOCKED && mode != ChatViewportMode.LAYOUT_RESTORING) {
+            mode = if (value) ChatViewportMode.FOLLOWING_LIVE else ChatViewportMode.BROWSING_HISTORY
+        }
+    }
+
+    private fun withExactPosition(anchor: ChatViewportAnchor): ChatViewportAnchor = anchor.copy(
+        lazyItemKey = latestLazyItemKey,
+        lazyItemIndex = latestLazyItemIndex,
+        lazyItemOffset = latestLazyItemOffset,
+        viewportWidthPx = lastWidth,
+    )
 
     fun currentAnchor(): ChatViewportAnchor? {
-        if (pinnedToBottom) return heldAnchor ?: BOTTOM_ANCHOR
+        if (pinnedToBottom) return heldAnchor ?: withExactPosition(BOTTOM_ANCHOR)
         val viewport = viewportBounds ?: return heldAnchor
         val visible = blockBounds.entries.filter { (_, bounds) ->
             bounds.bottom > viewport.top && bounds.top < viewport.bottom
@@ -218,18 +261,30 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
         val viewportFraction = if (viewport.height > 0f) {
             ((referenceY - viewport.top) / viewport.height).coerceIn(0f, 1f)
         } else 0f
-        return ChatViewportAnchor(
+        return withExactPosition(ChatViewportAnchor(
             blockKey = chosen.key,
             offsetFromTopPx = bounds.top - viewport.top,
             blockFraction = blockFraction,
             viewportFraction = viewportFraction,
-        )
+        ))
     }
 
-    fun holdCurrent() { currentAnchor()?.let { heldAnchor = it } }
+    fun holdCurrent() {
+        if (heldAnchor == null) currentAnchor()?.let { heldAnchor = it }
+    }
+
+    fun lockForOverlay() {
+        val anchor = heldAnchor ?: currentAnchor()
+        if (anchor != null) heldAnchor = anchor.copy(preferExactWidth = true, overlayLocked = true)
+        mode = ChatViewportMode.OVERLAY_LOCKED
+    }
 
     fun requestHeldRestore() {
-        if (heldAnchor != null) restoreGeneration++
+        if (heldAnchor != null) {
+            heldAnchor = heldAnchor?.copy(overlayLocked = false)
+            mode = ChatViewportMode.LAYOUT_RESTORING
+            restoreGeneration++
+        }
     }
 
     fun onViewportWidth(width: Int) {
@@ -237,7 +292,7 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
             // onSizeChanged runs before the children's new global positions are published, so the
             // registry still describes the old layout at this point.
             if (heldAnchor == null) holdCurrent()
-            requestHeldRestore()
+            if (mode != ChatViewportMode.OVERLAY_LOCKED) requestHeldRestore()
         }
         if (width > 0) lastWidth = width
     }
@@ -247,7 +302,7 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
             // Composition observes configuration/window-width changes before the new child layout
             // is positioned, which is the most reliable capture edge across foldable OEMs.
             if (heldAnchor == null) holdCurrent()
-            requestHeldRestore()
+            if (mode != ChatViewportMode.OVERLAY_LOCKED) requestHeldRestore()
         }
         if (widthDp > 0) lastConfigurationWidth = widthDp
     }
@@ -269,8 +324,37 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
 
     fun restoringBottom(): Boolean = heldAnchor?.blockKey == BOTTOM_ANCHOR_KEY
 
+    fun isRestoring(): Boolean = mode == ChatViewportMode.LAYOUT_RESTORING && heldAnchor != null
+
+    fun waitingForExactWidth(): Boolean {
+        val anchor = heldAnchor ?: return false
+        return anchor.preferExactWidth && anchor.viewportWidthPx > 0 && lastWidth != anchor.viewportWidthPx
+    }
+
+    fun exactRestoreTarget(lazyKeys: List<String>): ChatExactRestoreTarget? {
+        val anchor = heldAnchor ?: return null
+        if (anchor.viewportWidthPx <= 0 || lastWidth != anchor.viewportWidthPx) return null
+        val key = anchor.lazyItemKey
+        val index = when {
+            key != null -> lazyKeys.indexOf(key).takeIf { it >= 0 }
+            anchor.lazyItemIndex >= 0 -> anchor.lazyItemIndex.takeIf { it < lazyKeys.size }
+            else -> null
+        } ?: return null
+        return ChatExactRestoreTarget(index, anchor.lazyItemOffset)
+    }
+
+    fun cancelRestoreForUser() {
+        if (mode != ChatViewportMode.LAYOUT_RESTORING) return
+        heldAnchor = null
+        mode = ChatViewportMode.BROWSING_HISTORY
+        restoreGeneration++
+    }
+
     fun finishRestore(generation: Int) {
-        if (generation == restoreGeneration) heldAnchor = null
+        if (generation == restoreGeneration) {
+            heldAnchor = null
+            mode = if (pinnedToBottom) ChatViewportMode.FOLLOWING_LIVE else ChatViewportMode.BROWSING_HISTORY
+        }
     }
 
     fun saveAnchor(): ChatViewportAnchor? = heldAnchor ?: currentAnchor()
@@ -282,7 +366,18 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
         val Saver = androidx.compose.runtime.saveable.listSaver<ChatViewportController, Any>(
             save = { controller ->
                 controller.saveAnchor()?.let {
-                    listOf(it.blockKey, it.offsetFromTopPx, it.blockFraction, it.viewportFraction)
+                    listOf(
+                        it.blockKey,
+                        it.offsetFromTopPx,
+                        it.blockFraction,
+                        it.viewportFraction,
+                        it.lazyItemKey.orEmpty(),
+                        it.lazyItemIndex,
+                        it.lazyItemOffset,
+                        it.viewportWidthPx,
+                        it.preferExactWidth,
+                        it.overlayLocked,
+                    )
                 } ?: emptyList()
             },
             restore = { values ->
@@ -293,6 +388,12 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
                         offsetFromTopPx = values[1] as Float,
                         blockFraction = (values.getOrNull(2) as? Float) ?: Float.NaN,
                         viewportFraction = (values.getOrNull(3) as? Float) ?: Float.NaN,
+                        lazyItemKey = (values.getOrNull(4) as? String)?.ifEmpty { null },
+                        lazyItemIndex = (values.getOrNull(5) as? Int) ?: -1,
+                        lazyItemOffset = (values.getOrNull(6) as? Int) ?: 0,
+                        viewportWidthPx = (values.getOrNull(7) as? Int) ?: 0,
+                        preferExactWidth = (values.getOrNull(8) as? Boolean) ?: false,
+                        overlayLocked = (values.getOrNull(9) as? Boolean) ?: false,
                     ),
                 )
             },
@@ -324,6 +425,7 @@ fun ChatMessageList(
     onFileShare: (ChatFile) -> Unit = {},
     highlightIndex: Int? = null,
     scrollToBottomTick: Long = 0L,
+    layoutRevision: Int = 0,
     viewportController: ChatViewportController? = null,
     onBlankAreaTap: () -> Unit = {},
 ) {
@@ -331,6 +433,15 @@ fun ChatMessageList(
     val semanticViewport = viewportController ?: remember(sessionId) { ChatViewportController() }
     val configurationWidth = LocalConfiguration.current.screenWidthDp
     androidx.compose.runtime.DisposableEffect(semanticViewport, configurationWidth) {
+        val firstIndex = listState.firstVisibleItemIndex
+        val firstKey = listState.layoutInfo.visibleItemsInfo
+            .firstOrNull { it.index == firstIndex }
+            ?.key as? String
+        semanticViewport.updateListPosition(
+            firstKey,
+            firstIndex,
+            listState.firstVisibleItemScrollOffset,
+        )
         semanticViewport.onConfigurationWidth(configurationWidth)
         onDispose { }
     }
@@ -430,6 +541,7 @@ fun ChatMessageList(
         }
     }
     val displayKeys = remember(displayMessages) { displayMessages.conversationRenderKeys() }
+    val lazyKeys = remember(displayKeys) { listOf("bottom-edge") + displayKeys.asReversed() }
     // Only the most recent assistant turn can be regenerated — regenerating an earlier one
     // would silently drop everything the user and agent said after it.
     val lastAssistantId = displayMessages.lastOrNull { it.role == Role.ASSISTANT }?.id
@@ -446,6 +558,44 @@ fun ChatMessageList(
         }
     }
     androidx.compose.runtime.SideEffect { semanticViewport.setPinnedToBottom(atBottom) }
+    val isDragged by listState.interactionSource.collectIsDraggedAsState()
+    LaunchedEffect(isDragged) {
+        if (isDragged) semanticViewport.cancelRestoreForUser()
+    }
+    // Capture an exact same-width fallback when a gesture settles. Unlike observing offsets, this
+    // emits only at the beginning/end of a scroll, so it does not put per-frame work back onto the
+    // hot fling path that previous versions worked hard to remove.
+    LaunchedEffect(listState, semanticViewport) {
+        androidx.compose.runtime.snapshotFlow { listState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { scrolling ->
+                if (!scrolling) {
+                    val firstIndex = listState.firstVisibleItemIndex
+                    val firstKey = listState.layoutInfo.visibleItemsInfo
+                        .firstOrNull { it.index == firstIndex }
+                        ?.key as? String
+                    semanticViewport.updateListPosition(
+                        firstKey,
+                        firstIndex,
+                        listState.firstVisibleItemScrollOffset,
+                    )
+                }
+            }
+    }
+
+    val openTableFullscreen: (String) -> Unit = { raw ->
+        val firstIndex = listState.firstVisibleItemIndex
+        val firstKey = listState.layoutInfo.visibleItemsInfo
+            .firstOrNull { it.index == firstIndex }
+            ?.key as? String
+        semanticViewport.updateListPosition(
+            firstKey,
+            firstIndex,
+            listState.firstVisibleItemScrollOffset,
+        )
+        semanticViewport.lockForOverlay()
+        onOpenTableFullscreen(raw)
+    }
 
     // Single owner of programmatic bottom snaps. A user drag holds the scroll mutex at UserInput
     // priority, so a losing Default-priority snap surfaces as a CancellationException; swallow the
@@ -536,13 +686,12 @@ fun ChatMessageList(
 
     val restoreGeneration = semanticViewport.restoreGeneration
     LaunchedEffect(restoreGeneration, listState) {
-        if (restoreGeneration <= 0) return@LaunchedEffect
-        var foundAnchor = false
+        if (restoreGeneration <= 0 || !semanticViewport.isRestoring()) return@LaunchedEffect
         var stableFrames = 0
         for (attempt in 0 until VIEWPORT_RESTORE_MAX_FRAMES) {
             androidx.compose.runtime.withFrameNanos { }
+            if (!semanticViewport.isRestoring()) return@LaunchedEffect
             if (semanticViewport.restoringBottom()) {
-                foundAnchor = true
                 if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) {
                     stableFrames = 0
                     try {
@@ -557,8 +706,33 @@ fun ChatMessageList(
                 }
                 continue
             }
+            val exact = semanticViewport.exactRestoreTarget(lazyKeys)
+            if (exact != null) {
+                if (
+                    listState.firstVisibleItemIndex != exact.index ||
+                    listState.firstVisibleItemScrollOffset != exact.offset
+                ) {
+                    stableFrames = 0
+                    try {
+                        listState.scrollToItem(exact.index, exact.offset)
+                    } catch (stolen: CancellationException) {
+                        currentCoroutineContext().ensureActive()
+                        return@LaunchedEffect
+                    }
+                } else {
+                    stableFrames++
+                    if (stableFrames >= VIEWPORT_RESTORE_STABLE_FRAMES) break
+                }
+                continue
+            }
+            // A fullscreen table may itself rotate. Give the underlying transcript a short window
+            // to return to its captured width; if it does not, semantic block restoration below is
+            // the correct cross-width fallback.
+            if (
+                semanticViewport.waitingForExactWidth() &&
+                attempt < VIEWPORT_EXACT_WIDTH_WAIT_FRAMES
+            ) continue
             val correction = semanticViewport.correctionPx() ?: continue
-            foundAnchor = true
             if (kotlin.math.abs(correction) <= VIEWPORT_RESTORE_TOLERANCE_PX) {
                 stableFrames++
                 if (stableFrames >= VIEWPORT_RESTORE_STABLE_FRAMES) break
@@ -574,7 +748,7 @@ fun ChatMessageList(
                 }
             }
         }
-        if (foundAnchor) semanticViewport.finishRestore(restoreGeneration)
+        if (semanticViewport.isRestoring()) semanticViewport.finishRestore(restoreGeneration)
     }
 
     if (displayMessages.isEmpty() && visibleProcesses.isEmpty()) {
@@ -606,7 +780,7 @@ fun ChatMessageList(
     // Keep the transcript fully laid out but invisible behind the skeleton until those coordinates
     // remain unchanged across consecutive frames; otherwise the first visible frame contains a few
     // user bubbles and the next frame snaps to the correctly measured assistant tail.
-    var initialPresentationReady by remember(sessionId) {
+    var initialPresentationReady by androidx.compose.runtime.saveable.rememberSaveable(sessionId) {
         mutableStateOf(!state.historyLoading && !state.historyLoaded)
     }
     LaunchedEffect(
@@ -616,6 +790,7 @@ fun ChatMessageList(
         state.isGenerating,
         displayMessages.size,
     ) {
+        if (initialPresentationReady && !state.historyLoading) return@LaunchedEffect
         when {
             state.isGenerating -> initialPresentationReady = true
             state.historyLoading -> initialPresentationReady = false
@@ -759,26 +934,31 @@ fun ChatMessageList(
                                 .padding(bottom = 10.dp),
                         )
                     }
-                    MessageBubble(
-                        msg,
-                        canRegenerate,
-                        showAssistantActions,
-                        onEditResend,
-                        onRegenerate,
-                        onRetryWithModel,
-                        onOpenTableFullscreen,
-                        isSpeaking,
-                        onReadAloud,
-                        onStopReading,
-                        onImageSave,
-                        onImageSaveAs,
-                        onImageShare,
-                        savingImageId,
-                        onFileOpen,
-                        onFileShare,
-                        smoothLiveResize = smoothLiveResize,
-                        highlighted = index == highlightIndex,
-                    )
+                    // Manual refresh deliberately recreates the message presentation subtree even
+                    // when authoritative history compares equal. This reparses Markdown and
+                    // remeasures tables while the LazyColumn and its saved scroll state remain.
+                    key(layoutRevision) {
+                        MessageBubble(
+                            msg,
+                            canRegenerate,
+                            showAssistantActions,
+                            onEditResend,
+                            onRegenerate,
+                            onRetryWithModel,
+                            openTableFullscreen,
+                            isSpeaking,
+                            onReadAloud,
+                            onStopReading,
+                            onImageSave,
+                            onImageSaveAs,
+                            onImageShare,
+                            savingImageId,
+                            onFileOpen,
+                            onFileShare,
+                            smoothLiveResize = smoothLiveResize,
+                            highlighted = index == highlightIndex,
+                        )
+                    }
                 }
             }
         }
@@ -1540,6 +1720,7 @@ private const val INITIAL_PRESENTATION_CROSSFADE_MS = 120
 private const val INITIAL_PRESENTATION_MAX_FRAMES = 30
 private const val INITIAL_PRESENTATION_STABLE_FRAMES = 4
 private const val VIEWPORT_RESTORE_MAX_FRAMES = 45
+private const val VIEWPORT_EXACT_WIDTH_WAIT_FRAMES = 18
 private const val VIEWPORT_RESTORE_STABLE_FRAMES = 4
 private const val VIEWPORT_RESTORE_TOLERANCE_PX = 0.75f
 private const val SKELETON_SWEEP_MS = 1_350

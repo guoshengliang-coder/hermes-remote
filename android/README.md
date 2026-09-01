@@ -184,6 +184,13 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   (row suffixes mirror the desktop list). The sheet drops the 此对话/默认 scope control —
   it now only changes the current chat, with the profile default edited solely on 设置 › 模型 —
   and both surfaces gain a manual force-refresh button with an in-flight spinner.
+- Version 0.1.70 keeps layout-only lifecycle changes entirely local: rotating, folding/unfolding,
+  and returning from a fullscreen table reuse the live conversation without history loading or a
+  skeleton. Same-width returns restore the stable lazy item and exact offset; real width changes
+  restore the same semantic reading line, including while a reply streams, while a user drag always
+  takes control. The chat header drops the profile avatar, promotes search beside More, removes the
+  unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
+  waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
 - Version 0.1.69 completes the residual chat-motion pass: authoritative history remains behind a
   softly sweeping skeleton until Markdown and reverseLayout stay geometrically stable, then enters
   through a short crossfade without exposing an intermediate user-bubble frame. Fold/unfold and

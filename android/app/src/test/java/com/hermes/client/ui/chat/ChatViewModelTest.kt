@@ -12,6 +12,8 @@ import com.hermes.client.data.repository.ModelFavoritesStore
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileRepository
 import com.hermes.client.data.repository.SessionRepository
+import com.hermes.client.domain.ChatMessage
+import com.hermes.client.domain.Role
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -186,6 +188,60 @@ class ChatViewModelTest {
 
         assertEquals("已有会话标题", vm.sessionTitle.value)
         coVerify { chatRepo.resume("s2", "odos") }
+    }
+
+    @Test fun reopeningSameConversationAfterConfigurationChangeDoesNotReload() = runTest {
+        val vm = buildVm()
+
+        vm.open("s1")
+        advanceUntilIdle()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { sessionRepo.history("s1", null) }
+        coVerify(exactly = 1) { chatRepo.resume("s1", null) }
+        assertFalse(vm.state.value.historyLoading)
+    }
+
+    @Test fun manualRefreshSwapsAuthoritativeHistoryWithoutEnteringLoadingState() = runTest {
+        val old = ChatMessage("old", Role.USER, "before")
+        val fresh = ChatMessage("fresh", Role.ASSISTANT, "after")
+        coEvery { sessionRepo.history("s1", null) } returnsMany listOf(listOf(old), listOf(fresh))
+        val vm = buildVm()
+
+        vm.open("s1")
+        advanceUntilIdle()
+        assertEquals("before", vm.state.value.messages.single().text)
+
+        vm.refreshCurrentConversation()
+        runCurrent()
+        assertFalse("manual refresh must keep the transcript out of skeleton loading", vm.state.value.historyLoading)
+        advanceUntilIdle()
+
+        assertEquals("after", vm.state.value.messages.single().text)
+        assertFalse(vm.state.value.historyLoading)
+        assertFalse(vm.refreshing.value)
+        coVerify(exactly = 2) { sessionRepo.history("s1", null) }
+    }
+
+    @Test fun manualRefreshRequestedDuringStreamingWaitsForCompletion() = runTest {
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        events.emit(event("message.start", "s1"))
+        runCurrent()
+        assertTrue(vm.state.value.isGenerating)
+
+        vm.refreshCurrentConversation()
+        runCurrent()
+        coVerify(exactly = 1) { sessionRepo.history("s1", null) }
+
+        events.emit(event("message.complete", "s1", "done"))
+        runCurrent()
+
+        coVerify(exactly = 2) { sessionRepo.history("s1", null) }
+        assertFalse(vm.refreshing.value)
     }
 
     /**

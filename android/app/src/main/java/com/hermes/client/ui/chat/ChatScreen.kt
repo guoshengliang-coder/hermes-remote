@@ -62,6 +62,7 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -130,6 +131,7 @@ fun ChatScreen(
     onUnauthorized: () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     androidx.compose.runtime.DisposableEffect(sessionId) {
         val safeSession = sessionId.hashCode()
         com.hermes.client.data.diagnostics.CrashReporter.breadcrumb("chat", "mount chat#$safeSession")
@@ -170,6 +172,7 @@ fun ChatScreen(
     val favorites by vm.favorites.collectAsStateWithLifecycle()
     val currentProvider by vm.currentProvider.collectAsStateWithLifecycle()
     val modelSheet by vm.modelSheet.collectAsStateWithLifecycle()
+    val refreshingConversation by vm.refreshing.collectAsStateWithLifecycle()
     var modelSheetOpen by rememberSaveable(sessionId) { mutableStateOf(false) }
     // "Retry with another model": the model sheet doubles as the picker; when this flag is set,
     // a successful switch immediately re-submits the last prompt on the new model.
@@ -190,7 +193,6 @@ fun ChatScreen(
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { vm.stopReading() } }
     var draft by rememberSaveable(sessionId) { mutableStateOf("") }
     var composerFocused by rememberSaveable(sessionId) { mutableStateOf(false) }
-    var creatingSession by rememberSaveable(sessionId) { mutableStateOf(false) }
     var searchOpen by rememberSaveable(sessionId) { mutableStateOf(false) }
     var query by rememberSaveable(sessionId) { mutableStateOf("") }
     var currentMatch by rememberSaveable(sessionId) { mutableStateOf(0) }
@@ -204,6 +206,47 @@ fun ChatScreen(
         sessionId,
         saver = ChatViewportController.Saver,
     ) { ChatViewportController() }
+    var conversationLayoutRevision by rememberSaveable(sessionId) {
+        androidx.compose.runtime.mutableIntStateOf(0)
+    }
+    LaunchedEffect(refreshingConversation) {
+        if (refreshingConversation) viewportController.holdCurrent()
+    }
+    LaunchedEffect(vm, language) {
+        vm.refreshEvents.collect { event ->
+            when (event) {
+                ChatViewModel.ConversationRefreshEvent.QUEUED -> android.widget.Toast.makeText(
+                    context,
+                    localized(language, "当前回复完成后将自动刷新", "The conversation will refresh after this reply"),
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+                ChatViewModel.ConversationRefreshEvent.SUCCEEDED -> {
+                    // Force message content to be parsed/measured again even when the server
+                    // returned byte-for-byte identical history. The list/controller stay alive,
+                    // so this is a real re-layout without a skeleton or a scroll-state reset.
+                    conversationLayoutRevision++
+                    viewportController.requestHeldRestore()
+                    android.widget.Toast.makeText(
+                        context,
+                        localized(language, "当前对话已刷新", "Conversation refreshed"),
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                ChatViewModel.ConversationRefreshEvent.FAILED -> {
+                    viewportController.requestHeldRestore()
+                    android.widget.Toast.makeText(
+                        context,
+                        localized(
+                            language,
+                            "刷新失败，当前内容已保留（HR-SYNC-001）",
+                            "Refresh failed; current content was kept (HR-SYNC-001)",
+                        ),
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+    }
     // Search the same merged turns rendered by ChatMessageList so highlight indices stay aligned.
     val conversationTurns = remember(state.messages, searchOpen) {
         if (searchOpen) state.messages.organizedConversationTurns() else emptyList()
@@ -282,7 +325,6 @@ fun ChatScreen(
     }
 
     // Image attach: read picked/captured bytes and stage them onto the session.
-    val context = androidx.compose.ui.platform.LocalContext.current
     val clipboard = LocalClipboardManager.current
     var transcriptMenu by remember { mutableStateOf(false) }
     var showAttachSheet by remember { mutableStateOf(false) }
@@ -550,9 +592,6 @@ fun ChatScreen(
                 IconButton(onClick = onMenu) {
                     Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = localized(language, "返回", "Back"))
                 }
-                // 24dp identity avatar — the chat's only identity signal (no profile text).
-                val chatProfile by vm.activeProfile.collectAsStateWithLifecycle()
-                com.hermes.client.ui.components.ProfileAvatar(sessionProfile ?: chatProfile, size = 24.dp)
                 Box(
                     Modifier
                         .weight(1f)
@@ -569,16 +608,18 @@ fun ChatScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                IconButton(onClick = { searchOpen = true }) {
+                    Icon(
+                        Icons.Rounded.Search,
+                        contentDescription = localized(language, "搜索当前对话", "Search this chat"),
+                    )
+                }
                 Box {
                     IconButton(onClick = { transcriptMenu = true }) {
-                        if (creatingSession) {
-                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(
-                                Icons.Rounded.MoreVert,
-                                contentDescription = localized(language, "更多", "More"),
-                            )
-                        }
+                        Icon(
+                            Icons.Rounded.MoreVert,
+                            contentDescription = localized(language, "更多", "More"),
+                        )
                     }
                     DropdownMenu(
                         expanded = transcriptMenu,
@@ -587,32 +628,19 @@ fun ChatScreen(
                         containerColor = MaterialTheme.colorScheme.surface,
                     ) {
                             DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Rounded.Add, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(localized(language, "新建会话", "New session")) },
-                                enabled = !creatingSession,
-                                onClick = {
-                                    transcriptMenu = false
-                                    if (creatingSession) return@DropdownMenuItem
-                                    creatingSession = true
-                                    attachScope.launch {
-                                        val id = vm.createNewSession()
-                                        creatingSession = false
-                                        if (id != null) {
-                                            collapseComposer(clearDraft = true)
-                                            onNewChat(id)
-                                        }
-                                        else android.widget.Toast.makeText(
-                                            context, localized(language, "暂时无法新建会话", "Couldn't create a new session"), android.widget.Toast.LENGTH_SHORT,
-                                        ).show()
+                                leadingIcon = {
+                                    if (refreshingConversation) {
+                                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    } else {
+                                        Icon(Icons.Rounded.Refresh, contentDescription = null, Modifier.size(20.dp))
                                     }
                                 },
-                            )
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(localized(language, "搜索当前对话", "Search this chat")) },
+                                text = { Text(localized(language, "刷新当前对话", "Refresh conversation")) },
+                                enabled = !refreshingConversation,
                                 onClick = {
                                     transcriptMenu = false
-                                    searchOpen = true
+                                    if (!state.isGenerating) viewportController.holdCurrent()
+                                    vm.refreshCurrentConversation()
                                 },
                             )
                             DropdownMenuItem(
@@ -1043,6 +1071,7 @@ fun ChatScreen(
                         listState = listState,
                         highlightIndex = highlightIndex,
                         scrollToBottomTick = sendToBottomTick,
+                        layoutRevision = conversationLayoutRevision,
                         viewportController = viewportController,
                         isGenerating = state.isGenerating,
                         onEditResend = { text -> draft = text; focusRequester.requestFocus() },
@@ -1051,10 +1080,7 @@ fun ChatScreen(
                             retryAfterModelSwitch = true
                             modelSheetOpen = true
                         },
-                        onOpenTableFullscreen = {
-                            viewportController.holdCurrent()
-                            fullscreenTableRaw = it
-                        },
+                        onOpenTableFullscreen = { fullscreenTableRaw = it },
                         isSpeaking = speaking,
                         onReadAloud = { vm.readAloud(it) },
                         onStopReading = { vm.stopReading() },

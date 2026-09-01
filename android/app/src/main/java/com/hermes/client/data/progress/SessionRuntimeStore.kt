@@ -344,6 +344,35 @@ class SessionRuntimeStore(
         }
     }
 
+    /**
+     * User-requested authoritative refresh for an already visible conversation. Unlike initial
+     * history loading this never exposes a loading state or clears the current transcript first.
+     * If a run starts while the request is in flight, retain the live state and let the caller
+     * queue one refresh after completion instead of overwriting unpersisted deltas.
+     */
+    fun acceptManualHistory(key: SessionRuntimeKey, messages: List<ChatMessage>): Boolean {
+        updateRuntime(key) { runtime ->
+            if (runtime.chat.isGenerating || runtime.phase.isActive) return@updateRuntime runtime
+            runtime.copy(
+                chat = runtime.chat.copy(
+                    messages = com.hermes.client.ui.chat.inheritTimestamps(
+                        com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                        runtime.chat.messages,
+                    ),
+                    historyLoading = false,
+                    historyLoaded = true,
+                    historyError = null,
+                ),
+            )
+        }
+        val committedRuntime = _runtimes.value[key] ?: return false
+        if (committedRuntime.chat.isGenerating || committedRuntime.phase.isActive) return false
+        val committed = committedRuntime.chat.messages
+        return committed.size == messages.size && committed.zip(messages).all { (a, b) ->
+            a.copy(timestamp = null, id = "") == b.copy(timestamp = null, id = "")
+        }
+    }
+
     /** Apply asynchronously downloaded thumbnails without replacing newer live text/deltas. */
     fun acceptHydratedImages(key: SessionRuntimeKey, hydrated: List<ChatMessage>) {
         val byId = hydrated.associate { it.id to it.images }
