@@ -42,6 +42,31 @@ class AppLanguageTest {
         }
     }
 
+    // Each update stage owns a distinct code so a failed check, a failed download, and a failed
+    // signature check are never presented as the same problem (docs/ERROR_HANDLING.md).
+    @Test fun updateStages_haveDistinctRegisteredCodesAndBilingualCopy() {
+        val cases = mapOf(
+            AppErrorCode.UPDATE_CHECK_FAILED to "HR-UPDATE-002",
+            AppErrorCode.UPDATE_ENQUEUE_FAILED to "HR-UPDATE-003",
+            AppErrorCode.UPDATE_DOWNLOAD_FAILED to "HR-UPDATE-004",
+            AppErrorCode.UPDATE_VERIFICATION_FAILED to "HR-UPDATE-005",
+            AppErrorCode.UPDATE_FILE_MISSING to "HR-UPDATE-006",
+            AppErrorCode.UPDATE_INSTALLER_FAILED to "HR-UPDATE-007",
+        )
+        val summaries = mutableSetOf<String>()
+        for ((code, hr) in cases) {
+            val error = AppError(code, retryable = true)
+            val zh = error.localizedMessage(AppLanguage.ZH)
+            val en = error.localizedMessage(AppLanguage.EN)
+            assertEquals(hr, code.value)
+            assertTrue("$hr zh copy must carry the code", zh.contains(hr))
+            assertTrue("$hr en copy must carry the code", en.contains(hr))
+            assertTrue("$hr zh copy must be Chinese", zh.any { it.code > 0x4E00 })
+            assertTrue("$hr copies must differ per language", zh != en)
+            assertTrue("$hr must not reuse another stage's Chinese summary", summaries.add(zh))
+        }
+    }
+
     @Test fun connectorOffline_hasLocalizedRetryableCopy() {
         val error = AppError(AppErrorCode.CONNECTOR_OFFLINE, retryable = true)
         assertTrue(error.localizedMessage(AppLanguage.ZH).contains("Mac 端当前离线"))

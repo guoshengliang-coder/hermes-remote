@@ -27,10 +27,24 @@ class ScreenshotTest {
         compareOptions = RoborazziOptions.CompareOptions(changeThreshold = 0.01f),
     )
 
-    private fun snap(name: String, content: @androidx.compose.runtime.Composable () -> Unit) {
+    private fun snap(
+        name: String,
+        darkTheme: Boolean = false,
+        fontScale: Float? = null,
+        content: @androidx.compose.runtime.Composable () -> Unit,
+    ) {
         compose.setContent {
-            com.hermes.client.ui.theme.HermesTheme(darkTheme = false) {
-                androidx.compose.material3.Surface { content() }
+            com.hermes.client.ui.theme.HermesTheme(darkTheme = darkTheme) {
+                val density = androidx.compose.ui.platform.LocalDensity.current
+                if (fontScale == null) {
+                    androidx.compose.material3.Surface { content() }
+                } else {
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, fontScale),
+                    ) {
+                        androidx.compose.material3.Surface { content() }
+                    }
+                }
             }
         }
         // The markdown renderer parses asynchronously; give it real time, then settle composition.
@@ -109,6 +123,143 @@ class ScreenshotTest {
                 lockedAnswers = mapOf("q0" to "PostgreSQL"),
             ),
             onAnswer = {}, onSkip = {},
+        )
+    }
+
+    private val updateVersion = com.hermes.client.update.UpdateVersion(
+        versionName = "0.1.76",
+        versionCode = 77,
+        applicationId = "com.hermes.remote",
+        channel = com.hermes.client.update.UPDATE_CHANNEL,
+        publishedAt = "2026-09-01T12:00:00Z",
+        fileName = "Hermes-Remote-0.1.76-debug.apk",
+        downloadUrl = "https://mrlgs.net/releases/Hermes-Remote-0.1.76-debug.apk",
+        sizeBytes = 29_800_000,
+        sha256 = "a".repeat(64),
+        certificateSha256 = "06c18dfc4a852330654c2da040a578bccab13b71dde4ac962bb9bc2271dd32c5",
+        minSdk = 26,
+        releaseNotes = listOf("恢复后台下载后仍可继续安装。", "历史版本改为只读，默认推荐最新版本。"),
+        sourceCommit = "abcdef1",
+    )
+
+    private fun updateRow(eligibility: com.hermes.client.update.VersionEligibility) =
+        com.hermes.client.update.UpdateRow(updateVersion, eligibility)
+
+    @Test fun updateUpToDate() = snap("update-up-to-date") {
+        com.hermes.client.ui.settings.AppUpdateContent(
+            state = com.hermes.client.update.UpdateUiState(
+                checkedOnce = true,
+                lastCheckedAtMs = 1_788_260_400_000,
+                latest = updateRow(com.hermes.client.update.VersionEligibility.CURRENT),
+            ),
+        )
+    }
+
+    @Test fun updateAvailable() = snap("update-available") {
+        com.hermes.client.ui.settings.AppUpdateContent(
+            state = com.hermes.client.update.UpdateUiState(
+                checkedOnce = true,
+                lastCheckedAtMs = 1_788_260_400_000,
+                latest = updateRow(com.hermes.client.update.VersionEligibility.UPDATE),
+            ),
+        )
+    }
+
+    @Test fun updateAvailableAppDarkWhileSystemLight() = snap("update-available-app-dark", darkTheme = true) {
+        com.hermes.client.ui.settings.AppUpdateContent(
+            state = com.hermes.client.update.UpdateUiState(
+                checkedOnce = true,
+                latest = updateRow(com.hermes.client.update.VersionEligibility.UPDATE),
+            ),
+        )
+    }
+
+    @Test fun updateAvailableLargeFont() = snap("update-available-large-font", fontScale = 1.3f) {
+        com.hermes.client.ui.settings.AppUpdateContent(
+            state = com.hermes.client.update.UpdateUiState(
+                checkedOnce = true,
+                latest = updateRow(com.hermes.client.update.VersionEligibility.UPDATE),
+            ),
+        )
+    }
+
+    @Test fun updateDownloading() = snap("update-downloading") {
+        com.hermes.client.ui.settings.AppUpdateContent(
+            state = com.hermes.client.update.UpdateUiState(
+                task = com.hermes.client.update.UpdateTask(
+                    updateVersion,
+                    com.hermes.client.update.DownloadPhase.DOWNLOADING,
+                    percent = 42,
+                    downloadedBytes = 12_516_000,
+                    totalBytes = updateVersion.sizeBytes,
+                ),
+            ),
+        )
+    }
+
+    @Test fun updateInstallable() = snap("update-installable") {
+        com.hermes.client.ui.settings.AppUpdateContent(
+            state = com.hermes.client.update.UpdateUiState(
+                task = com.hermes.client.update.UpdateTask(
+                    updateVersion,
+                    com.hermes.client.update.DownloadPhase.INSTALLABLE,
+                    percent = 100,
+                    verifiedFile = java.io.File("verified.apk"),
+                ),
+            ),
+        )
+    }
+
+    @Test fun updateSuperseded() = snap("update-superseded") {
+        val old = updateVersion.copy(
+            versionName = "0.1.75",
+            versionCode = 76,
+            fileName = "Hermes-Remote-0.1.75-debug.apk",
+            downloadUrl = "https://mrlgs.net/releases/Hermes-Remote-0.1.75-debug.apk",
+        )
+        com.hermes.client.ui.settings.AppUpdateContent(
+            state = com.hermes.client.update.UpdateUiState(
+                checkedOnce = true,
+                latest = updateRow(com.hermes.client.update.VersionEligibility.UPDATE),
+                task = com.hermes.client.update.UpdateTask(
+                    old,
+                    com.hermes.client.update.DownloadPhase.INSTALLABLE,
+                    percent = 100,
+                    verifiedFile = java.io.File("verified.apk"),
+                ),
+            ),
+        )
+    }
+
+    @Test fun updateCheckFailed() = snap("update-check-failed") {
+        com.hermes.client.ui.settings.AppUpdateContent(
+            state = com.hermes.client.update.UpdateUiState(
+                checkError = com.hermes.client.data.error.AppError(
+                    com.hermes.client.data.error.AppErrorCode.UPDATE_CHECK_FAILED,
+                    retryable = true,
+                    technicalCause = "offline",
+                    stage = "update_check",
+                ),
+            ),
+        )
+    }
+
+    @Test fun updateTaskAndCheckFailed() = snap("update-task-check-failed") {
+        com.hermes.client.ui.settings.AppUpdateContent(
+            state = com.hermes.client.update.UpdateUiState(
+                task = com.hermes.client.update.UpdateTask(
+                    updateVersion,
+                    com.hermes.client.update.DownloadPhase.INSTALLABLE,
+                    percent = 100,
+                    verifiedFile = java.io.File("verified.apk"),
+                ),
+                checkError = com.hermes.client.data.error.AppError(
+                    com.hermes.client.data.error.AppErrorCode.UPDATE_CHECK_FAILED,
+                    retryable = true,
+                    technicalCause = "offline",
+                    stage = "update_check",
+                ),
+            ),
         )
     }
 

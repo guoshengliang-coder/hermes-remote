@@ -33,20 +33,28 @@ suspend fun fetchUpdateIndex(
     client: OkHttpClient,
     indexUrl: String,
     parser: UpdateManifestParser,
+    maxBytes: Long = MAX_UPDATE_INDEX_BYTES,
 ): UpdateIndex = withContext(Dispatchers.IO) {
     val request = Request.Builder().url(indexUrl).header("Cache-Control", "no-cache").build()
     client.newCall(request).execute().use { response ->
         require(response.isSuccessful) { "Update server returned HTTP ${response.code}" }
-        parser.parse(requireNotNull(response.body).string())
+        val source = requireNotNull(response.body).source()
+        // request() fills the buffer with at most maxBytes+1 bytes and reports whether that many
+        // exist, so an oversized body is rejected before it is ever fully buffered in memory.
+        require(!source.request(maxBytes + 1)) { "Update index exceeds $maxBytes bytes" }
+        parser.parse(source.readString(Charsets.UTF_8))
     }
 }
 
 interface UpdateRepositoryContract {
     suspend fun fetch(): UpdateIndex
     suspend fun enqueue(version: UpdateVersion): Long
+    /** The persisted job, or null when nothing is pending or the record had to be healed away. */
     suspend fun saved(): Pair<Long, UpdateVersion>?
     suspend fun query(id: Long): DownloadSnapshot?
     suspend fun verify(version: UpdateVersion, localUri: String): File
+    /** Remove the DownloadManager job, the persisted metadata, and the residual file. */
+    suspend fun cancel()
     fun install(file: File): InstallResult
 }
 
@@ -91,9 +99,39 @@ class UpdateRepository(
 
     override suspend fun saved(): Pair<Long, UpdateVersion>? = withContext(Dispatchers.IO) {
         val id = prefs.getLong("download_id", -1)
-        val raw = prefs.getString("version", null) ?: return@withContext null
-        val version = runCatching { json.decodeFromString(UpdateVersion.serializer(), raw) }.getOrNull() ?: return@withContext null
-        return@withContext if (id < 0) null else id to version
+        val raw = prefs.getString("version", null)
+        val version = raw?.let { runCatching { json.decodeFromString(UpdateVersion.serializer(), it) }.getOrNull() }
+        when (val decision = decideSavedDownload(id, raw != null, version, BuildConfig.VERSION_CODE)) {
+            is SavedDownloadDecision.Resume -> decision.id to decision.version
+            SavedDownloadDecision.None -> null
+            // Half-written or superseded state heals itself instead of being re-verified forever.
+            is SavedDownloadDecision.Discard -> {
+                discard(id, version?.fileName)
+                null
+            }
+        }
+    }
+
+    override suspend fun cancel(): Unit = withContext(Dispatchers.IO) {
+        val id = prefs.getLong("download_id", -1)
+        val raw = prefs.getString("version", null)
+        val fileName = raw?.let { runCatching { json.decodeFromString(UpdateVersion.serializer(), it) }.getOrNull() }?.fileName
+        discard(id, fileName)
+    }
+
+    /** Remove the queued job, the persisted record, and only the file this record owns. */
+    private fun discard(id: Long, fileName: String?) {
+        if (id >= 0) downloads.remove(id)
+        val safeName = fileName?.takeIf { it == File(it).name && it.isNotBlank() }
+        if (safeName != null) {
+            val target = File(downloadDirectory, safeName).canonicalFile
+            if (target.parentFile == downloadDirectory.canonicalFile && target.isFile) {
+                check(target.delete()) { "Unable to delete the update download" }
+            }
+        }
+        check(prefs.edit().remove("download_id").remove("version").commit()) {
+            "Unable to clear persisted update state"
+        }
     }
 
     override suspend fun query(id: Long): DownloadSnapshot? = withContext(Dispatchers.IO) { downloads.query(DownloadManager.Query().setFilterById(id))?.use { cursor ->

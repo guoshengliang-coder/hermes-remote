@@ -32,6 +32,22 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "App Token 无效或已失效，请重新配置。", "The App Token is invalid or expired. Configure it again.")
         AppErrorCode.UPDATE_FAILED ->
             localized(language, "更新操作失败，请重试。", "The update operation failed. Retry.")
+        AppErrorCode.UPDATE_CHECK_FAILED ->
+            localized(language, "无法检查更新，请检查网络后重试。", "Couldn't check for updates. Check your network and retry.")
+        AppErrorCode.UPDATE_ENQUEUE_FAILED ->
+            localized(language, "无法开始下载更新，请重试。", "Couldn't start the update download. Retry.")
+        AppErrorCode.UPDATE_DOWNLOAD_FAILED ->
+            localized(language, "更新下载失败，请重试。", "The update download failed. Retry.")
+        AppErrorCode.UPDATE_VERIFICATION_FAILED ->
+            localized(language, "安装包校验未通过，已阻止安装，请重新下载。", "The package failed verification and was blocked. Download it again.")
+        AppErrorCode.UPDATE_FILE_MISSING ->
+            localized(language, "下载记录已丢失，请重新下载。", "The download record was lost. Download the update again.")
+        AppErrorCode.UPDATE_INSTALLER_FAILED ->
+            localized(language, "无法打开系统安装器，请重试。", "Couldn't open the system installer. Retry.")
+        AppErrorCode.UPDATE_CLEANUP_FAILED ->
+            localized(language, "无法清理更新下载，请重试。", "Couldn't clean up the update download. Retry.")
+        AppErrorCode.UPDATE_SUPERSEDED ->
+            localized(language, "已发布更新版本，请删除旧下载后获取最新版。", "A newer release is available. Delete the old download and get the latest version.")
         AppErrorCode.FILE_READ_FAILED ->
             localized(language, "无法读取所选文件，请重新选择。", "Couldn't read the selected file. Choose it again.")
         AppErrorCode.INSTALL_PERMISSION_REQUIRED ->
