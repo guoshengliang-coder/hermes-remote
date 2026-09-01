@@ -29,10 +29,17 @@ each at most 500 characters and free of control characters.
 
 ## Client state machine
 
-The page moves through idle → waiting → downloading(progress) → verifying → installable, or failed.
-Failure exposes retry. DownloadManager writes to the app-specific external Downloads directory. The
-download ID and selected version metadata are kept in private SharedPreferences, then queried when a
-new page/ViewModel is created, so navigation and recomposition do not lose the job.
+Opening the page independently starts an index check and resumes any persisted task. The task moves
+through enqueuing → waiting/paused → downloading(progress) → verifying → installable, cancelling, or
+failed. Failure exposes a stage-specific retry/recovery action. DownloadManager writes to the
+app-specific external Downloads directory. The download ID and selected version metadata are kept in
+private SharedPreferences, so navigation, process recreation, or an index/network failure cannot hide
+an already downloaded installable APK. Cancellation owns the task slot until DownloadManager,
+metadata, and the residual file have been cleaned up; failures keep the task visible.
+
+Only the manifest's `latestVersionCode` is offered for download/install. History is collapsed and
+read-only. An offline restored task remains usable, but once a successful check discovers a higher
+latest code, the old task is marked superseded and installation/retry are blocked until it is deleted.
 
 Before installation, the client checks URL policy, byte length, SHA-256, archive application ID,
 manifest version code/name, and the sole APK signer certificate SHA-256. Any mismatch is terminal and
@@ -53,19 +60,26 @@ downgrade is not supported.”
    `RELEASE_DATA_ROOT` (fixed `/srv/hermes-releases`), and `RELEASE_PUBLIC_BASE_URL`. Publish only from
    an isolated worktree with no concurrent writer.
 3. The script first runs `package-debug-apk.sh` and consumes its atomically written JSON gate output.
-   It derives package metadata, uploads temporary APK/metadata files, and calls
-   `deploy/publish-release.mjs` remotely.
-4. A bounded-wait, stale-recoverable cross-process lock covers the full read/validate/APK/index
-   transaction. Temporary data and the parent directory are fsynced, and the prior legal index is
-   saved as `index.json.prev`. Only a complete entry with every field equal is idempotent. `publishedAt`
-   is the Git HEAD commit timestamp in UTC, making retries deterministic.
+   The gate reads `minSdk` from the built APK with `aapt` together with package/version/signature data;
+   publication metadata must consume that measured value and must never hard-code it. The publisher
+   uploads the APK, metadata, and the reviewed `deploy/publish-release.mjs` plus its schema from the
+   same clean `origin/main` commit, then executes that temporary copy remotely. It must not trust an
+   independently deployed server-side publisher that may lag the tested source.
+4. A bounded Linux `flock` covers the full remote transaction; the kernel releases it when a publisher
+   exits or crashes. While holding that fence, the official CLI may clear a directory lock left by the
+   prior crashed process. The Node layer never guesses that a lock is stale or steals it: it fails
+   closed, records an unguessable owner token, and prevents an old owner from releasing a successor's
+   lock. Temporary data and the parent directory are fsynced, and the prior legal index is replaced
+   atomically through a temporary `index.json.prev`. Only a complete entry with every field equal is
+   idempotent. `publishedAt` is the Git HEAD commit timestamp in UTC, making retries deterministic.
 5. The publisher downloads the complete public versioned APK and verifies HTTP, size, and SHA-256,
    then checks the public index entry/latest value. Only the printed versioned URL is deliverable.
 
 ## Automatic publishing from GitHub
 
 The repository includes `.github/workflows/android-release.yml`. Normal pushes and pull requests run
-CI only. Publishing runs when a tag named `android-v<appVersionName>` is pushed, or when the workflow
+unit tests, lint, and source compilation without any signing or deployment secret; they deliberately do
+not package an APK. Publishing runs when a tag named `android-v<appVersionName>` is pushed, or when the workflow
 is manually dispatched from `main`. The job uses the `production` environment and a concurrency lock,
 so configure a required reviewer for that environment in GitHub Settings → Environments when the
 repository plan supports environment reviewers. The workflow then performs the protocol tests, provisions the canonical debug key,
@@ -74,7 +88,13 @@ runs the package gate, publishes through the existing SSH publisher, and verifie
 the current `origin/main` is rejected. Even without reviewer protection, the deliberate version tag,
 main-commit check, clean-worktree check, and public hash/index verification remain mandatory gates.
 
-Configure these repository secrets once (never commit their values):
+Third-party Actions are pinned to full commit SHAs. Release secrets are scoped only to the trusted
+shell steps that consume them, rather than the whole job. The signing step writes the debug key,
+produces an atomic package-gate JSON, and removes the key with a shell trap. A separate deployment step
+creates only the SSH key, publishes by consuming that existing gate through `APK_RELEASE_GATE_FILE`,
+then removes the SSH files and gate with its own trap. Signing and deployment credentials therefore
+never coexist on disk, and third-party post-job actions run only after both are gone. Configure these
+repository secrets once (never commit their values):
 
 - `HERMES_DEBUG_KEYSTORE_BASE64`: base64 of the shared `~/.android/debug.keystore` (password remains
   `android`).
@@ -108,6 +128,12 @@ Certbot private key. The unit fixes `ReadOnlyPaths=/srv/hermes-releases` and enf
 Run `npm run build`, `npm test`, Android unit tests, and `git diff --check`. For a distributed APK run
 the full package gate. After authorized deployment, check GET/HEAD health, index, APK length/type, the
 versioned download hash, and confirm arbitrary/traversal paths return 404.
+
+The active index is capped at 100 versions. The publisher warns when 10 or fewer slots remain and fails
+closed before mutating the data root when the next release would exceed the cap. It never silently
+removes a registered APK. Retention is an explicit operator decision: archive the metadata and artifact,
+remove only a reviewed non-current entry through a dedicated maintenance change, validate the resulting
+index, and preserve rollback data before publishing again.
 
 Publication validates everything before replacing the index, so failures leave the prior index usable.
 An APK rename followed by an index failure may leave an unreferenced file; it is not downloadable and

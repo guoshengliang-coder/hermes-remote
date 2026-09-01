@@ -19,6 +19,12 @@ or expose that file unless the project owner explicitly authorizes signing-key p
 A missing or different keystore fails the build instead of producing an APK that cannot update the
 installed app.
 
+Ordinary CI never receives this key. It runs Android unit tests, lint, and source compilation without
+packaging an APK. Only the release workflow provisions the canonical key, and the secret is scoped to
+one trusted shell step instead of the whole job. That step runs the full package gate and removes the
+key with a trap before the separate SSH deployment step begins; signing and deployment credentials
+never coexist on disk.
+
 ## Build and verification
 
 ```bash
