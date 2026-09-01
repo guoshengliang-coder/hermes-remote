@@ -130,6 +130,13 @@ fun ChatScreen(
     onUnauthorized: () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
+    androidx.compose.runtime.DisposableEffect(sessionId) {
+        val safeSession = sessionId.hashCode()
+        com.hermes.client.data.diagnostics.CrashReporter.breadcrumb("chat", "mount chat#$safeSession")
+        onDispose {
+            com.hermes.client.data.diagnostics.CrashReporter.breadcrumb("chat", "dispose chat#$safeSession")
+        }
+    }
     LaunchedEffect(sessionId, sessionProfile, initialTitle, isNewSession) {
         vm.open(sessionId, sessionProfile, initialTitle, isNewSession, language)
     }
@@ -193,6 +200,10 @@ fun ChatScreen(
         sessionId,
         saver = androidx.compose.foundation.lazy.LazyListState.Saver,
     ) { androidx.compose.foundation.lazy.LazyListState() }
+    val viewportController = androidx.compose.runtime.saveable.rememberSaveable(
+        sessionId,
+        saver = ChatViewportController.Saver,
+    ) { ChatViewportController() }
     // Search the same merged turns rendered by ChatMessageList so highlight indices stay aligned.
     val conversationTurns = remember(state.messages, searchOpen) {
         if (searchOpen) state.messages.organizedConversationTurns() else emptyList()
@@ -214,6 +225,9 @@ fun ChatScreen(
     androidx.activity.compose.BackHandler(enabled = !searchOpen && composerFocused) {
         composerFocused = false
         focusManager.clearFocus()
+    }
+    androidx.activity.compose.BackHandler(enabled = !searchOpen && !composerFocused && fullscreenTableRaw == null) {
+        onMenu()
     }
     val focusRequester = remember(sessionId) { FocusRequester() }
 
@@ -1029,6 +1043,7 @@ fun ChatScreen(
                         listState = listState,
                         highlightIndex = highlightIndex,
                         scrollToBottomTick = sendToBottomTick,
+                        viewportController = viewportController,
                         isGenerating = state.isGenerating,
                         onEditResend = { text -> draft = text; focusRequester.requestFocus() },
                         onRegenerate = { vm.regenerate() },
@@ -1036,7 +1051,10 @@ fun ChatScreen(
                             retryAfterModelSwitch = true
                             modelSheetOpen = true
                         },
-                        onOpenTableFullscreen = { fullscreenTableRaw = it },
+                        onOpenTableFullscreen = {
+                            viewportController.holdCurrent()
+                            fullscreenTableRaw = it
+                        },
                         isSpeaking = speaking,
                         onReadAloud = { vm.readAloud(it) },
                         onStopReading = { vm.stopReading() },
@@ -1194,7 +1212,13 @@ fun ChatScreen(
         }
     }
     fullscreenTableRaw?.let { raw ->
-        com.hermes.client.ui.chat.TableFullscreenDialog(raw = raw, onDismiss = { fullscreenTableRaw = null })
+        com.hermes.client.ui.chat.TableFullscreenDialog(
+            raw = raw,
+            onDismiss = {
+                fullscreenTableRaw = null
+                viewportController.requestHeldRestore()
+            },
+        )
     }
 
     if (modelSheetOpen) {

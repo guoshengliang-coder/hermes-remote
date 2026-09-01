@@ -468,6 +468,55 @@ private fun joinTurnParts(first: String, second: String): String = when {
     else -> first.trimEnd() + "\n\n" + second.trimStart()
 }
 
+/**
+ * Split an answer at completed blank-line boundaries while keeping fenced code as one block.
+ * Streaming only mutates the final block; all earlier blocks retain both content and position, so
+ * an unfinished heading/list/table at the tail cannot force the entire answer through a new
+ * Markdown parse tree on every render tick.
+ */
+internal fun markdownRenderBlocks(text: String): List<String> {
+    if (text.isBlank()) return emptyList()
+    // Reference-style links/footnotes resolve document-wide; keep those answers in one parser so
+    // a definition below a blank line still applies to prose above it.
+    if (Regex("(?m)^\\s*\\[[^]]+]:\\s*\\S+").containsMatchIn(text)) return listOf(text)
+    val blocks = mutableListOf<String>()
+    val current = StringBuilder()
+    var fence: String? = null
+    val lines = text.split('\n')
+    val nextNonBlank = arrayOfNulls<String>(lines.size)
+    var following: String? = null
+    for (index in lines.lastIndex downTo 0) {
+        nextNonBlank[index] = following
+        if (lines[index].isNotBlank()) following = lines[index]
+    }
+    val listMarker = Regex("^\\s*(?:[-+*]|\\d+[.)])\\s+")
+    lines.forEachIndexed { index, line ->
+        current.append(line)
+        if (index < lines.lastIndex) current.append('\n')
+        val trimmed = line.trimStart()
+        val marker = when {
+            trimmed.startsWith("```") -> "```"
+            trimmed.startsWith("~~~") -> "~~~"
+            else -> null
+        }
+        if (marker != null) fence = if (fence == marker) null else if (fence == null) marker else fence
+        val firstLine = current.toString().lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
+        val nextLine = nextNonBlank[index].orEmpty()
+        val compositeContinues = when {
+            listMarker.containsMatchIn(firstLine) ->
+                listMarker.containsMatchIn(nextLine) || nextLine.startsWith(" ") || nextLine.startsWith("\t")
+            firstLine.trimStart().startsWith(">") -> nextLine.trimStart().startsWith(">")
+            else -> false
+        }
+        if (line.isBlank() && fence == null && current.isNotBlank() && !compositeContinues) {
+            blocks += current.toString().trimEnd()
+            current.clear()
+        }
+    }
+    if (current.isNotBlank()) blocks += current.toString().trimEnd()
+    return blocks
+}
+
 data class ApprovalRequest(
     val command: String,
     val description: String,

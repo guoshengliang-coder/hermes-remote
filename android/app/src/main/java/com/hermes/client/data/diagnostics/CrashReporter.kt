@@ -6,6 +6,7 @@ import android.os.Build
 import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
+import java.time.Instant
 
 /**
  * Captures otherwise-invisible crashes. On an uncaught exception the full stack trace (plus device
@@ -15,6 +16,18 @@ import java.io.StringWriter
  */
 object CrashReporter {
     private const val FILE = "last_crash.txt"
+    private const val MAX_BREADCRUMBS = 40
+    private val breadcrumbLock = Any()
+    private val breadcrumbs = ArrayDeque<String>(MAX_BREADCRUMBS)
+
+    /** Always-on, redacted, content-free lifecycle trail included only if the process crashes. */
+    fun breadcrumb(category: String, message: String) {
+        val entry = "${Instant.now()} [$category] ${DebugLog.redact(message)}"
+        synchronized(breadcrumbLock) {
+            if (breadcrumbs.size >= MAX_BREADCRUMBS) breadcrumbs.removeFirst()
+            breadcrumbs.addLast(entry)
+        }
+    }
 
     fun install(app: Application) {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
@@ -40,6 +53,12 @@ object CrashReporter {
                     appendLine("device: ${Build.MANUFACTURER} ${Build.MODEL}")
                     appendLine("thread: ${thread.name}")
                     appendLine()
+                    val trail = synchronized(breadcrumbLock) { breadcrumbs.toList() }
+                    if (trail.isNotEmpty()) {
+                        appendLine("breadcrumbs:")
+                        trail.forEach { appendLine(it) }
+                        appendLine()
+                    }
                     append(trace)
                 }
                 app.openFileOutput(FILE, Context.MODE_PRIVATE).use { it.write(report.toByteArray()) }

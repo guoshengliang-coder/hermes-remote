@@ -29,7 +29,10 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -160,12 +163,19 @@ fun SearchScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val focus = androidx.compose.runtime.remember { FocusRequester() }
+    var openRequestJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var openRequestSerial by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     LaunchedEffect(Unit) { focus.requestFocus() }
 
     fun openExisting(session: Session) {
-        scope.launch {
-            if (vm.prepareOpen(session)) onOpen(ChatLaunch.existing(session))
-            else Toast.makeText(context, localized(language, "无法切换到该会话所属身份，请稍后重试", "Could not switch to this session's profile. Try again."), Toast.LENGTH_SHORT).show()
+        val request = ++openRequestSerial
+        openRequestJob?.cancel()
+        openRequestJob = scope.launch {
+            if (vm.prepareOpen(session) && request == openRequestSerial) {
+                onOpen(ChatLaunch.existing(session))
+            } else if (request == openRequestSerial) {
+                Toast.makeText(context, localized(language, "无法切换到该会话所属身份，请稍后重试", "Could not switch to this session's profile. Try again."), Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

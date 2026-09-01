@@ -98,8 +98,8 @@ class SemanticCardsTest {
         assertEquals(108, nextRevealCount(current = 100, target = 110))
         // Medium backlog: proportional catch-up, capped per tick.
         assertEquals(164, nextRevealCount(current = 100, target = 500))
-        // Huge backlog (reconnect replay): one fast-forward hop, then pace the recent tail.
-        assertEquals(4250, nextRevealCount(current = 100, target = 5000))
+        // Huge backlog (reconnect replay) still obeys the per-frame visual cap.
+        assertEquals(164, nextRevealCount(current = 100, target = 5000))
         // Never overshoots; target shrink (defensive) clamps down.
         assertEquals(110, nextRevealCount(current = 109, target = 110))
         assertEquals(50, nextRevealCount(current = 100, target = 50))

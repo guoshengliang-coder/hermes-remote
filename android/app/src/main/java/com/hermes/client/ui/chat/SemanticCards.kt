@@ -113,8 +113,7 @@ internal fun parseToolPayloadMeta(raw: String): ToolPayloadMeta? {
  * Typewriter pacing: how many characters of the received text to reveal on this tick. Network
  * deltas arrive in bursts; revealing them verbatim shoves several lines into the pinned viewport
  * at once — the residual streaming jitter. A floor keeps the reveal moving at a readable pace and
- * the backlog-proportional term bounds display latency to about [catchUpTicks] ticks, so the
- * display can never fall behind indefinitely.
+ * the backlog-proportional term catches up while [maxStep] remains a hard per-frame visual cap.
  */
 internal fun nextRevealCount(
     current: Int,
@@ -122,15 +121,12 @@ internal fun nextRevealCount(
     minStep: Int = 8,
     catchUpDivisor: Int = 4,
     maxStep: Int = 64,
-    snapBacklog: Int = 1500,
 ): Int {
     if (target <= current) return target
     val backlog = target - current
-    // A reconnect can replay thousands of characters at once; fast-forward past the bulk in one
-    // hop (one deliberate jump beats seconds of sped-up scrolling) and pace only the recent tail.
-    if (backlog > snapBacklog) return target - snapBacklog / 2
-    // Steady state settles where step == arrival rate, i.e. backlog ≈ catchUpDivisor ticks of
-    // latency (~250ms), while maxStep bounds any single visual jump to about a line and a half.
+    // Never fast-forward a reconnect-sized backlog in one frame. The former >1500-character snap
+    // was indistinguishable from the whole screen flashing and made completion appear to be the
+    // first time the transcript reached the bottom. maxStep is now a hard visual invariant.
     val step = (backlog / catchUpDivisor).coerceIn(minStep, maxStep)
     return minOf(target, current + step)
 }

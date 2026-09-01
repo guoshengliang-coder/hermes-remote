@@ -6,6 +6,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StreamingMarkdownStabilizerTest {
+    @Test fun completedParagraphsBecomeIndependentStableRenderBlocks() {
+        assertEquals(
+            listOf("第一段", "## 标题\n第二段", "最后一段"),
+            markdownRenderBlocks("第一段\n\n## 标题\n第二段\n\n最后一段"),
+        )
+    }
+
+    @Test fun blankLinesInsideFenceNeverSplitTheCodeBlock() {
+        val code = "```kotlin\nfun main() {\n\n  println(1)\n}\n```"
+        assertEquals(listOf(code, "结尾"), markdownRenderBlocks("$code\n\n结尾"))
+    }
+
+    @Test fun addingStreamingTailDoesNotMutateCommittedBlockPrefix() {
+        val before = markdownRenderBlocks("稳定段落\n\n正在生成")
+        val after = markdownRenderBlocks("稳定段落\n\n正在生成更多文字")
+        assertEquals(before.dropLast(1), after.dropLast(1))
+        assertEquals("稳定段落", after.first())
+    }
+
+    @Test fun looseListsAndReferenceLinksKeepTheirDocumentScope() {
+        val looseList = "1. 第一项\n\n2. 第二项\n\n结尾"
+        assertEquals(listOf("1. 第一项\n\n2. 第二项", "结尾"), markdownRenderBlocks(looseList))
+
+        val references = "查看 [说明][doc]。\n\n[doc]: https://example.test"
+        assertEquals(listOf(references), markdownRenderBlocks(references))
+    }
+
     @Test fun plainProsePassesThrough() {
         val text = "hello **world**\n\n- item"
         assertEquals(text, stabilizeStreamingMarkdown(text, "P"))

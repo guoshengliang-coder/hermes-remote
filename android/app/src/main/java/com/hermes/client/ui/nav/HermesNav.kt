@@ -69,6 +69,7 @@ import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.startup.StartupFailure
 import com.hermes.client.ui.startup.StartupDestination
 import com.hermes.client.ui.startup.ForegroundRecoveryCoordinator
+import com.hermes.client.data.diagnostics.CrashReporter
 
 private fun chatRoute(target: ChatLaunch): String = buildString {
     append("chat/")
@@ -80,6 +81,10 @@ private fun chatRoute(target: ChatLaunch): String = buildString {
     }
     if (query.isNotEmpty()) append('?').append(query.joinToString("&"))
 }
+
+private fun diagnosticRoute(route: String): String =
+    if (route.startsWith("chat/")) "chat#${route.substringAfter("chat/").substringBefore('?').hashCode()}"
+    else route.substringBefore('?')
 
 /** Only the configuration-repair destination may consume the repair completion signal. */
 internal fun shouldPopCompletedRepair(
@@ -125,11 +130,26 @@ fun HermesNav(
     var showNotificationOnboarding by rememberSaveable { mutableStateOf(false) }
     var pendingSetupCompletion by rememberSaveable { mutableStateOf<Long?>(null) }
 
+    fun openCanonicalChat(route: String) {
+        CrashReporter.breadcrumb("nav", "open ${diagnosticRoute(route)}")
+        nav.navigate(route) {
+            // A chat is a leaf of the single Sessions root, never another layer on top of a
+            // previous chat/search/detail destination. This also normalizes stacks restored after
+            // process death and makes system back deterministic: one press always returns home.
+            popUpTo("sessions") { inclusive = false }
+            launchSingleTop = true
+            restoreState = false
+        }
+    }
+
     // Guard the navigate: a hermes:// deep link is untrusted, and even the notification path could
     // carry a stale/unknown route — an unresolved route must be ignored, never crash.
     LaunchedEffect(deepLinkRoute) {
         deepLinkRoute?.let {
-            runCatching { nav.navigate(it) }
+            runCatching {
+                if (it.startsWith("chat/")) openCanonicalChat(it)
+                else nav.navigate(it) { launchSingleTop = true }
+            }
             onDeepLinkConsumed()
         }
     }
@@ -138,6 +158,7 @@ fun HermesNav(
     val route = backStackEntry?.destination?.route
 
     LaunchedEffect(route, backStackEntry?.arguments) {
+        CrashReporter.breadcrumb("nav", "destination ${route ?: "unknown"}")
         val destination = when {
             route == "sessions" -> StartupDestination.Sessions
             route == "search" -> StartupDestination.Search
@@ -200,9 +221,18 @@ fun HermesNav(
     // Pushed screens navigate "up"; their top-bar nav icon (formerly the drawer hamburger) is a
     // back arrow wired to this.
     val back: () -> Unit = { nav.popBackStack() }
+    val backToSessions: () -> Unit = {
+        CrashReporter.breadcrumb("nav", "chat back -> sessions")
+        if (!nav.popBackStack("sessions", inclusive = false)) {
+            nav.navigate("sessions") {
+                popUpTo(nav.graph.startDestinationId) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
+    }
     // Drill into a screen from a tab hub (Agent Activity / You).
     val push: (String) -> Unit = { dest -> nav.navigate(dest) { launchSingleTop = true } }
-    val openChat: (ChatLaunch) -> Unit = { target -> nav.navigate(chatRoute(target)) }
+    val openChat: (ChatLaunch) -> Unit = { target -> openCanonicalChat(chatRoute(target)) }
 
     // Card page: modal drawer off the session list. Gestures only on the list root so a swipe
     // inside a chat can't accidentally drag it out; the avatar button opens it anywhere it shows.
@@ -325,11 +355,9 @@ fun HermesNav(
                     initialTitle = entry.arguments?.getString("title"),
                     isNewSession = entry.arguments?.getBoolean("new") ?: false,
                     vm = vm,
-                    onMenu = back,
+                    onMenu = backToSessions,
                     onNewChat = { id ->
-                        nav.navigate(chatRoute(ChatLaunch.new(id))) {
-                            popUpTo(entry.destination.id) { inclusive = true }
-                        }
+                        openCanonicalChat(chatRoute(ChatLaunch.new(id)))
                     },
                     onUnauthorized = onUnauthorized,
                 )

@@ -105,6 +105,8 @@ fun SessionsScreen(
     val context = LocalContext.current
     val language = LocalAppLanguage.current
     var creatingSession by rememberSaveable { mutableStateOf(false) }
+    var openRequestJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var openRequestSerial by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
 
     fun createSession() {
         if (creatingSession) return
@@ -119,10 +121,12 @@ fun SessionsScreen(
     }
 
     fun openExisting(session: Session) {
-        scope.launch {
-            if (vm.prepareOpen(session)) {
+        val request = ++openRequestSerial
+        openRequestJob?.cancel()
+        openRequestJob = scope.launch {
+            if (vm.prepareOpen(session) && request == openRequestSerial) {
                 onOpen(ChatLaunch.existing(session))
-            } else {
+            } else if (request == openRequestSerial) {
                 Toast.makeText(context, localized(language, "无法切换到该会话所属身份，请稍后重试", "Could not switch to this session's profile. Try again."), Toast.LENGTH_SHORT).show()
             }
         }

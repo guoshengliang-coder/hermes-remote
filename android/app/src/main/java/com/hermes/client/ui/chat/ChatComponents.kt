@@ -7,6 +7,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -73,14 +74,17 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
@@ -107,6 +111,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -153,6 +161,96 @@ import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.markdownDimens
 import com.mikepenz.markdown.model.markdownPadding
 
+data class ChatViewportAnchor(val blockKey: String, val offsetFromTopPx: Float)
+
+/**
+ * Semantic viewport state shared by the transcript and fullscreen overlays. Block coordinates are
+ * deliberately transient; only the stable block key and its visual offset are saveable.
+ */
+class ChatViewportController(restored: ChatViewportAnchor? = null) {
+    private val blockBounds = mutableMapOf<String, Rect>()
+    private var viewportBounds: Rect? = null
+    private var heldAnchor: ChatViewportAnchor? = restored
+    private var lastWidth = 0
+    private var lastConfigurationWidth = 0
+    private var pinnedToBottom = true
+
+    var restoreGeneration by androidx.compose.runtime.mutableIntStateOf(if (restored == null) 0 else 1)
+        private set
+
+    fun updateViewport(bounds: Rect) { viewportBounds = bounds }
+    fun updateBlock(key: String, bounds: Rect) { blockBounds[key] = bounds }
+    fun removeBlock(key: String) { blockBounds.remove(key) }
+    fun setPinnedToBottom(value: Boolean) { pinnedToBottom = value }
+
+    fun currentAnchor(): ChatViewportAnchor? {
+        if (pinnedToBottom) return heldAnchor
+        val viewport = viewportBounds ?: return heldAnchor
+        val visible = blockBounds.entries.filter { (_, bounds) ->
+            bounds.bottom > viewport.top && bounds.top < viewport.bottom
+        }
+        val chosen = visible
+            .filter { (_, bounds) -> bounds.top <= viewport.top && bounds.bottom > viewport.top }
+            .minByOrNull { (_, bounds) -> bounds.height }
+            ?: visible.minByOrNull { (_, bounds) -> kotlin.math.abs(bounds.top - viewport.top) }
+            ?: return heldAnchor
+        return ChatViewportAnchor(chosen.key, chosen.value.top - viewport.top)
+    }
+
+    fun holdCurrent() { currentAnchor()?.let { heldAnchor = it } }
+
+    fun requestHeldRestore() {
+        if (heldAnchor != null) restoreGeneration++
+    }
+
+    fun onViewportWidth(width: Int) {
+        if (lastWidth > 0 && width > 0 && width != lastWidth) {
+            // onSizeChanged runs before the children's new global positions are published, so the
+            // registry still describes the old layout at this point.
+            if (heldAnchor == null) holdCurrent()
+            requestHeldRestore()
+        }
+        if (width > 0) lastWidth = width
+    }
+
+    fun onConfigurationWidth(widthDp: Int) {
+        if (lastConfigurationWidth > 0 && widthDp > 0 && widthDp != lastConfigurationWidth) {
+            // Composition observes configuration/window-width changes before the new child layout
+            // is positioned, which is the most reliable capture edge across foldable OEMs.
+            if (heldAnchor == null) holdCurrent()
+            requestHeldRestore()
+        }
+        if (widthDp > 0) lastConfigurationWidth = widthDp
+    }
+
+    fun correctionPx(): Float? {
+        val anchor = heldAnchor ?: return null
+        val viewport = viewportBounds ?: return null
+        val block = blockBounds[anchor.blockKey] ?: return null
+        return block.top - (viewport.top + anchor.offsetFromTopPx)
+    }
+
+    fun finishRestore(generation: Int) {
+        if (generation == restoreGeneration) heldAnchor = null
+    }
+
+    fun saveAnchor(): ChatViewportAnchor? = heldAnchor ?: currentAnchor()
+
+    companion object {
+        val Saver = androidx.compose.runtime.saveable.listSaver<ChatViewportController, Any>(
+            save = { controller ->
+                controller.saveAnchor()?.let { listOf(it.blockKey, it.offsetFromTopPx) } ?: emptyList()
+            },
+            restore = { values ->
+                if (values.size < 2) ChatViewportController()
+                else ChatViewportController(ChatViewportAnchor(values[0] as String, values[1] as Float))
+            },
+        )
+    }
+}
+
+private val LocalChatViewportController = staticCompositionLocalOf<ChatViewportController?> { null }
+
 @Composable
 fun ChatMessageList(
     state: ChatUiState,
@@ -175,19 +273,21 @@ fun ChatMessageList(
     onFileShare: (ChatFile) -> Unit = {},
     highlightIndex: Int? = null,
     scrollToBottomTick: Long = 0L,
+    viewportController: ChatViewportController? = null,
     onBlankAreaTap: () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
+    val semanticViewport = viewportController ?: remember(sessionId) { ChatViewportController() }
+    val configurationWidth = LocalConfiguration.current.screenWidthDp
+    androidx.compose.runtime.DisposableEffect(semanticViewport, configurationWidth) {
+        semanticViewport.onConfigurationWidth(configurationWidth)
+        onDispose { }
+    }
     val visibleProcesses = state.backgroundProcesses.filter { it.running }
     // Hermes stores a tool-using answer as multiple adjacent assistant records. Present them as
     // one consumer-facing turn so the action row appears once and acts on the complete answer.
     // During streaming only the tail changes. Cache the settled prefix so each token groups one
     // message instead of walking a potentially huge history on the main thread.
-    val streamingTail = state.messages.lastOrNull()?.takeIf { it.isStreaming }
-    val settledMessages = if (streamingTail != null) state.messages.dropLast(1) else state.messages
-    val settledTurns = remember(sessionId, settledMessages) {
-        settledMessages.organizedConversationTurns()
-    }
     // One 64ms gate for the WHOLE streaming tail — text, thinking, and tool churn together.
     // WebSocket deltas arrive far faster than display frames; recomposing the tail item per delta
     // thrashed layout, and gating only the markdown text (the previous design) still let every
@@ -196,31 +296,36 @@ fun ChatMessageList(
     // already-rendered lines between snapshots. Full sanitization stays deferred to
     // message.complete — per-token regex passes would approach O(n²).
     val toolDataPlaceholder = localized(language, "工具数据接收中…", "Receiving tool data…")
-    val latestTail by rememberUpdatedState(streamingTail)
+    val latestLastMessage by rememberUpdatedState(state.messages.lastOrNull())
     val latestPlaceholder by rememberUpdatedState(toolDataPlaceholder)
-    var renderedTail by remember(sessionId) {
-        mutableStateOf(streamingTail?.stabilizedForStreaming(toolDataPlaceholder))
-    }
-    LaunchedEffect(sessionId, streamingTail?.id, streamingTail != null) {
-        if (latestTail == null) {
-            renderedTail = null
-            return@LaunchedEffect
-        }
+    var activeStreamId by androidx.compose.runtime.saveable.rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    var revealedCount by androidx.compose.runtime.saveable.rememberSaveable(sessionId) { androidx.compose.runtime.mutableIntStateOf(0) }
+    var renderedTail by remember(sessionId) { mutableStateOf<ChatMessage?>(null) }
+    LaunchedEffect(sessionId) {
+        var renderedSource: ChatMessage? = null
         // Typewriter reveal: decouple the display from the network's bursty delta cadence.
-        // Received text accumulates in the tail message; each tick reveals a paced prefix so the
-        // pinned viewport grows in small uniform steps instead of multi-line lurches. The pace
-        // adapts to backlog (nextRevealCount) so display latency stays bounded.
-        var revealed = 0
-        var revealedSource: ChatMessage? = null
+        // This executor deliberately survives message.start -> delta -> complete. The previous
+        // effect restarted around those boundaries and briefly rendered the authoritative full
+        // tail before rewinding to a short prefix. Completion also bypassed the reveal buffer and
+        // replaced it with the full answer in one frame. Both paths looked like screen flashing.
         while (isActive) {
-            val newest = latestTail
-            if (newest != null) {
+            val newest = latestLastMessage?.takeIf { it.role == Role.ASSISTANT }
+            if (newest?.isStreaming == true && activeStreamId != newest.id) {
+                activeStreamId = newest.id
+                revealedCount = 0
+                renderedSource = null
+                renderedTail = newest.copy(text = "", thinking = "", tools = emptyList(), images = emptyList(), files = emptyList())
+            }
+            if (newest != null && newest.id == activeStreamId) {
                 val target = newest.text.length
-                val paced = nextRevealCount(revealed, target)
-                if (newest !== revealedSource || paced != revealed) {
-                    revealedSource = newest
-                    revealed = paced
-                    val cut = surrogateSafeCut(newest.text, revealed)
+                // An authoritative completion may correct/shorten the last delta. That is the only
+                // legal backwards move; ordinary streaming prefixes are strictly monotone.
+                if (target < revealedCount) revealedCount = target
+                val paced = nextRevealCount(revealedCount, target)
+                if (newest !== renderedSource || paced != revealedCount) {
+                    renderedSource = newest
+                    revealedCount = paced
+                    val cut = surrogateSafeCut(newest.text, revealedCount)
                     val visible = if (cut >= target) newest else newest.copy(text = newest.text.take(cut))
                     // Regex-based organization of a long tail is a few milliseconds — enough to
                     // steal from a 16ms frame, so snapshot off the main thread.
@@ -228,17 +333,38 @@ fun ChatMessageList(
                         visible.stabilizedForStreaming(latestPlaceholder)
                     }
                 }
+                if (!newest.isStreaming && revealedCount >= target) {
+                    // Publish the exact final presentation first, then release the visual buffer on
+                    // the next frame. The settled transcript takes over with identical content, so
+                    // message.complete no longer produces a final full-answer jump.
+                    renderedTail = withContext(Dispatchers.Default) { newest.organizedForDisplay() }
+                    androidx.compose.runtime.withFrameNanos { }
+                    if (latestLastMessage?.id == newest.id && latestLastMessage?.isStreaming == false) {
+                        activeStreamId = null
+                        renderedTail = null
+                        renderedSource = null
+                    }
+                }
             }
             delay(STREAM_RENDER_INTERVAL_MS)
         }
     }
-    // The ticker clears/replaces renderedTail one frame after composition sees the state change.
-    // Without this guard, the frame where a stream completes would merge the settled turn with
-    // the stale snapshot of the same content — a one-frame duplicated-text flash.
-    val effectiveTail = when {
-        streamingTail == null -> null
-        renderedTail?.id == streamingTail.id -> renderedTail
-        else -> streamingTail // a new record's first frame; the ticker stabilizes it next pass
+    // Keep the authoritative final record out of the settled prefix while its visual buffer drains.
+    // A newly observed streaming record starts as an empty indicator instead of flashing a burst
+    // of text and then rewinding when the reveal executor gets its first frame.
+    val presentingSource = state.messages.lastOrNull()?.takeIf { last ->
+        last.role == Role.ASSISTANT && (last.isStreaming || last.id == activeStreamId)
+    }
+    val settledMessages = if (presentingSource != null) state.messages.dropLast(1) else state.messages
+    val settledTurns = remember(sessionId, settledMessages) { settledMessages.organizedConversationTurns() }
+    val effectiveTail = presentingSource?.let { source ->
+        renderedTail?.takeIf { it.id == source.id }
+            ?: if (activeStreamId == source.id && revealedCount > 0) {
+                val cut = surrogateSafeCut(source.text, revealedCount.coerceAtMost(source.text.length))
+                source.copy(text = source.text.take(cut)).stabilizedForStreaming(toolDataPlaceholder)
+            } else {
+                source.copy(text = "", thinking = "", tools = emptyList(), images = emptyList(), files = emptyList())
+            }
     }
     val displayMessages = remember(settledTurns, effectiveTail) {
         val tail = effectiveTail ?: return@remember settledTurns
@@ -265,6 +391,7 @@ fun ChatMessageList(
             listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
         }
     }
+    androidx.compose.runtime.SideEffect { semanticViewport.setPinnedToBottom(atBottom) }
 
     // Single owner of programmatic bottom snaps. A user drag holds the scroll mutex at UserInput
     // priority, so a losing Default-priority snap surfaces as a CancellationException; swallow the
@@ -287,7 +414,14 @@ fun ChatMessageList(
     // that key (text normalization, image metadata hydration, occurrence shifts), yanking a
     // reader mid-history to the bottom. Data changes must never steal the viewport.
     LaunchedEffect(scrollToBottomTick) {
-        if (scrollToBottomTick > 0L) bottomRequests.trySend(Unit)
+        if (scrollToBottomTick > 0L) {
+            // submit() updates the tick before the ViewModel's launched send job appends the user
+            // turn, and the IME/composer also resize the viewport. Wait for those two layout edges
+            // so the one explicit snap targets the new transcript, not the old pre-send bottom.
+            androidx.compose.runtime.withFrameNanos { }
+            androidx.compose.runtime.withFrameNanos { }
+            bottomRequests.trySend(Unit)
+        }
     }
 
     // ---- Diagnostics probes ---------------------------------------------------------------
@@ -346,6 +480,36 @@ fun ChatMessageList(
         }
     }
 
+    val restoreGeneration = semanticViewport.restoreGeneration
+    LaunchedEffect(restoreGeneration, listState) {
+        if (restoreGeneration <= 0) return@LaunchedEffect
+        var foundAnchor = false
+        for (attempt in 0 until 30) {
+            androidx.compose.runtime.withFrameNanos { }
+            val correction = semanticViewport.correctionPx() ?: continue
+            foundAnchor = true
+            if (kotlin.math.abs(correction) <= 1f) break
+            try {
+                // reverseLayout reverses the scroll axis: a block that moved down by +N pixels
+                // needs a -N programmatic delta to return to its previous window coordinate.
+                listState.scrollBy(-correction)
+            } catch (stolen: CancellationException) {
+                currentCoroutineContext().ensureActive()
+                return@LaunchedEffect
+            }
+        }
+        if (foundAnchor) semanticViewport.finishRestore(restoreGeneration)
+    }
+
+    // Initial presentation gate: cached rows may already exist while the authoritative history
+    // request is still in flight. Showing those rows and replacing them a frame later produced the
+    // cache -> REST -> bottom ghost flash. An actively running transcript remains visible because
+    // its live state is newer than REST and acceptHistory will retain it.
+    if (state.historyLoading && !state.isGenerating) {
+        ChatHistorySkeleton(modifier.fillMaxSize())
+        return
+    }
+
     if (displayMessages.isEmpty() && visibleProcesses.isEmpty()) {
         when {
             state.historyLoading -> ChatHistorySkeleton(modifier.fillMaxSize())
@@ -392,6 +556,7 @@ fun ChatMessageList(
         }
     }
 
+    CompositionLocalProvider(LocalChatViewportController provides semanticViewport) {
     Box(modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
@@ -402,6 +567,8 @@ fun ChatMessageList(
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("chat-message-list")
+                .onGloballyPositioned { semanticViewport.updateViewport(it.boundsInWindow()) }
+                .onSizeChanged { semanticViewport.onViewportWidth(it.width) }
                 // A simple tap on conversation whitespace exits the expanded composer. Drag gestures
                 // remain scrolling gestures, and taps consumed by message actions are left alone.
                 .pointerInput(onBlankAreaTap) { detectTapGestures { onBlankAreaTap() } }
@@ -443,7 +610,16 @@ fun ChatMessageList(
                 // turn put 6+ icons on screen per answer and duplicated that menu.
                 val showAssistantActions = msg.id == lastAssistantId && !isGenerating
                 val previousTs = if (index > 0) displayMessages[index - 1].timestamp else null
-                Column(Modifier.padding(top = TURN_SPACING)) {
+                val turnAnchorKey = "${msg.id}:turn"
+                val turnViewport = LocalChatViewportController.current
+                androidx.compose.runtime.DisposableEffect(turnViewport, turnAnchorKey) {
+                    onDispose { turnViewport?.removeBlock(turnAnchorKey) }
+                }
+                Column(
+                    Modifier
+                        .padding(top = TURN_SPACING)
+                        .onGloballyPositioned { turnViewport?.updateBlock(turnAnchorKey, it.boundsInWindow()) },
+                ) {
                     if (showsTimeSeparator(previousTs, msg.timestamp)) {
                         Text(
                             text = formatTimeSeparator(msg.timestamp ?: 0L, language),
@@ -480,16 +656,12 @@ fun ChatMessageList(
         // fling is the same gesture users aim at the conversation, and with the button already
         // materialized under the thumb it used to swallow that tap as a click -> scrollToItem(0)
         // -> the "sudden snap to bottom". While scrolling the node simply does not exist, so the
-        // arresting tap cannot hit it; it fades in ~150ms after the list rests.
-        androidx.compose.animation.AnimatedVisibility(
-            visible = !atBottom && !listState.isScrollInProgress,
-            enter = androidx.compose.animation.fadeIn(tween(150)),
-            exit = androidx.compose.animation.fadeOut(tween(100)),
-            modifier = Modifier.align(Alignment.BottomEnd),
-        ) {
+        // arresting tap cannot hit it. Avoid an exit animation here: AnimatedVisibility keeps its
+        // exiting subtree interactive until the fade completes, recreating the same ghost target.
+        if (!atBottom && !listState.isScrollInProgress) {
             Surface(
                 onClick = { bottomRequests.trySend(Unit) },
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 6.dp,
@@ -505,6 +677,7 @@ fun ChatMessageList(
                 )
             }
         }
+    }
     }
 }
 
@@ -1025,69 +1198,35 @@ private fun AssistantTurn(
                     }
                 } else {
                     val mdComponents = remember(onOpenTableFullscreen) { chatMarkdownComponents(onOpenTableFullscreen) }
-                    val body = MaterialTheme.typography.bodyLarge.copy(
-                        fontSize = 17.sp,
-                        lineHeight = 29.sp,
-                        letterSpacing = 0.sp,
-                    )
-                    Markdown(
-                        content = renderedText,
-                        // Inline code renders as a soft chip on the mint surface tone, matching
-                        // the approved semantic-rendering mockups.
-                        colors = markdownColor(
-                            inlineCodeBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                            codeBackground = MaterialTheme.colorScheme.surfaceVariant,
-                        ),
-                        typography = markdownTypography(
-                            h1 = MaterialTheme.typography.headlineSmall.copy(lineHeight = 34.sp),
-                            h2 = MaterialTheme.typography.titleLarge.copy(fontSize = 21.sp, lineHeight = 31.sp),
-                            h3 = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold),
-                            h4 = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                            h5 = MaterialTheme.typography.titleSmall,
-                            h6 = MaterialTheme.typography.titleSmall,
-                            text = body,
-                            paragraph = body,
-                            ordered = body,
-                            bullet = body,
-                            list = body,
-                            quote = body.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
-                            table = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 22.sp),
-                        ),
-                        components = mdComponents,
-                        // Paragraph rhythm: the library default (block = 2dp) leaves paragraph
-                        // gaps visually identical to line gaps — long answers read as one wall of
-                        // text. Pixel-measured against the Claude app's ~8-10dp paragraph breaks.
-                        // block padding applies to BOTH sides of every block, so 5dp yields
-                        // ~+10dp between paragraphs (measured on device; library default 2dp
-                        // left paragraph gaps visually identical to line gaps).
-                        padding = markdownPadding(
-                            block = 5.dp,
-                            listItemTop = 2.dp,
-                            listItemBottom = 2.dp,
-                        ),
-                        // The library sizes table columns by a FIXED cell width (default is
-                        // generous), so short columns waste space and narrow tables scroll for
-                        // no reason. Tighter cells fit 3 CJK columns on one phone screen.
-                        dimens = markdownDimens(
-                            tableCellWidth = 110.dp,
-                            tableCellPadding = 8.dp,
-                        ),
-                    )
+                    val blocks = remember(renderedText) { markdownRenderBlocks(renderedText) }
+                    Column {
+                        blocks.forEachIndexed { blockIndex, block ->
+                            key(blockIndex) {
+                                AssistantMarkdownBlock(
+                                    content = block,
+                                    components = mdComponents,
+                                    anchorKey = "${msg.id}:markdown:$blockIndex",
+                                    modifier = Modifier.testTag("chat-block-${msg.id}-$blockIndex"),
+                                )
+                            }
+                        }
+                    }
                 }
             }
-            if (msg.isStreaming) {
-                // The status line is PERSISTENT for the whole run. The previous indicator only
-                // showed before the first text/tool arrived, so mid-run turns (waiting on a tool,
-                // planning between output blocks) looked finished while the agent was still busy.
-                if (msg.text.isBlank() && msg.tools.isEmpty() && msg.thinking.isBlank()) {
-                    TypingIndicator()
+            val showCompletedActions = showActions && !msg.isStreaming && msg.text.isNotBlank() && !msg.isError
+            if (msg.isStreaming || showCompletedActions) Box(Modifier.fillMaxWidth().height(48.dp)) {
+                if (msg.isStreaming) {
+                    // Reserve the same footer height during and after a run. Replacing a short
+                    // status row with the 48dp action row used to grow the last item exactly when
+                    // message.complete arrived, producing the final visible jump to the bottom.
+                    if (msg.text.isBlank() && msg.tools.isEmpty() && msg.thinking.isBlank()) {
+                        TypingIndicator()
+                    } else {
+                        RunningStatusLine(msg)
+                    }
                 } else {
-                    RunningStatusLine(msg)
-                }
-            }
-            if (showActions && !msg.isStreaming && msg.text.isNotBlank() && !msg.isError) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    modifier = Modifier.fillMaxWidth().align(Alignment.BottomStart),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(
@@ -1135,6 +1274,7 @@ private fun AssistantTurn(
                         Icon(Icons.Rounded.MoreHoriz, localized(language, "更多操作", "More actions"), Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
+                }
             }
         }
         if (menuOpen) {
@@ -1164,6 +1304,50 @@ private fun AssistantTurn(
             TextSelectionDialog(text = msg.text, onDismiss = { selectingText = false })
         }
     }
+}
+
+@Composable
+private fun AssistantMarkdownBlock(
+    content: String,
+    components: MarkdownComponents,
+    anchorKey: String,
+    modifier: Modifier = Modifier,
+) {
+    val viewport = LocalChatViewportController.current
+    androidx.compose.runtime.DisposableEffect(viewport, anchorKey) {
+        onDispose { viewport?.removeBlock(anchorKey) }
+    }
+    val body = MaterialTheme.typography.bodyLarge.copy(
+        fontSize = 17.sp,
+        lineHeight = 29.sp,
+        letterSpacing = 0.sp,
+    )
+    Markdown(
+        content = content,
+        modifier = modifier.onGloballyPositioned { viewport?.updateBlock(anchorKey, it.boundsInWindow()) },
+        colors = markdownColor(
+            inlineCodeBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+            codeBackground = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+        typography = markdownTypography(
+            h1 = MaterialTheme.typography.headlineSmall.copy(lineHeight = 34.sp),
+            h2 = MaterialTheme.typography.titleLarge.copy(fontSize = 21.sp, lineHeight = 31.sp),
+            h3 = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold),
+            h4 = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+            h5 = MaterialTheme.typography.titleSmall,
+            h6 = MaterialTheme.typography.titleSmall,
+            text = body,
+            paragraph = body,
+            ordered = body,
+            bullet = body,
+            list = body,
+            quote = body.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+            table = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 22.sp),
+        ),
+        components = components,
+        padding = markdownPadding(block = 5.dp, listItemTop = 2.dp, listItemBottom = 2.dp),
+        dimens = markdownDimens(tableCellWidth = 110.dp, tableCellPadding = 8.dp),
+    )
 }
 
 private const val STREAM_RENDER_INTERVAL_MS = 64L
@@ -1478,14 +1662,21 @@ internal fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
     val language = LocalAppLanguage.current
     val activity = LocalContext.current.findActivity()
     var exportAction by remember { mutableStateOf<TableExportAction?>(null) }
+    var ownsOrientation by androidx.compose.runtime.saveable.rememberSaveable(raw) { mutableStateOf(false) }
     val isLandscape =
         LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     // Orientation is reset ONLY on the explicit close paths (button / back-dismiss). The previous
     // composition-teardown hook also fired during the rotation-triggered Activity recreation and
     // yanked a freshly forced landscape straight back to portrait when auto-rotate was off.
     fun close() {
-        activity?.requestedOrientation =
-            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        // Opening/closing an overlay must not renegotiate the Activity configuration. Some
+        // foldables recreate or remeasure the chat even when UNSPECIFIED is assigned twice. Hand
+        // orientation back only when this viewer's rotate button actually took ownership.
+        if (ownsOrientation) {
+            activity?.requestedOrientation =
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            ownsOrientation = false
+        }
         onDismiss()
     }
     Dialog(
@@ -1554,10 +1745,14 @@ internal fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
                     // because the open state survives the recreation (rememberSaveable above).
                     IconButton(
                         onClick = {
-                            activity?.requestedOrientation = if (isLandscape) {
-                                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                            } else {
-                                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                            if (ownsOrientation && isLandscape) {
+                                activity?.requestedOrientation =
+                                    android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                ownsOrientation = false
+                            } else if (!isLandscape) {
+                                ownsOrientation = true
+                                activity?.requestedOrientation =
+                                    android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                             }
                         },
                         modifier = Modifier.size(48.dp),
