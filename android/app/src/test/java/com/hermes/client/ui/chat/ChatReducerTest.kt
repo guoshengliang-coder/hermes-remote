@@ -304,7 +304,7 @@ class ChatReducerTest {
     @Test fun clarify_request_captures_request_id() {
         var s = ChatUiState.empty()
         s = s.reduce(ev("clarify.request") { put("question", "Which repo?"); put("request_id", "req-9") })
-        assertEquals("Which repo?", s.pendingClarify?.question)
+        assertEquals("Which repo?", s.pendingClarify?.currentQuestion?.question)
         assertEquals("req-9", s.pendingClarify?.requestId)
     }
 

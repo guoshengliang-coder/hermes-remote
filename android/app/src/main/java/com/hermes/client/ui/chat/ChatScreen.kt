@@ -178,6 +178,9 @@ fun ChatScreen(
     // saveable) because anything living inside the markdown tree vanishes during the re-parse
     // window on rotation, taking a dialog hosted there down with it.
     var fullscreenTableRaw by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    // Collapsing the sheet (swipe/outside tap) parks the request instead of skipping it:
+    // the reopen strip below brings it back, and the session stays in "needs you" on Home.
+    var clarifyCollapsed by remember(sessionId, state.pendingClarify?.requestId) { mutableStateOf(false) }
     // Monotonic signal: bumped by submit(); the message list scrolls to bottom when it changes.
     var sendToBottomTick by remember(sessionId) { mutableStateOf(0L) }
     val commands by vm.commands.collectAsStateWithLifecycle()
@@ -926,6 +929,31 @@ fun ChatScreen(
             } else {
                 recoveryNotice?.let { ConnectionRecoveryBanner(it) }
             }
+            // Parked clarify: a slim strip that reopens the decision card.
+            if (state.pendingClarify != null && clarifyCollapsed) {
+                Surface(
+                    onClick = { clarifyCollapsed = false },
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            localized(language, "Hermes 在等你的回答", "Hermes is waiting for your answer"),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            localized(language, "继续回答", "Answer"),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
             if (slashMatches.isNotEmpty()) {
                 // Typing "/" turns the message area into a full, scrollable command picker.
                 Text(
@@ -1189,20 +1217,14 @@ fun ChatScreen(
     }
 
     state.pendingClarify?.let { req ->
-        var answer by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { vm.clarify("") },
-            title = { Text(localized(language, "需要补充信息", "Clarification")) },
-            text = {
-                Column {
-                    Text(req.question)
-                    OutlinedTextField(value = answer, onValueChange = { answer = it })
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { vm.clarify(answer) }) { Text(localized(language, "发送", "Send")) }
-            },
-        )
+        if (!clarifyCollapsed) {
+            com.hermes.client.ui.chat.ClarifySheet(
+                request = req,
+                onAnswer = { vm.clarify(it) },
+                onSkip = { vm.skipClarify() },
+                onCollapse = { clarifyCollapsed = true },
+            )
+        }
     }
 
     LaunchedEffect(modelSheetOpen) {

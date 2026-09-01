@@ -750,11 +750,38 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Answer the CURRENT clarify question. Batch requests lock one answer at a time (keyed by
+     * qid) and advance locally; the request clears when the last question is answered. A failed
+     * respond (expired request) also clears the card — the turn has moved on without us.
+     */
     fun clarify(answer: String) {
-        val requestId = _state.value.pendingClarify?.requestId ?: ""
+        val request = _state.value.pendingClarify ?: return
+        val current = request.currentQuestion
+        if (request.isBatch && current != null) {
+            val advanced = request.copy(lockedAnswers = request.lockedAnswers + (current.qid to answer))
+            val finished = advanced.currentQuestion == null
+            mutateState { it.copy(pendingClarify = if (finished) null else advanced) }
+            viewModelScope.launch {
+                runCatching { chat.respondClarify(sessionId, request.requestId, answer, current.qid) }
+                    .onSuccess { if (finished) runtimeKey?.let(runtimeStore::continueAfterInput) }
+                    .onFailure { mutateState { it.copy(pendingClarify = null) } }
+            }
+        } else {
+            mutateState { it.copy(pendingClarify = null) }
+            viewModelScope.launch {
+                runCatching { chat.respondClarify(sessionId, request.requestId, answer) }
+                    .onSuccess { runtimeKey?.let(runtimeStore::continueAfterInput) }
+            }
+        }
+    }
+
+    /** Explicit skip of the WHOLE request (empty answer = upstream Skip semantics). */
+    fun skipClarify() {
+        val request = _state.value.pendingClarify ?: return
         mutateState { it.copy(pendingClarify = null) }
         viewModelScope.launch {
-            runCatching { chat.respondClarify(sessionId, requestId, answer) }
+            runCatching { chat.respondClarify(sessionId, request.requestId, "") }
                 .onSuccess { runtimeKey?.let(runtimeStore::continueAfterInput) }
         }
     }

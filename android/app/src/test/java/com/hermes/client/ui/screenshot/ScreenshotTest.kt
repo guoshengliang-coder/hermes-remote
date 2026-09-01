@@ -78,6 +78,40 @@ class ScreenshotTest {
         }
     }
 
+    @Test fun clarifySingleChoice() = snap("clarify-single") {
+        com.hermes.client.ui.chat.ClarifySheetContent(
+            com.hermes.client.ui.chat.ClarifyRequest(
+                "r",
+                listOf(com.hermes.client.ui.chat.ClarifyQuestion("", "要用哪种发布方式？", listOf("滚动发布 (Recommended)", "蓝绿切换", "全量停机重发"))),
+            ),
+            onAnswer = {}, onSkip = {},
+        )
+    }
+
+    @Test fun clarifyMultiSelect() = snap("clarify-multi") {
+        com.hermes.client.ui.chat.ClarifySheetContent(
+            com.hermes.client.ui.chat.ClarifyRequest(
+                "r2",
+                listOf(com.hermes.client.ui.chat.ClarifyQuestion("", "备份哪些内容？", listOf("数据库全量 (Recommended)", "上传的用户文件"), multiSelect = true)),
+            ),
+            onAnswer = {}, onSkip = {},
+        )
+    }
+
+    @Test fun clarifyBatchProgress() = snap("clarify-batch") {
+        com.hermes.client.ui.chat.ClarifySheetContent(
+            com.hermes.client.ui.chat.ClarifyRequest(
+                "r3",
+                listOf(
+                    com.hermes.client.ui.chat.ClarifyQuestion("q0", "数据库选型？", listOf("PostgreSQL")),
+                    com.hermes.client.ui.chat.ClarifyQuestion("q1", "对象存储用哪个？", listOf("本地 MinIO (Recommended)", "阿里云 OSS")),
+                ),
+                lockedAnswers = mapOf("q0" to "PostgreSQL"),
+            ),
+            onAnswer = {}, onSkip = {},
+        )
+    }
+
     @Test fun smoke() {
         compose.setContent {
             androidx.compose.material3.Text("Hermes screenshot harness OK")
