@@ -81,6 +81,10 @@ backward compatible.
 ## Presentation rules
 
 - Inline banners and dialogs show the localized summary, short explanation, and code.
+- Tight inline surfaces (a message bubble's status line, a badge) may show the **compact form**:
+  the code without its `HR-` prefix (`SESS-007`), rendered in the neutral text colour after the
+  localized action copy. The compact form is display-only; the full code stays the identity in
+  toasts, pages, diagnostics, notifications and this registry (`AppErrorCode.compact`).
 - Recoverable connection transitions use neutral progress states such as “正在重新连接…” rather
   than an error until retry policy is exhausted.
 - A recovered connection briefly shows success and then dismisses itself.

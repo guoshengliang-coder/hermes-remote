@@ -1176,7 +1176,8 @@ internal fun UserBubble(
     // leaves user bubbles oddly narrow on tablets/landscape. ~82% tracks the Claude app.
     val bubbleMaxWidth = (LocalConfiguration.current.screenWidthDp * 0.82f).dp
     val sendingLabel = localized(language, "发送中", "Sending")
-    val failedLabel = localized(language, "未发送 · 点按重试（HR-SESS-007）", "Not sent · Tap to retry (HR-SESS-007)")
+    val failedLabel = localized(language, "未发送 · 点按重试", "Not sent · Tap to retry")
+    val failedCode = com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED.compact
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
       Column(horizontalAlignment = Alignment.End) {
         Box {
@@ -1190,7 +1191,7 @@ internal fun UserBubble(
                     .padding(horizontal = 16.dp, vertical = 11.dp)
                     .semantics {
                         if (revealSending) stateDescription = sendingLabel
-                        if (failed) stateDescription = failedLabel
+                        if (failed) stateDescription = "$failedLabel $failedCode"
                     }
                     .combinedClickable(
                         onClick = { if (failed) onRetrySend(msg.id) },
@@ -1245,14 +1246,18 @@ internal fun UserBubble(
             }
         }
         if (failed) {
-            Text(
-                failedLabel,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.error,
+            // Action copy in error colour, then the compact code (docs/ERROR_HANDLING.md
+            // presentation rules) in the neutral colour so it reads as a footnote, not a shout.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .padding(top = 4.dp, end = 4.dp)
                     .clickable(role = androidx.compose.ui.semantics.Role.Button) { onRetrySend(msg.id) },
-            )
+            ) {
+                Text(failedLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.width(6.dp))
+                Text(failedCode, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
       }
     }

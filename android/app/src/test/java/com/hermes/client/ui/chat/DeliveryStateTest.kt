@@ -45,4 +45,13 @@ class DeliveryStateTest {
         assertTrue(error.retryable)
         assertTrue(error.sanitizedDiagnostic().contains("token=<redacted>"))
     }
+
+    @Test fun compact_code_drops_only_the_prefix_and_stays_unique() {
+        assertEquals("SESS-007", AppErrorCode.MESSAGE_SEND_FAILED.compact)
+        assertEquals("RPC-001", AppErrorCode.RPC_FAILED.compact)
+        // Compact forms remain distinct across the whole registry.
+        val compacts = AppErrorCode.entries.map { it.compact }
+        assertEquals(compacts.size, compacts.toSet().size)
+        assertTrue(compacts.none { it.startsWith("HR-") })
+    }
 }
