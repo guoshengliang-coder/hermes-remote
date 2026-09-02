@@ -191,6 +191,17 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.82 redesigns the startup gate around the wordmark: a 144dp icon over a bold
+  `HERMES GO` lockup anchored at 22.5% of the screen, with the status line and a 144dp progress bar
+  grouped beneath it and the version line at the bottom. Status is withheld for 700 ms and never
+  shown when the gate is ready before then, six phase strings collapse to three, the dot animation
+  goes, the icon lands in from the system splash and the gate fades out while the first screen
+  rises in. The gate now follows the app theme with a dark `#0D141B` background and a `values-night`
+  twin of the window colour; failure hides the bar, prints the HR code on its own line, and uses
+  centred 240dp actions; short/landscape screens get a compact row layout. Design contract in
+  `docs/DESIGN.md` §5.11 with the mockup under `docs/design/`. Verified with JVM tests and
+  Roborazzi goldens only; the device run reached Setup because the test phone had no stored Relay
+  configuration, so the on-device splash handoff still needs verification.
 - Version 0.1.81 adds per-profile identity personalisation, kept on the phone until account sync
   exists. Each Hermes profile can carry a display name (the profile name moves to the subline on
   the card page and the picker), a photo (system Photo Picker, centre-cropped to a 512px WebP under
@@ -445,7 +456,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.81-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.82-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
