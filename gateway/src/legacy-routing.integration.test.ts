@@ -299,6 +299,74 @@ test("legacy control routing preserves command ownership and disconnect errors",
   }
 });
 
+test("legacy control preserves authentication, status, and Connector replacement", networkTestOptions, async () => {
+  const gateway = await startGateway();
+  const sockets: WebSocket[] = [];
+  try {
+    const unauthorized = await openSocket(`${gateway.wsOrigin}/v1/connect`);
+    sockets.push(unauthorized);
+    const unauthorizedClose = nextClose(unauthorized);
+    unauthorized.send(encodeWireMessage({
+      type: "hello",
+      version: PROTOCOL_VERSION,
+      role: "connector",
+      deviceId: gateway.deviceId,
+      token: "incorrect-connector-token",
+    }));
+    assert.deepEqual(await unauthorizedClose, { code: 4401, reason: "unauthorized" });
+
+    const firstConnector = await openLegacyPeer(gateway, "connector");
+    sockets.push(firstConnector);
+
+    const app = await openSocket(`${gateway.wsOrigin}/v1/connect`);
+    sockets.push(app);
+    const initialMessages = nextWireMessages(app, 2);
+    app.send(encodeWireMessage({
+      type: "hello",
+      version: PROTOCOL_VERSION,
+      role: "app",
+      deviceId: gateway.deviceId,
+      token: gateway.appToken,
+    }));
+    const [acknowledgement, initialStatus] = await initialMessages;
+    assert.equal(acknowledgement.type, "hello_ack");
+    assert.deepEqual(initialStatus, {
+      type: "device_status",
+      version: PROTOCOL_VERSION,
+      deviceId: gateway.deviceId,
+      online: true,
+    });
+
+    const replacementStatus = nextMessage(app, "device_status");
+    const replacedClose = nextClose(firstConnector);
+    const replacement = await openLegacyPeer(gateway, "connector");
+    sockets.push(replacement);
+    assert.deepEqual(await replacedClose, {
+      code: 4409,
+      reason: "replaced by a new connection",
+    });
+    assert.equal((await replacementStatus).online, true);
+
+    const requestMessage = nextMessage(replacement, "tunnel.http.request");
+    const responsePromise = fetch(`${gateway.origin}/api/status`, {
+      headers: { "x-hermes-session-token": gateway.appToken },
+    });
+    const request = await requestMessage;
+    replacement.send(encodeWireMessage({
+      type: "tunnel.http.response",
+      version: PROTOCOL_VERSION,
+      requestId: request.id,
+      status: 200,
+      headers: { "content-type": "application/json" },
+      bodyBase64: Buffer.from('{"ok":true}').toString("base64"),
+    }));
+    assert.equal((await responsePromise).status, 200);
+  } finally {
+    sockets.forEach((socket) => socket.close());
+    await stopGateway(gateway);
+  }
+});
+
 interface GatewayProcess {
   child: ChildProcessWithoutNullStreams;
   origin: string;
@@ -388,6 +456,28 @@ function nextMessage<T extends WireMessage["type"]>(
       clearTimeout(timer);
       socket.off("message", listener);
       resolveMessage(message as Extract<WireMessage, { type: T }>);
+    };
+    socket.on("message", listener);
+  });
+}
+
+function nextWireMessages(socket: WebSocket, count: number): Promise<WireMessage[]> {
+  return new Promise((resolveMessages, reject) => {
+    const messages: WireMessage[] = [];
+    const timer = setTimeout(() => reject(new Error("timed out waiting for messages")), 2_000);
+    const listener = (raw: WebSocket.RawData): void => {
+      try {
+        messages.push(parseWireMessage(raw.toString()));
+      } catch (error) {
+        clearTimeout(timer);
+        socket.off("message", listener);
+        reject(error);
+        return;
+      }
+      if (messages.length !== count) return;
+      clearTimeout(timer);
+      socket.off("message", listener);
+      resolveMessages(messages);
     };
     socket.on("message", listener);
   });
