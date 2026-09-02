@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Hermes Go · 开屏改良稿</title>
+<style>
+  :root {
+    --page: #EEF1F5;
+    --ink: #252B33;
+    --muted: #74777F;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 48px 56px;
+    background: var(--page); color: var(--ink);
+    font-family: -apple-system, "SF Pro Text", "PingFang SC", "Helvetica Neue", Roboto, sans-serif;
+  }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 6px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 32px; }
+  .row { display: flex; gap: 36px; align-items: flex-start; flex-wrap: wrap; }
+  .frame-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .caption { font-size: 13px; color: var(--muted); text-align: center; line-height: 1.5; }
+  .caption b { color: var(--ink); font-weight: 600; display: block; font-size: 14px; margin-bottom: 2px; }
+
+  /* Phone frame: 360 × 780 dp at 1:1 */
+  .phone {
+    width: 360px; height: 780px; border-radius: 36px; position: relative; overflow: hidden;
+    box-shadow: 0 0 0 8px #1B1F24, 0 0 0 9px #3A3F46, 0 24px 60px rgba(0,0,0,.25);
+    font-family: Roboto, -apple-system, "PingFang SC", sans-serif;
+  }
+  .phone.light { background: #F8FAFD; color: #252B33; }
+  .phone.dark  { background: #0D141B; color: #E2E6EE; }
+  .statusbar {
+    position: absolute; top: 0; left: 0; right: 0; height: 32px;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0 24px; font-size: 12px; font-weight: 500; opacity: .85;
+  }
+  .navbar { position: absolute; bottom: 8px; left: 50%; width: 120px; height: 4px; margin-left: -60px; border-radius: 2px; background: currentColor; opacity: .35; }
+
+  .icon { display: block; image-rendering: auto; }
+
+  /* ---- current ---- */
+  .cur .lockup { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(calc(-50% - 48px)); display: flex; flex-direction: column; align-items: center; }
+  .cur .glow { width: 300px; height: 300px; border-radius: 150px; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(circle, rgba(31,132,253,.08) 0%, rgba(31,132,253,0) 70%); }
+  .cur .glow .icon { width: 250px; height: 250px; }
+  .cur .name { font-size: 28px; font-weight: 600; letter-spacing: 4px; }
+  .cur .slogan { margin-top: 10px; font-size: 14px; color: #74777F; }
+  .cur .footer { position: absolute; left: 40px; right: 40px; bottom: 36px; display: flex; flex-direction: column; align-items: center; }
+  .cur .status { font-size: 14px; color: #74777F; }
+  .cur .bar { margin-top: 18px; width: 100%; height: 4px; border-radius: 2px; background: #E7ECF6; overflow: hidden; }
+  .cur .bar i { display: block; height: 100%; width: 47%; background: linear-gradient(90deg,#1F84FD,#3DA340,#FEC302); }
+
+  /* ---- proposed ---- */
+  .new .lockup { position: absolute; left: 0; right: 0; top: 176px; display: flex; flex-direction: column; align-items: center; }
+  .new .icon { width: 144px; height: 144px; }
+  .new .name { margin-top: 12px; font-size: 32px; font-weight: 700; letter-spacing: .16em; }
+  .new .slogan { margin-top: 8px; font-size: 14px; letter-spacing: .01em; }
+  .light.new .slogan { color: #74777F; }
+  .dark.new  .slogan { color: #9AA0A8; }
+  .new .status-group { margin-top: 44px; display: flex; flex-direction: column; align-items: center; min-height: 40px; }
+  .new .status { font-size: 13px; }
+  .light.new .status { color: #74777F; }
+  .dark.new  .status { color: #9AA0A8; }
+  .new .bar { margin-top: 12px; width: 144px; height: 3px; border-radius: 2px; overflow: hidden; position: relative; }
+  .light.new .bar { background: #E7ECF6; }
+  .dark.new  .bar { background: #2B323A; }
+  .new .bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 144px; background: linear-gradient(90deg,#1F84FD 0%,#3DA340 55%,#FEC302 100%); clip-path: inset(0 53% 0 0); }
+  .new .version { position: absolute; left: 0; right: 0; bottom: 32px; text-align: center; font-size: 11px; letter-spacing: .04em; }
+  .light.new .version { color: #A2A6AD; }
+  .dark.new  .version { color: #6B7178; }
+
+  /* failure */
+  .new .fail { margin-top: 36px; display: flex; flex-direction: column; align-items: center; width: 280px; margin-left: auto; margin-right: auto; }
+  .new .fail .msg { font-size: 14px; line-height: 20px; text-align: center; }
+  .light.new .fail .msg { color: #BA1A1A; }
+  .dark.new  .fail .msg { color: #FFB4AB; }
+  .new .fail .code { margin-top: 6px; font-family: "SF Mono", Menlo, monospace; font-size: 11px; letter-spacing: .04em; }
+  .light.new .fail .code { color: #A2A6AD; }
+  .dark.new  .fail .code { color: #6B7178; }
+  .new .fail .btn { margin-top: 24px; width: 240px; height: 44px; border-radius: 22px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 500; }
+  .light.new .fail .btn { background: #0B5FD0; color: #fff; }
+  .dark.new  .fail .btn { background: #A9C7FF; color: #002F65; }
+  .new .fail .txt { margin-top: 6px; height: 40px; display: flex; align-items: center; font-size: 14px; font-weight: 500; }
+  .light.new .fail .txt { color: #0B5FD0; }
+  .dark.new  .fail .txt { color: #A9C7FF; }
+
+  /* annotations */
+  .spec { margin-top: 44px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; max-width: 1240px; }
+  .spec h3 { font-size: 14px; margin: 0 0 8px; font-weight: 600; }
+  .spec ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; color: #3A3F46; }
+  .spec code { font-family: "SF Mono", Menlo, monospace; font-size: 12px; background: #fff; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>Hermes Go · 开屏改良稿</h1>
+<p class="sub">360 × 780 dp，1:1。左一为现状，其余为改良方案。图标直接引用 <code>mipmap-xxxhdpi/ic_launcher_foreground.png</code>（含自适应图标留白）。</p>
+
+<div class="row">
+
+  <!-- CURRENT -->
+  <div class="frame-wrap">
+    <div class="phone light cur">
+      <div class="statusbar"><span>9:41</span><span>▲ ▮ ▮</span></div>
+      <div class="lockup">
+        <div class="glow"><img class="icon" src="../../android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png" alt=""></div>
+        <div class="name">HERMES GO</div>
+        <div class="slogan">Your AI agent, in your pocket.</div>
+      </div>
+      <div class="footer">
+        <div class="status">正在验证连接凭据..</div>
+        <div class="bar"><i></i></div>
+      </div>
+      <div class="navbar"></div>
+    </div>
+    <div class="caption"><b>现状（0.1.81）</b>图标 250dp 占主导；状态与进度钉在底边，<br>与品牌组相隔 300dp 以上。</div>
+  </div>
+
+  <!-- PROPOSED LIGHT -->
+  <div class="frame-wrap">
+    <div class="phone light new">
+      <div class="statusbar"><span>9:41</span><span>▲ ▮ ▮</span></div>
+      <div class="lockup">
+        <img class="icon" src="../../android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png" alt="">
+        <div class="name">HERMES GO</div>
+        <div class="slogan">Your AI agent, in your pocket.</div>
+        <div class="status-group">
+          <div class="status">正在连接</div>
+          <div class="bar"><i></i></div>
+        </div>
+      </div>
+      <div class="version">0.1.81 · DEBUG</div>
+      <div class="navbar"></div>
+    </div>
+    <div class="caption"><b>改良 · 浅色</b>图标 144dp，字标升为主角；状态与进度归入品牌组，<br>底部只留版本号。</div>
+  </div>
+
+  <!-- PROPOSED DARK -->
+  <div class="frame-wrap">
+    <div class="phone dark new">
+      <div class="statusbar"><span>9:41</span><span>▲ ▮ ▮</span></div>
+      <div class="lockup">
+        <img class="icon" src="../../android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png" alt="">
+        <div class="name">HERMES GO</div>
+        <div class="slogan">Your AI agent, in your pocket.</div>
+        <div class="status-group">
+          <div class="status">正在准备会话</div>
+          <div class="bar"><i style="clip-path: inset(0 12% 0 0)"></i></div>
+        </div>
+      </div>
+      <div class="version">0.1.81 · DEBUG</div>
+      <div class="navbar"></div>
+    </div>
+    <div class="caption"><b>改良 · 深色</b>底 <code>#0D141B</code>（ContainerLowest dark），<br>多彩图标不变，文字用中性色，不动品牌蓝。</div>
+  </div>
+
+  <!-- PROPOSED FAILURE -->
+  <div class="frame-wrap">
+    <div class="phone light new">
+      <div class="statusbar"><span>9:41</span><span>▲ ▮ ▮</span></div>
+      <div class="lockup">
+        <img class="icon" src="../../android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png" alt="">
+        <div class="name">HERMES GO</div>
+        <div class="slogan">Your AI agent, in your pocket.</div>
+        <div class="fail">
+          <div class="msg">Mac 端当前离线，<br>请确认 Hermes Go Desktop 正在运行。</div>
+          <div class="code">HR-CONN-005</div>
+          <div class="btn">重新连接</div>
+          <div class="txt">检查连接设置</div>
+        </div>
+      </div>
+      <div class="version">0.1.81 · DEBUG</div>
+      <div class="navbar"></div>
+    </div>
+    <div class="caption"><b>改良 · 失败态</b>进度条隐藏，错误码独立一行等宽小字；<br>按钮 240dp 居中，不再通栏。</div>
+  </div>
+
+</div>
+
+<div class="spec">
+  <div>
+    <h3>版式</h3>
+    <ul>
+      <li>品牌组视觉中心在屏高 <code>42%</code>（图标顶边约 22.5% 屏高），随屏幕高度按比例，不再用固定 -48dp；失败态图标位置不变。</li>
+      <li>图标 <code>144dp</code>（可见 H 约 96dp）；字标 <code>32sp / 700 / 字距 0.16em</code>；标语 <code>14sp</code>。</li>
+      <li>图标→字标 12dp，字标→标语 8dp，标语→状态 44dp，状态→进度条 12dp。</li>
+      <li>进度条 <code>144dp × 3dp</code>，与图标同宽；渐变锚定整条宽度，用 clip 露出进度。</li>
+      <li>底部版本号 <code>11sp</code>，距底 32dp（导航栏内边距之外）。</li>
+    </ul>
+  </div>
+  <div>
+    <h3>动效</h3>
+    <ul>
+      <li>入场：图标从系统 splash 落点缩放到 144dp（<code>320ms</code>，标准减速），字标与标语延迟 80ms 向上淡入 12dp。</li>
+      <li>状态文案延迟 <code>700ms</code> 才出现；快启动只看到一次淡入。文案合并为「正在连接」「正在准备会话」两段。</li>
+      <li>去掉省略号跳动，进度条流光是唯一持续动效。</li>
+      <li>就绪：整屏淡出 + 缩放到 <code>0.98</code>（240ms），首页从下方 16dp 浮入。</li>
+    </ul>
+  </div>
+  <div>
+    <h3>色彩与状态</h3>
+    <ul>
+      <li>浅色：底 <code>#F8FAFD</code>，字标 <code>#252B33</code>，次要 <code>#74777F</code>，轨道 <code>#E7ECF6</code>。</li>
+      <li>深色：底 <code>#0D141B</code>，字标 <code>#E2E6EE</code>，次要 <code>#9AA0A8</code>，轨道 <code>#2B323A</code>。</li>
+      <li>深浅由生效主题决定（DESIGN.md §2.2），系统 splash 另加 <code>values-night</code>。</li>
+      <li>失败态：进度条隐藏，错误色走 <code>colorScheme.error</code>，错误码走等宽 11sp 次要色。</li>
+      <li>横屏 / 平板：图标 96dp 与字标横排，状态在其下方，整体仍在 42% 视觉中心。</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

@@ -412,9 +412,18 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   version of Connection Settings with the stored values prefilled and the token masked; saving
   re-runs the complete startup gate before returning to the previous route. There is no offline
   bypass because the app has no supported offline mode.
-- The progress bar advances through real startup phases with bounded waiting motion and a moving
-  highlight. Operational copy crossfades between phases and its fixed-width one/two/three-dot
-  suffix animates without adding repeated accessibility announcements.
+- The gate is a brand lockup first (icon 144dp, `HERMES GO` wordmark, slogan) anchored at 22.5%
+  of the screen height, with the status line and a 144dp progress bar grouped under it and the
+  version line (`0.1.81 · DEBUG`) at the bottom. Status and progress are withheld for 700 ms and
+  never appear if the gate reaches READY before then, so a fast launch is a single quiet fade.
+  Copy is merged into "Connecting" / "Preparing conversations" / "Connection ready" (recovery:
+  "Restoring connection" / "Restoring the current screen"); the phase granularity still drives the
+  bar, whose gradient is anchored to the full track width. The moving highlight is the only
+  continuous motion. Failure hides the bar, prints the `HR-*` code on its own line, and offers a
+  240dp Reconnect button plus a Check-connection-settings text button. The gate follows the
+  effective app theme (light `#F8FAFD` / dark `#0D141B`, with a `values-night` twin of
+  `startup_background`), lands the icon in from the system splash on cold start, and fades out
+  while the first screen rises in. Design contract: `docs/DESIGN.md` §5.11.
 - The startup brand lockup keeps `HERMES GO` and the official slogan
   `Your AI agent, in your pocket.` in English; operational status and recovery actions still follow
   the in-app language setting.

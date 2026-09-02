@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark twin of values/colors.xml: the system splash and window background behind
+         StartupScreen. Must equal the dark StartupPalette background (surfaceContainerLowest dark)
+         so the splash-to-gate handoff shows no colour step. -->
+    <color name="startup_background">#0D141B</color>
+</resources>
