@@ -365,6 +365,36 @@
 - 错误：选图解码失败 `HR-MEDIA-002`，保存失败 `HR-STORE-001`（Toast，含错误码）。
 - 已知限制：服务端改 profile 名会使本机自定义失联，需重新设置（账号同步前接受）。
 
+### 5.11 开屏 / 启动门（`ui/startup/StartupScreen.kt`，决策 2026-09-02，设计稿 `docs/design/startup-redesign.html`）
+- **层级**：字标是主角，图标是陪衬。图标 144dp（自适应前景层，可见 H 约 96dp）→ 12dp →
+  字标 `HERMES GO` 32sp/Bold/字距 0.16em（`colorScheme.onSurface`）→ 8dp → 英文标语 14sp 次要色。
+  取消旧版 250dp 图标与 8% 透明度光晕（近白底上不可见，等于白画）。
+- **位置**：品牌组不再固定 -48dp 居中，图标顶边锚在屏高 **22.5%**（视觉中心约 42%），
+  随屏幕高度按比例；**加载态与失败态图标、字标位置完全一致**，失败时不跳位。
+- **状态归入品牌组**：标语下 44dp 放状态文字（13sp 次要色）+ 12dp + 进度条；进度条
+  **144dp × 3dp** 与图标同宽，蓝→绿→黄渐变**锚定整条宽度**、用 clip 露出进度（旧版随填充
+  拉伸，右端永远是黄）。屏幕底部只留版本行 `0.1.81 · DEBUG`（labelSmall，导航栏内边距外 32dp），
+  测试渠道靠它对版本。
+- **快启动不解释**：状态文字与进度条延迟 `STATUS_REVEAL_DELAY_MS = 700ms` 才淡入；若在此之前
+  已到 READY，则**整段始终不出现**——快的启动只看到一次淡入，不看到流水账。文案从六段合并为：
+  连接前四阶段共用「正在连接」（恢复场景「正在恢复连接」）、「正在准备会话」（恢复「正在恢复当前页面」）、
+  「连接就绪」。阶段粒度仍驱动进度条。删除省略号跳动，进度条流光是唯一持续动效，READY 后停止。
+- **入场 / 退场**：冷启动图标从系统 splash 落点（屏幕中心、1.5×）缩放平移到位（320ms，Standard），
+  字标与标语延迟向上淡入 12dp；就绪后整屏 `fadeOut + scaleOut(0.98)`（`Motion.DurationMedium`），
+  首页同时 `fadeIn + 上浮 16dp`（`MainActivity`）。热恢复遮罩无 splash 可承接，改为 150ms 淡入。
+- **深浅**：由生效主题判定（§2.2）。底色是全 App 唯一必须与 window 资源一致的颜色
+  （`@color/startup_background` 浅 `#F8FAFD` / `values-night` 深 `#0D141B` = surfaceContainerLowest dark），
+  故浅深两组字面量成对写在 `StartupPalette`；次要色 `#74777F / #9AA0A8`，轨道 `#E7ECF6 / #2B323A`。
+  多彩图标两种模式不变，字标走 `onSurface`，错误色走 `colorScheme.error`。已知限制：系统 splash
+  只跟随 OS 夜间模式，「系统浅色而应用选深色」时 splash→门有一次颜色切换。
+- **失败态**：进度条**隐藏**（半截彩条与红色错误文案打架）；错误摘要 bodyMedium 错误色、最宽 280dp；
+  错误码 `HR-*` 从括号里拿出来**单独一行**等宽 labelSmall 次要色；「重新连接」实心钮 240dp × 44dp
+  居中，「检查连接设置」文字钮同宽，不再通栏。
+- **紧凑（横屏 / 高度 < 560dp）**：图标 96dp 与字标（24sp）横排、左对齐，品牌组顶边 10% 屏高，
+  状态与失败态仍在其下方居中。
+- 验证：`StartupScreenTest`（延迟揭示、READY 早到不揭示、文案合并、失败态结构、版本行）、
+  `StartupCopyTest`，截图 `startup-loading / startup-loading-dark / startup-failed`。
+
 ## 6. 文案
 
 - 产品名统一 **Hermes GO**（字标、磁贴、关于页、崩溃报告、诊断/对话分享主题、表格导出

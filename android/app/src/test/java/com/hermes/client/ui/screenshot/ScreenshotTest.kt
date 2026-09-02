@@ -38,8 +38,12 @@ class ScreenshotTest {
         fontScale: Float? = null,
         // Virtual time to advance before capture (delayed reveals such as the "sending" bubble).
         advanceMs: Long = 0L,
+        // Drive the clock by hand: needed when the content runs an infinite transition, which
+        // never lets an auto-advancing clock go idle.
+        manualClock: Boolean = false,
         content: @androidx.compose.runtime.Composable () -> Unit,
     ) {
+        if (manualClock) compose.mainClock.autoAdvance = false
         compose.setContent {
             com.hermes.client.ui.theme.HermesTheme(darkTheme = darkTheme) {
                 val density = androidx.compose.ui.platform.LocalDensity.current
@@ -395,6 +399,37 @@ class ScreenshotTest {
             }
         }
     }
+
+    // Startup gate (DESIGN.md §5.11). 1.5 s of virtual time settles the entrance, the delayed
+    // status reveal, and the phase crossfade; the failure frame has no progress bar at all.
+    private fun startup(name: String, dark: Boolean, state: com.hermes.client.ui.startup.StartupUiState) =
+        snap(name, darkTheme = dark, advanceMs = 1_500L, manualClock = true) {
+            com.hermes.client.ui.startup.StartupScreen(state = state, onRetry = {}, onOpenConnectionSettings = {})
+        }
+
+    @Test fun startupLoading() = startup(
+        "startup-loading", dark = false,
+        state = com.hermes.client.ui.startup.StartupUiState.Loading(
+            com.hermes.client.ui.startup.StartupReason.COLD_START,
+            com.hermes.client.ui.startup.StartupPhase.NETWORK,
+        ),
+    )
+
+    @Test fun startupLoadingAppDarkWhileSystemLight() = startup(
+        "startup-loading-dark", dark = true,
+        state = com.hermes.client.ui.startup.StartupUiState.Loading(
+            com.hermes.client.ui.startup.StartupReason.COLD_START,
+            com.hermes.client.ui.startup.StartupPhase.INITIAL_DATA,
+        ),
+    )
+
+    @Test fun startupFailed() = startup(
+        "startup-failed", dark = false,
+        state = com.hermes.client.ui.startup.StartupUiState.Failed(
+            com.hermes.client.ui.startup.StartupReason.COLD_START,
+            com.hermes.client.ui.startup.StartupFailure.CONNECTOR_OFFLINE,
+        ),
+    )
 
     @Test fun userBubbleDeliveryStates() = snapDelivery("user-bubble-delivery", darkTheme = false)
     @Test fun userBubbleDeliveryStatesDark() = snapDelivery("user-bubble-delivery-dark", darkTheme = true)
