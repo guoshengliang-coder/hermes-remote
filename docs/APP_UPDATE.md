@@ -142,3 +142,39 @@ index: correct the input and rerun the idempotent publisher. Keep the previous d
 for operator rollback. To restore, validate `index.json.prev`, copy it to a same-directory temporary,
 fsync it, rename it to `index.json`, then fsync the directory; never edit it by hand. Android
 intentionally will not overwrite-install an older version.
+
+## Channel rollback (roll-forward runbook)
+
+Android will not overwrite-install an older version, so a bad release is rolled back for the whole
+channel by **re-publishing the old code under a new, higher version** — every device then "updates"
+into the previous behavior through the normal channel. This is the primary rollback path; the
+in-app APK export exists only for single-device emergencies (see the update page's rollback dialog).
+
+Executed by the integration agent, from a clean isolated worktree:
+
+1. Identify the last good release commit (`git log --oneline -- android` and the release notes in
+   `android/README.md`). Do NOT reset or rewrite `main`.
+2. Create a roll-forward branch from current `main`, then restore the Android sources of the good
+   release into it: `git checkout <good-commit> -- android/app/src` (widen the pathspec if the
+   regression spans Gradle files; leave version metadata and `android/releases/` alone).
+3. Bump `appVersionName`/`appVersionCode` past the broken release as usual, write a release
+   description in `android/releases/<version>.json` that names the restored version and the broken
+   one, and add the matching `android/README.md` note.
+4. Run the full package gate, merge to `main` after review, and publish with
+   `./scripts/publish-android-apk.sh` from an isolated worktree — the standard flow; nothing about
+   publication changes.
+5. Verify `latestVersionCode` on the public index, then confirm on a device that the in-app
+   updater installs the roll-forward build.
+
+Keep the broken release registered in the index (clients already validated it; retention is a
+separate maintenance decision) — the roll-forward simply supersedes it.
+
+## On-device retention and rollback material
+
+The client keeps the APKs of the newest five releases in its private download directory as
+rollback material and deletes older ones during each index check. The update page's version
+record offers "Export APK" for old releases whose file survived retention: the file is re-hashed
+against the manifest, then copied to the device's public Downloads collection (Android 10+;
+older devices get a share sheet). The documented single-device rollback is: export → uninstall
+(clears local connection settings; conversations live on the server) → install from the file
+manager → reconfigure the Relay URL and App Token.

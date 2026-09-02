@@ -50,9 +50,14 @@ data class UpdateVersion(
 class UpdateManifestParser(private val json: Json, private val expectedCertificate: String) {
     fun parse(text: String): UpdateIndex = try {
         require(text.toByteArray(Charsets.UTF_8).size <= MAX_UPDATE_INDEX_BYTES)
-        val index = json.decodeFromString<UpdateIndex>(text)
-        require(index.schemaVersion == 1 && index.channel == UPDATE_CHANNEL)
-        require(index.versions.size <= MAX_UPDATE_VERSIONS)
+        val decoded = json.decodeFromString<UpdateIndex>(text)
+        require(decoded.schemaVersion == 1 && decoded.channel == UPDATE_CHANNEL)
+        // An over-full catalog degrades to the newest entries instead of rejecting the whole
+        // index: the entries are ordered newest-first (enforced below), so a client must never
+        // lose the ability to update just because release retention fell behind.
+        val index = if (decoded.versions.size > MAX_UPDATE_VERSIONS) {
+            decoded.copy(versions = decoded.versions.take(MAX_UPDATE_VERSIONS))
+        } else decoded
         Instant.parse(index.generatedAt)
         var previous = Int.MAX_VALUE
         val codes = mutableSetOf<Int>()
@@ -84,6 +89,20 @@ class UpdateManifestParser(private val json: Json, private val expectedCertifica
         require(uri.rawQuery == null && uri.rawFragment == null && uri.rawPath == "/releases/${version.fileName}")
     }
 }
+
+/** How many release APKs stay on disk as rollback material (owner decision 2026-09-02). */
+const val KEPT_APK_VERSIONS = 5
+
+/**
+ * Which locally stored release APKs to delete. Pure: [existingFileNames] is the download
+ * directory listing, [keepFileNames] the newest [KEPT_APK_VERSIONS] releases plus the file an
+ * active download task owns. Only files matching the release naming scheme are ever touched —
+ * DownloadManager temp files and anything foreign stay untouched.
+ */
+fun selectApksToPrune(existingFileNames: List<String>, keepFileNames: Set<String>): List<String> =
+    existingFileNames.filter { name ->
+        name.startsWith("Hermes-Remote-") && name.endsWith("-debug.apk") && name !in keepFileNames
+    }
 
 enum class VersionEligibility { CURRENT, UPDATE, OLD, INCOMPATIBLE }
 data class UpdateRow(val version: UpdateVersion, val eligibility: VersionEligibility)

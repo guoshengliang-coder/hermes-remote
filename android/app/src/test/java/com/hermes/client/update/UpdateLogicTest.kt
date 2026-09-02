@@ -65,14 +65,18 @@ class UpdateLogicTest {
     }
 
     // Server contract (docs/APP_UPDATE.md): 1 MiB index, 100 versions, 20 notes of 500 chars.
-    // The client mirrors every cap so a compromised or buggy index cannot exhaust the device.
+    // The byte cap stays fail-closed (exhaustion guard); the VERSION cap degrades to the newest
+    // entries instead (owner decision 2026-09-02) — retention falling behind on the server must
+    // never brick every client's update check.
     @Test fun `parser enforces the server index size and version caps`() {
         val padded = " ".repeat(MAX_UPDATE_INDEX_BYTES.toInt()) + manifest()
         assertThrows(IllegalArgumentException::class.java) { parser.parse(padded) }
         assertEquals(19, parser.parse(" ".repeat(64) + manifest()).latestVersionCode)
 
         val many = (1..MAX_UPDATE_VERSIONS + 1).map { versionEntry(MAX_UPDATE_VERSIONS + 2 - it) }
-        assertThrows(IllegalArgumentException::class.java) { parser.parse(indexOf(many)) }
+        val degraded = parser.parse(indexOf(many))
+        assertEquals(MAX_UPDATE_VERSIONS, degraded.versions.size)
+        assertEquals(degraded.latestVersionCode, degraded.versions.first().versionCode)
         assertEquals(MAX_UPDATE_VERSIONS, parser.parse(indexOf(many.drop(1))).versions.size)
     }
 
@@ -104,5 +108,20 @@ class UpdateLogicTest {
         val failure=runCatching { persistEnqueuedDownload(42,{false}){removed=it} }.exceptionOrNull()
         assertTrue(failure is IllegalStateException)
         assertEquals(42L,removed)
+    }
+
+    @Test fun `apk retention prunes only release files outside the keep set`() {
+        val existing = listOf(
+            "Hermes-Remote-0.1.70-debug.apk",
+            "Hermes-Remote-0.1.71-debug.apk",
+            "Hermes-Remote-0.1.75-debug.apk",
+            "download-1234.tmp",          // DownloadManager scratch — never ours to delete
+            "unrelated.txt",
+        )
+        val keep = setOf("Hermes-Remote-0.1.75-debug.apk")
+        assertEquals(
+            listOf("Hermes-Remote-0.1.70-debug.apk", "Hermes-Remote-0.1.71-debug.apk"),
+            selectApksToPrune(existing, keep),
+        )
     }
 }

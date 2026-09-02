@@ -1,8 +1,10 @@
 package com.hermes.client.ui.nav
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -30,6 +32,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -226,10 +230,14 @@ fun CardPage(
                     onClick = { onNavigate("models") },
                 )
                 HorizontalDivider(color = hairline)
+                val updateAvailable by vm.updateAvailable.collectAsState()
+                LaunchedEffect(Unit) { vm.refreshUpdateBadge() }
                 ShortcutRow(
                     icon = DownloadBoxIcon,
                     label = localized(language, "检查更新", "App updates"),
-                    value = "v${com.hermes.client.BuildConfig.VERSION_NAME}",
+                    value = updateAvailable?.let { localized(language, "新版本 $it", "New $it") }
+                        ?: "v${com.hermes.client.BuildConfig.VERSION_NAME}",
+                    alertDot = updateAvailable != null,
                     onClick = { onNavigate("app_update") },
                 )
             }
@@ -309,6 +317,8 @@ private fun ShortcutRow(
     onClick: () -> Unit,
     value: String? = null,
     badge: Int? = null,
+    // A small status dot after the label: "something new here", stronger than the neutral badge.
+    alertDot: Boolean = false,
 ) {
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 18.dp),
@@ -320,8 +330,18 @@ private fun ShortcutRow(
             style = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).padding(start = 16.dp),
+            modifier = Modifier.padding(start = 16.dp),
         )
+        if (alertDot) {
+            Box(
+                Modifier
+                    .padding(start = 6.dp)
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.error),
+            )
+        }
+        Spacer(Modifier.weight(1f))
         // Neutral badge — same palette as the rest of the sheet, no alert colour.
         badge?.let {
             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
