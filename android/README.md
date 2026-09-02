@@ -191,6 +191,21 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.80 reworks the notification shade into one card per session. WebSocket and Relay
+  inbox events fold into the session runtime store first and a single projector turns each
+  session's phase into its one card (running → needs approval / needs your answer → done or
+  failed), so nothing stacks and an inbox replay of an already delivered completion is a no-op.
+  Every card names the task (session title), carries identity · state in the header, tints the
+  small-icon circle with the profile's avatar colour, shows the real event time (a live timer
+  while running, todo progress and Android 16 Live Update promotion), puts error codes and
+  durations on the last body line, and ships a redacted lock-screen version. Approval cards keep
+  Allow once / This session / Deny (elevated: Deny / Open); clarify cards with up to two choices
+  offer the choices as buttons plus Reply; done cards quote the reply and duration; failures get
+  their own channel and settings toggle. The chat being viewed gets no card, cards elsewhere in
+  the foreground app are silent, answering anywhere clears the card, swiped cards stay gone until
+  the state changes, and shade actions show Working… / HR-NOTIF-001 feedback. Channels are
+  renamed (attention, completed, failures, run_progress, service, updates), so per-channel
+  settings from earlier versions are reset once. New codes: HR-SYNC-002, HR-NOTIF-001.
 - Version 0.1.79 makes every session say which project it belongs to and fixes where new chats
   land. List, archived and search rows share one subline (folder glyph + project · model; the
   default project shows the model alone), and the multi-profile "身份：xxx" text is gone. The
@@ -411,7 +426,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.79-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.80-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
