@@ -53,7 +53,13 @@ class CardPageViewModel @Inject constructor(
     private val rest: HermesRestApi,
     healthMonitor: com.hermes.client.data.network.GatewayHealthMonitor,
     runtimeStore: SessionRuntimeStore,
+    private val updateBadge: com.hermes.client.update.UpdateBadge,
 ) : ViewModel() {
+    /** Newer release's version name for the update entry row (throttled index precheck). */
+    val updateAvailable: StateFlow<String?> = updateBadge.available
+
+    fun refreshUpdateBadge() = viewModelScope.launch { updateBadge.refreshIfStale() }
+
     val profiles: StateFlow<List<ProfileDto>> = profileManager.list
     val active: StateFlow<String?> = profileManager.active
 

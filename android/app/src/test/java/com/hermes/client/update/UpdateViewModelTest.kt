@@ -326,11 +326,20 @@ class UpdateViewModelTest {
         var queryError: Throwable? = null,
         var verified: File = File("verified.apk"),
         var installResult: InstallResult = InstallResult.InstallerOpened,
+        var onDisk: Set<Int> = emptySet(),
+        var exportResult: ExportResult = ExportResult.SavedToDownloads,
     ) : UpdateRepositoryContract {
         val enqueued = mutableListOf<UpdateVersion>()
         var cancelled = 0
         var installs = 0
+        val pruneKeeps = mutableListOf<Set<String>>()
+        val exports = mutableListOf<UpdateVersion>()
         private var nextId = 1L
+
+        override suspend fun localApkVersions(candidates: List<UpdateVersion>) =
+            candidates.map { it.versionCode }.filter { it in onDisk }.toSet()
+        override suspend fun pruneDownloads(keepFileNames: Set<String>) { pruneKeeps += keepFileNames }
+        override suspend fun exportApk(version: UpdateVersion): ExportResult { exports += version; return exportResult }
 
         override suspend fun fetch() = fetchError?.let { throw it } ?: requireNotNull(index)
         override suspend fun enqueue(version: UpdateVersion): Long {
@@ -348,5 +357,51 @@ class UpdateViewModelTest {
             cancelled++
         }
         override fun install(file: File): InstallResult { installs++; return installResult }
+    }
+
+    // ---- this batch: retention, rollback material, auto-install hand-off ---------------------
+
+    @Test fun `check prunes to the newest five releases plus the active task file`() = runTest {
+        val many = UpdateIndex(1, "internal", 907, "2026-01-01T00:00:00Z", (907 downTo 900).map { version(it, "9.0.$it") })
+        val repo = FakeRepository(index = many, onDisk = setOf(905, 901))
+        val vm = UpdateViewModel(repo) { 1L }
+        vm.check(); advanceUntilIdle()
+        assertEquals(
+            (907 downTo 903).map { "Hermes-Remote-9.0.$it-debug.apk" }.toSet(),
+            repo.pruneKeeps.single(),
+        )
+        assertEquals(setOf(905, 901), vm.state.value.apkOnDisk)
+    }
+
+    @Test fun `foreground completion auto-launches the installer exactly once`() = runTest {
+        val repo = FakeRepository(index = index, snapshots = mutableListOf(done))
+        val vm = UpdateViewModel(repo, { 1L }, 26)
+        vm.setPageVisible(true)
+        vm.onOpen(); advanceUntilIdle()
+        vm.download(version); advanceUntilIdle()
+        assertEquals(DownloadPhase.INSTALLABLE, vm.state.value.task?.phase)
+        assertEquals(true, vm.state.value.task?.autoInstallAttempted)
+        assertEquals(1, repo.installs)
+    }
+
+    @Test fun `background completion notifies instead of launching the installer`() = runTest {
+        val notified = mutableListOf<UpdateVersion>()
+        val repo = FakeRepository(index = index, snapshots = mutableListOf(done))
+        val vm = UpdateViewModel(repo, { 1L }, 26, notified::add)
+        vm.onOpen(); advanceUntilIdle()
+        vm.download(version); advanceUntilIdle()
+        assertEquals(DownloadPhase.INSTALLABLE, vm.state.value.task?.phase)
+        assertEquals(0, repo.installs)
+        assertEquals(listOf(version), notified)
+    }
+
+    @Test fun `export surfaces per-version feedback and can be dismissed`() = runTest {
+        val repo = FakeRepository(index = index, exportResult = ExportResult.SavedToDownloads)
+        val vm = UpdateViewModel(repo) { 1L }
+        vm.export(older); advanceUntilIdle()
+        assertEquals(older.versionCode to ExportResult.SavedToDownloads, vm.state.value.exportNotice)
+        assertEquals(listOf(older), repo.exports)
+        vm.dismissExportNotice()
+        assertNull(vm.state.value.exportNotice)
     }
 }
