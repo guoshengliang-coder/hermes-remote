@@ -420,6 +420,8 @@ class ChatViewModel @Inject constructor(
             cachedMeta != null -> displaySessionTitle(cachedMeta.title, fallbackTitle)
             else -> fallbackTitle
         }
+        // Notifications name the task by this title; keep the runtime store in step.
+        runtimeStore.setTitle(key, initialTitle?.takeIf { it.isNotBlank() } ?: cachedMeta?.title)
         _currentModel.value = cachedMeta?.model?.ifBlank { null }
         _currentProvider.value = cachedMeta?.provider?.ifBlank { null }
         _workspace.value = null
@@ -457,6 +459,7 @@ class ChatViewModel @Inject constructor(
             }.getOrNull()
             if (storedSessionId == id && meta != null) {
                 _sessionTitle.value = displaySessionTitle(meta.title, fallbackTitle)
+                runtimeStore.setTitle(key, meta.title)
                 _currentModel.value = meta.model?.ifBlank { null }
                 _currentProvider.value = meta.provider?.ifBlank { null }
                 applyWorkspace(meta.cwd, meta.gitBranch, meta.gitRepoRoot)

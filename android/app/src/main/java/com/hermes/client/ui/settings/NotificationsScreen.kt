@@ -59,6 +59,7 @@ class NotificationsViewModel @Inject constructor(
     fun setEnabled(v: Boolean) = viewModelScope.launch { settings.setEnabled(v) }
     fun setApprovals(v: Boolean) = viewModelScope.launch { settings.setApprovals(v) }
     fun setRunFinished(v: Boolean) = viewModelScope.launch { settings.setRunFinished(v) }
+    fun setRunFailed(v: Boolean) = viewModelScope.launch { settings.setRunFailed(v) }
     fun setRunProgress(v: Boolean) = viewModelScope.launch { settings.setRunProgress(v) }
     fun setStrategy(v: NotificationMonitoringStrategy) = viewModelScope.launch { strategyStore.set(v) }
 }
@@ -143,14 +144,26 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
                 enabled = prefs.enabled,
             ) { vm.setStrategy(NotificationMonitoringStrategy.POWER_SAVING) }
             HorizontalDivider()
-            ToggleRow(localized(language, "审批请求", "Approval requests"), localized(language, "智能体需要你批准操作时提醒", "When the agent needs you to approve an action"), prefs.approvals, enabled = prefs.enabled) { vm.setApprovals(it) }
+            ToggleRow(
+                localized(language, "审批与回答", "Approvals and questions"),
+                localized(language, "智能体需要你审批操作或回答问题时提醒", "When the agent needs you to approve an action or answer a question"),
+                prefs.approvals,
+                enabled = prefs.enabled,
+            ) { vm.setApprovals(it) }
             HorizontalDivider()
             ToggleRow(
-                localized(language, "运行完成", "Run finished"),
-                localized(language, "应用在后台时，智能体运行完成后提醒", "Notify when an agent run completes (while the app is in the background)"),
+                localized(language, "任务完成", "Task finished"),
+                localized(language, "智能体运行完成后提醒（正在查看该会话时除外）", "Notify when an agent run completes (unless you are viewing that chat)"),
                 prefs.runFinished,
                 enabled = prefs.enabled,
             ) { vm.setRunFinished(it) }
+            HorizontalDivider()
+            ToggleRow(
+                localized(language, "运行失败", "Run failed"),
+                localized(language, "运行失败或停止后未确认完成时提醒", "Notify when a run fails or stops without a confirmed completion"),
+                prefs.runFailed,
+                enabled = prefs.enabled,
+            ) { vm.setRunFailed(it) }
             HorizontalDivider()
             ToggleRow(
                 localized(language, "实时运行进度", "Live run progress"),

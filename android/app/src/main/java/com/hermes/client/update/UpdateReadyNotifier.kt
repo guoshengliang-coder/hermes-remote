@@ -22,23 +22,20 @@ class UpdateReadyNotifier @Inject constructor(
         val language = languages.current
         notifier.post(
             NotificationSpec(
-                id = NOTIF_ID,
-                channelId = Notif.CHANNEL_ACTIVITY,
-                title = localized(language, "新版本已就绪", "Update ready to install"),
+                // Stable id: a re-post for a newer version replaces the stale card instead of stacking.
+                id = Notif.UPDATE_NOTIFICATION_ID,
+                channelId = Notif.CHANNEL_UPDATES,
+                title = localized(language, "Hermes GO ${version.versionName} 已就绪", "Hermes GO ${version.versionName} is ready"),
                 body = localized(
                     language,
-                    "${version.versionName} 已下载并校验通过，点击安装。",
-                    "${version.versionName} is downloaded and verified. Tap to install.",
+                    "已下载并校验通过，点击安装。",
+                    "Downloaded and verified. Tap to install.",
                 ),
                 route = "app_update",
-                actions = emptyList(),
-                groupKey = "update",
+                whenMs = System.currentTimeMillis(),
+                category = androidx.core.app.NotificationCompat.CATEGORY_RECOMMENDATION,
+                publicTitle = localized(language, "Hermes GO ${version.versionName} 已就绪", "Hermes GO ${version.versionName} is ready"),
             ),
         )
-    }
-
-    private companion object {
-        // Stable id: a re-post for a newer version replaces the stale card instead of stacking.
-        const val NOTIF_ID = 990_101
     }
 }
