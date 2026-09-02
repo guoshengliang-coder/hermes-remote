@@ -1,24 +1,16 @@
 package com.hermes.client.ui.profiles
 
 import android.widget.Toast
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -26,19 +18,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -49,14 +35,15 @@ import com.hermes.client.data.network.ProfileDto
 import com.hermes.client.data.progress.SessionRunPhase
 import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.progress.isActive
-import com.hermes.client.data.repository.AvatarColorStore
 import com.hermes.client.data.repository.ProfileManager
+import com.hermes.client.data.repository.displayNameFor
+import com.hermes.client.data.repository.hasCustomName
 import com.hermes.client.ui.components.HermesTopBar
+import com.hermes.client.ui.components.LocalProfileIdentities
+import com.hermes.client.ui.components.PencilStrokeIcon
 import com.hermes.client.ui.components.ProfileAvatar
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
-import com.hermes.client.ui.theme.AVATAR_SWATCHES
-import com.hermes.client.ui.theme.LocalAvatarColors
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -66,13 +53,12 @@ import javax.inject.Inject
 
 /**
  * The profile picker — a dedicated screen (opened from the card page's identity card). Rows
- * switch the app-wide profile; the trailing palette button customises that profile's avatar
- * colour (device-local, avatar-only — chrome stays on the brand palette).
+ * switch the app-wide profile; the trailing pencil opens that profile's identity settings
+ * (display name, photo, avatar colour and style — device-local).
  */
 @HiltViewModel
 class ProfilePickerViewModel @Inject constructor(
     private val profileManager: ProfileManager,
-    private val avatarColors: AvatarColorStore,
     runtimeStore: SessionRuntimeStore,
 ) : ViewModel() {
     val profiles: StateFlow<List<ProfileDto>> = profileManager.list
@@ -121,15 +107,13 @@ class ProfilePickerViewModel @Inject constructor(
             onDone(ok)
         }
     }
-
-    fun setAvatarColor(profile: String, argb: Int) = viewModelScope.launch { avatarColors.setColor(profile, argb) }
-    fun clearAvatarColor(profile: String) = viewModelScope.launch { avatarColors.clear(profile) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfilePickerScreen(
     onBack: () -> Unit,
+    onEdit: (String) -> Unit,
     vm: ProfilePickerViewModel = hiltViewModel(),
 ) {
     val language = LocalAppLanguage.current
@@ -139,7 +123,7 @@ fun ProfilePickerScreen(
     val activity by vm.activity.collectAsStateWithLifecycle()
     val switching by vm.switching.collectAsStateWithLifecycle()
     val switchFailed by vm.switchFailed.collectAsStateWithLifecycle()
-    var colorTarget by remember { mutableStateOf<String?>(null) }
+    val identities = LocalProfileIdentities.current
 
     LaunchedEffect(switchFailed) {
         switchFailed?.let {
@@ -163,16 +147,21 @@ fun ProfilePickerScreen(
         LazyColumn(Modifier.padding(padding).fillMaxSize()) {
             items(profiles, key = { it.name }) { p ->
                 val isActive = p.name == active
+                val identity = identities[p.name]
                 val a = activity[p.name]
-                val sub = when {
+                val status = when {
                     isActive -> localized(language, "当前身份", "Active profile")
                     a != null && a.waiting > 0 -> localized(language, "${a.waiting} 待处理", "${a.waiting} waiting")
                     a != null && a.running > 0 -> localized(language, "${a.running} 个进行中", "${a.running} running")
                     else -> null
                 }
+                // Subline: the profile name only when a custom display name has taken the
+                // headline, then the status — joined with a middle dot.
+                val sub = listOfNotNull(p.name.takeIf { identity.hasCustomName() }, status)
+                    .takeIf { it.isNotEmpty() }?.joinToString(" · ")
                 ListItem(
-                    leadingContent = { ProfileAvatar(p.name, size = 44.dp) },
-                    headlineContent = { Text(p.name) },
+                    leadingContent = { ProfileAvatar(p.name, size = 44.dp, identity = identity) },
+                    headlineContent = { Text(displayNameFor(p.name, identity)) },
                     supportingContent = sub?.let { { Text(it) } },
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -184,11 +173,12 @@ fun ProfilePickerScreen(
                                     tint = MaterialTheme.colorScheme.primary,
                                 )
                             }
-                            IconButton(onClick = { colorTarget = p.name }) {
+                            IconButton(onClick = { onEdit(p.name) }) {
                                 Icon(
-                                    Icons.Rounded.Palette,
-                                    contentDescription = localized(language, "头像颜色", "Avatar colour"),
+                                    PencilStrokeIcon,
+                                    contentDescription = localized(language, "身份设置", "Profile settings"),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(22.dp),
                                 )
                             }
                         }
@@ -199,42 +189,6 @@ fun ProfilePickerScreen(
                     },
                 )
                 HorizontalDivider()
-            }
-        }
-    }
-
-    colorTarget?.let { target ->
-        val selected = LocalAvatarColors.current[target]
-        ModalBottomSheet(onDismissRequest = { colorTarget = null }, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
-            Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 28.dp)) {
-                Text(
-                    localized(language, "头像颜色 · $target", "Avatar colour · $target"),
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(bottom = 16.dp),
-                )
-                AVATAR_SWATCHES.chunked(6).forEach { rowColors ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(bottom = 14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        rowColors.forEach { argb ->
-                            Box(
-                                Modifier.size(44.dp).clip(CircleShape).background(Color(argb))
-                                    .clickable { vm.setAvatarColor(target, argb); colorTarget = null },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (argb == selected) {
-                                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Color.White)
-                                }
-                            }
-                        }
-                    }
-                }
-                ListItem(
-                    leadingContent = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
-                    headlineContent = { Text(localized(language, "自动（按名称生成）", "Automatic (from the name)")) },
-                    modifier = Modifier.clickable { vm.clearAvatarColor(target); colorTarget = null },
-                )
             }
         }
     }

@@ -50,6 +50,10 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "已发布更新版本，请删除旧下载后获取最新版。", "A newer release is available. Delete the old download and get the latest version.")
         AppErrorCode.FILE_READ_FAILED ->
             localized(language, "无法读取所选文件，请重新选择。", "Couldn't read the selected file. Choose it again.")
+        AppErrorCode.AVATAR_PHOTO_FAILED ->
+            localized(language, "无法读取所选照片，请换一张再试。", "Couldn't read the selected photo. Try a different one.")
+        AppErrorCode.PROFILE_IDENTITY_SAVE_FAILED ->
+            localized(language, "无法保存身份设置，请重试。", "Couldn't save the profile settings. Retry.")
         AppErrorCode.SESSION_NOT_FOUND ->
             localized(language, "会话不存在或已被删除。", "The conversation no longer exists or was deleted.")
         AppErrorCode.PROJECT_FOLDER_MISSING ->

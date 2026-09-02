@@ -244,3 +244,33 @@ All pending device verification.
    wait: the list must auto-scroll so the 需要你处理 header and row are visible. Repeat while
    scrolled deep into the list: no yank — a ↑ pill appears; tapping it jumps to top; scrolling
    to top yourself dissolves it.
+
+## Profile identity smoke test (2026-09 branch claude/identity)
+
+Device-only checks for per-profile display name, avatar photo, colour, and style
+(`docs/DESIGN.md` §2.4 and §5.10). The JVM suite covers the store, migration, resolver, contrast
+invariants, and the edit view model; the items below still need a phone or emulator with a working
+Relay connection.
+
+1. Card page → identity card → 身份: every row shows a pencil button; tapping the row still
+   switches profile, tapping the pencil opens 身份设置 for that profile without switching.
+2. In 身份设置, type a display name and save. The card page shows the name as the big line and
+   the profile name underneath; the picker row shows the name with `profile · 当前身份`. Clear the
+   name with × (the field shows the profile name as placeholder), save, and confirm both surfaces
+   read exactly as before the change. Chat and session-list surfaces never show the display name.
+3. Choose a photo through the system picker (no storage permission prompt may appear). The 96dp
+   preview updates immediately; 保存 becomes enabled; after saving, the 36/44/48dp avatars on the
+   session list, card page, and picker all show the cropped square photo. Pick a portrait and a
+   landscape photo and confirm both are centre-cropped, and an EXIF-rotated camera photo appears
+   upright on Android 9+.
+4. Pick a photo, then press back: the 放弃更改？ dialog appears; 放弃 returns without changes and
+   the temporary file is gone (`run-as com.hermes.remote ls files/avatars`).
+5. With a lettered avatar, switch 实心 / 空心 and drag the hue slider: the preview follows live;
+   the swatch check moves to the first (default) circle only when no custom colour is set. In the
+   dark theme the outline ring and initial stay clearly visible (lifted colour), and the solid
+   fill looks identical to light.
+6. Start a run on a profile with a custom colour and confirm the notification accent uses it.
+7. Upgrade from a build that stored avatar colours in the old `avatar_colors` DataStore: the
+   previously chosen colours appear as the selected swatch on first open of 身份设置.
+8. Break the photo pipeline (pick a non-image or corrupt file if the picker allows it) and confirm
+   the toast reads 无法读取所选照片，请换一张再试。 (HR-MEDIA-002) and the previous avatar stays.

@@ -46,8 +46,64 @@ fun avatarColorArgb(profile: String?): Int {
     return hslToArgb(hue, AVATAR_SATURATION, AVATAR_LIGHTNESS)
 }
 
-/** User overrides (profile → ARGB) from AvatarColorStore, provided at the app root. */
-val LocalAvatarColors = staticCompositionLocalOf<Map<String, Int>> { emptyMap() }
+/**
+ * Lightness the OUTLINE avatar style lifts its hue to on a dark surface. The solid fill's 0.32
+ * is invisible against `#121921`; 0.70 keeps every hue (s = 0.62) at ≥ 5.3:1 there, so the ring
+ * and the coloured initial clear AA for normal text — pinned by ProfileAccentTest.
+ */
+private const val OUTLINE_DARK_LIGHTNESS = 0.70f
+
+/**
+ * Ring + initial colour for the outline style. Light surfaces use the identity colour as-is
+ * (l = 0.32 clears ≥ 3.9:1 on white); dark surfaces keep the hue and saturation but lift the
+ * lightness. The solid style never goes through here — its fill is the same in both themes.
+ */
+fun avatarOutlineColorArgb(argb: Int, dark: Boolean): Int {
+    if (!dark) return argb
+    val (h, s, _) = argbToHsl(argb)
+    return hslToArgb(h, s, OUTLINE_DARK_LIGHTNESS)
+}
+
+/**
+ * Snapshot of per-profile personalisation for readers outside Compose (the notification
+ * renderer). The DI layer keeps it current from ProfileIdentityStore; nothing here blocks on I/O.
+ */
+object ProfileIdentitySnapshot {
+    @Volatile var identities: Map<String, com.hermes.client.data.repository.ProfileIdentity> = emptyMap()
+}
+
+/**
+ * Tenant identity colour for a notification: the profile's avatar colour — the user's pick when
+ * there is one, else the hashed hue — so a card from a non-active profile still reads as "whose".
+ */
+fun avatarAccentArgb(profile: String): Int =
+    ProfileIdentitySnapshot.identities[profile]?.colorArgb ?: avatarColorArgb(profile)
+
+/** The avatar colour for a slider-picked hue: saturation and lightness stay locked. */
+fun avatarColorForHue(hue: Float): Int = hslToArgb(hue, AVATAR_SATURATION, AVATAR_LIGHTNESS)
+
+/** Hue in [0,360) of an avatar colour — positions the hue slider's thumb. */
+fun avatarHueOf(argb: Int): Float = argbToHsl(argb)[0]
+
+internal fun argbToHsl(argb: Int): FloatArray {
+    val r = ((argb shr 16) and 0xFF) / 255f
+    val g = ((argb shr 8) and 0xFF) / 255f
+    val b = (argb and 0xFF) / 255f
+    val max = maxOf(r, g, b)
+    val min = minOf(r, g, b)
+    val l = (max + min) / 2f
+    if (max == min) return floatArrayOf(0f, 0f, l)
+    val d = max - min
+    val s = if (l > 0.5f) d / (2f - max - min) else d / (max + min)
+    var h = when (max) {
+        r -> (g - b) / d + (if (g < b) 6f else 0f)
+        g -> (b - r) / d + 2f
+        else -> (r - g) / d + 4f
+    }
+    h *= 60f
+    if (h >= 360f) h -= 360f
+    return floatArrayOf(h, s, l)
+}
 
 /**
  * Curated avatar swatches: ten hues plus a neutral and near-black, all at the avatar

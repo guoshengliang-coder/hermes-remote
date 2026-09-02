@@ -121,3 +121,33 @@ val ThinChevronIcon: ImageVector by lazy {
         moveTo(9.5f, 5.5f); lineTo(16f, 12f); lineTo(9.5f, 18.5f)
     }
 }
+
+/** Pencil — the "edit this identity" row action on the profile picker. */
+val PencilStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokePencil") {
+        moveTo(4f, 20f); lineTo(8.2f, 20f); lineTo(19f, 9.2f)
+        arcTo(1.6f, 1.6f, 0f, false, false, 19f, 6.9f)
+        lineTo(17.1f, 5f)
+        arcTo(1.6f, 1.6f, 0f, false, false, 14.8f, 5f)
+        lineTo(4f, 15.8f); close()
+        moveTo(13.5f, 6.3f); lineTo(17.7f, 10.5f)
+    }
+}
+
+/** Camera — the "change photo" badge on the identity settings avatar. */
+val CameraStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeCamera") {
+        moveTo(4f, 8.5f)
+        arcTo(1.5f, 1.5f, 0f, false, true, 5.5f, 7f)
+        lineTo(8f, 7f); lineTo(9.4f, 5f); lineTo(14.6f, 5f); lineTo(16f, 7f); lineTo(18.5f, 7f)
+        arcTo(1.5f, 1.5f, 0f, false, true, 20f, 8.5f)
+        lineTo(20f, 17.5f)
+        arcTo(1.5f, 1.5f, 0f, false, true, 18.5f, 19f)
+        lineTo(5.5f, 19f)
+        arcTo(1.5f, 1.5f, 0f, false, true, 4f, 17.5f)
+        close()
+        moveTo(15.2f, 13f)
+        arcTo(3.2f, 3.2f, 0f, true, true, 8.8f, 13f)
+        arcTo(3.2f, 3.2f, 0f, true, true, 15.2f, 13f)
+    }
+}

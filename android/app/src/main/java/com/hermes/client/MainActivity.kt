@@ -46,7 +46,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var credentialStore: CredentialStore
     @Inject lateinit var settingsStore: SettingsStore
     @Inject lateinit var profileManager: ProfileManager
-    @Inject lateinit var avatarColorStore: com.hermes.client.data.repository.AvatarColorStore
+    @Inject lateinit var profileIdentityStore: com.hermes.client.data.repository.ProfileIdentityStore
     @Inject lateinit var chat: com.hermes.client.data.repository.ChatRepository
     @Inject lateinit var pendingShare: com.hermes.client.share.PendingShareStore
     @Inject lateinit var languages: AppLanguageProvider
@@ -102,12 +102,13 @@ class MainActivity : ComponentActivity() {
                     controller.isAppearanceLightNavigationBars = !dark
                 }
             }
-            val avatarColors by avatarColorStore.overrides.collectAsState(initial = emptyMap())
+            val identities by profileIdentityStore.identities.collectAsState(initial = emptyMap())
             val startupState by startupViewModel.state.collectAsState()
             val repairCompletion by startupViewModel.repairCompletion.collectAsState()
             CompositionLocalProvider(
                 LocalAppLanguage provides language,
-                com.hermes.client.ui.theme.LocalAvatarColors provides avatarColors,
+                com.hermes.client.ui.components.LocalProfileIdentities provides identities,
+                com.hermes.client.ui.components.LocalAvatarDir provides profileIdentityStore.avatarDir,
             ) {
                 HermesTheme(darkTheme = dark) {
                     CompositionLocalProvider(LocalToolCallTechnical provides technical) {

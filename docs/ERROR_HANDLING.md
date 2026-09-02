@@ -127,6 +127,7 @@ expanded without changing the underlying meaning.
 | `HR-CONFIG-001` | Configuration could not be loaded | 无法加载配置，请重试。 | Couldn't load the configuration. Retry. | Yes |
 | `HR-CONFIG-002` | Configuration could not be saved | 无法保存配置，请重试。 | Couldn't save the configuration. Retry. | Yes |
 | `HR-CONFIG-003` | Relay URL is invalid | Relay 地址格式无效，请检查后重试。 | The Relay URL is invalid. Check it and retry. | Yes |
+| `HR-STORE-001` | Per-profile identity settings (display name, avatar photo, colour, style) could not be written to DataStore | 无法保存身份设置，请重试。 | Couldn't save the profile settings. Retry. | Yes |
 | `HR-UPDATE-001` | Unmapped update check, download, verification, or installer failure | 更新操作失败，请重试。 | The update operation failed. Retry. | Yes |
 | `HR-UPDATE-002` | Update index could not be fetched or parsed | 无法检查更新，请检查网络后重试。 | Couldn't check for updates. Check your network and retry. | Yes |
 | `HR-UPDATE-003` | DownloadManager job could not be enqueued or persisted | 无法开始下载更新，请重试。 | Couldn't start the update download. Retry. | Yes |
@@ -138,6 +139,7 @@ expanded without changing the underlying meaning.
 | `HR-UPDATE-009` | A restored/downloaded APK is no longer the manifest's latest release | 已发布更新版本，请删除旧下载后获取最新版。 | A newer release is available. Delete the old download and get the latest version. | No (delete old download, then download latest) |
 | `HR-FILE-001` | A selected attachment could not be read | 无法读取所选文件，请重新选择。 | Couldn't read the selected file. Choose it again. | Yes |
 | `HR-MEDIA-001` | Image save, preparation, or share operation failed | 图片操作失败，请重试。 | The image operation failed. Retry. | Yes |
+| `HR-MEDIA-002` | A picked avatar photo could not be decoded, cropped, or encoded (ImageDecoder/BitmapFactory failure, unreadable URI, empty image) | 无法读取所选照片，请换一张再试。 | Couldn't read the selected photo. Try a different one. | Yes |
 | `HR-PERM-003` | Android blocks installation from this source | 需要允许安装未知应用，授权后请重试。 | Permission to install unknown apps is required. Grant it and retry. | Yes |
 | `HR-SESS-001` | Session no longer exists | 会话不存在或已被删除。 | The conversation no longer exists or was deleted. | No |
 | `HR-SESS-002` | Live session handle is stale | 会话连接已失效，正在重新挂接。 | The live conversation handle expired. Reattaching now. | Yes |
