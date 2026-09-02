@@ -57,6 +57,8 @@ The completed local I2 binding, V2 Connector, account-aware routing, and multi-p
 `docs/ACCOUNT_MODE_I2_TEST_RECORD.md`.
 The local I3-A Desktop account-client slice and its remaining live OAuth/binding gates are recorded in
 `docs/ACCOUNT_MODE_I3_TEST_RECORD.md`.
+The behavior-preserving Cloud Gateway modularization and its staged release gates are tracked in
+`docs/CLOUD_GATEWAY_REFACTOR_PLAN.md`.
 
 For the Android base, configure the public Gateway URL and the Gateway `APP_TOKEN` in token mode. The public token terminates in Hong Kong; the separate local Hermes credential exists only on the Mac Connector.
 

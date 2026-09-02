@@ -2,7 +2,6 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { resolve } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
@@ -13,42 +12,47 @@ import {
   type WireMessage,
 } from "@hermes-remote/protocol";
 import { LifecycleEventStore } from "./lifecycle-event-store.js";
+import { CommandBroker } from "./command-broker.js";
+import { loadGatewayConfig } from "./config.js";
+import {
+  accountRoutingKey,
+  InMemoryConnectorRegistry,
+  legacyRoutingKey,
+} from "./connector-registry.js";
+import {
+  firstHeader,
+  sendHttpError,
+  sendJson,
+} from "./http-utils.js";
+import { GatewayHttpRouter } from "./gateway-http-router.js";
+import { HttpTunnelBroker } from "./http-tunnel-broker.js";
+import { WebSocketTunnelBroker } from "./websocket-tunnel-broker.js";
+import { rejectUpgrade } from "./websocket-utils.js";
 import { createAccountRuntime } from "./account/account-runtime.js";
 import { AccountModeError, accountErrors } from "./account/model.js";
 import type { BindingProofMaterial } from "./account/account-control-model.js";
 
-const port = positiveIntEnv("PORT", 8787, 65_535);
-const host = process.env.HOST ?? "0.0.0.0";
-const defaultDeviceId = process.env.DEFAULT_DEVICE_ID ?? "mac-mini";
-const appToken = requireSecret("APP_TOKEN");
-const connectorToken = requireSecret("CONNECTOR_TOKEN");
-const tlsCertFile = process.env.TLS_CERT_FILE;
-const tlsKeyFile = process.env.TLS_KEY_FILE;
-const maxBodyBytes = positiveIntEnv("MAX_BODY_BYTES", 10 * 1024 * 1024);
-const requestTimeoutMs = positiveIntEnv("REQUEST_TIMEOUT_MS", 60_000);
-const maxPendingRequests = positiveIntEnv("MAX_PENDING_REQUESTS", 128);
-const maxWebSocketTunnels = positiveIntEnv("MAX_WS_TUNNELS", 32);
-const maxControlConnections = positiveIntEnv("MAX_CONTROL_CONNECTIONS", 32);
-const maxUnauthenticatedAccountConnectors = positiveIntEnv(
-  "ACCOUNT_MAX_UNAUTHENTICATED_CONNECTORS",
-  16,
-  1024,
-);
-const maxUnauthenticatedAccountConnectorsPerIp = positiveIntEnv(
-  "ACCOUNT_MAX_UNAUTHENTICATED_CONNECTORS_PER_IP",
-  4,
-  128,
-);
-const maxWirePayloadBytes = positiveIntEnv("MAX_WIRE_PAYLOAD_BYTES", 20 * 1024 * 1024);
-const maxAppPayloadBytes = positiveIntEnv("MAX_APP_WS_PAYLOAD_BYTES", 12 * 1024 * 1024);
-const maxSocketBufferedBytes = positiveIntEnv("MAX_SOCKET_BUFFERED_BYTES", 24 * 1024 * 1024);
-const lifecycleEventStoreFile = resolve(
-  process.env.LIFECYCLE_EVENT_STORE_FILE
-    ?? (process.env.NODE_ENV === "production"
-      ? "/var/lib/hermes-remote/lifecycle-events.json"
-      : ".data/lifecycle-events.json"),
-);
-const maxLifecycleEvents = positiveIntEnv("MAX_LIFECYCLE_EVENTS", 10_000, 1_000_000);
+const {
+  port,
+  host,
+  defaultDeviceId,
+  appToken,
+  connectorToken,
+  tlsCertFile,
+  tlsKeyFile,
+  maxBodyBytes,
+  requestTimeoutMs,
+  maxPendingRequests,
+  maxWebSocketTunnels,
+  maxControlConnections,
+  maxUnauthenticatedAccountConnectors,
+  maxUnauthenticatedAccountConnectorsPerIp,
+  maxWirePayloadBytes,
+  maxAppPayloadBytes,
+  maxSocketBufferedBytes,
+  lifecycleEventStoreFile,
+  maxLifecycleEvents,
+} = loadGatewayConfig(process.env);
 const lifecycleEvents = new LifecycleEventStore(lifecycleEventStoreFile, maxLifecycleEvents);
 const accountRuntime = createAccountRuntime(process.env);
 
@@ -62,45 +66,48 @@ type Peer = {
   binding?: BindingProofMaterial;
 };
 
-type PendingHttp = {
-  response: ServerResponse;
-  routingKey: string;
-  timer: NodeJS.Timeout;
-  started: boolean;
-  nextSequence: number;
-};
-
-type AppTunnel = {
-  socket: WebSocket;
-  routingKey: string;
-  connector: Peer;
-};
-
-type RequestOwner = {
-  peer: Peer;
-  routingKey: string;
-  timer?: NodeJS.Timeout;
-};
-
-const connectors = new Map<string, Peer>();
-const accountConnectors = new Map<string, Peer>();
+const connectorRegistry = new InMemoryConnectorRegistry<Peer>();
 const apps = new Set<Peer>();
-const requestOwners = new Map<string, RequestOwner>();
-const pendingHttp = new Map<string, PendingHttp>();
-const appTunnels = new Map<string, AppTunnel>();
 const unauthenticatedAccountConnectorsByIp = new Map<string, number>();
+const commands = new CommandBroker<Peer, Peer>(
+  maxPendingRequests,
+  requestTimeoutMs,
+  send,
+  (deviceId) => connectorRegistry.getLegacy(deviceId),
+);
+const httpTunnels = new HttpTunnelBroker(
+  maxBodyBytes,
+  maxPendingRequests,
+  requestTimeoutMs,
+  send,
+);
+const webSocketTunnels = new WebSocketTunnelBroker(
+  maxWebSocketTunnels,
+  maxSocketBufferedBytes,
+  send,
+  routingPeer,
+);
+const httpRouter = new GatewayHttpRouter({
+  accountController: accountRuntime.controller,
+  accountControl: accountRuntime.gatewayControl,
+  appToken,
+  defaultDeviceId,
+  maxBodyBytes,
+  connectorRegistry,
+  lifecycleEvents,
+  httpTunnels,
+  resolveAccountConnector,
+  sendAccountError: sendAccountHttpError,
+  tokensEqual: safeEqual,
+});
 
 const requestHandler = (request: IncomingMessage, response: ServerResponse): void => {
-  void handleHttpRequest(request, response).catch((error) => {
+  void httpRouter.handle(request, response).catch((error) => {
     console.error("HTTP relay failure", error);
     if (!response.headersSent) sendHttpError(response, 500, "relay_error");
     else response.end();
   });
 };
-
-if (Boolean(tlsCertFile) !== Boolean(tlsKeyFile)) {
-  throw new Error("TLS_CERT_FILE and TLS_KEY_FILE must be configured together");
-}
 
 const server = tlsCertFile && tlsKeyFile
   ? createHttpsServer(
@@ -154,7 +161,7 @@ server.on("upgrade", (request, socket, head) => {
 
   if (url.pathname === "/api/ws") {
     void authorizeAppWebSocket(request, url).then((connector) => {
-      if (appTunnels.size >= maxWebSocketTunnels) {
+      if (webSocketTunnels.atCapacity) {
         rejectUpgrade(socket, 503, "Tunnel capacity reached");
         return;
       }
@@ -203,7 +210,7 @@ controlWss.on("connection", (socket) => {
           deviceId: message.deviceId,
         });
         if (peer.role === "app") {
-          for (const deviceId of connectors.keys()) sendStatus(peer, deviceId, true);
+          for (const deviceId of connectorRegistry.legacyDeviceIds()) sendStatus(peer, deviceId, true);
         }
         return;
       }
@@ -364,57 +371,14 @@ accountControlWss.on("connection", (
 });
 
 appWss.on("connection", (socket: WebSocket, _request: IncomingMessage, connector: Peer) => {
-  const deviceId = connector.deviceId;
   const authorization = connector.mode === "account"
     ? firstHeader(_request, "authorization")
     : undefined;
-  const accountRevalidationTimer = authorization
-    ? setInterval(() => {
-        void resolveAccountConnector(authorization).then((current) => {
-          if (current !== connector) socket.close(4403, "account binding changed");
-        }).catch(() => socket.close(4403, "account authorization changed"));
-      }, 5_000)
-    : undefined;
-  accountRevalidationTimer?.unref();
-  const id = randomUUID();
-  appTunnels.set(id, { socket, routingKey: connector.routingKey, connector });
-  send(connector.socket, {
-    type: "tunnel.ws.open",
-    version: PROTOCOL_VERSION,
-    id,
-    targetDeviceId: deviceId,
-    path: "/api/ws",
-  });
-
-  socket.on("message", (data, isBinary) => {
-    const current = routingPeer(connector.routingKey);
-    if (current !== connector) {
-      socket.close(1013, "Mac connector offline");
-      return;
-    }
-    send(current.socket, {
-      type: "tunnel.ws.frame",
-      version: PROTOCOL_VERSION,
-      id,
-      dataBase64: rawDataToBuffer(data).toString("base64"),
-      binary: isBinary,
-    });
-  });
-
-  socket.on("close", (code, reason) => {
-    if (accountRevalidationTimer) clearInterval(accountRevalidationTimer);
-    appTunnels.delete(id);
-    const current = routingPeer(connector.routingKey);
-    if (current === connector) {
-      send(current.socket, {
-        type: "tunnel.ws.close",
-        version: PROTOCOL_VERSION,
-        id,
-        code,
-        reason: reason.toString(),
-      });
-    }
-  });
+  webSocketTunnels.open(
+    socket,
+    connector,
+    authorization ? () => resolveAccountConnector(authorization) : undefined,
+  );
 });
 
 server.listen(port, host, () => {
@@ -422,231 +386,9 @@ server.listen(port, host, () => {
   console.log(`Hermes Remote Gateway listening on ${scheme}://${host}:${port}`);
 });
 
-async function handleHttpRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
-  const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
-  if (url.pathname.startsWith("/v2/")) {
-    await accountRuntime.controller.handle(request, response, url);
-    return;
-  }
-  if (url.pathname === "/health") {
-    response.writeHead(200, { "content-type": "application/json" });
-    // `connectors` (count) is kept for existing probes; `devices` lists each connected
-    // Mac connector so clients can show WHICH device is online (the card page's
-    // "remote device" tile). Only currently-connected connectors appear, all online:true —
-    // the relay has no persistence for previously-seen devices.
-    response.end(JSON.stringify({
-      ok: true,
-      connectors: connectors.size,
-      devices: [...connectors.keys()].map((deviceId) => ({ deviceId, online: true })),
-    }));
-    return;
-  }
-
-  if (!url.pathname.startsWith("/api/")) {
-    sendHttpError(response, 404, "not_found");
-    return;
-  }
-
-  const authorization = firstHeader(request, "authorization");
-  const legacyToken = firstHeader(request, "x-hermes-session-token");
-  let connector: Peer;
-  if (authorization) {
-    if (legacyToken) {
-      sendAccountHttpError(response, accountErrors.invalidRequest(
-        "Account and legacy credentials cannot be used together.",
-      ));
-      return;
-    }
-    if (url.pathname.startsWith("/api/mobile/events")) {
-      await handleAccountMobileEventsRequest(request, response, url, authorization);
-      return;
-    }
-    try {
-      connector = await resolveAccountConnector(authorization);
-    } catch (error) {
-      sendAccountHttpError(response, error);
-      return;
-    }
-  } else {
-    if (!legacyToken || !safeEqual(legacyToken, appToken)) {
-      sendHttpError(response, 401, "unauthorized");
-      return;
-    }
-    const deviceId = firstHeader(request, "x-hermes-device-id") ?? defaultDeviceId;
-    const legacyConnector = connectors.get(deviceId);
-    if (!legacyConnector) {
-      sendHttpError(response, 503, "device_offline");
-      return;
-    }
-    connector = legacyConnector;
-  }
-
-  // These endpoints are owned by the Relay. They remain available while the Mac is offline and
-  // must never be forwarded through the Connector to Hermes.
-  if (url.pathname.startsWith("/api/mobile/events")) {
-    await handleMobileEventsRequest(request, response, url);
-    return;
-  }
-
-  const deviceId = connector.deviceId;
-  if (pendingHttp.size >= maxPendingRequests) {
-    sendHttpError(response, 503, "relay_capacity_reached");
-    return;
-  }
-
-  let body: Buffer;
-  try {
-    body = await readRequestBody(request, maxBodyBytes);
-  } catch {
-    sendHttpError(response, 413, "request_too_large");
-    return;
-  }
-
-  const id = randomUUID();
-  const timer = setTimeout(() => expirePendingHttp(id), requestTimeoutMs);
-  pendingHttp.set(id, {
-    response,
-    routingKey: connector.routingKey,
-    timer,
-    started: false,
-    nextSequence: 0,
-  });
-  request.on("aborted", () => clearPendingHttp(id));
-  response.on("close", () => clearPendingHttp(id));
-
-  send(connector.socket, {
-    type: "tunnel.http.request",
-    version: PROTOCOL_VERSION,
-    id,
-    targetDeviceId: deviceId,
-    method: request.method ?? "GET",
-    path: `${url.pathname}${url.search}`,
-    headers: selectRequestHeaders(request),
-    bodyBase64: body.length > 0 ? body.toString("base64") : undefined,
-  });
-}
-
-async function handleMobileEventsRequest(
-  request: IncomingMessage,
-  response: ServerResponse,
-  url: URL,
-): Promise<void> {
-  if (url.pathname === "/api/mobile/events" && request.method === "GET") {
-    const after = nonNegativeIntegerQuery(url, "after", 0);
-    const limit = positiveIntegerQuery(url, "limit", 100, 500);
-    if (after === undefined || limit === undefined) {
-      sendHttpError(response, 400, "invalid_query");
-      return;
-    }
-    const page = await lifecycleEvents.list(after, limit);
-    sendJson(response, 200, page);
-    return;
-  }
-
-  if ((url.pathname === "/api/mobile/events/ack" || url.pathname === "/api/mobile/events/read")
-      && request.method === "POST") {
-    let body: Buffer;
-    try {
-      body = await readRequestBody(request, Math.min(maxBodyBytes, 256 * 1024));
-    } catch {
-      sendHttpError(response, 413, "request_too_large");
-      return;
-    }
-    let eventIds: string[];
-    try {
-      eventIds = parseEventIds(body);
-    } catch {
-      sendHttpError(response, 400, "invalid_request");
-      return;
-    }
-    const changed = url.pathname.endsWith("/read")
-      ? await lifecycleEvents.markRead(eventIds)
-      : await lifecycleEvents.markDelivered(eventIds);
-    sendJson(response, 200, { ok: true, changed });
-    return;
-  }
-
-  sendHttpError(response, 404, "not_found");
-}
-
-async function handleAccountMobileEventsRequest(
-  request: IncomingMessage,
-  response: ServerResponse,
-  url: URL,
-  authorization: string,
-): Promise<void> {
-  try {
-    const control = accountRuntime.gatewayControl;
-    if (!control) throw accountErrors.featureDisabled();
-    const principal = await control.authenticate(authorization);
-    if (url.pathname === "/api/mobile/events" && request.method === "GET") {
-      const after = nonNegativeIntegerQuery(url, "after", 0);
-      const limit = positiveIntegerQuery(url, "limit", 100, 500);
-      if (after === undefined || limit === undefined) {
-        throw accountErrors.invalidRequest("Lifecycle event pagination is invalid.");
-      }
-      sendJson(response, 200, await control.listLifecycleEvents(principal, after, limit));
-      return;
-    }
-
-    if ((url.pathname === "/api/mobile/events/ack" || url.pathname === "/api/mobile/events/read")
-        && request.method === "POST") {
-      let body: Buffer;
-      try {
-        body = await readRequestBody(request, Math.min(maxBodyBytes, 256 * 1024));
-      } catch {
-        throw accountErrors.invalidRequest("Lifecycle event acknowledgement is too large.");
-      }
-      let eventIds: string[];
-      try {
-        eventIds = parseEventIds(body);
-      } catch {
-        throw accountErrors.invalidRequest("Lifecycle event acknowledgement is invalid.");
-      }
-      const changed = await control.markLifecycleEvents(
-        principal,
-        eventIds,
-        url.pathname.endsWith("/read") ? "read" : "delivered",
-      );
-      sendJson(response, 200, { ok: true, changed });
-      return;
-    }
-
-    throw new AccountModeError(
-      404,
-      "HR-ACCOUNT-004",
-      "The account endpoint was not found.",
-      false,
-      "none",
-    );
-  } catch (error) {
-    sendAccountHttpError(response, error);
-  }
-}
-
 function route(peer: Peer, message: WireMessage): void {
-  if (peer.role === "app" && message.type === "command") {
-    const connector = connectors.get(message.targetDeviceId);
-    if (!connector) {
-      send(peer.socket, errorMessage("device_offline", "Target Mac is offline", message.id));
-      return;
-    }
-    if (requestOwners.size >= maxPendingRequests) {
-      send(peer.socket, errorMessage("relay_capacity_reached", "Too many pending requests", message.id));
-      return;
-    }
-    if (requestOwners.has(message.id)) {
-      send(peer.socket, errorMessage("duplicate_request_id", "Request ID is already pending", message.id));
-      return;
-    }
-    const owner = { peer, routingKey: connector.routingKey };
-    requestOwners.set(message.id, owner);
-    armRequestOwnerTimeout(message.id, owner);
-    send(connector.socket, message);
-    return;
-  }
-
-  if (peer.role !== "connector") {
+  if (peer.role === "app") {
+    if (commands.handleAppMessage(peer, message)) return;
     send(peer.socket, errorMessage("forbidden_message", "Message is not valid for this peer"));
     return;
   }
@@ -700,102 +442,9 @@ function route(peer: Peer, message: WireMessage): void {
     return;
   }
 
-  if (message.type === "event") {
-    const owner = requestOwners.get(message.requestId);
-    if (!owner || owner.routingKey !== peer.routingKey) return;
-    send(owner.peer.socket, message);
-    if (message.event === "complete" || message.event === "error") {
-      clearRequestOwner(message.requestId);
-    } else {
-      // This is an inactivity timeout, not a maximum generation duration. A long answer that is
-      // still producing accepted/delta events must not be cut off at the fixed request deadline.
-      armRequestOwnerTimeout(message.requestId, owner);
-    }
-    return;
-  }
-
-  if (message.type === "tunnel.http.response") {
-    const pending = pendingHttp.get(message.requestId);
-    if (!pending || pending.routingKey !== peer.routingKey) return;
-    clearPendingHttp(message.requestId);
-    if (pending.started) {
-      pending.response.destroy(new Error("mixed_http_response_modes"));
-      return;
-    }
-    const body = message.bodyBase64 ? Buffer.from(message.bodyBase64, "base64") : Buffer.alloc(0);
-    pending.response.writeHead(message.status, selectResponseHeaders(message.headers));
-    pending.response.end(body);
-    return;
-  }
-
-  if (message.type === "tunnel.http.response.start") {
-    const pending = pendingHttp.get(message.requestId);
-    if (!pending || pending.routingKey !== peer.routingKey || pending.started) return;
-    pending.started = true;
-    refreshPendingHttpTimeout(message.requestId, pending);
-    pending.response.writeHead(message.status, selectResponseHeaders(message.headers));
-    return;
-  }
-
-  if (message.type === "tunnel.http.response.chunk") {
-    const pending = pendingHttp.get(message.requestId);
-    if (!pending || pending.routingKey !== peer.routingKey || !pending.started) return;
-    if (message.sequence !== pending.nextSequence) {
-      clearPendingHttp(message.requestId);
-      pending.response.destroy(new Error("invalid_response_chunk_sequence"));
-      return;
-    }
-    pending.nextSequence += 1;
-    refreshPendingHttpTimeout(message.requestId, pending);
-    const chunk = Buffer.from(message.dataBase64, "base64");
-    pending.response.write(chunk, () => {
-      const current = pendingHttp.get(message.requestId);
-      if (current !== pending) return;
-      send(peer.socket, {
-        type: "tunnel.http.response.ack",
-        version: PROTOCOL_VERSION,
-        requestId: message.requestId,
-        sequence: message.sequence,
-      });
-    });
-    return;
-  }
-
-  if (message.type === "tunnel.http.response.end") {
-    const pending = pendingHttp.get(message.requestId);
-    if (!pending || pending.routingKey !== peer.routingKey) return;
-    clearPendingHttp(message.requestId);
-    if (message.error) {
-      if (!pending.started) sendHttpError(pending.response, 502, message.error);
-      else pending.response.destroy(new Error(message.error));
-    } else {
-      if (!pending.started) pending.response.writeHead(204);
-      pending.response.end();
-    }
-    return;
-  }
-
-  if (message.type === "tunnel.ws.frame") {
-    const tunnel = appTunnels.get(message.id);
-    if (!tunnel || tunnel.routingKey !== peer.routingKey || tunnel.connector !== peer) return;
-    if (tunnel.socket.readyState === WebSocket.OPEN) {
-      const data = Buffer.from(message.dataBase64, "base64");
-      if (tunnel.socket.bufferedAmount + data.length > maxSocketBufferedBytes) {
-        tunnel.socket.close(1013, "backpressure limit reached");
-      } else {
-        tunnel.socket.send(message.binary ? data : data.toString("utf8"), { binary: message.binary });
-      }
-    }
-    return;
-  }
-
-  if (message.type === "tunnel.ws.close") {
-    const tunnel = appTunnels.get(message.id);
-    if (!tunnel || tunnel.routingKey !== peer.routingKey || tunnel.connector !== peer) return;
-    appTunnels.delete(message.id);
-    tunnel.socket.close(safeCloseCode(message.code), message.reason?.slice(0, 120));
-    return;
-  }
+  if (commands.handleConnectorMessage(peer, message)) return;
+  if (httpTunnels.handleConnectorMessage(peer, message)) return;
+  if (webSocketTunnels.handleConnectorMessage(peer, message)) return;
 
   send(peer.socket, errorMessage("forbidden_message", "Message is not valid for this peer"));
 }
@@ -807,8 +456,8 @@ function authenticate(message: HelloMessage): boolean {
 
 function register(peer: Peer): void {
   if (peer.role === "connector") {
-    connectors.get(peer.deviceId)?.socket.close(4409, "replaced by a new connection");
-    connectors.set(peer.deviceId, peer);
+    connectorRegistry.getLegacy(peer.deviceId)?.socket.close(4409, "replaced by a new connection");
+    connectorRegistry.setLegacy(peer.deviceId, peer);
     broadcastStatus(peer.deviceId, true);
   } else {
     apps.add(peer);
@@ -818,8 +467,7 @@ function register(peer: Peer): void {
 function registerAccountConnector(peer: Peer): void {
   const bindingId = peer.binding?.id;
   if (!bindingId) throw new Error("account Connector has no binding");
-  const previous = accountConnectors.get(bindingId);
-  accountConnectors.set(bindingId, peer);
+  const previous = connectorRegistry.replaceAccount(bindingId, peer);
   if (previous && previous !== peer) {
     failRoutingRequests(previous.routingKey);
     previous.socket.close(4409, "replaced by a new connection");
@@ -828,78 +476,26 @@ function registerAccountConnector(peer: Peer): void {
 
 function unregisterAccountConnector(peer: Peer): boolean {
   const bindingId = peer.binding?.id;
-  if (!bindingId || accountConnectors.get(bindingId) !== peer) return false;
-  accountConnectors.delete(bindingId);
+  if (!bindingId || !connectorRegistry.deleteAccountIfCurrent(bindingId, peer)) return false;
   failRoutingRequests(peer.routingKey);
   return true;
 }
 
 function unregister(peer: Peer): void {
-  if (peer.role === "connector" && connectors.get(peer.deviceId) === peer) {
-    connectors.delete(peer.deviceId);
+  if (peer.role === "connector"
+      && connectorRegistry.deleteLegacyIfCurrent(peer.deviceId, peer)) {
     broadcastStatus(peer.deviceId, false);
     failRoutingRequests(peer.routingKey);
   } else {
     apps.delete(peer);
   }
-  for (const [requestId, owner] of requestOwners) {
-    if (owner.peer === peer) clearRequestOwner(requestId);
-  }
+  commands.unregisterApp(peer);
 }
 
 function failRoutingRequests(routingKey: string): void {
-  for (const [id, pending] of pendingHttp) {
-    if (pending.routingKey !== routingKey) continue;
-    clearPendingHttp(id);
-    sendHttpError(pending.response, 502, "connector_disconnected");
-  }
-  for (const [id, tunnel] of appTunnels) {
-    if (tunnel.routingKey !== routingKey) continue;
-    appTunnels.delete(id);
-    tunnel.socket.close(1013, "Mac connector disconnected");
-  }
-  for (const [id, owner] of requestOwners) {
-    if (owner.routingKey !== routingKey) continue;
-    send(owner.peer.socket, errorMessage("connector_disconnected", "Mac connector disconnected", id));
-    clearRequestOwner(id);
-  }
-}
-
-function clearRequestOwner(id: string): void {
-  const owner = requestOwners.get(id);
-  if (!owner) return;
-  if (owner.timer) clearTimeout(owner.timer);
-  requestOwners.delete(id);
-}
-
-function armRequestOwnerTimeout(id: string, owner: RequestOwner): void {
-  if (owner.timer) clearTimeout(owner.timer);
-  owner.timer = setTimeout(() => {
-    if (requestOwners.get(id) !== owner) return;
-    requestOwners.delete(id);
-    send(owner.peer.socket, errorMessage("connector_timeout", "Connector response timed out", id));
-  }, requestTimeoutMs);
-}
-
-function clearPendingHttp(id: string): void {
-  const pending = pendingHttp.get(id);
-  if (!pending) return;
-  clearTimeout(pending.timer);
-  pendingHttp.delete(id);
-}
-
-function refreshPendingHttpTimeout(id: string, pending: PendingHttp): void {
-  clearTimeout(pending.timer);
-  pending.timer = setTimeout(() => expirePendingHttp(id), requestTimeoutMs);
-}
-
-function expirePendingHttp(id: string): void {
-  const pending = pendingHttp.get(id);
-  if (!pending) return;
-  pendingHttp.delete(id);
-  clearTimeout(pending.timer);
-  if (pending.response.headersSent) pending.response.destroy(new Error("connector_timeout"));
-  else sendHttpError(pending.response, 504, "connector_timeout");
+  httpTunnels.failRouting(routingKey);
+  webSocketTunnels.failRouting(routingKey);
+  commands.failRouting(routingKey);
 }
 
 function broadcastStatus(deviceId: string, online: boolean): void {
@@ -928,7 +524,7 @@ async function authorizeAppWebSocket(request: IncomingMessage, url: URL): Promis
     throw new AccountModeError(401, "unauthorized", "Unauthorized", false, "none");
   }
   const deviceId = url.searchParams.get("device_id") ?? defaultDeviceId;
-  const connector = connectors.get(deviceId);
+  const connector = connectorRegistry.getLegacy(deviceId);
   if (!connector) throw new AccountModeError(503, "device_offline", "Mac connector offline", true, "retry");
   return connector;
 }
@@ -940,7 +536,7 @@ async function resolveAccountConnector(authorization: string): Promise<Peer> {
   const state = await control.getBinding(principal);
   if (state.state !== "bound") throw accountErrors.bindingMissing();
   const binding = state.binding;
-  const connector = accountConnectors.get(binding.id);
+  const connector = connectorRegistry.getAccount(binding.id);
   if (!connector
       || connector.accountId !== principal.account.id
       || connector.binding?.generation !== binding.generation
@@ -952,17 +548,7 @@ async function resolveAccountConnector(authorization: string): Promise<Peer> {
 }
 
 function routingPeer(routingKey: string): Peer | undefined {
-  if (routingKey.startsWith("legacy:")) return connectors.get(routingKey.slice("legacy:".length));
-  if (routingKey.startsWith("account:")) return accountConnectors.get(routingKey.slice("account:".length));
-  return undefined;
-}
-
-function legacyRoutingKey(deviceId: string): string {
-  return `legacy:${deviceId}`;
-}
-
-function accountRoutingKey(bindingId: string): string {
-  return `account:${bindingId}`;
+  return connectorRegistry.getByRoutingKey(routingKey);
 }
 
 function incrementCount(counts: Map<string, number>, key: string): void {
@@ -1007,136 +593,10 @@ function errorMessage(code: string, message: string, requestId?: string): WireMe
   return { type: "error", version: PROTOCOL_VERSION, code, message, requestId };
 }
 
-function selectRequestHeaders(request: IncomingMessage): Record<string, string> {
-  const selected: Record<string, string> = {};
-  for (const name of ["accept", "content-type"]) {
-    const value = firstHeader(request, name);
-    if (value) selected[name] = value;
-  }
-  return selected;
-}
-
-function selectResponseHeaders(headers: Record<string, string>): Record<string, string> {
-  const selected: Record<string, string> = {};
-  for (const name of ["content-type", "content-length", "content-disposition", "cache-control"]) {
-    const value = headers[name];
-    if (value) selected[name] = value;
-  }
-  return selected;
-}
-
-function firstHeader(request: IncomingMessage, name: string): string | undefined {
-  const value = request.headers[name];
-  return Array.isArray(value) ? value[0] : value;
-}
-
-function readRequestBody(request: IncomingMessage, limit: number): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    request.on("data", (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > limit) {
-        reject(new Error("request_too_large"));
-        request.destroy();
-        return;
-      }
-      chunks.push(Buffer.from(chunk));
-    });
-    request.on("end", () => resolve(Buffer.concat(chunks)));
-    request.on("error", reject);
-  });
-}
-
-function sendHttpError(response: ServerResponse, status: number, code: string): void {
-  if (response.writableEnded) return;
-  if (response.headersSent) {
-    response.destroy(new Error(code));
-    return;
-  }
-  response.writeHead(status, { "content-type": "application/json" });
-  response.end(JSON.stringify({ error: code }));
-}
-
-function sendJson(response: ServerResponse, status: number, value: unknown): void {
-  response.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
-  response.end(JSON.stringify(value));
-}
-
-function parseEventIds(body: Buffer): string[] {
-  const value: unknown = JSON.parse(body.toString("utf8"));
-  if (!isRecord(value) || !Array.isArray(value.event_ids) || value.event_ids.length > 500) {
-    throw new Error("invalid_event_ids");
-  }
-  return value.event_ids.map((eventId) => {
-    if (typeof eventId !== "string" || eventId.length < 1 || eventId.length > 256) {
-      throw new Error("invalid_event_id");
-    }
-    return eventId;
-  });
-}
-
-function nonNegativeIntegerQuery(url: URL, name: string, fallback: number): number | undefined {
-  const raw = url.searchParams.get(name);
-  if (raw === null) return fallback;
-  if (!/^\d+$/.test(raw)) return undefined;
-  const value = Number(raw);
-  return Number.isSafeInteger(value) ? value : undefined;
-}
-
-function positiveIntegerQuery(
-  url: URL,
-  name: string,
-  fallback: number,
-  max: number,
-): number | undefined {
-  const value = nonNegativeIntegerQuery(url, name, fallback);
-  return value !== undefined && value > 0 && value <= max ? value : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function rejectUpgrade(socket: NodeJS.WritableStream, status: number, message: string): void {
-  socket.write(`HTTP/1.1 ${status} ${message}\r\nConnection: close\r\n\r\n`);
-  if ("destroy" in socket && typeof socket.destroy === "function") socket.destroy();
-}
-
-function safeCloseCode(code?: number): number {
-  const standard = code !== undefined && code >= 1000 && code <= 1014
-    && code !== 1004 && code !== 1005 && code !== 1006;
-  const application = code !== undefined && code >= 3000 && code <= 4999;
-  return standard || application ? code : 1011;
-}
-
-function rawDataToBuffer(data: WebSocket.RawData): Buffer {
-  if (Buffer.isBuffer(data)) return data;
-  if (Array.isArray(data)) return Buffer.concat(data);
-  return Buffer.from(data);
-}
-
 function safeEqual(actual: string, expected: string): boolean {
   const left = Buffer.from(actual);
   const right = Buffer.from(expected);
   return left.length === right.length && timingSafeEqual(left, right);
-}
-
-function requireSecret(name: string): string {
-  const file = process.env[`${name}_FILE`];
-  const value = process.env[name] ?? (file ? readFileSync(file, "utf8").trim() : undefined);
-  if (!value || value.length < 8) throw new Error(`${name} must contain at least 8 characters`);
-  return value;
-}
-
-function positiveIntEnv(name: string, fallback: number, max = 1024 * 1024 * 1024): number {
-  const raw = process.env[name];
-  if (raw === undefined) return fallback;
-  const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value <= 0 || value > max) {
-    throw new Error(`${name} must be an integer between 1 and ${max}`);
-  }
-  return value;
 }
 
 function safeError(error: unknown): string {
