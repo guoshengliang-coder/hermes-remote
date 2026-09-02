@@ -25,6 +25,9 @@ import org.junit.Test
 class SearchViewModelTest {
     private val sessionRepo = mockk<SessionRepository>(relaxed = true)
     private val profileManager = mockk<ProfileManager>(relaxed = true)
+    private val projectPrefs = mockk<com.hermes.client.data.repository.ProjectPrefsStore>(relaxed = true).also {
+        every { it.defaultProjectPath } returns MutableStateFlow<String?>(null)
+    }
 
     @Before fun setUp() {
         Dispatchers.setMain(StandardTestDispatcher())
@@ -48,7 +51,7 @@ class SearchViewModelTest {
         coEvery { sessionRepo.archivedAllProfiles() } returns listOf(
             session("c", "Old signing debug"),
         )
-        val vm = SearchViewModel(sessionRepo, profileManager)
+        val vm = SearchViewModel(sessionRepo, profileManager, projectPrefs)
         advanceUntilIdle()
         vm.onQueryChange("signing")
         val m = vm.state.value.titleMatches
@@ -64,7 +67,7 @@ class SearchViewModelTest {
         coEvery { sessionRepo.search("hello", "personal") } returns listOf(
             com.hermes.client.data.network.SearchResultDto(sessionId = "s9", snippet = "hello there"),
         )
-        val vm = SearchViewModel(sessionRepo, profileManager)
+        val vm = SearchViewModel(sessionRepo, profileManager, projectPrefs)
         advanceUntilIdle()
         vm.onQueryChange("hello")
         vm.searchMessages()
@@ -80,7 +83,7 @@ class SearchViewModelTest {
             listOf(session("old", "Old result")) andThen
             listOf(session("new", "New result"))
         coEvery { sessionRepo.archivedAllProfiles() } returns emptyList()
-        val vm = SearchViewModel(sessionRepo, profileManager)
+        val vm = SearchViewModel(sessionRepo, profileManager, projectPrefs)
         advanceUntilIdle()
         vm.onQueryChange("result")
         assertEquals(listOf("old"), vm.state.value.titleMatches.map { it.session.id })
@@ -94,7 +97,7 @@ class SearchViewModelTest {
         coEvery { sessionRepo.listAllProfiles() } returns
             listOf(session("old", "Old result")) andThenThrows RuntimeException("offline")
         coEvery { sessionRepo.archivedAllProfiles() } returns emptyList()
-        val vm = SearchViewModel(sessionRepo, profileManager)
+        val vm = SearchViewModel(sessionRepo, profileManager, projectPrefs)
         advanceUntilIdle()
         vm.onQueryChange("result")
 

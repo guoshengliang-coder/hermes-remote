@@ -29,4 +29,20 @@ class TimeTest {
         assertEquals(1_000L, secondsToEpochMs(1.0))
         assertNull(secondsToEpochMs(null))
     }
+
+    @Test fun relativeTimeLabel_isBilingualAndBucketed() {
+        val now = 1_700_000_000_000L
+        val zh = com.hermes.client.ui.localization.AppLanguage.ZH
+        val en = com.hermes.client.ui.localization.AppLanguage.EN
+        assertEquals("—", relativeTimeLabel(null, now, zh))
+        assertEquals("刚刚", relativeTimeLabel(now - 30_000, now, zh))
+        assertEquals("12 分钟前", relativeTimeLabel(now - 12 * 60_000, now, zh))
+        assertEquals("12m ago", relativeTimeLabel(now - 12 * 60_000, now, en))
+        assertEquals("3 小时前", relativeTimeLabel(now - 3 * 3_600_000, now, zh))
+        assertEquals("昨天", relativeTimeLabel(now - 30 * 3_600_000, now, zh))
+        assertEquals("yesterday", relativeTimeLabel(now - 30 * 3_600_000, now, en))
+        assertEquals("3 天前", relativeTimeLabel(now - 3 * 24 * 3_600_000, now, zh))
+        // A timestamp slightly in the future (clock skew) reads as "just now", never negative.
+        assertEquals("just now", relativeTimeLabel(now + 5_000, now, en))
+    }
 }

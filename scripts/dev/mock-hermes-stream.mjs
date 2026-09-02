@@ -56,6 +56,14 @@ const server = createServer(async (request, response) => {
     return json(response, { messages: out });
   }
   if (/^\/api\/sessions\/[^/]+$/.test(p)) return json(response, { session: { id: p.split("/")[3], title: "Mock" } });
+  if (p === "/api/profiles/sessions") {
+    // Cross-profile list with workspace facts, so the app's project sublines, Projects segment
+    // (default project + derived projects), archived rows and move-to-project are exercisable.
+    const wantArchived = url.searchParams.get("archived") === "only";
+    const rows = mockSessions()
+      .filter((row) => (wantArchived ? row.archived : !row.archived));
+    return json(response, { sessions: rows, total: rows.length, profile_totals: { default: rows.length }, errors: [] });
+  }
   if (p === "/api/sessions" || p === "/api/sessions/search") {
     // List the stored session once it has content, so "reopen from the list" flows are testable.
     const sessions = promptCount > 0
@@ -65,7 +73,6 @@ const server = createServer(async (request, response) => {
   }
   if (p === "/api/profiles") return json(response, { profiles: [{ name: "default", is_default: true }, { name: "Work" }, { name: "Personal" }] });
   if (p === "/api/profiles/active") return json(response, { active: "default" });
-  if (p === "/api/profiles/sessions") return json(response, { sessions: [] });
   if (p === "/api/model/options") return json(response, { providers: [] });
   if (p === "/api/config") return json(response, {});
   if (p === "/api/skills") return json(response, { skills: [] });
@@ -211,6 +218,48 @@ async function streamRun(socket) {
   console.log("stream complete:", FULL_TEXT.length, "chars in", parts.length, "deltas");
 }
 
+// ── Workspace fixtures (dev only) ─────────────────────────────────────────────────────────────
+// The mock gateway's "launch directory" — sessions created without a cwd land here.
+const LAUNCH_DIR = "/Users/me";
+const HERMES_REMOTE = "/Users/me/CodeX project/hermes-remote";
+const nowSec = () => Math.floor(Date.now() / 1000);
+const fixtureSessions = [
+  { id: "fx-1", title: "重构 gateway 路由中间件", model: "claude-opus-5", cwd: HERMES_REMOTE, git_repo_root: HERMES_REMOTE, git_branch: "codex/gateway-router", ago: 10 * 60 },
+  { id: "fx-2", title: "周报汇总 · 上周提交记录", model: "claude-sonnet-5", cwd: null, git_repo_root: null, git_branch: null, ago: 60 * 60 },
+  { id: "fx-3", title: "翻译 Android 文案", model: "claude-sonnet-5", cwd: "/Users/me/.hermes/nous-hermes-agent-playground", git_repo_root: "/Users/me/.hermes/nous-hermes-agent-playground", git_branch: "claude/l10n-pass", ago: 30 * 60 },
+  { id: "fx-4", title: "调查 DERP 端口冲突", model: "claude-opus-5", cwd: "/Users/me/ops/hk", git_repo_root: "/Users/me/ops/hk", git_branch: "main", ago: 2 * 86400 },
+  { id: "fx-5", title: "整理 docs/DEPLOYMENT", model: "claude-opus-5", cwd: HERMES_REMOTE, git_repo_root: HERMES_REMOTE, git_branch: "main", ago: 9 * 86400 },
+  { id: "fx-6", title: "调试 debug 签名密钥缺失", model: "claude-opus-5", cwd: HERMES_REMOTE, git_repo_root: HERMES_REMOTE, git_branch: "main", ago: 5 * 86400, archived: true },
+];
+// Workspace of the dynamically created stored session (set by session.create / workspace.move).
+let storedWorkspace = { cwd: LAUNCH_DIR, git_repo_root: null, git_branch: null };
+function mockSessions() {
+  const rows = fixtureSessions.map((f) => ({
+    id: f.id, title: f.title, model: f.model, message_count: 4, last_active: nowSec() - f.ago,
+    profile: "default", is_default_profile: true, archived: Boolean(f.archived),
+    cwd: f.cwd, git_repo_root: f.git_repo_root, git_branch: f.git_branch, source: "tui",
+  }));
+  if (promptCount > 0) {
+    rows.unshift({
+      id: STORED_ID, title: "Mock 会话", model: "claude-opus-5", message_count: promptCount * 2, last_active: nowSec(),
+      profile: "default", is_default_profile: true, archived: false, source: "tui", ...storedWorkspace,
+    });
+  }
+  return rows;
+}
+function workspaceFor(sessionId) {
+  const f = fixtureSessions.find((row) => row.id === sessionId);
+  if (f) return { cwd: f.cwd ?? LAUNCH_DIR, branch: f.git_branch, git_repo_root: f.git_repo_root };
+  return { cwd: storedWorkspace.cwd, branch: storedWorkspace.git_branch, git_repo_root: storedWorkspace.git_repo_root };
+}
+function setWorkspace(sessionId, cwd) {
+  const branch = "main";
+  const f = fixtureSessions.find((row) => row.id === sessionId);
+  if (f) { f.cwd = cwd; f.git_repo_root = cwd; f.git_branch = branch; }
+  else storedWorkspace = { cwd, git_repo_root: cwd, git_branch: branch };
+  return { cwd, branch, git_repo_root: cwd };
+}
+
 const wss = new WebSocketServer({ noServer: true });
 server.on("upgrade", (request, socket, head) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
@@ -228,13 +277,36 @@ wss.on("connection", (socket) => {
   socket.on("message", (raw) => {
     const request = JSON.parse(raw.toString());
     const reply = (result) => socket.send(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }));
+    const replyError = (code, message) => socket.send(JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code, message } }));
+    const emit = (type, sessionId, payload) =>
+      socket.send(JSON.stringify({ jsonrpc: "2.0", method: "event", params: { type, session_id: sessionId, payload } }));
     switch (request.method) {
-      case "session.create":
-        reply({ session_id: LIVE_ID, stored_session_id: STORED_ID });
+      case "session.create": {
+        // Upstream persists only an explicit cwd; otherwise the session lands in the launch dir.
+        // A cwd containing "missing" simulates a folder that no longer exists (silent fallback).
+        const requested = String(request.params?.cwd ?? "").trim();
+        const cwd = requested && !requested.includes("missing") ? requested : LAUNCH_DIR;
+        storedWorkspace = { cwd, git_repo_root: requested === cwd ? cwd : null, git_branch: requested === cwd ? "main" : null };
+        reply({ session_id: LIVE_ID, stored_session_id: STORED_ID, info: { model: "claude-opus-5", cwd, branch: storedWorkspace.git_branch } });
         break;
-      case "session.resume":
+      }
+      case "session.resume": {
         reply({ session_id: LIVE_ID });
+        const ws = workspaceFor(String(request.params?.session_id ?? ""));
+        emit("session.info", String(request.params?.session_id ?? STORED_ID), { running: false, cwd: ws.cwd, branch: ws.branch });
         break;
+      }
+      case "session.workspace.move": {
+        const target = String(request.params?.session_key ?? "");
+        const cwd = String(request.params?.cwd ?? "").trim();
+        if (!cwd) { replyError(4016, "cwd required"); break; }
+        if (cwd.includes("missing")) { replyError(4017, `working directory does not exist: ${cwd}`); break; }
+        if (target === "fx-1") { replyError(4009, "session busy"); break; } // fixture: always mid-turn
+        const moved = setWorkspace(target, cwd);
+        reply(moved);
+        emit("session.info", target, { running: false, cwd: moved.cwd, branch: moved.branch });
+        break;
+      }
       case "clarify.respond": {
         const qid = request.params?.question_id;
         pendingClarifyAnswers.push({ qid: qid ?? null, answer: request.params?.answer ?? "" });

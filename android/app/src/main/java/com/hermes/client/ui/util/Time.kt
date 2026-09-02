@@ -53,3 +53,24 @@ fun relativeTime(epochMs: Long?, nowMs: Long): String {
         else -> "in $label"
     }
 }
+
+/**
+ * Bilingual relative time for list sublines ("12 分钟前" / "12m ago"; "昨天" / "yesterday").
+ * Pure — [nowMs] is passed in so it is unit-testable. Null → "—".
+ */
+fun relativeTimeLabel(
+    epochMs: Long?,
+    nowMs: Long,
+    language: com.hermes.client.ui.localization.AppLanguage,
+): String {
+    if (epochMs == null) return "—"
+    val zh = language == com.hermes.client.ui.localization.AppLanguage.ZH
+    val mins = (nowMs - epochMs).coerceAtLeast(0L) / 60_000
+    return when {
+        mins < 1 -> if (zh) "刚刚" else "just now"
+        mins < 60 -> if (zh) "$mins 分钟前" else "${mins}m ago"
+        mins < 60 * 24 -> if (zh) "${mins / 60} 小时前" else "${mins / 60}h ago"
+        mins < 60 * 48 -> if (zh) "昨天" else "yesterday"
+        else -> if (zh) "${mins / (60 * 24)} 天前" else "${mins / (60 * 24)}d ago"
+    }
+}

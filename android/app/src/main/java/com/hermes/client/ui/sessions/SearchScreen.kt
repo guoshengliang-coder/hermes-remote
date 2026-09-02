@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
@@ -56,6 +58,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -78,9 +81,18 @@ data class SearchUiState(
 class SearchViewModel @Inject constructor(
     private val sessions: SessionRepository,
     private val profileManager: ProfileManager,
+    projectPrefs: com.hermes.client.data.repository.ProjectPrefsStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(SearchUiState())
     val state: StateFlow<SearchUiState> = _state.asStateFlow()
+
+    /** Gateway launch directory (the default project) so result sublines fold it correctly. */
+    val defaultProjectPath: StateFlow<String?> =
+        projectPrefs.defaultProjectPath.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
+
+    /** The live or archived session a message hit belongs to (null when it is not in scope). */
+    fun sessionFor(sessionId: String): Session? =
+        live.firstOrNull { it.id == sessionId } ?: archived.firstOrNull { it.id == sessionId }
 
     // Live + archived rows for the active profile, fetched once per entry (refresh() re-pulls).
     private var live: List<Session> = emptyList()
@@ -161,6 +173,7 @@ fun SearchScreen(
     val language = LocalAppLanguage.current
     val context = LocalContext.current
     val state by vm.state.collectAsStateWithLifecycle()
+    val defaultProjectPath by vm.defaultProjectPath.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val focus = androidx.compose.runtime.remember { FocusRequester() }
     var openRequestJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -220,7 +233,7 @@ fun SearchScreen(
                     items(state.titleMatches, key = { "t-${it.archived}-${it.session.profile.orEmpty()}:${it.session.id}" }) { m ->
                         ListItem(
                             headlineContent = { Text(m.session.title) },
-                            supportingContent = { Text(m.session.model ?: "") },
+                            supportingContent = { SessionSubline(m.session, defaultProjectPath = defaultProjectPath) },
                             trailingContent = if (m.archived) ({
                                 Text(
                                     localized(language, "已归档", "Archived"),
@@ -236,9 +249,18 @@ fun SearchScreen(
                 if (state.messageResults.isNotEmpty()) {
                     item(key = "h-msg") { SearchHeader(localized(language, "消息匹配", "Message matches"), state.messageResults.size) }
                     items(state.messageResults) { r ->
+                        val hitSession = vm.sessionFor(r.sessionId)
                         ListItem(
                             headlineContent = { Text(r.snippet?.take(140)?.replace("\n", " ") ?: r.sessionId) },
-                            supportingContent = { Text(r.model ?: r.role ?: "") },
+                            // "<session title> · <project>": which chat and where it lives locate a
+                            // hit; the model does not, so it is dropped here (docs/DESIGN.md §5.2).
+                            supportingContent = {
+                                if (hitSession != null) {
+                                    MessageHitSubline(hitSession.title, projectLabelOf(hitSession, defaultProjectPath))
+                                } else {
+                                    Text(r.model ?: r.role ?: "")
+                                }
+                            },
                             modifier = Modifier.clickable { onOpen(ChatLaunch.unknown(r.sessionId)) },
                         )
                         HorizontalDivider()
@@ -275,5 +297,24 @@ private fun SearchHeader(label: String, count: Int) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
         Text(count.toString(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Message-hit subline: session title, then the project glyph + label when it is not the default. */
+@Composable
+private fun MessageHitSubline(title: String, projectLabel: String?) {
+    androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Text(title, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        if (projectLabel != null) {
+            Text(" · ") // l10n-allow: separator
+            Icon(
+                com.hermes.client.ui.components.FolderStrokeIcon,
+                contentDescription = null,
+                tint = androidx.compose.material3.LocalContentColor.current,
+                modifier = Modifier.size(14.dp),
+            )
+            androidx.compose.foundation.layout.Spacer(Modifier.width(4.dp))
+            Text(projectLabel, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        }
     }
 }

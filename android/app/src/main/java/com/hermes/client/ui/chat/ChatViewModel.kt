@@ -66,6 +66,7 @@ class ChatViewModel @Inject constructor(
     private val mediaRepository: ChatMediaRepository,
     private val fileRepository: ChatFileRepository,
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
+    private val projectPrefs: com.hermes.client.data.repository.ProjectPrefsStore,
 ) : ViewModel() {
 
     enum class ConversationRefreshEvent { QUEUED, SUCCEEDED_CHANGED, SUCCEEDED_UNCHANGED, FAILED }
@@ -85,6 +86,78 @@ class ChatViewModel @Inject constructor(
 
     private val _sessionTitle = MutableStateFlow("新会话")
     val sessionTitle: StateFlow<String> = _sessionTitle.asStateFlow()
+
+    /** The folder this chat's tools run in; [projectLabel] null = the default project. */
+    data class SessionWorkspace(
+        val cwd: String?,
+        val branch: String?,
+        val gitRepoRoot: String?,
+        val projectLabel: String?,
+    )
+
+    // Workspace facts: seeded from cached/list metadata on open, then kept live by the gateway's
+    // `session.info` events (cwd/branch) and by a successful move from the subtitle picker.
+    private val _workspace = MutableStateFlow<SessionWorkspace?>(null)
+    val workspace: StateFlow<SessionWorkspace?> = _workspace.asStateFlow()
+
+    /** Derived projects of the current profile — the picker's rows; empty ⇒ no subtitle at all. */
+    private val _workspaceProjects = MutableStateFlow<List<com.hermes.client.domain.Project>>(emptyList())
+    val workspaceProjects: StateFlow<List<com.hermes.client.domain.Project>> = _workspaceProjects.asStateFlow()
+
+    private val _workspaceError = MutableStateFlow<com.hermes.client.data.error.AppError?>(null)
+    val workspaceError: StateFlow<com.hermes.client.data.error.AppError?> = _workspaceError.asStateFlow()
+    fun clearWorkspaceError() { _workspaceError.value = null }
+
+    private var defaultProjectPath: String? = null
+
+    private fun applyWorkspace(cwd: String?, branch: String?, gitRepoRoot: String?) {
+        if (cwd.isNullOrBlank() && gitRepoRoot.isNullOrBlank()) return
+        _workspace.value = SessionWorkspace(
+            cwd = cwd?.ifBlank { null },
+            branch = branch?.ifBlank { null },
+            gitRepoRoot = gitRepoRoot?.ifBlank { null },
+            projectLabel = com.hermes.client.ui.sessions.projectLabelOfPath(cwd, gitRepoRoot, defaultProjectPath),
+        )
+    }
+
+    private fun rebuildWorkspaceProjects(profile: String?) {
+        val scoped = sessions.cachedAllProfiles().filter { profile.isNullOrBlank() || it.profile == profile }
+        _workspaceProjects.value = com.hermes.client.ui.sessions.deriveProjectsFromSessions(scoped, defaultProjectPath)
+    }
+
+    /**
+     * Re-homes this chat into [project] (`session.workspace.move`) and refreshes the subtitle from
+     * the gateway's answer. Refused locally while a turn is running (the gateway would answer
+     * 4009 anyway); failures surface as registered codes via [workspaceError].
+     */
+    fun moveToProject(project: com.hermes.client.domain.Project, onDone: () -> Unit) {
+        val id = storedSessionId.takeIf { it.isNotBlank() } ?: return
+        if (_state.value.isGenerating) {
+            _workspaceError.value = com.hermes.client.data.error.AppError(
+                com.hermes.client.data.error.AppErrorCode.SESSION_BUSY, retryable = true, stage = "workspace_move",
+            )
+            return
+        }
+        val path = project.path
+        if (path == null) {
+            _workspaceError.value = com.hermes.client.data.error.AppError(
+                com.hermes.client.data.error.AppErrorCode.PROJECT_FOLDER_MISSING, retryable = false, stage = "workspace_move",
+            )
+            return
+        }
+        val profile = currentProfile
+        viewModelScope.launch {
+            runCatching { chat.moveWorkspace(id, path, profile) }
+                .onSuccess { info ->
+                    if (storedSessionId == id) applyWorkspace(info.cwd ?: path, info.branch, info.gitRepoRoot)
+                    onDone()
+                }
+                .onFailure { e ->
+                    if (e is CancellationException) throw e
+                    _workspaceError.value = com.hermes.client.ui.sessions.workspaceMoveError(e)
+                }
+        }
+    }
     private var appLanguage: AppLanguage = AppLanguage.ZH
 
     fun setAppLanguage(language: AppLanguage) {
@@ -349,6 +422,14 @@ class ChatViewModel @Inject constructor(
         }
         _currentModel.value = cachedMeta?.model?.ifBlank { null }
         _currentProvider.value = cachedMeta?.provider?.ifBlank { null }
+        _workspace.value = null
+        _workspaceError.value = null
+        viewModelScope.launch {
+            defaultProjectPath = runCatching { projectPrefs.defaultProjectPath.first() }.getOrNull()
+            if (storedSessionId != id) return@launch
+            rebuildWorkspaceProjects(profile)
+            cachedMeta?.let { applyWorkspace(it.cwd, it.gitBranch, it.gitRepoRoot) }
+        }
         _explicitSessionOverride.value = false
         _reasoningEffort.value = null
         val cachedHistory = sessions.cachedHistory(id, profile)?.map { it.organizedForDisplay() }
@@ -378,6 +459,7 @@ class ChatViewModel @Inject constructor(
                 _sessionTitle.value = displaySessionTitle(meta.title, fallbackTitle)
                 _currentModel.value = meta.model?.ifBlank { null }
                 _currentProvider.value = meta.provider?.ifBlank { null }
+                applyWorkspace(meta.cwd, meta.gitBranch, meta.gitRepoRoot)
             }
         }
         viewModelScope.launch {
@@ -480,6 +562,15 @@ class ChatViewModel @Inject constructor(
                 it.sessionId == null || it.sessionId == sessionId || it.sessionId == storedSessionId
             }
                 .onEach { event ->
+                    if (event.type == "session.info" && (event.sessionId == sessionId || event.sessionId == storedSessionId)) {
+                        // Live workspace: cwd/branch straight from the gateway. Keep the repo root
+                        // we already know when the folder did not change (session.info omits it).
+                        val cwd = event.str("cwd")?.ifBlank { null }
+                        if (cwd != null) {
+                            val keepRoot = _workspace.value?.takeIf { it.cwd == cwd }?.gitRepoRoot
+                            applyWorkspace(cwd, event.str("branch"), keepRoot)
+                        }
+                    }
                     if (event.type == "session.title") {
                         val eventBelongsHere = event.sessionId == sessionId || event.sessionId == storedSessionId
                         if (eventBelongsHere) {
@@ -614,7 +705,7 @@ class ChatViewModel @Inject constructor(
     suspend fun createNewSession(): String? =
         runCatching { chat.createSession(profileManager.active.value) }
             .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
-            .getOrNull()
+            .getOrNull()?.id
 
     fun send(text: String) {
         val atts = _state.value.pendingAttachments

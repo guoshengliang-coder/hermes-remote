@@ -168,6 +168,16 @@ fun ChatScreen(
     }
     val unauthorized by vm.unauthorized.collectAsStateWithLifecycle()
     val sessionTitle by vm.sessionTitle.collectAsStateWithLifecycle()
+    val workspace by vm.workspace.collectAsStateWithLifecycle()
+    val workspaceProjects by vm.workspaceProjects.collectAsStateWithLifecycle()
+    val workspaceError by vm.workspaceError.collectAsStateWithLifecycle()
+    var projectSheetOpen by rememberSaveable(sessionId) { mutableStateOf(false) }
+    LaunchedEffect(workspaceError) {
+        workspaceError?.let {
+            android.widget.Toast.makeText(context, it.localizedMessage(language), android.widget.Toast.LENGTH_LONG).show()
+            vm.clearWorkspaceError()
+        }
+    }
     val currentModel by vm.currentModel.collectAsStateWithLifecycle()
     val providers by vm.providers.collectAsStateWithLifecycle()
     val favorites by vm.favorites.collectAsStateWithLifecycle()
@@ -604,11 +614,11 @@ fun ChatScreen(
                         modifier = Modifier.offset(x = (-4).dp),
                     )
                 }
-                Box(
+                androidx.compose.foundation.layout.Column(
                     Modifier
                         .weight(1f)
                         .padding(horizontal = 12.dp),
-                    contentAlignment = Alignment.CenterStart,
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
                 ) {
                     Text(
                         sessionTitle,
@@ -619,6 +629,18 @@ fun ChatScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    // Project · branch beneath the title: the workspace this chat's tools run in,
+                    // and the door to change it. Only profiles that have projects at all get the
+                    // row — a profile of plain chats keeps the single-line bar (docs/DESIGN.md §5.4).
+                    val ws = workspace
+                    if (ws != null && workspaceProjects.any { it.id != com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID }) {
+                        WorkspaceSubtitle(
+                            projectLabel = ws.projectLabel,
+                            branch = ws.branch,
+                            enabled = !state.isGenerating,
+                            onClick = { projectSheetOpen = true },
+                        )
+                    }
                 }
                 IconButton(onClick = { searchOpen = true }) {
                     Icon(
@@ -1372,6 +1394,23 @@ fun ChatScreen(
                 }
             }
         }
+    }
+
+    if (projectSheetOpen) {
+        val ws = workspace
+        val currentId = com.hermes.client.ui.sessions.projectOf(
+            com.hermes.client.domain.Session(
+                id = sessionId, title = "", model = null, provider = null, messageCount = 0, // l10n-allow: lookup stub, never rendered
+                profile = sessionProfile, cwd = ws?.cwd, gitRepoRoot = ws?.gitRepoRoot,
+            ),
+            workspaceProjects,
+        )?.id
+        com.hermes.client.ui.sessions.ProjectPickerSheet(
+            projects = workspaceProjects,
+            currentProjectId = currentId,
+            onDismiss = { projectSheetOpen = false },
+            onPick = { project -> vm.moveToProject(project) { projectSheetOpen = false } },
+        )
     }
 
     if (showPersonaSheet) {

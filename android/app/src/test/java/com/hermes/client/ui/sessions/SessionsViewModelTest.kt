@@ -7,6 +7,7 @@ import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.domain.Session
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +35,8 @@ class SessionsViewModelTest {
     private val viewModeStore = mockk<com.hermes.client.data.repository.ViewModeStore>(relaxed = true)
     private val runtimeStore = mockk<SessionRuntimeStore>(relaxed = true)
     private val toolsRepo = mockk<com.hermes.client.data.repository.ToolsRepository>(relaxed = true)
+    private val projectPrefs = mockk<com.hermes.client.data.repository.ProjectPrefsStore>(relaxed = true)
+    private val defaultPathFlow = MutableStateFlow<String?>(null)
     // Controllable so tests can flip the persisted view mode (drives the VM's launch/toggle load).
     private val modeFlow = MutableStateFlow(ViewMode.SESSIONS)
 
@@ -44,6 +47,9 @@ class SessionsViewModelTest {
         every { pinStore.pinned } returns MutableStateFlow<Set<String>>(emptySet())
         every { viewModeStore.mode } returns modeFlow
         every { runtimeStore.runtimes } returns MutableStateFlow(emptyMap())
+        every { projectPrefs.defaultProjectPath } returns defaultPathFlow
+        every { projectPrefs.introSeen } returns MutableStateFlow<Set<String>>(emptySet())
+        every { projectPrefs.projectScope } returns MutableStateFlow<String?>(null)
     }
 
     private fun session(id: String, title: String, profile: String = "personal") = Session(
@@ -52,7 +58,7 @@ class SessionsViewModelTest {
     )
 
     private fun buildVm() = SessionsViewModel(
-        sessionRepo, chatRepo, profileManager, pinStore, viewModeStore, runtimeStore, toolsRepo,
+        sessionRepo, chatRepo, profileManager, pinStore, viewModeStore, runtimeStore, toolsRepo, projectPrefs,
     )
 
     private fun repoSession(id: String, repo: String?, profile: String = "personal") = Session(
@@ -307,9 +313,10 @@ class SessionsViewModelTest {
         modeFlow.value = ViewMode.PROJECTS // persisted mode flips to Projects
         advanceUntilIdle()
 
+        // The default project is always derived (first); the other tenant's repo is absent.
         assertEquals(
-            setOf("/u/andrew/personal/travel-business"),
-            vm.projectsState.value.tree.map { it.id }.toSet(),
+            listOf(DEFAULT_PROJECT_ID, "/u/andrew/personal/travel-business"),
+            vm.projectsState.value.tree.map { it.id },
         )
     }
 
@@ -323,7 +330,7 @@ class SessionsViewModelTest {
         val vm = buildVm()
         advanceUntilIdle()
 
-        assertEquals(listOf("/u/andrew/personal/inbound"), vm.projectsState.value.tree.map { it.id })
+        assertEquals(listOf(DEFAULT_PROJECT_ID, "/u/andrew/personal/inbound"), vm.projectsState.value.tree.map { it.id })
     }
 
     @Test fun loadProjectTree_sets_error_on_failure() = runTest {
@@ -370,7 +377,7 @@ class SessionsViewModelTest {
         )
         val vm = buildVm()
         advanceUntilIdle()
-        vm.enterProject(vm.projectsState.value.tree.single())
+        vm.enterProject(vm.projectsState.value.tree.single { it.id != DEFAULT_PROJECT_ID })
 
         coEvery { sessionRepo.listAllProfiles() } returns listOf(
             repoSession("s1", "/u/andrew/p"),
@@ -389,4 +396,66 @@ class SessionsViewModelTest {
     // after enter would let the delayed fetch complete and set scope back to the hydrated
     // project (looking like the user can't leave the detail view). This test verifies the race
     // is fixed: exitProject cancels the pending fetch, scope stays null.
+
+    // ── Projects: creation rule and move-to-project ──────────────────────────────────────────
+
+    @Test fun createSession_in_a_project_passes_its_cwd_and_flags_a_silent_fallback() = runTest {
+        // The gateway falls back to its launch dir when the requested folder is gone (HR-SESS-006).
+        coEvery { chatRepo.createSession("personal", "/u/proj") } returns
+            com.hermes.client.data.repository.CreatedSession("s9", "/Users/me")
+        val vm = buildVm()
+        advanceUntilIdle()
+
+        val result = vm.createSession("/u/proj")
+
+        assertEquals("s9", result?.id)
+        assertTrue(result!!.fellBackToDefault)
+        coVerify(exactly = 0) { projectPrefs.setDefaultProjectPath(any()) }
+    }
+
+    @Test fun createSession_in_a_project_that_exists_is_not_a_fallback() = runTest {
+        coEvery { chatRepo.createSession("personal", "/u/proj") } returns
+            com.hermes.client.data.repository.CreatedSession("s9", "/u/proj/")
+        val vm = buildVm()
+        advanceUntilIdle()
+
+        assertFalse(vm.createSession("/u/proj")!!.fellBackToDefault)
+    }
+
+    @Test fun top_level_create_lands_in_the_default_project_and_teaches_its_path() = runTest {
+        coEvery { chatRepo.createSession("personal", null) } returns
+            com.hermes.client.data.repository.CreatedSession("s1", "/Users/me/")
+        val vm = buildVm()
+        advanceUntilIdle()
+
+        val result = vm.createSession(null)
+
+        assertEquals("s1", result?.id)
+        assertFalse(result!!.fellBackToDefault)
+        coVerify { projectPrefs.setDefaultProjectPath("/Users/me/") }
+    }
+
+    @Test fun moveToProject_maps_gateway_refusals_to_registered_errors() = runTest {
+        coEvery { chatRepo.moveWorkspace(any(), any(), any()) } throws
+            com.hermes.client.data.network.GatewayRpcException(4009, "session busy")
+        val vm = buildVm()
+        advanceUntilIdle()
+        val project = deriveProjectsFromSessions(listOf(repoSession("a", "/u/proj"))).first { it.id == "/u/proj" }
+
+        val error = vm.moveToProject(session("x", "x"), project)
+
+        assertEquals(com.hermes.client.data.error.AppErrorCode.SESSION_BUSY, error?.code)
+        coVerify { chatRepo.moveWorkspace("x", "/u/proj", "personal") }
+    }
+
+    @Test fun moveToProject_refuses_a_target_without_a_known_path() = runTest {
+        val vm = buildVm()
+        advanceUntilIdle()
+        val default = deriveProjectsFromSessions(emptyList()).first() // launch dir not learned yet
+
+        val error = vm.moveToProject(session("x", "x"), default)
+
+        assertEquals(com.hermes.client.data.error.AppErrorCode.PROJECT_FOLDER_MISSING, error?.code)
+        coVerify(exactly = 0) { chatRepo.moveWorkspace(any(), any(), any()) }
+    }
 }

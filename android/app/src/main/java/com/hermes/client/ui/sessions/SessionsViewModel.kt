@@ -10,6 +10,7 @@ import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.PinStore
 import com.hermes.client.data.repository.ProfileManager
+import com.hermes.client.data.repository.ProjectPrefsStore
 import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.data.repository.ViewModeStore
 import com.hermes.client.domain.Project
@@ -53,6 +54,7 @@ class SessionsViewModel @Inject constructor(
     private val viewModeStore: ViewModeStore,
     private val runtimeStore: SessionRuntimeStore,
     private val tools: com.hermes.client.data.repository.ToolsRepository,
+    private val projectPrefs: ProjectPrefsStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(
         SessionsUiState(
@@ -108,6 +110,25 @@ class SessionsViewModel @Inject constructor(
 
     private val _projects = MutableStateFlow(ProjectsUiState())
     val projectsState: StateFlow<ProjectsUiState> = _projects.asStateFlow()
+
+    /**
+     * The gateway's launch directory (the default project), learned from a top-level
+     * `session.create`. Null until one has been made on this device; derivation then folds any
+     * session living in that folder into the default project instead of a same-named project.
+     */
+    val defaultProjectPath: StateFlow<String?> =
+        projectPrefs.defaultProjectPath.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Projects whose one-time "sessions created here join <project>" notice was shown; null until loaded. */
+    val introSeen: StateFlow<Set<String>?> =
+        projectPrefs.introSeen.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun markIntroSeen(projectId: String) {
+        viewModelScope.launch { projectPrefs.markIntroSeen(projectId) }
+    }
+
+    // Project scope persisted from the previous launch; consumed by the first tree build.
+    private var restoreScopeId: String? = null
 
     /** Archived sessions for the ARCHIVED segment (scoped to the active profile). */
     data class ArchivedUiState(
@@ -169,8 +190,15 @@ class SessionsViewModel @Inject constructor(
                 val active = profileManager.active.value
                 val all = sessions.listAllProfiles()
                 val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
-                val derived = deriveProjectsFromSessions(scoped)
-                _projects.value = _projects.value.copy(loading = false, tree = derived)
+                val derived = deriveProjectsFromSessions(scoped, defaultProjectPath.value)
+                // Keep (or restore) the drilled-in project by id so a rebuild never kicks the
+                // user back to the overview — and a cold launch lands where they left off.
+                val scopeId = _projects.value.scope?.id ?: restoreScopeId.also { restoreScopeId = null }
+                _projects.value = _projects.value.copy(
+                    loading = false,
+                    tree = derived,
+                    scope = scopeId?.let { id -> derived.firstOrNull { it.id == id } },
+                )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -185,16 +213,19 @@ class SessionsViewModel @Inject constructor(
     /** Drill into a project. Derived projects already carry all their sessions — no fetch needed. */
     fun enterProject(project: Project) {
         _projects.value = _projects.value.copy(scope = project)
+        viewModelScope.launch { projectPrefs.setProjectScope(project.id) }
     }
 
     /** Return to the project overview. */
     fun exitProject() {
         _projects.value = _projects.value.copy(scope = null)
+        viewModelScope.launch { projectPrefs.setProjectScope(null) }
     }
 
     init {
         chat.connect()
         viewModelScope.launch { profileManager.refresh() }
+        viewModelScope.launch { restoreScopeId = projectPrefs.projectScope.first() }
         // The list is scoped to the active profile (like the desktop, one tenant at a time), so it
         // reloads whenever the selected profile changes — including the first value once it loads.
         // The derived project tree is scoped the same way, so rebuild it too when it was loaded.
@@ -307,7 +338,7 @@ class SessionsViewModel @Inject constructor(
             val active = profileManager.active.value
             val all = sessions.listAllProfiles()
             val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
-            val tree = deriveProjectsFromSessions(scoped)
+            val tree = deriveProjectsFromSessions(scoped, defaultProjectPath.value)
             val openProjectId = _projects.value.scope?.id
             _projects.value = ProjectsUiState(
                 tree = tree,
@@ -363,13 +394,56 @@ class SessionsViewModel @Inject constructor(
         return target == profileManager.active.value || profileManager.switchTo(target)
     }
 
-    /** Returns the new session id, or null if creation failed (so the UI doesn't crash). */
-    suspend fun createSession(): String? =
-        runCatching { chat.createSession(profileManager.active.value) }
+    /** Outcome of [createSession]: the durable id, and whether a requested project folder was refused. */
+    data class CreateResult(val id: String, val fellBackToDefault: Boolean)
+
+    /**
+     * Creates a session in [cwd] (a project folder) or, when null, in the gateway's launch
+     * directory — the default project. A top-level create teaches [defaultProjectPath]. When the
+     * gateway silently falls back because [cwd] no longer exists on the Mac, the session still
+     * opens but [CreateResult.fellBackToDefault] is set so the UI can say so (HR-SESS-006).
+     * Returns null if creation failed (so the UI doesn't crash).
+     */
+    suspend fun createSession(cwd: String? = null): CreateResult? {
+        val created = runCatching { chat.createSession(profileManager.active.value, cwd) }
             // runCatching also catches CancellationException — rethrow it so cancelling the caller
             // isn't swallowed and mistaken for a failed creation.
             .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
-            .getOrNull()
+            .getOrNull() ?: return null
+        if (cwd.isNullOrBlank()) {
+            created.cwd?.let { projectPrefs.setDefaultProjectPath(it) }
+            return CreateResult(created.id, fellBackToDefault = false)
+        }
+        val fellBack = created.cwd != null && !isDefaultProjectPath(created.cwd, cwd)
+        return CreateResult(created.id, fellBackToDefault = fellBack)
+    }
+
+    /**
+     * Re-homes [session] into [project] via `session.workspace.move`. Returns the product error on
+     * failure (busy session, missing folder, …) or null on success; the list and tree refresh.
+     */
+    suspend fun moveToProject(session: Session, project: Project): AppError? {
+        val path = project.path
+            ?: return AppError(AppErrorCode.PROJECT_FOLDER_MISSING, retryable = false, stage = "workspace_move")
+        return runCatching { chat.moveWorkspace(session.id, path, session.profile) }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+            .fold(
+                onSuccess = {
+                    // The gateway answers a move with a `session.info` (running=false) for a live
+                    // session; for a row that is not on screen the runtime store reads that as a
+                    // completed-unread run. The user just acted on this session, so clear it —
+                    // once now and once after the event has had time to land.
+                    val key = runtimeStore.runtimes.value.keys.firstOrNull { it.sessionId == session.id }
+                        ?: SessionRuntimeKey(session.profile, session.id)
+                    runtimeStore.markRead(key)
+                    viewModelScope.launch { delay(750L); runtimeStore.markRead(key) }
+                    refresh()
+                    if (_projects.value.tree.isNotEmpty()) loadProjectTree()
+                    null
+                },
+                onFailure = { workspaceMoveError(it) },
+            )
+    }
 
     fun rename(session: Session, title: String) = viewModelScope.launch {
         runCatching { sessions.rename(session.id, title, session.profile) }.onSuccess { refresh() }

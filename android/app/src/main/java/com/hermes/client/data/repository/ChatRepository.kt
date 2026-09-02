@@ -36,6 +36,12 @@ data class BackgroundProcess(
     val outputTail: String = "",
 )
 
+/** Result of `session.create`: the durable id plus the working directory the gateway resolved. */
+data class CreatedSession(val id: String, val cwd: String?)
+
+/** Workspace facts the gateway reports for a session (from `session.workspace.move` / `session.info`). */
+data class WorkspaceInfo(val cwd: String?, val branch: String?, val gitRepoRoot: String?)
+
 /** A "@" completion item: [text] is inserted, [display] shown, [meta] is a hint. */
 data class PathItem(val text: String, val display: String, val meta: String)
 
@@ -55,10 +61,16 @@ class ChatRepository(private val client: HermesGatewayClient) {
      * launch profile. Messages then persist under that default profile, but the session list is
      * scoped to the active profile — so a chat created (and messaged) under the wrong profile is
      * invisible in both the app and the desktop. Same per-profile rule as [resume].
+     *
+     * [cwd] is the project folder the session should work in. Only an explicit cwd is persisted as
+     * the session's workspace; omitted, the session lands in the gateway's launch directory (the
+     * default project). The returned [CreatedSession.cwd] is the folder the gateway actually
+     * resolved, so a caller can detect a requested folder that no longer exists on the Mac.
      */
-    suspend fun createSession(profile: String? = null): String {
+    suspend fun createSession(profile: String? = null, cwd: String? = null): CreatedSession {
         val result = client.call("session.create", buildJsonObject {
             if (!profile.isNullOrBlank()) put("profile", profile)
+            if (!cwd.isNullOrBlank()) put("cwd", cwd)
         })
         val obj = result.jsonObject
         // session.create returns an ephemeral in-memory `session_id` plus the durable
@@ -66,9 +78,31 @@ class ChatRepository(private val client: HermesGatewayClient) {
         // resumes it into a fresh live handle before the first prompt. Passing the live
         // id back to session.resume fails for a zero-message session because no DB row
         // exists yet (`session not found`). Older gateways may omit stored_session_id.
-        return obj["stored_session_id"]?.jsonPrimitive?.contentOrNull
+        val id = obj["stored_session_id"]?.jsonPrimitive?.contentOrNull
             ?: obj["session_id"]?.jsonPrimitive?.contentOrNull
             ?: error("session.create returned no id")
+        val resolvedCwd = (obj["info"] as? JsonObject)?.get("cwd")?.jsonPrimitive?.contentOrNull?.ifBlank { null }
+        return CreatedSession(id = id, cwd = resolvedCwd)
+    }
+
+    /**
+     * Re-homes a stored session into another project folder (`session.workspace.move`). Targets
+     * the durable session key, so it works for sessions with no live agent; a live agent follows
+     * through the runtime path. The gateway refuses while the session is mid-turn (4009) and when
+     * the folder does not exist on the Mac (4017) — see [com.hermes.client.ui.sessions.workspaceMoveError].
+     */
+    suspend fun moveWorkspace(sessionKey: String, cwd: String, profile: String? = null): WorkspaceInfo {
+        val result = client.call("session.workspace.move", buildJsonObject {
+            put("session_key", sessionKey)
+            put("cwd", cwd)
+            if (!profile.isNullOrBlank()) put("profile", profile)
+        })
+        val obj = result.jsonObject
+        return WorkspaceInfo(
+            cwd = obj["cwd"]?.jsonPrimitive?.contentOrNull?.ifBlank { null } ?: cwd,
+            branch = obj["branch"]?.jsonPrimitive?.contentOrNull?.ifBlank { null },
+            gitRepoRoot = obj["git_repo_root"]?.jsonPrimitive?.contentOrNull?.ifBlank { null },
+        )
     }
 
     /**

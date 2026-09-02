@@ -18,6 +18,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.alpha
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
+import com.hermes.client.ui.localization.localizedMessage
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -106,6 +110,11 @@ fun SessionsScreen(
     val projectsState by vm.projectsState.collectAsStateWithLifecycle()
     val runtimes by vm.runtimes.collectAsStateWithLifecycle()
     val unreadTokens by vm.unreadTokens.collectAsStateWithLifecycle()
+    val defaultProjectPath by vm.defaultProjectPath.collectAsStateWithLifecycle()
+    val introSeen by vm.introSeen.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
+    // Session whose「移动到项目…」picker is open (from the long-press menu).
+    var moveTarget by remember { mutableStateOf<Session?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val language = LocalAppLanguage.current
@@ -116,9 +125,21 @@ fun SessionsScreen(
     fun createSession() {
         if (creatingSession) return
         creatingSession = true
+        // One rule (docs/DESIGN.md §5.3): drilled into a real project, the new chat is created IN
+        // that folder; everywhere else — Sessions segment, overview, the default project — it
+        // lands in the gateway's launch directory, the default project. No inference, no picker.
+        val targetCwd = projectsState.scope
+            ?.takeIf { viewMode == ViewMode.PROJECTS && it.id != DEFAULT_PROJECT_ID }
+            ?.path
         scope.launch {
             try {
-                vm.createSession()?.let { onOpen(ChatLaunch.new(it, activeProfile)) }
+                vm.createSession(targetCwd)?.let { created ->
+                    if (created.fellBackToDefault) {
+                        val error = AppError(AppErrorCode.PROJECT_FELL_BACK_TO_DEFAULT, retryable = false, stage = "session_create")
+                        Toast.makeText(context, error.localizedMessage(language), Toast.LENGTH_LONG).show()
+                    }
+                    onOpen(ChatLaunch.new(created.id, activeProfile))
+                }
             } finally {
                 creatingSession = false
             }
@@ -160,7 +181,24 @@ fun SessionsScreen(
         vm.refresh()
     }
 
+    // First entry into a real project: a one-time notice that the FAB now creates there. Keyed on
+    // the project and on whether the seen-set has loaded (not on its contents) so marking the
+    // project seen does not restart the effect and cut the snackbar short.
+    val scopeProject = projectsState.scope
+    LaunchedEffect(scopeProject?.id, introSeen == null) {
+        val seen = introSeen ?: return@LaunchedEffect
+        val project = scopeProject ?: return@LaunchedEffect
+        if (project.id == DEFAULT_PROJECT_ID || project.id in seen) return@LaunchedEffect
+        vm.markIntroSeen(project.id)
+        snackbarHostState.showSnackbar(
+            message = localized(language, "在这里新建的会话会归入 ${project.label}", "Chats created here join ${project.label}"),
+            actionLabel = localized(language, "知道了", "Got it"),
+            duration = androidx.compose.material3.SnackbarDuration.Short,
+        )
+    }
+
     Scaffold(
+        snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHostState) },
         topBar = {
             Column {
                 com.hermes.client.ui.components.HermesTopBar(
@@ -239,19 +277,30 @@ fun SessionsScreen(
                         projectsState.scope != null ->
                             ProjectScopeView(
                                 project = projectsState.scope!!,
+                                defaultProjectPath = defaultProjectPath,
                                 onBack = { vm.exitProject() },
                                 // Projects span profiles, so switch to the session's own profile
                                 // (awaited) before opening, or the chat resumes against the wrong DB.
                                 onOpenSession = ::openExisting,
                             )
-                        projectsState.tree.isEmpty() ->
+                        // The default project is always derived; "no projects" means nothing else
+                        // exists yet AND the default project is empty too.
+                        projectsState.tree.all { it.id == DEFAULT_PROJECT_ID && it.sessionCount == 0 } ->
                             com.hermes.client.ui.components.EmptyState(
                                 title = localized(language, "暂无项目", "No projects"),
-                                subtitle = localized(language, "在项目文件夹中运行的会话会显示在这里。", "Chats run in a project folder show up here."),
+                                subtitle = localized(
+                                    language,
+                                    "会话页新建的会话属于默认项目；在项目文件夹中运行的会话会显示在这里。",
+                                    "Chats created from Sessions belong to the default project; chats run in a project folder show up here.",
+                                ),
                                 actionLabel = localized(language, "重新加载", "Reload"),
                                 onAction = { vm.loadProjectTree() },
                             )
-                        else -> ProjectOverview(projectsState.tree, onOpenProject = { vm.enterProject(it) })
+                        else -> ProjectOverview(
+                            projectsState.tree,
+                            nowMs = System.currentTimeMillis(),
+                            onOpenProject = { vm.enterProject(it) },
+                        )
                     }
                 }
             } else if (viewMode == ViewMode.ARCHIVED) {
@@ -274,6 +323,7 @@ fun SessionsScreen(
                             items(archivedState.sessions, key = { "a-${it.profile.orEmpty()}:${it.id}" }) { s ->
                                 ArchivedRow(
                                     session = s,
+                                    defaultProjectPath = defaultProjectPath,
                                     onOpen = { openExisting(s) },
                                     onUnarchive = { vm.unarchive(s) },
                                     onDelete = { vm.delete(s) },
@@ -392,7 +442,7 @@ fun SessionsScreen(
                                     if ("needs" !in collapsed) {
                                         items(needsYou, key = { "n-${it.profile.orEmpty()}:${it.id}" }) { s ->
                                             SessionRow(
-                                                session = s, isPinned = isPinned(s), profileCount = profiles.size,
+                                                session = s, isPinned = isPinned(s), defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
                                                 onOpen = { openExisting(s) },
@@ -416,7 +466,7 @@ fun SessionsScreen(
                                     if ("pinned" !in collapsed) {
                                         items(pinned, key = { "p-${it.id}" }) { s ->
                                             SessionRow(
-                                                session = s, isPinned = true, profileCount = profiles.size,
+                                                session = s, isPinned = true, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
                                                 onOpen = { openExisting(s) },
@@ -439,7 +489,7 @@ fun SessionsScreen(
                                     if ("today" !in collapsed) {
                                         items(groups.today, key = { "today-${it.profile.orEmpty()}:${it.id}" }) { s ->
                                             SessionRow(
-                                                session = s, isPinned = false, profileCount = profiles.size,
+                                                session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
                                                 onOpen = { openExisting(s) },
@@ -462,7 +512,7 @@ fun SessionsScreen(
                                     if ("week" !in collapsed) {
                                         items(groups.week, key = { "week-${it.profile.orEmpty()}:${it.id}" }) { s ->
                                             SessionRow(
-                                                session = s, isPinned = false, profileCount = profiles.size,
+                                                session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
                                                 onOpen = { openExisting(s) },
@@ -485,7 +535,7 @@ fun SessionsScreen(
                                     if ("earlier" !in collapsed) {
                                         items(groups.earlier, key = { "earlier-${it.profile.orEmpty()}:${it.id}" }) { s ->
                                             SessionRow(
-                                                session = s, isPinned = false, profileCount = profiles.size,
+                                                session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
                                                 onOpen = { openExisting(s) },
@@ -541,6 +591,26 @@ fun SessionsScreen(
         }
     }
 
+    moveTarget?.let { target ->
+        val projects = remember(state.sessions, defaultProjectPath) {
+            deriveProjectsFromSessions(state.sessions, defaultProjectPath)
+        }
+        ProjectPickerSheet(
+            projects = projects,
+            currentProjectId = projectOf(target, projects)?.id,
+            onDismiss = { moveTarget = null },
+            onPick = { project ->
+                moveTarget = null
+                val label = if (project.id == DEFAULT_PROJECT_ID) localized(language, "默认项目", "Default project") else project.label
+                scope.launch {
+                    val error = vm.moveToProject(target, project)
+                    val text = error?.localizedMessage(language)
+                        ?: localized(language, "已移动到 $label", "Moved to $label")
+                    Toast.makeText(context, text, if (error != null) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
+                }
+            },
+        )
+    }
 }
 
 /**
@@ -552,6 +622,7 @@ fun SessionsScreen(
 @Composable
 private fun ArchivedRow(
     session: Session,
+    defaultProjectPath: String?,
     onOpen: () -> Unit,
     onUnarchive: () -> Unit,
     onDelete: () -> Unit,
@@ -571,7 +642,7 @@ private fun ArchivedRow(
             )
         },
         headlineContent = { Text(session.title) },
-        supportingContent = { Text(session.model ?: "") },
+        supportingContent = { SessionSubline(session, defaultProjectPath = defaultProjectPath) },
         modifier = Modifier.combinedClickable(
             onClick = onOpen,
             onLongClick = {
@@ -676,7 +747,8 @@ private fun SectionHeader(
 private fun SessionRow(
     session: Session,
     isPinned: Boolean,
-    profileCount: Int,
+    defaultProjectPath: String?,
+    onMoveToProject: () -> Unit,
     runtime: SessionRuntime? = null,
     unread: Boolean = false,
     onOpen: () -> Unit,
@@ -697,7 +769,9 @@ private fun SessionRow(
         runtime != null && runtime.phase != SessionRunPhase.IDLE -> ({ RuntimeIndicator(runtime) })
         else -> null
     }
-    val profileLabel = profileDisplayLabel(session.profile, profileCount, language)
+    // Moving a running session is refused by the gateway (4009); grey the item out instead of
+    // letting the tap fail.
+    val moveEnabled = runtime?.hasActiveWork != true && runtime?.phase?.isActive != true
 
     ListItem(
             headlineContent = { Text(session.title) },
@@ -711,14 +785,11 @@ private fun SessionRow(
                     )
                 }
             } else null,
-            // Pinned rows pool across profiles, so the tenant prefix stays to disambiguate;
-            // grouped rows already sit under a profile header, so it would be redundant there.
+            // Project · model, then the live status line. No profile text: the list is scoped to
+            // one profile and identity lives only in the avatar (docs/DESIGN.md §1).
             supportingContent = {
                 Column {
-                    listOfNotNull(profileLabel, session.model?.ifBlank { null })
-                        .joinToString(" · ")
-                        .takeIf { it.isNotBlank() }
-                        ?.let { Text(it) }
+                    SessionSubline(session, defaultProjectPath = defaultProjectPath)
                     runtime?.takeIf { it.phase != SessionRunPhase.IDLE || it.hasRunningProcesses }?.let { value ->
                         Text(
                             runtimeLabel(value, language),
@@ -756,6 +827,18 @@ private fun SessionRow(
                 headlineContent = { Text(localized(language, "重命名", "Rename")) },
                 leadingContent = { Icon(Icons.Rounded.Edit, contentDescription = null) },
                 modifier = Modifier.clickable { menuOpen = false; renaming = true },
+            )
+            val currentLabel = projectLabelOf(session, defaultProjectPath)
+                ?: localized(language, "默认项目", "Default project")
+            ListItem(
+                headlineContent = { Text(localized(language, "移动到项目…", "Move to project…")) },
+                supportingContent = { Text(localized(language, "当前：$currentLabel", "Current: $currentLabel")) },
+                leadingContent = {
+                    Icon(com.hermes.client.ui.components.FolderStrokeIcon, contentDescription = null, modifier = Modifier.size(24.dp))
+                },
+                modifier = Modifier
+                    .alpha(if (moveEnabled) 1f else 0.38f)
+                    .clickable(enabled = moveEnabled) { menuOpen = false; onMoveToProject() },
             )
             ListItem(
                 headlineContent = { Text(localized(language, "归档", "Archive")) },
@@ -808,20 +891,6 @@ private fun SessionRow(
             },
             dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text(localized(language, "取消", "Cancel")) } },
         )
-    }
-}
-
-internal fun profileDisplayLabel(
-    profile: String?,
-    profileCount: Int,
-    language: com.hermes.client.ui.localization.AppLanguage,
-): String? {
-    if (profileCount <= 1) return null
-    val normalized = profile?.trim().orEmpty().ifBlank { "default" }
-    return if (normalized.equals("default", ignoreCase = true)) {
-        localized(language, "默认身份", "Default profile")
-    } else {
-        localized(language, "身份：$normalized", "Profile: $normalized")
     }
 }
 
