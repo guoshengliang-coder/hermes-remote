@@ -82,6 +82,7 @@ class SearchViewModel @Inject constructor(
     private val sessions: SessionRepository,
     private val profileManager: ProfileManager,
     projectPrefs: com.hermes.client.data.repository.ProjectPrefsStore,
+    pinStore: com.hermes.client.data.repository.PinStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(SearchUiState())
     val state: StateFlow<SearchUiState> = _state.asStateFlow()
@@ -89,6 +90,10 @@ class SearchViewModel @Inject constructor(
     /** Gateway launch directory (the default project) so result sublines fold it correctly. */
     val defaultProjectPath: StateFlow<String?> =
         projectPrefs.defaultProjectPath.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
+
+    /** Device-local pins, so title-match rows can carry the subline pin marker (DESIGN.md §5.2). */
+    val pinnedTokens: StateFlow<Set<String>> =
+        pinStore.pinned.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptySet())
 
     /** The live or archived session a message hit belongs to (null when it is not in scope). */
     fun sessionFor(sessionId: String): Session? =
@@ -174,6 +179,7 @@ fun SearchScreen(
     val context = LocalContext.current
     val state by vm.state.collectAsStateWithLifecycle()
     val defaultProjectPath by vm.defaultProjectPath.collectAsStateWithLifecycle()
+    val pinnedTokens by vm.pinnedTokens.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val focus = androidx.compose.runtime.remember { FocusRequester() }
     var openRequestJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -233,7 +239,13 @@ fun SearchScreen(
                     items(state.titleMatches, key = { "t-${it.archived}-${it.session.profile.orEmpty()}:${it.session.id}" }) { m ->
                         ListItem(
                             headlineContent = { Text(m.session.title) },
-                            supportingContent = { SessionSubline(m.session, defaultProjectPath = defaultProjectPath) },
+                            supportingContent = {
+                                SessionSubline(
+                                    m.session,
+                                    defaultProjectPath = defaultProjectPath,
+                                    pinned = com.hermes.client.data.repository.PinStore.token(m.session.profile, m.session.id) in pinnedTokens,
+                                )
+                            },
                             trailingContent = if (m.archived) ({
                                 Text(
                                     localized(language, "已归档", "Archived"),

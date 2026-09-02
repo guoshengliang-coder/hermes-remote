@@ -133,8 +133,8 @@
 ### 4.2 清单与尺寸
 - 卡片页私有（`CardPage.kt`）：齿轮、时钟、月亮、立方体、下载盒、细箭头 ThinChevron。
 - 公共（`ui/components/StrokeIcons.kt`）：FolderStrokeIcon、HomeFolderStrokeIcon（默认项目：
-  文件夹内一间房子）、BranchStrokeIcon（git 分支）、ArchiveBoxIcon、ThinChevronIcon。新增图标
-  **优先入公共文件**。
+  文件夹内一间房子）、BranchStrokeIcon（git 分支）、ArchiveBoxIcon、ThinChevronIcon、
+  PinStrokeIcon（置顶，小尺寸补偿 2.4 描边）。新增图标**优先入公共文件**。
 - 尺寸：快捷行/齿轮钮内 22dp；行尾细箭头 20dp；列表 leading（文件夹/归档盒）24dp；
   副行内嵌图标 14dp；聊天顶栏副标题内嵌图标与小箭头 12dp。
 
@@ -175,6 +175,11 @@
   不写「无项目」占位）。图标用 onSurfaceVariant 中性色，不用品牌蓝。会话列表、已归档、搜索
   标题匹配三处共用；项目内钻入行改为 `[分支图标] 分支 · 模型`（项目名由页头承担）。
   搜索的消息匹配行第三行为「会话标题 · [文件夹] 项目」，不显示模型。
+- **置顶标记在副行**（决策 2026-09-02，设计稿 `docs/design/pinned-row.html` 方案 B）：
+  `[14dp 品牌蓝描边图钉] [文件夹] 项目 · 模型`，图钉是副行第一个前缀。**不再用 ListItem 的
+  leading 槽**：旧版 Material 实心图钉在三行项里顶对齐、两行项里居中，且把标题推到 52dp，
+  与其他行不在一条竖线上。分组头「已置顶 · 仅此设备」仍是主要表达，副行图钉负责折叠 / 搜索等
+  看不到分组头的场景。TalkBack 由图钉的「已置顶」描述承担。
 - **列表行不出现身份文字**（原则 3 的落地）：多身份时旧版曾在副行拼「身份：xxx」，
   2026-09-02 随副行组件一并删除。
 - 长按菜单新增「移动到项目…」（置于重命名与归档之间），副行「当前：<项目>」；会话运行中

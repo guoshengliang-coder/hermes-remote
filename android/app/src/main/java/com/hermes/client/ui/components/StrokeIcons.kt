@@ -196,3 +196,13 @@ val CameraStrokeIcon: ImageVector by lazy {
         arcTo(3.2f, 3.2f, 0f, true, true, 15.2f, 13f)
     }
 }
+
+/** Push pin — the pinned-session prefix in the list subline (docs/DESIGN.md §5.2). */
+val PinStrokeIcon: ImageVector by lazy {
+    smallStrokeIcon("StrokePin") {
+        moveTo(9f, 3f); lineTo(15f, 3f)
+        moveTo(10f, 3f); lineTo(10f, 8.5f); lineTo(7f, 12f); lineTo(7f, 14f)
+        lineTo(17f, 14f); lineTo(17f, 12f); lineTo(14f, 8.5f); lineTo(14f, 3f)
+        moveTo(12f, 14f); lineTo(12f, 21f)
+    }
+}

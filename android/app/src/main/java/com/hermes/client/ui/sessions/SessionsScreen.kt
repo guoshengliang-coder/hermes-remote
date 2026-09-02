@@ -774,21 +774,13 @@ private fun SessionRow(
 
     ListItem(
             headlineContent = { Text(session.title) },
-            leadingContent = if (isPinned) {
-                {
-                    Icon(
-                        Icons.Rounded.PushPin,
-                        contentDescription = localized(language, "已置顶", "Pinned"),
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            } else null,
-            // Project · model, then the live status line. No profile text: the list is scoped to
-            // one profile and identity lives only in the avatar (docs/DESIGN.md §1).
+            // No leading slot: the pinned marker rides in the subline so every title shares one
+            // left edge (docs/DESIGN.md §5.2). Project · model, then the live status line. No
+            // profile text: the list is scoped to one profile and identity lives only in the
+            // avatar (docs/DESIGN.md §1).
             supportingContent = {
                 Column {
-                    SessionSubline(session, defaultProjectPath = defaultProjectPath)
+                    SessionSubline(session, defaultProjectPath = defaultProjectPath, pinned = isPinned)
                     runtime?.takeIf { it.phase != SessionRunPhase.IDLE || it.hasRunningProcesses }?.let { value ->
                         Text(
                             runtimeLabel(value, language),
