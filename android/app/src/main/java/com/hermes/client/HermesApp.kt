@@ -21,6 +21,7 @@ class HermesApp : Application() {
     @Inject lateinit var lifecycleMonitoring: com.hermes.client.notifications.LifecycleMonitoringCoordinator
     @Inject lateinit var modelCatalog: com.hermes.client.data.repository.ModelCatalogStore
     @Inject lateinit var notifier: com.hermes.client.notifications.HermesNotifier
+    @Inject lateinit var sessionNotifications: com.hermes.client.notifications.SessionNotificationCoordinator
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -47,6 +48,8 @@ class HermesApp : Application() {
             }
             .launchIn(appScope)
         lifecycleMonitoring.start()
+        // One card per session, projected from the runtime store; must start on the main thread.
+        sessionNotifications.start()
         // Keep the model catalog warm: refresh in the background on every start/foreground so
         // the model picker opens instantly from cache instead of showing a loading state.
         modelCatalog.start()

@@ -17,12 +17,18 @@ class ReceiverActionTest {
         assertEquals(ReceiverAction.Approval(ApprovalChoice.DENY), receiverActionFor(Notif.ACTION_DENY))
     }
 
-    @Test fun reply_maps_to_reply() {
+    @Test fun reply_and_choice_map_to_clarify_answers() {
         assertEquals(ReceiverAction.Reply, receiverActionFor(Notif.ACTION_REPLY))
+        assertEquals(ReceiverAction.Choice, receiverActionFor(Notif.ACTION_CHOICE))
     }
 
-    @Test fun null_and_unknown_map_to_unknown() {
+    @Test fun dismissed_maps_to_dismissed() {
+        assertEquals(ReceiverAction.Dismissed, receiverActionFor(Notif.ACTION_DISMISSED))
+    }
+
+    @Test fun null_open_and_unknown_map_to_unknown() {
         assertEquals(ReceiverAction.Unknown, receiverActionFor(null))
+        assertEquals(ReceiverAction.Unknown, receiverActionFor(Notif.ACTION_OPEN))
         assertEquals(ReceiverAction.Unknown, receiverActionFor("something_else"))
     }
 }

@@ -62,17 +62,40 @@ curl -X POST -H "X-Hermes-Session-Token: $APP_TOKEN" \
    foreground-service notification. Its session row should move through running, waiting (when
    applicable), and completed/unread states.
 2. Start a task from Android, put the app in the background, and confirm one ongoing service
-   notification remains while the run is active. Complete the task and confirm the completion
-   notification replaces the running state and the service stops.
+   notification ("后台保持连接 · 正在监控 1 个任务") plus one silent per-session progress card
+   (session title, "运行中", elapsed timer, tool name) remain while the run is active. Complete the
+   task and confirm the SAME card turns into "已完成" with the reply snippet and duration, and the
+   service stops without removing that card.
 3. With no Android-started task active, leave the app in the background. Confirm there is no
    persistent service and no idle gateway ping loop. A task completed elsewhere should be found by
    the next OS-managed periodic check; Android may defer that check beyond 15 minutes.
 4. Repeat a delivered Relay batch or restart Android between notification delivery and cursor
-   persistence. Confirm the stable notification is updated rather than duplicated.
+   persistence. Confirm the session's single card is updated rather than duplicated, and that a
+   completion already delivered by the live socket (and already read) does not come back as a
+   second "已完成" card.
 5. Select **Real-time** and confirm the background service remains present. Select **Power saving**
    and confirm the service stops even when a locally started run is still active.
 6. Deny notification permission and verify chat remains functional. On Android 13+, re-enable the
    permission in system settings and repeat the lock-screen and heads-up checks for each channel.
+7. Card rules (2026-09 one-card-per-session rework): trigger an approval while the app is in the
+   background — expect a heads-up card titled with the session name, header "需要审批", the command
+   in the body, and Allow once / This session / Deny buttons. Approve it inside the app instead and
+   confirm the card disappears immediately. Trigger a clarify with two choices — expect the two
+   choices as buttons plus "回复…"; tap one and confirm the card shows "处理中…" then moves on.
+8. While viewing the chat that is running, confirm no card for that session is showing; navigate
+   to the session list (app still foreground) and confirm its card appears silently (no sound, no
+   heads-up). Lock the phone with the chat still open and confirm the card is posted normally.
+9. Run two sessions from two profiles at once: expect two progress cards with different accent
+   colours matching the in-app avatars, the profile name in each header, and a group summary line
+   ("2 个运行中"). On a ROM that replaces the small icon with the launcher icon, the header text
+   must still identify the profile.
+10. Swipe a running card away: it must not return until the run finishes; the "已完成" card must
+    then appear. Open that chat and leave it: the card must not come back.
+11. Put the phone in airplane mode, press Deny on an approval card: expect the card to show
+    "发送失败，请重试" with HR-NOTIF-001 and the buttons restored; restore the network and retry.
+12. On Android 16, confirm the running card is promoted to a status-bar Live Update with the
+    "n/m" chip when the run reports todos; with two runs the system picks one — no crash, no
+    cross-overwrite.
 
 For a deployed relay, set `PUBLIC_GATEWAY_URL` and `APP_TOKEN` in the invoking shell before running the same script. Keep the token out of command history and source control. A successful real-Hermes run accepts `gateway.ready` and any non-error result from `session.create`.
 

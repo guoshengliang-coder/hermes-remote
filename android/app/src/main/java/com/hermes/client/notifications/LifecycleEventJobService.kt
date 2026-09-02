@@ -35,7 +35,7 @@ class LifecycleEventJobService : JobService() {
             try {
                 val prefs = settings.prefs.first()
                 if (prefs.enabled) {
-                    events.sync { batch -> dispatcher.dispatch(batch, prefs, appInForeground = false) }
+                    events.sync { batch -> dispatcher.dispatch(batch) }
                 }
                 jobFinished(params, false)
             } catch (cancelled: CancellationException) {
