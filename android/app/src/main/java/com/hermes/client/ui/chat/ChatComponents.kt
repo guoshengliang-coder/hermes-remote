@@ -547,12 +547,15 @@ fun ChatMessageList(
             }
     }
     val displayMessages = remember(settledTurns, effectiveTail) {
-        val tail = effectiveTail ?: return@remember settledTurns
-        val previous = settledTurns.lastOrNull()
+        // display_kind=hidden rows are context-only (compaction wrappers etc.) and
+        // must not occupy a turn slot at all.
+        val visible = settledTurns.filterNot(::isHiddenTimelineMessage)
+        val tail = effectiveTail ?: return@remember visible
+        val previous = visible.lastOrNull()
         if (previous?.role == Role.ASSISTANT && tail.role == Role.ASSISTANT) {
-            settledTurns.dropLast(1) + mergeAssistantTurns(previous, tail)
+            visible.dropLast(1) + mergeAssistantTurns(previous, tail)
         } else {
-            settledTurns + tail
+            visible + tail
         }
     }
     val displayKeys = remember(displayMessages) { displayMessages.conversationRenderKeys() }
@@ -1104,6 +1107,12 @@ private fun MessageBubble(
     smoothLiveResize: Boolean = false,
     highlighted: Boolean = false,
 ) {
+    // Server-injected timeline markers render as a quiet centered note (no bubble,
+    // no long-press actions) — see TimelineNote.kt for the classification rules.
+    timelineNoteFor(msg)?.let { note ->
+        TimelineNoteRow(note, msg)
+        return
+    }
     when (msg.role) {
         Role.USER -> UserBubble(msg, onEditResend, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted)
         else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, highlighted = highlighted)

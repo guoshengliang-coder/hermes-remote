@@ -83,43 +83,12 @@ SIGNING="$(mktemp)"
 trap 'rm -f "$BADGING" "$SIGNING"' EXIT
 "$AAPT" dump badging "$ARTIFACT" > "$BADGING"
 
-python3 - "$BADGING" "$VERSION_NAME" "$VERSION_CODE" <<'PY'
-import re
-import sys
-
-path, expected_name, expected_code = sys.argv[1:]
-text = open(path, encoding="utf-8").read()
-match = re.search(r"package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", text)
-if not match:
-    raise SystemExit("unable to read APK package metadata")
-package, code, name = match.groups()
-if package != "com.hermes.remote":
-    raise SystemExit(f"unexpected applicationId: {package}")
-if name != expected_name or code != expected_code:
-    raise SystemExit(
-        f"APK version mismatch: got {name}/{code}, expected {expected_name}/{expected_code}"
-    )
-PY
+# Verifies the package identity and reports the minSdk the APK itself declares, so publication
+# metadata always describes the real archive instead of a constant.
+MIN_SDK="$(python3 "$ROOT/scripts/lib/apk_badging.py" "$BADGING" com.hermes.remote "$VERSION_NAME" "$VERSION_CODE")"
 
 "$APKSIGNER" verify --print-certs "$ARTIFACT" > "$SIGNING"
-ACTUAL_CERT_SHA256="$(python3 - "$SIGNING" <<'PY'
-import re
-import sys
-
-text = open(sys.argv[1], encoding="utf-8").read()
-matches = re.findall(
-    r"^(?:Signer #\d+|V\d+ Signer): certificate SHA-256 digest:\s*([0-9a-fA-F]+)\s*$",
-    text,
-    re.MULTILINE,
-)
-digests = {value.lower() for value in matches}
-if not digests:
-    raise SystemExit("unable to read APK signing certificate SHA-256")
-if len(digests) != 1:
-    raise SystemExit("APK contains more than one signing certificate SHA-256")
-print(digests.pop())
-PY
-)"
+ACTUAL_CERT_SHA256="$(python3 "$ROOT/scripts/lib/apk_signing.py" "$SIGNING")"
 if [[ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]]; then
   echo "APK signing certificate mismatch: got $ACTUAL_CERT_SHA256, expected $EXPECTED_CERT_SHA256" >&2
   exit 1
@@ -144,20 +113,21 @@ echo "APK_RELEASE_OK"
 echo "VERSION_NAME=$VERSION_NAME"
 echo "VERSION_CODE=$VERSION_CODE"
 echo "ARTIFACT=$ARTIFACT"
+echo "MIN_SDK=$MIN_SDK"
 echo "BYTES=$BYTES"
 echo "CERT_SHA256=$ACTUAL_CERT_SHA256"
 echo "SHA256=$SHA256"
 
 if [[ -n "${APK_RELEASE_METADATA_FILE:-}" ]]; then
   umask 077
-  python3 - "$APK_RELEASE_METADATA_FILE" "$VERSION_NAME" "$VERSION_CODE" "$ARTIFACT" "$BYTES" "$ACTUAL_CERT_SHA256" "$SHA256" <<'PY'
+  python3 - "$APK_RELEASE_METADATA_FILE" "$VERSION_NAME" "$VERSION_CODE" "$ARTIFACT" "$BYTES" "$ACTUAL_CERT_SHA256" "$SHA256" "$MIN_SDK" <<'PY'
 import json, os, sys, tempfile
-target, name, code, artifact, size, cert, sha = sys.argv[1:]
+target, name, code, artifact, size, cert, sha, min_sdk = sys.argv[1:]
 directory = os.path.dirname(os.path.abspath(target))
 fd, temporary = tempfile.mkstemp(dir=directory, prefix='.apk-release-', text=True)
 try:
     with os.fdopen(fd, 'w', encoding='utf-8') as stream:
-        json.dump({'gate':'APK_RELEASE_OK','versionName':name,'versionCode':int(code),'artifact':artifact,'sizeBytes':int(size),'certificateSha256':cert,'sha256':sha}, stream)
+        json.dump({'gate':'APK_RELEASE_OK','versionName':name,'versionCode':int(code),'artifact':artifact,'sizeBytes':int(size),'certificateSha256':cert,'sha256':sha,'minSdk':int(min_sdk)}, stream)
         stream.write('\n')
     os.replace(temporary, target)
 finally:

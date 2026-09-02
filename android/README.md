@@ -191,6 +191,20 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.77 stops covering the status bar and silences injected protocol turns. The app now
+  declares edge-to-edge explicitly and drives status/navigation-bar icon appearance from the app's
+  own theme (dark icons over the light UI even when the OS is in dark mode), so the clock and
+  signal cluster stay visible. Server-injected system turns (async delegation reports, model
+  switches, crash resumes) render as one-line centered timeline notes — expandable into a
+  collapsed monospace card when they carry a body — instead of half-screen user bubbles;
+  display_kind=hidden rows leave the transcript entirely and unknown future markers degrade to a
+  quiet generic note.
+- Version 0.1.76 rebuilds App updates around one safe recommended version: opening the page checks
+  automatically while any local download recovers independently, history is read-only, and only the
+  manifest latest can download/install. Downloading now has queued, paused, cancelling, retry and
+  cleanup recovery states, APK/index resource limits, precise diagnostics, accessible state changes,
+  and light/dark/large-font screenshot coverage. The release pipeline now validates APK minSdk,
+  isolates release credentials, pins CI Actions, and serializes publication with a kernel lock.
 - Version 0.1.75 fixes the root cause of decision-card answers arriving empty (verified live
   against the production Hermes): newer Hermes emits every clarify as a questions[] batch, so a
   single question is a one-element batch. Answering it without question_id released the agent's
@@ -380,7 +394,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.75-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.77-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

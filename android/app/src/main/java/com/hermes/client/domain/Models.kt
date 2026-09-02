@@ -88,6 +88,11 @@ data class ChatMessage(
     val isStreaming: Boolean = false,
     val isError: Boolean = false,
     val interrupted: Boolean = false,
+    // Server timeline marker (display_kind) for injected turns; null for real conversation turns.
+    val displayKind: String? = null,
+    // From display_metadata of async_delegation_complete: how many subtasks ran / failed.
+    val displayTaskCount: Int? = null,
+    val displayFailedCount: Int? = null,
 )
 
 /** A server-authoritative project (explicit user project or an auto git-repo/discovered project). */

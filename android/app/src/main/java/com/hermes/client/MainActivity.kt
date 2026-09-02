@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.Surface
@@ -63,6 +64,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Android 15+ already enforces edge-to-edge for targetSdk 35+; declaring it
+        // makes pre-15 devices behave identically (screens already handle insets).
+        enableEdgeToEdge()
         startupViewModel.onActivityCreated(processColdStart)
         val dlData = intent?.data
         if (dlData != null && isNewChatLink(dlData.toString())) {
@@ -85,6 +89,18 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
+            }
+            // System-bar icons must follow the APP's theme, not the OS DayNight default:
+            // with the OS in dark mode but the app in light mode, the default leaves
+            // white icons over our white edge-to-edge background — an invisible clock
+            // and signal cluster (reported 2026-09-01).
+            val view = androidx.compose.ui.platform.LocalView.current
+            if (!view.isInEditMode) {
+                androidx.compose.runtime.LaunchedEffect(dark) {
+                    val controller = androidx.core.view.WindowCompat.getInsetsController(window, view)
+                    controller.isAppearanceLightStatusBars = !dark
+                    controller.isAppearanceLightNavigationBars = !dark
+                }
             }
             val avatarColors by avatarColorStore.overrides.collectAsState(initial = emptyMap())
             val startupState by startupViewModel.state.collectAsState()

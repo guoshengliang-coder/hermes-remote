@@ -7,6 +7,7 @@ import mockwebserver3.junit4.MockWebServerRule
 import okhttp3.Request
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -37,6 +38,23 @@ class UpdateHttpClientTest {
         assertNull(request.headers["x-hermes-session-token"])
         assertNull(request.headers["Cookie"])
         assertNull(request.headers["Authorization"])
+    }
+
+    @Test
+    fun `index response is bounded before it is buffered or parsed`() = runTest {
+        val server = originRule.server
+        val limit = emptyIndex.toByteArray().size.toLong()
+        server.enqueue(MockResponse.Builder().code(200).body(emptyIndex + " ".repeat(64)).build())
+        val failure = runCatching {
+            fetchUpdateIndex(createUpdateHttpClient(), server.url("/index.json").toString(), UpdateManifestParser(Json, certificate), limit)
+        }.exceptionOrNull()
+        assertTrue(failure is IllegalArgumentException)
+
+        server.enqueue(MockResponse.Builder().code(200).body(emptyIndex).build())
+        assertEquals(
+            0,
+            fetchUpdateIndex(createUpdateHttpClient(), server.url("/index.json").toString(), UpdateManifestParser(Json, certificate), limit).latestVersionCode,
+        )
     }
 
     @Test

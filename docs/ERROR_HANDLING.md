@@ -124,6 +124,14 @@ expanded without changing the underlying meaning.
 | `HR-CONFIG-002` | Configuration could not be saved | 无法保存配置，请重试。 | Couldn't save the configuration. Retry. | Yes |
 | `HR-CONFIG-003` | Relay URL is invalid | Relay 地址格式无效，请检查后重试。 | The Relay URL is invalid. Check it and retry. | Yes |
 | `HR-UPDATE-001` | Unmapped update check, download, verification, or installer failure | 更新操作失败，请重试。 | The update operation failed. Retry. | Yes |
+| `HR-UPDATE-002` | Update index could not be fetched or parsed | 无法检查更新，请检查网络后重试。 | Couldn't check for updates. Check your network and retry. | Yes |
+| `HR-UPDATE-003` | DownloadManager job could not be enqueued or persisted | 无法开始下载更新，请重试。 | Couldn't start the update download. Retry. | Yes |
+| `HR-UPDATE-004` | DownloadManager reported a failed download | 更新下载失败，请重试。 | The update download failed. Retry. | Yes |
+| `HR-UPDATE-005` | Downloaded APK failed size/hash/identity/signature verification | 安装包校验未通过，已阻止安装，请重新下载。 | The package failed verification and was blocked. Download it again. | Yes (re-download only; installation stays blocked) |
+| `HR-UPDATE-006` | Persisted download record or completed file is missing | 下载记录已丢失，请重新下载。 | The download record was lost. Download the update again. | Yes |
+| `HR-UPDATE-007` | System package installer could not be opened | 无法打开系统安装器，请重试。 | Couldn't open the system installer. Retry. | Yes |
+| `HR-UPDATE-008` | DownloadManager job, persisted metadata, or residual APK could not be cleaned up | 无法清理更新下载，请重试。 | Couldn't clean up the update download. Retry. | Yes |
+| `HR-UPDATE-009` | A restored/downloaded APK is no longer the manifest's latest release | 已发布更新版本，请删除旧下载后获取最新版。 | A newer release is available. Delete the old download and get the latest version. | No (delete old download, then download latest) |
 | `HR-FILE-001` | A selected attachment could not be read | 无法读取所选文件，请重新选择。 | Couldn't read the selected file. Choose it again. | Yes |
 | `HR-MEDIA-001` | Image save, preparation, or share operation failed | 图片操作失败，请重试。 | The image operation failed. Retry. | Yes |
 | `HR-PERM-003` | Android blocks installation from this source | 需要允许安装未知应用，授权后请重试。 | Permission to install unknown apps is required. Grant it and retry. | Yes |
