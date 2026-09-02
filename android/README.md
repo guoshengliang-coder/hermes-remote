@@ -191,6 +191,16 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.81 adds per-profile identity personalisation, kept on the phone until account sync
+  exists. Each Hermes profile can carry a display name (the profile name moves to the subline on
+  the card page and the picker), a photo (system Photo Picker, centre-cropped to a 512px WebP under
+  the app's private avatars directory), a colour from the swatches or a hue slider whose saturation
+  and lightness stay locked so white initials keep their contrast, and a solid or outline lettered
+  style (outline lifts its hue on dark surfaces). A new 身份设置 screen — opened from the pencil on
+  each picker row — previews the draft on a 96dp avatar, saves explicitly, and asks before
+  discarding; the old palette button and colour sheet are gone. Notifications use the custom
+  colour as their accent. Colours chosen in earlier versions migrate automatically. New error codes
+  HR-MEDIA-002 (photo could not be read) and HR-STORE-001 (identity settings could not be saved).
 - Version 0.1.80 reworks the notification shade into one card per session. WebSocket and Relay
   inbox events fold into the session runtime store first and a single projector turns each
   session's phase into its one card (running → needs approval / needs your answer → done or
@@ -426,7 +436,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.80-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.81-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
