@@ -16,7 +16,7 @@ import com.hermes.client.R
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.AppLanguageProvider
 import com.hermes.client.ui.localization.localized
-import com.hermes.client.ui.theme.avatarColorArgb
+import com.hermes.client.ui.theme.avatarAccentArgb
 
 /**
  * Owns notification channels and turns a [NotificationSpec] into a posted Android notification.
@@ -150,7 +150,7 @@ class HermesNotifier(
         spec.category?.let { b.setCategory(it) }
         spec.groupKey?.let { b.setGroup(it) }
         spec.kind?.let { b.setSortKey(sortKeyFor(it)) }
-        spec.accentProfile?.let { b.setColor(avatarColorArgb(it)) }
+        spec.accentProfile?.let { b.setColor(avatarAccentArgb(it)) }
         spec.whenMs?.let { b.setWhen(it).setShowWhen(true) }
         if (spec.chronometer && spec.whenMs != null) b.setUsesChronometer(true)
         spec.progress?.let { b.setProgress(it.total, it.done, it.indeterminate) }
@@ -191,7 +191,7 @@ class HermesNotifier(
             .setContentTitle(title)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         spec.publicBody?.let { b.setContentText(it) }
-        spec.accentProfile?.let { b.setColor(avatarColorArgb(it)) }
+        spec.accentProfile?.let { b.setColor(avatarAccentArgb(it)) }
         spec.whenMs?.let { b.setWhen(it).setShowWhen(true) }
         return b.build()
     }
@@ -311,7 +311,7 @@ private object Api36ProgressBuilder {
         sortKey: String,
     ): Notification {
         val progress = spec.progress!!
-        val accent = spec.accentProfile?.let { avatarColorArgb(it) }
+        val accent = spec.accentProfile?.let { avatarAccentArgb(it) }
         val style = Notification.ProgressStyle().setProgressIndeterminate(progress.indeterminate)
         if (!progress.indeterminate) {
             // ProgressStyle has no setProgressMax(): the bar's maximum is the SUM of its segment

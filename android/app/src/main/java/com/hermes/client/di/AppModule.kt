@@ -25,6 +25,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -258,8 +259,16 @@ object AppModule {
     fun provideHermesNotifier(
         @ApplicationContext context: Context,
         languageProvider: com.hermes.client.ui.localization.AppLanguageProvider,
+        identities: com.hermes.client.data.repository.ProfileIdentityStore,
+        appScope: CoroutineScope,
     ): com.hermes.client.notifications.HermesNotifier =
-        com.hermes.client.notifications.HermesNotifier(context, languageProvider)
+        com.hermes.client.notifications.HermesNotifier(context, languageProvider).also {
+            // Keep the accent snapshot current so a custom avatar colour reaches the shade; a
+            // plain collect, never a blocking read on the notification path.
+            appScope.launch {
+                identities.identities.collect { com.hermes.client.ui.theme.ProfileIdentitySnapshot.identities = it }
+            }
+        }
 
     @Provides
     @Singleton
@@ -278,8 +287,16 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideAvatarColorStore(@ApplicationContext context: Context): com.hermes.client.data.repository.AvatarColorStore =
-        com.hermes.client.data.repository.AvatarColorStore(context)
+    fun provideProfileIdentityStore(@ApplicationContext context: Context): com.hermes.client.data.repository.ProfileIdentityStore =
+        com.hermes.client.data.repository.ProfileIdentityStore.create(context)
+
+    @Provides
+    @Singleton
+    fun provideAvatarPhotoImporter(
+        @ApplicationContext context: Context,
+        store: com.hermes.client.data.repository.ProfileIdentityStore,
+    ): com.hermes.client.data.media.AvatarPhotoImporter =
+        com.hermes.client.data.media.AvatarPhotoImporter(context, store.avatarDir)
 
     @Provides
     @Singleton

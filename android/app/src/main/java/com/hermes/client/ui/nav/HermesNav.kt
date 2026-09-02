@@ -371,7 +371,18 @@ fun HermesNav(
                 ModelsScreen(onMenu = back, vm = vm)
             }
             composable("profiles") {
-                com.hermes.client.ui.profiles.ProfilePickerScreen(onBack = back)
+                com.hermes.client.ui.profiles.ProfilePickerScreen(
+                    onBack = back,
+                    onEdit = { name ->
+                        nav.navigate("profile_edit/${android.net.Uri.encode(name)}") { launchSingleTop = true }
+                    },
+                )
+            }
+            composable(
+                "profile_edit/{profile}",
+                arguments = listOf(navArgument("profile") { type = NavType.StringType }),
+            ) {
+                com.hermes.client.ui.profiles.ProfileEditScreen(onBack = back)
             }
             composable("cron") {
                 CronScreen(
