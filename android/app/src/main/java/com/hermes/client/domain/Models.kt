@@ -74,10 +74,18 @@ data class ChatFile(
     val state: FileTransferState = FileTransferState.READY,
 )
 
+/**
+ * Delivery state of a user turn: SENDING from the optimistic insert until the gateway acknowledges
+ * `prompt.submit`, then SENT; FAILED when the send raised (or the live-handle wait timed out).
+ * History rows and assistant turns are SENT by definition (the default).
+ */
+enum class DeliveryState { SENDING, SENT, FAILED }
+
 data class ChatMessage(
     val id: String,
     val role: Role,
     val text: String,
+    val delivery: DeliveryState = DeliveryState.SENT,
     // Epoch millis. Live messages are stamped locally; REST history maps created_at when the
     // gateway provides it and inherits the live stamp during reconciliation otherwise.
     val timestamp: Long? = null,

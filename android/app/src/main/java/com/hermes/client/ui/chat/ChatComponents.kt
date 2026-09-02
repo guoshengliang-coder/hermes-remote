@@ -43,6 +43,10 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Edit
@@ -427,6 +431,8 @@ fun ChatMessageList(
     listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
     isGenerating: Boolean = false,
     onEditResend: (String) -> Unit = {},
+    onRetrySend: (String) -> Unit = {},
+    sendDiagnosticFor: (String) -> String? = { null },
     onRegenerate: () -> Unit = {},
     onRetryWithModel: () -> Unit = {},
     onOpenTableFullscreen: (String) -> Unit = {},
@@ -969,6 +975,8 @@ fun ChatMessageList(
                         canRegenerate,
                         showAssistantActions,
                         onEditResend,
+                        onRetrySend,
+                        sendDiagnosticFor,
                         onRegenerate,
                         onRetryWithModel,
                         openTableFullscreen,
@@ -1092,6 +1100,8 @@ private fun MessageBubble(
     canRegenerate: Boolean,
     showAssistantActions: Boolean,
     onEditResend: (String) -> Unit,
+    onRetrySend: (String) -> Unit,
+    sendDiagnosticFor: (String) -> String?,
     onRegenerate: () -> Unit,
     onRetryWithModel: () -> Unit,
     onOpenTableFullscreen: (String) -> Unit,
@@ -1114,14 +1124,14 @@ private fun MessageBubble(
         return
     }
     when (msg.role) {
-        Role.USER -> UserBubble(msg, onEditResend, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted)
+        Role.USER -> UserBubble(msg, onEditResend, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted, onRetrySend = onRetrySend, sendDiagnostic = sendDiagnosticFor(msg.id))
         else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, highlighted = highlighted)
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun UserBubble(
+internal fun UserBubble(
     msg: ChatMessage,
     onEditResend: (String) -> Unit,
     onImageSave: (ChatImage) -> Unit,
@@ -1131,6 +1141,8 @@ private fun UserBubble(
     onFileOpen: (ChatFile) -> Unit,
     onFileShare: (ChatFile) -> Unit,
     highlighted: Boolean = false,
+    onRetrySend: (String) -> Unit = {},
+    sendDiagnostic: String? = null,
 ) {
     val language = LocalAppLanguage.current
     val clipboard = LocalClipboardManager.current
@@ -1138,14 +1150,36 @@ private fun UserBubble(
     val haptic = LocalHapticFeedback.current
     var menuOpen by remember { mutableStateOf(false) }
     var selectingText by remember { mutableStateOf(false) }
-    val bg = if (msg.isError) MaterialTheme.colorScheme.errorContainer
-    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.78f)
+    // Delivery three-state (docs/DESIGN.md §5.4): the "sending" look is revealed only after
+    // 250ms without an ack, so the common sub-300ms send never flickers; "failed" shows at once.
+    val sending = msg.delivery == com.hermes.client.domain.DeliveryState.SENDING
+    val failed = msg.delivery == com.hermes.client.domain.DeliveryState.FAILED
+    var revealSending by remember(msg.id) { mutableStateOf(false) }
+    LaunchedEffect(msg.id, sending) {
+        if (sending) { delay(SENDING_REVEAL_DELAY_MS); revealSending = true } else revealSending = false
+    }
+    val dim = revealSending || failed
+    val bg by animateColorAsState(
+        targetValue = if (msg.isError) MaterialTheme.colorScheme.errorContainer
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (dim) 0.5f else 0.78f),
+        animationSpec = tween(if (dim) 200 else 190),
+        label = "userBubbleFill",
+    )
+    val textColor by animateColorAsState(
+        targetValue = MaterialTheme.colorScheme.onSurface.copy(alpha = if (dim) 0.7f else 1f),
+        animationSpec = tween(if (dim) 200 else 190),
+        label = "userBubbleText",
+    )
     val accent = MaterialTheme.colorScheme.primary
     val userShape = RoundedCornerShape(22.dp, 22.dp, 7.dp, 22.dp)
     // Proportional cap instead of a fixed 320dp: a fixed value reads fine on a phone but
     // leaves user bubbles oddly narrow on tablets/landscape. ~82% tracks the Claude app.
     val bubbleMaxWidth = (LocalConfiguration.current.screenWidthDp * 0.82f).dp
+    val sendingLabel = localized(language, "发送中", "Sending")
+    val failedLabel = localized(language, "未发送 · 点按重试", "Not sent · Tap to retry")
+    val failedCode = com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED.compact
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+      Column(horizontalAlignment = Alignment.End) {
         Box {
             Column(
                 Modifier
@@ -1155,8 +1189,16 @@ private fun UserBubble(
                     .background(bg)
                     .then(if (highlighted) Modifier.background(accent.copy(alpha = 0.18f)).border(1.5.dp, accent, userShape) else Modifier)
                     .padding(horizontal = 16.dp, vertical = 11.dp)
-                    .combinedClickable(onClick = {}, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); menuOpen = true }),
+                    .semantics {
+                        if (revealSending) stateDescription = sendingLabel
+                        if (failed) stateDescription = "$failedLabel $failedCode"
+                    }
+                    .combinedClickable(
+                        onClick = { if (failed) onRetrySend(msg.id) },
+                        onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); menuOpen = true },
+                    ),
             ) {
+              CompositionLocalProvider(LocalContentColor provides textColor) {
                 if (msg.images.isNotEmpty()) {
                     ChatImageGrid(msg.images, onImageSave, onImageSaveAs, onImageShare, savingImageId)
                     if (msg.text.isNotBlank() || msg.files.isNotEmpty()) Spacer(Modifier.height(8.dp))
@@ -1175,22 +1217,89 @@ private fun UserBubble(
                         ),
                     )
                 }
+              }
+            }
+            // Tail marker: breathing ring while sending, error "!" when it failed. Sits on the
+            // tail corner over an 18dp disc of the page background so it never touches the text.
+            if (revealSending || failed) {
+                DeliveryTailMarker(failed = failed, modifier = Modifier.align(Alignment.BottomEnd).offset(x = 2.dp, y = 2.dp))
             }
             if (menuOpen) {
                 MessageActionSheet(
-                    actions = listOf(
-                        MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制", "Copy")) {
+                    actions = buildList {
+                        add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制", "Copy")) {
                             copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied"))
-                        },
-                        MessageAction(Icons.Rounded.Edit, localized(language, "编辑并重新发送", "Edit & resend")) { onEditResend(msg.text) },
-                        MessageAction(Icons.Rounded.SelectAll, localized(language, "选择文本", "Select text")) { selectingText = true },
-                    ),
+                        })
+                        add(MessageAction(Icons.Rounded.Edit, localized(language, "编辑并重新发送", "Edit & resend")) { onEditResend(msg.text) })
+                        add(MessageAction(Icons.Rounded.SelectAll, localized(language, "选择文本", "Select text")) { selectingText = true })
+                        if (failed && sendDiagnostic != null) {
+                            add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制诊断信息", "Copy diagnostics")) {
+                                copyToClipboard(sendDiagnostic, clipboard, context, localized(language, "诊断信息已复制", "Diagnostics copied"))
+                            })
+                        }
+                    },
                     onDismiss = { menuOpen = false },
                 )
             }
             if (selectingText) {
                 TextSelectionDialog(text = msg.text, onDismiss = { selectingText = false })
             }
+        }
+        if (failed) {
+            // Action copy in error colour, then the compact code (docs/ERROR_HANDLING.md
+            // presentation rules) in the neutral colour so it reads as a footnote, not a shout.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .padding(top = 4.dp, end = 4.dp)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button) { onRetrySend(msg.id) },
+            ) {
+                Text(failedLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.width(6.dp))
+                Text(failedCode, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+      }
+    }
+}
+
+private const val SENDING_REVEAL_DELAY_MS = 250L
+
+/**
+ * Whether the sending ring breathes. Screenshot tests provide false: an infinite transition
+ * never lets the compose clock go idle, so a golden image could never be captured.
+ */
+val LocalDeliveryMotionEnabled = androidx.compose.runtime.staticCompositionLocalOf { true }
+
+/**
+ * 18dp disc in the page background carrying a 12dp glyph: a stroke ring that breathes
+ * (alpha 0.35↔1, 1200ms) while sending, or an error-coloured "!" circle when the send failed.
+ */
+@Composable
+private fun DeliveryTailMarker(failed: Boolean, modifier: Modifier = Modifier) {
+    val disc = MaterialTheme.colorScheme.background
+    val ringColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val errorColor = MaterialTheme.colorScheme.error
+    val alpha = if (failed || !LocalDeliveryMotionEnabled.current) 1f else {
+        val transition = rememberInfiniteTransition(label = "sendingRing")
+        val breathing by transition.animateFloat(
+            initialValue = 0.35f, targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(600, easing = LinearOutSlowInEasing), RepeatMode.Reverse),
+            label = "sendingRingAlpha",
+        )
+        breathing
+    }
+    androidx.compose.foundation.Canvas(modifier.size(18.dp)) {
+        drawCircle(color = disc)
+        val r = 5.dp.toPx()
+        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.7.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        if (failed) {
+            drawCircle(color = errorColor, radius = r, style = stroke)
+            val cx = center.x
+            drawLine(errorColor, androidx.compose.ui.geometry.Offset(cx, center.y - r * 0.55f), androidx.compose.ui.geometry.Offset(cx, center.y + r * 0.1f), strokeWidth = 1.7.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            drawCircle(color = errorColor, radius = 0.9.dp.toPx(), center = androidx.compose.ui.geometry.Offset(cx, center.y + r * 0.5f))
+        } else {
+            drawCircle(color = ringColor.copy(alpha = alpha), radius = r, style = stroke)
         }
     }
 }

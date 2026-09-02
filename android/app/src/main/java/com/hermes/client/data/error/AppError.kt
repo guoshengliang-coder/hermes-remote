@@ -29,10 +29,19 @@ enum class AppErrorCode(val value: String) {
     SESSION_BUSY("HR-SESS-004"),
     PROJECT_MOVE_FAILED("HR-SESS-005"),
     PROJECT_FELL_BACK_TO_DEFAULT("HR-SESS-006"),
+    MESSAGE_SEND_FAILED("HR-SESS-007"),
     INSTALL_PERMISSION_REQUIRED("HR-PERM-003"),
     RUN_UNCONFIRMED("HR-SYNC-002"),
     NOTIFICATION_ACTION_FAILED("HR-NOTIF-001"),
     UNKNOWN("HR-UNKNOWN-001"),
+    ;
+
+    /**
+     * Compact display form for tight inline surfaces (a bubble status line, a badge): the code
+     * without its `HR-` prefix, e.g. `SESS-007`. Still unique and still names the area; every
+     * other surface — toasts, pages, diagnostics, docs — keeps the full [value].
+     */
+    val compact: String get() = value.removePrefix("HR-")
 }
 
 /** Language-independent error data passed from a boundary to UI/notification renderers. */

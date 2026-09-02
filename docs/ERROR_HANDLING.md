@@ -81,6 +81,10 @@ backward compatible.
 ## Presentation rules
 
 - Inline banners and dialogs show the localized summary, short explanation, and code.
+- Tight inline surfaces (a message bubble's status line, a badge) may show the **compact form**:
+  the code without its `HR-` prefix (`SESS-007`), rendered in the neutral text colour after the
+  localized action copy. The compact form is display-only; the full code stays the identity in
+  toasts, pages, diagnostics, notifications and this registry (`AppErrorCode.compact`).
 - Recoverable connection transitions use neutral progress states such as “正在重新连接…” rather
   than an error until retry policy is exhausted.
 - A recovered connection briefly shows success and then dismisses itself.
@@ -140,6 +144,7 @@ expanded without changing the underlying meaning.
 | `HR-SESS-003` | Project folder for a move/create no longer exists on the Mac (`session.workspace.move` 4017, or a derived project without a known path) | 项目文件夹在 Mac 上不存在，请重新加载项目后重试。 | The project folder no longer exists on the Mac. Reload projects and retry. | Yes |
 | `HR-SESS-004` | Session is mid-turn, so its project cannot be changed (`session.workspace.move` 4009) | 会话正在运行，无法移动项目，请等待完成后重试。 | The conversation is running, so its project can't be changed. Wait for it to finish and retry. | Yes |
 | `HR-SESS-005` | Unmapped failure moving a session to another project | 无法移动会话到该项目，请重试。 | Couldn't move the conversation to that project. Retry. | Yes |
+| `HR-SESS-007` | A user message could not be submitted (`prompt.submit`/attachment upload raised, or the live-handle wait timed out); the bubble stays on screen as 未发送 with tap-to-retry | 消息未发送，点按气泡重试。 | The message was not sent. Tap the bubble to retry. | Yes |
 | `HR-SESS-006` | New session was requested in a project folder the Mac no longer has; the gateway created it in the default project instead | 项目文件夹在 Mac 上不存在，会话已建在默认项目。 | The project folder no longer exists on the Mac, so the conversation was created in the default project. | No |
 | `HR-CLARIFY-001` | Clarify answer arrived after the request expired server-side | 这个提问已失效，agent 没有收到这次回答，请在输入框直接说明你的选择。 | The clarify question expired before the answer arrived; tell the agent your choice in the composer. | No |
 | `HR-SYNC-001` | Final history reconciliation failed | 无法同步完整会话内容，请重试。 | Couldn't synchronize the complete conversation. Retry. | Yes |

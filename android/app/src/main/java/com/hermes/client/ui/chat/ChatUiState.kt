@@ -651,12 +651,22 @@ fun ChatUiState.withUserMessage(
             id = messageId,
             role = Role.USER,
             text = text,
+            // Optimistic insert: the bubble is "sending" until prompt.submit is acknowledged.
+            delivery = com.hermes.client.domain.DeliveryState.SENDING,
             timestamp = System.currentTimeMillis(),
             images = images,
             files = files,
         ),
         isGenerating = true,
     )
+
+/** Sets the delivery state of one user turn; other messages are untouched. */
+fun ChatUiState.withDelivery(messageId: String, delivery: com.hermes.client.domain.DeliveryState): ChatUiState =
+    copy(messages = messages.map { if (it.id == messageId) it.copy(delivery = delivery) else it })
+
+/** Drops one user turn (a failed send being retried as a fresh message). */
+fun ChatUiState.withoutMessage(messageId: String): ChatUiState =
+    copy(messages = messages.filterNot { it.id == messageId })
 
 
 /** Pure reducer: folds one server event into the chat state. */
