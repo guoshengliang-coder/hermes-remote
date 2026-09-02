@@ -449,6 +449,7 @@ fun ChatMessageList(
     scrollToBottomTick: Long = 0L,
     viewportController: ChatViewportController? = null,
     onBlankAreaTap: () -> Unit = {},
+    openPromptListTick: Long = 0L,
 ) {
     val language = LocalAppLanguage.current
     val semanticViewport = viewportController ?: remember(sessionId) { ChatViewportController() }
@@ -582,6 +583,63 @@ fun ChatMessageList(
         }
     }
     androidx.compose.runtime.SideEffect { semanticViewport.setPinnedToBottom(atBottom) }
+
+    // ---- Turn navigation (docs/DESIGN.md §5.4 上一组对话胶囊 / 我的提问) ----------------------
+    // The visible span is the only layout-derived value: a small IntRange that changes when an
+    // item enters or leaves the viewport, not on every scrolled pixel, so the pill recomposes a
+    // handful of times per screen of scrolling rather than per frame.
+    val turnGroups = remember(displayMessages) { turnGroups(displayMessages) }
+    val turnCount = displayMessages.size
+    val visibleSpan by remember(listState, turnCount) {
+        derivedStateOf {
+            var lowest = Int.MAX_VALUE
+            var highest = -1
+            for (item in listState.layoutInfo.visibleItemsInfo) {
+                val messageIndex = listMessageIndex(turnCount, item.index) ?: continue
+                if (messageIndex < lowest) lowest = messageIndex
+                if (messageIndex > highest) highest = messageIndex
+            }
+            if (highest < 0) null else lowest..highest
+        }
+    }
+    val pillTarget = visibleSpan?.let { span ->
+        turnPillFor(turnGroups, topVisibleMessageIndex = span.first, visibleMessageRange = span, atBottom = atBottom)
+    }
+    val currentGroupIndex = visibleSpan?.let { groupIndexOf(turnGroups, it.first) } ?: turnGroups.lastIndex
+    val turnTopInsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { (2.dp - TURN_SPACING).roundToPx() }
+    // One owner for programmatic turn jumps, mirroring bottomRequests: a user drag steals the
+    // scroll mutex and surfaces as CancellationException, which is the user's call.
+    val jumpRequests = remember(sessionId) { Channel<Int>(Channel.CONFLATED) }
+    LaunchedEffect(sessionId, listState, jumpRequests) {
+        for (listIndex in jumpRequests) {
+            try {
+                listState.alignItemTopToViewport(listIndex, turnTopInsetPx)
+            } catch (stolen: CancellationException) {
+                currentCoroutineContext().ensureActive()
+            }
+        }
+    }
+    val jumpToGroup: (Int) -> Unit = { groupIndex ->
+        turnGroups.getOrNull(groupIndex)?.let { group ->
+            semanticViewport.cancelRestoreForUser()
+            jumpRequests.trySend(messageListIndex(turnCount, group.anchorIndex))
+        }
+    }
+    var promptListOpen by remember(sessionId) { mutableStateOf(false) }
+    LaunchedEffect(openPromptListTick) { if (openPromptListTick > 0L) promptListOpen = true }
+    if (promptListOpen) {
+        val rows = remember(turnGroups, displayMessages, currentGroupIndex, language) {
+            promptRows(turnGroups, displayMessages, currentGroupIndex, language) { formatTimeSeparator(it, language) }
+        }
+        PromptListSheet(
+            rows = rows,
+            onPick = { row ->
+                promptListOpen = false
+                jumpToGroup(row.groupIndex)
+            },
+            onDismiss = { promptListOpen = false },
+        )
+    }
     val isDragged by listState.interactionSource.collectIsDraggedAsState()
     LaunchedEffect(isDragged) {
         if (isDragged) semanticViewport.cancelRestoreForUser()
@@ -991,6 +1049,40 @@ fun ChatMessageList(
                         onFileShare,
                         smoothLiveResize = smoothLiveResize,
                         highlighted = index == highlightIndex,
+                    )
+                }
+            }
+        }
+        // Turn-jump pill: names the group under the viewport's top edge once its prompt has left
+        // the screen; a plain fade so it never shifts the transcript. The last content is held
+        // through the exit fade so the label does not blank out while disappearing.
+        val pillContent = pillTarget?.let { target ->
+            val group = turnGroups.getOrNull(target.groupIndex) ?: return@let null
+            val prompt = group.promptIndex?.let { displayMessages.getOrNull(it) }
+            val label = if (prompt == null) localized(language, "会话开始", "Start of chat") else promptSummary(prompt, language)
+            Triple(target.groupIndex, label, target.showList)
+        }
+        var heldPillContent by remember { mutableStateOf(pillContent) }
+        if (pillContent != null && pillContent != heldPillContent) {
+            androidx.compose.runtime.SideEffect { heldPillContent = pillContent }
+        }
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
+            val pillMaxWidth = maxWidth * 0.7f
+            androidx.compose.animation.AnimatedVisibility(
+                visible = initialPresentationReady && pillContent != null,
+                enter = androidx.compose.animation.fadeIn(animationSpec = tween(com.hermes.client.ui.theme.Motion.DurationShort)),
+                exit = androidx.compose.animation.fadeOut(animationSpec = tween(com.hermes.client.ui.theme.Motion.DurationShort)),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 10.dp),
+            ) {
+                val content = pillContent ?: heldPillContent
+                if (content != null) {
+                    val (groupIndex, label, showList) = content
+                    TurnJumpPill(
+                        label = label,
+                        showList = showList,
+                        onJump = { jumpToGroup(groupIndex) },
+                        onOpenList = { promptListOpen = true },
+                        modifier = Modifier.widthIn(max = pillMaxWidth),
                     )
                 }
             }
@@ -1848,7 +1940,7 @@ private const val SKELETON_SWEEP_MS = 1_350
 private val TURN_SPACING = 22.dp
 
 /** "14:32" today, "昨天 14:32" yesterday, "8月30日 14:32" this year, full date otherwise. */
-private fun formatTimeSeparator(ts: Long, language: com.hermes.client.ui.localization.AppLanguage): String {
+internal fun formatTimeSeparator(ts: Long, language: com.hermes.client.ui.localization.AppLanguage): String {
     val zone = java.time.ZoneId.systemDefault()
     val time = java.time.Instant.ofEpochMilli(ts).atZone(zone)
     val today = java.time.LocalDate.now(zone)
