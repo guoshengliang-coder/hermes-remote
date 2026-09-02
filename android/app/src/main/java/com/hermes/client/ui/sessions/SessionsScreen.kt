@@ -763,11 +763,10 @@ private fun SessionRow(
     var confirmingDelete by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
     val language = LocalAppLanguage.current
-    val trailing: (@Composable () -> Unit)? = when {
-        runtime?.hasActiveWork == true -> ({ RuntimeIndicator(runtime) })
-        unread -> ({ UnreadIndicator() })
-        runtime != null && runtime.phase != SessionRunPhase.IDLE -> ({ RuntimeIndicator(runtime) })
-        else -> null
+    val trailing: (@Composable () -> Unit)? = when (sessionRowTrailing(runtime, unread)) {
+        SessionRowTrailing.RUNTIME -> ({ RuntimeIndicator(runtime!!) })
+        SessionRowTrailing.UNREAD -> ({ UnreadIndicator() })
+        SessionRowTrailing.NONE -> null
     }
     // Moving a running session is refused by the gateway (4009); grey the item out instead of
     // letting the tap fail.
@@ -922,6 +921,21 @@ private fun toolDisplayName(raw: String, language: com.hermes.client.ui.localiza
     raw.contains("browser", ignoreCase = true) -> localized(language, "浏览器", "Browser")
     raw.contains("terminal", ignoreCase = true) || raw.contains("shell", ignoreCase = true) -> localized(language, "终端", "Terminal")
     else -> raw.substringAfterLast('.').replace('_', ' ').take(18)
+}
+
+/** What the row's trailing slot shows. Pure so the terminal-state rule is unit-testable. */
+internal enum class SessionRowTrailing { RUNTIME, UNREAD, NONE }
+
+/**
+ * Active work always shows its indicator; otherwise unread wins; a finished run shows the green
+ * completed dot only. 已中断 / 运行失败 keep their status line but no dot: the neutral terminal
+ * dot sat 1dp from the unread dot and read as unread (docs/DESIGN.md §5.2, decision 2026-09-02).
+ */
+internal fun sessionRowTrailing(runtime: SessionRuntime?, unread: Boolean): SessionRowTrailing = when {
+    runtime?.hasActiveWork == true -> SessionRowTrailing.RUNTIME
+    unread -> SessionRowTrailing.UNREAD
+    runtime?.phase == SessionRunPhase.COMPLETED_UNREAD -> SessionRowTrailing.RUNTIME
+    else -> SessionRowTrailing.NONE
 }
 
 /**

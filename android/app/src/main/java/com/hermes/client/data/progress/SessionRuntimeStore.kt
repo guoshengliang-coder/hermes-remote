@@ -52,6 +52,15 @@ enum class SessionRunPhase {
     INTERRUPTED,
 }
 
+/**
+ * Outcomes a row keeps showing until the user opens the chat (docs/DESIGN.md §5.2). A stop
+ * issued from this app is deliberately NOT one of these: markInterrupted goes straight to IDLE.
+ */
+val SessionRunPhase.isTerminalVerdict: Boolean
+    get() = this == SessionRunPhase.COMPLETED_UNREAD ||
+        this == SessionRunPhase.INTERRUPTED ||
+        this == SessionRunPhase.FAILED
+
 val SessionRunPhase.isActive: Boolean
     get() = this in setOf(
         SessionRunPhase.SUBMITTING,
@@ -201,7 +210,7 @@ class SessionRuntimeStore(
     private fun pruneIdleRuntimes(map: Map<SessionRuntimeKey, SessionRuntime>): Map<SessionRuntimeKey, SessionRuntime> {
         val protected = map.values.filter { runtime ->
             runtime.hasActiveWork ||
-                runtime.phase == SessionRunPhase.COMPLETED_UNREAD ||
+                runtime.phase.isTerminalVerdict ||
                 runtime.key in visible ||
                 SessionReadStore.token(runtime.key.profile, runtime.key.sessionId) in _unreadTokens.value
         }.mapTo(mutableSetOf()) { it.key }
@@ -249,7 +258,7 @@ class SessionRuntimeStore(
     fun setAppInForeground(foreground: Boolean) {
         appInForeground = foreground
         if (foreground) visible.toList().forEach { key ->
-            if (_runtimes.value[key]?.phase == SessionRunPhase.COMPLETED_UNREAD) markRead(key)
+            if (_runtimes.value[key]?.phase?.isTerminalVerdict == true) markRead(key)
         }
     }
 
@@ -335,13 +344,17 @@ class SessionRuntimeStore(
         return true
     }
 
-    /** Clear unread only after the chat has successfully loaded, not merely when its row is tapped. */
+    /**
+     * Clear unread only after the chat has successfully loaded, not merely when its row is tapped.
+     * Opening the chat also retires every terminal verdict — completed, interrupted, failed — since
+     * the transcript now shows the outcome (docs/DESIGN.md §5.2, decision 2026-09-02).
+     */
     fun markRead(key: SessionRuntimeKey) {
         val token = SessionReadStore.token(key.profile, key.sessionId)
         _unreadTokens.update { it - token }
         _runtimes.update { map ->
             val current = map[key] ?: return@update map
-            if (current.phase == SessionRunPhase.COMPLETED_UNREAD) {
+            if (current.phase.isTerminalVerdict) {
                 map + (key to current.copy(phase = SessionRunPhase.IDLE))
             } else map
         }
@@ -535,11 +548,16 @@ class SessionRuntimeStore(
         }
     }
 
+    /**
+     * The user pressed stop in this app. They already know, so the row carries no verdict: the
+     * runtime goes straight to IDLE (the transcript keeps its 已中断 note). lastTerminalAt still
+     * advances so the observer's own run.interrupted a moment later is folded as a replay.
+     */
     fun markInterrupted(key: SessionRuntimeKey) {
         updateRuntime(key) { runtime ->
             runtime.copy(
                 chat = runtime.chat.markInterrupted(),
-                phase = SessionRunPhase.INTERRUPTED,
+                phase = SessionRunPhase.IDLE,
                 toolName = null,
                 lastEventAt = System.currentTimeMillis(),
                 startedLocally = false,
@@ -553,7 +571,7 @@ class SessionRuntimeStore(
         updateRuntime(key) { runtime ->
             runtime.copy(
                 chat = state.copy(isGenerating = false),
-                phase = SessionRunPhase.FAILED,
+                phase = if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.FAILED,
                 toolName = null,
                 lastEventAt = System.currentTimeMillis(),
                 startedLocally = false,
@@ -653,7 +671,7 @@ class SessionRuntimeStore(
                 )
                 "run.interrupted", "run.unknown" -> titled.copy(
                     chat = runtime.chat.copy(isGenerating = false),
-                    phase = SessionRunPhase.INTERRUPTED,
+                    phase = if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.INTERRUPTED,
                     toolName = null,
                     lastEventAt = now,
                     startedLocally = false,

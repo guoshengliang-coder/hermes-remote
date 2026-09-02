@@ -443,4 +443,81 @@ class SessionRuntimeStoreTest {
             store.runtimes.value.getValue(key).chat.messages.last().text,
         )
     }
+
+    // ── Terminal verdicts (docs/DESIGN.md §5.2, decision 2026-09-02) ─────────────────────────
+
+    @Test fun a_local_stop_returns_to_idle_and_swallows_the_observers_interruption() = runTest {
+        val (store, events) = fixture()
+        val key = store.register("s1", "personal")
+        store.beginPrompt(key, "开始")
+        events.emit(event("message.start", "s1"))
+        advanceUntilIdle()
+        assertTrue(store.runtimes.value.getValue(key).phase.isActive)
+
+        store.markInterrupted(key)
+        val stopped = store.runtimes.value.getValue(key)
+        assertEquals(SessionRunPhase.IDLE, stopped.phase)
+        assertFalse(stopped.chat.isGenerating)
+
+        // The Connector observes the same interruption a moment later: a replay, not a verdict.
+        store.applyObservedLifecycle(lifecycle("run.interrupted", "s1"))
+        assertEquals(SessionRunPhase.IDLE, store.runtimes.value.getValue(key).phase)
+    }
+
+    @Test fun an_observed_interruption_offscreen_persists_until_the_chat_is_opened() = runTest {
+        val (store, _) = fixture()
+        val key = store.register("s1", "personal")
+        store.applyObservedLifecycle(lifecycle("run.started", "s1"))
+        store.applyObservedLifecycle(lifecycle("run.interrupted", "s1"))
+        assertEquals(SessionRunPhase.INTERRUPTED, store.runtimes.value.getValue(key).phase)
+
+        store.setVisible(key, true)
+        assertEquals(SessionRunPhase.INTERRUPTED, store.runtimes.value.getValue(key).phase)
+        store.markRead(key)
+        assertEquals(SessionRunPhase.IDLE, store.runtimes.value.getValue(key).phase)
+    }
+
+    @Test fun an_observed_interruption_while_watching_the_chat_leaves_no_verdict() = runTest {
+        val (store, _) = fixture()
+        val key = store.register("s1", "personal")
+        store.setAppInForeground(true)
+        store.setVisible(key, true)
+        store.applyObservedLifecycle(lifecycle("run.started", "s1"))
+        store.applyObservedLifecycle(lifecycle("run.interrupted", "s1"))
+        assertEquals(SessionRunPhase.IDLE, store.runtimes.value.getValue(key).phase)
+    }
+
+    @Test fun a_failure_offscreen_persists_until_the_chat_is_opened() = runTest {
+        val (store, _) = fixture()
+        val key = store.register("s1", "personal")
+        store.beginPrompt(key, "run it")
+        store.markFailed(key, store.runtimes.value.getValue(key).chat)
+        assertEquals(SessionRunPhase.FAILED, store.runtimes.value.getValue(key).phase)
+
+        store.markRead(key)
+        assertEquals(SessionRunPhase.IDLE, store.runtimes.value.getValue(key).phase)
+    }
+
+    @Test fun a_failure_while_watching_the_chat_leaves_no_verdict() = runTest {
+        val (store, _) = fixture()
+        val key = store.register("s1", "personal")
+        store.setAppInForeground(true)
+        store.setVisible(key, true)
+        store.beginPrompt(key, "run it")
+        store.markFailed(key, store.runtimes.value.getValue(key).chat)
+        assertEquals(SessionRunPhase.IDLE, store.runtimes.value.getValue(key).phase)
+    }
+
+    @Test fun returning_to_the_foreground_retires_a_verdict_on_the_open_chat() = runTest {
+        val (store, _) = fixture()
+        val key = store.register("s1", "personal")
+        store.setVisible(key, true)
+        store.setAppInForeground(false)
+        store.applyObservedLifecycle(lifecycle("run.started", "s1"))
+        store.applyObservedLifecycle(lifecycle("run.interrupted", "s1"))
+        assertEquals(SessionRunPhase.INTERRUPTED, store.runtimes.value.getValue(key).phase)
+
+        store.setAppInForeground(true)
+        assertEquals(SessionRunPhase.IDLE, store.runtimes.value.getValue(key).phase)
+    }
 }
