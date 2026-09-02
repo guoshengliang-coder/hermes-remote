@@ -500,8 +500,14 @@ fun MessageDto.toDomain(): ChatMessage {
         images = parsed.images,
         files = parsed.files,
         timestamp = createdAt?.let(::parseIsoTimestampMillis),
+        displayKind = displayKind?.ifBlank { null },
+        displayTaskCount = displayMetadata?.intOrNull("task_count"),
+        displayFailedCount = displayMetadata?.intOrNull("failed_count"),
     )
 }
+
+private fun kotlinx.serialization.json.JsonObject.intOrNull(key: String): Int? =
+    (get(key) as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull()
 
 fun ProjectTreeDto.toDomain() = ProjectTree(
     projects = projects.map { it.toDomain() },

@@ -49,6 +49,10 @@ import kotlinx.serialization.Serializable
     val content: String? = null,
     // ISO-8601 when the gateway provides it; optional so older gateways keep parsing.
     @SerialName("created_at") val createdAt: String? = null,
+    // Server-injected timeline markers (async_delegation_complete, model_switch, hidden, …).
+    // Optional: older gateways and plain user turns simply omit them.
+    @SerialName("display_kind") val displayKind: String? = null,
+    @SerialName("display_metadata") val displayMetadata: kotlinx.serialization.json.JsonObject? = null,
 )
 @Serializable data class MessagesDto(val messages: List<MessageDto> = emptyList())
 

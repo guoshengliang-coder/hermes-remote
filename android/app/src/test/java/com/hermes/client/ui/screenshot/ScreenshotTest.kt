@@ -92,6 +92,34 @@ class ScreenshotTest {
         }
     }
 
+    @Test fun timelineNotes() = snap("timeline-notes") {
+        androidx.compose.foundation.layout.Column {
+            val delegation = com.hermes.client.domain.ChatMessage(
+                id = "t1", role = com.hermes.client.domain.Role.USER,
+                text = "[ASYNC DELEGATION BATCH COMPLETE — deleg_1]\nresults…",
+                displayKind = "async_delegation_complete", displayTaskCount = 2,
+            )
+            com.hermes.client.ui.chat.TimelineNoteRow(
+                com.hermes.client.ui.chat.timelineNoteFor(delegation)!!, delegation,
+            )
+            val switch = com.hermes.client.domain.ChatMessage(
+                id = "t2", role = com.hermes.client.domain.Role.USER,
+                text = "[System: The active model for this chat has changed to gpt-5.6-sol via provider openai-codex.]",
+                displayKind = "model_switch",
+            )
+            com.hermes.client.ui.chat.TimelineNoteRow(
+                com.hermes.client.ui.chat.timelineNoteFor(switch)!!, switch,
+            )
+            val resumed = com.hermes.client.domain.ChatMessage(
+                id = "t3", role = com.hermes.client.domain.Role.USER,
+                text = "note", displayKind = "auto_continue",
+            )
+            com.hermes.client.ui.chat.TimelineNoteRow(
+                com.hermes.client.ui.chat.timelineNoteFor(resumed)!!, resumed,
+            )
+        }
+    }
+
     @Test fun clarifySingleChoice() = snap("clarify-single") {
         com.hermes.client.ui.chat.ClarifySheetContent(
             com.hermes.client.ui.chat.ClarifyRequest(
