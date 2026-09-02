@@ -191,6 +191,16 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.79 makes every session say which project it belongs to and fixes where new chats
+  land. List, archived and search rows share one subline (folder glyph + project · model; the
+  default project shows the model alone), and the multi-profile "身份：xxx" text is gone. The
+  Projects segment lists the gateway launch directory as the always-first 默认项目 with last-active
+  sublines and chevrons; drilling in shows the path and branch · model rows, with a one-time
+  notice that the FAB now creates in that project (the Sessions FAB creates in the default
+  project). Sessions can be moved between projects from the long-press menu or the new chat
+  top-bar subtitle (project · branch, live from session.info) via session.workspace.move, with
+  HR-SESS-003/004/005/006 covering missing folders, busy sessions, failures and silent
+  fallbacks. Bottom-sheet titles are left-aligned everywhere, including the model selector.
 - Version 0.1.78 is the sheet-polish release: the full M3 surfaceContainer family is defined in
   both themes (cool blue-tinted), removing the purple baseline cast from every bottom sheet,
   menu and dialog; all sheets adopt hermesSheetState (skipPartiallyExpanded) so they size to
@@ -401,7 +411,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.78-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.79-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
