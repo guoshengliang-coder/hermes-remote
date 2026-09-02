@@ -33,6 +33,66 @@ DEFAULT_DEVICE_ID=mac-mini
 LIFECYCLE_EVENT_STORE_FILE=/var/lib/hermes-remote/lifecycle-events.json
 ```
 
+Account authentication is an independent, default-off control plane. I1 introduces the following
+configuration, but production must keep `ACCOUNT_AUTH_ENABLED=0` until the account database
+migration, Google OAuth clients, rollback rehearsal, and release gate are complete:
+
+```text
+ACCOUNT_AUTH_ENABLED=0
+ACCOUNT_BINDING_ENABLED=0
+ACCOUNT_DATABASE_URL_FILE=/etc/hermes-remote/secrets/account-database-url
+ACCOUNT_TOKEN_HASH_KEY_FILE=/etc/hermes-remote/secrets/account-token-hash-key
+ACCOUNT_GOOGLE_ANDROID_CLIENT_ID_FILE=/etc/hermes-remote/secrets/google-android-client-id
+ACCOUNT_GOOGLE_MACOS_CLIENT_ID_FILE=/etc/hermes-remote/secrets/google-macos-client-id
+ACCOUNT_DATABASE_SSL=1
+ACCOUNT_DATABASE_POOL_SIZE=10
+ACCOUNT_TRUST_LOOPBACK_PROXY=1
+ACCOUNT_GATEWAY_ORIGIN=https://<gateway-domain>
+ACCOUNT_MAX_PENDING_CONNECTOR_PROOFS=256
+ACCOUNT_MAX_UNAUTHENTICATED_CONNECTORS=16
+ACCOUNT_MAX_UNAUTHENTICATED_CONNECTORS_PER_IP=4
+MAX_ACCOUNT_LIFECYCLE_EVENTS=10000
+```
+
+SQL migrations are applied explicitly, in filename order, with
+`npm run account:migrate -w @hermes-remote/gateway`; the migration runner reads the same
+`ACCOUNT_DATABASE_URL` or `_FILE` setting as the Gateway.
+Gateway startup never mutates schema. Google proofs and Hermes GO bearer tokens must not be placed
+in these files or logs.
+
+`ACCOUNT_TRUST_LOOPBACK_PROXY=1` accepts the first `X-Forwarded-For` address only when the immediate
+TCP peer is loopback, matching a same-host Nginx upstream. Keep it `0` when Gateway is directly
+reachable or the proxy boundary differs; never trust a caller-supplied forwarding header directly.
+
+`ACCOUNT_BINDING_ENABLED` independently gates the I2 installation/binding HTTP surface and its
+capability advertisement, including replacement, unbind, and current-phone revocation. It is
+effective only when `ACCOUNT_AUTH_ENABLED=1` and remains `0` until
+the binding, account-aware routing, Connector V2 handshake, and rollback gates pass. It never
+changes or disables the legacy `/v1/connect` or App/Connector Token paths.
+
+When binding is enabled, `ACCOUNT_GATEWAY_ORIGIN` is required and must exactly match the public
+`http://` or `https://` origin (no path, query, credentials, or fragment). It is signed into the V2
+Connector challenge to prevent a proof from being replayed at another Gateway. Pending proofs and
+unauthenticated `/v2/connect` sockets are independently bounded globally and per source IP; these
+limits do not reduce the legacy protocol's configured compatibility semantics.
+
+`MAX_ACCOUNT_LIFECYCLE_EVENTS` bounds retained sanitized lifecycle transitions per account. Account
+events and per-phone delivery/read receipts live in PostgreSQL; the legacy Token mode continues to
+use `LIFECYCLE_EVENT_STORE_FILE` and `MAX_LIFECYCLE_EVENTS` unchanged.
+
+The I3-A Desktop alpha reads two public client settings from its packaged `Info.plist`, with process
+environment overrides for local development:
+
+```text
+HERMES_GO_ACCOUNT_GATEWAY_URL=https://<gateway-domain>
+HERMES_GO_GOOGLE_MACOS_CLIENT_ID=<google-desktop-oauth-client-id>
+```
+
+`desktop/scripts/build-app.sh` embeds supplied values into the built app. The OAuth client ID is a
+public identifier, never a client secret. Default packages leave it empty, so Google sign-in remains
+unavailable even if a user opens the unfinished account screen. The app also obeys the Gateway's
+independent capability flags and never infers enablement from the presence of a client ID.
+
 The deployment copies the certificate into `/etc/hermes-remote/tls` with narrowly scoped permissions and refreshes it from a Certbot deploy hook. Because DERP owns port 80, the `mrlgs.net` renewal configuration stops DERP before the standalone HTTP-01 challenge and starts it again afterward. The actual environment file belongs at `/etc/hermes-remote/gateway.env`; tokens are separate files readable only by the service group. None of them may be committed.
 
 ## Security items outside this repository

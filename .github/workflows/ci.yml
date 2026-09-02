@@ -13,6 +13,23 @@ permissions:
 jobs:
   node:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+        env:
+          POSTGRES_DB: hermes_test
+          POSTGRES_USER: hermes_test
+          POSTGRES_PASSWORD: hermes_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hermes_test -d hermes_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ACCOUNT_TEST_DATABASE_URL: postgresql://hermes_test:hermes_test_password@127.0.0.1:5432/hermes_test
+      RUN_NETWORK_TESTS: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -40,6 +57,14 @@ jobs:
       # compilation cover the same code without packaging or signing an APK; producing a
       # distributable artifact stays exclusive to android-release.yml.
       - run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:compileDebugSources --no-daemon
+
+  desktop:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: npm run desktop:assets:test
+      - run: npm run desktop:test
+      - run: npm run desktop:app
 
   secrets:
     runs-on: ubuntu-latest

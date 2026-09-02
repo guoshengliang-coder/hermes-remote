@@ -27,6 +27,7 @@ and release artifact so those operations happen exactly once.
 - `android/`: Kotlin and Jetpack Compose Android client.
 - `gateway/`: public HTTPS/WSS relay on the Hong Kong server.
 - `connector/`: outbound-only macOS bridge to the local Hermes service.
+- `desktop/`: native macOS menu-bar GUI and future managed Connector Agent.
 - `protocol/`: shared TypeScript wire protocol used by Gateway and Connector.
 - `deploy/`: deployment and service templates; never store live credentials here.
 - `docs/`: architecture, environment shape, deployment record, smoke-test instructions, and the
@@ -120,6 +121,21 @@ streaming, or protocol behavior changes.
 cd android
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 ```
+
+### Desktop
+
+Desktop behavior and visual changes must update `docs/DESKTOP_PHASE0.md`,
+`docs/DESKTOP_DESIGN.md`, and `docs/DESKTOP_TEST_PLAN.md` as applicable. Run on macOS:
+
+```bash
+npm run desktop:assets:test
+npm run desktop:test
+npm run desktop:app
+```
+
+An ad-hoc local app is not a distributable release. Do not claim Developer ID signing or notarization
+unless the exact artifact has passed codesign verification, notary submission, stapling, and a clean
+machine launch check.
 
 For UI changes, also inspect the result on the configured emulator or a real device when available.
 Do not claim device verification when only JVM tests were run.

@@ -18,6 +18,8 @@ android/*.jks
 /keystore.properties
 work/
 outputs/
+desktop/.build/
+desktop/build/
 
 # Private machine/deployment context supplied by the project owner.
 environment.md

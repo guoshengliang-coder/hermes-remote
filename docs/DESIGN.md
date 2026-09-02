@@ -135,6 +135,23 @@
 
 ## 5. 页面与组件
 
+### 5.0 Hermes GO 账号与 Hermes 身份
+
+账号模式的下一阶段设计见 `ACCOUNT_MODE_DESIGN.md`。Android 必须把 **Hermes GO 账号**
+（Google 支持的设备授权与 Desktop 绑定）和现有 **Hermes 身份/profile**（Hermes 内部可选
+身份）作为两个独立概念显示。账号登录不得删除或取代卡片页现有的 Hermes 身份选择入口。
+正常登录后，Hermes GO 账号只放在设置及其账号详情页，不在卡片页、会话列表或
+聊天页常驻显示；只有首次登录、凭证失效/撤销或绑定异常需要处理时，账号信息才临时出现在
+设置外。
+Android Google 登录使用系统 Credential Manager：优先选择已授权账号，只有一个无需额外
+确认的候选时可以自动选择；多个账号时显示系统账号选择器，没有已授权账号时再显示手机上的
+全部 Google 账号。不得用邮箱字符串在本地自动关联账号。
+手机端不新增“连接与设备”入口：卡片页现有“远程设备”统计格改为可点击，作为唯一绑定
+Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与端到端状态，并承接诊断
+和迁移期“旧版连接”；设置页只管理 Google 账号和本机登录，不重复显示远程设备。
+正式切换前，现有 Relay URL / App Token / QR 流程仍是已发布版本的实现契约；切换时保留在
+“远程设备 > 旧版连接”兼容入口，并按迁移测试门禁逐步退场。
+
 ### 5.1 卡片页（抽屉，`CardPage.kt`）
 - `ModalDrawerSheet`：宽 86%、上限 360dp，右缘圆角 22dp，容器 = `surface`，遮罩默认 32%。
 - **返回契约**：必须传 `drawerState`（预测性返回）+ 外层兜底 `BackHandler`；返回键永远

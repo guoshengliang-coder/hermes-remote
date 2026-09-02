@@ -13,6 +13,7 @@ The repository contains the first relay MVP:
 - `android/` — Kotlin/Compose client derived from the pinned `adebnar/hermes-android` GPLv3 base
 - `gateway/` — public HK relay with app/connector authentication, a Hermes-compatible facade, and a durable mobile event inbox
 - `connector/` — outbound-only macOS agent with Basic Auth, Cookie, WS Ticket, REST/WebSocket forwarding, and read-only task lifecycle observation
+- `desktop/` — native macOS menu-bar GUI; the local I3-A alpha adds default-off Google account management while safely observing the existing Connector and retaining legacy pairing
 - `protocol/` — shared wire-message types and validation
 - `deploy/` — Docker and macOS launchd templates
 - `docs/` — architecture, intake checklist, and local smoke test
@@ -38,6 +39,24 @@ See `docs/SMOKE_TEST.md` for the WebSocket test message.
 
 Production clients use a single HTTPS/WSS edge at `https://mrlgs.net` on port 443. Nginx routes
 Gateway and release paths to private service ports; see `docs/ENVIRONMENT.md`.
+
+The first Hermes Go Desktop slice is documented in `docs/DESKTOP_PHASE0.md`. Its GUI, tests, design
+contract, and concept images live alongside the existing system; it does not modify Hermes or start a
+second Connector.
+
+The accepted Google-account onboarding, one-account/one-Connector rule, multi-phone client behavior,
+legacy migration, and shared acceptance matrix are documented in `docs/ACCOUNT_MODE_DESIGN.md`.
+The corresponding work breakdown, dependencies, estimates, test gates, and staged rollout are in
+`docs/ACCOUNT_MODE_IMPLEMENTATION_PLAN.md`.
+The I0 implementation contracts are split into `docs/ACCOUNT_MODE_API.md`,
+`docs/ACCOUNT_MODE_SECURITY.md`, `docs/ACCOUNT_MODE_MIGRATION.md`, and
+`docs/ACCOUNT_MODE_TEST_PLAN.md`; all are explicitly non-production until their go/no-go gate passes.
+Current local I1 evidence, including the passed disposable-PostgreSQL gate, is recorded in
+`docs/ACCOUNT_MODE_I1_TEST_RECORD.md`.
+The completed local I2 binding, V2 Connector, account-aware routing, and multi-phone lifecycle backend gate is recorded in
+`docs/ACCOUNT_MODE_I2_TEST_RECORD.md`.
+The local I3-A Desktop account-client slice and its remaining live OAuth/binding gates are recorded in
+`docs/ACCOUNT_MODE_I3_TEST_RECORD.md`.
 
 For the Android base, configure the public Gateway URL and the Gateway `APP_TOKEN` in token mode. The public token terminates in Hong Kong; the separate local Hermes credential exists only on the Mac Connector.
 

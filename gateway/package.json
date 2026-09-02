@@ -5,16 +5,20 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "account:migrate": "node scripts/migrate-account.mjs",
     "test": "npm run build -w @hermes-remote/protocol && npm run build && node --test dist/*.test.js",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js"
   },
   "dependencies": {
     "@hermes-remote/protocol": "0.1.0",
+    "google-auth-library": "^10.9.1",
+    "pg": "^8.23.0",
     "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/node": "^22.18.1",
+    "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.1",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
