@@ -191,6 +191,17 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.83 fixes the avatar photo that never refreshed once replaced (the decoded bitmap
+  was kept across cache-key changes, so the identity preview stayed on the first photo and the
+  list header disagreed with the card page) and tidies four interactions. Terminal run verdicts
+  now clear when the chat is opened: a stop pressed in the app leaves no status at all, remote
+  interruptions and failures persist only until seen, and 已中断 / 运行失败 rows drop their dot.
+  The pinned marker moves from ListItem's leading slot into the subline as a 14dp stroke pin so
+  every title shares one left edge (search title matches carry it too). The chat's turn-jump pill
+  fades 1.5 s after the list settles and returns on the next scroll. The identity settings page
+  pins 保存 to a bottom bar (new DESIGN.md §5.12) and shows the profile name as the display-name
+  placeholder without a floating label. JVM tests and screenshot goldens cover the first four;
+  the identity page layout and the 0.1.82 splash handoff still need a device pass.
 - Version 0.1.82 redesigns the startup gate around the wordmark: a 144dp icon over a bold
   `HERMES GO` lockup anchored at 22.5% of the screen, with the status line and a 144dp progress bar
   grouped beneath it and the version line at the bottom. Status is withheld for 700 ms and never
@@ -456,7 +467,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.82-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.83-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
