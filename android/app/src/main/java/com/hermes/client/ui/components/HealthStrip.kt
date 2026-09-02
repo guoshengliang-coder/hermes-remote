@@ -109,7 +109,7 @@ fun HealthStrip(health: GatewayHealth, onClick: () -> Unit, modifier: Modifier =
 fun HealthSheet(health: GatewayHealth, onRecheck: () -> Unit, onDismiss: () -> Unit) {
     val accent = MaterialTheme.colorScheme.primary
     val zh = com.hermes.client.ui.localization.LocalAppLanguage.current == com.hermes.client.ui.localization.AppLanguage.ZH
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
         Column(Modifier.fillMaxWidth().padding(24.dp)) {
             Text(
                 healthStripLabel(health, zh) ?: "Gateway",

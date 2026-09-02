@@ -86,7 +86,7 @@ fun NotificationOnboardingSheet(
         finish(enabled = granted)
     }
 
-    ModalBottomSheet(onDismissRequest = { vm.markSeen(); onDone() }) {
+    ModalBottomSheet(onDismissRequest = { vm.markSeen(); onDone() }, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,

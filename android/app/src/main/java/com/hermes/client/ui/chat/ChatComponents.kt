@@ -2353,7 +2353,7 @@ private data class MessageAction(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MessageActionSheet(actions: List<MessageAction>, onDismiss: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
         Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
             actions.forEach { action ->
                 Row(

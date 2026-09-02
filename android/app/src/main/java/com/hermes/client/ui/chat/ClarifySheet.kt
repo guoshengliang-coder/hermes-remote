@@ -58,7 +58,7 @@ fun ClarifySheet(
     onCollapse: () -> Unit,
 ) {
     if (request.currentQuestion == null) return
-    ModalBottomSheet(onDismissRequest = onCollapse) {
+    ModalBottomSheet(onDismissRequest = onCollapse, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
         ClarifySheetContent(request, onAnswer, onSkip)
     }
 }

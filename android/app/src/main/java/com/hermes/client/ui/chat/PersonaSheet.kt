@@ -36,7 +36,7 @@ fun PersonaSheet(
 ) {
     val accent = MaterialTheme.colorScheme.primary
     val language = LocalAppLanguage.current
-    val sheetState = rememberModalBottomSheetState()
+    val sheetState = com.hermes.client.ui.components.hermesSheetState()
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {

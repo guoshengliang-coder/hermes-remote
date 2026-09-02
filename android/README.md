@@ -191,6 +191,13 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.78 is the sheet-polish release: the full M3 surfaceContainer family is defined in
+  both themes (cool blue-tinted), removing the purple baseline cast from every bottom sheet,
+  menu and dialog; all sheets adopt hermesSheetState (skipPartiallyExpanded) so they size to
+  content and never open half-way; the model sheet gets a centered title, a merged model +
+  reasoning-effort status card, a filled search field, and handle-only dismissal (list scrolling
+  can no longer close it); and the sessions list reveals newly promoted 需要你处理 rows —
+  auto-scrolling near the top, or floating a tappable ↑ pill when the reader is deep in the list.
 - Version 0.1.77 stops covering the status bar and silences injected protocol turns. The app now
   declares edge-to-edge explicitly and drives status/navigation-bar icon appearance from the app's
   own theme (dark icons over the light UI even when the OS is in dark mode), so the clock and
@@ -394,7 +401,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.77-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.78-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

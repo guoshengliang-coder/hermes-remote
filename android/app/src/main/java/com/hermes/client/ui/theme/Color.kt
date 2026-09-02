@@ -42,6 +42,27 @@ private val DarkSurface = Color(0xFF121921)
 private val DarkSurfaceVariant = Color(0xFF273039)
 private val DarkOutline = Color(0xFF8E9099)
 
+// M3 surface-container family, cool-tinted at the SAME hue as the neutrals above. These MUST
+// be defined explicitly: any token left out of lightColorScheme()/darkColorScheme() falls back
+// to Material 3's purple-tinted baseline — which is exactly the off-brand reddish cast bottom
+// sheets, menus, and dialogs used to show (ModalBottomSheet defaults to surfaceContainerLow).
+// Registered in docs/DESIGN.md §2.
+private val LightSurfaceDim = Color(0xFFD7DCE4)
+private val LightSurfaceBright = Color(0xFFF7F9FD)
+private val LightSurfaceContainerLowest = Color(0xFFFFFFFF)
+private val LightSurfaceContainerLow = Color(0xFFF1F4FA)
+private val LightSurfaceContainer = Color(0xFFEBEFF6)
+private val LightSurfaceContainerHigh = Color(0xFFE5EAF2)
+private val LightSurfaceContainerHighest = Color(0xFFDFE5EE)
+
+private val DarkSurfaceDim = Color(0xFF121921)
+private val DarkSurfaceBright = Color(0xFF383F48)
+private val DarkSurfaceContainerLowest = Color(0xFF0D141B)
+private val DarkSurfaceContainerLow = Color(0xFF1A212A)
+private val DarkSurfaceContainer = Color(0xFF1E252E)
+private val DarkSurfaceContainerHigh = Color(0xFF283039)
+private val DarkSurfaceContainerHighest = Color(0xFF333A44)
+
 val HermesLightColors = lightColorScheme(
     primary = Blue40,
     onPrimary = Color.White,
@@ -63,6 +84,13 @@ val HermesLightColors = lightColorScheme(
     onSurfaceVariant = Color(0xFF43474E),
     outline = LightOutline,
     outlineVariant = Color(0xFFC4C6D0),
+    surfaceDim = LightSurfaceDim,
+    surfaceBright = LightSurfaceBright,
+    surfaceContainerLowest = LightSurfaceContainerLowest,
+    surfaceContainerLow = LightSurfaceContainerLow,
+    surfaceContainer = LightSurfaceContainer,
+    surfaceContainerHigh = LightSurfaceContainerHigh,
+    surfaceContainerHighest = LightSurfaceContainerHighest,
 )
 
 val HermesDarkColors = darkColorScheme(
@@ -86,4 +114,11 @@ val HermesDarkColors = darkColorScheme(
     onSurfaceVariant = Color(0xFFC3C6CF),
     outline = DarkOutline,
     outlineVariant = Color(0xFF43474E),
+    surfaceDim = DarkSurfaceDim,
+    surfaceBright = DarkSurfaceBright,
+    surfaceContainerLowest = DarkSurfaceContainerLowest,
+    surfaceContainerLow = DarkSurfaceContainerLow,
+    surfaceContainer = DarkSurfaceContainer,
+    surfaceContainerHigh = DarkSurfaceContainerHigh,
+    surfaceContainerHighest = DarkSurfaceContainerHighest,
 )

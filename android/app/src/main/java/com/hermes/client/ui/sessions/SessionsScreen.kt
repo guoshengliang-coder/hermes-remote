@@ -20,12 +20,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material.icons.rounded.Search
@@ -40,6 +43,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.LinearProgressIndicator
@@ -60,6 +64,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -307,6 +312,38 @@ fun SessionsScreen(
                         )
                     }
                 }
+                // Reveal newly promoted 需要你处理 sessions: LazyColumn's scroll anchoring
+                // otherwise leaves them hidden above the viewport (see NeedsYouReveal.kt).
+                val sessionsListState = rememberLazyListState()
+                val revealScope = rememberCoroutineScope()
+                var needsYouPill by remember { mutableStateOf(0) }
+                val needsYouIds = remember(state.sessions, runtimes) {
+                    splitNeedsYou(state.sessions) { s -> vm.runtimeFor(s, runtimes)?.phase }
+                        .first.map { "${it.profile.orEmpty()}:${it.id}" }.toSet()
+                }
+                var revealedNeedsYou by remember { mutableStateOf<Set<String>?>(null) }
+                LaunchedEffect(needsYouIds) {
+                    val previous = revealedNeedsYou
+                    revealedNeedsYou = needsYouIds
+                    if (needsYouIds.isEmpty()) needsYouPill = 0
+                    if (previous == null) return@LaunchedEffect  // first composition: nothing is "new"
+                    when (
+                        needsYouRevealAction(
+                            previous, needsYouIds,
+                            sessionsListState.firstVisibleItemIndex,
+                            sessionsListState.isScrollInProgress,
+                        )
+                    ) {
+                        NeedsYouReveal.SCROLL_TO_TOP -> sessionsListState.animateScrollToItem(0)
+                        NeedsYouReveal.SHOW_PILL -> needsYouPill = needsYouIds.size
+                        NeedsYouReveal.NONE -> Unit
+                    }
+                }
+                // The pill dissolves once the reader reaches the top on their own.
+                LaunchedEffect(sessionsListState) {
+                    snapshotFlow { sessionsListState.firstVisibleItemIndex }
+                        .collect { if (it == 0) needsYouPill = 0 }
+                }
                 Box(Modifier.fillMaxSize()) {
                     when {
                         state.loading && state.sessions.isEmpty() -> com.hermes.client.ui.components.LoadingState()
@@ -344,7 +381,7 @@ fun SessionsScreen(
                             val toggle: (String) -> Unit = { k ->
                                 collapsed = if (k in collapsed) collapsed - k else collapsed + k
                             }
-                            LazyColumn {
+                            LazyColumn(state = sessionsListState) {
                                 if (needsYou.isNotEmpty()) {
                                     item(key = "h-needs") {
                                         SectionHeader(
@@ -464,6 +501,36 @@ fun SessionsScreen(
                             }
                         }
                     }
+                    if (needsYouPill > 0) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            shape = RoundedCornerShape(18.dp),
+                            shadowElevation = 4.dp,
+                            modifier = Modifier.align(Alignment.TopCenter).padding(top = 10.dp),
+                        ) {
+                            Row(
+                                Modifier
+                                    .clickable {
+                                        needsYouPill = 0
+                                        revealScope.launch { sessionsListState.animateScrollToItem(0) }
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    Icons.Rounded.ArrowUpward,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Text(
+                                    localized(language, "$needsYouPill 个会话需要处理", "$needsYouPill session(s) need you"),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    modifier = Modifier.padding(start = 6.dp),
+                                )
+                            }
+                        }
+                    }
                     if (state.loading && state.sessions.isNotEmpty()) {
                         LinearProgressIndicator(
                             modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
@@ -515,7 +582,7 @@ private fun ArchivedRow(
     )
 
     if (menuOpen) {
-        ModalBottomSheet(onDismissRequest = { menuOpen = false }) {
+        ModalBottomSheet(onDismissRequest = { menuOpen = false }, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
             Text(
                 session.title,
                 style = MaterialTheme.typography.titleMedium,
@@ -673,7 +740,7 @@ private fun SessionRow(
     )
 
     if (menuOpen) {
-        ModalBottomSheet(onDismissRequest = { menuOpen = false }) {
+        ModalBottomSheet(onDismissRequest = { menuOpen = false }, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
             Text(
                 session.title,
                 style = MaterialTheme.typography.titleMedium,

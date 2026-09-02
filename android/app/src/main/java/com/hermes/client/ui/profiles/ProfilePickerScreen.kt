@@ -205,7 +205,7 @@ fun ProfilePickerScreen(
 
     colorTarget?.let { target ->
         val selected = LocalAvatarColors.current[target]
-        ModalBottomSheet(onDismissRequest = { colorTarget = null }) {
+        ModalBottomSheet(onDismissRequest = { colorTarget = null }, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
             Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 28.dp)) {
                 Text(
                     localized(language, "头像颜色 · $target", "Avatar colour · $target"),
