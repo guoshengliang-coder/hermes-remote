@@ -345,6 +345,8 @@ fun ChatScreen(
     // Image attach: read picked/captured bytes and stage them onto the session.
     val clipboard = LocalClipboardManager.current
     var transcriptMenu by remember { mutableStateOf(false) }
+    // Menu entry to the prompt list; the list itself lives in ChatMessageList, which owns the turns.
+    var promptListTick by remember { mutableStateOf(0L) }
     var showAttachSheet by remember { mutableStateOf(false) }
     var savingImageId by remember { mutableStateOf<String?>(null) }
     var pendingSaveAsImage by remember { mutableStateOf<com.hermes.client.domain.ChatImage?>(null) }
@@ -663,6 +665,16 @@ fun ChatScreen(
                         shape = RoundedCornerShape(16.dp),
                         containerColor = MaterialTheme.colorScheme.surface,
                     ) {
+                            // Navigation before actions: the prompt list is how a long chat is
+                            // travelled (docs/DESIGN.md §5.4 我的提问).
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(com.hermes.client.ui.components.PromptListIcon, contentDescription = null, Modifier.size(20.dp)) },
+                                text = { Text(localized(language, "我的提问", "Your prompts")) },
+                                onClick = {
+                                    transcriptMenu = false
+                                    promptListTick = System.currentTimeMillis()
+                                },
+                            )
                             DropdownMenuItem(
                                 leadingIcon = {
                                     if (refreshingConversation) {
@@ -1132,6 +1144,7 @@ fun ChatScreen(
                         listState = listState,
                         highlightIndex = highlightIndex,
                         scrollToBottomTick = sendToBottomTick,
+                        openPromptListTick = promptListTick,
                         viewportController = viewportController,
                         isGenerating = state.isGenerating,
                         onEditResend = { text -> draft = text; focusRequester.requestFocus() },

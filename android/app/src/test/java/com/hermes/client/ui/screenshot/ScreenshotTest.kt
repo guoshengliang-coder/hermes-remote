@@ -1,5 +1,10 @@
 package com.hermes.client.ui.screenshot
 
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import com.github.takahirom.roborazzi.RoborazziOptions
@@ -73,6 +78,43 @@ class ScreenshotTest {
         com.hermes.client.ui.chat.RunningStatusLine(
             msg(text = "x", tools = listOf(com.hermes.client.domain.ToolCall("t", "Bash", com.hermes.client.domain.ToolStatus.RUNNING, command = "npm test"))),
         )
+    }
+
+    // Turn navigation (docs/DESIGN.md §5.4): the pill and the prompt list rows.
+    private val longPrompt = "把 gateway 的路由中间件拆成鉴权和限流两层，保持现有测试通过。"
+
+    @Test fun turnJumpPill() = snap("turn-jump-pill") {
+        androidx.compose.foundation.layout.Box(
+            androidx.compose.ui.Modifier.fillMaxWidth().padding(16.dp),
+            contentAlignment = androidx.compose.ui.Alignment.TopCenter,
+        ) {
+            com.hermes.client.ui.chat.TurnJumpPill(
+                label = longPrompt, showList = false, onJump = {}, onOpenList = {},
+                modifier = androidx.compose.ui.Modifier.widthIn(max = 260.dp),
+            )
+        }
+    }
+
+    @Test fun turnJumpPillSplitDark() = snap("turn-jump-pill-split-dark", darkTheme = true) {
+        androidx.compose.foundation.layout.Box(
+            androidx.compose.ui.Modifier.fillMaxWidth().padding(16.dp),
+            contentAlignment = androidx.compose.ui.Alignment.TopCenter,
+        ) {
+            com.hermes.client.ui.chat.TurnJumpPill(
+                label = longPrompt, showList = true, onJump = {}, onOpenList = {},
+                modifier = androidx.compose.ui.Modifier.widthIn(max = 260.dp),
+            )
+        }
+    }
+
+    @Test fun promptListRows() = snap("prompt-list-rows") {
+        val rows = listOf(
+            com.hermes.client.ui.chat.PromptRow(0, "会话开始", time = null, isCurrent = false, isLeading = true),
+            com.hermes.client.ui.chat.PromptRow(1, longPrompt, time = "09:12", isCurrent = true, isLeading = false),
+            com.hermes.client.ui.chat.PromptRow(2, "限流阈值放到配置里。", time = "09:40", isCurrent = false, isLeading = false),
+            com.hermes.client.ui.chat.PromptRow(3, "跑一遍完整测试，把失败的贴给我。", time = "昨天 10:05", isCurrent = false, isLeading = false),
+        )
+        com.hermes.client.ui.chat.PromptListContent(rows, onPick = {}, modifier = androidx.compose.ui.Modifier.height(320.dp))
     }
 
     @Test fun toolCardFailure() = snap("tool-card-failure") {

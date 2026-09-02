@@ -244,3 +244,39 @@ All pending device verification.
    wait: the list must auto-scroll so the 需要你处理 header and row are visible. Repeat while
    scrolled deep into the list: no yank — a ↑ pill appears; tapping it jumps to top; scrolling
    to top yourself dissolves it.
+
+## Turn navigation smoke test (2026-09 branch claude/turn-jump)
+
+Device/emulator flows for the turn-jump pill and the 我的提问 list (docs/DESIGN.md §5.4). The
+grouping, visibility and list-row logic is covered by `TurnJumpTest`; the pill and rows have
+Roborazzi goldens. Items 1–4 were exercised on the Pixel 9 API 36 emulator against the mock
+Hermes stack on 2026-09-02 (three long exchanges); items 5–7 and a real device still need
+verification.
+
+1. **Pill appears only in history.** Open a chat with at least three exchanges whose answers are
+   taller than the screen. At the bottom, while an answer streams, no pill. Scroll up into the
+   latest answer until its question leaves the screen: a pill with that question's first line
+   fades in at the top of the list. Keep scrolling into the previous exchange: the pill text
+   changes to that question. Scroll back down until a question bubble is on screen: the pill fades
+   out. Direction never matters — stop mid-answer and scroll a little either way.
+2. **Tap aligns the question to the top.** Tap the pill: the list animates (when the bubble was
+   already near) or snaps so that the question bubble sits just below the top of the list, then
+   the pill disappears because the bubble is visible. Repeat from far away (five screens of
+   answer) — the landing position must be the same, and the newest-message edge must not be
+   overshot when the target is the latest exchange.
+3. **Split pill deep in history.** Scroll up past the second exchange from the end: the pill
+   grows a right segment with a list icon (150ms). Tap it: the 我的提问 sheet opens with the
+   current exchange highlighted and scrolled into view. Scroll back into the last two exchanges:
+   the segment collapses.
+4. **Menu entry.** From the top-right ⋮ menu, 我的提问 is the first item and opens the same
+   sheet anywhere, including while pinned to the bottom (the current row is then the exchange
+   under the top of the screen). Pick a row: the sheet closes and the list lands with that
+   question at the top, exactly like the pill.
+5. **Leading content.** In a chat that starts with a Hermes message (greeting, scheduled task
+   output) before any question, scrolling into that block shows a 会话开始 pill; tapping it goes to
+   the very top. The sheet lists 会话开始 as a grey first row without a time.
+6. **Search and rotation.** Open in-chat search: the pill sits below the search row and still
+   works; search-hit navigation does not leave the pill flickering. Rotate while the pill is
+   showing: the pill reflects the new viewport within a frame or two.
+7. **Attachment-only prompts.** A question that is only an image or a file shows 图片 / 文件：<name>
+   in both the pill and the sheet.
