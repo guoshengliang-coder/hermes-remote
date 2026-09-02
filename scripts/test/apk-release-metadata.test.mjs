@@ -10,6 +10,7 @@ import {promisify} from 'node:util';
 const run = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const BADGING_TOOL = path.join(ROOT, 'scripts', 'lib', 'apk_badging.py');
+const SIGNING_TOOL = path.join(ROOT, 'scripts', 'lib', 'apk_signing.py');
 const METADATA_TOOL = path.join(ROOT, 'scripts', 'lib', 'release_metadata.py');
 const CERT = '06c18dfc4a852330654c2da040a578bccab13b71dde4ac962bb9bc2271dd32c5';
 
@@ -36,6 +37,13 @@ async function readBadging(text, args) {
   const file = path.join(dir, 'badging.txt');
   await writeFile(file, text);
   return run('python3', [BADGING_TOOL, file, ...args]);
+}
+
+async function readSigning(text) {
+  const dir = await workspace();
+  const file = path.join(dir, 'signing.txt');
+  await writeFile(file, text);
+  return run('python3', [SIGNING_TOOL, file]);
 }
 
 async function buildMetadata(gate, {notes = {channel: 'internal', releaseNotes: ['first note']}, commit = 'abc1234', publishedAt = '2026-01-01T00:00:00Z'} = {}) {
@@ -68,6 +76,17 @@ test('badging parsing fails closed when minSdk is missing or unusable', async ()
   assert.equal(stdout.trim(), '21');
 });
 
+test('signing parsing accepts current apksigner signer output and rejects ambiguity', async () => {
+  const actual = [
+    'Signer #1 certificate DN: C=US, O=Android, CN=Android Debug',
+    `Signer #1 certificate SHA-256 digest: ${CERT}`,
+  ].join('\n');
+  assert.equal((await readSigning(actual)).stdout.trim(), CERT);
+  assert.equal((await readSigning(`V1 Signer: certificate SHA-256 digest: ${CERT}`)).stdout.trim(), CERT);
+  await assert.rejects(readSigning('Signer #1 certificate SHA-1 digest: abc'), /SHA-256/);
+  await assert.rejects(readSigning(`${actual}\nSigner #2 certificate SHA-256 digest: ${'b'.repeat(64)}`), /more than one/);
+});
+
 test('publication metadata carries the APK minSdk instead of a hard-coded value', async () => {
   const base = await buildMetadata(gateJson());
   assert.equal(base.minSdk, 26);
@@ -94,6 +113,7 @@ test('the release scripts stay wired to the extracted minSdk and parse cleanly',
   const gate = await readFile(path.join(ROOT, 'scripts', 'package-debug-apk.sh'), 'utf8');
   const publisher = await readFile(path.join(ROOT, 'scripts', 'publish-android-apk.sh'), 'utf8');
   assert.match(gate, /apk_badging\.py/);
+  assert.match(gate, /apk_signing\.py/);
   assert.match(gate, /'minSdk':int\(min_sdk\)/);
   assert.match(gate, /MIN_SDK=\$MIN_SDK/);
   assert.match(publisher, /release_metadata\.py/);

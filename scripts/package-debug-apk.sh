@@ -88,24 +88,7 @@ trap 'rm -f "$BADGING" "$SIGNING"' EXIT
 MIN_SDK="$(python3 "$ROOT/scripts/lib/apk_badging.py" "$BADGING" com.hermes.remote "$VERSION_NAME" "$VERSION_CODE")"
 
 "$APKSIGNER" verify --print-certs "$ARTIFACT" > "$SIGNING"
-ACTUAL_CERT_SHA256="$(python3 - "$SIGNING" <<'PY'
-import re
-import sys
-
-text = open(sys.argv[1], encoding="utf-8").read()
-matches = re.findall(
-    r"^(?:Signer #\d+|V\d+ Signer): certificate SHA-256 digest:\s*([0-9a-fA-F]+)\s*$",
-    text,
-    re.MULTILINE,
-)
-digests = {value.lower() for value in matches}
-if not digests:
-    raise SystemExit("unable to read APK signing certificate SHA-256")
-if len(digests) != 1:
-    raise SystemExit("APK contains more than one signing certificate SHA-256")
-print(digests.pop())
-PY
-)"
+ACTUAL_CERT_SHA256="$(python3 "$ROOT/scripts/lib/apk_signing.py" "$SIGNING")"
 if [[ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]]; then
   echo "APK signing certificate mismatch: got $ACTUAL_CERT_SHA256, expected $EXPECTED_CERT_SHA256" >&2
   exit 1
