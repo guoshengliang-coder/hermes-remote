@@ -313,12 +313,19 @@ wss.on("connection", (socket) => {
         reply({ ok: true, remaining: [] });
         break;
       }
-      case "prompt.submit":
-        promptCount += 1;
-        promptTexts.push(String(request.params?.text ?? request.params?.prompt ?? "t"));
-        reply({ ok: true });
-        void streamRun(socket);
+      case "prompt.submit": {
+        // Delivery-state fixtures: "!fail…" is refused, "!slow…" is acknowledged after 6 s.
+        const submitted = String(request.params?.text ?? request.params?.prompt ?? "t");
+        if (submitted.startsWith("!fail")) { replyError(5000, "mock: submit refused"); break; }
+        const ack = () => {
+          promptCount += 1;
+          promptTexts.push(submitted);
+          reply({ ok: true });
+          void streamRun(socket);
+        };
+        if (submitted.startsWith("!slow")) setTimeout(ack, 6000); else ack();
         break;
+      }
       case "commands.catalog":
         reply({ commands: [] });
         break;

@@ -442,6 +442,24 @@ class SessionRuntimeStore(
         }
     }
 
+    fun updateUserDelivery(
+        key: SessionRuntimeKey,
+        messageId: String,
+        delivery: com.hermes.client.domain.DeliveryState,
+    ) {
+        updateRuntime(key) { runtime ->
+            runtime.copy(chat = runtime.chat.copy(messages = runtime.chat.messages.map { message ->
+                if (message.id == messageId) message.copy(delivery = delivery) else message
+            }))
+        }
+    }
+
+    fun removeMessage(key: SessionRuntimeKey, messageId: String) {
+        updateRuntime(key) { runtime ->
+            runtime.copy(chat = runtime.chat.copy(messages = runtime.chat.messages.filterNot { it.id == messageId }))
+        }
+    }
+
     fun updateUserFiles(
         key: SessionRuntimeKey,
         messageId: String,

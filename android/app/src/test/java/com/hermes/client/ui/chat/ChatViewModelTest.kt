@@ -310,6 +310,63 @@ class ChatViewModelTest {
         assertEquals("image/png", vm.state.value.pendingAttachments.first().mimeType)
     }
 
+    // Delivery three-state (docs/DESIGN.md §5.4): SENDING from the optimistic insert, SENT once
+    // prompt.submit is acknowledged, FAILED on the bubble (never a detached error row) when it raises.
+    @Test fun user_turn_is_sending_until_submit_is_acknowledged() = runTest {
+        val submitted = kotlinx.coroutines.CompletableDeferred<Unit>()
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.submit("s1-live", "hello") } coAnswers { submitted.await() }
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+
+        vm.send("hello")
+        runCurrent()
+        val pending = vm.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals(com.hermes.client.domain.DeliveryState.SENDING, pending.delivery)
+
+        submitted.complete(Unit)
+        runCurrent()
+        val acked = vm.state.value.messages.first { it.id == pending.id }
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT, acked.delivery)
+
+        events.emit(event("message.complete", "s1-live", "done"))
+        advanceUntilIdle()
+    }
+
+    @Test fun failed_submit_marks_the_bubble_not_sent_without_an_error_row_and_retry_resends() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.submit("s1-live", "hello") } throws
+            com.hermes.client.data.network.GatewayRpcException(5000, "mock: submit refused") andThen Unit
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+
+        vm.send("hello")
+        runCurrent()
+
+        val failed = vm.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals(com.hermes.client.domain.DeliveryState.FAILED, failed.delivery)
+        assertTrue("no detached error row", vm.state.value.messages.none { it.isError })
+        assertFalse("a send that never left the phone is not a running turn", vm.state.value.isGenerating)
+        assertTrue(vm.sendDiagnostic(failed.id)!!.contains("HR-SESS-007"))
+
+        vm.retrySend(failed.id)
+        runCurrent()
+
+        assertTrue("failed bubble is replaced", vm.state.value.messages.none { it.id == failed.id })
+        val resent = vm.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals("hello", resent.text)
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT, resent.delivery)
+        assertEquals(null, vm.sendDiagnostic(failed.id))
+        coVerify(exactly = 2) { chatRepo.submit("s1-live", "hello") }
+
+        // Close the resent turn; while it awaits the model the runtime keeps polling processes and
+        // the virtual clock would never go idle.
+        events.emit(event("message.complete", "s1-live", "done"))
+        advanceUntilIdle()
+    }
+
     @Test fun send_waits_for_live_handle_instead_of_using_stored_session_id() = runTest {
         val resumed = kotlinx.coroutines.CompletableDeferred<String?>()
         coEvery { chatRepo.resume("s1", null) } coAnswers { resumed.await() }

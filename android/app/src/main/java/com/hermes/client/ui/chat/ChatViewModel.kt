@@ -707,17 +707,41 @@ class ChatViewModel @Inject constructor(
             .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
             .getOrNull()?.id
 
+    /** A send that raised, kept so the bubble's tap-to-retry can replay it with its attachments. */
+    private data class FailedSend(val text: String, val attachments: List<PendingAttachment>, val error: com.hermes.client.data.error.AppError)
+    private val failedSends = LinkedHashMap<String, FailedSend>()
+
+    /** Redacted diagnostic for a failed user turn (long-press → copy), null when it did not fail. */
+    fun sendDiagnostic(messageId: String): String? = failedSends[messageId]?.error?.sanitizedDiagnostic()
+
+    /** Replays a failed turn as a fresh message: the failed bubble is removed, then sent again. */
+    fun retrySend(messageId: String) {
+        val failed = failedSends.remove(messageId) ?: return
+        runtimeKey?.let { runtimeStore.removeMessage(it, messageId) }
+            ?: mutateState { it.withoutMessage(messageId) }
+        dispatch(failed.text, failed.attachments)
+    }
+
+    private fun updateDelivery(messageId: String, delivery: com.hermes.client.domain.DeliveryState) {
+        runtimeKey?.let { runtimeStore.updateUserDelivery(it, messageId, delivery) }
+            ?: mutateState { it.withDelivery(messageId, delivery) }
+    }
+
     fun send(text: String) {
         val atts = _state.value.pendingAttachments
         if (text.isBlank() && atts.isEmpty()) return
+        // Clear the staging strip immediately. The cached thumbnails are attached to the sent turn
+        // on an IO dispatcher below, so large images never block the Compose main thread.
+        mutateState { it.copy(pendingAttachments = emptyList()) }
+        dispatch(text, atts)
+    }
+
+    private fun dispatch(text: String, atts: List<PendingAttachment>) {
         val isSlash = text.trimStart().startsWith("/")
         val messageId = "u-${java.util.UUID.randomUUID()}"
         val expectedStoredId = storedSessionId
         val expectedProfile = currentProfile
         val gateForSend = liveHandleGate
-        // Clear the staging strip immediately. The cached thumbnails are attached to the sent turn
-        // on an IO dispatcher below, so large images never block the Compose main thread.
-        mutateState { it.copy(pendingAttachments = emptyList()) }
         sendJob = viewModelScope.launch {
             try {
                 val outgoingImages = atts.filter { it.kind == AttachmentKind.IMAGE }.map { a ->
@@ -768,10 +792,21 @@ class ChatViewModel @Inject constructor(
                     attachments = atts,
                     messageId = messageId,
                 )
+                // The gateway acknowledged the turn: the bubble goes from "sending" to solid.
+                updateDelivery(messageId, com.hermes.client.domain.DeliveryState.SENT)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
-                // A gateway error (e.g. "session not found") must surface, not crash the app.
+                // A gateway error (e.g. "session not found") or the live-handle timeout must surface
+                // ON THE BUBBLE (未发送 + tap-to-retry, HR-SESS-007), never crash and never as a
+                // detached error row. The session goes back to idle — a send that never left the
+                // phone is not a failed run.
+                val error = com.hermes.client.data.error.AppError(
+                    com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED,
+                    retryable = true, technicalCause = e.message, stage = "prompt_submit",
+                )
+                com.hermes.client.data.diagnostics.DebugLog.log("session", "send($expectedStoredId) failed: ${e.message}")
+                failedSends[messageId] = FailedSend(text, atts, error)
                 updateSentImages(messageId) { images ->
                     images.map { image ->
                         if (image.state == com.hermes.client.domain.ImageTransferState.UPLOADING) {
@@ -786,7 +821,8 @@ class ChatViewModel @Inject constructor(
                         } else file
                     }
                 }
-                appendError(localizedText("消息发送失败（HR-RPC-001）", "Failed to send the message (HR-RPC-001)"))
+                updateDelivery(messageId, com.hermes.client.domain.DeliveryState.FAILED)
+                runtimeKey?.let(runtimeStore::finishLocal) ?: mutateState { it.copy(isGenerating = false) }
             }
         }
     }

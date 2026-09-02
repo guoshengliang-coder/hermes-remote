@@ -1,7 +1,9 @@
 package com.hermes.client.ui.screenshot
 
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
@@ -31,6 +33,8 @@ class ScreenshotTest {
         name: String,
         darkTheme: Boolean = false,
         fontScale: Float? = null,
+        // Virtual time to advance before capture (delayed reveals such as the "sending" bubble).
+        advanceMs: Long = 0L,
         content: @androidx.compose.runtime.Composable () -> Unit,
     ) {
         compose.setContent {
@@ -50,6 +54,7 @@ class ScreenshotTest {
         // The markdown renderer parses asynchronously; give it real time, then settle composition.
         Thread.sleep(250)
         compose.waitForIdle()
+        if (advanceMs > 0) { compose.mainClock.advanceTimeBy(advanceMs); compose.waitForIdle() }
         compose.onRoot().captureRoboImage("screenshots/$name.png", roborazziOptions = options)
     }
 
@@ -313,6 +318,46 @@ class ScreenshotTest {
             ),
         )
     }
+
+    private fun userTurn(id: String, text: String, delivery: com.hermes.client.domain.DeliveryState) =
+        com.hermes.client.domain.ChatMessage(id = id, role = com.hermes.client.domain.Role.USER, text = text, delivery = delivery)
+
+    // Delivery three-state: sent (solid), sending (dimmed + tail ring, revealed after 250ms) and
+    // not-sent (dimmed + error mark + tap-to-retry line). Bubbles are laid out in a plain Column:
+    // capturing the reverse-layout LazyColumn under Robolectric paints a stray copy of the last
+    // row at the top of the image (a capture artifact, not visible on device). The ring's
+    // breathing is switched off through LocalDeliveryMotionEnabled so the clock can settle.
+    private fun snapDelivery(name: String, darkTheme: Boolean) = snap(name, darkTheme = darkTheme, advanceMs = 600L) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.chat.LocalDeliveryMotionEnabled provides false,
+        ) {
+            androidx.compose.foundation.layout.Column(
+                modifier = androidx.compose.ui.Modifier.padding(horizontal = 22.dp, vertical = 16.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(18.dp),
+            ) {
+                listOf(
+                    userTurn("h-1", "已发送的消息", com.hermes.client.domain.DeliveryState.SENT),
+                    userTurn("u-2", "发送中的消息", com.hermes.client.domain.DeliveryState.SENDING),
+                    userTurn("u-3", "未发送的消息", com.hermes.client.domain.DeliveryState.FAILED),
+                ).forEach { msg ->
+                    com.hermes.client.ui.chat.UserBubble(
+                        msg = msg,
+                        onEditResend = {},
+                        onImageSave = {},
+                        onImageSaveAs = {},
+                        onImageShare = {},
+                        savingImageId = null,
+                        onFileOpen = {},
+                        onFileShare = {},
+                        sendDiagnostic = if (msg.delivery == com.hermes.client.domain.DeliveryState.FAILED) "code=HR-SESS-007" else null,
+                    )
+                }
+            }
+        }
+    }
+
+    @Test fun userBubbleDeliveryStates() = snapDelivery("user-bubble-delivery", darkTheme = false)
+    @Test fun userBubbleDeliveryStatesDark() = snapDelivery("user-bubble-delivery-dark", darkTheme = true)
 
     @Test fun smoke() {
         compose.setContent {
