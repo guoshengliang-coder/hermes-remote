@@ -173,6 +173,29 @@ class ScreenshotTest {
     private fun updateRow(eligibility: com.hermes.client.update.VersionEligibility) =
         com.hermes.client.update.UpdateRow(updateVersion, eligibility)
 
+    private fun historyVersion(code: Int, name: String, notes: List<String>) =
+        updateVersion.copy(
+            versionCode = code, versionName = name, releaseNotes = notes,
+            fileName = "Hermes-Remote-$name-debug.apk",
+        )
+
+    @Test fun updateHistoryRecord() = snap("update-history") {
+        val current = historyVersion(76, "0.1.75", listOf("修复决策卡回答收不到的根因。"))
+        val old = historyVersion(75, "0.1.74", listOf("暴露过期的决策回答。", "全链路诊断日志。"))
+        com.hermes.client.ui.settings.AppUpdateContent(
+            state = com.hermes.client.update.UpdateUiState(
+                checkedOnce = true,
+                lastCheckedAtMs = 1_788_260_400_000,
+                latest = updateRow(com.hermes.client.update.VersionEligibility.UPDATE),
+                history = listOf(
+                    com.hermes.client.update.UpdateRow(current, com.hermes.client.update.VersionEligibility.CURRENT),
+                    com.hermes.client.update.UpdateRow(old, com.hermes.client.update.VersionEligibility.OLD),
+                ),
+                apkOnDisk = setOf(75, 76),
+            ),
+        )
+    }
+
     @Test fun updateUpToDate() = snap("update-up-to-date") {
         com.hermes.client.ui.settings.AppUpdateContent(
             state = com.hermes.client.update.UpdateUiState(

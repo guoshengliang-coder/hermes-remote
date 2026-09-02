@@ -30,6 +30,8 @@ data class UpdateTask(
     /** The raw DownloadManager pause/failure reason, mapped to copy by [downloadPauseText]. */
     val reason: Int? = null,
     val verifiedFile: File? = null,
+    /** One-shot: the page already launched the installer for this task automatically. */
+    val autoInstallAttempted: Boolean = false,
 )
 
 data class UpdateUiState(
@@ -45,6 +47,10 @@ data class UpdateUiState(
     val checkError: AppError? = null,
     val taskError: AppError? = null,
     val task: UpdateTask? = null,
+    /** Version codes whose release APK is still on disk (rollback material, newest 5 kept). */
+    val apkOnDisk: Set<Int> = emptySet(),
+    /** Transient feedback for the last export action, keyed by version code. */
+    val exportNotice: Pair<Int, ExportResult>? = null,
 )
 
 val UpdateUiState.taskIsSuperseded: Boolean
@@ -59,9 +65,16 @@ class UpdateViewModel(
     private val repository: UpdateRepositoryContract,
     private val clock: () -> Long,
     private val deviceSdk: Int,
+    private val notifyReady: (UpdateVersion) -> Unit = {},
 ) : ViewModel() {
-    @Inject constructor(repository: UpdateRepositoryContract) : this(repository, System::currentTimeMillis, Build.VERSION.SDK_INT)
+    @Inject constructor(repository: UpdateRepositoryContract, notifier: UpdateReadyNotifier) :
+        this(repository, System::currentTimeMillis, Build.VERSION.SDK_INT, notifier::notifyReady)
     internal constructor(repository: UpdateRepositoryContract, clock: () -> Long) : this(repository, clock, 26)
+
+    /** True while the update page is RESUMED; decides auto-install vs. a quiet notification. */
+    private var pageVisible = false
+
+    fun setPageVisible(visible: Boolean) { pageVisible = visible }
 
     private val _state = MutableStateFlow(UpdateUiState())
     val state: StateFlow<UpdateUiState> = _state.asStateFlow()
@@ -101,6 +114,7 @@ class UpdateViewModel(
                         latest = latest,
                         history = rows.filter { it.version.versionCode != latest?.version?.versionCode },
                     )
+                    refreshLocalApks(rows)
                 }
                 .onFailure {
                     // Rows already on screen stay: a failed refresh must not blank the page.
@@ -206,6 +220,28 @@ class UpdateViewModel(
         }
     }
 
+    /** Export a stored release APK for the manual rollback flow. */
+    fun export(version: UpdateVersion) {
+        viewModelScope.launch {
+            val result = runCatching { repository.exportApk(version) }
+                .getOrElse { ExportResult.Failure(it.message ?: "export failed") }
+            _state.value = _state.value.copy(exportNotice = version.versionCode to result)
+        }
+    }
+
+    fun dismissExportNotice() { _state.value = _state.value.copy(exportNotice = null) }
+
+    private fun refreshLocalApks(rows: List<UpdateRow>) {
+        viewModelScope.launch {
+            val ordered = rows.sortedByDescending { it.version.versionCode }.map { it.version }
+            val keep = ordered.take(KEPT_APK_VERSIONS).map { it.fileName }.toMutableSet()
+            _state.value.task?.version?.fileName?.let(keep::add)
+            runCatching { repository.pruneDownloads(keep) }
+            val onDisk = runCatching { repository.localApkVersions(ordered) }.getOrDefault(emptySet())
+            _state.value = _state.value.copy(apkOnDisk = onDisk)
+        }
+    }
+
     private suspend fun monitor(id: Long, version: UpdateVersion, generation: Long) {
         while (generation == monitorGeneration) {
             val snapshot = runCatching { repository.query(id) }.getOrElse {
@@ -241,6 +277,16 @@ class UpdateViewModel(
                                 task = _state.value.task?.copy(phase = DownloadPhase.INSTALLABLE, verifiedFile = file),
                                 taskError = null,
                             )
+                            // The user asked for this download. With the page in front, launching
+                            // the system installer saves the extra tap; in the background it would
+                            // be a jarring interruption (and Android blocks background activity
+                            // starts anyway), so a tappable notification carries the hand-off.
+                            if (pageVisible) {
+                                _state.value = _state.value.copy(task = _state.value.task?.copy(autoInstallAttempted = true))
+                                install()
+                            } else {
+                                notifyReady(version)
+                            }
                         }
                         .onFailure { fail(generation, AppErrorCode.UPDATE_VERIFICATION_FAILED, "apk_verification", it.message) }
                     return

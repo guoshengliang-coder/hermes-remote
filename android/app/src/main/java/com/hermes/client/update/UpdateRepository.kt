@@ -56,6 +56,24 @@ interface UpdateRepositoryContract {
     /** Remove the DownloadManager job, the persisted metadata, and the residual file. */
     suspend fun cancel()
     fun install(file: File): InstallResult
+    /** Version codes among [candidates] whose release APK is still on disk. */
+    suspend fun localApkVersions(candidates: List<UpdateVersion>): Set<Int>
+    /** Delete stored release APKs not named in [keepFileNames] (see [selectApksToPrune]). */
+    suspend fun pruneDownloads(keepFileNames: Set<String>)
+    /**
+     * Copy a stored release APK to a user-reachable location for the manual rollback flow
+     * (uninstall wipes this app's private directory, taking the APK with it). The file is
+     * re-hashed against the manifest before leaving the sandbox.
+     */
+    suspend fun exportApk(version: UpdateVersion): ExportResult
+}
+
+sealed interface ExportResult {
+    /** Saved into the device's public Downloads collection. */
+    data object SavedToDownloads : ExportResult
+    /** Pre-Android-10 fallback: a share sheet was opened for the user to place the file. */
+    data object ShareSheetOpened : ExportResult
+    data class Failure(val message: String) : ExportResult
 }
 
 internal suspend fun persistEnqueuedDownload(id: Long, persist: () -> Boolean, rollback: suspend (Long) -> Unit): Long {
@@ -177,6 +195,62 @@ class UpdateRepository(
         InstallResult.Failure(error.message ?: "Installer activity was not found")
     } catch (error: SecurityException) {
         InstallResult.Failure(error.message ?: "Installer permission was denied")
+    }
+
+    override suspend fun localApkVersions(candidates: List<UpdateVersion>): Set<Int> = withContext(Dispatchers.IO) {
+        candidates.filter { File(downloadDirectory, it.fileName).isFile }.map { it.versionCode }.toSet()
+    }
+
+    override suspend fun pruneDownloads(keepFileNames: Set<String>): Unit = withContext(Dispatchers.IO) {
+        val existing = downloadDirectory.listFiles()?.map { it.name }.orEmpty()
+        selectApksToPrune(existing, keepFileNames).forEach { name ->
+            // Best-effort: a locked file stays for the next sweep; never fail the caller's check.
+            runCatching { File(downloadDirectory, name).delete() }
+        }
+    }
+
+    override suspend fun exportApk(version: UpdateVersion): ExportResult = withContext(Dispatchers.IO) {
+        val source = File(downloadDirectory, version.fileName)
+        if (!source.isFile) return@withContext ExportResult.Failure("APK is no longer on disk")
+        // Never let a tampered file out of the sandbox: re-hash against the signed manifest.
+        val hash = MessageDigest.getInstance("SHA-256")
+        FileInputStream(source).use { input -> val buffer = ByteArray(DEFAULT_BUFFER_SIZE); while (true) { val count = input.read(buffer); if (count < 0) break; hash.update(buffer, 0, count) } }
+        val sha = hash.digest().joinToString("") { "%02x".format(it) }
+        if (!sha.equals(version.sha256, true) || source.length() != version.sizeBytes) {
+            return@withContext ExportResult.Failure("Stored APK failed integrity re-verification")
+        }
+        if (Build.VERSION.SDK_INT >= 29) {
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Downloads.DISPLAY_NAME, version.fileName)
+                put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/vnd.android.package-archive")
+            }
+            val resolver = context.contentResolver
+            val target = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: return@withContext ExportResult.Failure("Could not create the destination file")
+            runCatching {
+                resolver.openOutputStream(target)?.use { out -> FileInputStream(source).use { it.copyTo(out) } }
+                    ?: error("Could not open the destination file")
+            }.onFailure {
+                resolver.delete(target, null, null)
+                return@withContext ExportResult.Failure(it.message ?: "Copy failed")
+            }
+            ExportResult.SavedToDownloads
+        } else {
+            // API 26–28: writing public storage needs a runtime permission; the share sheet is
+            // the friction-free path and lets the user land the file anywhere (Files, PC, IM).
+            val uri = FileProvider.getUriForFile(context, "${'$'}{context.packageName}.fileprovider", source)
+            val intent = Intent(Intent.ACTION_SEND)
+                .setType("application/vnd.android.package-archive")
+                .putExtra(Intent.EXTRA_STREAM, uri)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val chooser = Intent.createChooser(intent, version.fileName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (chooser.resolveActivity(context.packageManager) == null) {
+                ExportResult.Failure("No app can receive the file")
+            } else {
+                context.startActivity(chooser)
+                ExportResult.ShareSheetOpened
+            }
+        }
     }
 
     private fun validateDownloadUrl(version: UpdateVersion) {
