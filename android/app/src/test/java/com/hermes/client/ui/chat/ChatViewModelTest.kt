@@ -46,6 +46,9 @@ class ChatViewModelTest {
     private val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
     private val connectionStateFlow = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     private val chatRepo = mockk<ChatRepository>(relaxed = true)
+    private val projectPrefs = io.mockk.mockk<com.hermes.client.data.repository.ProjectPrefsStore>(relaxed = true).also {
+        io.mockk.every { it.defaultProjectPath } returns kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    }
     private val mediaRepo = mockk<ChatMediaRepository>(relaxed = true)
     private val fileRepo = mockk<com.hermes.client.data.repository.ChatFileRepository>(relaxed = true)
     private val sessionRepo = mockk<SessionRepository>(relaxed = true)
@@ -121,8 +124,28 @@ class ChatViewModelTest {
         return ChatViewModel(
             chatRepo, sessionRepo, store, reasoningPresetStore, profileRepo, profileManager,
             favoritesStore, pendingShareStore, tts, promptStore, configRepo, runtimeStore,
-            mediaRepo, fileRepo, mainDispatcherRule.dispatcher,
+            mediaRepo, fileRepo, mainDispatcherRule.dispatcher, projectPrefs,
         )
+    }
+
+    // The chat subtitle follows the gateway's session.info (cwd/branch) — the workspace the
+    // chat's tools actually run in, not a stale list row.
+    @Test fun session_info_updates_the_workspace_subtitle() = runTest {
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        events.emit(
+            ServerEvent(
+                "session.info", "s1",
+                buildJsonObject { put("session_id", "s1"); put("cwd", "/Users/me/proj"); put("branch", "main"); put("running", false) },
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals("proj", vm.workspace.value?.projectLabel)
+        assertEquals("main", vm.workspace.value?.branch)
+        assertEquals("/Users/me/proj", vm.workspace.value?.cwd)
     }
 
     @Test fun streamed_delta_appears_in_state() = runTest {

@@ -34,10 +34,62 @@ class ChatRepositoryTest {
         coEvery { client.call(any(), any()) } returns buildJsonObject { put("session_id", "abc") }
         val repo = ChatRepository(client)
 
-        val id = repo.createSession(profile = "acme")
+        val created = repo.createSession(profile = "acme")
 
-        assertEquals("abc", id)
+        assertEquals("abc", created.id)
         coVerify { client.call("session.create", match { it["profile"]?.jsonPrimitive?.content == "acme" }) }
+    }
+
+    // Projects: drilled into a project, the FAB creates IN that folder. Only an explicit cwd is
+    // persisted as the workspace upstream; omitted, the chat lands in the launch dir (default project).
+    @Test fun createSession_passes_project_cwd_and_reports_resolved_cwd() = runTest {
+        val client = mockk<HermesGatewayClient>(relaxed = true)
+        coEvery { client.call(any(), any()) } returns buildJsonObject {
+            put("session_id", "abc")
+            put("info", buildJsonObject { put("cwd", "/Users/me/proj") })
+        }
+        val repo = ChatRepository(client)
+
+        val created = repo.createSession(profile = "acme", cwd = "/Users/me/proj")
+
+        assertEquals("/Users/me/proj", created.cwd)
+        coVerify { client.call("session.create", match { it["cwd"]?.jsonPrimitive?.content == "/Users/me/proj" }) }
+    }
+
+    @Test fun createSession_omits_cwd_when_null_and_tolerates_missing_info() = runTest {
+        val client = mockk<HermesGatewayClient>(relaxed = true)
+        coEvery { client.call(any(), any()) } returns buildJsonObject { put("session_id", "abc") }
+        val repo = ChatRepository(client)
+
+        val created = repo.createSession(profile = "acme", cwd = null)
+
+        assertEquals(null, created.cwd)
+        coVerify { client.call("session.create", match { !it.containsKey("cwd") }) }
+    }
+
+    @Test fun moveWorkspace_targets_the_stored_key_with_profile_and_parses_the_answer() = runTest {
+        val client = mockk<HermesGatewayClient>(relaxed = true)
+        coEvery { client.call(any(), any()) } returns buildJsonObject {
+            put("cwd", "/Users/me/proj")
+            put("branch", "main")
+            put("git_repo_root", "/Users/me/proj")
+        }
+        val repo = ChatRepository(client)
+
+        val info = repo.moveWorkspace(sessionKey = "stored-1", cwd = "/Users/me/proj", profile = "work")
+
+        assertEquals("main", info.branch)
+        assertEquals("/Users/me/proj", info.gitRepoRoot)
+        coVerify {
+            client.call(
+                "session.workspace.move",
+                match {
+                    it["session_key"]?.jsonPrimitive?.content == "stored-1" &&
+                        it["cwd"]?.jsonPrimitive?.content == "/Users/me/proj" &&
+                        it["profile"]?.jsonPrimitive?.content == "work"
+                },
+            )
+        }
     }
 
     @Test fun createSession_omits_blank_profile() = runTest {
@@ -57,7 +109,7 @@ class ChatRepositoryTest {
             put("stored_session_id", "stored-1")
         }
 
-        val id = ChatRepository(client).createSession(profile = "personal")
+        val id = ChatRepository(client).createSession(profile = "personal").id
 
         assertEquals("stored-1", id)
     }

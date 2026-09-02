@@ -50,6 +50,16 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "已发布更新版本，请删除旧下载后获取最新版。", "A newer release is available. Delete the old download and get the latest version.")
         AppErrorCode.FILE_READ_FAILED ->
             localized(language, "无法读取所选文件，请重新选择。", "Couldn't read the selected file. Choose it again.")
+        AppErrorCode.SESSION_NOT_FOUND ->
+            localized(language, "会话不存在或已被删除。", "The conversation no longer exists or was deleted.")
+        AppErrorCode.PROJECT_FOLDER_MISSING ->
+            localized(language, "项目文件夹在 Mac 上不存在，请重新加载项目后重试。", "The project folder no longer exists on the Mac. Reload projects and retry.")
+        AppErrorCode.SESSION_BUSY ->
+            localized(language, "会话正在运行，无法移动项目，请等待完成后重试。", "The conversation is running, so its project can't be changed. Wait for it to finish and retry.")
+        AppErrorCode.PROJECT_MOVE_FAILED ->
+            localized(language, "无法移动会话到该项目，请重试。", "Couldn't move the conversation to that project. Retry.")
+        AppErrorCode.PROJECT_FELL_BACK_TO_DEFAULT ->
+            localized(language, "项目文件夹在 Mac 上不存在，会话已建在默认项目。", "The project folder no longer exists on the Mac, so the conversation was created in the default project.")
         AppErrorCode.INSTALL_PERMISSION_REQUIRED ->
             localized(language, "需要允许安装未知应用，授权后请重试。", "Permission to install unknown apps is required. Grant it and retry.")
         AppErrorCode.UNKNOWN ->

@@ -646,10 +646,12 @@ fun ModelSelectorSheet(
         dragHandle = { CloseHandle(onDismiss) },
     ) {
         Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+            // Left-aligned like every other sheet title (docs/DESIGN.md §5.5): 8dp box + 16dp =
+            // the 24dp text baseline the list items below share.
             Text(
                 l10n("选择模型", "Select model"),
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.align(Alignment.Center),
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp, end = 56.dp),
             )
             if (refreshing) {
                 Box(

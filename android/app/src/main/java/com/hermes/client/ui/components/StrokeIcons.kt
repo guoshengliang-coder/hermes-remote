@@ -72,3 +72,52 @@ val ArchiveBoxIcon: ImageVector by lazy {
         lineTo(14f, 12.5f)
     }
 }
+
+/** Folder with a house mark: the DEFAULT project (the gateway's launch directory). */
+val HomeFolderStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeHomeFolder") {
+        // Same folder silhouette as [FolderStrokeIcon].
+        moveTo(3.5f, 7f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 5.5f, y1 = 5f)
+        lineTo(9.3f, 5f)
+        lineTo(11.3f, 7.3f)
+        lineTo(18.5f, 7.3f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 20.5f, y1 = 9.3f)
+        lineTo(20.5f, 17f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 18.5f, y1 = 19f)
+        lineTo(5.5f, 19f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 3.5f, y1 = 17f)
+        close()
+        // House: roof apex + walls, centred in the folder body.
+        moveTo(9.5f, 16f)
+        lineTo(9.5f, 12.8f)
+        lineTo(12f, 10.7f)
+        lineTo(14.5f, 12.8f)
+        lineTo(14.5f, 16f)
+        close()
+    }
+}
+
+/** Git branch glyph (trunk with two nodes and a merge curve) for branch sublines. */
+val BranchStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeBranch") {
+        moveTo(6f, 3f)
+        lineTo(6f, 15f)
+        // Lower node.
+        moveTo(6f, 15f)
+        arcTo(3f, 3f, 0f, isMoreThanHalf = true, isPositiveArc = false, x1 = 6.01f, y1 = 21f)
+        // Upper-right node.
+        moveTo(18f, 9f)
+        arcTo(3f, 3f, 0f, isMoreThanHalf = true, isPositiveArc = false, x1 = 18.01f, y1 = 3f)
+        // Merge curve from the right node into the trunk.
+        moveTo(18f, 9f)
+        curveTo(18f, 13f, 14f, 13f, 9f, 15f)
+    }
+}
+
+/** Thin trailing chevron for tappable entry rows (icon + title + chevron paradigm). */
+val ThinChevronIcon: ImageVector by lazy {
+    strokeIcon("StrokeThinChevron") {
+        moveTo(9.5f, 5.5f); lineTo(16f, 12f); lineTo(9.5f, 18.5f)
+    }
+}
