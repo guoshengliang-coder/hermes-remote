@@ -57,8 +57,12 @@ import kotlin.math.abs
 //    no prompt — labelled 「会话开始」 so it still has a start to jump to.
 //  * While the reader is inside a group's answers and that group's prompt has scrolled off the
 //    screen, a pill at the top of the list names the prompt; tapping it aligns the prompt to the
-//    top of the viewport. The pill is stateless: it depends only on what is visible NOW, never
-//    on the scroll direction or history, so it is predictable and unit-testable.
+//    top of the viewport. WHAT the pill names depends only on what is visible NOW, never on the
+//    scroll direction or history, so it is predictable and unit-testable.
+//  * WHETHER it is shown adds one timer (decision 2026-09-02): it behaves like a scroll
+//    indicator, fading out TURN_PILL_IDLE_HIDE_MS after the finger lifts and the list settles,
+//    and reappearing the moment the list moves again. Users read a pill that never leaves as a
+//    permanent control; the old always-on rule needed a scroll to the bottom to get rid of it.
 //  * Deep in history (the third group from the end or earlier) the pill grows a second segment
 //    that opens the prompt list — the same list the top-bar menu reaches from anywhere.
 
@@ -116,6 +120,16 @@ internal data class TurnPillTarget(val groupIndex: Int, val showList: Boolean)
 
 /** Groups from the end that keep a plain pill; from the next one on the list segment appears. */
 internal const val TURN_PILL_LIST_DEPTH = 2
+
+/** How long the list must sit still before the pill fades (docs/DESIGN.md §5.4). */
+internal const val TURN_PILL_IDLE_HIDE_MS = 1_500L
+
+/**
+ * Whether a pill that HAS a target is shown right now: always while the list is moving, and for
+ * [TURN_PILL_IDLE_HIDE_MS] after it stops. Pure so the timing rule is unit-testable.
+ */
+internal fun turnPillShown(hasTarget: Boolean, scrolling: Boolean, idleMs: Long): Boolean =
+    hasTarget && (scrolling || idleMs < TURN_PILL_IDLE_HIDE_MS)
 
 /**
  * @param topVisibleMessageIndex message index of the item touching the top of the viewport.
