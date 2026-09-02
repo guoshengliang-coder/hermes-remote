@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -264,6 +266,23 @@ fun ProfileEditScreen(
     }
 
     Scaffold(
+        // Primary action pinned to the bottom (docs/DESIGN.md §5.12): 52dp, 16dp sides, 16dp above
+        // the navigation bar, rides up with the keyboard; content scrolls underneath.
+        bottomBar = {
+            Box(Modifier.fillMaxWidth().navigationBarsPadding().imePadding()) {
+                Button(
+                    onClick = { vm.save { ok -> if (ok) onBack() } },
+                    enabled = state.dirty && !state.saving && !state.importing,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(top = 8.dp, bottom = 16.dp)
+                        .height(52.dp),
+                ) {
+                    Text(localized(language, "保存", "Save"), style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+        },
         topBar = {
             HermesTopBar(
                 title = localized(language, "身份设置", "Profile settings"),
@@ -322,10 +341,18 @@ fun ProfileEditScreen(
             }
 
             // ── Display name: placeholder IS the profile name; clearing = back to it ─
+            // Section header instead of a floating label: M3 shows a label INSIDE an empty,
+            // unfocused field and only reveals the placeholder on focus, which hid the profile
+            // name until the user tapped in (docs/DESIGN.md §5.10, decision 2026-09-02).
+            Text(
+                localized(language, "显示名", "Display name"),
+                style = MaterialTheme.typography.titleSmall,
+                color = muted,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp),
+            )
             OutlinedTextField(
                 value = draft.displayName,
                 onValueChange = vm::setDisplayName,
-                label = { Text(localized(language, "显示名", "Display name")) },
                 placeholder = { Text(vm.profile, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 singleLine = true,
                 trailingIcon = if (draft.displayName.isNotEmpty()) {
@@ -335,7 +362,7 @@ fun ProfileEditScreen(
                         }
                     }
                 } else null,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 8.dp),
             )
 
             // ── Hermes profile (read-only, no chevron) ───────────────────────────────
@@ -426,14 +453,7 @@ fun ProfileEditScreen(
                 )
             }
 
-            Spacer(Modifier.height(24.dp))
-            Button(
-                onClick = { vm.save { ok -> if (ok) onBack() } },
-                enabled = state.dirty && !state.saving && !state.importing,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp).height(52.dp),
-            ) {
-                Text(localized(language, "保存", "Save"), style = MaterialTheme.typography.bodyLarge)
-            }
+            Spacer(Modifier.height(16.dp))
         }
     }
 
