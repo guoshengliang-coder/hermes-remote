@@ -102,6 +102,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -1066,10 +1067,26 @@ fun ChatMessageList(
         if (pillContent != null && pillContent != heldPillContent) {
             androidx.compose.runtime.SideEffect { heldPillContent = pillContent }
         }
+        // Scroll-indicator timing (docs/DESIGN.md §5.4): the pill fades TURN_PILL_IDLE_HIDE_MS after
+        // the list settles and comes straight back when it moves. collectLatest cancels a pending
+        // hide the moment a new scroll begins. It stays tappable until the fade starts.
+        var pillIdleHidden by remember(sessionId) { mutableStateOf(false) }
+        LaunchedEffect(listState, sessionId) {
+            androidx.compose.runtime.snapshotFlow { listState.isScrollInProgress }
+                .distinctUntilChanged()
+                .collectLatest { scrolling ->
+                    if (scrolling) {
+                        pillIdleHidden = false
+                    } else {
+                        delay(TURN_PILL_IDLE_HIDE_MS)
+                        pillIdleHidden = true
+                    }
+                }
+        }
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
             val pillMaxWidth = maxWidth * 0.7f
             androidx.compose.animation.AnimatedVisibility(
-                visible = initialPresentationReady && pillContent != null,
+                visible = initialPresentationReady && pillContent != null && !pillIdleHidden,
                 enter = androidx.compose.animation.fadeIn(animationSpec = tween(com.hermes.client.ui.theme.Motion.DurationShort)),
                 exit = androidx.compose.animation.fadeOut(animationSpec = tween(com.hermes.client.ui.theme.Motion.DurationShort)),
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 10.dp),

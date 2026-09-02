@@ -86,6 +86,29 @@ class TurnJumpTest {
 
     private val groups = turnGroups(threeGroups)
 
+    // ---- idle fade (decision 2026-09-02) ---------------------------------------------------
+
+    @Test fun pill_shows_while_the_list_moves_regardless_of_idle_time() {
+        assertTrue(turnPillShown(hasTarget = true, scrolling = true, idleMs = 0L))
+        assertTrue(turnPillShown(hasTarget = true, scrolling = true, idleMs = 60_000L))
+    }
+
+    @Test fun pill_stays_for_the_idle_window_after_the_list_settles_then_fades() {
+        assertTrue(turnPillShown(hasTarget = true, scrolling = false, idleMs = 0L))
+        assertTrue(turnPillShown(hasTarget = true, scrolling = false, idleMs = TURN_PILL_IDLE_HIDE_MS - 1))
+        assertFalse(turnPillShown(hasTarget = true, scrolling = false, idleMs = TURN_PILL_IDLE_HIDE_MS))
+        assertFalse(turnPillShown(hasTarget = true, scrolling = false, idleMs = 10 * TURN_PILL_IDLE_HIDE_MS))
+    }
+
+    @Test fun idle_window_is_one_and_a_half_seconds() {
+        assertEquals(1_500L, TURN_PILL_IDLE_HIDE_MS)
+    }
+
+    @Test fun no_target_never_shows_whatever_the_scroll_state() {
+        assertFalse(turnPillShown(hasTarget = false, scrolling = true, idleMs = 0L))
+        assertFalse(turnPillShown(hasTarget = false, scrolling = false, idleMs = 0L))
+    }
+
     @Test fun pill_hidden_while_following_the_live_tail() {
         assertNull(turnPillFor(groups, topVisibleMessageIndex = 6, visibleMessageRange = 6..8, atBottom = true))
     }

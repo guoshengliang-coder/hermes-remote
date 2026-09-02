@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import com.github.takahirom.roborazzi.RoborazziOptions
+import com.hermes.client.ui.sessions.SessionSubline
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
 import org.junit.Test
@@ -397,6 +398,36 @@ class ScreenshotTest {
                     )
                 }
             }
+        }
+    }
+
+    // Pinned marker in the subline (DESIGN.md §5.2): every title shares the 16dp left edge, the
+    // pin precedes the folder glyph, and a status line does not move the marker.
+    private fun listSession(title: String, repo: String?) = com.hermes.client.domain.Session(
+        id = title, title = title, model = "gpt-5.6-terra", provider = null, messageCount = 1,
+        profile = "personal", cwd = repo, gitRepoRoot = repo, gitBranch = null,
+    )
+
+    @Test fun sessionRowsPinnedSubline() = snap("session-rows-pinned") {
+        val defaultPath = "/Users/me"
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+            androidx.compose.material3.ListItem(
+                headlineContent = { androidx.compose.material3.Text("查看机器性能负荷") },
+                supportingContent = {
+                    androidx.compose.foundation.layout.Column {
+                        SessionSubline(listSession("a", null), defaultProjectPath = defaultPath, pinned = true)
+                        androidx.compose.material3.Text("已中断", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+                    }
+                },
+            )
+            androidx.compose.material3.ListItem(
+                headlineContent = { androidx.compose.material3.Text("hermes 产研A") },
+                supportingContent = { SessionSubline(listSession("b", "/u/hermes-remote"), defaultProjectPath = defaultPath, pinned = true) },
+            )
+            androidx.compose.material3.ListItem(
+                headlineContent = { androidx.compose.material3.Text("查看起风工作室数据") },
+                supportingContent = { SessionSubline(listSession("c", "/u/xiaomai-daily-report"), defaultProjectPath = defaultPath) },
+            )
         }
     }
 

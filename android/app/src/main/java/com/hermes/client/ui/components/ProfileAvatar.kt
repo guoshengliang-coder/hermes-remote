@@ -120,16 +120,20 @@ fun ProfileAvatar(
 private val avatarBitmaps = ConcurrentHashMap<String, ImageBitmap>()
 
 @Composable
-private fun rememberAvatarBitmap(file: File): ImageBitmap? {
+internal fun rememberAvatarBitmap(file: File): ImageBitmap? {
     val key = file.path + "@" + file.lastModified()
+    // produceState keeps its previous value when the key changes — it only restarts the producer —
+    // so the producer must resolve the bitmap for EVERY key. Guarding on `value == null` here left a
+    // replaced photo showing the first decode forever (0.1.82: the edit-page preview never changed,
+    // and long-lived avatars such as the list header disagreed with freshly composed ones like the
+    // card page). The old bitmap stays until the new one is decoded, so a swap never flashes the
+    // lettered fallback.
     val state = produceState(initialValue = avatarBitmaps[key], key1 = key) {
-        if (value == null) {
-            value = withContext(Dispatchers.IO) {
-                runCatching { BitmapFactory.decodeFile(file.path)?.asImageBitmap() }.getOrNull()
-            }?.also {
-                if (avatarBitmaps.size > 16) avatarBitmaps.clear()
-                avatarBitmaps[key] = it
-            }
+        value = avatarBitmaps[key] ?: withContext(Dispatchers.IO) {
+            runCatching { BitmapFactory.decodeFile(file.path)?.asImageBitmap() }.getOrNull()
+        }?.also {
+            if (avatarBitmaps.size > 16) avatarBitmaps.clear()
+            avatarBitmaps[key] = it
         }
     }
     return state.value
