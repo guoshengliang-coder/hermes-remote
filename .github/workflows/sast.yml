@@ -16,7 +16,7 @@ jobs:
     container:
       # Semgrep Community Edition 1.176.0, pinned to the official multi-arch image digest.
       image: semgrep/semgrep:1.176.0@sha256:12672acdb0949e19f9f6a4c2b288edd0b404f268f0ca7738a2c06f372f50362e
-      options: --cap-drop=ALL --security-opt=no-new-privileges
+      options: --security-opt=no-new-privileges
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run Semgrep Community Edition
