@@ -217,3 +217,14 @@ Server 版本只由集成步骤在 R4 功能合并、准备打包两个真实版
 4. Android、Desktop、Connector 与 Legacy 路径 CI 无回归；
 5. 验证记录包含目标版本、源提交、run、阶段、恢复结果和未执行项；
 6. 香港生产服务器保持未变，任何正式发布仍需项目所有者单独明确授权。
+
+## 完成状态
+
+2026-09-03，当前 `database: null` 的 Gateway `0.3.0` 发布路径已满足上述六项条件：R4-A 至 R4-E
+和 14 点故障注入矩阵均合并，PR 与 main 回归无失败，一次性 Ubuntu 24.04/PostgreSQL 18 runner
+完成真实 R3 `0.2.0` → R4 `0.3.0` → R3 `0.2.0` 往返。详细 commit、run、恢复结果和未执行项见
+`CLOUD_GATEWAY_R4_TEST_RECORD.md`。
+
+该完成状态不授权香港生产部署，也不覆盖 PostgreSQL 数据迁移。当前账号能力关闭、deploy config 为
+`database: null`，非空数据库配置继续在任何服务写入前 fail closed。未来若启用账号数据库，必须
+另开发布切片实现 migration lock，并完成并发、迁移中断、旧版本兼容拒绝和真实数据库往返测试。
