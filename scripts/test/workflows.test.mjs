@@ -21,8 +21,8 @@ test('every action is pinned to a full commit SHA with a readable version commen
   }
 });
 
-test('ordinary CI and SAST stay unprivileged and never require signing material', async () => {
-  for (const file of ['ci.yml', 'sast.yml']) {
+test('ordinary CI, SAST, and the Gateway image gate stay unprivileged and never require signing material', async () => {
+  for (const file of ['ci.yml', 'sast.yml', 'gateway-oci.yml']) {
     const text = await read(file);
     assert.equal(/gradlew[^\n]*assemble/.test(text), false, `${file}: packages an APK, which needs the canonical debug key`);
     assert.equal(/KEYSTORE|RELEASE_SSH/.test(text), false, `${file}: references release signing or deployment secrets`);
@@ -35,6 +35,12 @@ test('ordinary CI and SAST stay unprivileged and never require signing material'
   assert.match(sast, /semgrep scan[\s\S]*--config p\/default[\s\S]*--error[\s\S]*--metrics off/);
   assert.match(sast, /permissions:\n  contents: read/);
   assert.equal(/security-events|SEMGREP_APP_TOKEN|secrets\./.test(sast), false, 'SAST must not upload source or receive secrets');
+
+  const gatewayOci = await read('gateway-oci.yml');
+  assert.match(gatewayOci, /runs-on: ubuntu-24\.04/);
+  assert.match(gatewayOci, /run: \.\/scripts\/test-gateway-image\.sh/);
+  assert.match(gatewayOci, /permissions:\n  contents: read/);
+  assert.equal(/docker\s+(?:push|login)|packages: write|secrets\./.test(gatewayOci), false, 'Gateway OCI gate must not publish images or receive secrets');
 });
 
 test('release secrets stay scoped to the steps that consume them', async () => {
