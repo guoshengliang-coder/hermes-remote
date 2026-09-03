@@ -92,6 +92,19 @@ journal 或路由实际状态与记录不一致时必须停止并返回结构化
 4. 新失败先在 `docs/ERROR_HANDLING.md` 分配不可变错误码，再用于 CLI；所有技术原因必须脱敏，
    并声明能否重试和建议恢复动作。
 
+### R4-A 已确定格式
+
+- bundle manifest schema 2 在不可变制品身份字段之外嵌入完整 `releaseContract`；打包器和读取器都
+  严格拒绝缺失、额外或类型错误字段。历史 schema 1 只保留读取兼容，不能作为新 deploy 目标。
+- `ops/hermesctl-deploy-config.schema.json` 是双槽位配置合同，示例为
+  `ops/staging.deploy.example.json`。它只接受 staging、互不重复的 blue/green unit、容器和端口、
+  独立的 Nginx upstream include、1–600 秒排空窗、1–300 秒观察窗，以及可选数据库 URL Secret
+  文件与 PostgreSQL advisory lock ID。
+- `assessReleaseTransition` 在任何服务或路由操作之前判定源/目标版本方向、最低源版本、协议连续性、
+  数据库 schema 倒退和 rollback policy。失败统一为不可重试的 `HR-OPS-006`。
+- CLI 的 `deploy`/`rollback` 入口只在 R4-B 状态机具备“切换前失败不影响旧服务”保证后开放；
+  R4-A 不暴露一个只有参数、没有安全执行语义的半成品命令。
+
 ## 实施切片
 
 | 切片 | 内容 | 退出条件 |

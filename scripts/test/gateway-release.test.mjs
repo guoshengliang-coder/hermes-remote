@@ -14,6 +14,9 @@ test("Gateway release contract stays aligned with package and protocol versions"
     new RegExp(`ACCOUNT_CONNECTOR_PROTOCOL_VERSION = ${contract.protocolVersions.accountConnector}`),
   );
   assert.equal(contract.databaseSchemaVersion, 7);
+  assert.equal(contract.minimumSourceVersion, "0.2.0");
+  assert.equal(contract.maintenanceRequired, false);
+  assert.equal(contract.rollbackSupported, true);
   await access(
     `gateway/migrations/${String(contract.databaseSchemaVersion).padStart(3, "0")}_gateway_schema_state.sql`,
     constants.R_OK,

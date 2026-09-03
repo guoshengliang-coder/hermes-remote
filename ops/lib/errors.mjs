@@ -34,6 +34,13 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "check_output_and_retry",
   }),
+  compatibility: Object.freeze({
+    code: "HR-OPS-006",
+    summaryZh: "源版本与目标 Gateway 发布合同不兼容，请选择可升级或可回滚的版本。",
+    summaryEn: "The source and target Gateway release contracts are incompatible. Select a compatible upgrade or rollback version.",
+    retryable: false,
+    recoveryAction: "select_compatible_release",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;

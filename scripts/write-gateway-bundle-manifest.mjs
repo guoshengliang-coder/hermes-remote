@@ -1,4 +1,4 @@
-import { open, unlink } from "node:fs/promises";
+import { open, readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 
 const [
@@ -11,14 +11,17 @@ const [
   serverVersion,
   sourceCommit,
   createdAt,
+  releaseContractPath,
 ] = process.argv.slice(2);
 
-if (!manifestPath || process.argv.length !== 11) {
-  throw new Error("usage: write-gateway-bundle-manifest <manifest> <archive> <sha256> <image> <id> <arch> <version> <commit> <created-at>");
+if (!manifestPath || process.argv.length !== 12) {
+  throw new Error("usage: write-gateway-bundle-manifest <manifest> <archive> <sha256> <image> <id> <arch> <version> <commit> <created-at> <release-contract>");
 }
 
+const releaseContract = validateReleaseContract(JSON.parse(await readFile(releaseContractPath, "utf8")));
+
 const manifest = validateManifest({
-  schemaVersion: 1,
+  schemaVersion: 2,
   kind: "hermes-go-gateway-oci",
   serverVersion,
   sourceCommit,
@@ -28,6 +31,7 @@ const manifest = validateManifest({
   archiveFile,
   archiveSha256,
   createdAt,
+  releaseContract,
 });
 
 const handle = await open(manifestPath, "wx", 0o644);
@@ -64,4 +68,55 @@ function validateManifest(value) {
     throw new Error("image identity mismatch");
   }
   return value;
+}
+
+function validateReleaseContract(value) {
+  exactKeys(value, [
+    "manifestVersion",
+    "configSchemaVersion",
+    "databaseSchemaVersion",
+    "supportedPostgresqlMajors",
+    "protocolVersions",
+    "minimumClients",
+    "minimumSourceVersion",
+    "maintenanceRequired",
+    "rollbackSupported",
+  ]);
+  exactKeys(value.protocolVersions, ["legacy", "accountConnector"]);
+  exactKeys(value.minimumClients, ["android", "desktop", "connector"]);
+  for (const name of ["manifestVersion", "configSchemaVersion", "databaseSchemaVersion"]) {
+    if (!Number.isSafeInteger(value[name]) || value[name] < 1) throw new Error(`invalid ${name}`);
+  }
+  if (!Array.isArray(value.supportedPostgresqlMajors)
+      || value.supportedPostgresqlMajors.length === 0
+      || !value.supportedPostgresqlMajors.every((entry) => Number.isSafeInteger(entry) && entry > 0)
+      || new Set(value.supportedPostgresqlMajors).size !== value.supportedPostgresqlMajors.length) {
+    throw new Error("invalid supportedPostgresqlMajors");
+  }
+  for (const name of ["legacy", "accountConnector"]) {
+    if (!Number.isSafeInteger(value.protocolVersions[name]) || value.protocolVersions[name] < 1) {
+      throw new Error(`invalid protocolVersions.${name}`);
+    }
+  }
+  for (const name of ["android", "desktop", "connector"]) {
+    if (!isVersion(value.minimumClients[name])) throw new Error(`invalid minimumClients.${name}`);
+  }
+  if (!isVersion(value.minimumSourceVersion)) throw new Error("invalid minimumSourceVersion");
+  if (typeof value.maintenanceRequired !== "boolean" || typeof value.rollbackSupported !== "boolean") {
+    throw new Error("invalid release policy flags");
+  }
+  return value;
+}
+
+function exactKeys(value, expected) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("release contract must be an object");
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
+    throw new Error("release contract fields invalid");
+  }
+}
+
+function isVersion(value) {
+  return typeof value === "string" && /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/.test(value);
 }
