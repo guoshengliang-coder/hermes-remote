@@ -41,7 +41,7 @@ class TurnJumpAlignTest {
      * A reverse-layout transcript of [count] rows, [rowDp] tall each, in a fixed [viewportDp]
      * viewport. With [streamingTail] the newest row grows 30dp per frame like a live answer.
      */
-    private fun align(count: Int, target: Int, rowDp: Int = 300, viewportDp: Int = 1000, streamingTail: Boolean = false): Run {
+    private fun align(count: Int, target: Int, rowDp: Int = 300, viewportDp: Int = 1000, streamingTail: Boolean = false, asyncRows: Boolean = false): Run {
         val run = Run()
         compose.mainClock.autoAdvance = false
         compose.setContent {
@@ -49,7 +49,13 @@ class TurnJumpAlignTest {
             var tailDp by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(60) }
             LazyColumn(state = state, reverseLayout = true, modifier = Modifier.fillMaxWidth().height(viewportDp.dp)) {
                 items(count) { i ->
-                    val h = if (streamingTail && i == 0) tailDp else rowDp
+                    // asyncRows: like a freshly composed answer whose Markdown parses over the next
+                    // frames — 40dp when first composed, growing to rowDp; forgotten on dispose.
+                    var grown by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(if (asyncRows) 40 else rowDp) }
+                    if (asyncRows) {
+                        LaunchedEffect(Unit) { repeat(6) { withFrameNanos { }; grown = (grown + 60).coerceAtMost(rowDp) } }
+                    }
+                    val h = if (streamingTail && i == 0) tailDp else grown
                     Box(Modifier.fillMaxWidth().height(h.dp)) { Text("row $i") }
                 }
             }
@@ -80,9 +86,9 @@ class TurnJumpAlignTest {
 
     @Test fun a_prompt_near_the_bottom_stops_within_a_few_frames_instead_of_thrashing() {
         // Item 1 (second newest) has one 300dp row below it in a 1000dp viewport, so it can never
-        // reach the top. The old loop burned its whole 180-frame budget here.
+        // reach the top. The 0.1.83 loop burned its whole 180-frame budget here.
         val run = align(count = 12, target = 1)
-        assertTrue("used ${run.frames} frames", run.frames <= 12)
+        assertTrue("used ${run.frames} frames", run.frames <= TURN_JUMP_CLAMPED_FRAMES + 16)
         // Settled clamped at the bottom end rather than bouncing between two states.
         assertEquals(0, run.first)
         assertEquals(0, run.offset)
@@ -92,7 +98,18 @@ class TurnJumpAlignTest {
         // The device case: the newest answer is still streaming below the target, so the layout
         // under the target changes every frame while the list is clamped at its bottom end.
         val run = align(count = 12, target = 1, streamingTail = true)
-        assertTrue("used ${run.frames} frames", run.frames <= 15)
+        assertTrue("used ${run.frames} frames", run.frames <= TURN_JUMP_CLAMPED_FRAMES + 16)
+    }
+
+    @Test fun a_far_prompt_whose_neighbours_grow_after_composition_still_lands_at_the_top() {
+        // The 0.1.84 regression: rows below the target compose at 40dp and only grow to 300dp
+        // over the next frames. The first placement is computed against the small rows, clamps
+        // at the bottom, and the growth then pushes the target off the top. The loop must keep
+        // re-placing from the target's known size — not give up at the bottom.
+        val run = align(count = 12, target = 8, asyncRows = true)
+        assertTrue("used ${run.frames} frames", run.frames <= 60)
+        assertTrue("ended at the bottom (first=${run.first})", run.first != 0)
+        assertTrue("target top sits ${run.overshoot}px from the viewport top", run.overshoot != null && kotlin.math.abs(run.overshoot!!) <= TURN_JUMP_TOLERANCE_PX)
     }
 
     @Test fun a_reachable_prompt_is_aligned_to_the_top() {
