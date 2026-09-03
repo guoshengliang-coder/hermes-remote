@@ -64,3 +64,32 @@ Those gates remain assigned to later Desktop integration, I5 migration, and rele
 
 The repository-wide gate is deferred until the Desktop I3-B checkpoint because D0.2 did not modify
 Node, Gateway, Connector, Protocol, or shared build behavior.
+
+## D0.3 scope
+
+- Added exact Desktop clients for scoped Google reauthentication, first-binding creation and
+  confirmation, replacement request and confirmation, and explicit unbind.
+- Reused the existing Keychain session record to persist every mutation idempotency key before
+  transmission. A lost response reuses the same operation key after restart instead of creating a
+  second binding, replacement, confirmation, or unbind transaction.
+- Kept the Ed25519 private key local; binding requests contain only the existing public key and the
+  authenticated Desktop installation identifier.
+- Added strict request input and response-state validation, bounded HTTP behavior, capability
+  fail-closed handling, and structured `HR-AUTH-*` / `HR-BIND-*` error propagation.
+- Did not expose the operations in the UI yet, contact a live Gateway, start a candidate Connector,
+  mutate the legacy Connector, or touch Hermes.
+
+## D0.3 executed results
+
+| Gate | Result |
+| --- | --- |
+| `swift test --package-path desktop` | Pass: 56 tests |
+| `npm run desktop:assets:test` | Pass |
+| `npm run desktop:app` | Pass: release Swift build, app assembly, and ad-hoc signing |
+| `npm test` | Pass: 94 tests; 4 environment-dependent Gateway tests skipped |
+| `git diff --check` during iteration | Pass |
+
+The focused coverage includes exact paths/headers/bodies, invalid path and response rejection,
+cancelled reauthentication, disabled binding capability, binding conflict, expired confirmation,
+and persisted-key reuse after lost responses for create, replace, both confirmation types, and
+unbind.

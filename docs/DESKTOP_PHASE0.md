@@ -63,6 +63,19 @@ I3-A does not create/confirm a binding, request replacement, unbind, migrate cre
 second Connector, or mutate Hermes. Live Google OAuth, production capability enablement, real
 Keychain restart, and target-Mac UI inspection remain separate gates.
 
+## I3-B account-control client — local transport only
+
+The Desktop Core now implements the documented `/v2` operations for scoped reauthentication,
+first-binding creation/confirmation, replacement creation/confirmation, and unbind. All mutation
+retry keys are written to the separate account-session Keychain record before transmission and are
+reused after a lost response. Binding inputs expose only the existing Ed25519 public key; private key
+material remains in its dedicated Keychain item.
+
+I3-B is not yet a Connector takeover: the operations are not exposed as live UI actions in this
+slice, no candidate Connector is started, and the old Connector remains read-only observed. The next
+interaction iteration owns confirmation/recovery UI; I5 still owns candidate proof, process
+migration, activation ordering, and rollback.
+
 ### I3-A local verification — 2026-09-02
 
 - All 38 Desktop core tests passed, including a real ephemeral IPv4-loopback callback, PKCE/state/

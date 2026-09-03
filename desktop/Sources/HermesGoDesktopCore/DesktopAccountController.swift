@@ -108,6 +108,106 @@ public actor DesktopAccountController {
         return try await loadDashboard(record: completed)
     }
 
+    public func createFirstBinding() async throws -> AccountBindingCandidate {
+        try await requireBindingCapability(replacement: false)
+        let record = try await authenticatedRecord()
+        let machineIdentity = try machineIdentityStore.loadOrCreate()
+        let operation = "connector.binding.create"
+        let pending = try prepareOperations([operation], on: record)
+        let candidate = try await api.createBinding(
+            bindingInput(record: pending, machineIdentity: machineIdentity),
+            accessToken: pending.session.accessToken,
+            idempotencyKey: try operationKey(operation, in: pending)
+        )
+        try completeOperations([operation], on: pending)
+        return candidate
+    }
+
+    public func confirmFirstBinding(
+        id: String,
+        generation: Int
+    ) async throws -> ActiveAccountBinding {
+        try await requireBindingCapability(replacement: false)
+        let record = try await authenticatedRecord()
+        let operation = "connector.binding.confirm:\(id.lowercased()):\(generation)"
+        let pending = try prepareOperations([operation], on: record)
+        let binding = try await api.confirmBinding(
+            id: id,
+            generation: generation,
+            accessToken: pending.session.accessToken,
+            idempotencyKey: try operationKey(operation, in: pending)
+        )
+        try completeOperations([operation], on: pending)
+        return binding
+    }
+
+    public func createReplacement() async throws -> AccountReplacementRequest {
+        try await requireBindingCapability(replacement: true)
+        guard let oauth else { throw GoogleOAuthError.configurationMissing }
+        let record = try await authenticatedRecord()
+        let machineIdentity = try machineIdentityStore.loadOrCreate()
+        let proof = try await oauth.signIn()
+        let reauthentication = "auth.reauthenticate:connector.replace"
+        let replacement = "connector.binding.replace"
+        let pending = try prepareOperations([reauthentication, replacement], on: record)
+        let grant = try await api.reauthenticateGoogle(
+            proof,
+            scope: .connectorReplace,
+            accessToken: pending.session.accessToken,
+            idempotencyKey: try operationKey(reauthentication, in: pending)
+        )
+        guard grant.scope == .connectorReplace else {
+            throw AccountClientError.invalidResponse
+        }
+        let request = try await api.createReplacement(
+            bindingInput(record: pending, machineIdentity: machineIdentity),
+            grant: grant.grant,
+            accessToken: pending.session.accessToken,
+            idempotencyKey: try operationKey(replacement, in: pending)
+        )
+        try completeOperations([reauthentication, replacement], on: pending)
+        return request
+    }
+
+    public func confirmReplacement(requestID: String) async throws -> ActiveAccountBinding {
+        try await requireBindingCapability(replacement: true)
+        let record = try await authenticatedRecord()
+        let operation = "connector.binding.replace.confirm:\(requestID.lowercased())"
+        let pending = try prepareOperations([operation], on: record)
+        let binding = try await api.confirmReplacement(
+            requestID: requestID,
+            accessToken: pending.session.accessToken,
+            idempotencyKey: try operationKey(operation, in: pending)
+        )
+        try completeOperations([operation], on: pending)
+        return binding
+    }
+
+    public func unbind() async throws {
+        try await requireBindingCapability(replacement: false)
+        guard let oauth else { throw GoogleOAuthError.configurationMissing }
+        let record = try await authenticatedRecord()
+        let proof = try await oauth.signIn()
+        let reauthentication = "auth.reauthenticate:connector.unbind"
+        let unbind = "connector.binding.unbind"
+        let pending = try prepareOperations([reauthentication, unbind], on: record)
+        let grant = try await api.reauthenticateGoogle(
+            proof,
+            scope: .connectorUnbind,
+            accessToken: pending.session.accessToken,
+            idempotencyKey: try operationKey(reauthentication, in: pending)
+        )
+        guard grant.scope == .connectorUnbind else {
+            throw AccountClientError.invalidResponse
+        }
+        try await api.unbind(
+            grant: grant.grant,
+            accessToken: pending.session.accessToken,
+            idempotencyKey: try operationKey(unbind, in: pending)
+        )
+        try completeOperations([reauthentication, unbind], on: pending)
+    }
+
     public func signOut() async throws -> DesktopAccountState {
         guard let record = sessionRecord else {
             try sessionStore.delete()
@@ -139,6 +239,100 @@ public actor DesktopAccountController {
 
     public func machineIdentity() throws -> ConnectorMachineIdentity {
         try machineIdentityStore.loadOrCreate()
+    }
+
+    private func requireBindingCapability(replacement: Bool) async throws {
+        let capabilities: AccountCapabilities
+        if let capabilitiesSnapshot {
+            capabilities = capabilitiesSnapshot
+        } else {
+            capabilities = try await api.capabilities()
+            capabilitiesSnapshot = capabilities
+        }
+        guard capabilities.accountAuth.enabled,
+              capabilities.accountAuth.macos,
+              capabilities.binding.enabled,
+              !replacement || capabilities.binding.replacement
+        else {
+            throw AccountClientError.remote(AccountRemoteError(
+                code: "HR-BIND-008",
+                message: "Desktop binding is not enabled.",
+                retryable: false,
+                recoveryAction: "continue_legacy",
+                correlationId: nil
+            ))
+        }
+    }
+
+    private func authenticatedRecord() async throws -> AccountSessionRecord {
+        let stored: AccountSessionRecord?
+        if let sessionRecord {
+            stored = sessionRecord
+        } else {
+            stored = try sessionStore.load()
+        }
+        guard let stored else {
+            throw AccountClientError.remote(AccountRemoteError(
+                code: "HR-AUTH-003",
+                message: "The account session has expired.",
+                retryable: false,
+                recoveryAction: "sign_in",
+                correlationId: nil
+            ))
+        }
+        sessionRecord = stored
+        return try await refreshIfNeeded(stored)
+    }
+
+    private func bindingInput(
+        record: AccountSessionRecord,
+        machineIdentity: ConnectorMachineIdentity
+    ) -> ConnectorBindingInput {
+        ConnectorBindingInput(
+            desktopInstallationID: record.installation.id,
+            displayName: displayName,
+            connectorPublicKey: machineIdentity.connectorPublicKey
+        )
+    }
+
+    private func prepareOperations(
+        _ operations: [String],
+        on record: AccountSessionRecord
+    ) throws -> AccountSessionRecord {
+        var keys = record.pendingOperationIdempotencyKeys ?? [:]
+        for operation in operations {
+            keys[operation] = try validOrNewIdempotencyKey(keys[operation])
+        }
+        let pending = replacing(record, pendingOperationIdempotencyKeys: keys)
+        if pending != record {
+            try sessionStore.save(pending)
+            sessionRecord = pending
+        }
+        return pending
+    }
+
+    private func operationKey(
+        _ operation: String,
+        in record: AccountSessionRecord
+    ) throws -> String {
+        guard let key = record.pendingOperationIdempotencyKeys?[operation] else {
+            throw AccountSecretStoreError.decoding
+        }
+        return try validOrNewIdempotencyKey(key)
+    }
+
+    private func completeOperations(
+        _ operations: [String],
+        on record: AccountSessionRecord
+    ) throws {
+        var keys = record.pendingOperationIdempotencyKeys ?? [:]
+        operations.forEach { keys.removeValue(forKey: $0) }
+        let completed = replacing(
+            record,
+            pendingOperationIdempotencyKeys: keys.isEmpty ? nil : keys
+        )
+        try sessionStore.save(completed)
+        sessionRecord = completed
     }
 
     private func loadDashboard(record: AccountSessionRecord) async throws -> DesktopAccountState {

@@ -35,6 +35,9 @@ The current automated suite covers:
   refresh, and persisted idempotency-key reuse after a lost refresh response;
 - signed-in dashboard reduction, two-phone listing, one-phone removal, and Desktop-only sign-out
   without deleting the machine identity.
+- exact scoped-reauthentication, first-bind, replacement, confirmation, and unbind HTTP contracts;
+- fail-closed binding capability and response validation, conflict/expiry mapping, cancellation, and
+  persisted idempotency-key reuse for every I3-B mutation after a lost response.
 
 Every new phase-0 behavior requires a regression test when its boundary is deterministic. User-visible
 error codes additionally require localization, retryability, recovery-action, and redaction tests under

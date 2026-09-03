@@ -16,6 +16,35 @@ public protocol AccountAPIRequesting: Sendable {
     func account(accessToken: String) async throws -> AccountSnapshot
     func installations(accessToken: String) async throws -> [ManagedAccountInstallation]
     func binding(accessToken: String) async throws -> AccountBindingSnapshot
+    func reauthenticateGoogle(
+        _ proof: GoogleIdentityProof,
+        scope: AccountReauthenticationScope,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws -> AccountReauthenticationGrant
+    func createBinding(
+        _ input: ConnectorBindingInput,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws -> AccountBindingCandidate
+    func confirmBinding(
+        id: String,
+        generation: Int,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws -> ActiveAccountBinding
+    func createReplacement(
+        _ input: ConnectorBindingInput,
+        grant: String,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws -> AccountReplacementRequest
+    func confirmReplacement(
+        requestID: String,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws -> ActiveAccountBinding
+    func unbind(grant: String, accessToken: String, idempotencyKey: String) async throws
     func revokePhone(id: String, accessToken: String, idempotencyKey: String) async throws
     func signOut(accessToken: String, idempotencyKey: String) async throws
 }
@@ -95,6 +124,125 @@ public actor AccountAPIClient: AccountAPIRequesting {
             path: "/v2/connector-binding",
             method: "GET",
             accessToken: accessToken
+        )
+    }
+
+    public func reauthenticateGoogle(
+        _ proof: GoogleIdentityProof,
+        scope: AccountReauthenticationScope,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws -> AccountReauthenticationGrant {
+        let grant: AccountReauthenticationGrant = try await send(
+            path: "/v2/auth/reauth/google",
+            method: "POST",
+            accessToken: accessToken,
+            idempotencyKey: idempotencyKey,
+            body: ReauthenticationRequest(
+                idToken: proof.idToken,
+                nonce: proof.nonce,
+                scope: scope
+            )
+        )
+        guard grant.scope == scope,
+              grant.grant.hasPrefix("hgg_"),
+              grant.grant.count == 47
+        else { throw AccountClientError.invalidResponse }
+        return grant
+    }
+
+    public func createBinding(
+        _ input: ConnectorBindingInput,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws -> AccountBindingCandidate {
+        try validateBindingInput(input)
+        let candidate: AccountBindingCandidate = try await send(
+            path: "/v2/connector-binding",
+            method: "POST",
+            accessToken: accessToken,
+            idempotencyKey: idempotencyKey,
+            body: BindingRequest(input: input, grant: nil)
+        )
+        guard valid(candidate: candidate) else { throw AccountClientError.invalidResponse }
+        return candidate
+    }
+
+    public func confirmBinding(
+        id: String,
+        generation: Int,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws -> ActiveAccountBinding {
+        guard normalizedUUID(id) != nil, generation > 0 else {
+            throw AccountClientError.invalidResponse
+        }
+        let response: BoundBindingEnvelope = try await send(
+            path: "/v2/connector-binding/confirm",
+            method: "POST",
+            accessToken: accessToken,
+            idempotencyKey: idempotencyKey,
+            body: ConfirmBindingRequest(bindingId: id.lowercased(), generation: generation)
+        )
+        guard response.state == "bound", valid(binding: response.binding) else {
+            throw AccountClientError.invalidResponse
+        }
+        return response.binding
+    }
+
+    public func createReplacement(
+        _ input: ConnectorBindingInput,
+        grant: String,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws -> AccountReplacementRequest {
+        try validateBindingInput(input)
+        let replacement: AccountReplacementRequest = try await send(
+            path: "/v2/connector-binding/replacement-requests",
+            method: "POST",
+            accessToken: accessToken,
+            idempotencyKey: idempotencyKey,
+            body: BindingRequest(input: input, grant: grant)
+        )
+        guard normalizedUUID(replacement.id) != nil,
+              replacement.state == "replacement_pending",
+              valid(binding: replacement.previousBinding),
+              valid(candidate: replacement.candidate)
+        else { throw AccountClientError.invalidResponse }
+        return replacement
+    }
+
+    public func confirmReplacement(
+        requestID: String,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws -> ActiveAccountBinding {
+        guard let requestID = normalizedUUID(requestID) else {
+            throw AccountClientError.invalidResponse
+        }
+        let response: BoundBindingEnvelope = try await send(
+            path: "/v2/connector-binding/replacement-requests/\(requestID)/confirm",
+            method: "POST",
+            accessToken: accessToken,
+            idempotencyKey: idempotencyKey
+        )
+        guard response.state == "bound", valid(binding: response.binding) else {
+            throw AccountClientError.invalidResponse
+        }
+        return response.binding
+    }
+
+    public func unbind(
+        grant: String,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws {
+        try await sendEmpty(
+            path: "/v2/connector-binding",
+            method: "DELETE",
+            accessToken: accessToken,
+            idempotencyKey: idempotencyKey,
+            body: GrantRequest(grant: grant)
         )
     }
 
@@ -192,6 +340,29 @@ public actor AccountAPIClient: AccountAPIRequesting {
         try requireSuccess(response, data: data)
     }
 
+    private func sendEmpty<Body: Encodable>(
+        path: String,
+        method: String,
+        accessToken: String,
+        idempotencyKey: String,
+        body: Body
+    ) async throws {
+        let bodyData: Data
+        do {
+            bodyData = try JSONEncoder().encode(body)
+        } catch {
+            throw AccountClientError.invalidResponse
+        }
+        let (data, response) = try await execute(
+            path: path,
+            method: method,
+            accessToken: accessToken,
+            idempotencyKey: idempotencyKey,
+            bodyData: bodyData
+        )
+        try requireSuccess(response, data: data)
+    }
+
     private func execute(
         path: String,
         method: String,
@@ -199,6 +370,9 @@ public actor AccountAPIClient: AccountAPIRequesting {
         idempotencyKey: String?,
         bodyData: Data?
     ) async throws -> (Data, HTTPURLResponse) {
+        if let idempotencyKey, UUID(uuidString: idempotencyKey) == nil {
+            throw AccountClientError.invalidConfiguration
+        }
         guard let url = URL(string: path, relativeTo: gatewayURL)?.absoluteURL,
               url.host == gatewayURL.host,
               url.scheme == gatewayURL.scheme
@@ -244,6 +418,33 @@ public actor AccountAPIClient: AccountAPIRequesting {
             throw AccountClientError.remote(envelope.error)
         }
     }
+
+    private func normalizedUUID(_ value: String) -> String? {
+        guard UUID(uuidString: value) != nil else { return nil }
+        return value.lowercased()
+    }
+
+    private func validateBindingInput(_ input: ConnectorBindingInput) throws {
+        guard normalizedUUID(input.desktopInstallationID) != nil,
+              (1...128).contains(input.displayName.count),
+              !input.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !input.displayName.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
+              input.connectorPublicKey.count == 43
+        else { throw AccountClientError.invalidConfiguration }
+    }
+
+    private func valid(candidate: AccountBindingCandidate) -> Bool {
+        normalizedUUID(candidate.id) != nil
+            && candidate.generation > 0
+            && candidate.state == "binding_pending"
+            && candidate.publicKeyFingerprint.count == 64
+    }
+
+    private func valid(binding: ActiveAccountBinding) -> Bool {
+        normalizedUUID(binding.id) != nil
+            && binding.generation > 0
+            && binding.publicKeyFingerprint.count == 64
+    }
 }
 
 private struct GoogleExchangeRequest: Encodable {
@@ -258,6 +459,41 @@ private struct GoogleExchangeRequest: Encodable {
 private struct RefreshRequest: Encodable {
     let refreshToken: String
     let clientInstallationId: String
+}
+
+private struct ReauthenticationRequest: Encodable {
+    let idToken: String
+    let nonce: String
+    let scope: AccountReauthenticationScope
+}
+
+private struct BindingRequest: Encodable {
+    let desktopInstallationId: String
+    let displayName: String
+    let connectorPublicKey: String
+    let keyAlgorithm = "Ed25519"
+    let grant: String?
+
+    init(input: ConnectorBindingInput, grant: String?) {
+        desktopInstallationId = input.desktopInstallationID
+        displayName = input.displayName
+        connectorPublicKey = input.connectorPublicKey
+        self.grant = grant
+    }
+}
+
+private struct ConfirmBindingRequest: Encodable {
+    let bindingId: String
+    let generation: Int
+}
+
+private struct GrantRequest: Encodable {
+    let grant: String
+}
+
+private struct BoundBindingEnvelope: Decodable {
+    let state: String
+    let binding: ActiveAccountBinding
 }
 
 private struct SessionEnvelope: Decodable {

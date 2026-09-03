@@ -138,6 +138,206 @@ final class DesktopAccountControllerTests: XCTestCase {
         XCTAssertNil(try sessions.load()?.pendingRefreshIdempotencyKey)
         XCTAssertEqual(try sessions.load()?.session, fixtures.freshTokens)
     }
+
+    func testLostFirstBindingResponseReusesPersistedKeyAndMachineIdentity() async throws {
+        let fixtures = AccountFixtures()
+        let api = RecordingAccountAPI(fixtures: fixtures, bindingFailuresRemaining: 1)
+        let sessions = MemoryAccountSessionStore(record: fixtures.record)
+        let machines = MemoryMachineIdentityStore()
+        let controller = DesktopAccountController(
+            api: api,
+            sessionStore: sessions,
+            machineIdentityStore: machines,
+            oauth: nil,
+            displayName: "Living-room Mac mini",
+            appVersion: "0.3.0"
+        )
+
+        await XCTAssertThrowsErrorAsync(try await controller.createFirstBinding()) { error in
+            XCTAssertEqual(error as? AccountClientError, .transport)
+        }
+        let pendingKey = try XCTUnwrap(
+            try sessions.load()?.pendingOperationIdempotencyKeys?["connector.binding.create"]
+        )
+        let candidate = try await controller.createFirstBinding()
+        let attempts = await api.bindingAttempts()
+
+        XCTAssertEqual(candidate, fixtures.candidate)
+        XCTAssertEqual(attempts.map(\.idempotencyKey), [pendingKey, pendingKey])
+        XCTAssertEqual(attempts.map(\.input.connectorPublicKey).uniqued().count, 1)
+        XCTAssertEqual(attempts.first?.input.desktopInstallationID, fixtures.desktop.id)
+        XCTAssertEqual(attempts.first?.input.displayName, "Living-room Mac mini")
+        XCTAssertNil(try sessions.load()?.pendingOperationIdempotencyKeys)
+    }
+
+    func testReplacementReauthAndMutationReuseBothKeysAfterLostResponse() async throws {
+        let fixtures = AccountFixtures()
+        let api = RecordingAccountAPI(fixtures: fixtures, replacementFailuresRemaining: 1)
+        let sessions = MemoryAccountSessionStore(record: fixtures.record)
+        let oauth = StaticOAuth(proof: GoogleIdentityProof(idToken: "fresh-proof", nonce: "fresh-nonce"))
+        let controller = DesktopAccountController(
+            api: api,
+            sessionStore: sessions,
+            machineIdentityStore: MemoryMachineIdentityStore(),
+            oauth: oauth,
+            displayName: "Replacement Mac",
+            appVersion: "0.3.0"
+        )
+
+        await XCTAssertThrowsErrorAsync(try await controller.createReplacement()) { error in
+            XCTAssertEqual(error as? AccountClientError, .transport)
+        }
+        let pending = try XCTUnwrap(try sessions.load()?.pendingOperationIdempotencyKeys)
+        let request = try await controller.createReplacement()
+        let reauthenticationAttempts = await api.reauthenticationAttempts()
+        let replacementAttempts = await api.replacementAttempts()
+
+        XCTAssertEqual(request, fixtures.replacement)
+        XCTAssertEqual(reauthenticationAttempts.map(\.scope), [.connectorReplace, .connectorReplace])
+        XCTAssertEqual(
+            reauthenticationAttempts.map(\.idempotencyKey),
+            [pending["auth.reauthenticate:connector.replace"], pending["auth.reauthenticate:connector.replace"]]
+        )
+        XCTAssertEqual(
+            replacementAttempts.map(\.idempotencyKey),
+            [pending["connector.binding.replace"], pending["connector.binding.replace"]]
+        )
+        XCTAssertEqual(replacementAttempts.map(\.grant), [fixtures.reauthentication.grant, fixtures.reauthentication.grant])
+        XCTAssertNil(try sessions.load()?.pendingOperationIdempotencyKeys)
+    }
+
+    func testConfirmAndUnbindUseExactTargetsAndScopedReauthentication() async throws {
+        let fixtures = AccountFixtures()
+        let api = RecordingAccountAPI(fixtures: fixtures)
+        let sessions = MemoryAccountSessionStore(record: fixtures.record)
+        let oauth = StaticOAuth(proof: GoogleIdentityProof(idToken: "fresh-proof", nonce: "fresh-nonce"))
+        let controller = DesktopAccountController(
+            api: api,
+            sessionStore: sessions,
+            machineIdentityStore: MemoryMachineIdentityStore(),
+            oauth: oauth,
+            displayName: "Mac mini",
+            appVersion: "0.3.0"
+        )
+
+        let confirmedFirst = try await controller.confirmFirstBinding(
+            id: fixtures.candidate.id,
+            generation: fixtures.candidate.generation
+        )
+        let confirmedReplacement = try await controller.confirmReplacement(
+            requestID: fixtures.replacement.id
+        )
+        try await controller.unbind()
+        let recordedConfirmation = await api.bindingConfirmation()
+        let recordedReplacementConfirmation = await api.replacementConfirmation()
+        let recordedUnbindAttempt = await api.unbindAttempt()
+        let confirmation = try XCTUnwrap(recordedConfirmation)
+        let replacementConfirmation = try XCTUnwrap(recordedReplacementConfirmation)
+        let unbindAttempt = try XCTUnwrap(recordedUnbindAttempt)
+        let reauthenticationAttempts = await api.reauthenticationAttempts()
+
+        XCTAssertEqual(confirmedFirst, fixtures.activeBinding)
+        XCTAssertEqual(confirmedReplacement, fixtures.activeBinding)
+        XCTAssertEqual(confirmation.id, fixtures.candidate.id)
+        XCTAssertEqual(confirmation.generation, fixtures.candidate.generation)
+        XCTAssertEqual(replacementConfirmation.requestID, fixtures.replacement.id)
+        XCTAssertEqual(reauthenticationAttempts.last?.scope, .connectorUnbind)
+        XCTAssertEqual(unbindAttempt.grant, fixtures.reauthentication.grant)
+        XCTAssertNil(try sessions.load()?.pendingOperationIdempotencyKeys)
+    }
+
+    func testDisabledBindingFailsClosedBeforeOAuthOrMutation() async throws {
+        let fixtures = AccountFixtures()
+        let api = RecordingAccountAPI(fixtures: fixtures, bindingEnabled: false)
+        let oauth = StaticOAuth(proof: GoogleIdentityProof(idToken: "unused", nonce: "unused"))
+        let controller = DesktopAccountController(
+            api: api,
+            sessionStore: MemoryAccountSessionStore(record: fixtures.record),
+            machineIdentityStore: MemoryMachineIdentityStore(),
+            oauth: oauth,
+            displayName: "Mac mini",
+            appVersion: "0.3.0"
+        )
+
+        await XCTAssertThrowsErrorAsync(try await controller.createReplacement()) { error in
+            XCTAssertEqual(DesktopIssue.account(error as! AccountClientError).code, .bindingFeatureDisabled)
+        }
+        let signInCount = await oauth.signInCount()
+        let reauthenticationAttempts = await api.reauthenticationAttempts()
+        let replacementAttempts = await api.replacementAttempts()
+        XCTAssertEqual(signInCount, 0)
+        XCTAssertTrue(reauthenticationAttempts.isEmpty)
+        XCTAssertTrue(replacementAttempts.isEmpty)
+    }
+
+    func testCancelledReplacementDoesNotPersistOrTransmitOperation() async throws {
+        let fixtures = AccountFixtures()
+        let api = RecordingAccountAPI(fixtures: fixtures)
+        let sessions = MemoryAccountSessionStore(record: fixtures.record)
+        let controller = DesktopAccountController(
+            api: api,
+            sessionStore: sessions,
+            machineIdentityStore: MemoryMachineIdentityStore(),
+            oauth: ThrowingOAuth(error: .cancelled),
+            displayName: "Mac mini",
+            appVersion: "0.3.0"
+        )
+
+        await XCTAssertThrowsErrorAsync(try await controller.createReplacement()) { error in
+            XCTAssertEqual(error as? GoogleOAuthError, .cancelled)
+        }
+        XCTAssertNil(try sessions.load()?.pendingOperationIdempotencyKeys)
+        let reauthenticationAttempts = await api.reauthenticationAttempts()
+        let replacementAttempts = await api.replacementAttempts()
+        XCTAssertTrue(reauthenticationAttempts.isEmpty)
+        XCTAssertTrue(replacementAttempts.isEmpty)
+    }
+
+    func testLostConfirmationAndUnbindResponsesReusePersistedKeys() async throws {
+        let fixtures = AccountFixtures()
+        let api = RecordingAccountAPI(
+            fixtures: fixtures,
+            confirmationFailuresRemaining: 1,
+            replacementConfirmationFailuresRemaining: 1,
+            unbindFailuresRemaining: 1
+        )
+        let sessions = MemoryAccountSessionStore(record: fixtures.record)
+        let controller = DesktopAccountController(
+            api: api,
+            sessionStore: sessions,
+            machineIdentityStore: MemoryMachineIdentityStore(),
+            oauth: StaticOAuth(proof: GoogleIdentityProof(idToken: "proof", nonce: "nonce")),
+            displayName: "Mac mini",
+            appVersion: "0.3.0"
+        )
+
+        await XCTAssertThrowsErrorAsync(
+            try await controller.confirmFirstBinding(
+                id: fixtures.candidate.id,
+                generation: fixtures.candidate.generation
+            )
+        )
+        _ = try await controller.confirmFirstBinding(
+            id: fixtures.candidate.id,
+            generation: fixtures.candidate.generation
+        )
+        await XCTAssertThrowsErrorAsync(
+            try await controller.confirmReplacement(requestID: fixtures.replacement.id)
+        )
+        _ = try await controller.confirmReplacement(requestID: fixtures.replacement.id)
+        await XCTAssertThrowsErrorAsync(try await controller.unbind())
+        try await controller.unbind()
+
+        let bindingConfirmations = await api.bindingConfirmations()
+        let replacementConfirmations = await api.replacementConfirmations()
+        let unbindAttempts = await api.unbindAttempts()
+        let reauthenticationAttempts = await api.reauthenticationAttempts()
+        XCTAssertEqual(bindingConfirmations.map(\.idempotencyKey).uniqued().count, 1)
+        XCTAssertEqual(replacementConfirmations.map(\.idempotencyKey).uniqued().count, 1)
+        XCTAssertEqual(unbindAttempts.map(\.idempotencyKey).uniqued().count, 1)
+        XCTAssertEqual(reauthenticationAttempts.map(\.idempotencyKey).uniqued().count, 1)
+        XCTAssertNil(try sessions.load()?.pendingOperationIdempotencyKeys)
+    }
 }
 
 private struct AccountFixtures {
@@ -222,6 +422,62 @@ private struct AccountFixtures {
             previousBinding: nil
         )
     }
+
+    var candidate: AccountBindingCandidate {
+        AccountBindingCandidate(
+            id: "40000000-0000-4000-8000-000000000001",
+            generation: 1,
+            deviceId: "hermes-40000000-0000-4000-8000-000000000001",
+            displayName: "Mac mini",
+            publicKeyFingerprint: String(repeating: "a", count: 64),
+            state: "binding_pending",
+            expiresAt: "2026-09-03T01:10:00.000Z",
+            keyProved: false,
+            healthVerified: false
+        )
+    }
+
+    var activeBinding: ActiveAccountBinding {
+        ActiveAccountBinding(
+            id: candidate.id,
+            generation: candidate.generation,
+            deviceId: candidate.deviceId,
+            desktopDisplayName: candidate.displayName,
+            publicKeyFingerprint: candidate.publicKeyFingerprint,
+            connector: .init(online: true, lastSeenAt: "2026-09-03T01:00:00.000Z"),
+            hermes: .init(reachable: true, version: "0.0.0-test"),
+            gateway: .init(latencyMs: 12),
+            endToEnd: .init(healthy: true, checkedAt: "2026-09-03T01:00:00.000Z")
+        )
+    }
+
+    var replacement: AccountReplacementRequest {
+        AccountReplacementRequest(
+            id: "50000000-0000-4000-8000-000000000001",
+            state: "replacement_pending",
+            expiresAt: "2026-09-03T01:10:00.000Z",
+            previousBinding: activeBinding,
+            candidate: AccountBindingCandidate(
+                id: "40000000-0000-4000-8000-000000000002",
+                generation: 2,
+                deviceId: "hermes-40000000-0000-4000-8000-000000000002",
+                displayName: "Replacement Mac",
+                publicKeyFingerprint: String(repeating: "b", count: 64),
+                state: "binding_pending",
+                expiresAt: "2026-09-03T01:10:00.000Z",
+                keyProved: false,
+                healthVerified: false
+            )
+        )
+    }
+
+    var reauthentication: AccountReauthenticationGrant {
+        AccountReauthenticationGrant(
+            grant: "hgg_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+            scope: .connectorReplace,
+            expiresAt: "2026-09-03T01:10:00.000Z"
+        )
+    }
 }
 
 private actor RecordingAccountAPI: AccountAPIRequesting {
@@ -238,33 +494,192 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
         let idempotencyKey: String
     }
 
+    struct ReauthenticationInput {
+        let proof: GoogleIdentityProof
+        let scope: AccountReauthenticationScope
+        let idempotencyKey: String
+    }
+
+    struct BindingAttempt {
+        let input: ConnectorBindingInput
+        let idempotencyKey: String
+    }
+
+    struct ReplacementAttempt {
+        let input: ConnectorBindingInput
+        let grant: String
+        let idempotencyKey: String
+    }
+
+    struct BindingConfirmation {
+        let id: String
+        let generation: Int
+        let idempotencyKey: String
+    }
+
+    struct ReplacementConfirmation {
+        let requestID: String
+        let idempotencyKey: String
+    }
+
+    struct UnbindAttempt {
+        let grant: String
+        let idempotencyKey: String
+    }
+
     private let fixtures: AccountFixtures
     private var exchanged: ExchangeInput?
     private var refreshed: RefreshInput?
     private var refreshHistory: [RefreshInput] = []
     private var refreshFailuresRemaining: Int
     private let accountEnabled: Bool
+    private let bindingEnabled: Bool
+    private var bindingFailuresRemaining: Int
+    private var replacementFailuresRemaining: Int
     private var revoked: String?
     private var signedOut = false
+    private var recordedReauthentications: [ReauthenticationInput] = []
+    private var recordedBindings: [BindingAttempt] = []
+    private var recordedReplacements: [ReplacementAttempt] = []
+    private var recordedBindingConfirmations: [BindingConfirmation] = []
+    private var recordedReplacementConfirmations: [ReplacementConfirmation] = []
+    private var recordedUnbinds: [UnbindAttempt] = []
+    private var confirmationFailuresRemaining: Int
+    private var replacementConfirmationFailuresRemaining: Int
+    private var unbindFailuresRemaining: Int
 
     init(
         fixtures: AccountFixtures,
         refreshFailuresRemaining: Int = 0,
-        accountEnabled: Bool = true
+        accountEnabled: Bool = true,
+        bindingEnabled: Bool = true,
+        bindingFailuresRemaining: Int = 0,
+        replacementFailuresRemaining: Int = 0,
+        confirmationFailuresRemaining: Int = 0,
+        replacementConfirmationFailuresRemaining: Int = 0,
+        unbindFailuresRemaining: Int = 0
     ) {
         self.fixtures = fixtures
         self.refreshFailuresRemaining = refreshFailuresRemaining
         self.accountEnabled = accountEnabled
+        self.bindingEnabled = bindingEnabled
+        self.bindingFailuresRemaining = bindingFailuresRemaining
+        self.replacementFailuresRemaining = replacementFailuresRemaining
+        self.confirmationFailuresRemaining = confirmationFailuresRemaining
+        self.replacementConfirmationFailuresRemaining = replacementConfirmationFailuresRemaining
+        self.unbindFailuresRemaining = unbindFailuresRemaining
     }
 
     func capabilities() async throws -> AccountCapabilities {
-        guard !accountEnabled else { return fixtures.capabilities }
+        if accountEnabled {
+            return AccountCapabilities(
+                version: 1,
+                accountAuth: .init(enabled: true, providers: ["google"], android: true, macos: true),
+                binding: .init(
+                    enabled: bindingEnabled,
+                    replacement: bindingEnabled,
+                    maxActiveConnectorsPerAccount: 1
+                ),
+                legacy: .init(appTokenAccepted: true, connectorTokenAccepted: true)
+            )
+        }
         return AccountCapabilities(
             version: 1,
             accountAuth: .init(enabled: false, providers: ["google"], android: true, macos: true),
             binding: .init(enabled: false, replacement: false, maxActiveConnectorsPerAccount: 1),
             legacy: .init(appTokenAccepted: true, connectorTokenAccepted: true)
         )
+    }
+
+    func reauthenticateGoogle(
+        _ proof: GoogleIdentityProof,
+        scope: AccountReauthenticationScope,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws -> AccountReauthenticationGrant {
+        recordedReauthentications.append(.init(
+            proof: proof,
+            scope: scope,
+            idempotencyKey: idempotencyKey
+        ))
+        return AccountReauthenticationGrant(
+            grant: fixtures.reauthentication.grant,
+            scope: scope,
+            expiresAt: fixtures.reauthentication.expiresAt
+        )
+    }
+
+    func createBinding(
+        _ input: ConnectorBindingInput,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws -> AccountBindingCandidate {
+        recordedBindings.append(.init(input: input, idempotencyKey: idempotencyKey))
+        if bindingFailuresRemaining > 0 {
+            bindingFailuresRemaining -= 1
+            throw AccountClientError.transport
+        }
+        return fixtures.candidate
+    }
+
+    func confirmBinding(
+        id: String,
+        generation: Int,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws -> ActiveAccountBinding {
+        recordedBindingConfirmations.append(.init(
+            id: id,
+            generation: generation,
+            idempotencyKey: idempotencyKey
+        ))
+        if confirmationFailuresRemaining > 0 {
+            confirmationFailuresRemaining -= 1
+            throw AccountClientError.transport
+        }
+        return fixtures.activeBinding
+    }
+
+    func createReplacement(
+        _ input: ConnectorBindingInput,
+        grant: String,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws -> AccountReplacementRequest {
+        recordedReplacements.append(.init(
+            input: input,
+            grant: grant,
+            idempotencyKey: idempotencyKey
+        ))
+        if replacementFailuresRemaining > 0 {
+            replacementFailuresRemaining -= 1
+            throw AccountClientError.transport
+        }
+        return fixtures.replacement
+    }
+
+    func confirmReplacement(
+        requestID: String,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws -> ActiveAccountBinding {
+        recordedReplacementConfirmations.append(.init(
+            requestID: requestID,
+            idempotencyKey: idempotencyKey
+        ))
+        if replacementConfirmationFailuresRemaining > 0 {
+            replacementConfirmationFailuresRemaining -= 1
+            throw AccountClientError.transport
+        }
+        return fixtures.activeBinding
+    }
+
+    func unbind(grant: String, accessToken: String, idempotencyKey: String) async throws {
+        recordedUnbinds.append(.init(grant: grant, idempotencyKey: idempotencyKey))
+        if unbindFailuresRemaining > 0 {
+            unbindFailuresRemaining -= 1
+            throw AccountClientError.transport
+        }
     }
 
     func exchangeGoogleProof(
@@ -314,6 +729,15 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
     func refreshAttempts() -> [RefreshInput] { refreshHistory }
     func revokedPhoneID() -> String? { revoked }
     func didSignOut() -> Bool { signedOut }
+    func bindingAttempts() -> [BindingAttempt] { recordedBindings }
+    func reauthenticationAttempts() -> [ReauthenticationInput] { recordedReauthentications }
+    func replacementAttempts() -> [ReplacementAttempt] { recordedReplacements }
+    func bindingConfirmation() -> BindingConfirmation? { recordedBindingConfirmations.last }
+    func replacementConfirmation() -> ReplacementConfirmation? { recordedReplacementConfirmations.last }
+    func unbindAttempt() -> UnbindAttempt? { recordedUnbinds.last }
+    func bindingConfirmations() -> [BindingConfirmation] { recordedBindingConfirmations }
+    func replacementConfirmations() -> [ReplacementConfirmation] { recordedReplacementConfirmations }
+    func unbindAttempts() -> [UnbindAttempt] { recordedUnbinds }
 }
 
 private actor StaticOAuth: GoogleOAuthPerforming {
@@ -325,6 +749,12 @@ private actor StaticOAuth: GoogleOAuthPerforming {
         return proof
     }
     func signInCount() -> Int { count }
+}
+
+private actor ThrowingOAuth: GoogleOAuthPerforming {
+    let error: GoogleOAuthError
+    init(error: GoogleOAuthError) { self.error = error }
+    func signIn() async throws -> GoogleIdentityProof { throw error }
 }
 
 private final class MemoryAccountSessionStore: AccountSessionStoring, @unchecked Sendable {
@@ -373,5 +803,11 @@ private func XCTAssertThrowsErrorAsync<T>(
         XCTFail("Expected expression to throw")
     } catch {
         handler(error)
+    }
+}
+
+private extension Sequence where Element: Hashable {
+    func uniqued() -> [Element] {
+        Array(Set(self))
     }
 }
