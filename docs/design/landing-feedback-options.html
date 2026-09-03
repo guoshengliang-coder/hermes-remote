@@ -1,0 +1,42 @@
+<!-- @dsCard group="Screens" -->
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>跳转落地反馈 · 三个方向</title>
+<style>
+  body{margin:0;padding:36px 44px;background:#EEF1F5;color:#252B33;font-family:-apple-system,"PingFang SC",Roboto,sans-serif}
+  h1{font-size:20px;font-weight:600;margin:0 0 4px}.sub{font-size:13px;color:#74777F;margin:0 0 22px}
+  h2{font-size:14px;font-weight:600;margin:20px 0 10px;color:#43474E}
+  .strip{display:flex;gap:18px;align-items:flex-start}
+  .cell{width:300px;border-radius:16px;padding:22px 16px 18px;position:relative;box-shadow:0 0 0 1px rgba(0,0,0,.06)}
+  .cell.light{background:#F7F9FD}.cell.dark{background:#131A22}
+  .cap{font-size:12px;color:#74777F;text-align:center;margin-top:10px;line-height:1.5;width:300px}.cap b{display:block;color:#252B33;font-size:13px}
+  .wrap{position:relative;margin-left:auto;width:max-content;max-width:82%}
+  .bubble{padding:12px 18px;border-radius:22px 22px 7px 22px;font-size:16px;line-height:24px;position:relative}
+  .light .bubble{background:#E7ECF6;color:#1A1C20}.dark .bubble{background:#273039;color:#E1E3E9}
+  .ans{margin-top:16px;font-size:15px;line-height:24px;color:#43474E}.dark .ans{color:#B8BEC7}
+  /* current */
+  .light .cur{background:#C9DAF9;box-shadow:inset 0 0 0 1.5px #0B5FD0}.dark .cur{background:#2C3F5E;box-shadow:inset 0 0 0 1.5px #A9C7FF}
+  /* 1 tonal pulse */
+  .light .tone{background:#DCE7FF}.dark .tone{background:#1E3A6B}
+  /* 2 side bar */
+  .bar{position:absolute;left:-12px;top:6px;bottom:6px;width:3px;border-radius:2px;background:#0B5FD0}.dark .bar{background:#A9C7FF}
+  /* 3 outline only */
+  .light .outline{box-shadow:inset 0 0 0 1.5px rgba(11,95,208,.9)}.dark .outline{box-shadow:inset 0 0 0 1.5px rgba(169,199,255,.9)}
+  .t{position:absolute;top:8px;left:12px;font-size:11px;color:#9AA0A8}
+</style></head><body>
+<h1>跳转落地反馈 · 三个方向（均为出现瞬间，之后淡出）</h1>
+<p class="sub">跳到某条提问后，目标气泡的一次性反馈。三个方向都不加蒙层、不加外发光；淡出时间统一 1.2s。</p>
+<h2>浅色</h2>
+<div class="strip">
+  <div><div class="cell light"><span class="t">现状</span><div class="wrap"><div class="bubble cur">可以进一步加大虚拟内存什么的吗</div></div><div class="ans">可以，但要先看清楚现在的压力来自哪里……</div></div><div class="cap"><b>现状</b>蒙层 + 描边，1.5s 后硬切</div></div>
+  <div><div class="cell light"><span class="t">方向 1</span><div class="wrap"><div class="bubble tone">可以进一步加大虚拟内存什么的吗</div></div><div class="ans">可以，但要先看清楚现在的压力来自哪里……</div></div><div class="cap"><b>1 · 气泡变色</b>底色切到 primaryContainer 再回到原色，无框无层</div></div>
+  <div><div class="cell light"><span class="t">方向 2</span><div class="wrap"><div class="bar"></div><div class="bubble">可以进一步加大虚拟内存什么的吗</div></div><div class="ans">可以，但要先看清楚现在的压力来自哪里……</div></div><div class="cap"><b>2 · 左侧竖条</b>气泡不动，旁边一根 3dp 品牌蓝竖条淡出</div></div>
+  <div><div class="cell light"><span class="t">方向 3</span><div class="wrap"><div class="bubble outline">可以进一步加大虚拟内存什么的吗</div></div><div class="ans">可以，但要先看清楚现在的压力来自哪里……</div></div><div class="cap"><b>3 · 只留描边</b>去掉蒙层，描边淡出；对现状改动最小</div></div>
+</div>
+<h2>深色</h2>
+<div class="strip">
+  <div><div class="cell dark"><span class="t">现状</span><div class="wrap"><div class="bubble cur">可以进一步加大虚拟内存什么的吗</div></div><div class="ans">可以，但要先看清楚现在的压力来自哪里……</div></div><div class="cap"><b>现状</b></div></div>
+  <div><div class="cell dark"><span class="t">方向 1</span><div class="wrap"><div class="bubble tone">可以进一步加大虚拟内存什么的吗</div></div><div class="ans">可以，但要先看清楚现在的压力来自哪里……</div></div><div class="cap"><b>1 · 气泡变色</b></div></div>
+  <div><div class="cell dark"><span class="t">方向 2</span><div class="wrap"><div class="bar"></div><div class="bubble">可以进一步加大虚拟内存什么的吗</div></div><div class="ans">可以，但要先看清楚现在的压力来自哪里……</div></div><div class="cap"><b>2 · 左侧竖条</b></div></div>
+  <div><div class="cell dark"><span class="t">方向 3</span><div class="wrap"><div class="bubble outline">可以进一步加大虚拟内存什么的吗</div></div><div class="ans">可以，但要先看清楚现在的压力来自哪里……</div></div><div class="cap"><b>3 · 只留描边</b></div></div>
+</div>
+</body></html>
