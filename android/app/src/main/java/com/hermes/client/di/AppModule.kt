@@ -235,6 +235,13 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideRecentSearchesStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.RecentSearchesStore =
+        com.hermes.client.data.repository.RecentSearchesStore(context)
+
+    @Provides
+    @Singleton
     fun provideModelFavoritesStore(
         @ApplicationContext context: Context,
     ): com.hermes.client.data.repository.ModelFavoritesStore =
