@@ -57,6 +57,7 @@ reassigned.
 | `NOTIF` | Notification delivery and actions | channel disabled, action/reply failure |
 | `UPDATE` | APK update and installation | manifest, download, hash, certificate, installer |
 | `RELEASE` | Server release packaging and candidate gates | build prerequisites, image identity, isolated smoke |
+| `OPS` | Cloud host installation and diagnostics | preflight, artifact integrity, bootstrap, status, doctor |
 | `CONFIG` | Local or deployment configuration | invalid URL, missing field, incompatible setting |
 | `STORE` | Local persistence | DataStore/database/cache failure |
 | `UNKNOWN` | Truly unmapped failures | last-resort boundary only; must be investigated |
@@ -173,6 +174,11 @@ expanded without changing the underlying meaning.
 | `HR-RELEASE-001` | Gateway image prerequisites, source cleanliness, dependency build, or release packaging gate failed | 无法生成可验证的 Gateway 镜像，请检查构建环境和源码状态。 | Couldn't build a verifiable Gateway image. Check the build environment and source state. | Yes (inspect details, fix prerequisites, retry) |
 | `HR-RELEASE-002` | Gateway candidate image identity, architecture, isolation, startup, readiness, or Connector attachment check failed | Gateway 候选镜像未通过身份、隔离或就绪检查。 | The Gateway candidate image failed its identity, isolation, or readiness checks. | Yes (inspect details and retry) |
 | `HR-RELEASE-003` | Gateway candidate image REST, WebSocket, authentication, or release-contract smoke failed | Gateway 候选镜像的端到端验证失败，请检查诊断后重试。 | The Gateway candidate image failed end-to-end verification. Review diagnostics and retry. | Yes (inspect details and retry) |
+| `HR-OPS-001` | Cloud Ops configuration, host platform, dependency, input-file safety, or preflight requirement is invalid | Cloud Ops 配置或主机前置条件无效，请修正后重试。 | The Cloud Ops configuration or host prerequisites are invalid. Fix them and retry. | Yes (fix configuration/prerequisite, retry) |
+| `HR-OPS-002` | OCI bundle manifest, archive hash, image identity, or architecture verification failed | Gateway 制品身份或完整性校验失败，已阻止安装。 | Gateway artifact identity or integrity verification failed, so installation was blocked. | No (replace the artifact) |
+| `HR-OPS-003` | Staging bootstrap, stage recovery, managed-file installation, service start, or smoke did not complete | Staging 初始化未完成，请检查阶段状态后安全重试。 | Staging bootstrap did not complete. Inspect its stage and retry safely. | Yes (inspect recorded stage, retry the same configuration) |
+| `HR-OPS-004` | One or more systemd, Nginx, container, image, liveness, or readiness status layers are degraded | Staging 服务未全部就绪，请查看分层状态。 | Not all staging services are ready. Review the layered status. | Yes (inspect status and retry) |
+| `HR-OPS-005` | A bounded allowlist-only diagnostic bundle could not be created safely | 无法生成安全的诊断包，请检查输出位置后重试。 | Couldn't create a safe diagnostic bundle. Check the output location and retry. | Yes (check output and retry) |
 | `HR-FILE-001` | A selected attachment could not be read | 无法读取所选文件，请重新选择。 | Couldn't read the selected file. Choose it again. | Yes |
 | `HR-MEDIA-001` | Image save, preparation, or share operation failed | 图片操作失败，请重试。 | The image operation failed. Retry. | Yes |
 | `HR-MEDIA-002` | A picked avatar photo could not be decoded, cropped, or encoded (ImageDecoder/BitmapFactory failure, unreadable URI, empty image) | 无法读取所选照片，请换一张再试。 | Couldn't read the selected photo. Try a different one. | Yes |

@@ -59,6 +59,8 @@ The local I3-A Desktop account-client slice and its remaining live OAuth/binding
 `docs/ACCOUNT_MODE_I3_TEST_RECORD.md`.
 The behavior-preserving Cloud Gateway modularization and its staged release gates are tracked in
 `docs/CLOUD_GATEWAY_REFACTOR_PLAN.md`.
+The staging-only R3 Cloud Ops command contract and its pending deployment-test gates are documented in
+`docs/CLOUD_GATEWAY_R3_OPS.md` and `docs/CLOUD_GATEWAY_R3_TEST_RECORD.md`.
 
 For the Android base, configure the public Gateway URL and the Gateway `APP_TOKEN` in token mode. The public token terminates in Hong Kong; the separate local Hermes credential exists only on the Mac Connector.
 

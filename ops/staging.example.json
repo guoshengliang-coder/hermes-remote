@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "environment": "staging",
+  "operator": "replace-with-operator-id",
+  "artifactManifest": "/srv/hermes-go-artifacts/gateway-bundle-manifest.json",
+  "paths": {
+    "installRoot": "/opt/hermes-go",
+    "configRoot": "/etc/hermes-go",
+    "stateRoot": "/var/lib/hermes-go",
+    "systemdUnitDirectory": "/etc/systemd/system"
+  },
+  "service": {
+    "name": "hermes-go-gateway-staging",
+    "containerName": "hermes-go-gateway-staging",
+    "gatewayPort": 8787
+  },
+  "gateway": {
+    "defaultDeviceId": "staging-mac",
+    "accountAuthEnabled": false,
+    "accountBindingEnabled": false
+  },
+  "secrets": {
+    "appTokenSource": "/secure-input/hermes-go/app-token",
+    "connectorTokenSource": "/secure-input/hermes-go/connector-token",
+    "internalStatusTokenSource": "/secure-input/hermes-go/internal-status-token"
+  },
+  "nginx": {
+    "serverName": "staging.example.invalid",
+    "listenPort": 443,
+    "certificateSource": "/secure-input/hermes-go/fullchain.pem",
+    "privateKeySource": "/secure-input/hermes-go/privkey.pem",
+    "configFile": "/etc/nginx/conf.d/hermes-go-staging.conf"
+  }
+}

@@ -21,6 +21,10 @@
     "smoke": "node scripts/smoke-client.mjs",
     "smoke:compat": "node scripts/smoke-compat-client.mjs",
     "mock:hermes": "node scripts/mock-hermes.mjs",
+    "ops:preflight": "node scripts/hermesctl.mjs preflight",
+    "ops:bootstrap": "node scripts/hermesctl.mjs bootstrap",
+    "ops:status": "node scripts/hermesctl.mjs status",
+    "ops:doctor": "node scripts/hermesctl.mjs doctor",
     "dev:gateway": "npm run dev -w @hermes-remote/gateway",
     "dev:connector": "npm run dev -w @hermes-remote/connector"
   },

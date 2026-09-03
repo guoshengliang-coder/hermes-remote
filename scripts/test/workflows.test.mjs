@@ -39,6 +39,7 @@ test('ordinary CI, SAST, and the Gateway image gate stay unprivileged and never 
   const gatewayOci = await read('gateway-oci.yml');
   assert.match(gatewayOci, /runs-on: ubuntu-24\.04/);
   assert.match(gatewayOci, /run: \.\/scripts\/test-gateway-image\.sh/);
+  assert.match(gatewayOci, /run: \.\/scripts\/package-gateway-bundle\.sh outputs\/gateway-bundle/);
   assert.match(gatewayOci, /permissions:\n  contents: read/);
   assert.equal(/docker\s+(?:push|login)|packages: write|secrets\./.test(gatewayOci), false, 'Gateway OCI gate must not publish images or receive secrets');
 });

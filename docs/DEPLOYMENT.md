@@ -77,3 +77,24 @@ For the unified standard-port deployment, run `scripts/deploy-edge-router.sh` as
 `CONFIRM_PRODUCTION_DEPLOY=mrlgs.net`. The script installs Nginx, preserves the current release
 configuration for rollback, keeps `/health` and `/releases/*` on the release service, and routes
 `/api/*` plus `/v1/connect` to the Gateway without redirects.
+
+## R3 staging-only Cloud Ops
+
+The R3 internal tool installs a verified Gateway OCI bundle only on a new controlled staging host.
+It is not the production deployment path and rejects `production` configurations. Prepare private
+Token and TLS input files outside the managed roots, copy the versioned archive and manifest produced
+by `scripts/package-gateway-bundle.sh`, then use:
+
+```bash
+node scripts/hermesctl.mjs preflight --config /secure-input/hermes-go/staging.json
+sudo node scripts/hermesctl.mjs bootstrap --config /secure-input/hermes-go/staging.json --confirm staging
+node scripts/hermesctl.mjs status --config /secure-input/hermes-go/staging.json
+node scripts/hermesctl.mjs doctor --config /secure-input/hermes-go/staging.json --output /secure-output/hermes-go-doctor.json
+```
+
+Run `preflight` before granting deployment approval. `bootstrap` installs the exact content-addressed
+image, managed configuration, systemd unit and Nginx staging server, then performs loopback and public
+route smoke checks. Re-running the identical input is idempotent; a different current release or
+deployment digest stops with a structured `HR-OPS-*` error and must use the later R4 deploy/rollback
+path. The doctor output deliberately excludes journals, request bodies, environment files, Secret
+contents and source paths. See `CLOUD_GATEWAY_R3_OPS.md` for the full contract.

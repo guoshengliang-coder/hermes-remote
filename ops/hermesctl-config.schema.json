@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hermes-go.invalid/schemas/hermesctl-config-v1.json",
+  "title": "Hermes GO Cloud Ops staging configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "environment",
+    "operator",
+    "artifactManifest",
+    "paths",
+    "service",
+    "gateway",
+    "secrets",
+    "nginx"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "environment": { "const": "staging" },
+    "operator": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+    "artifactManifest": { "type": "string", "pattern": "^/" },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["installRoot", "configRoot", "stateRoot", "systemdUnitDirectory"],
+      "properties": {
+        "installRoot": { "type": "string", "pattern": "^/" },
+        "configRoot": { "type": "string", "pattern": "^/" },
+        "stateRoot": { "type": "string", "pattern": "^/" },
+        "systemdUnitDirectory": { "type": "string", "pattern": "^/" }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "containerName", "gatewayPort"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,62}$" },
+        "containerName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,62}$" },
+        "gatewayPort": { "type": "integer", "minimum": 1024, "maximum": 65535 }
+      }
+    },
+    "gateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["defaultDeviceId", "accountAuthEnabled", "accountBindingEnabled"],
+      "properties": {
+        "defaultDeviceId": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+        "accountAuthEnabled": { "const": false },
+        "accountBindingEnabled": { "const": false }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["appTokenSource", "connectorTokenSource", "internalStatusTokenSource"],
+      "properties": {
+        "appTokenSource": { "type": "string", "pattern": "^/" },
+        "connectorTokenSource": { "type": "string", "pattern": "^/" },
+        "internalStatusTokenSource": { "type": "string", "pattern": "^/" }
+      }
+    },
+    "nginx": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serverName", "listenPort", "certificateSource", "privateKeySource", "configFile"],
+      "properties": {
+        "serverName": { "type": "string", "pattern": "^[A-Za-z0-9.-]{1,253}$" },
+        "listenPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "certificateSource": { "type": "string", "pattern": "^/" },
+        "privateKeySource": { "type": "string", "pattern": "^/" },
+        "configFile": { "type": "string", "pattern": "^/" }
+      }
+    }
+  }
+}
