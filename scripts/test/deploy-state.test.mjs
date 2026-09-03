@@ -759,6 +759,7 @@ async function createCandidateFixture(t) {
     legacySource: {
       serviceName: "hermes-go-gateway-staging",
       containerName: "hermes-go-gateway-staging",
+      gatewayPort: 18786,
       stateDirectory: path.join(paths.stateRoot, "gateway"),
     },
     slots: {

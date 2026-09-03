@@ -50,8 +50,10 @@ test('Gateway ephemeral staging is manual, bounded, secretless, and production-i
   assert.equal(/\n\s+(?:push|pull_request|schedule):/.test(workflow), false);
   assert.match(workflow, /permissions:\n  contents: read/);
   assert.match(workflow, /runs-on: ubuntu-24\.04/);
-  assert.match(workflow, /timeout-minutes: 15/);
-  assert.match(workflow, /group: gateway-r3-ephemeral-staging/);
+  assert.match(workflow, /timeout-minutes: 30/);
+  assert.match(workflow, /group: gateway-r4-ephemeral-staging/);
+  assert.match(workflow, /fetch-depth: 0/);
+  assert.match(workflow, /image: postgres:18-alpine@sha256:[0-9a-f]{64}/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /run: \.\/scripts\/test-gateway-staging-bootstrap\.sh/);
   assert.equal(/secrets\.|docker\s+(?:push|login)|packages: write|ssh\b|mrlgs\.net/.test(workflow), false);

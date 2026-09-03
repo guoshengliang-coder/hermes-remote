@@ -25,7 +25,8 @@ R4 当前处于合同与实现阶段。本文只记录实际执行的结果；�
 | R4-A contract | Complete | PR #9 六项 checks 全部通过，合并提交 `c2f0600` 的 main CI、SAST、Gateway OCI 复核均通过 |
 | R4-B candidate path | Complete | PR #10 六项 checks 全部通过，合并提交 `9c3c54a` 的 main CI、SAST、Gateway OCI 复核均通过 |
 | R4-C switch/drain | Complete | PR #11 六项 checks 全部通过并合并为 `519a9ab`；合并后 main CI、SAST、Gateway OCI 复核全部通过 |
-| R4-D rollback | In progress | previous-only 门禁、committed journal 安全归档和反向 blue/green 完整往返已实现并通过聚焦测试；等待完整基线与 PR CI |
+| R4-D rollback | Complete | PR #12 六项 checks 全部通过并合并为 `ed30206`；合并后 main CI、SAST、Gateway OCI 复核全部通过 |
+| R4-E CLI/integration | In progress | staging-only deploy/rollback CLI、独立候选 smoke、`0.3.0` 版本和真实 R3→R4→R3 workflow 已接线；等待完整基线、PR CI 和手动演练 |
 | Fault-injection suite | Not run | 尚未实现 |
 | Ephemeral upgrade/rollback | Not run | 尚未实现；执行前不得触碰香港生产服务器 |
 | Production deployment | Not authorized | R4 计划与代码工作不构成生产授权 |
@@ -103,3 +104,29 @@ committed journal 内容一致后归档、目标旧 OCI identity 重新校验、
 2026-09-03 执行 `npm run build`、`npm test` 与 `git diff --check` 均通过；脚本套件增至 47 项并
 全部通过。Protocol 13 项、Connector 13 项、release-server 30 项全部通过，Gateway 常规套件为
 42 项通过、11 项按既有网络/PostgreSQL 门禁跳过。本切片没有 Android/Desktop 源码或 APK 变化。
+
+PR #12 的 Android、Desktop、Node、Secret、Semgrep、Gateway OCI 六项检查全部通过后合并；合并
+提交为 `ed30206`。main 的 CI run `33746348230`、SAST run `33746348140` 与 Gateway OCI run
+`33746348103` 全部成功。未连接香港服务器或任何生产服务。
+
+## R4-E 当前实现状态
+
+R4-E 将 Gateway Server 版本统一递增为 `0.3.0`，并开放仍严格限定 staging 的 `hermesctl deploy`
+与 `hermesctl rollback`。命令不接收活动槽位参数：首次升级从受管 R3 `current` manifest 得到源身份，
+后续操作只接受与当前 release 完整匹配的 committed journal。未确认 staging、非 root/非 Linux x86_64、
+缺失独立 smoke Connector 环境时都在创建部署状态或更改服务前关闭失败。
+
+候选 smoke 临时启动独立 Connector，只连接 loopback 候选槽位并在验证 REST/WSS 后退出；公开 smoke
+则等待原 Connector 经固定 HTTPS/WSS 入口重连，再核对目标版本和提交。CLI 为 deploy/rollback 各写
+started/success 或 failed 脱敏审计记录。单元/静态测试已覆盖 R3 源解析、命令调用顺序、授权前零写入、
+缺失 smoke 环境关闭失败，以及 workflow 必须包含固定 R3 commit、PostgreSQL 18、deploy、rollback、
+双版本 smoke、release links、最终服务/journal 与八条审计记录检查。
+
+一次性 workflow 当前仅完成代码接线，尚未触发。它不会访问香港服务器；执行前仍需项目所有者确认。
+PostgreSQL 18 在 runner 中用于核对目标环境版本，但本轮账号能力关闭且 deploy config 为
+`database: null`，所以这不构成真实数据库迁移通过的证据。
+
+2026-09-03 本地执行 `npm run build`、`npm test` 与 `git diff --check` 全部通过：Protocol 13 项、
+Connector 13 项、release-server 30 项、脚本 50 项全部通过；Gateway 常规套件 42 项通过、11 项按
+环境门禁跳过。随后以 `RUN_NETWORK_TESTS=1` 重跑 Gateway，50 项通过，只有 3 项因未配置一次性
+PostgreSQL 测试数据库而跳过。上述执行未启动 systemd/Docker/Nginx 演练，也未连接香港服务器。

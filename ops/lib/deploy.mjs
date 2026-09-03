@@ -150,6 +150,7 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
       internalStatusTokenSource: config.secrets.internalStatusTokenSource,
       expectedServerVersion: targetManifest.serverVersion,
       expectedSourceCommit: targetManifest.sourceCommit,
+      expectedDeviceId: config.gateway.defaultDeviceId,
       candidateSlot,
     });
     journal = await persistStage(paths.journal, journal, "candidate_verified", now, ownership.host);

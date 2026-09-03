@@ -512,6 +512,7 @@ function smokeRequest(config, manifest, candidateSlot, publicRoute, recovery = f
     internalStatusTokenSource: config.secrets.internalStatusTokenSource,
     expectedServerVersion: manifest.serverVersion,
     expectedSourceCommit: manifest.sourceCommit,
+    expectedDeviceId: config.gateway.defaultDeviceId,
     candidateSlot,
     publicRoute,
     recovery,

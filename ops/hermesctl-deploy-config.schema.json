@@ -37,10 +37,11 @@
     "legacySource": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["serviceName", "containerName", "stateDirectory"],
+      "required": ["serviceName", "containerName", "gatewayPort", "stateDirectory"],
       "properties": {
         "serviceName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,62}$" },
         "containerName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,62}$" },
+        "gatewayPort": { "type": "integer", "minimum": 1024, "maximum": 65535 },
         "stateDirectory": { "type": "string", "pattern": "^/" }
       }
     },
