@@ -339,6 +339,8 @@ test("ephemeral staging exercises the complete R3 path without production access
     "doctor_collection_policy_invalid",
     "audit_sequence_invalid",
     "staging.hermes.invalid",
+    "sed -n 's/^SERVER_VERSION=//p' | tail -n 1",
+    "sed -n 's/^SOURCE_COMMIT=//p' | tail -n 1",
   ]) {
     assert.equal(script.includes(required), true, `${required} missing from ephemeral staging gate`);
   }
