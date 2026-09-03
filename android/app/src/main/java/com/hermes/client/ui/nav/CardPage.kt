@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hermes.client.data.network.GatewayHealth
+import com.hermes.client.data.repository.hasCustomName
 import com.hermes.client.data.repository.ThemeMode
 import com.hermes.client.ui.components.ProfileAvatar
 import com.hermes.client.ui.localization.LocalAppLanguage
@@ -148,12 +149,21 @@ fun CardPage(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     ProfileAvatar(active, size = 48.dp)
+                    // With a custom display name the big line is that name and the profile name
+                    // moves to the subline; otherwise the card reads exactly as before.
+                    val identity = com.hermes.client.ui.components.LocalProfileIdentities.current[active]
                     Column(Modifier.weight(1f).padding(start = 18.dp)) {
-                        Text(active ?: "—", style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp))
                         Text(
-                            localized(language, "当前身份", "Active profile"),
+                            com.hermes.client.data.repository.displayNameFor(active, identity),
+                            style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            if (identity.hasCustomName()) active.orEmpty()
+                            else localized(language, "当前身份", "Active profile"),
                             style = MaterialTheme.typography.bodyMedium,
                             color = muted,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
                     }
                     Icon(ThinChevron, contentDescription = null, tint = muted, modifier = Modifier.size(20.dp))

@@ -121,3 +121,88 @@ val ThinChevronIcon: ImageVector by lazy {
         moveTo(9.5f, 5.5f); lineTo(16f, 12f); lineTo(9.5f, 18.5f)
     }
 }
+
+// Small-icon compensation (docs/DESIGN.md §4.1): the 1.7dp stroke is tuned for 24dp glyphs. An
+// icon embedded at 16–18dp scales that stroke to ~1.2dp — thinner than the text beside it —
+// so glyphs meant for pills and rows are drawn at 2.4 (≈1.8dp at 18dp), matching labelLarge.
+private fun smallStrokeIcon(name: String, block: PathBuilder.() -> Unit): ImageVector =
+    ImageVector.Builder(
+        name = name,
+        defaultWidth = 24.dp, defaultHeight = 24.dp,
+        viewportWidth = 24f, viewportHeight = 24f,
+    ).apply {
+        path(
+            fill = null,
+            stroke = SolidColor(Color.Black),
+            strokeLineWidth = 2.4f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            pathBuilder = block,
+        )
+    }.build()
+
+/** Arrow pressed against a top line: "back to the start of this turn" (turn-jump pill, prompt list). */
+val ArrowToTopIcon: ImageVector by lazy {
+    smallStrokeIcon("StrokeArrowToTop") {
+        moveTo(5f, 5f)
+        lineTo(19f, 5f)
+        moveTo(12f, 20f)
+        lineTo(12f, 9f)
+        moveTo(7.5f, 13.5f)
+        lineTo(12f, 9f)
+        lineTo(16.5f, 13.5f)
+    }
+}
+
+/** Three lines with leading dots: the prompt list (pill segment and top-bar menu). */
+val PromptListIcon: ImageVector by lazy {
+    smallStrokeIcon("StrokePromptList") {
+        for (y in listOf(6f, 12f, 18f)) {
+            moveTo(9f, y)
+            lineTo(20f, y)
+            // A zero-length round-capped stroke renders as a dot.
+            moveTo(4f, y)
+            lineTo(4.01f, y)
+        }
+    }
+}
+
+/** Pencil — the "edit this identity" row action on the profile picker. */
+val PencilStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokePencil") {
+        moveTo(4f, 20f); lineTo(8.2f, 20f); lineTo(19f, 9.2f)
+        arcTo(1.6f, 1.6f, 0f, false, false, 19f, 6.9f)
+        lineTo(17.1f, 5f)
+        arcTo(1.6f, 1.6f, 0f, false, false, 14.8f, 5f)
+        lineTo(4f, 15.8f); close()
+        moveTo(13.5f, 6.3f); lineTo(17.7f, 10.5f)
+    }
+}
+
+/** Camera — the "change photo" badge on the identity settings avatar. */
+val CameraStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeCamera") {
+        moveTo(4f, 8.5f)
+        arcTo(1.5f, 1.5f, 0f, false, true, 5.5f, 7f)
+        lineTo(8f, 7f); lineTo(9.4f, 5f); lineTo(14.6f, 5f); lineTo(16f, 7f); lineTo(18.5f, 7f)
+        arcTo(1.5f, 1.5f, 0f, false, true, 20f, 8.5f)
+        lineTo(20f, 17.5f)
+        arcTo(1.5f, 1.5f, 0f, false, true, 18.5f, 19f)
+        lineTo(5.5f, 19f)
+        arcTo(1.5f, 1.5f, 0f, false, true, 4f, 17.5f)
+        close()
+        moveTo(15.2f, 13f)
+        arcTo(3.2f, 3.2f, 0f, true, true, 8.8f, 13f)
+        arcTo(3.2f, 3.2f, 0f, true, true, 15.2f, 13f)
+    }
+}
+
+/** Push pin — the pinned-session prefix in the list subline (docs/DESIGN.md §5.2). */
+val PinStrokeIcon: ImageVector by lazy {
+    smallStrokeIcon("StrokePin") {
+        moveTo(9f, 3f); lineTo(15f, 3f)
+        moveTo(10f, 3f); lineTo(10f, 8.5f); lineTo(7f, 12f); lineTo(7f, 14f)
+        lineTo(17f, 14f); lineTo(17f, 12f); lineTo(14f, 8.5f); lineTo(14f, 3f)
+        moveTo(12f, 14f); lineTo(12f, 21f)
+    }
+}

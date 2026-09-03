@@ -16,9 +16,12 @@ import com.hermes.client.R
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.AppLanguageProvider
 import com.hermes.client.ui.localization.localized
-import com.hermes.client.ui.theme.avatarColorArgb
+import com.hermes.client.ui.theme.avatarAccentArgb
 
-/** Owns notification channels and turns a [NotificationSpec] into a posted Android notification. */
+/**
+ * Owns notification channels and turns a [NotificationSpec] into a posted Android notification.
+ * Rendering only: what a card says and when it exists is decided by the projector/planner.
+ */
 class HermesNotifier(
     private val context: Context,
     private val languages: AppLanguageProvider,
@@ -27,122 +30,171 @@ class HermesNotifier(
 
     fun ensureChannels(language: AppLanguage = languages.current) {
         val sys = context.getSystemService(NotificationManager::class.java)
-        sys.createNotificationChannel(
-            NotificationChannel(
-                Notif.CHANNEL_APPROVALS,
-                localized(language, "审批与待处理", "Approvals and attention"),
-                NotificationManager.IMPORTANCE_HIGH,
-            ).apply {
-                lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
-            },
+        fun channel(id: String, name: String, importance: Int, description: String) {
+            sys.createNotificationChannel(NotificationChannel(id, name, importance).apply {
+                this.description = description
+            })
+        }
+        channel(
+            Notif.CHANNEL_ATTENTION,
+            localized(language, "需要处理", "Needs you"),
+            NotificationManager.IMPORTANCE_HIGH,
+            localized(language, "审批请求、提问和等待你处理的任务", "Approval requests, questions, and tasks waiting for you"),
         )
-        sys.createNotificationChannel(
-            NotificationChannel(
-                Notif.CHANNEL_SERVICE,
-                localized(language, "后台连接", "Background connection"),
-                NotificationManager.IMPORTANCE_MIN,
-            ),
+        channel(
+            Notif.CHANNEL_COMPLETED,
+            localized(language, "任务完成", "Task finished"),
+            NotificationManager.IMPORTANCE_DEFAULT,
+            localized(language, "智能体运行完成", "An agent run finished"),
         )
-        sys.createNotificationChannel(
-            NotificationChannel(
-                Notif.CHANNEL_ACTIVITY,
-                localized(language, "任务动态", "Task activity"),
-                NotificationManager.IMPORTANCE_DEFAULT,
-            ),
+        channel(
+            Notif.CHANNEL_FAILURES,
+            localized(language, "运行失败", "Run failed"),
+            NotificationManager.IMPORTANCE_DEFAULT,
+            localized(language, "运行失败或停止后未确认完成", "A run failed or stopped without a confirmed completion"),
         )
-        sys.createNotificationChannel(
-            NotificationChannel(
-                Notif.CHANNEL_RUN_PROGRESS,
-                localized(language, "运行进度", "Run progress"),
-                NotificationManager.IMPORTANCE_LOW,
-            ),
+        channel(
+            Notif.CHANNEL_RUN_PROGRESS,
+            localized(language, "运行进度", "Run progress"),
+            NotificationManager.IMPORTANCE_LOW,
+            localized(language, "运行中的任务进度，静默常驻", "Silent, ongoing progress of running tasks"),
         )
+        channel(
+            Notif.CHANNEL_SERVICE,
+            localized(language, "后台连接", "Background connection"),
+            NotificationManager.IMPORTANCE_MIN,
+            localized(language, "后台保持连接时的常驻通知", "Shown while the background connection is kept alive"),
+        )
+        channel(
+            Notif.CHANNEL_UPDATES,
+            localized(language, "应用更新", "App updates"),
+            NotificationManager.IMPORTANCE_DEFAULT,
+            localized(language, "新版本下载并校验完成", "A new version was downloaded and verified"),
+        )
+        // Channel importance cannot be changed after creation, so the old approvals/activity
+        // channels are retired rather than reused; their user settings do not carry over.
+        Notif.LEGACY_CHANNELS.forEach { runCatching { sys.deleteNotificationChannel(it) } }
     }
 
-    fun serviceNotification(): Notification =
-        NotificationCompat.Builder(context, Notif.CHANNEL_SERVICE)
+    /** Foreground-service card. [monitoring] = sessions with active work right now. */
+    fun serviceNotification(monitoring: Int = 0): Notification {
+        val language = languages.current
+        val body = if (monitoring > 0) {
+            localized(language, "后台保持连接 · 正在监控 $monitoring 个任务", "Connected in the background · monitoring $monitoring task(s)")
+        } else localized(language, "后台保持连接", "Connected in the background")
+        return NotificationCompat.Builder(context, Notif.CHANNEL_SERVICE)
             .setSmallIcon(R.drawable.ic_stat_hermes)
-            .setContentTitle("Hermes")
-            .setContentText(localized(
-                languages.current,
-                "任务正在运行，正在实时监控",
-                "A task is running — monitoring in real time",
-            ))
+            .setContentTitle("Hermes GO")
+            .setContentText(body)
             .setOngoing(true)
+            .setSilent(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .build()
+    }
 
     fun post(spec: NotificationSpec) {
-        val b = NotificationCompat.Builder(context, spec.channelId)
-            .setSmallIcon(R.drawable.ic_stat_hermes)
-            .setContentTitle(spec.title)
-            .setContentText(spec.body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(spec.body))
-            .setAutoCancel(true)
-            .setGroup(spec.groupKey)
-            .setContentIntent(openIntent(spec.route, spec.id))
-        spec.actions.forEach { a ->
-            if (a.reply) {
-                val remoteInput = RemoteInput.Builder(Notif.KEY_REPLY_TEXT)
-                    .setLabel(localized(languages.current, "回复…", "Reply…"))
-                    .build()
-                val action = NotificationCompat.Action.Builder(0, a.label, replyIntent(a, spec.id))
-                    .addRemoteInput(remoteInput)
-                    .setAllowGeneratedReplies(false)
-                    .build()
-                b.addAction(action)
-            } else {
-                b.addAction(0, a.label, actionIntent(a, spec.id))
-            }
+        if (!mgr.areNotificationsEnabled()) {
+            com.hermes.client.data.diagnostics.DebugLog.log("notif", "dropped ${spec.kind ?: "update"} id=${spec.id}: notifications disabled")
+            return
         }
-        if (mgr.areNotificationsEnabled()) {
-            mgr.notify(spec.id, b.build())
-        }
+        val n = if (Build.VERSION.SDK_INT >= 36 && spec.ongoing && spec.progress != null) {
+            Api36ProgressBuilder.build(context, spec, openIntent(spec.route, spec.id), deleteIntent(spec), publicVersion(spec), sortKeyFor(spec.kind!!))
+        } else buildCompat(spec)
+        mgr.notify(spec.id, n)
     }
 
     fun cancel(id: Int) = mgr.cancel(id)
 
-    /**
-     * Posts (or updates) the single ongoing run-progress notification. On API 36+ this uses the
-     * platform ProgressStyle so the system can promote it to a status-bar Live Update; below that
-     * it falls back to an ordinary ongoing progress notification.
-     *
-     * androidx.core 1.16.0 has no NotificationCompat.ProgressStyle, so the API 36+ branch builds
-     * with the platform Notification.Builder rather than upgrading the dependency.
-     */
-    fun postRunProgress(spec: RunProgressSpec, profile: String?) {
+    fun postSummary(summary: NotificationSummary) {
         if (!mgr.areNotificationsEnabled()) return
-        val accent = accentFor(profile)
-        val n = if (Build.VERSION.SDK_INT >= 36) buildPromoted(spec, accent) else buildCompat(spec, accent)
-        mgr.notify(RUN_PROGRESS_NOTIFICATION_ID, n)
+        val label = summary.label(languages.current)
+        val n = NotificationCompat.Builder(context, Notif.CHANNEL_COMPLETED)
+            .setSmallIcon(R.drawable.ic_stat_hermes)
+            .setContentTitle("Hermes GO")
+            .setContentText(label)
+            .setStyle(NotificationCompat.InboxStyle().setSummaryText(label))
+            .setGroup(Notif.GROUP_SESSIONS)
+            .setGroupSummary(true)
+            .setSilent(true)
+            .setAutoCancel(true)
+            .setContentIntent(openIntent(null, Notif.SUMMARY_NOTIFICATION_ID))
+            .build()
+        mgr.notify(Notif.SUMMARY_NOTIFICATION_ID, n)
     }
 
-    fun cancelRunProgress() = mgr.cancel(RUN_PROGRESS_NOTIFICATION_ID)
+    fun cancelSummary() = mgr.cancel(Notif.SUMMARY_NOTIFICATION_ID)
 
-    /** Tenant identity colour — the same solid hashed hue as the profile's avatar, so a
-     *  notification from a non-active profile still reads as "whose" it is. */
-    private fun accentFor(profile: String?): Int = avatarColorArgb(profile)
+    /** Remove every session card and the group summary (used once at process start). */
+    fun cancelSessionCards() {
+        mgr.activeNotifications
+            .filter { it.notification.group == Notif.GROUP_SESSIONS }
+            .forEach { mgr.cancel(it.id) }
+    }
 
-    @androidx.annotation.RequiresApi(36)
-    private fun buildPromoted(spec: RunProgressSpec, accent: Int): Notification =
-        Api36RunProgressBuilder.build(
-            context = context,
-            spec = spec,
-            accent = accent,
-            contentIntent = openIntent(spec.route, RUN_PROGRESS_NOTIFICATION_ID),
-        )
-
-    private fun buildCompat(spec: RunProgressSpec, accent: Int): Notification =
-        NotificationCompat.Builder(context, Notif.CHANNEL_RUN_PROGRESS)
+    private fun buildCompat(spec: NotificationSpec): Notification {
+        val b = NotificationCompat.Builder(context, spec.channelId)
             .setSmallIcon(R.drawable.ic_stat_hermes)
             .setContentTitle(spec.title)
             .setContentText(spec.body)
-            .setProgress(spec.total, spec.done, spec.indeterminate)
-            .setOngoing(true)
-            .setColor(accent)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setContentIntent(openIntent(spec.route, RUN_PROGRESS_NOTIFICATION_ID))
-            .build()
+            // Android has a single sub-text slot and it is taken by the header line, so the error
+            // code / duration renders as the last line of the expanded body instead.
+            .setStyle(NotificationCompat.BigTextStyle().bigText(listOfNotNull(spec.body, spec.subText).joinToString("\n")))
+            .setAutoCancel(spec.autoCancel)
+            .setOngoing(spec.ongoing)
+            .setOnlyAlertOnce(spec.onlyAlertOnce)
+            .setSilent(spec.silent)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setContentIntent(openIntent(spec.route, spec.id))
+        headerText(spec)?.let { b.setSubText(it) }
+        spec.category?.let { b.setCategory(it) }
+        spec.groupKey?.let { b.setGroup(it) }
+        spec.kind?.let { b.setSortKey(sortKeyFor(it)) }
+        spec.accentProfile?.let { b.setColor(avatarAccentArgb(it)) }
+        spec.whenMs?.let { b.setWhen(it).setShowWhen(true) }
+        if (spec.chronometer && spec.whenMs != null) b.setUsesChronometer(true)
+        spec.progress?.let { b.setProgress(it.total, it.done, it.indeterminate) }
+        if (spec.sessionKey != null) b.setDeleteIntent(deleteIntent(spec))
+        publicVersion(spec)?.let { b.setPublicVersion(it) }
+        spec.actions.forEach { a ->
+            when {
+                a.reply -> {
+                    val remoteInput = RemoteInput.Builder(Notif.KEY_REPLY_TEXT)
+                        .setLabel(localized(languages.current, "回复…", "Reply…"))
+                        .build()
+                    b.addAction(
+                        NotificationCompat.Action.Builder(0, a.label, replyIntent(a, spec.id))
+                            .addRemoteInput(remoteInput)
+                            .setAllowGeneratedReplies(false)
+                            .build(),
+                    )
+                }
+                a.action == Notif.ACTION_OPEN -> b.addAction(0, a.label, openIntent(spec.route, spec.id))
+                else -> b.addAction(0, a.label, actionIntent(a, spec.id))
+            }
+        }
+        return b.build()
+    }
+
+    /** Header line after the app name: "identity · state word" (the time is appended by Android). */
+    private fun headerText(spec: NotificationSpec): String? =
+        listOfNotNull(spec.profileLabel, spec.stateLabel).takeIf { it.isNotEmpty() }?.joinToString(" · ")
+
+    /**
+     * Lock-screen version when the system hides sensitive content: icon, state word, and session
+     * title only — never the command, question, or reply text.
+     */
+    private fun publicVersion(spec: NotificationSpec): Notification? {
+        val title = spec.publicTitle ?: return null
+        val b = NotificationCompat.Builder(context, spec.channelId)
+            .setSmallIcon(R.drawable.ic_stat_hermes)
+            .setContentTitle(title)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+        spec.publicBody?.let { b.setContentText(it) }
+        spec.accentProfile?.let { b.setColor(avatarAccentArgb(it)) }
+        spec.whenMs?.let { b.setWhen(it).setShowWhen(true) }
+        return b.build()
+    }
 
     private fun openIntent(route: String?, id: Int): PendingIntent {
         // Built with direct calls on the variable rather than inside an `apply { }` block, and
@@ -174,51 +226,68 @@ class HermesNotifier(
         )
     }
 
-    private fun actionIntent(a: NotifAction, notifId: Int): PendingIntent {
+    private fun receiverIntent(a: NotifAction, notifId: Int): Intent {
         // Direct calls, explicit component — see the note in openIntent().
         val intent = Intent()
         intent.setClassName(context, NotificationActionReceiver::class.java.name)
         intent.action = a.action
-        intent.putExtra("session_id", a.sessionId)
-        intent.putExtra("notif_id", notifId)
+        intent.putExtra(Notif.EXTRA_SESSION_ID, a.sessionId)
+        intent.putExtra(Notif.EXTRA_STORED_SESSION_ID, a.storedSessionId)
+        intent.putExtra(Notif.EXTRA_PROFILE, a.profile)
+        intent.putExtra(Notif.EXTRA_NOTIF_ID, notifId)
+        intent.putExtra(Notif.EXTRA_REQUEST_ID, a.requestId.orEmpty())
+        intent.putExtra(Notif.EXTRA_QUESTION_ID, a.questionId.orEmpty())
+        intent.putExtra(Notif.EXTRA_ANSWER, a.answer.orEmpty())
+        return intent
+    }
+
+    private fun actionIntent(a: NotifAction, notifId: Int): PendingIntent =
         // Flags inline — see the note in openIntent().
+        PendingIntent.getBroadcast(
+            context,
+            ("$notifId:${a.action}:${a.questionId.orEmpty()}:${a.answer.orEmpty()}").hashCode(),
+            receiverIntent(a, notifId),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+    private fun replyIntent(a: NotifAction, notifId: Int): PendingIntent =
+        // Direct reply requires FLAG_MUTABLE so the system can attach the RemoteInput results.
+        // The intent is explicit (our own receiver), so it can't be redirected — mutability is safe.
+        PendingIntent.getBroadcast(
+            context,
+            // Distinct namespace from actionIntent()'s request code so a reply (MUTABLE) and a
+            // button (IMMUTABLE) can never share PendingIntent identity (would crash on Android 12+).
+            ("reply:$notifId:${a.questionId.orEmpty()}").hashCode(),
+            receiverIntent(a, notifId),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+        )
+
+    private fun deleteIntent(spec: NotificationSpec): PendingIntent {
+        val key = spec.sessionKey!!
+        val intent = Intent()
+        intent.setClassName(context, NotificationActionReceiver::class.java.name)
+        intent.action = Notif.ACTION_DISMISSED
+        intent.putExtra(Notif.EXTRA_STORED_SESSION_ID, key.sessionId)
+        intent.putExtra(Notif.EXTRA_PROFILE, key.profile)
+        intent.putExtra(Notif.EXTRA_NOTIF_ID, spec.id)
+        intent.putExtra(Notif.EXTRA_KIND, spec.kind?.name)
         return PendingIntent.getBroadcast(
             context,
-            (a.action + a.sessionId).hashCode(),
+            ("dismiss:${spec.id}").hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
     }
 
-    private fun replyIntent(a: NotifAction, notifId: Int): PendingIntent {
-        // Direct calls, explicit component — see the note in openIntent(). This matters most
-        // here: direct reply requires FLAG_MUTABLE below, and mutable + implicit is the actually
-        // vulnerable combination. Naming the component keeps it explicit and unredirectable.
-        val intent = Intent()
-        intent.setClassName(context, NotificationActionReceiver::class.java.name)
-        intent.action = a.action
-        intent.putExtra("session_id", a.sessionId)
-        intent.putExtra("notif_id", notifId)
-        intent.putExtra("request_id", a.requestId.orEmpty())
-        // Direct-reply requires FLAG_MUTABLE so the system can attach the RemoteInput results.
-        // The intent is explicit (our own receiver), so it can't be redirected — mutability is safe.
-        return PendingIntent.getBroadcast(
-            context,
-            // Distinct namespace from actionIntent()'s button request code so a reply (MUTABLE) and a
-            // button (IMMUTABLE) can never share PendingIntent identity (would crash on Android 12+).
-            ("reply:" + a.action + a.sessionId).hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
-        )
+    internal fun sortKeyFor(kind: NotificationKind): String = when {
+        kind.needsUser -> "0"
+        kind == NotificationKind.FAILED || kind == NotificationKind.UNCONFIRMED -> "1"
+        kind == NotificationKind.COMPLETED -> "2"
+        else -> "3"
     }
 
-
     companion object {
-        const val SERVICE_NOTIFICATION_ID = 1001
-
-        // Distinct from SERVICE_NOTIFICATION_ID (1001) and from toNotificationSpec's 1002
-        // collision fallback, so the ongoing progress notification can never clobber either.
-        const val RUN_PROGRESS_NOTIFICATION_ID = 1003
+        const val SERVICE_NOTIFICATION_ID = Notif.SERVICE_NOTIFICATION_ID
     }
 }
 
@@ -226,30 +295,55 @@ class HermesNotifier(
  * Isolates the API-36-only `Notification.ProgressStyle` construction in its own class so that
  * [HermesNotifier]'s own method bodies never name an API-36 type. ART verifies dex classes
  * lazily and per-class, so this is defensive hardening against class-verification issues rather
- * than a behaviour change — [HermesNotifier.buildPromoted] only reaches this class from behind
- * the existing `Build.VERSION.SDK_INT >= 36` guard.
+ * than a behaviour change — [HermesNotifier.post] only reaches this class from behind the
+ * `Build.VERSION.SDK_INT >= 36` guard. Promotion to a status-bar Live Update is requested with
+ * `requestPromotedOngoing`; the system still decides, and with several running sessions it
+ * picks one.
  */
 @androidx.annotation.RequiresApi(36)
-private object Api36RunProgressBuilder {
-    fun build(context: Context, spec: RunProgressSpec, accent: Int, contentIntent: PendingIntent): Notification {
-        val style = Notification.ProgressStyle().setProgressIndeterminate(spec.indeterminate)
-        if (!spec.indeterminate) {
+private object Api36ProgressBuilder {
+    fun build(
+        context: Context,
+        spec: NotificationSpec,
+        contentIntent: PendingIntent,
+        deleteIntent: PendingIntent,
+        publicVersion: Notification?,
+        sortKey: String,
+    ): Notification {
+        val progress = spec.progress!!
+        val accent = spec.accentProfile?.let { avatarAccentArgb(it) }
+        val style = Notification.ProgressStyle().setProgressIndeterminate(progress.indeterminate)
+        if (!progress.indeterminate) {
             // ProgressStyle has no setProgressMax(): the bar's maximum is the SUM of its segment
             // lengths, so one segment of `total` gives a bar of exactly that length.
-            style.addProgressSegment(Notification.ProgressStyle.Segment(spec.total).setColor(accent))
-            style.setProgress(spec.done)
+            val segment = Notification.ProgressStyle.Segment(progress.total)
+            accent?.let { segment.setColor(it) }
+            style.addProgressSegment(segment)
+            style.setProgress(progress.done)
         }
-        val b = Notification.Builder(context, Notif.CHANNEL_RUN_PROGRESS)
+        val b = Notification.Builder(context, spec.channelId)
             .setSmallIcon(R.drawable.ic_stat_hermes)
             .setContentTitle(spec.title)
             .setContentText(spec.body)
             .setStyle(style)
             .setOngoing(true)
-            .setColor(accent)
+            .setOnlyAlertOnce(true)
             .setContentIntent(contentIntent)
-        // Status-bar chip text on a promoted notification. The system decides promotion itself
-        // (Notification.FLAG_PROMOTED_ONGOING); there is no request API to call.
-        spec.shortText?.let { b.setShortCriticalText(it) }
+            .setDeleteIntent(deleteIntent)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .setSortKey(sortKey)
+        if (Build.VERSION.SDK_INT_FULL >= Build.VERSION_CODES_FULL.BAKLAVA_1) {
+            b.setRequestPromotedOngoing(true)
+        }
+        publicVersion?.let { b.setPublicVersion(it) }
+        listOfNotNull(spec.profileLabel, spec.stateLabel).takeIf { it.isNotEmpty() }?.let { b.setSubText(it.joinToString(" · ")) }
+        spec.groupKey?.let { b.setGroup(it) }
+        spec.category?.let { b.setCategory(it) }
+        accent?.let { b.setColor(it) }
+        spec.whenMs?.let { b.setWhen(it).setShowWhen(true) }
+        if (spec.chronometer && spec.whenMs != null) b.setUsesChronometer(true)
+        // Status-bar chip text on a promoted notification.
+        progress.shortText?.let { b.setShortCriticalText(it) }
         return b.build()
     }
 }

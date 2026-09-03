@@ -159,6 +159,7 @@ expanded without changing the underlying meaning.
 | `HR-CONFIG-004` | Desktop pairing configuration is missing its local name, Relay URL, or App Token | 请填写配置名称、Relay 地址和 App Token。 | Enter a configuration name, Relay URL, and App Token. | Yes |
 | `HR-CONFIG-005` | Relay URL and App Token exceed the reliable v1 QR payload limit | Relay 地址和 App Token 过长，无法生成可扫描的二维码。 | The Relay URL and App Token are too long to fit in a scannable QR code. | Yes |
 | `HR-CONFIG-006` | Desktop account mode has no valid Google macOS OAuth client configuration | 此版本尚未配置 Google 登录，请继续使用原有连接。 | Google sign-in is not configured in this build. Continue with the legacy connection. | No (continue legacy) |
+| `HR-STORE-001` | Per-profile identity settings (display name, avatar photo, colour, style) could not be written to DataStore | 无法保存身份设置，请重试。 | Couldn't save the profile settings. Retry. | Yes |
 | `HR-UPDATE-001` | Unmapped update check, download, verification, or installer failure | 更新操作失败，请重试。 | The update operation failed. Retry. | Yes |
 | `HR-UPDATE-002` | Update index could not be fetched or parsed | 无法检查更新，请检查网络后重试。 | Couldn't check for updates. Check your network and retry. | Yes |
 | `HR-UPDATE-003` | DownloadManager job could not be enqueued or persisted | 无法开始下载更新，请重试。 | Couldn't start the update download. Retry. | Yes |
@@ -170,6 +171,7 @@ expanded without changing the underlying meaning.
 | `HR-UPDATE-009` | A restored/downloaded APK is no longer the manifest's latest release | 已发布更新版本，请删除旧下载后获取最新版。 | A newer release is available. Delete the old download and get the latest version. | No (delete old download, then download latest) |
 | `HR-FILE-001` | A selected attachment could not be read | 无法读取所选文件，请重新选择。 | Couldn't read the selected file. Choose it again. | Yes |
 | `HR-MEDIA-001` | Image save, preparation, or share operation failed | 图片操作失败，请重试。 | The image operation failed. Retry. | Yes |
+| `HR-MEDIA-002` | A picked avatar photo could not be decoded, cropped, or encoded (ImageDecoder/BitmapFactory failure, unreadable URI, empty image) | 无法读取所选照片，请换一张再试。 | Couldn't read the selected photo. Try a different one. | Yes |
 | `HR-PERM-003` | Android blocks installation from this source | 需要允许安装未知应用，授权后请重试。 | Permission to install unknown apps is required. Grant it and retry. | Yes |
 | `HR-SESS-001` | Session no longer exists | 会话不存在或已被删除。 | The conversation no longer exists or was deleted. | No |
 | `HR-SESS-002` | Live session handle is stale | 会话连接已失效，正在重新挂接。 | The live conversation handle expired. Reattaching now. | Yes |
@@ -180,8 +182,10 @@ expanded without changing the underlying meaning.
 | `HR-SESS-006` | New session was requested in a project folder the Mac no longer has; the gateway created it in the default project instead | 项目文件夹在 Mac 上不存在，会话已建在默认项目。 | The project folder no longer exists on the Mac, so the conversation was created in the default project. | No |
 | `HR-CLARIFY-001` | Clarify answer arrived after the request expired server-side | 这个提问已失效，agent 没有收到这次回答，请在输入框直接说明你的选择。 | The clarify question expired before the answer arrived; tell the agent your choice in the composer. | No |
 | `HR-SYNC-001` | Final history reconciliation failed | 无法同步完整会话内容，请重试。 | Couldn't synchronize the complete conversation. Retry. | Yes |
+| `HR-SYNC-002` | Run stopped without a confirmed terminal state (Relay observed `run.interrupted`/`run.unknown`, or the phone marked it interrupted) | 任务停止了，但没有确认完成，请打开会话检查。 | The task stopped without a confirmed completion. Open the conversation to check. | No (open the conversation) |
 | `HR-PERM-001` | Camera permission denied | 相机权限未开启，请前往系统设置允许。 | Camera permission is disabled. Allow it in system settings. | Yes |
 | `HR-PERM-002` | Notification permission denied | 通知权限未开启，后台任务可能无法及时提醒。 | Notifications are disabled, so background alerts may be delayed. | Yes |
+| `HR-NOTIF-001` | A notification action (approve/deny/reply/choice) could not be delivered to the gateway | 通知操作未能发送，请重试。 | The notification action couldn't be sent. Try again. | Yes |
 | `HR-UNKNOWN-001` | Unmapped boundary failure | 出现未知错误，请复制诊断信息协助定位。 | An unknown error occurred. Copy diagnostics to help investigate. | Depends |
 
 ## Implementation and review checklist

@@ -1,10 +1,15 @@
 package com.hermes.client.ui.sessions
 
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.style.TextOverflow
@@ -12,12 +17,20 @@ import androidx.compose.ui.unit.dp
 import com.hermes.client.domain.Session
 import com.hermes.client.ui.components.BranchStrokeIcon
 import com.hermes.client.ui.components.FolderStrokeIcon
+import com.hermes.client.ui.components.PinStrokeIcon
+import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.localized
 
 /**
- * The shared session subline: `[14dp glyph] <project|branch> · <model>` (docs/DESIGN.md §5.2).
- * The lead segment takes at most 60% of the width before ellipsizing so the model stays visible;
- * the default project renders no lead segment at all (absence = default). Inherits the
+ * The shared session subline: `[pin] [14dp glyph] <project|branch> · <model>` (docs/DESIGN.md
+ * §5.2). The lead segment takes at most 60% of the width before ellipsizing so the model stays
+ * visible; the default project renders no lead segment at all (absence = default). Inherits the
  * surrounding text style and colour (ListItem's supporting slot), so it sits in any list.
+ *
+ * [pinned] prefixes a 14dp brand-blue pin — the row-level pinned marker. It lives here rather
+ * than in ListItem's leading slot so every title in the list shares one left edge and the marker
+ * does not wander between top- and centre-aligned as the row gains a status line
+ * (decision 2026-09-02).
  *
  * Laid out with a plain [Layout], not BoxWithConstraints: ListItem measures its slots
  * intrinsically, and SubcomposeLayout-based components throw when asked for intrinsics.
@@ -27,10 +40,32 @@ fun SessionSubline(
     session: Session,
     lead: SublineLead = SublineLead.PROJECT,
     defaultProjectPath: String? = null,
+    pinned: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val parts = sessionSublineParts(session, lead, defaultProjectPath)
-    if (parts.isEmpty) return
+    if (parts.isEmpty && !pinned) return
+    if (!pinned) {
+        SublineBody(parts, lead, modifier)
+        return
+    }
+    val language = LocalAppLanguage.current
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            PinStrokeIcon,
+            contentDescription = localized(language, "已置顶", "Pinned"),
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(14.dp),
+        )
+        if (!parts.isEmpty) {
+            Spacer(Modifier.width(4.dp))
+            SublineBody(parts, lead, Modifier.weight(1f, fill = false))
+        }
+    }
+}
+
+@Composable
+private fun SublineBody(parts: SessionSublineParts, lead: SublineLead, modifier: Modifier) {
     val leadText = parts.lead
     val model = parts.model
     if (leadText == null) {

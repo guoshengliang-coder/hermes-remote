@@ -70,17 +70,40 @@ curl -X POST -H "X-Hermes-Session-Token: $APP_TOKEN" \
    foreground-service notification. Its session row should move through running, waiting (when
    applicable), and completed/unread states.
 2. Start a task from Android, put the app in the background, and confirm one ongoing service
-   notification remains while the run is active. Complete the task and confirm the completion
-   notification replaces the running state and the service stops.
+   notification ("后台保持连接 · 正在监控 1 个任务") plus one silent per-session progress card
+   (session title, "运行中", elapsed timer, tool name) remain while the run is active. Complete the
+   task and confirm the SAME card turns into "已完成" with the reply snippet and duration, and the
+   service stops without removing that card.
 3. With no Android-started task active, leave the app in the background. Confirm there is no
    persistent service and no idle gateway ping loop. A task completed elsewhere should be found by
    the next OS-managed periodic check; Android may defer that check beyond 15 minutes.
 4. Repeat a delivered Relay batch or restart Android between notification delivery and cursor
-   persistence. Confirm the stable notification is updated rather than duplicated.
+   persistence. Confirm the session's single card is updated rather than duplicated, and that a
+   completion already delivered by the live socket (and already read) does not come back as a
+   second "已完成" card.
 5. Select **Real-time** and confirm the background service remains present. Select **Power saving**
    and confirm the service stops even when a locally started run is still active.
 6. Deny notification permission and verify chat remains functional. On Android 13+, re-enable the
    permission in system settings and repeat the lock-screen and heads-up checks for each channel.
+7. Card rules (2026-09 one-card-per-session rework): trigger an approval while the app is in the
+   background — expect a heads-up card titled with the session name, header "需要审批", the command
+   in the body, and Allow once / This session / Deny buttons. Approve it inside the app instead and
+   confirm the card disappears immediately. Trigger a clarify with two choices — expect the two
+   choices as buttons plus "回复…"; tap one and confirm the card shows "处理中…" then moves on.
+8. While viewing the chat that is running, confirm no card for that session is showing; navigate
+   to the session list (app still foreground) and confirm its card appears silently (no sound, no
+   heads-up). Lock the phone with the chat still open and confirm the card is posted normally.
+9. Run two sessions from two profiles at once: expect two progress cards with different accent
+   colours matching the in-app avatars, the profile name in each header, and a group summary line
+   ("2 个运行中"). On a ROM that replaces the small icon with the launcher icon, the header text
+   must still identify the profile.
+10. Swipe a running card away: it must not return until the run finishes; the "已完成" card must
+    then appear. Open that chat and leave it: the card must not come back.
+11. Put the phone in airplane mode, press Deny on an approval card: expect the card to show
+    "发送失败，请重试" with HR-NOTIF-001 and the buttons restored; restore the network and retry.
+12. On Android 16, confirm the running card is promoted to a status-bar Live Update with the
+    "n/m" chip when the run reports todos; with two runs the system picks one — no crash, no
+    cross-overwrite.
 
 For a deployed relay, set `PUBLIC_GATEWAY_URL` and `APP_TOKEN` in the invoking shell before running the same script. Keep the token out of command history and source control. A successful real-Hermes run accepts `gateway.ready` and any non-error result from `session.create`.
 
@@ -229,3 +252,69 @@ All pending device verification.
    wait: the list must auto-scroll so the 需要你处理 header and row are visible. Repeat while
    scrolled deep into the list: no yank — a ↑ pill appears; tapping it jumps to top; scrolling
    to top yourself dissolves it.
+
+## Turn navigation smoke test (2026-09 branch claude/turn-jump)
+
+Device/emulator flows for the turn-jump pill and the 我的提问 list (docs/DESIGN.md §5.4). The
+grouping, visibility and list-row logic is covered by `TurnJumpTest`; the pill and rows have
+Roborazzi goldens. Items 1–4 were exercised on the Pixel 9 API 36 emulator against the mock
+Hermes stack on 2026-09-02 (three long exchanges); items 5–7 and a real device still need
+verification.
+
+1. **Pill appears only in history.** Open a chat with at least three exchanges whose answers are
+   taller than the screen. At the bottom, while an answer streams, no pill. Scroll up into the
+   latest answer until its question leaves the screen: a pill with that question's first line
+   fades in at the top of the list. Keep scrolling into the previous exchange: the pill text
+   changes to that question. Scroll back down until a question bubble is on screen: the pill fades
+   out. Direction never matters — stop mid-answer and scroll a little either way.
+2. **Tap aligns the question to the top.** Tap the pill: the list animates (when the bubble was
+   already near) or snaps so that the question bubble sits just below the top of the list, then
+   the pill disappears because the bubble is visible. Repeat from far away (five screens of
+   answer) — the landing position must be the same, and the newest-message edge must not be
+   overshot when the target is the latest exchange.
+3. **Split pill deep in history.** Scroll up past the second exchange from the end: the pill
+   grows a right segment with a list icon (150ms). Tap it: the 我的提问 sheet opens with the
+   current exchange highlighted and scrolled into view. Scroll back into the last two exchanges:
+   the segment collapses.
+4. **Menu entry.** From the top-right ⋮ menu, 我的提问 is the first item and opens the same
+   sheet anywhere, including while pinned to the bottom (the current row is then the exchange
+   under the top of the screen). Pick a row: the sheet closes and the list lands with that
+   question at the top, exactly like the pill.
+5. **Leading content.** In a chat that starts with a Hermes message (greeting, scheduled task
+   output) before any question, scrolling into that block shows a 会话开始 pill; tapping it goes to
+   the very top. The sheet lists 会话开始 as a grey first row without a time.
+6. **Search and rotation.** Open in-chat search: the pill sits below the search row and still
+   works; search-hit navigation does not leave the pill flickering. Rotate while the pill is
+   showing: the pill reflects the new viewport within a frame or two.
+7. **Attachment-only prompts.** A question that is only an image or a file shows 图片 / 文件：<name>
+   in both the pill and the sheet.
+
+## Profile identity smoke test (2026-09 branch claude/identity)
+
+Device-only checks for per-profile display name, avatar photo, colour, and style
+(`docs/DESIGN.md` §2.4 and §5.10). The JVM suite covers the store, migration, resolver, contrast
+invariants, and the edit view model; the items below still need a phone or emulator with a working
+Relay connection.
+
+1. Card page → identity card → 身份: every row shows a pencil button; tapping the row still
+   switches profile, tapping the pencil opens 身份设置 for that profile without switching.
+2. In 身份设置, type a display name and save. The card page shows the name as the big line and
+   the profile name underneath; the picker row shows the name with `profile · 当前身份`. Clear the
+   name with × (the field shows the profile name as placeholder), save, and confirm both surfaces
+   read exactly as before the change. Chat and session-list surfaces never show the display name.
+3. Choose a photo through the system picker (no storage permission prompt may appear). The 96dp
+   preview updates immediately; 保存 becomes enabled; after saving, the 36/44/48dp avatars on the
+   session list, card page, and picker all show the cropped square photo. Pick a portrait and a
+   landscape photo and confirm both are centre-cropped, and an EXIF-rotated camera photo appears
+   upright on Android 9+.
+4. Pick a photo, then press back: the 放弃更改？ dialog appears; 放弃 returns without changes and
+   the temporary file is gone (`run-as com.hermes.remote ls files/avatars`).
+5. With a lettered avatar, switch 实心 / 空心 and drag the hue slider: the preview follows live;
+   the swatch check moves to the first (default) circle only when no custom colour is set. In the
+   dark theme the outline ring and initial stay clearly visible (lifted colour), and the solid
+   fill looks identical to light.
+6. Start a run on a profile with a custom colour and confirm the notification accent uses it.
+7. Upgrade from a build that stored avatar colours in the old `avatar_colors` DataStore: the
+   previously chosen colours appear as the selected swatch on first open of 身份设置.
+8. Break the photo pipeline (pick a non-image or corrupt file if the picker allows it) and confirm
+   the toast reads 无法读取所选照片，请换一张再试。 (HR-MEDIA-002) and the previous avatar stays.

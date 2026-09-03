@@ -122,7 +122,7 @@ class LifecycleMonitoringCoordinator @Inject constructor(
     ) {
         while (currentCoroutineContext().isActive) {
             val moreAvailable = runCatching {
-                val result = events.sync { batch -> dispatcher.dispatch(batch, prefs, appInForeground) }
+                val result = events.sync { batch -> dispatcher.dispatch(batch) }
                 result.moreAvailable
             }.onFailure { DebugLog.log("lifecycle", "event sync failed: ${it.message}") }
                 .getOrDefault(false)

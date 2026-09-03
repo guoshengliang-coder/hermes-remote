@@ -7,6 +7,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
@@ -26,6 +32,9 @@ import com.hermes.client.ui.nav.deepLinkRouteFor
 import com.hermes.client.ui.nav.isNewChatLink
 import com.hermes.client.ui.theme.HermesTheme
 import com.hermes.client.ui.theme.LocalToolCallTechnical
+import com.hermes.client.ui.theme.Motion
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.AppLanguageProvider
@@ -46,7 +55,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var credentialStore: CredentialStore
     @Inject lateinit var settingsStore: SettingsStore
     @Inject lateinit var profileManager: ProfileManager
-    @Inject lateinit var avatarColorStore: com.hermes.client.data.repository.AvatarColorStore
+    @Inject lateinit var profileIdentityStore: com.hermes.client.data.repository.ProfileIdentityStore
     @Inject lateinit var chat: com.hermes.client.data.repository.ChatRepository
     @Inject lateinit var pendingShare: com.hermes.client.share.PendingShareStore
     @Inject lateinit var languages: AppLanguageProvider
@@ -102,12 +111,13 @@ class MainActivity : ComponentActivity() {
                     controller.isAppearanceLightNavigationBars = !dark
                 }
             }
-            val avatarColors by avatarColorStore.overrides.collectAsState(initial = emptyMap())
+            val identities by profileIdentityStore.identities.collectAsState(initial = emptyMap())
             val startupState by startupViewModel.state.collectAsState()
             val repairCompletion by startupViewModel.repairCompletion.collectAsState()
             CompositionLocalProvider(
                 LocalAppLanguage provides language,
-                com.hermes.client.ui.theme.LocalAvatarColors provides avatarColors,
+                com.hermes.client.ui.components.LocalProfileIdentities provides identities,
+                com.hermes.client.ui.components.LocalAvatarDir provides profileIdentityStore.avatarDir,
             ) {
                 HermesTheme(darkTheme = dark) {
                     CompositionLocalProvider(LocalToolCallTechnical provides technical) {
@@ -136,7 +146,18 @@ class MainActivity : ComponentActivity() {
                                     // The startup coordinator preloads its first snapshot; creating
                                     // SessionsViewModel afterward lets it render the cache immediately.
                                     // Warm recovery keeps the existing navigation tree alive in place.
-                                    if (!coldGateVisible) {
+                                    // The gate fades out over the first screen (StartupScreen's
+                                    // exit), and the first screen rises 16dp in underneath it. A
+                                    // launch that never showed the gate starts settled: no motion.
+                                    val navVisibility = remember { MutableTransitionState(!coldGateVisible) }
+                                    navVisibility.targetState = !coldGateVisible
+                                    val riseIn = with(LocalDensity.current) { 16.dp.roundToPx() }
+                                    AnimatedVisibility(
+                                        visibleState = navVisibility,
+                                        enter = fadeIn(tween(Motion.DurationMedium)) +
+                                            slideInVertically(tween(Motion.DurationMedium, easing = Motion.Standard)) { riseIn },
+                                        exit = ExitTransition.None,
+                                    ) {
                                         HermesNav(
                                             hasConfig = hasConfig,
                                             deepLinkRoute = deepLinkRoute,

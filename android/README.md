@@ -191,6 +191,53 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.83 fixes the avatar photo that never refreshed once replaced (the decoded bitmap
+  was kept across cache-key changes, so the identity preview stayed on the first photo and the
+  list header disagreed with the card page) and tidies four interactions. Terminal run verdicts
+  now clear when the chat is opened: a stop pressed in the app leaves no status at all, remote
+  interruptions and failures persist only until seen, and 已中断 / 运行失败 rows drop their dot.
+  The pinned marker moves from ListItem's leading slot into the subline as a 14dp stroke pin so
+  every title shares one left edge (search title matches carry it too). The chat's turn-jump pill
+  fades 1.5 s after the list settles and returns on the next scroll. The identity settings page
+  pins 保存 to a bottom bar (new DESIGN.md §5.12) and shows the profile name as the display-name
+  placeholder without a floating label. JVM tests and screenshot goldens cover the first four;
+  the identity page layout and the 0.1.82 splash handoff still need a device pass.
+- Version 0.1.82 redesigns the startup gate around the wordmark: a 144dp icon over a bold
+  `HERMES GO` lockup anchored at 22.5% of the screen, with the status line and a 144dp progress bar
+  grouped beneath it and the version line at the bottom. Status is withheld for 700 ms and never
+  shown when the gate is ready before then, six phase strings collapse to three, the dot animation
+  goes, the icon lands in from the system splash and the gate fades out while the first screen
+  rises in. The gate now follows the app theme with a dark `#0D141B` background and a `values-night`
+  twin of the window colour; failure hides the bar, prints the HR code on its own line, and uses
+  centred 240dp actions; short/landscape screens get a compact row layout. Design contract in
+  `docs/DESIGN.md` §5.11 with the mockup under `docs/design/`. Verified with JVM tests and
+  Roborazzi goldens only; the device run reached Setup because the test phone had no stored Relay
+  configuration, so the on-device splash handoff still needs verification.
+- Version 0.1.81 adds per-profile identity personalisation, kept on the phone until account sync
+  exists. Each Hermes profile can carry a display name (the profile name moves to the subline on
+  the card page and the picker), a photo (system Photo Picker, centre-cropped to a 512px WebP under
+  the app's private avatars directory), a colour from the swatches or a hue slider whose saturation
+  and lightness stay locked so white initials keep their contrast, and a solid or outline lettered
+  style (outline lifts its hue on dark surfaces). A new 身份设置 screen — opened from the pencil on
+  each picker row — previews the draft on a 96dp avatar, saves explicitly, and asks before
+  discarding; the old palette button and colour sheet are gone. Notifications use the custom
+  colour as their accent. Colours chosen in earlier versions migrate automatically. New error codes
+  HR-MEDIA-002 (photo could not be read) and HR-STORE-001 (identity settings could not be saved).
+- Version 0.1.80 reworks the notification shade into one card per session. WebSocket and Relay
+  inbox events fold into the session runtime store first and a single projector turns each
+  session's phase into its one card (running → needs approval / needs your answer → done or
+  failed), so nothing stacks and an inbox replay of an already delivered completion is a no-op.
+  Every card names the task (session title), carries identity · state in the header, tints the
+  small-icon circle with the profile's avatar colour, shows the real event time (a live timer
+  while running, todo progress and Android 16 Live Update promotion), puts error codes and
+  durations on the last body line, and ships a redacted lock-screen version. Approval cards keep
+  Allow once / This session / Deny (elevated: Deny / Open); clarify cards with up to two choices
+  offer the choices as buttons plus Reply; done cards quote the reply and duration; failures get
+  their own channel and settings toggle. The chat being viewed gets no card, cards elsewhere in
+  the foreground app are silent, answering anywhere clears the card, swiped cards stay gone until
+  the state changes, and shade actions show Working… / HR-NOTIF-001 feedback. Channels are
+  renamed (attention, completed, failures, run_progress, service, updates), so per-channel
+  settings from earlier versions are reset once. New codes: HR-SYNC-002, HR-NOTIF-001.
 - Version 0.1.79 makes every session say which project it belongs to and fixes where new chats
   land. List, archived and search rows share one subline (folder glyph + project · model; the
   default project shows the model alone), and the multi-profile "身份：xxx" text is gone. The
@@ -387,9 +434,18 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   version of Connection Settings with the stored values prefilled and the token masked; saving
   re-runs the complete startup gate before returning to the previous route. There is no offline
   bypass because the app has no supported offline mode.
-- The progress bar advances through real startup phases with bounded waiting motion and a moving
-  highlight. Operational copy crossfades between phases and its fixed-width one/two/three-dot
-  suffix animates without adding repeated accessibility announcements.
+- The gate is a brand lockup first (icon 144dp, `HERMES GO` wordmark, slogan) anchored at 22.5%
+  of the screen height, with the status line and a 144dp progress bar grouped under it and the
+  version line (`0.1.81 · DEBUG`) at the bottom. Status and progress are withheld for 700 ms and
+  never appear if the gate reaches READY before then, so a fast launch is a single quiet fade.
+  Copy is merged into "Connecting" / "Preparing conversations" / "Connection ready" (recovery:
+  "Restoring connection" / "Restoring the current screen"); the phase granularity still drives the
+  bar, whose gradient is anchored to the full track width. The moving highlight is the only
+  continuous motion. Failure hides the bar, prints the `HR-*` code on its own line, and offers a
+  240dp Reconnect button plus a Check-connection-settings text button. The gate follows the
+  effective app theme (light `#F8FAFD` / dark `#0D141B`, with a `values-night` twin of
+  `startup_background`), lands the icon in from the system splash on cold start, and fades out
+  while the first screen rises in. Design contract: `docs/DESIGN.md` §5.11.
 - The startup brand lockup keeps `HERMES GO` and the official slogan
   `Your AI agent, in your pocket.` in English; operational status and recovery actions still follow
   the in-app language setting.
@@ -411,7 +467,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.79-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.83-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

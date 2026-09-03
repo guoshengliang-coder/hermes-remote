@@ -11,13 +11,14 @@ import kotlinx.coroutines.flow.map
 private val Context.notificationDataStore by preferencesDataStore(name = "notifications")
 
 /**
- * Device-local notification preferences (master toggle + approvals + run-finished +
- * run-progress). Off by default.
+ * Device-local notification preferences (master toggle + needs-you + run-finished + run-failed +
+ * run-progress). Off by default; each category maps to one notification channel.
  */
 class NotificationSettings(private val context: Context) {
     private val kEnabled = booleanPreferencesKey("enabled")
     private val kApprovals = booleanPreferencesKey("approvals")
     private val kRunFinished = booleanPreferencesKey("runFinished")
+    private val kRunFailed = booleanPreferencesKey("runFailed")
     private val kRunProgress = booleanPreferencesKey("runProgress")
     private val kOnboardingSeen = booleanPreferencesKey("onboardingSeen")
 
@@ -26,6 +27,7 @@ class NotificationSettings(private val context: Context) {
             enabled = p[kEnabled] ?: false,
             approvals = p[kApprovals] ?: true,
             runFinished = p[kRunFinished] ?: true,
+            runFailed = p[kRunFailed] ?: true,
             runProgress = p[kRunProgress] ?: true,
             onboardingSeen = p[kOnboardingSeen] ?: false,
         )
@@ -34,6 +36,7 @@ class NotificationSettings(private val context: Context) {
     suspend fun setEnabled(v: Boolean) = context.notificationDataStore.edit { it[kEnabled] = v }
     suspend fun setApprovals(v: Boolean) = context.notificationDataStore.edit { it[kApprovals] = v }
     suspend fun setRunFinished(v: Boolean) = context.notificationDataStore.edit { it[kRunFinished] = v }
+    suspend fun setRunFailed(v: Boolean) = context.notificationDataStore.edit { it[kRunFailed] = v }
     suspend fun setRunProgress(v: Boolean) = context.notificationDataStore.edit { it[kRunProgress] = v }
     suspend fun setOnboardingSeen() = context.notificationDataStore.edit { it[kOnboardingSeen] = true }
 }

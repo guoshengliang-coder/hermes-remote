@@ -1,10 +1,14 @@
 package com.hermes.client.ui.screenshot
 
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.test.onRoot
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onRoot
 import com.github.takahirom.roborazzi.RoborazziOptions
+import com.hermes.client.ui.sessions.SessionSubline
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
 import org.junit.Test
@@ -35,8 +39,12 @@ class ScreenshotTest {
         fontScale: Float? = null,
         // Virtual time to advance before capture (delayed reveals such as the "sending" bubble).
         advanceMs: Long = 0L,
+        // Drive the clock by hand: needed when the content runs an infinite transition, which
+        // never lets an auto-advancing clock go idle.
+        manualClock: Boolean = false,
         content: @androidx.compose.runtime.Composable () -> Unit,
     ) {
+        if (manualClock) compose.mainClock.autoAdvance = false
         compose.setContent {
             com.hermes.client.ui.theme.HermesTheme(darkTheme = darkTheme) {
                 val density = androidx.compose.ui.platform.LocalDensity.current
@@ -78,6 +86,43 @@ class ScreenshotTest {
         com.hermes.client.ui.chat.RunningStatusLine(
             msg(text = "x", tools = listOf(com.hermes.client.domain.ToolCall("t", "Bash", com.hermes.client.domain.ToolStatus.RUNNING, command = "npm test"))),
         )
+    }
+
+    // Turn navigation (docs/DESIGN.md §5.4): the pill and the prompt list rows.
+    private val longPrompt = "把 gateway 的路由中间件拆成鉴权和限流两层，保持现有测试通过。"
+
+    @Test fun turnJumpPill() = snap("turn-jump-pill") {
+        androidx.compose.foundation.layout.Box(
+            androidx.compose.ui.Modifier.fillMaxWidth().padding(16.dp),
+            contentAlignment = androidx.compose.ui.Alignment.TopCenter,
+        ) {
+            com.hermes.client.ui.chat.TurnJumpPill(
+                label = longPrompt, showList = false, onJump = {}, onOpenList = {},
+                modifier = androidx.compose.ui.Modifier.widthIn(max = 260.dp),
+            )
+        }
+    }
+
+    @Test fun turnJumpPillSplitDark() = snap("turn-jump-pill-split-dark", darkTheme = true) {
+        androidx.compose.foundation.layout.Box(
+            androidx.compose.ui.Modifier.fillMaxWidth().padding(16.dp),
+            contentAlignment = androidx.compose.ui.Alignment.TopCenter,
+        ) {
+            com.hermes.client.ui.chat.TurnJumpPill(
+                label = longPrompt, showList = true, onJump = {}, onOpenList = {},
+                modifier = androidx.compose.ui.Modifier.widthIn(max = 260.dp),
+            )
+        }
+    }
+
+    @Test fun promptListRows() = snap("prompt-list-rows") {
+        val rows = listOf(
+            com.hermes.client.ui.chat.PromptRow(0, "会话开始", time = null, isCurrent = false, isLeading = true),
+            com.hermes.client.ui.chat.PromptRow(1, longPrompt, time = "09:12", isCurrent = true, isLeading = false),
+            com.hermes.client.ui.chat.PromptRow(2, "限流阈值放到配置里。", time = "09:40", isCurrent = false, isLeading = false),
+            com.hermes.client.ui.chat.PromptRow(3, "跑一遍完整测试，把失败的贴给我。", time = "昨天 10:05", isCurrent = false, isLeading = false),
+        )
+        com.hermes.client.ui.chat.PromptListContent(rows, onPick = {}, modifier = androidx.compose.ui.Modifier.height(320.dp))
     }
 
     @Test fun toolCardFailure() = snap("tool-card-failure") {
@@ -355,6 +400,67 @@ class ScreenshotTest {
             }
         }
     }
+
+    // Pinned marker in the subline (DESIGN.md §5.2): every title shares the 16dp left edge, the
+    // pin precedes the folder glyph, and a status line does not move the marker.
+    private fun listSession(title: String, repo: String?) = com.hermes.client.domain.Session(
+        id = title, title = title, model = "gpt-5.6-terra", provider = null, messageCount = 1,
+        profile = "personal", cwd = repo, gitRepoRoot = repo, gitBranch = null,
+    )
+
+    @Test fun sessionRowsPinnedSubline() = snap("session-rows-pinned") {
+        val defaultPath = "/Users/me"
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+            androidx.compose.material3.ListItem(
+                headlineContent = { androidx.compose.material3.Text("查看机器性能负荷") },
+                supportingContent = {
+                    androidx.compose.foundation.layout.Column {
+                        SessionSubline(listSession("a", null), defaultProjectPath = defaultPath, pinned = true)
+                        androidx.compose.material3.Text("已中断", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+                    }
+                },
+            )
+            androidx.compose.material3.ListItem(
+                headlineContent = { androidx.compose.material3.Text("hermes 产研A") },
+                supportingContent = { SessionSubline(listSession("b", "/u/hermes-remote"), defaultProjectPath = defaultPath, pinned = true) },
+            )
+            androidx.compose.material3.ListItem(
+                headlineContent = { androidx.compose.material3.Text("查看起风工作室数据") },
+                supportingContent = { SessionSubline(listSession("c", "/u/xiaomai-daily-report"), defaultProjectPath = defaultPath) },
+            )
+        }
+    }
+
+    // Startup gate (DESIGN.md §5.11). 1.5 s of virtual time settles the entrance, the delayed
+    // status reveal, and the phase crossfade; the failure frame has no progress bar at all.
+    private fun startup(name: String, dark: Boolean, state: com.hermes.client.ui.startup.StartupUiState) =
+        snap(name, darkTheme = dark, advanceMs = 1_500L, manualClock = true) {
+            com.hermes.client.ui.startup.StartupScreen(state = state, onRetry = {}, onOpenConnectionSettings = {})
+        }
+
+    @Test fun startupLoading() = startup(
+        "startup-loading", dark = false,
+        state = com.hermes.client.ui.startup.StartupUiState.Loading(
+            com.hermes.client.ui.startup.StartupReason.COLD_START,
+            com.hermes.client.ui.startup.StartupPhase.NETWORK,
+        ),
+    )
+
+    @Test fun startupLoadingAppDarkWhileSystemLight() = startup(
+        "startup-loading-dark", dark = true,
+        state = com.hermes.client.ui.startup.StartupUiState.Loading(
+            com.hermes.client.ui.startup.StartupReason.COLD_START,
+            com.hermes.client.ui.startup.StartupPhase.INITIAL_DATA,
+        ),
+    )
+
+    @Test fun startupFailed() = startup(
+        "startup-failed", dark = false,
+        state = com.hermes.client.ui.startup.StartupUiState.Failed(
+            com.hermes.client.ui.startup.StartupReason.COLD_START,
+            com.hermes.client.ui.startup.StartupFailure.CONNECTOR_OFFLINE,
+        ),
+    )
 
     @Test fun userBubbleDeliveryStates() = snapDelivery("user-bubble-delivery", darkTheme = false)
     @Test fun userBubbleDeliveryStatesDark() = snapDelivery("user-bubble-delivery-dark", darkTheme = true)

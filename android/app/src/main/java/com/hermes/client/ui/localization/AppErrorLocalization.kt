@@ -50,6 +50,10 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "已发布更新版本，请删除旧下载后获取最新版。", "A newer release is available. Delete the old download and get the latest version.")
         AppErrorCode.FILE_READ_FAILED ->
             localized(language, "无法读取所选文件，请重新选择。", "Couldn't read the selected file. Choose it again.")
+        AppErrorCode.AVATAR_PHOTO_FAILED ->
+            localized(language, "无法读取所选照片，请换一张再试。", "Couldn't read the selected photo. Try a different one.")
+        AppErrorCode.PROFILE_IDENTITY_SAVE_FAILED ->
+            localized(language, "无法保存身份设置，请重试。", "Couldn't save the profile settings. Retry.")
         AppErrorCode.SESSION_NOT_FOUND ->
             localized(language, "会话不存在或已被删除。", "The conversation no longer exists or was deleted.")
         AppErrorCode.PROJECT_FOLDER_MISSING ->
@@ -64,6 +68,10 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "消息未发送，点按气泡重试。", "The message was not sent. Tap the bubble to retry.")
         AppErrorCode.INSTALL_PERMISSION_REQUIRED ->
             localized(language, "需要允许安装未知应用，授权后请重试。", "Permission to install unknown apps is required. Grant it and retry.")
+        AppErrorCode.RUN_UNCONFIRMED ->
+            localized(language, "任务停止了，但没有确认完成，请打开会话检查。", "The task stopped without a confirmed completion. Open the conversation to check.")
+        AppErrorCode.NOTIFICATION_ACTION_FAILED ->
+            localized(language, "通知操作未能发送，请重试。", "The notification action couldn't be sent. Try again.")
         AppErrorCode.UNKNOWN ->
             localized(language, "出现未知错误，请重试。", "An unknown error occurred. Retry.")
     }

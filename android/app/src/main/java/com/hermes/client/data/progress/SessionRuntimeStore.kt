@@ -5,6 +5,7 @@ import com.hermes.client.data.network.LifecycleEventDto
 import com.hermes.client.data.network.ServerEvent
 import com.hermes.client.data.network.bool
 import com.hermes.client.data.network.str
+import com.hermes.client.data.network.todoCounts
 import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.repository.ChatMediaRepository
 import com.hermes.client.data.repository.ChatRepository
@@ -51,6 +52,15 @@ enum class SessionRunPhase {
     INTERRUPTED,
 }
 
+/**
+ * Outcomes a row keeps showing until the user opens the chat (docs/DESIGN.md §5.2). A stop
+ * issued from this app is deliberately NOT one of these: markInterrupted goes straight to IDLE.
+ */
+val SessionRunPhase.isTerminalVerdict: Boolean
+    get() = this == SessionRunPhase.COMPLETED_UNREAD ||
+        this == SessionRunPhase.INTERRUPTED ||
+        this == SessionRunPhase.FAILED
+
 val SessionRunPhase.isActive: Boolean
     get() = this in setOf(
         SessionRunPhase.SUBMITTING,
@@ -71,6 +81,17 @@ data class SessionRuntime(
     val toolName: String? = null,
     val lastEventAt: Long = 0L,
     val startedLocally: Boolean = false,
+    /** Session title as last reported by Hermes (lifecycle event or an opened chat); null if unknown. */
+    val title: String? = null,
+    /** Todo counts from the latest `todo` tool result; 0/0 until the run reports a list. */
+    val todoDone: Int = 0,
+    val todoTotal: Int = 0,
+    /** Wall-clock start of the current or most recent run; drives the elapsed chronometer. */
+    val runStartedAt: Long? = null,
+    /** When the run last reached a terminal state (complete/error/idle); 0 = never. */
+    val lastTerminalAt: Long = 0L,
+    /** When the state now described by [phase] happened — event time, not sync time. */
+    val occurredAt: Long = 0L,
 ) {
     val hasRunningProcesses: Boolean get() = chat.backgroundProcesses.any { it.running }
     val hasActiveWork: Boolean get() = phase.isActive || hasRunningProcesses
@@ -102,8 +123,14 @@ class SessionRuntimeStore(
     private val processPollGraceRemaining = ConcurrentHashMap<SessionRuntimeKey, Int>()
     private val historyReconcileJobs = ConcurrentHashMap<SessionRuntimeKey, Job>()
     private val visible = ConcurrentHashMap.newKeySet<SessionRuntimeKey>()
+    private val _visibleSessions = MutableStateFlow<Set<SessionRuntimeKey>>(emptySet())
+    /** Sessions whose chat screen is currently composed (regardless of app foreground state). */
+    val visibleSessions: StateFlow<Set<SessionRuntimeKey>> = _visibleSessions.asStateFlow()
     private val readPersistenceQueue = Channel<Pair<String, Boolean>>(Channel.UNLIMITED)
     @Volatile private var lastActiveKey: SessionRuntimeKey? = null
+    // A composed chat screen stays "visible" while the phone is locked; only a visible chat in a
+    // foreground app is actually being read. Completion folds use this to decide read vs unread.
+    @Volatile private var appInForeground = false
 
     init {
         readStore?.let { store ->
@@ -183,7 +210,7 @@ class SessionRuntimeStore(
     private fun pruneIdleRuntimes(map: Map<SessionRuntimeKey, SessionRuntime>): Map<SessionRuntimeKey, SessionRuntime> {
         val protected = map.values.filter { runtime ->
             runtime.hasActiveWork ||
-                runtime.phase == SessionRunPhase.COMPLETED_UNREAD ||
+                runtime.phase.isTerminalVerdict ||
                 runtime.key in visible ||
                 SessionReadStore.token(runtime.key.profile, runtime.key.sessionId) in _unreadTokens.value
         }.mapTo(mutableSetOf()) { it.key }
@@ -220,6 +247,47 @@ class SessionRuntimeStore(
             visible += key
         } else {
             visible -= key
+        }
+        _visibleSessions.value = visible.toSet()
+    }
+
+    /**
+     * Process foreground state from ProcessLifecycleOwner. Returning to the foreground with a chat
+     * still open means the user is now looking at whatever finished while the phone was locked.
+     */
+    fun setAppInForeground(foreground: Boolean) {
+        appInForeground = foreground
+        if (foreground) visible.toList().forEach { key ->
+            if (_runtimes.value[key]?.phase?.isTerminalVerdict == true) markRead(key)
+        }
+    }
+
+    private fun isWatched(key: SessionRuntimeKey): Boolean = appInForeground && key in visible
+
+    /** Record the session title so a notification can name the task; blank titles are ignored. */
+    fun setTitle(key: SessionRuntimeKey, title: String?) {
+        val clean = title?.trim()?.takeIf { it.isNotBlank() } ?: return
+        if (_runtimes.value[key]?.title == clean) return
+        updateRuntime(key) { it.copy(title = clean) }
+    }
+
+    /** An approval was answered from the notification shade: clear the pending card locally. */
+    fun clearPendingApproval(key: SessionRuntimeKey) {
+        updateRuntime(key) { it.copy(chat = it.chat.copy(pendingApproval = null)) }
+    }
+
+    /**
+     * A clarify answer was sent from the notification shade. Mirrors ChatViewModel.clarify: a
+     * batch request locks one answer (by qid) and advances; a single question clears the request.
+     */
+    fun lockClarifyAnswer(key: SessionRuntimeKey, questionId: String?, answer: String) {
+        updateRuntime(key) { runtime ->
+            val request = runtime.chat.pendingClarify ?: return@updateRuntime runtime
+            val next = if (!questionId.isNullOrBlank()) {
+                request.copy(lockedAnswers = request.lockedAnswers + (questionId to answer))
+                    .takeIf { it.currentQuestion != null }
+            } else null
+            runtime.copy(chat = runtime.chat.copy(pendingClarify = next))
         }
     }
 
@@ -276,13 +344,17 @@ class SessionRuntimeStore(
         return true
     }
 
-    /** Clear unread only after the chat has successfully loaded, not merely when its row is tapped. */
+    /**
+     * Clear unread only after the chat has successfully loaded, not merely when its row is tapped.
+     * Opening the chat also retires every terminal verdict — completed, interrupted, failed — since
+     * the transcript now shows the outcome (docs/DESIGN.md §5.2, decision 2026-09-02).
+     */
     fun markRead(key: SessionRuntimeKey) {
         val token = SessionReadStore.token(key.profile, key.sessionId)
         _unreadTokens.update { it - token }
         _runtimes.update { map ->
             val current = map[key] ?: return@update map
-            if (current.phase == SessionRunPhase.COMPLETED_UNREAD) {
+            if (current.phase.isTerminalVerdict) {
                 map + (key to current.copy(phase = SessionRunPhase.IDLE))
             } else map
         }
@@ -425,6 +497,10 @@ class SessionRuntimeStore(
                 toolName = null,
                 lastEventAt = System.currentTimeMillis(),
                 startedLocally = true,
+                todoDone = 0,
+                todoTotal = 0,
+                runStartedAt = System.currentTimeMillis(),
+                occurredAt = System.currentTimeMillis(),
             )
         }
         scheduleProcessPolling(key, PROCESS_DISCOVERY_GRACE_POLLS)
@@ -472,14 +548,21 @@ class SessionRuntimeStore(
         }
     }
 
+    /**
+     * The user pressed stop in this app. They already know, so the row carries no verdict: the
+     * runtime goes straight to IDLE (the transcript keeps its 已中断 note). lastTerminalAt still
+     * advances so the observer's own run.interrupted a moment later is folded as a replay.
+     */
     fun markInterrupted(key: SessionRuntimeKey) {
         updateRuntime(key) { runtime ->
             runtime.copy(
                 chat = runtime.chat.markInterrupted(),
-                phase = SessionRunPhase.INTERRUPTED,
+                phase = SessionRunPhase.IDLE,
                 toolName = null,
                 lastEventAt = System.currentTimeMillis(),
                 startedLocally = false,
+                lastTerminalAt = System.currentTimeMillis(),
+                occurredAt = System.currentTimeMillis(),
             )
         }
     }
@@ -488,10 +571,12 @@ class SessionRuntimeStore(
         updateRuntime(key) { runtime ->
             runtime.copy(
                 chat = state.copy(isGenerating = false),
-                phase = SessionRunPhase.FAILED,
+                phase = if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.FAILED,
                 toolName = null,
                 lastEventAt = System.currentTimeMillis(),
                 startedLocally = false,
+                lastTerminalAt = System.currentTimeMillis(),
+                occurredAt = System.currentTimeMillis(),
             )
         }
     }
@@ -504,6 +589,8 @@ class SessionRuntimeStore(
                 toolName = null,
                 lastEventAt = System.currentTimeMillis(),
                 startedLocally = false,
+                lastTerminalAt = System.currentTimeMillis(),
+                occurredAt = System.currentTimeMillis(),
             )
         }
     }
@@ -514,6 +601,7 @@ class SessionRuntimeStore(
                 phase = SessionRunPhase.THINKING,
                 lastEventAt = System.currentTimeMillis(),
                 startedLocally = true,
+                occurredAt = System.currentTimeMillis(),
             )
         }
     }
@@ -526,15 +614,41 @@ class SessionRuntimeStore(
         // completion/progress notification always opens the stored conversation.
         event.runtimeSessionId.takeIf { it.isNotBlank() }?.let { aliases[it] = key }
         val now = System.currentTimeMillis()
+        val occurred = parseOccurredAt(event.occurredAt) ?: now
+        val title = event.title?.trim()?.takeIf { it.isNotBlank() }
+        // The inbox replays a terminal transition the live socket already delivered (or that the
+        // user already read) a few seconds later. Folding it again would resurrect an unread badge,
+        // re-alert the card, or flip a finished run to "unconfirmed", so a terminal observation
+        // arriving shortly after the runtime's own terminal transition is a no-op. Phone clock only:
+        // the Connector stamp is the Mac's clock. A failed/interrupted runtime is NOT deduped for
+        // run.completed — the observer confirming the run actually finished must win there.
+        val current = _runtimes.value[key]
+        val recentTerminal = current != null && !current.phase.isActive && current.lastTerminalAt > 0L &&
+            now - current.lastTerminalAt <= TERMINAL_REPLAY_WINDOW_MS
+        val replay = when (event.event) {
+            "run.completed" -> recentTerminal &&
+                (current!!.phase == SessionRunPhase.IDLE || current.phase == SessionRunPhase.COMPLETED_UNREAD)
+            "run.interrupted", "run.unknown" -> recentTerminal
+            else -> false
+        }
+        if (replay) {
+            title?.let { setTitle(key, it) }
+            return
+        }
         updateRuntime(key) { runtime ->
+            val titled = runtime.copy(title = title ?: runtime.title)
             when (event.event) {
-                "run.started", "run.resumed" -> runtime.copy(
+                "run.started", "run.resumed" -> titled.copy(
                     chat = runtime.chat.copy(isGenerating = true),
                     phase = SessionRunPhase.THINKING,
                     toolName = null,
                     lastEventAt = now,
+                    runStartedAt = if (runtime.phase.isActive) runtime.runStartedAt else occurred,
+                    todoDone = if (runtime.phase.isActive) runtime.todoDone else 0,
+                    todoTotal = if (runtime.phase.isActive) runtime.todoTotal else 0,
+                    occurredAt = occurred,
                 )
-                "run.waiting" -> runtime.copy(
+                "run.waiting" -> titled.copy(
                     chat = runtime.chat.copy(isGenerating = true),
                     phase = when (runtime.phase) {
                         SessionRunPhase.WAITING_APPROVAL,
@@ -542,27 +656,34 @@ class SessionRuntimeStore(
                         else -> SessionRunPhase.WAITING_ATTENTION
                     },
                     lastEventAt = now,
+                    occurredAt = if (runtime.phase == SessionRunPhase.WAITING_APPROVAL ||
+                        runtime.phase == SessionRunPhase.WAITING_CLARIFICATION
+                    ) runtime.occurredAt else occurred,
                 )
-                "run.completed" -> runtime.copy(
+                "run.completed" -> titled.copy(
                     chat = runtime.chat.copy(isGenerating = false),
-                    phase = if (key in visible) SessionRunPhase.IDLE else SessionRunPhase.COMPLETED_UNREAD,
+                    phase = if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.COMPLETED_UNREAD,
                     toolName = null,
                     lastEventAt = now,
                     startedLocally = false,
+                    lastTerminalAt = now,
+                    occurredAt = occurred,
                 )
-                "run.interrupted", "run.unknown" -> runtime.copy(
+                "run.interrupted", "run.unknown" -> titled.copy(
                     chat = runtime.chat.copy(isGenerating = false),
-                    phase = SessionRunPhase.INTERRUPTED,
+                    phase = if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.INTERRUPTED,
                     toolName = null,
                     lastEventAt = now,
                     startedLocally = false,
+                    lastTerminalAt = now,
+                    occurredAt = occurred,
                 )
-                else -> runtime
+                else -> titled
             }
         }
         when (event.event) {
             "run.completed" -> {
-                if (key in visible) markRead(key) else markUnread(key)
+                if (isWatched(key)) markRead(key) else markUnread(key)
                 _runtimes.value[key]?.let { runtime ->
                     // The observer confirms that Hermes has finished, but it does not carry the
                     // final assistant body. A phone that was backgrounded may only hold an early
@@ -576,7 +697,7 @@ class SessionRuntimeStore(
                     )
                 }
             }
-            "run.interrupted", "run.unknown" -> if (key !in visible) markUnread(key)
+            "run.interrupted", "run.unknown" -> if (!isWatched(key)) markUnread(key)
         }
     }
 
@@ -657,11 +778,11 @@ class SessionRuntimeStore(
                 "tool.complete" -> if (withTerminalOutput.isGenerating) SessionRunPhase.THINKING else runtime.phase
                 "approval.request" -> SessionRunPhase.WAITING_APPROVAL
                 "clarify.request" -> SessionRunPhase.WAITING_CLARIFICATION
-                "message.complete" -> if (key in visible) SessionRunPhase.IDLE else SessionRunPhase.COMPLETED_UNREAD
+                "message.complete" -> if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.COMPLETED_UNREAD
                 "error" -> SessionRunPhase.FAILED
                 "session.info" -> when (event.bool("running")) {
                     true -> if (runtime.phase.isActive) runtime.phase else SessionRunPhase.THINKING
-                    false -> if (key in visible) SessionRunPhase.IDLE else SessionRunPhase.COMPLETED_UNREAD
+                    false -> if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.COMPLETED_UNREAD
                     null -> runtime.phase
                 }
                 else -> runtime.phase
@@ -673,6 +794,17 @@ class SessionRuntimeStore(
                     null -> withTerminalOutput
                 }
             } else withTerminalOutput
+            val now = System.currentTimeMillis()
+            val terminal = event.type == "message.complete" || event.type == "error" ||
+                (event.type == "session.info" && event.bool("running") == false)
+            val starting = !runtime.phase.isActive && (
+                event.type == "message.start" ||
+                    (event.type == "session.info" && event.bool("running") == true)
+                )
+            val phaseChanged = nextPhase != runtime.phase
+            val todo = if (event.type == "tool.complete" && event.str("name") == "todo") {
+                event.todoCounts()
+            } else null
             runtime.copy(
                 chat = finalChat,
                 phase = nextPhase,
@@ -681,19 +813,32 @@ class SessionRuntimeStore(
                     "tool.complete", "message.complete", "error" -> null
                     else -> runtime.toolName
                 },
-                lastEventAt = System.currentTimeMillis(),
+                lastEventAt = now,
                 startedLocally = when (event.type) {
                     "message.complete", "error" -> false
                     "session.info" -> if (event.bool("running") == false) false else runtime.startedLocally
                     else -> runtime.startedLocally
                 },
+                runStartedAt = if (starting) now else runtime.runStartedAt,
+                todoDone = when {
+                    starting -> 0
+                    todo != null -> todo.first
+                    else -> runtime.todoDone
+                },
+                todoTotal = when {
+                    starting -> 0
+                    todo != null -> todo.second
+                    else -> runtime.todoTotal
+                },
+                lastTerminalAt = if (terminal) now else runtime.lastTerminalAt,
+                occurredAt = if (phaseChanged || terminal || starting) now else runtime.occurredAt,
             )
         }
         if (event.type in setOf("tool.complete", "message.complete", "agent.terminal.output")) {
             scheduleProcessPolling(key, PROCESS_DISCOVERY_GRACE_POLLS)
         }
         if (event.type == "message.complete" || (event.type == "session.info" && event.bool("running") == false)) {
-            if (key in visible) markRead(key) else markUnread(key)
+            if (isWatched(key)) markRead(key) else markUnread(key)
             if (event.type == "message.complete" && mediaRepository != null) {
                 // The final WebSocket event may already contain @image or Markdown image output.
                 // Hydrate that snapshot immediately instead of waiting for the eventually
@@ -820,6 +965,12 @@ class SessionRuntimeStore(
 
     private fun String.matchText(): String = trim().replace(Regex("\\s+"), " ")
 
+    /** Relay lifecycle events stamp ISO-8601 `occurredAt`; a malformed stamp falls back to now. */
+    private fun parseOccurredAt(value: String?): Long? {
+        val text = value?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        return runCatching { java.time.Instant.parse(text).toEpochMilli() }.getOrNull()
+    }
+
     private suspend fun refreshProcesses(key: SessionRuntimeKey) {
         val runtime = _runtimes.value[key] ?: return
         val handle = runtime.liveHandle ?: return
@@ -888,6 +1039,12 @@ class SessionRuntimeStore(
 
     private companion object {
         const val PROCESS_POLL_MS = 5_000L
+        /**
+         * How long after a local terminal transition an inbox terminal event counts as the same
+         * one. The inbox lags the live socket by the 2–3 s poll (plus the 45 s socket grace when
+         * going idle), so two minutes covers a replay without swallowing a later run.
+         */
+        const val TERMINAL_REPLAY_WINDOW_MS = 2 * 60_000L
         const val PROCESS_DISCOVERY_GRACE_POLLS = 4
         const val PROCESS_OUTPUT_TAIL_CHARS = 4_000
         const val DEFAULT_PROFILE = "default"
