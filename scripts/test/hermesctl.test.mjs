@@ -169,6 +169,8 @@ test("release transition matrix rejects unsafe deploy and rollback paths", () =>
   const rollback = assessReleaseTransition(r4, legacy, { operation: "rollback" });
   assert.equal(rollback.compatible, true);
   assert.equal(rollback.target.manifestSchemaVersion, 1);
+  assert.equal(rollback.maintenanceRequired, true);
+  assert.equal(rollback.rollbackSupported, true);
   assert.throws(
     () => assessReleaseTransition(
       releaseManifest("0.3.0", 2, { rollbackSupported: false }),

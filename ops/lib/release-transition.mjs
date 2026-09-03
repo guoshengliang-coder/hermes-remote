@@ -54,8 +54,8 @@ export function assessReleaseTransition(current, target, {
       source: releaseIdentity(current),
       target: releaseIdentity(target),
       databaseEnabled,
-      maintenanceRequired: target.releaseContract?.maintenanceRequired ?? false,
-      rollbackSupported: target.releaseContract?.rollbackSupported ?? false,
+      maintenanceRequired: governingContract.maintenanceRequired,
+      rollbackSupported: governingContract.rollbackSupported,
     };
   } catch (error) {
     if (error instanceof OpsError) throw error;

@@ -568,6 +568,125 @@ test("a second interruption never overwrites events written after reverse handof
   assert.equal(runner.active.has(fixture.config.legacySource.serviceName), true);
 });
 
+test("rollback archives the committed deploy and reuses the reverse blue-green safety path", async (t) => {
+  const fixture = await createCandidateFixture(t);
+  const rollbackVersion = fixture.sourceManifest.serverVersion;
+  const rollbackCommit = fixture.sourceManifest.sourceCommit;
+  const rollbackStem = `Hermes-Gateway-${rollbackVersion}-${rollbackCommit.slice(0, 12)}-linux-amd64`;
+  const rollbackArchive = path.join(fixture.artifacts, `${rollbackStem}.tar`);
+  await writeFile(rollbackArchive, "rollback-oci-archive");
+  const rollbackManifestPath = path.join(fixture.artifacts, `${rollbackStem}.manifest.json`);
+  await writeJson(rollbackManifestPath, {
+    schemaVersion: 1,
+    kind: "hermes-go-gateway-oci",
+    serverVersion: rollbackVersion,
+    sourceCommit: rollbackCommit,
+    imageReference: `hermes-remote-gateway:${rollbackVersion}-${rollbackCommit.slice(0, 12)}`,
+    imageId: fixture.sourceManifest.imageId,
+    architecture: "amd64",
+    archiveFile: path.basename(rollbackArchive),
+    archiveSha256: createHash("sha256").update("rollback-oci-archive").digest("hex"),
+    createdAt: "2026-09-03T09:00:00.000Z",
+  });
+  fixture.rollbackManifest = await loadBundleManifest(rollbackManifestPath);
+  const rollbackConfigPath = path.join(fixture.base, "inputs", "rollback-deploy.json");
+  const rawConfig = JSON.parse(await readFile(fixture.deployConfigPath, "utf8"));
+  await writeJson(rollbackConfigPath, { ...rawConfig, targetArtifactManifest: rollbackManifestPath });
+  const rollbackConfig = await loadDeployConfig(rollbackConfigPath);
+  const runner = createTransactionalRunner(fixture);
+  await prepareFixtureCandidate(fixture, runner);
+  await switchCandidate(fixture.config, fixture.sourceManifest, fixture.targetManifest, {
+    ...switchOptions(runner),
+    runId: "deploy-before-rollback",
+    candidateSmoke: async () => {},
+    publicSmoke: async () => {},
+  });
+  await writeLifecycleSnapshot(path.join(
+    fixture.config.paths.stateRoot,
+    "gateway-slots",
+    "blue",
+  ), [lifecycleRecord(1, "before-rollback")], 2);
+
+  const previousLink = path.join(rollbackConfig.paths.installRoot, "previous");
+  await unlink(previousLink);
+  await symlink(`releases/0.1.0-${"e".repeat(12)}`, previousLink);
+  await assert.rejects(
+    () => prepareCandidate(rollbackConfig, fixture.targetManifest, fixture.rollbackManifest, {
+      runner,
+      operation: "rollback",
+      activeSlot: "blue",
+      candidateSlot: "green",
+      platform: "linux",
+      architecture: "x64",
+      getUid: () => 0,
+      confirmation: "staging",
+      ownership: currentOwnership(),
+      fetchImpl: candidateFetch(fixture.rollbackManifest),
+      sleep: async () => {},
+      runId: "rollback-wrong-previous",
+      candidateSmoke: async () => {},
+    }),
+    isOpsCode("HR-OPS-006"),
+  );
+  await unlink(previousLink);
+  await symlink(fixture.currentTarget, previousLink);
+
+  const prepared = await prepareCandidate(rollbackConfig, fixture.targetManifest, fixture.rollbackManifest, {
+    runner,
+    operation: "rollback",
+    activeSlot: "blue",
+    candidateSlot: "green",
+    platform: "linux",
+    architecture: "x64",
+    getUid: () => 0,
+    confirmation: "staging",
+    ownership: currentOwnership(),
+    fetchImpl: candidateFetch(fixture.rollbackManifest),
+    sleep: async () => {},
+    now: incrementingClock(),
+    runId: "rollback-candidate",
+    candidateSmoke: async (request) => {
+      assert.equal(request.expectedServerVersion, rollbackVersion);
+    },
+  });
+  assert.equal(prepared.command, "prepare-rollback-candidate");
+  assert.equal(prepared.candidateSlot, "green");
+  const archivedDeploy = path.join(
+    rollbackConfig.paths.stateRoot,
+    "ops",
+    "history",
+    "deploy-state.committed.candidate-fixture.json",
+  );
+  assert.equal((await readDeploymentJournal(archivedDeploy)).stage, "committed");
+
+  const rolledBack = await switchCandidate(rollbackConfig, fixture.targetManifest, fixture.rollbackManifest, {
+    ...switchOptions(runner),
+    operation: "rollback",
+    runId: "rollback-switch",
+    fetchImpl: candidateFetch(fixture.rollbackManifest),
+    candidateSmoke: async () => {},
+    publicSmoke: async (request) => assert.equal(request.expectedServerVersion, rollbackVersion),
+  });
+
+  assert.equal(rolledBack.command, "switch-rollback-candidate");
+  assert.equal(rolledBack.stage, "committed");
+  assert.equal(rolledBack.activeSlot, "green");
+  assert.equal(await readlink(path.join(rollbackConfig.paths.installRoot, "current")), fixture.currentTarget);
+  assert.equal(
+    await readlink(path.join(rollbackConfig.paths.installRoot, "previous")),
+    `releases/${fixture.targetManifest.serverVersion}-${fixture.targetManifest.sourceCommit.slice(0, 12)}`,
+  );
+  assert.equal(runner.active.has(rollbackConfig.slots.blue.serviceName), false);
+  assert.equal(runner.active.has(rollbackConfig.slots.green.serviceName), true);
+  const rolledBackState = JSON.parse(await readFile(path.join(
+    rollbackConfig.paths.stateRoot,
+    "gateway-slots",
+    "green",
+    "lifecycle-events.json",
+  ), "utf8"));
+  assert.deepEqual(rolledBackState.events.map((record) => record.event.eventId), ["before-rollback"]);
+});
+
 async function createCandidateFixture(t) {
   const base = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-candidate-")));
   t.after(() => rm(base, { recursive: true, force: true }));
@@ -675,7 +794,9 @@ async function createCandidateFixture(t) {
   await symlink(currentTarget, path.join(paths.installRoot, "current"));
   return {
     base,
+    artifacts,
     config,
+    deployConfigPath,
     sourceManifest,
     targetManifest: await loadBundleManifest(manifestPath),
     currentTarget,
@@ -715,7 +836,7 @@ function switchOptions(runner) {
 }
 
 function createTransactionalRunner(fixture, { nginxTestFailures = 0 } = {}) {
-  let imageLoaded = false;
+  const loadedImages = new Set();
   const calls = [];
   const active = new Set([fixture.config.legacySource.serviceName]);
   const enabled = new Set([fixture.config.legacySource.serviceName]);
@@ -755,10 +876,16 @@ function createTransactionalRunner(fixture, { nginxTestFailures = 0 } = {}) {
       }
       if (command === "docker" && args[0] === "info") return success("linux/x86_64\n");
       if (command === "docker" && args[0] === "image" && args[1] === "inspect") {
-        return imageLoaded ? success(`${fixture.targetManifest.imageId}|amd64\n`) : failure();
+        const manifest = [fixture.targetManifest, fixture.rollbackManifest]
+          .find((candidate) => candidate?.imageReference === args.at(-1));
+        return manifest && loadedImages.has(manifest.imageReference)
+          ? success(`${manifest.imageId}|amd64\n`)
+          : failure();
       }
       if (command === "docker" && args[0] === "load") {
-        imageLoaded = true;
+        const manifest = [fixture.targetManifest, fixture.rollbackManifest]
+          .find((candidate) => candidate?.archivePath === args.at(-1));
+        if (manifest) loadedImages.add(manifest.imageReference);
         return success();
       }
       if (command === "ss") return success();
