@@ -105,6 +105,21 @@ journal 或路由实际状态与记录不一致时必须停止并返回结构化
 - CLI 的 `deploy`/`rollback` 入口只在 R4-B 状态机具备“切换前失败不影响旧服务”保证后开放；
   R4-A 不暴露一个只有参数、没有安全执行语义的半成品命令。
 
+### R4-B 候选边界
+
+- blue/green 使用不同 unit、容器、loopback 端口、slot 环境文件和本地状态目录；候选不能与当前
+  Gateway 并发写同一个 lifecycle snapshot。
+- 部署 journal 只允许按既定状态顺序前进，`0600` 写入；部署锁包含 run ID 与随机 ownership
+  nonce，旧进程不能删除后继锁，未知主机持有者必须 fail closed。
+- 候选准备会复核 current symlink、制品哈希、image identity、私有 liveness/readiness/version，
+  并强制调用完整 Connector/REST/WebSocket smoke。完整 smoke 未提供或失败时，不得写入
+  `candidate_verified`。
+- R4-B 不写 Nginx 配置/upstream，不改 `current`/`previous`，候选 unit 也不启用开机启动。任何
+  切换前失败只停止候选容器，当前服务与公开路由保持原样；相同计划可从 journal 安全重试。
+- 本地 lifecycle snapshot 的最终交接属于 R4-C 的切换门禁：必须先让旧 writer 静止，再复制并
+  校验最终状态，或改用支持并发的一致性存储。完成“切换期间事件不丢失”的故障注入测试之前，
+  CLI 不开放公开路由切换。
+
 ## 实施切片
 
 | 切片 | 内容 | 退出条件 |

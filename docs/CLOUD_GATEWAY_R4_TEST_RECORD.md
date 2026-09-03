@@ -22,8 +22,8 @@ R4 当前处于合同与实现阶段。本文只记录实际执行的结果；�
 | Gate | Result | Evidence |
 | --- | --- | --- |
 | R4 plan and boundaries | Complete | `CLOUD_GATEWAY_R4_PLAN.md` 已定义双槽位、状态机、恢复矩阵、实施切片与退出条件 |
-| R4-A contract | Local pass / PR pending | manifest/config v2、旧 manifest v1 读取、版本兼容矩阵和 `HR-OPS-006` 已实现；本地基线通过，等待 PR CI |
-| R4-B candidate path | Not run | 尚未实现 |
+| R4-A contract | Complete | PR #9 六项 checks 全部通过，合并提交 `c2f0600` 的 main CI、SAST、Gateway OCI 复核均通过 |
+| R4-B candidate path | In progress | 双槽位模板、顺序 journal、nonce-fenced lock、候选私有探针与失败恢复已实现并通过聚焦单元测试；等待完整基线与 PR CI |
 | R4-C switch/drain | Not run | 尚未实现 |
 | R4-D rollback | Not run | 尚未实现 |
 | Fault-injection suite | Not run | 尚未实现 |
@@ -49,3 +49,21 @@ PR checks，并在合并后复核 `main`。这属于流程约束，不应被描�
 
 本切片未修改 Android、Desktop、Connector 协议或公开路由，未生成 APK，未运行 PostgreSQL
 迁移，也未访问香港服务器。R4-A 只有在 PR checks 与合并后 `main` 复核均通过后才记为 Complete。
+
+## R4-A CI 证据
+
+- PR #9：Android、Desktop、Node、Secret、Semgrep、Gateway OCI 共六项检查全部通过后人工合并。
+- main `c2f0600`：CI run `33739918210`、SAST run `33739918212`、Gateway OCI run
+  `33739918405` 全部成功。
+
+## R4-B 当前本地证据
+
+聚焦测试已覆盖：blue/green unit/container/port/state 隔离、Nginx 主配置只引用受管 upstream、合法
+状态顺序与越级拒绝、journal 冲突/篡改、并发与过期锁、锁 ownership fencing、候选成功准备、完整
+smoke 失败后只停止候选、相同计划恢复，以及竞争锁存在时绝不停止其他运行中的候选。公开 Nginx
+文件和 `current` symlink 在这些测试中保持逐字节不变。
+
+2026-09-03 执行 `npm run build` 与 `npm test` 均通过；脚本套件增至 36 项并全部通过。Gateway
+常规套件仍为 53 项（42 通过、11 项按网络/PostgreSQL 环境门禁跳过），既有 Protocol、Connector
+和 release-server 套件无回归。R4-B 仍需 PR CI 和后续一次性 staging 的真实 systemd/Docker/Nginx
+候选验证，不能据此部署香港服务器。
