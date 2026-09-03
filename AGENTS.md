@@ -22,6 +22,11 @@ When multiple agents work at the same time, prefer a dedicated branch and worktr
 reset, or delete another worktree. The integration agent owns the final merge, version bump, build,
 and release artifact so those operations happen exactly once.
 
+When the hosting plan cannot enforce branch protection, the integration agent must treat successful
+PR checks as a manual merge gate: inspect every check reported for the PR, merge only after all have
+completed successfully, and verify the resulting `main` checks before handoff. Do not use auto-merge
+as a substitute for this gate when the repository has no enforced required checks.
+
 ## Repository map and boundaries
 
 - `android/`: Kotlin and Jetpack Compose Android client.

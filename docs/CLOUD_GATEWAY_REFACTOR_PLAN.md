@@ -59,3 +59,5 @@ R1 的运行时与连接会话拆分证据记录在 `CLOUD_GATEWAY_R1_TEST_RECOR
 R2 的 Server Release 合同和本地验证证据记录在 `CLOUD_GATEWAY_R2_TEST_RECORD.md`。
 R3 的 Cloud Ops 合同和已完成门禁记录在 `CLOUD_GATEWAY_R3_OPS.md` 与
 `CLOUD_GATEWAY_R3_TEST_RECORD.md`。
+R4 的安全升级与回滚实施合同、故障注入矩阵和待执行门禁记录在
+`CLOUD_GATEWAY_R4_PLAN.md` 与 `CLOUD_GATEWAY_R4_TEST_RECORD.md`。
