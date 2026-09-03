@@ -250,6 +250,36 @@ class ScreenshotTest {
         )
     }
 
+    @Test fun newChatGreeting() = snap("new-chat-greeting") {
+        com.hermes.client.ui.chat.NewChatGreeting(
+            profile = "default", identityName = "国盛",
+            modelLabel = "gpt-5.6-sol · 高",
+            connection = com.hermes.client.data.network.ConnectionState.Connected,
+            imeVisible = false,
+            hourOfDay = 15,
+        )
+    }
+
+    @Test fun newChatGreetingDark() = snap("new-chat-greeting-dark", darkTheme = true) {
+        com.hermes.client.ui.chat.NewChatGreeting(
+            profile = "default", identityName = "国盛",
+            modelLabel = "gpt-5.6-sol · 高",
+            connection = com.hermes.client.data.network.ConnectionState.Connected,
+            imeVisible = false,
+            hourOfDay = 15,
+        )
+    }
+
+    @Test fun newChatGreetingOffline() = snap("new-chat-greeting-offline") {
+        com.hermes.client.ui.chat.NewChatGreeting(
+            profile = "default", identityName = null,
+            modelLabel = "gpt-5.6-sol · 高",
+            connection = com.hermes.client.data.network.ConnectionState.Disconnected,
+            imeVisible = false,
+            hourOfDay = 15,
+        )
+    }
+
     @Test fun updateUpToDate() = snap("update-up-to-date") {
         com.hermes.client.ui.settings.AppUpdateContent(
             state = com.hermes.client.update.UpdateUiState(
