@@ -19,16 +19,22 @@ import { LifecycleEventStore } from "./lifecycle-event-store.js";
 import { LifecycleMessageHandler } from "./lifecycle-message-handler.js";
 import { WebSocketTunnelBroker } from "./websocket-tunnel-broker.js";
 import { rejectUpgrade } from "./websocket-utils.js";
+import {
+  loadServerReleaseManifest,
+  ServerReleaseController,
+} from "./server-release.js";
 import { createAccountRuntime } from "./account/account-runtime.js";
 import { AccountModeError, accountErrors } from "./account/model.js";
 
 export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewayServer<GatewayPeer> {
+  const release = loadServerReleaseManifest();
   const {
     port,
     host,
     defaultDeviceId,
     appToken,
     connectorToken,
+    internalStatusToken,
     tlsCertFile,
     tlsKeyFile,
     maxBodyBytes,
@@ -45,7 +51,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     maxLifecycleEvents,
   } = loadGatewayConfig(environment);
   const lifecycleEvents = new LifecycleEventStore(lifecycleEventStoreFile, maxLifecycleEvents);
-  const accountRuntime = createAccountRuntime(environment);
+  const accountRuntime = createAccountRuntime(environment, release);
   const connectorRegistry = new InMemoryConnectorRegistry<GatewayPeer>();
   const accountConnectorAdmission = new AccountConnectorAdmission(
     maxUnauthenticatedAccountConnectors,
@@ -126,6 +132,19 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     ),
     sendAccountError: sendAccountHttpError,
     tokensEqual: safeEqual,
+    serverRelease: new ServerReleaseController({
+      manifest: release,
+      ...(internalStatusToken ? { internalStatusToken } : {}),
+      capabilities: {
+        accountAuth: accountRuntime.accountAuthEnabled,
+        connectorBinding: accountRuntime.bindingEnabled,
+        installationSessions: accountRuntime.accountAuthEnabled,
+        lifecycleInbox: true,
+        legacyAuth: true,
+      },
+      readiness: () => accountRuntime.readiness(),
+      tokensEqual: safeEqual,
+    }),
   });
 
   return new GatewayServer<GatewayPeer>({

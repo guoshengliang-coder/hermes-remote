@@ -1,10 +1,11 @@
 import { readdir, readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 
 const databaseUrl = await secret("ACCOUNT_DATABASE_URL");
 const databaseSsl = booleanFlag("ACCOUNT_DATABASE_SSL", false);
-const migrationsDirectory = resolve("migrations");
+const migrationsDirectory = fileURLToPath(new URL("../migrations/", import.meta.url));
 const migrationFiles = (await readdir(migrationsDirectory))
   .filter((name) => /^\d{3}_[a-z0-9_]+\.sql$/.test(name))
   .sort();
@@ -17,7 +18,7 @@ const pool = new Pool({
 
 try {
   for (const migrationFile of migrationFiles) {
-    const migration = await readFile(resolve(migrationsDirectory, migrationFile), "utf8");
+    const migration = await readFile(join(migrationsDirectory, migrationFile), "utf8");
     await pool.query(migration);
   }
   console.log(`Account authentication schema is up to date (${migrationFiles.length} migrations)`);

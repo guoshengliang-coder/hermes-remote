@@ -3,6 +3,13 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.gateway
+      args:
+        HERMES_BUILD_COMMIT: "${HERMES_BUILD_COMMIT:-development}"
+        HERMES_BUILD_DIRTY: "${HERMES_BUILD_DIRTY:-1}"
+        HERMES_REQUIRE_RELEASE_CLEAN: "${HERMES_REQUIRE_RELEASE_CLEAN:-0}"
+        SOURCE_DATE_EPOCH: "${SOURCE_DATE_EPOCH:-0}"
+        HERMES_SERVER_VERSION: "${HERMES_SERVER_VERSION:-0.2.0}"
+        HERMES_BUILD_TIME: "${HERMES_BUILD_TIME:-1970-01-01T00:00:00.000Z}"
     restart: unless-stopped
     init: true
     read_only: true
@@ -23,7 +30,7 @@ services:
     ports:
       - "127.0.0.1:8787:8787"
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/readyz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3

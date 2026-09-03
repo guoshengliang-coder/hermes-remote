@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -57,4 +57,26 @@ test("Gateway config rejects invalid numeric, secret, and TLS settings", () => {
     () => loadGatewayConfig({ ...required, TLS_CERT_FILE: "/tmp/cert.pem" }),
     /TLS_CERT_FILE and TLS_KEY_FILE must be configured together/,
   );
+  assert.throws(
+    () => loadGatewayConfig({ ...required, INTERNAL_STATUS_TOKEN: "too-short" }),
+    /INTERNAL_STATUS_TOKEN must contain at least 16 characters/,
+  );
+});
+
+test("Gateway config schema identifies the complete R2 environment contract", async () => {
+  const schema = JSON.parse(await readFile(resolve("config.schema.json"), "utf8")) as {
+    $id: string;
+    properties: Record<string, unknown>;
+  };
+  assert.equal(schema.$id.endsWith("gateway-environment-v1.json"), true);
+  for (const name of [
+    "APP_TOKEN_FILE",
+    "CONNECTOR_TOKEN_FILE",
+    "INTERNAL_STATUS_TOKEN_FILE",
+    "ACCOUNT_AUTH_ENABLED",
+    "ACCOUNT_BINDING_ENABLED",
+    "ACCOUNT_DATABASE_CONNECT_TIMEOUT_MS",
+  ]) {
+    assert.equal(name in schema.properties, true, `${name} is absent from config schema`);
+  }
 });

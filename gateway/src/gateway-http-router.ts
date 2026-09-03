@@ -6,6 +6,7 @@ import type { HttpTunnelBroker } from "./http-tunnel-broker.js";
 import { firstHeader, sendHttpError } from "./http-utils.js";
 import type { LifecycleEventStore } from "./lifecycle-event-store.js";
 import { handleAccountMobileEvents, handleLegacyMobileEvents } from "./mobile-event-handler.js";
+import type { ServerReleaseController } from "./server-release.js";
 
 interface HttpConnector {
   socket: import("ws").WebSocket;
@@ -29,6 +30,7 @@ interface GatewayHttpRouterOptions<TConnector extends HttpConnector> {
   resolveAccountConnector(authorization: string): Promise<TConnector>;
   sendAccountError(response: ServerResponse, error: unknown): void;
   tokensEqual(actual: string, expected: string): boolean;
+  serverRelease: ServerReleaseController;
 }
 
 export class GatewayHttpRouter<TConnector extends HttpConnector> {
@@ -36,6 +38,7 @@ export class GatewayHttpRouter<TConnector extends HttpConnector> {
 
   async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+    if (await this.options.serverRelease.handle(request, response, url)) return;
     if (url.pathname.startsWith("/v2/")) {
       await this.options.accountController.handle(request, response, url);
       return;

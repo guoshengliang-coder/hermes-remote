@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isIP } from "node:net";
+import type { ServerReleaseManifest } from "../server-release.js";
 import { AccountService } from "./account-service.js";
 import { AccountControlService } from "./account-control-service.js";
 import {
@@ -30,6 +31,11 @@ export interface AccountCapabilities {
     appTokenAccepted: boolean;
     connectorTokenAccepted: boolean;
   };
+  server?: {
+    version: string;
+    protocolVersions: ServerReleaseManifest["protocolVersions"];
+    minimumClients: ServerReleaseManifest["minimumClients"];
+  };
 }
 
 export class AccountHttpController {
@@ -43,6 +49,7 @@ export class AccountHttpController {
       trustLoopbackProxy?: boolean;
       controlEnabled?: boolean;
       controlService?: AccountControlService;
+      serverRelease?: ServerReleaseManifest;
     } = {},
   ) {}
 
@@ -50,7 +57,11 @@ export class AccountHttpController {
     const correlationId = randomUUID();
     try {
       if (url.pathname === "/v2/capabilities" && request.method === "GET") {
-        sendJson(response, 200, capabilities(this.enabled, Boolean(this.options.controlEnabled)), {
+        sendJson(response, 200, capabilities(
+          this.enabled,
+          Boolean(this.options.controlEnabled),
+          this.options.serverRelease,
+        ), {
           "cache-control": "public, max-age=60",
         });
         return;
@@ -277,7 +288,11 @@ export class AccountHttpController {
   }
 }
 
-function capabilities(enabled: boolean, controlEnabled: boolean): AccountCapabilities {
+function capabilities(
+  enabled: boolean,
+  controlEnabled: boolean,
+  serverRelease?: ServerReleaseManifest,
+): AccountCapabilities {
   return {
     version: 1,
     accountAuth: {
@@ -295,6 +310,13 @@ function capabilities(enabled: boolean, controlEnabled: boolean): AccountCapabil
       appTokenAccepted: true,
       connectorTokenAccepted: true,
     },
+    ...(serverRelease ? {
+      server: {
+        version: serverRelease.serverVersion,
+        protocolVersions: serverRelease.protocolVersions,
+        minimumClients: serverRelease.minimumClients,
+      },
+    } : {}),
   };
 }
 

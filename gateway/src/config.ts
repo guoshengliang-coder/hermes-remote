@@ -7,6 +7,7 @@ export interface GatewayConfig {
   defaultDeviceId: string;
   appToken: string;
   connectorToken: string;
+  internalStatusToken?: string;
   tlsCertFile?: string;
   tlsKeyFile?: string;
   maxBodyBytes: number;
@@ -30,12 +31,14 @@ export function loadGatewayConfig(env: NodeJS.ProcessEnv): GatewayConfig {
     throw new Error("TLS_CERT_FILE and TLS_KEY_FILE must be configured together");
   }
 
+  const internalStatusToken = optionalSecret(env, "INTERNAL_STATUS_TOKEN", 16);
   return {
     port: positiveIntEnv(env, "PORT", 8787, 65_535),
     host: env.HOST ?? "0.0.0.0",
     defaultDeviceId: env.DEFAULT_DEVICE_ID ?? "mac-mini",
     appToken: requireSecret(env, "APP_TOKEN"),
     connectorToken: requireSecret(env, "CONNECTOR_TOKEN"),
+    ...(internalStatusToken ? { internalStatusToken } : {}),
     ...(tlsCertFile ? { tlsCertFile } : {}),
     ...(tlsKeyFile ? { tlsKeyFile } : {}),
     maxBodyBytes: positiveIntEnv(env, "MAX_BODY_BYTES", 10 * 1024 * 1024),
@@ -66,6 +69,16 @@ export function loadGatewayConfig(env: NodeJS.ProcessEnv): GatewayConfig {
     ),
     maxLifecycleEvents: positiveIntEnv(env, "MAX_LIFECYCLE_EVENTS", 10_000, 1_000_000),
   };
+}
+
+function optionalSecret(env: NodeJS.ProcessEnv, name: string, minimumLength: number): string | undefined {
+  const file = env[`${name}_FILE`];
+  const value = env[name] ?? (file ? readFileSync(file, "utf8").trim() : undefined);
+  if (value === undefined) return undefined;
+  if (value.length < minimumLength) {
+    throw new Error(`${name} must contain at least ${minimumLength} characters`);
+  }
+  return value;
 }
 
 function requireSecret(env: NodeJS.ProcessEnv, name: string): string {

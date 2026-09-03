@@ -1,0 +1,15 @@
+{
+  "manifestVersion": 1,
+  "configSchemaVersion": 1,
+  "databaseSchemaVersion": 7,
+  "supportedPostgresqlMajors": [18],
+  "protocolVersions": {
+    "legacy": 1,
+    "accountConnector": 2
+  },
+  "minimumClients": {
+    "android": "0.1.0",
+    "desktop": "0.2.0",
+    "connector": "0.1.1"
+  }
+}
