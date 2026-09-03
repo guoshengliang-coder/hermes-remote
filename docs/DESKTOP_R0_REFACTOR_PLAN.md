@@ -1,7 +1,8 @@
 # Hermes Go Desktop R0 refactor plan
 
 Status: active on `codex/desktop-r0`, based on the account/Desktop checkpoint `fb253f4`. D0.1 was
-completed locally on 2026-09-02; D0.2 and D0.3 were completed locally on 2026-09-03.
+completed locally on 2026-09-02; D0.2, D0.3, and the D0.4 implementation were completed locally on
+2026-09-03. State-rich visual checks remain part of D0.5's isolated deployment.
 
 Desktop R0 prepares the macOS client for I3-B without changing the Gateway, Connector, Protocol,
 Hermes, or any production service. The concurrent Cloud Gateway work owns its own branch and
@@ -26,7 +27,7 @@ live binding integration until the Gateway runtime boundary is stable.
 | D0.1 view boundaries | Split independent Logs, Account & Devices, and Settings views; add typed internal binding states while retaining the raw wire value | Desktop tests and app build pass with no visible behavior change |
 | D0.2 presentation orchestration | Completed: account/health presentation, legacy observation, probe orchestration, and health snapshot assembly now live outside the root view model | 46 Desktop tests and the packaged app gate pass with behavior-compatible state reduction |
 | D0.3 I3-B client operations | Completed: scoped reauthentication, first-bind, replacement, both confirmation paths, and unbind use strict HTTP contracts and crash-safe persisted retry keys | 56 Desktop tests cover success, retry, cancellation, expiry, conflict, fail-closed decoding, and lost responses without contacting a live Gateway |
-| D0.4 I3-B interaction states | Add explicit confirmations, conflict/revoked recovery, keyboard/VoiceOver behavior, and redacted diagnostics | Light/dark, long-name, keyboard, accessibility, and bilingual error checks pass |
+| D0.4 I3-B interaction states | Implemented: explicit candidate/final/destructive confirmations, proof/health gates, conflict/revoked recovery, progress/completion status, and VoiceOver labels/hints | 60 tests and a real 0.3.0 app accessibility run pass; light/dark and long-name state fixtures continue in D0.5 deployment |
 | D0.5 integration | Rebase or cherry-pick Desktop-only commits after Cloud R0/R1 integration, then run live disposable-Gateway/PostgreSQL tests | Desktop, Gateway, account database, legacy compatibility, and Connector non-mutation gates pass together |
 
 Connector takeover and rollback remain I5 work. They cannot begin until the Cloud R1 runtime/session

@@ -3,8 +3,10 @@ import SwiftUI
 
 struct AccountDevicesView: View {
     @EnvironmentObject private var model: DesktopViewModel
+    @Environment(\.colorScheme) private var colorScheme
     @State private var legacyExpanded = false
     @State private var phoneToRemove: ManagedAccountInstallation?
+    @State private var bindingActionToConfirm: DesktopBindingActionDescriptor?
 
     var body: some View {
         ScrollView {
@@ -23,6 +25,10 @@ struct AccountDevicesView: View {
                 }
 
                 accountContent
+
+                if let message = model.accountOperationMessage {
+                    operationMessageCard(message)
+                }
 
                 if let issue = model.accountIssue {
                     accountIssueCard(issue)
@@ -68,6 +74,25 @@ struct AccountDevicesView: View {
             Button("取消", role: .cancel) { phoneToRemove = nil }
         } message: { phone in
             Text("只会撤销 \(phone.displayName) 这一个安装；其他手机、Desktop、Connector 和 Hermes 不受影响。")
+        }
+        .confirmationDialog(
+            bindingConfirmationTitle,
+            isPresented: Binding(
+                get: { bindingActionToConfirm != nil },
+                set: { if !$0 { bindingActionToConfirm = nil } }
+            ),
+            presenting: bindingActionToConfirm
+        ) { descriptor in
+            Button(
+                bindingConfirmationButton(descriptor.action),
+                role: descriptor.role == .destructive ? .destructive : nil
+            ) {
+                bindingActionToConfirm = nil
+                Task { await model.performBindingAction(descriptor.action) }
+            }
+            Button("取消", role: .cancel) { bindingActionToConfirm = nil }
+        } message: { descriptor in
+            Text(bindingConfirmationMessage(descriptor.action))
         }
     }
 
@@ -166,7 +191,7 @@ struct AccountDevicesView: View {
     }
 
     private func bindingCard(_ binding: AccountBindingSnapshot) -> some View {
-        let presentation = bindingPresentation(binding)
+        let presentation = binding.presentation
         return VStack(alignment: .leading, spacing: 14) {
             Label("Desktop 与 Hermes", systemImage: presentation.symbol)
                 .font(.system(size: 16, weight: .bold))
@@ -182,10 +207,38 @@ struct AccountDevicesView: View {
                 settingRow("Connector", value: active.connector.online ? "在线" : "离线")
                 settingRow("Hermes", value: active.hermes.reachable == true ? "可访问" : "未确认")
             }
-            if binding.bindingState == .noBinding {
-                Label("I3 只做账号管理与只读预检；Connector 接管会在带回滚的迁移阶段单独确认。", systemImage: "info.circle")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+            if let candidate = binding.candidate {
+                Divider()
+                settingRow("新 Mac", value: candidate.displayName)
+                settingRow("密钥验证", value: candidate.keyProved ? "已通过" : "等待中")
+                settingRow("健康预检", value: candidate.healthVerified ? "已通过" : "等待中")
+            } else if binding.bindingState == .bindingPending {
+                Divider()
+                settingRow("密钥验证", value: binding.keyProved == true ? "已通过" : "等待中")
+                settingRow("健康预检", value: binding.healthVerified == true ? "已通过" : "等待中")
+            }
+            Label(presentation.safetyNote, systemImage: "lock.shield")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                ForEach(presentation.actions) { descriptor in
+                    Button(
+                        descriptor.label,
+                        role: descriptor.role == .destructive ? .destructive : nil
+                    ) {
+                        handleBindingAction(descriptor)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(model.isAccountOperationInProgress)
+                    .accessibilityLabel(descriptor.label)
+                    .accessibilityHint(descriptor.accessibilityHint)
+                }
+                if model.isAccountOperationInProgress {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("正在处理账号绑定操作")
+                }
             }
         }
         .padding(20)
@@ -265,6 +318,12 @@ struct AccountDevicesView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            if let recoveryLabel = recoveryLabel(issue.recoveryAction) {
+                Button(recoveryLabel) { performRecovery(issue.recoveryAction) }
+                    .buttonStyle(.bordered)
+                    .disabled(model.isAccountOperationInProgress)
+                    .accessibilityHint(recoveryHint(issue.recoveryAction))
+            }
             Button("复制诊断") { model.copyDiagnostics(issue) }
                 .buttonStyle(.bordered)
         }
@@ -278,24 +337,103 @@ struct AccountDevicesView: View {
             .foregroundStyle(.secondary)
     }
 
-    private func bindingPresentation(_ binding: AccountBindingSnapshot) -> (symbol: String, title: String, detail: String) {
-        switch binding.bindingState {
-        case .bound:
-            let online = binding.binding?.connector.online == true
-            return (
-                online ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
-                online ? "连接正常" : "Connector 当前离线",
-                online ? "账号已绑定这台 Desktop，手机可以共享访问同一个 Hermes。" : "账号绑定仍保留；打开对应 Mac 上的 Connector 即可恢复。"
-            )
-        case .bindingPending:
-            return ("clock", "正在等待 Connector 验证", "候选绑定尚未完成密钥与健康检查，现有连接不会被替换。")
-        case .replacementPending:
-            return ("arrow.triangle.2.circlepath", "等待确认更换 Mac", "原来的 Desktop 在更换提交前仍保持工作。")
-        case .revoked:
-            return ("xmark.shield", "这台 Mac 的绑定已撤销", "需要重新验证账号后才能发起新的绑定或替换。")
-        default:
-            return ("desktopcomputer", "尚未建立账号绑定", "当前旧 Connector 不受影响；账号绑定将在安全迁移阶段完成。")
+    private func recoveryLabel(_ action: DesktopRecoveryAction) -> String? {
+        switch action {
+        case .retry: "重试"
+        case .signIn: "重新登录"
+        case .continueLegacy: "使用旧版连接"
+        case .verifyAndReplace: "验证并准备替换"
+        case .settings, .startDesktop, .details, .none: nil
         }
+    }
+
+    private func recoveryHint(_ action: DesktopRecoveryAction) -> String {
+        switch action {
+        case .retry: "重新读取 Gateway 的账号与绑定状态"
+        case .signIn: "在系统默认浏览器中重新验证 Google 账号"
+        case .continueLegacy: "展开旧版 URL、Token 与二维码连接"
+        case .verifyAndReplace: "重新验证账号并登记新 Mac 候选，原连接暂时保持工作"
+        default: ""
+        }
+    }
+
+    private func performRecovery(_ action: DesktopRecoveryAction) {
+        switch action {
+        case .retry:
+            Task { await model.refreshAccount() }
+        case .signIn:
+            Task { await model.signInAccount() }
+        case .continueLegacy:
+            legacyExpanded = true
+        case .verifyAndReplace:
+            bindingActionToConfirm = DesktopBindingActionDescriptor(
+                id: "recover-replacement",
+                action: .createReplacement,
+                label: "验证并准备替换",
+                accessibilityHint: recoveryHint(.verifyAndReplace)
+            )
+        case .settings, .startDesktop, .details, .none:
+            break
+        }
+    }
+
+    private func handleBindingAction(_ descriptor: DesktopBindingActionDescriptor) {
+        if descriptor.action == .refresh {
+            Task { await model.performBindingAction(.refresh) }
+        } else {
+            bindingActionToConfirm = descriptor
+        }
+    }
+
+    private var bindingConfirmationTitle: String {
+        guard let action = bindingActionToConfirm?.action else { return "确认账号绑定操作？" }
+        return switch action {
+        case .createFirst: "准备这台 Desktop 的绑定？"
+        case .confirmFirst: "确认启用这台 Desktop？"
+        case .createReplacement: "准备更换账号连接的 Mac？"
+        case .confirmReplacement: "确认切换到新的 Mac？"
+        case .unbind: "解除 Connector 账号绑定？"
+        case .refresh: "刷新验证状态？"
+        }
+    }
+
+    private func bindingConfirmationButton(_ action: DesktopBindingAction) -> String {
+        switch action {
+        case .createFirst: "创建候选绑定"
+        case .confirmFirst: "确认启用"
+        case .createReplacement: "重新验证并准备"
+        case .confirmReplacement: "确认更换"
+        case .unbind: "重新验证并解绑"
+        case .refresh: "刷新"
+        }
+    }
+
+    private func bindingConfirmationMessage(_ action: DesktopBindingAction) -> String {
+        switch action {
+        case .createFirst:
+            "只会登记这台 Desktop 的公开身份。旧 Connector 会继续运行，候选还必须通过密钥和健康预检。"
+        case .confirmFirst:
+            "候选的密钥与健康检查均已通过。确认后，账号手机可以使用这台 Desktop 所服务的 Hermes。"
+        case .createReplacement:
+            "将打开浏览器重新验证 Google 账号并登记新候选。原来的 Desktop 在最终确认前继续工作。"
+        case .confirmReplacement:
+            "此操作会原子切换账号绑定。只有已通过密钥和健康预检的新候选会生效。"
+        case .unbind:
+            "将打开浏览器重新验证 Google 账号，并撤销 Connector 的远程访问。手机和 Desktop 的账号登录、Hermes 本身都不会被删除或停止。"
+        case .refresh:
+            "只读取 Gateway 当前记录，不修改绑定。"
+        }
+    }
+
+    private func operationMessageCard(_ message: String) -> some View {
+        Label(message, systemImage: "checkmark.circle.fill")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Color.status(.healthy, scheme: colorScheme))
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .hermesCard()
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("账号绑定操作完成。\(message)")
     }
 
     private var pairingCodeCard: some View {

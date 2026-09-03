@@ -67,6 +67,10 @@ the project-wide `ERROR_HANDLING.md` contract.
 | Browser OAuth loopback | Listener binds an ephemeral `127.0.0.1` port and rejects mismatched state | Automated locally; live Google client pending |
 | Account session restart | Keychain session refreshes without changing the Connector machine identity | In-memory/store contract automated; packaged Keychain run pending |
 | Two account phones | Account & Devices lists both and removes only the selected installation | Controller/API automated; live backend and physical phones pending |
+| Binding capability disabled | No first-bind, replacement, confirmation, or unbind action is exposed | Automated + real 0.3.0 accessibility run 2026-09-03 |
+| Pending binding proof | Final confirmation appears only after key and health proof both pass | Automated reducer; capability-enabled UI fixture pending |
+| Replacement safety | Original binding remains named as active until verified final confirmation | Automated reducer/API; capability-enabled UI fixture pending |
+| Unbind confirmation | Destructive action requires explicit confirmation and browser reauthentication | Automated controller/presentation; capability-enabled UI fixture pending |
 
 The first real-app check verified that the ad-hoc app launches and remains running. The target Mac run
 then verified the installed DMG against a live legacy Connector without changing its PID, launch count,

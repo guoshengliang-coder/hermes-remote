@@ -93,3 +93,34 @@ The focused coverage includes exact paths/headers/bodies, invalid path and respo
 cancelled reauthentication, disabled binding capability, binding conflict, expired confirmation,
 and persisted-key reuse after lost responses for create, replace, both confirmation types, and
 unbind.
+
+## D0.4 scope
+
+- Added a deterministic presentation/action reducer for no-binding, pending, bound,
+  replacement-pending, revoked, and unknown future states.
+- Final first-bind and replacement confirmation appear only after both key proof and health
+  verification are true in the Gateway snapshot.
+- Added separate confirmation language for candidate creation, activation, replacement, and
+  destructive unbind. Replacement preserves the original connection until final commit; unbind
+  explicitly preserves account sessions and Hermes.
+- Added registered recovery actions for retry, sign-in, continue-legacy, and verify/replace errors,
+  plus progress and completion announcements.
+- Advanced the local Desktop test package to `0.3.0` (bundle build `4`).
+
+## D0.4 executed results
+
+| Gate | Result |
+| --- | --- |
+| `swift test --package-path desktop` | Pass: 60 tests |
+| `npm run desktop:assets:test` | Pass |
+| `npm run desktop:app` | Pass: `0.3.0` release Swift build, app assembly, and ad-hoc signing |
+| Real app launch and account-page navigation | Pass on macOS 14.8.9 |
+| Native accessibility API inspection | Pass: five named sidebar actions with page hints; Account & Devices page, refresh action, and legacy entry discoverable |
+| Default-off safety state | Pass: no binding/replacement/unbind action exposed by the current public capability response |
+| Legacy Connector non-mutation | Pass: PID `11610` and launch count `19` before, during, and after the run |
+| `git diff --check` during iteration | Pass |
+
+Screen recording remained unavailable to the test process and the temporary capture contained only
+the desktop wallpaper, so it was deleted and is not treated as visual evidence. Light/dark rendering,
+long account/device names, and each capability-enabled confirmation dialog still require the isolated
+D0.5 fixture deployment; no live account or binding mutation was attempted in this run.

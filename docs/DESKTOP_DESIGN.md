@@ -32,6 +32,23 @@ signed in with no binding, bound healthy/offline, pending/replacement/revoked, a
 The normal signed-in view shows the account, current Desktop, one binding, and independently removable
 phones. Account errors appear with stable `HR-*` codes and copyable redacted diagnostics.
 
+## Account-control interaction contract
+
+- First binding is described as creating a short-lived candidate, not as immediately switching the
+  live connection. Its confirmation states explicitly that the legacy Connector keeps running.
+- A pending first binding or replacement can be activated only when both key proof and health
+  verification are present in the Gateway snapshot. Until then, the primary action is refresh.
+- Replacement always names the safety invariant: the existing binding remains active until the new
+  candidate is verified and the final confirmation commits.
+- Unbind is visually destructive, requires a separate confirmation and fresh browser
+  reauthentication, and says that phone/Desktop account sessions and Hermes remain unchanged.
+- Binding conflict, expiry, revoked state, and reauthentication failure use the registered
+  `HR-BIND-*` / `HR-AUTH-*` recovery language; raw server messages and grants are never displayed.
+- Every account-control button has a unique accessibility label/hint, disabled states stay readable,
+  progress replaces repeated actions, and completion is exposed as a separate status message.
+- These controls manage the account control plane only. They do not start a candidate Connector or
+  perform process takeover; I5 still owns proof, migration, activation ordering, and rollback.
+
 ## Shared visual tokens
 
 - Brand primary: `#0B5FD0` in light mode; blue is chrome/action color only.

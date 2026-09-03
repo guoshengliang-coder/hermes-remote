@@ -1,14 +1,16 @@
 # Hermes Go Desktop
 
 Hermes Go Desktop is the native macOS companion for the existing Hermes Remote Connector. The local
-I3-A alpha still runs in **compatibility observation mode**: it reads the current user-level launchd status,
+I3-B alpha still runs in **compatibility observation mode**: it reads the current user-level launchd status,
 non-secret Connector settings, public Relay health, local Hermes reachability, and sanitized logs.
 It can additionally save an App Token in Keychain, generate the existing Android v1 pairing QR, and
 run an authenticated end-to-end status check. When the Gateway advertises account support and the
 build contains a public macOS Google OAuth client ID, it can also sign in through the default browser,
 persist/refresh the Hermes GO management session, show the binding and phone installations, remove
-one phone, and sign out only this Desktop management session. It does not stop or replace the current
-Connector.
+one phone, and sign out only this Desktop management session. When the independent binding capability
+is enabled, it also presents confirmed first-bind, replacement, and unbind control-plane operations.
+It does not start, stop, or replace the current Connector process; candidate proof and managed takeover
+remain I5 work.
 
 ## Current boundaries
 
@@ -18,11 +20,13 @@ Connector.
   Keychain storage, masked in the UI, and never written to logs.
 - The v1 QR contains the long-lived App Token and is therefore hidden by default.
 - The GUI never starts a second Connector with the same device ID.
-- Pairing and managed Agent takeover remain disabled until their migration and rollback gates exist.
+- Candidate Connector proof and managed Agent takeover remain disabled until their migration and
+  rollback gates exist.
 - Account-session bearer material and the future Connector Ed25519 machine identity use separate
   this-device-only Keychain items.
-- Refresh/removal/sign-out idempotency keys are persisted before their request so a lost response can
-  be retried without minting or revoking the wrong credential.
+- Refresh, removal, sign-out, reauthentication, binding, replacement, confirmation, and unbind
+  idempotency keys are persisted before their request so a lost response can be retried without
+  minting or revoking the wrong credential.
 
 ## Build and test
 
@@ -44,6 +48,9 @@ npm run desktop:app
 
 The app opens Google's account chooser in the system browser with PKCE S256, state, nonce, and a
 temporary `127.0.0.1` callback. It never reads Chrome/Safari profiles or stores a Google access token.
+
+The current local test package is version `0.3.0` (bundle build `4`). Binding confirmation remains
+unavailable until a separately managed candidate has passed both key proof and health verification.
 
 `desktop:app` and `desktop:dmg` use ad-hoc signing when `SIGNING_IDENTITY` is unset. A public build
 requires a Developer ID Application identity and Apple notarization credentials; see

@@ -16,6 +16,7 @@ final class DesktopViewModel: ObservableObject {
     @Published private(set) var configurationMessage: String?
     @Published private(set) var accountState: DesktopAccountState = .checking
     @Published private(set) var accountIssue: DesktopIssue?
+    @Published private(set) var accountOperationMessage: String?
     @Published private(set) var isAccountOperationInProgress = false
 
     private let healthCoordinator = DesktopHealthCoordinator()
@@ -109,6 +110,7 @@ final class DesktopViewModel: ObservableObject {
         guard !isAccountOperationInProgress else { return }
         isAccountOperationInProgress = true
         accountIssue = nil
+        accountOperationMessage = nil
         accountState = .signingIn
         defer { isAccountOperationInProgress = false }
         do {
@@ -132,6 +134,7 @@ final class DesktopViewModel: ObservableObject {
         guard !isAccountOperationInProgress else { return }
         isAccountOperationInProgress = true
         accountIssue = nil
+        accountOperationMessage = nil
         defer { isAccountOperationInProgress = false }
         do {
             applyAccountState(try await accountController.revokePhone(id: id))
@@ -149,6 +152,7 @@ final class DesktopViewModel: ObservableObject {
         guard !isAccountOperationInProgress else { return }
         isAccountOperationInProgress = true
         accountIssue = nil
+        accountOperationMessage = nil
         defer { isAccountOperationInProgress = false }
         do {
             applyAccountState(try await accountController.signOut())
@@ -157,6 +161,52 @@ final class DesktopViewModel: ObservableObject {
         } catch {
             accountIssue = DesktopIssue(
                 code: .configurationSaveFailed,
+                technicalCause: String(describing: error)
+            )
+        }
+    }
+
+    func performBindingAction(_ action: DesktopBindingAction) async {
+        if action == .refresh {
+            await refreshAccount()
+            return
+        }
+        guard !isAccountOperationInProgress else { return }
+        isAccountOperationInProgress = true
+        accountIssue = nil
+        accountOperationMessage = nil
+        defer { isAccountOperationInProgress = false }
+
+        do {
+            let message: String
+            switch action {
+            case .createFirst:
+                _ = try await accountController.createFirstBinding()
+                message = "候选 Desktop 已登记；旧 Connector 保持运行，正在等待密钥与健康预检。"
+            case .confirmFirst(let id, let generation):
+                _ = try await accountController.confirmFirstBinding(id: id, generation: generation)
+                message = "Desktop 账号绑定已确认。"
+            case .createReplacement:
+                _ = try await accountController.createReplacement()
+                message = "新 Mac 候选已登记；原来的 Desktop 会继续工作到最终确认。"
+            case .confirmReplacement(let requestID):
+                _ = try await accountController.confirmReplacement(requestID: requestID)
+                message = "新的 Desktop 绑定已启用。"
+            case .unbind:
+                try await accountController.unbind()
+                message = "Connector 远程绑定已解除；账号登录和 Hermes 保持不变。"
+            case .refresh:
+                return
+            }
+            applyAccountState(try await accountController.refresh())
+            accountOperationMessage = message
+        } catch let error as GoogleOAuthError {
+            accountIssue = DesktopIssue.oauth(error)
+        } catch let error as AccountClientError {
+            accountIssue = DesktopIssue.account(error)
+        } catch {
+            accountIssue = DesktopIssue(
+                code: .accountServiceUnavailable,
                 technicalCause: String(describing: error)
             )
         }

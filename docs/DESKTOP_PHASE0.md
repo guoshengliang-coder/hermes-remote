@@ -72,9 +72,10 @@ reused after a lost response. Binding inputs expose only the existing Ed25519 pu
 material remains in its dedicated Keychain item.
 
 I3-B is not yet a Connector takeover: the operations are not exposed as live UI actions in this
-slice, no candidate Connector is started, and the old Connector remains read-only observed. The next
-interaction iteration owns confirmation/recovery UI; I5 still owns candidate proof, process
-migration, activation ordering, and rollback.
+transport slice, no candidate Connector is started, and the old Connector remains read-only observed.
+The D0.4 UI exposes those actions only when the Gateway advertises its independent binding capability,
+gates activation on key and health proof, and requires explicit confirmations. I5 still owns candidate
+proof, process migration, activation ordering, and rollback.
 
 ### I3-A local verification — 2026-09-02
 

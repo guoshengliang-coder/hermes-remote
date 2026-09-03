@@ -190,6 +190,33 @@ public struct AccountBindingSnapshot: Codable, Equatable, Sendable {
     public let healthVerified: Bool?
     public let binding: ActiveAccountBinding?
     public let previousBinding: ActiveAccountBinding?
+    public let candidate: AccountBindingCandidate?
+
+    public init(
+        state: String,
+        id: String? = nil,
+        generation: Int? = nil,
+        deviceId: String? = nil,
+        displayName: String? = nil,
+        expiresAt: String? = nil,
+        keyProved: Bool? = nil,
+        healthVerified: Bool? = nil,
+        binding: ActiveAccountBinding? = nil,
+        previousBinding: ActiveAccountBinding? = nil,
+        candidate: AccountBindingCandidate? = nil
+    ) {
+        self.state = state
+        self.id = id
+        self.generation = generation
+        self.deviceId = deviceId
+        self.displayName = displayName
+        self.expiresAt = expiresAt
+        self.keyProved = keyProved
+        self.healthVerified = healthVerified
+        self.binding = binding
+        self.previousBinding = previousBinding
+        self.candidate = candidate
+    }
 
     public var bindingState: AccountBindingState {
         AccountBindingState(wireValue: state)

@@ -99,7 +99,11 @@ private struct SidebarView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 10)
-                .accessibilityLabel(item.title)
+                .accessibilityIdentifier("sidebar.\(item.rawValue)")
+                .accessibilityRepresentation {
+                    Button(item.title) { selection = item }
+                        .accessibilityHint("切换到\(item.title)页面")
+                }
             }
 
             Spacer()
