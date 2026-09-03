@@ -15,6 +15,11 @@ import type { AccountPrincipal } from "./model.js";
 import type { BindingProofMaterial, BindingState } from "./account-control-model.js";
 import type { SessionLifecycleEvent } from "@hermes-remote/protocol";
 import type { LifecycleEventPage } from "../lifecycle-event-store.js";
+import {
+  loadServerReleaseManifest,
+  type GatewayReadiness,
+  type ServerReleaseManifest,
+} from "../server-release.js";
 
 export interface AccountGatewayControl {
   authenticate(authorization: string | undefined): Promise<AccountPrincipal>;
@@ -60,14 +65,31 @@ export interface AccountGatewayControl {
 export interface AccountRuntime {
   controller: AccountHttpController;
   gatewayControl?: AccountGatewayControl;
+  accountAuthEnabled: boolean;
+  bindingEnabled: boolean;
+  readiness(): Promise<GatewayReadiness>;
   close(): Promise<void>;
 }
 
-export function createAccountRuntime(environment: NodeJS.ProcessEnv): AccountRuntime {
+export function createAccountRuntime(
+  environment: NodeJS.ProcessEnv,
+  release: ServerReleaseManifest = loadServerReleaseManifest(),
+): AccountRuntime {
   const enabled = booleanFlag(environment, "ACCOUNT_AUTH_ENABLED", false);
   if (!enabled) {
     return {
-      controller: new AccountHttpController(false),
+      controller: new AccountHttpController(false, undefined, { serverRelease: release }),
+      accountAuthEnabled: false,
+      bindingEnabled: false,
+      readiness: async () => ({
+        ready: true,
+        checks: {
+          config: "ok",
+          database: "disabled",
+          migrations: "not_required",
+          postgresql: "not_required",
+        },
+      }),
       close: async () => {},
     };
   }
@@ -82,6 +104,12 @@ export function createAccountRuntime(environment: NodeJS.ProcessEnv): AccountRun
   const pool = new Pool({
     connectionString: databaseUrl,
     max: positiveInteger(environment, "ACCOUNT_DATABASE_POOL_SIZE", 10, 100),
+    connectionTimeoutMillis: positiveInteger(
+      environment,
+      "ACCOUNT_DATABASE_CONNECT_TIMEOUT_MS",
+      3_000,
+      30_000,
+    ),
     ssl: databaseSsl ? { rejectUnauthorized: true } : undefined,
   });
   const repository = new PostgresAccountRepository(pool);
@@ -108,7 +136,10 @@ export function createAccountRuntime(environment: NodeJS.ProcessEnv): AccountRun
       trustLoopbackProxy,
       controlEnabled,
       controlService,
+      serverRelease: release,
     }),
+    accountAuthEnabled: true,
+    bindingEnabled: controlEnabled,
     ...(proofCoordinator ? {
       gatewayControl: {
         authenticate: (authorization) => service.authenticate(authorization),
@@ -140,8 +171,51 @@ export function createAccountRuntime(environment: NodeJS.ProcessEnv): AccountRun
         ),
       },
     } : {}),
+    readiness: () => checkDatabaseReadiness(pool, release),
     close: () => service.close(),
   };
+}
+
+export async function checkDatabaseReadiness(
+  pool: Pool,
+  release: ServerReleaseManifest,
+): Promise<GatewayReadiness> {
+  let postgresql: GatewayReadiness["checks"]["postgresql"] = "unknown";
+  let migrations: GatewayReadiness["checks"]["migrations"] = "unknown";
+  try {
+    const versionResult = await pool.query<{ server_version_num: string }>(
+      "SELECT current_setting('server_version_num') AS server_version_num",
+    );
+    const major = Math.floor(Number(versionResult.rows[0]?.server_version_num) / 10_000);
+    postgresql = release.supportedPostgresqlMajors.includes(major)
+      ? "supported"
+      : "unsupported";
+    try {
+      const schemaResult = await pool.query<{ version: number }>(
+        "SELECT version FROM gateway_schema_state WHERE singleton = true",
+      );
+      migrations = schemaResult.rows[0]?.version === release.databaseSchemaVersion
+        ? "ok"
+        : "mismatch";
+    } catch {
+      migrations = "mismatch";
+    }
+    const ready = postgresql === "supported" && migrations === "ok";
+    return {
+      ready,
+      checks: { config: "ok", database: "ok", migrations, postgresql },
+    };
+  } catch {
+    return {
+      ready: false,
+      checks: {
+        config: "ok",
+        database: "unavailable",
+        migrations,
+        postgresql,
+      },
+    };
+  }
 }
 
 function requireOrigin(environment: NodeJS.ProcessEnv, name: string): string {

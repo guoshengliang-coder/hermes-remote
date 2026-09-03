@@ -128,6 +128,18 @@ test("account V2 Connector isolates routing, health, and per-phone lifecycle rec
     });
     await waitForGateway(child);
 
+    const readinessResponse = await fetch(`${origin}/readyz`);
+    assert.equal(readinessResponse.status, 200);
+    assert.deepEqual(await readinessResponse.json(), {
+      status: "ready",
+      checks: {
+        config: "ok",
+        database: "ok",
+        migrations: "ok",
+        postgresql: "supported",
+      },
+    });
+
     const accountConnector = await openSocket(`ws://127.0.0.1:${port}/v2/connect`);
     sockets.push(accountConnector);
     accountConnector.send(encodeWireMessage({

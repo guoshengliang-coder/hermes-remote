@@ -1,13 +1,14 @@
 {
   "name": "@hermes-remote/gateway",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "account:migrate": "node scripts/migrate-account.mjs",
+    "build": "node scripts/prepare-build.mjs && tsc -p tsconfig.json && node scripts/build-release-manifest.mjs",
+    "account:migrate": "npm run build && node dist/ops/migrate-account.mjs",
+    "release:verify": "node scripts/verify-release.mjs",
     "test": "npm run build -w @hermes-remote/protocol && npm run build && node --test dist/*.test.js",
-    "dev": "tsx src/index.ts",
+    "dev": "npm run build && node --enable-source-maps dist/index.js",
     "start": "node dist/index.js"
   },
   "dependencies": {

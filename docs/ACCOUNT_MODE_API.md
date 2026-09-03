@@ -88,6 +88,18 @@ Response `200`:
   "legacy": {
     "appTokenAccepted": true,
     "connectorTokenAccepted": true
+  },
+  "server": {
+    "version": "0.2.0",
+    "protocolVersions": {
+      "legacy": 1,
+      "accountConnector": 2
+    },
+    "minimumClients": {
+      "android": "0.1.0",
+      "desktop": "0.2.0",
+      "connector": "0.1.1"
+    }
   }
 }
 ```
@@ -101,6 +113,8 @@ Rules:
   the replacement/unbind HTTP contract is available. The flag remains false in production while
   `ACCOUNT_BINDING_ENABLED=0`.
 - Capability enablement and production deployment are separate operator actions.
+- `server` is additive release metadata. Clients continue to gate behavior on capability fields,
+  never by comparing the Server version string.
 
 ## 4. Google proof exchange and sessions
 

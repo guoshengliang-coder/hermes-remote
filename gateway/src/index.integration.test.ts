@@ -20,6 +20,7 @@ test("Relay durably acknowledges and serves Connector lifecycle events", {
   const root = await mkdtemp(join(tmpdir(), "hermes-gateway-events-"));
   const appToken = "integration-app-token";
   const connectorToken = "integration-connector-token";
+  const internalStatusToken = "integration-status-token";
   const child = spawn(process.execPath, ["dist/index.js"], {
     cwd: process.cwd(),
     env: {
@@ -28,6 +29,7 @@ test("Relay durably acknowledges and serves Connector lifecycle events", {
       PORT: String(port),
       APP_TOKEN: appToken,
       CONNECTOR_TOKEN: connectorToken,
+      INTERNAL_STATUS_TOKEN: internalStatusToken,
       LIFECYCLE_EVENT_STORE_FILE: join(root, "events.json"),
     },
     stdio: "pipe",
@@ -35,6 +37,59 @@ test("Relay durably acknowledges and serves Connector lifecycle events", {
 
   try {
     await waitForGateway(child);
+
+    const livenessResponse = await fetch(`http://127.0.0.1:${port}/healthz`);
+    assert.equal(livenessResponse.status, 200);
+    assert.deepEqual(await livenessResponse.json(), { status: "alive" });
+
+    const readinessResponse = await fetch(`http://127.0.0.1:${port}/readyz`);
+    assert.equal(readinessResponse.status, 200);
+    const readiness = await readinessResponse.json() as {
+      status: string;
+      checks: { database: string; migrations: string; postgresql: string };
+    };
+    assert.deepEqual(readiness, {
+      status: "ready",
+      checks: {
+        config: "ok",
+        database: "disabled",
+        migrations: "not_required",
+        postgresql: "not_required",
+      },
+    });
+
+    const capabilitiesResponse = await fetch(`http://127.0.0.1:${port}/v2/capabilities`);
+    assert.equal(capabilitiesResponse.status, 200);
+    const capabilities = await capabilitiesResponse.json() as {
+      server: {
+        version: string;
+        protocolVersions: { legacy: number; accountConnector: number };
+        minimumClients: { android: string; desktop: string; connector: string };
+      };
+    };
+    assert.equal(capabilities.server.version, "0.2.0");
+    assert.deepEqual(capabilities.server.protocolVersions, { legacy: 1, accountConnector: 2 });
+
+    assert.equal((await fetch(`http://127.0.0.1:${port}/internal/version`)).status, 401);
+    const versionResponse = await fetch(`http://127.0.0.1:${port}/internal/version`, {
+      headers: { authorization: `Bearer ${internalStatusToken}` },
+    });
+    assert.equal(versionResponse.status, 200);
+    const version = await versionResponse.json() as {
+      serverVersion: string;
+      sourceCommit: string;
+      capabilities: { legacyAuth: boolean; accountAuth: boolean };
+    };
+    assert.equal(version.serverVersion, "0.2.0");
+    assert.match(version.sourceCommit, /^(?:development|[0-9a-f]{40})$/);
+    assert.deepEqual(version.capabilities, {
+      accountAuth: false,
+      connectorBinding: false,
+      installationSessions: false,
+      lifecycleInbox: true,
+      legacyAuth: true,
+    });
+
     const connector = new WebSocket(`ws://127.0.0.1:${port}/v1/connect`);
     await new Promise<void>((resolve, reject) => {
       connector.once("open", resolve);

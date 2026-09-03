@@ -29,6 +29,8 @@ TLS_CERT_FILE=/etc/letsencrypt/live/<domain>/fullchain.pem
 TLS_KEY_FILE=/etc/letsencrypt/live/<domain>/privkey.pem
 APP_TOKEN_FILE=/etc/hermes-remote/secrets/app-token
 CONNECTOR_TOKEN_FILE=/etc/hermes-remote/secrets/connector-token
+# Optional; enables authenticated GET /internal/version for local operations only.
+INTERNAL_STATUS_TOKEN_FILE=/etc/hermes-remote/secrets/internal-status-token
 DEFAULT_DEVICE_ID=mac-mini
 LIFECYCLE_EVENT_STORE_FILE=/var/lib/hermes-remote/lifecycle-events.json
 ```
@@ -46,6 +48,7 @@ ACCOUNT_GOOGLE_ANDROID_CLIENT_ID_FILE=/etc/hermes-remote/secrets/google-android-
 ACCOUNT_GOOGLE_MACOS_CLIENT_ID_FILE=/etc/hermes-remote/secrets/google-macos-client-id
 ACCOUNT_DATABASE_SSL=1
 ACCOUNT_DATABASE_POOL_SIZE=10
+ACCOUNT_DATABASE_CONNECT_TIMEOUT_MS=3000
 ACCOUNT_TRUST_LOOPBACK_PROXY=1
 ACCOUNT_GATEWAY_ORIGIN=https://<gateway-domain>
 ACCOUNT_MAX_PENDING_CONNECTOR_PROOFS=256
@@ -57,8 +60,15 @@ MAX_ACCOUNT_LIFECYCLE_EVENTS=10000
 SQL migrations are applied explicitly, in filename order, with
 `npm run account:migrate -w @hermes-remote/gateway`; the migration runner reads the same
 `ACCOUNT_DATABASE_URL` or `_FILE` setting as the Gateway.
-Gateway startup never mutates schema. Google proofs and Hermes GO bearer tokens must not be placed
+The command first builds the versioned migration payload under `gateway/dist`; schema version `7`
+is then recorded in `gateway_schema_state` for readiness checks. Gateway startup never mutates schema.
+Google proofs and Hermes GO bearer tokens must not be placed
 in these files or logs.
+
+R2 adds `GET /healthz` for liveness and `GET /readyz` for traffic admission. When account mode is
+enabled, readiness requires a reachable certified PostgreSQL 18 database at exact schema version 7.
+`GET /internal/version` is disabled unless `INTERNAL_STATUS_TOKEN` or `_FILE` is configured and must
+remain on the private operations path; it must not be added to the public Nginx routing table.
 
 `ACCOUNT_TRUST_LOOPBACK_PROXY=1` accepts the first `X-Forwarded-For` address only when the immediate
 TCP peer is loopback, matching a same-host Nginx upstream. Keep it `0` when Gateway is directly
