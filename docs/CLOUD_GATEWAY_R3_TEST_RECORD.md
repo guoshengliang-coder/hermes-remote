@@ -24,10 +24,11 @@ R3 实现受控 Ubuntu/x86_64 staging 的 `preflight/bootstrap/status/doctor` �
 | --- | --- | --- |
 | Static/syntax checks | Pass | 2026-09-03：`git diff --check`、新增 `.mjs` 的 `node --check` 与 bundle 脚本 `sh -n` 通过 |
 | Script unit tests | Pass | `node --test scripts/test/hermesctl.test.mjs`：9/9 通过；`npm test` 中同组 9/9 再次通过 |
-| Repository build/test | Pass with declared skips | `npm run build` 通过；`npm test` 全部已执行项目通过，Gateway 默认门禁按配置跳过 11 项可选集成测试 |
+| Repository build/test | Pass | 本地 `npm run build`、`npm test` 通过；PR #4 Node CI 使用一次性 PostgreSQL 和网络回环配置完成全仓测试 |
 | Gateway loopback integration | Pass with DB skips | `RUN_NETWORK_TESTS=1 npm test -w @hermes-remote/gateway`：50 通过、0 失败、3 项因未提供一次性 PostgreSQL 而跳过 |
-| Security scan | Pending CI | 当前 macOS 环境没有固定 Semgrep/Gitleaks 运行时；推送后由 digest-pinned CI 执行 |
-| OCI bundle packaging | Pending CI | 当前环境没有 Docker；推送后由 Ubuntu/amd64 Gateway OCI job 从 clean commit 生成 archive + manifest |
+| Security scan | Pass | PR #4 的 digest-pinned Semgrep 与 Gitleaks jobs 均通过，未向任务提供仓库 Secret |
+| OCI bundle packaging | Pass | PR #4 的 Ubuntu/amd64 Gateway OCI job 从 clean commit 完成 image smoke、archive 与 strict manifest 打包 |
+| Cross-component CI | Pass | PR #4 Android 与 Desktop jobs 均通过；R3 未修改移动端或桌面端代码 |
 | Isolated staging preflight | Not run | 需要一次性 Ubuntu/x86_64 staging 主机 |
 | First bootstrap and smoke | Not run | 属于部署/测试动作，执行前需要明确确认 |
 | Repeated bootstrap | Not run | 首次成功后以同一配置和制品重跑，验证幂等 |
@@ -37,5 +38,6 @@ R3 实现受控 Ubuntu/x86_64 staging 的 `preflight/bootstrap/status/doctor` �
 通过。第一次网络回环尝试被受限沙箱以 `listen EPERM` 阻止，允许仅监听本机 `127.0.0.1` 后原命令
 通过，因此该次结果不属于产品失败。
 
-代码准备与本地门禁通过不代表 R3 退出。只有 CI 与隔离 staging 同路径验证均通过后，才能将 R3
-标记完成。无论结果如何，都不得据此推断生产部署授权。
+代码准备与本地、CI 门禁通过不代表 R3 退出。只有隔离 staging 同路径验证通过后，才能将 R3
+标记完成。无论结果如何，都不得据此推断生产部署授权。PR #4 的六项 checks 在 2026-09-03
+全部通过：Node、Android、Desktop、Semgrep、Gitleaks 和 Gateway OCI。
