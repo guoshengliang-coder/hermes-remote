@@ -862,6 +862,9 @@ fun ChatMessageList(
 
     if (displayMessages.isEmpty() && visibleProcesses.isEmpty()) {
         when {
+            // A locally created session has nothing to load and nothing to fail: the greeting
+            // overlay (ChatScreen) owns this area, so render only the blank ground for it.
+            state.isNewSession -> Box(modifier.fillMaxSize())
             state.historyLoading -> ChatHistorySkeleton(modifier.fillMaxSize())
             state.historyError != null -> Box(
                 modifier.fillMaxSize().padding(24.dp),

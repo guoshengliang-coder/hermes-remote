@@ -50,6 +50,10 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "已发布更新版本，请删除旧下载后获取最新版。", "A newer release is available. Delete the old download and get the latest version.")
         AppErrorCode.FILE_READ_FAILED ->
             localized(language, "无法读取所选文件，请重新选择。", "Couldn't read the selected file. Choose it again.")
+        AppErrorCode.TRANSCRIPT_FILE_FAILED ->
+            localized(language, "无法生成对话文件，请重试。", "Couldn't create the transcript file. Retry.")
+        AppErrorCode.TRANSCRIPT_IMAGE_FAILED ->
+            localized(language, "无法生成对话长图，请重试或改用 Markdown 文件。", "Couldn't render the transcript image. Retry, or share it as a Markdown file.")
         AppErrorCode.AVATAR_PHOTO_FAILED ->
             localized(language, "无法读取所选照片，请换一张再试。", "Couldn't read the selected photo. Try a different one.")
         AppErrorCode.PROFILE_IDENTITY_SAVE_FAILED ->
