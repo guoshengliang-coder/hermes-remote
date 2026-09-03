@@ -127,6 +127,8 @@ private fun StartupPhase.progressBand(): ProgressBand = when (this) {
  * granularity still drives the progress bar, but a launch that takes two seconds should not read
  * like a checklist flashing past.
  */
+// The CONNECTION_RECOVERY wording is kept but currently unreachable through the gate: a warm
+// reconnect no longer renders it (§5.11). It belongs to whatever surface reports recovery next.
 internal fun startupStatusText(phase: StartupPhase, reason: StartupReason, language: AppLanguage): String {
     val recovery = reason == StartupReason.CONNECTION_RECOVERY
     return when (phase) {
@@ -158,7 +160,16 @@ fun StartupScreen(
     onRetry: () -> Unit,
     onOpenConnectionSettings: () -> Unit,
 ) {
-    val visible = state is StartupUiState.Loading || state is StartupUiState.Failed
+    // A warm reconnect recovers SILENTLY: the conversation stays on screen with the content it
+    // already committed while the socket comes back. Only a cold start (which has the system
+    // splash to hand over from) and an actual failure (which needs Retry / connection settings)
+    // may own the screen. Covering the chat on every reconnect turned a self-healing blip into
+    // "the app threw me back to the launch screen" — dozens of times a day (reported 2026-09-03).
+    val visible = when (state) {
+        is StartupUiState.Loading -> state.reason != StartupReason.CONNECTION_RECOVERY
+        is StartupUiState.Failed -> true
+        is StartupUiState.RepairRequired, StartupUiState.Hidden -> false
+    }
     // Keep the last visible state so the exit fade renders the frame we are leaving from.
     val lastVisible = remember { arrayOfNulls<StartupUiState>(1) }
     if (visible) lastVisible[0] = state

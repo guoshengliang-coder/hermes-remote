@@ -492,7 +492,14 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
 - **入场 / 退场**：冷启动图标从系统 splash 落点（屏幕中心、**2×**——系统 splash 容器 288dp 对
   我们的 144dp，真机实测 118dp:58dp；2026-09-03 由 1.5× 修正）缩放平移到位（320ms，Standard），
   字标与标语延迟向上淡入 12dp；就绪后整屏 `fadeOut + scaleOut(0.98)`（`Motion.DurationMedium`），
-  首页同时 `fadeIn + 上浮 16dp`（`MainActivity`）。热恢复遮罩无 splash 可承接，改为 150ms 淡入。
+  首页同时 `fadeIn + 上浮 16dp`（`MainActivity`）。失败态无 splash 可承接，改为 150ms 淡入。
+- **热恢复静默**（决策 2026-09-03，取代「热恢复遮罩 150ms 淡入」）：**只有冷启动和真正的失败态
+  可以占屏**。`CONNECTION_RECOVERY` 的加载态一律不渲染门 —— 会话页留在原位，继续显示它已经提交的
+  内容，socket 由 `HermesGatewayClient` 自己的 500ms→10s 退避重连恢复。恢复失败才升起失败态门
+  （它带错误码和「重新连接」/「检查连接设置」两个动作，是可操作的）。同时 `HOT_START_DEBOUNCE_MS`
+  200ms → **3s**：先让退避重连自愈，抖动一次不再触发探测与首屏数据恢复。
+  由来：旧规则下任何一次掉线都把全屏门盖到聊天页上，实测 2026-09-03 单日 55 次重连 = 几十次
+  「被弹回启动页」，用户读作 App 崩了；同一次恢复还会把 0.5 MB 的 transcript 重复下载 7 次。
 - **深浅**：由生效主题判定（§2.2）。底色是全 App 唯一必须与 window 资源一致的颜色
   （`@color/startup_background` 浅 `#F8FAFD` / `values-night` 深 `#0D141B` = surfaceContainerLowest dark），
   故浅深两组字面量成对写在 `StartupPalette`；次要色 `#74777F / #9AA0A8`，轨道 `#E7ECF6 / #2B323A`。
@@ -503,8 +510,9 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
   居中，「检查连接设置」文字钮同宽，不再通栏。
 - **紧凑（横屏 / 高度 < 560dp）**：图标 96dp 与字标（24sp）横排、左对齐，品牌组顶边 10% 屏高，
   状态与失败态仍在其下方居中。
-- 验证：`StartupScreenTest`（延迟揭示、READY 早到不揭示、文案合并、失败态结构、版本行）、
-  `StartupCopyTest`，截图 `startup-loading / startup-loading-dark / startup-failed`。
+- 验证：`StartupScreenTest`（延迟揭示、READY 早到不揭示、文案合并、失败态结构、版本行、
+  热恢复不占屏、热恢复失败仍占屏）、`StartupCopyTest`，截图
+  `startup-loading / startup-loading-dark / startup-failed`。
 
 ### 5.12 底部主操作按钮（决策 2026-09-02，首例 `ui/profiles/ProfileEditScreen.kt`）
 - **适用**：页面有一个明确的提交类主操作（保存 / 连接 / 创建）且内容可能超过一屏。

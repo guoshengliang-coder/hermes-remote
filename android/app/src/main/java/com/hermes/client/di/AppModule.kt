@@ -195,8 +195,8 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideSessionRepository(rest: HermesRestApi): SessionRepository =
-        SessionRepository(rest)
+    fun provideSessionRepository(rest: HermesRestApi, scope: CoroutineScope): SessionRepository =
+        SessionRepository(rest, scope)
 
     @Provides
     @Singleton

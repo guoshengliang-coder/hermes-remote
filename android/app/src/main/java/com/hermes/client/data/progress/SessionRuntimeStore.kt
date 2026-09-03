@@ -897,10 +897,18 @@ class SessionRuntimeStore(
                         "history",
                         "reconcile ${key.sessionId}: ${history.size} messages, accepted=$accepted",
                     )
-                    if (accepted && mediaRepository != null) {
-                        val committed = _runtimes.value[key]?.chat?.messages.orEmpty()
-                        val hydrated = mediaRepository.hydrateMessages(committed, key.profile)
-                        acceptHydratedImages(key, hydrated)
+                    if (accepted) {
+                        if (mediaRepository != null) {
+                            val committed = _runtimes.value[key]?.chat?.messages.orEmpty()
+                            val hydrated = mediaRepository.hydrateMessages(committed, key.profile)
+                            acceptHydratedImages(key, hydrated)
+                        }
+                        // The ladder exists to wait out a turn Hermes has not committed yet. Once
+                        // an authoritative snapshot is accepted there is nothing left to wait for,
+                        // and every further rung re-downloads the WHOLE transcript: four passes
+                        // over a 0.5 MB conversation, on every reconnect, is what turned a routine
+                        // socket blip into minutes of stalled traffic (measured 2026-09-03).
+                        break
                     }
                 }
             } finally {
