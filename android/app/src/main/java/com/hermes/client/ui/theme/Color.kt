@@ -31,6 +31,18 @@ private val Coral90 = Color(0xFFFFDBD0)
 
 // Neutrals tuned for comfortable long-form reading. Cool-tinted to sit under the blue —
 // the old mint-tinted neutrals turn muddy the moment a blue primary lands on them.
+// Error family. Left unset until 0.1.89, so both schemes silently inherited the Material 3
+// baseline — the same class of omission §2.5 fixed for the surface container family. The values
+// below are now explicit and pinned by ErrorColorsTest. Contrast: #BA1A1A on white 6.46:1,
+// #FFB4AB on the dark surface 10.42:1 — both clear the 4.5:1 body-text floor in DESIGN.md §5.7.
+private val ErrorLight = Color(0xFFBA1A1A)
+private val ErrorContainerLight = Color(0xFFFFDAD6)
+private val OnErrorContainerLight = Color(0xFF410002)
+private val ErrorDark = Color(0xFFFFB4AB)
+private val OnErrorDark = Color(0xFF690005)
+private val ErrorContainerDark = Color(0xFF93000A)
+private val OnErrorContainerDark = Color(0xFFFFDAD6)
+
 private val LightBackground = Color(0xFFF7F9FD)
 private val LightSurface = Color(0xFFFFFFFF)
 private val LightSurfaceVariant = Color(0xFFE7ECF6)
@@ -76,6 +88,10 @@ val HermesLightColors = lightColorScheme(
     onTertiary = Color.White,
     tertiaryContainer = Coral90,
     onTertiaryContainer = Color(0xFF3B0A00),
+    error = ErrorLight,
+    onError = Color.White,
+    errorContainer = ErrorContainerLight,
+    onErrorContainer = OnErrorContainerLight,
     background = LightBackground,
     onBackground = Color(0xFF1A1C20),
     surface = LightSurface,
@@ -106,6 +122,10 @@ val HermesDarkColors = darkColorScheme(
     onTertiary = Color(0xFF5D1907),
     tertiaryContainer = Color(0xFF7D2E17),
     onTertiaryContainer = Coral90,
+    error = ErrorDark,
+    onError = OnErrorDark,
+    errorContainer = ErrorContainerDark,
+    onErrorContainer = OnErrorContainerDark,
     background = DarkBackground,
     onBackground = Color(0xFFE1E3E9),
     surface = DarkSurface,

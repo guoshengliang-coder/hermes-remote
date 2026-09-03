@@ -394,3 +394,35 @@ need a phone with a working Relay connection.
    message search running by itself.
 6. Rotate the phone with the search bar open, then press back: the bar closes first (chat stays);
    press back again to leave. Re-enter the chat from the list: the search bar is not re-opened.
+
+## Usage figures smoke test (2026-09 branch claude/usage-data-correctness)
+
+Automated: `UsageMathTest` (calendar filling, the week window against sparse rows, main/auxiliary
+reconciliation, empty-vs-failed, error mapping, wire parsing with null aggregates), `ErrorColorsTest`.
+Verified on the Pixel 9 emulator against `scripts/dev/dev-stack.sh`: empty state, a populated page
+whose figures reconciled to the fixture, and the drawer stat cell. The cases below need a phone with
+a working Relay connection and a profile that has real history — the emulator path cannot produce
+sparse real-world data, a genuinely offline Mac, or a stalled tunnel.
+
+### Device cases
+
+1. Open 用量 from the drawer's 本周用量 cell. Confirm 主对话 / 辅助 is a real split (not `x / 0`
+   unless the profile truly has no auxiliary traffic) and that the model rows' token figures add up
+   to at least the 主对话 figure — `by_model` includes auxiliary spend, `totals` does not, so the
+   rows summing higher is correct and the reverse is a regression.
+2. Check the drawer cell against the page: 本周用量 covers seven calendar days, the page covers the
+   window named in the footnote, so the cell should be the smaller number. On a profile used once a
+   month the cell must read 0 for a quiet week rather than reaching back to the last active day.
+3. Confirm the daily chart's bars sit on real dates: a profile with gaps should show blank slots,
+   not a run of adjacent bars. Compare the busiest bar against the same day in Hermes's own
+   dashboard.
+4. Quit Hermes Go Desktop on the Mac and reopen 用量: the page must show Mac 端当前离线，请启动
+   Hermes Go Desktop with `HR-CONN-005` and a working 重试, not the generic Relay failure. Restart
+   the Desktop app and retry: the page loads.
+5. Switch to a profile that has never run a session: the empty state 这个身份还没有用量记录 appears
+   — not zeros. Switch back and confirm the figures return.
+6. Confirm the footnote reads 统计窗口 N 天 · 按会话开始日归集 · 日界为 UTC, and that a session
+   started between 00:00 and 08:00 local time (UTC+8) is attributed to the previous day in the
+   chart. This is upstream behaviour, not a client bug; the footnote exists to state it.
+7. Both themes: the error state's code line and the empty state's icon must be legible in dark mode
+   (the error colour family is now explicit — see `ErrorColorsTest`).

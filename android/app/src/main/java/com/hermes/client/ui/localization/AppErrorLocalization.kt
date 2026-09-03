@@ -14,6 +14,8 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "Mac 端当前离线，请启动 Hermes Go Desktop。", "The Mac is offline. Start Hermes Go Desktop.")
         AppErrorCode.RPC_FAILED ->
             localized(language, "Relay 请求失败，请重试。", "The Relay request failed. Retry.")
+        AppErrorCode.RPC_TIMEOUT ->
+            localized(language, "Relay 响应超时，请稍后重试。", "The Relay response timed out. Try again shortly.")
         AppErrorCode.MODEL_LIST_FAILED ->
             localized(language, "无法加载模型列表，请重试。", "Couldn't load the model list. Retry.")
         AppErrorCode.MODEL_SWITCH_FAILED ->
