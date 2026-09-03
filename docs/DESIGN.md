@@ -295,8 +295,10 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
     （`TURN_PILL_LIST_MIN_GROUPS`）胶囊就常带列表段（1dp 分隔线 + `PromptListIcon`），点按打开
     「我的提问」；长按胶囊主体同样打开。旧规则前两组永远看不到入口，用户不知道有这个功能。
     第一版**不加**上一组 / 下一组箭头。
-  - **落地反馈**：跳到的提问气泡借用搜索高亮样式亮 `TURN_JUMP_FLASH_MS`（1.5s）后淡去，
-    用户不用在屏幕上找刚点的那条。
+  - **落地反馈**（决策 2026-09-03，设计稿 `docs/design/landing-feedback-options.html` 方向 3，
+    用户否决了外发光与蒙层）：跳到的气泡**只加 1.5dp 品牌色描边、不加底色**，**对齐完成后**先以全强度停 `TURN_JUMP_FLASH_HOLD_MS`（0.3s）再线性淡出（弹层收起加滚动本身近 1 秒，点击即淡的版本落地时已看不见；真机上一出现就淡的 1.5dp 描边也容易错过）
+    `TURN_JUMP_FLASH_MS`（1.2s），无硬切；再次跳到同一条则重新开始。搜索命中仍是"蒙层 + 描边"
+    的常亮样式，两者不共用（`landingAlpha` 与 `highlighted` 是两个参数）。
 - **我的提问**（决策 2026-09-03 v2，设计稿 `docs/design/prompt-list-redesign.html` 方案 A，
   覆盖 09-02 版）：入口 = 顶栏更多菜单第一项、胶囊列表段、长按胶囊。底部弹层内容多高弹多高。
   - **用户任务**：十轮以上的对话里两步内回到任意一轮，并知道自己在哪一轮。旧版失败的原因：
@@ -341,12 +343,14 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
   `hermesSheetState()`（`skipPartiallyExpanded = true`）：内容多高弹多高，超过屏幕上限
   封顶全展开，**禁止半展开中间态**（半截可见、需手动上拉的形态是 bug）。需要额外约束
   （如审批弹层禁滑关）走它的 `confirmValueChange` 参数，不得另起状态。
+- **手势（全局硬规则，决策 2026-09-03，由模型弹层专属升级）**：凡内容可滚动的 `ModalBottomSheet`
+  一律 `sheetGesturesEnabled = false` + `dragHandle = { SheetCloseHandle(onDismiss) }`
+  （`ui/components/SheetDefaults.kt`）：列表滚动永不带动、收起或关闭弹层；关闭只有三个入口：
+  抓握区点按或短下拉（48dp 阈值）、点遮罩、返回键。已对齐：模型选择、我的提问。新弹层默认照此。
 - **模型选择弹层**（`ModelSelector.kt`）：标题「选择模型」居中、刷新按钮居右；
   「当前状态卡」把模型（含作用域/恢复默认）与推理强度合为一张 surfaceVariant 卡
   （强度是模型的属性，禁止拆成两个并列框）；搜索框为填充式圆角（surfaceVariant 底），
   弹层圆角统一 16dp。
-- **模型弹层手势**：`sheetGesturesEnabled = false` —— 列表滚动永不收起/关闭弹层；
-  关闭仅三个入口：顶部抓握区点按或短下拉（48dp 阈值，`CloseHandle`）、点遮罩、返回键。
 - **列表待处理项揭示**（`NeedsYouReveal.kt`）：会话新进入「需要你处理」组时，视口在顶部
   附近（首可见 ≤2）且非拖动中 → 自动滚顶展示；深翻列表时**禁止拽走读者**，改浮
   「↑ N 个会话需要处理」pill，点按跳顶，抵顶自动消失。
