@@ -157,25 +157,35 @@ internal fun listMessageIndex(messageCount: Int, listIndex: Int): Int? =
     if (listIndex <= 0) null else messageCount - listIndex
 
 /** Frame budget for a jump to settle while asynchronously rendered Markdown around the target grows. */
-internal const val TURN_JUMP_SETTLE_FRAMES = 90
+internal const val TURN_JUMP_SETTLE_FRAMES = 120
 internal const val TURN_JUMP_STABLE_FRAMES = 3
 internal const val TURN_JUMP_TOLERANCE_PX = 2
+/** How long to keep re-placing a target while the list sits clamped at its end waiting for growth. */
+internal const val TURN_JUMP_CLAMPED_FRAMES = 24
 
 /**
  * Scroll so the item's TOP sits [topInsetPx] below the viewport's content edge and keep it there
- * while the transcript settles. A far jump lands among items whose Markdown has not been
- * measured yet: they grow over the next frames and would carry the target away, so the position
- * is re-applied frame by frame — always as an ABSOLUTE `scrollToItem(index, offset)`, never as a
- * relative delta, so two corrections can never chase each other.
+ * while the transcript settles.
  *
- * Stops when the residual is within [TURN_JUMP_TOLERANCE_PX] for [TURN_JUMP_STABLE_FRAMES]
- * frames, when the residual stops changing (a genuine end of the list), or — the case that used
- * to thrash — when the list is already clamped at the end the correction needs: a prompt in the
- * last one or two turns has too little content below it to reach the top, and the old loop
- * bounced between `scrollToItem` (target at the bottom) and a clamped `scrollBy` every frame for
- * 180 frames, flickering and swallowing touches (device-verified 2026-09-03). Re-anchoring an
- * off-screen target is done at most once for the same reason. reverseLayout measures offsets
- * from the bottom edge, hence the far-edge arithmetic.
+ * What makes this hard: the turns BELOW the target (newer, lower indices under reverseLayout) are
+ * composed lazily, and a freshly composed answer measures a line or two tall until its Markdown
+ * parses asynchronously a few frames later. So the first absolute placement is computed against
+ * undersized neighbours, the list clamps at its bottom end, and the moment those neighbours grow
+ * the target is pushed off the top. Two earlier loops failed on exactly this: a relative-scrollBy
+ * loop re-anchored with `scrollToItem(index)`, which scrolled the neighbours out of composition,
+ * reset their parse and bounced every frame for 3 s (0.1.83); a loop that re-anchored only once
+ * gave up at the bottom (0.1.84).
+ *
+ * Rules now (device-derived, 2026-09-03):
+ *  * Every correction is an absolute `scrollToItem(index, offset)` from the target's last known
+ *    size — never `scrollToItem(index)` alone once the target has been seen, so the neighbours
+ *    below stay composed and keep the height they have grown to.
+ *  * Aligned within [TURN_JUMP_TOLERANCE_PX] for [TURN_JUMP_STABLE_FRAMES] frames → done.
+ *  * Clamped at the end the correction needs → keep re-placing for up to
+ *    [TURN_JUMP_CLAMPED_FRAMES] frames so undersized neighbours can finish growing, then stop:
+ *    a prompt in the last turn genuinely cannot reach the top, and a live answer streaming below
+ *    it must not hold the scroll mutex for its whole life.
+ *  * A user drag steals the scroll mutex and cancels the loop (caller handles it).
  */
 internal suspend fun LazyListState.alignItemTopToViewport(listIndex: Int, topInsetPx: Int) {
     fun info(index: Int): LazyListItemInfo? = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
@@ -189,44 +199,46 @@ internal suspend fun LazyListState.alignItemTopToViewport(listIndex: Int, topIns
         val desiredFarEdge = li.viewportEndOffset - li.afterContentPadding - topInsetPx
         return (item.offset + item.size) - desiredFarEdge
     }
-    fun targetOffset(item: LazyListItemInfo): Int = item.size - contentArea() + topInsetPx
+    fun offsetFor(size: Int): Int = size - contentArea() + topInsetPx
 
     val initial = info(listIndex)
+    var lastSize = initial?.size ?: -1
     if (initial != null) {
         // Near target: one animated move; a stale size only leaves a residual the loop absorbs.
-        animateScrollToItem(listIndex, targetOffset(initial))
+        animateScrollToItem(listIndex, offsetFor(initial.size))
     } else {
         scrollToItem(listIndex)
     }
-    var lastDelta: Int? = null
     var stable = 0
-    var reanchored = false
+    var clamped = 0
     repeat(TURN_JUMP_SETTLE_FRAMES) {
         withFrameNanos { }
         val item = info(listIndex)
         if (item == null) {
-            // Growth below the anchor pushed the target off-screen: bring it back once and
-            // re-measure. A second miss means re-anchoring does not stick — stop, do not bounce.
-            if (reanchored) return
-            reanchored = true
-            scrollToItem(listIndex)
-            lastDelta = null
+            // Pushed off the top by neighbours growing below it: re-place it from its last known
+            // size. Only an item never seen at all is brought back with a bare scrollToItem.
+            if (lastSize > 0) scrollToItem(listIndex, offsetFor(lastSize)) else scrollToItem(listIndex)
             stable = 0
             return@repeat
         }
+        lastSize = item.size
         val delta = overshoot(item)
-        if (abs(delta) <= TURN_JUMP_TOLERANCE_PX || delta == lastDelta) {
+        if (abs(delta) <= TURN_JUMP_TOLERANCE_PX) {
             if (++stable >= TURN_JUMP_STABLE_FRAMES) return
-        } else {
-            stable = 0
+            return@repeat
         }
-        lastDelta = delta
-        if (abs(delta) <= TURN_JUMP_TOLERANCE_PX) return@repeat
+        stable = 0
         // Too low (negative) -> content must move up, towards newer turns = the list start under
-        // reverseLayout. If that end is already reached the target simply cannot go higher.
-        if (delta < 0 && !canScrollBackward) return
-        if (delta > 0 && !canScrollForward) return
-        scrollToItem(listIndex, targetOffset(item))
+        // reverseLayout. Already there: wait for neighbours to grow, but only for a bounded number
+        // of frames — counted regardless of what a streaming tail below keeps doing to the residual.
+        val atBottom = firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset == 0
+        val atNeededEnd = if (delta < 0) atBottom || !canScrollBackward else !canScrollForward
+        if (atNeededEnd) {
+            if (++clamped >= TURN_JUMP_CLAMPED_FRAMES) return
+        } else {
+            clamped = 0
+        }
+        scrollToItem(listIndex, offsetFor(item.size))
     }
 }
 
