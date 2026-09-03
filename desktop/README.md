@@ -61,3 +61,7 @@ source changes. Packaging fails if the two files differ.
 - `Tests/` — compatibility, state-reduction, and security tests.
 - `Packaging/` — static bundle metadata and the synchronized app icon.
 - `scripts/` — local `.app` and `.dmg` packaging.
+
+The non-overlapping Desktop refactor and its Cloud R0/R1 integration gates are tracked in
+`docs/DESKTOP_R0_REFACTOR_PLAN.md`; local verification evidence is recorded in
+`docs/DESKTOP_R0_TEST_RECORD.md`.

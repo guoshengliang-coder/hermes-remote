@@ -159,6 +159,26 @@ public struct ActiveAccountBinding: Codable, Equatable, Sendable {
     public let endToEnd: EndToEnd
 }
 
+public enum AccountBindingState: Equatable, Sendable {
+    case noBinding
+    case bindingPending
+    case bound
+    case replacementPending
+    case revoked
+    case unknown(String)
+
+    init(wireValue: String) {
+        self = switch wireValue {
+        case "no_binding": .noBinding
+        case "binding_pending": .bindingPending
+        case "bound": .bound
+        case "replacement_pending": .replacementPending
+        case "revoked": .revoked
+        default: .unknown(wireValue)
+        }
+    }
+}
+
 public struct AccountBindingSnapshot: Codable, Equatable, Sendable {
     public let state: String
     public let id: String?
@@ -170,6 +190,10 @@ public struct AccountBindingSnapshot: Codable, Equatable, Sendable {
     public let healthVerified: Bool?
     public let binding: ActiveAccountBinding?
     public let previousBinding: ActiveAccountBinding?
+
+    public var bindingState: AccountBindingState {
+        AccountBindingState(wireValue: state)
+    }
 }
 
 public struct AccountDashboard: Equatable, Sendable {

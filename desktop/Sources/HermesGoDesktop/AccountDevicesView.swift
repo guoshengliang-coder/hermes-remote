@@ -1,42 +1,6 @@
 import HermesGoDesktopCore
 import SwiftUI
 
-struct LogsView: View {
-    @EnvironmentObject private var model: DesktopViewModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            PageHeader(
-                title: "日志",
-                subtitle: "仅显示 Desktop 与 Connector 的脱敏运行信息"
-            ) {
-                Button("打开日志目录") { model.openLegacyLogDirectory() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-            }
-
-            ScrollView {
-                Text(logText)
-                    .font(.system(size: 12, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(18)
-            }
-            .hermesCard()
-
-            Label("Token、密码、Cookie 和签名参数会在显示前自动隐藏。", systemImage: "lock")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-        }
-        .padding(34)
-    }
-
-    private var logText: String {
-        let lines = model.legacy?.recentLogs ?? []
-        return lines.isEmpty ? "暂无可显示的 Connector 日志。" : lines.joined(separator: "\n")
-    }
-}
-
 struct AccountDevicesView: View {
     @EnvironmentObject private var model: DesktopViewModel
     @State private var legacyExpanded = false
@@ -218,7 +182,7 @@ struct AccountDevicesView: View {
                 settingRow("Connector", value: active.connector.online ? "在线" : "离线")
                 settingRow("Hermes", value: active.hermes.reachable == true ? "可访问" : "未确认")
             }
-            if binding.state == "no_binding" {
+            if binding.bindingState == .noBinding {
                 Label("I3 只做账号管理与只读预检；Connector 接管会在带回滚的迁移阶段单独确认。", systemImage: "info.circle")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -315,19 +279,19 @@ struct AccountDevicesView: View {
     }
 
     private func bindingPresentation(_ binding: AccountBindingSnapshot) -> (symbol: String, title: String, detail: String) {
-        switch binding.state {
-        case "bound":
+        switch binding.bindingState {
+        case .bound:
             let online = binding.binding?.connector.online == true
             return (
                 online ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
                 online ? "连接正常" : "Connector 当前离线",
                 online ? "账号已绑定这台 Desktop，手机可以共享访问同一个 Hermes。" : "账号绑定仍保留；打开对应 Mac 上的 Connector 即可恢复。"
             )
-        case "binding_pending":
+        case .bindingPending:
             return ("clock", "正在等待 Connector 验证", "候选绑定尚未完成密钥与健康检查，现有连接不会被替换。")
-        case "replacement_pending":
+        case .replacementPending:
             return ("arrow.triangle.2.circlepath", "等待确认更换 Mac", "原来的 Desktop 在更换提交前仍保持工作。")
-        case "revoked":
+        case .revoked:
             return ("xmark.shield", "这台 Mac 的绑定已撤销", "需要重新验证账号后才能发起新的绑定或替换。")
         default:
             return ("desktopcomputer", "尚未建立账号绑定", "当前旧 Connector 不受影响；账号绑定将在安全迁移阶段完成。")
@@ -451,98 +415,5 @@ struct AccountDevicesView: View {
         }
         .font(.system(size: 13))
         .frame(height: 40)
-    }
-}
-
-struct SettingsView: View {
-    @EnvironmentObject private var model: DesktopViewModel
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                PageHeader(
-                    title: "设置",
-                    subtitle: "账号管理与兼容观察；不写入 Hermes"
-                ) {
-                    EmptyView()
-                }
-
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("兼容观察")
-                        .font(.system(size: 16, weight: .bold))
-                        .padding(.bottom, 12)
-                    settingRow("旧 Connector", model.legacy?.isRunning == true ? "运行中" : "未运行")
-                    Divider()
-                    settingRow("设备 ID", model.legacy?.config.deviceID ?? "mac-mini")
-                    Divider()
-                    settingRow("Gateway", model.legacy?.config.gatewayURL?.absoluteString ?? "未检测到")
-                    Divider()
-                    settingRow("Hermes", model.legacy?.config.hermesBaseURL.absoluteString ?? "http://127.0.0.1:9119")
-                    Divider()
-                    settingRow("旧版手机连接", model.connectionProfile == nil ? "未配置" : "App Token 已存入 Keychain")
-                    if let profile = model.connectionProfile {
-                        Divider()
-                        settingRow("手机 Gateway", profile.gatewayURL.absoluteString)
-                    }
-                }
-                .padding(20)
-                .hermesCard()
-
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Hermes GO 账号")
-                        .font(.system(size: 16, weight: .bold))
-                        .padding(.bottom, 12)
-                    settingRow("账号状态", accountStatus)
-                    if case .signedIn(let dashboard) = model.accountState {
-                        Divider()
-                        settingRow("账号", dashboard.session.account.email ?? dashboard.session.account.displayName ?? "已登录")
-                        Divider()
-                        settingRow("Desktop", dashboard.session.installation.displayName)
-                    }
-                    Text("账号与远程设备管理集中在侧边栏“账号与设备”；设置页不重复展示连接拓扑。")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 12)
-                }
-                .padding(20)
-                .hermesCard()
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("安全边界")
-                        .font(.system(size: 16, weight: .bold))
-                    Text("Desktop 当前不会停止旧 Connector、修改 Hermes、导入明文凭据或开放本机端口。")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                    Button("打开本机 Hermes") { model.openHermes() }
-                        .buttonStyle(.bordered)
-                }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .hermesCard()
-            }
-            .padding(34)
-        }
-    }
-
-    private var accountStatus: String {
-        switch model.accountState {
-        case .signedIn: "已登录"
-        case .signedOut: "未登录"
-        case .needsSignIn: "需要重新登录"
-        case .checking, .signingIn: "正在检查"
-        case .unavailable: "账号模式未开放"
-        }
-    }
-
-    private func settingRow(_ label: String, _ value: String) -> some View {
-        HStack(spacing: 20) {
-            Text(label).foregroundStyle(.secondary)
-            Spacer()
-            Text(value)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .font(.system(size: 13))
-        .frame(height: 39)
     }
 }
