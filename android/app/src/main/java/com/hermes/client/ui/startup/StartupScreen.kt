@@ -102,6 +102,7 @@ private val ProgressColors = listOf(Color(0xFF1F84FD), Color(0xFF3DA340), Color(
 internal const val STATUS_REVEAL_DELAY_MS = 700L
 
 private const val ENTRANCE_MS = 320
+private const val ENTRANCE_START_SCALE = 2f
 private const val LOCKUP_TOP_FRACTION = 0.225f
 private const val COMPACT_LOCKUP_TOP_FRACTION = 0.10f
 private val CompactHeightThreshold = 560.dp
@@ -203,6 +204,9 @@ private fun StartupGate(
     val palette = if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) DarkStartupPalette else LightStartupPalette
     // Entrance: the icon lands from the system splash (screen centre, larger) into the lockup
     // while the wordmark and slogan rise in behind it. Recovery overlays start settled.
+    // ENTRANCE_START_SCALE matches the system splash glyph: Android draws the adaptive icon in a
+    // 288dp container, our lockup icon is 144dp, so the splash glyph is 2× ours. Measured on a
+    // HONOR CLK-AN00 (Android 14): 118dp vs 58dp visible H. 1.5× left a visible size step.
     val entrance = remember { Animatable(if (reason == StartupReason.CONNECTION_RECOVERY) 1f else 0f) }
     LaunchedEffect(Unit) {
         if (entrance.value < 1f) entrance.animateTo(1f, tween(ENTRANCE_MS, easing = Motion.Standard))
@@ -232,7 +236,7 @@ private fun StartupGate(
                     modifier = Modifier
                         .size(iconSize)
                         .graphicsLayer {
-                            val scale = 1.5f + (1f - 1.5f) * progress
+                            val scale = ENTRANCE_START_SCALE + (1f - ENTRANCE_START_SCALE) * progress
                             scaleX = scale
                             scaleY = scale
                             translationY = iconDropPx * (1f - progress)
