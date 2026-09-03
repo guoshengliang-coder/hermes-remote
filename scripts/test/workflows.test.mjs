@@ -44,6 +44,19 @@ test('ordinary CI, SAST, and the Gateway image gate stay unprivileged and never 
   assert.equal(/docker\s+(?:push|login)|packages: write|secrets\./.test(gatewayOci), false, 'Gateway OCI gate must not publish images or receive secrets');
 });
 
+test('Gateway ephemeral staging is manual, bounded, secretless, and production-isolated', async () => {
+  const workflow = await read('gateway-ephemeral-staging.yml');
+  assert.match(workflow, /^on:\n  workflow_dispatch:\s*$/m);
+  assert.equal(/\n\s+(?:push|pull_request|schedule):/.test(workflow), false);
+  assert.match(workflow, /permissions:\n  contents: read/);
+  assert.match(workflow, /runs-on: ubuntu-24\.04/);
+  assert.match(workflow, /timeout-minutes: 15/);
+  assert.match(workflow, /group: gateway-r3-ephemeral-staging/);
+  assert.match(workflow, /cancel-in-progress: false/);
+  assert.match(workflow, /run: \.\/scripts\/test-gateway-staging-bootstrap\.sh/);
+  assert.equal(/secrets\.|docker\s+(?:push|login)|packages: write|ssh\b|mrlgs\.net/.test(workflow), false);
+});
+
 test('release secrets stay scoped to the steps that consume them', async () => {
   const release = await read('android-release.yml');
   const lines = release.split('\n');

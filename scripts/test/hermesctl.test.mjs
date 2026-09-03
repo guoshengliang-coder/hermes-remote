@@ -327,6 +327,24 @@ test("Gateway bundle packaging and hermesctl CLI remain wired to clean immutable
   assert.match(cli, /confirmation: args\.confirm/);
 });
 
+test("ephemeral staging exercises the complete R3 path without production access", async () => {
+  const script = await readFile("scripts/test-gateway-staging-bootstrap.sh", "utf8");
+  assert.equal((script.match(/hermesctl\.mjs bootstrap/g) || []).length, 2);
+  for (const required of [
+    "hermesctl.mjs preflight",
+    "hermesctl.mjs status",
+    "hermesctl.mjs doctor",
+    "verify-gateway-image-candidate.mjs",
+    "GATEWAY_EPHEMERAL_STAGING_OK",
+    "doctor_collection_policy_invalid",
+    "audit_sequence_invalid",
+    "staging.hermes.invalid",
+  ]) {
+    assert.equal(script.includes(required), true, `${required} missing from ephemeral staging gate`);
+  }
+  assert.equal(/mrlgs\.net|\bssh\b|environment\.md/.test(script), false);
+});
+
 async function createFixture(t) {
   const createdBase = await mkdtemp(path.join(tmpdir(), "hermesctl-test-"));
   const base = await realpath(createdBase);
