@@ -57,5 +57,5 @@ Account PostgreSQL/网络集成测试必须在提交合并前使用一次性数�
 R0 当前的本地验证证据记录在 `CLOUD_GATEWAY_R0_TEST_RECORD.md`。
 R1 的运行时与连接会话拆分证据记录在 `CLOUD_GATEWAY_R1_TEST_RECORD.md`。
 R2 的 Server Release 合同和本地验证证据记录在 `CLOUD_GATEWAY_R2_TEST_RECORD.md`。
-R3 的 Cloud Ops 合同和待执行门禁记录在 `CLOUD_GATEWAY_R3_OPS.md` 与
+R3 的 Cloud Ops 合同和已完成门禁记录在 `CLOUD_GATEWAY_R3_OPS.md` 与
 `CLOUD_GATEWAY_R3_TEST_RECORD.md`。
