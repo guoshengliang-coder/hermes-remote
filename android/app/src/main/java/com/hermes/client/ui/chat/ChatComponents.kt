@@ -155,6 +155,7 @@ import com.hermes.client.domain.FileTransferState
 import com.hermes.client.ui.theme.LocalToolCallTechnical
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.theme.Motion
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.text.TextStyle
@@ -635,12 +636,16 @@ fun ChatMessageList(
         }
     }
 
-    // Landing feedback: the prompt just jumped to borrows the search highlight for a moment so the
-    // eye finds it without hunting (docs/DESIGN.md §5.4).
+    // Landing feedback (docs/DESIGN.md §5.4, decision 2026-09-03): the prompt just jumped to shows
+    // an outline only — no fill, unlike the search highlight — that fades out over
+    // TURN_JUMP_FLASH_MS. A repeat jump to the same prompt restarts the fade.
     var jumpFlashIndex by remember(sessionId) { mutableStateOf<Int?>(null) }
-    LaunchedEffect(jumpFlashIndex) {
+    var jumpFlashTick by remember(sessionId) { mutableStateOf(0L) }
+    val jumpFlash = remember(sessionId) { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(jumpFlashTick) {
         if (jumpFlashIndex != null) {
-            delay(TURN_JUMP_FLASH_MS)
+            jumpFlash.snapTo(1f)
+            jumpFlash.animateTo(0f, tween(TURN_JUMP_FLASH_MS.toInt(), easing = Motion.Standard))
             jumpFlashIndex = null
         }
     }
@@ -648,7 +653,8 @@ fun ChatMessageList(
         turnGroups.getOrNull(groupIndex)?.let { group ->
             semanticViewport.cancelRestoreForUser()
             jumpRequests.trySend(messageListIndex(turnCount, group.anchorIndex))
-            jumpFlashIndex = group.promptIndex
+            jumpFlashIndex = group.anchorIndex
+            jumpFlashTick = System.nanoTime()
         }
     }
     var promptListOpen by remember(sessionId) { mutableStateOf(false) }
@@ -1063,7 +1069,8 @@ fun ChatMessageList(
                         onFileOpen,
                         onFileShare,
                         smoothLiveResize = smoothLiveResize,
-                        highlighted = index == highlightIndex || index == jumpFlashIndex,
+                        highlighted = index == highlightIndex,
+                        landingAlpha = if (index == jumpFlashIndex) jumpFlash.value else 0f,
                     )
                 }
             }
@@ -1239,6 +1246,7 @@ private fun MessageBubble(
     onFileShare: (ChatFile) -> Unit,
     smoothLiveResize: Boolean = false,
     highlighted: Boolean = false,
+    landingAlpha: Float = 0f,
 ) {
     // Server-injected timeline markers render as a quiet centered note (no bubble,
     // no long-press actions) — see TimelineNote.kt for the classification rules.
@@ -1247,8 +1255,8 @@ private fun MessageBubble(
         return
     }
     when (msg.role) {
-        Role.USER -> UserBubble(msg, onEditResend, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted, onRetrySend = onRetrySend, sendDiagnostic = sendDiagnosticFor(msg.id))
-        else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, highlighted = highlighted)
+        Role.USER -> UserBubble(msg, onEditResend, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted, landingAlpha = landingAlpha, onRetrySend = onRetrySend, sendDiagnostic = sendDiagnosticFor(msg.id))
+        else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, highlighted = highlighted, landingAlpha = landingAlpha)
     }
 }
 
@@ -1264,6 +1272,7 @@ internal fun UserBubble(
     onFileOpen: (ChatFile) -> Unit,
     onFileShare: (ChatFile) -> Unit,
     highlighted: Boolean = false,
+    landingAlpha: Float = 0f,
     onRetrySend: (String) -> Unit = {},
     sendDiagnostic: String? = null,
 ) {
@@ -1310,7 +1319,14 @@ internal fun UserBubble(
                     // Asymmetric corners (a small "tail" corner) mark this as the sender's bubble.
                     .clip(userShape)
                     .background(bg)
-                    .then(if (highlighted) Modifier.background(accent.copy(alpha = 0.18f)).border(1.5.dp, accent, userShape) else Modifier)
+                    .then(
+                        when {
+                            highlighted -> Modifier.background(accent.copy(alpha = 0.18f)).border(1.5.dp, accent, userShape)
+                            // Landing outline: border only, fading — never the search fill.
+                            landingAlpha > 0f -> Modifier.border(1.5.dp, accent.copy(alpha = landingAlpha), userShape)
+                            else -> Modifier
+                        },
+                    )
                     .padding(horizontal = 16.dp, vertical = 11.dp)
                     .semantics {
                         if (revealSending) stateDescription = sendingLabel
@@ -1730,6 +1746,7 @@ private fun AssistantTurn(
     onFileShare: (ChatFile) -> Unit,
     smoothLiveResize: Boolean = false,
     highlighted: Boolean = false,
+    landingAlpha: Float = 0f,
 ) {
     val language = LocalAppLanguage.current
     val clipboard = LocalClipboardManager.current
@@ -1767,7 +1784,13 @@ private fun AssistantTurn(
                 )
                 // No conditional padding here: background/border draw within existing bounds, so
                 // toggling the highlight causes no layout shift (a conditional .padding would).
-                .then(if (highlighted) Modifier.clip(hlShape).background(accent.copy(alpha = 0.12f)).border(1.5.dp, accent, hlShape) else Modifier)
+                .then(
+                    when {
+                        highlighted -> Modifier.clip(hlShape).background(accent.copy(alpha = 0.12f)).border(1.5.dp, accent, hlShape)
+                        landingAlpha > 0f -> Modifier.clip(hlShape).border(1.5.dp, accent.copy(alpha = landingAlpha), hlShape)
+                        else -> Modifier
+                    },
+                )
                 .padding(vertical = 2.dp)
                 .combinedClickable(onClick = {}, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); menuOpen = true }),
         ) {

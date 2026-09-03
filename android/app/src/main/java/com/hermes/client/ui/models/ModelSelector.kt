@@ -2,7 +2,6 @@ package com.hermes.client.ui.models
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -48,7 +47,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -643,7 +641,7 @@ fun ModelSelectorSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         sheetGesturesEnabled = false,
-        dragHandle = { CloseHandle(onDismiss) },
+        dragHandle = { com.hermes.client.ui.components.SheetCloseHandle(onDismiss) },
     ) {
         Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
             // Left-aligned like every other sheet title (docs/DESIGN.md §5.5): 8dp box + 16dp =
@@ -681,41 +679,5 @@ fun ModelSelectorSheet(
             reasoningPending = reasoningPending,
             listLoading = listLoading, listError = listError, onRetryLoad = onRetryLoad,
         )
-    }
-}
-
-/**
- * The sheet's only touch route to dismissal (gestures elsewhere are disabled): tap the grab
- * bar, or pull it down a short distance. Deliberately simple — no follow-the-finger animation.
- */
-@Composable
-private fun CloseHandle(onDismiss: () -> Unit) {
-    val thresholdPx = with(LocalDensity.current) { 48.dp.toPx() }
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClickLabel = l10n("关闭", "Close")) { onDismiss() }
-            .pointerInput(Unit) {
-                var dragTotal = 0f
-                var fired = false
-                detectVerticalDragGestures(
-                    onDragStart = { dragTotal = 0f; fired = false },
-                    onVerticalDrag = { change, dragAmount ->
-                        change.consume()
-                        dragTotal += dragAmount
-                        if (!fired && dragTotal > thresholdPx) {
-                            fired = true
-                            onDismiss()
-                        }
-                    },
-                )
-            }
-            .padding(top = 14.dp, bottom = 10.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Surface(
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-            shape = RoundedCornerShape(2.dp),
-        ) { Box(Modifier.size(32.dp, 4.dp)) }
     }
 }
