@@ -59,7 +59,26 @@ PostgreSQL 集成门禁覆盖。Readiness 只暴露固定枚举，因此不新�
 | Repository baseline | Pass | `npm run build && npm test` 通过；Protocol 13、Connector 13、Gateway 本地基线 42、Release Server 30、脚本 13 个测试通过 |
 | Dirty source release guard | Pass | `scripts/package-gateway-image.sh` 在当前开发 worktree 进入 Docker 前按预期拒绝打包 |
 | OCI image build | Not run | 当前开发机没有 Docker CLI；镜像构建和 image ID 验证留给具备 Docker 的 clean CI/staging 主机 |
-| Staging deployment | Not run | 需要同一 OCI image 的 staging 环境；这是 R2 最终退出门禁，不以本地测试冒充 |
+| Isolated Node candidate | Pass | Mac mini 独立回环端口上的 clean `main` 制品通过真实 Hermes REST/WSS 冒烟，未切换公网路由 |
+| OCI staging deployment | Not run | 仍需要在 Ubuntu/x86_64 staging 上构建并运行同一 OCI image；这是 R2 最终退出门禁，不以 Mac 候选测试冒充 |
 
 因此 R2 的代码与本地门禁已完成，完整版本退出仍等待 clean commit 上的 OCI 构建及同一 image 的
-staging 验证。生产部署、服务重启、Nginx 切换和 Android/Desktop 发布均未执行，也不在本轮授权范围。
+staging 验证。生产部署、服务重启、Nginx 切换和 Android/Desktop 发布均未执行。
+
+## 2026-09-03 隔离候选验证
+
+- 候选源为 `main@c4909cc042d143d7133e934bb3da3f0d00ea38f5`；该提交包含 Cloud R2 合并提交
+  `73bfb47`，且两者之间没有 Gateway、Protocol、Connector、deploy 或 scripts 变更。对应 `main`
+  的 GitHub CI 与 SAST 均通过。
+- 候选在 Mac mini 的私有临时目录构建，`npm ci --ignore-scripts` 报告 0 个依赖漏洞；Protocol、
+  Gateway 和 Connector 编译通过。严格制品校验输出 Gateway `0.2.0`、上述 source commit、
+  `dirty=false` 和 150 个受校验文件。
+- Gateway 仅监听 `127.0.0.1:18787`，使用每次随机生成且未落盘的 App、Connector 和内部状态 Token；
+  `ACCOUNT_AUTH_ENABLED=0`、`ACCOUNT_BINDING_ENABLED=0`。`/healthz`、`/readyz`、capability 与受保护
+  version endpoint 均符合 R2 合同，错误 App Token 返回 401。
+- 临时 Connector 使用现有 Mac 本地 Hermes 认证边界连接真实 Hermes `0.20.6`。通过候选 Gateway
+  的 `/api/status` 返回 overall `ok`，`/api/ws` 收到 `gateway.ready`，`session.create` 返回成功结果。
+- 验证前后 `https://mrlgs.net/relay-health` 均报告线上 `mac-mini` Connector 在线。测试完成后候选
+  Gateway/Connector 已停止，`18787` 端口释放，临时源码、依赖、状态和随机 Token 均已删除。
+- 这项证据验证 Node 制品和真实单机链路，但没有覆盖 Linux/x86_64、OCI image ID、候选实例切换、
+  排空或回滚；不得据此把 R2 的 OCI staging 退出门禁标为通过。
