@@ -413,8 +413,9 @@ class HermesRestApi(
             }
     }
 
-    suspend fun analyticsUsage(profile: String? = null): UsageDto =
-        get("/api/analytics/usage${profileParam(profile, first = true)}")
+    /** [days] is clamped upstream to 1-365; the UI only ever offers 7 / 30 / 90. */
+    suspend fun analyticsUsage(profile: String? = null, days: Int = 30): UsageDto =
+        get("/api/analytics/usage?days=${days.coerceIn(1, 365)}${profileParam(profile)}")
 
 
     // ---- Config (whole-object GET-modify-PUT so no fields are ever dropped) ----
