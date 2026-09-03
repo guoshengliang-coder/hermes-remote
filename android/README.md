@@ -191,6 +191,15 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.85 finishes the turn-jump fix: 0.1.84 could still end a far jump at the bottom of
+  the chat, because the turns below the target compose a line or two tall until their Markdown
+  parses and the first placement clamped the list before they grew. The settle loop now keeps
+  re-placing the target from its last known size while the neighbours grow (bounded to 24 frames
+  at a clamped end), verified on the HONOR phone and by a `TurnJumpAlignTest` case that fails on
+  0.1.84. It also stops `GatewayConnectionService` crashing with
+  ForegroundServiceDidNotStartInTimeException on a fast background/foreground flip: a stop requested
+  while a foreground start is pending is deferred until `startForeground()` has run
+  (`ForegroundStartGate`, covered by `ForegroundStartGateTest`).
 - Version 0.1.84 fixes the turn-jump pill freezing the chat. Jumping to a prompt in the last one
   or two turns — the usual target when reading near the bottom — left the list clamped at its
   end, and the settle loop bounced every frame between placing the target at the bottom and a
@@ -474,7 +483,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.84-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.85-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
