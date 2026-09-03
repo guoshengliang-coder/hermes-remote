@@ -82,3 +82,16 @@ staging 验证。生产部署、服务重启、Nginx 切换和 Android/Desktop �
   Gateway/Connector 已停止，`18787` 端口释放，临时源码、依赖、状态和随机 Token 均已删除。
 - 这项证据验证 Node 制品和真实单机链路，但没有覆盖 Linux/x86_64、OCI image ID、候选实例切换、
   排空或回滚；不得据此把 R2 的 OCI staging 退出门禁标为通过。
+
+## Linux OCI 自动门禁
+
+`Gateway OCI` 工作流为 Gateway、Protocol、Connector、Dockerfile 或相关发布脚本的变更构建
+Ubuntu/x86_64 候选镜像。基础 Node 22 Alpine image 以官方 multi-platform digest 固定；构建继续要求
+clean source、显式 commit identity 和 release manifest 全文件校验。工作流不接收仓库 Secret，也不登录
+或推送镜像仓库。
+
+门禁以只读根文件系统、临时有界 `/tmp`、移除全部 capabilities、`no-new-privileges`、CPU/内存/PID
+上限运行刚构建的同一 image。Runner 上的临时 Connector 通过 Mock Hermes 验证错误 App Token、
+`healthz`/`readyz`、capability、受保护 version、REST 和 WebSocket `gateway.ready`/`session.create`。
+失败使用 `HR-RELEASE-001` 至 `HR-RELEASE-003` 的双语、可重试、脱敏结构。只有该工作流在 clean commit
+上实际通过后，才能把上表 OCI build 与 OCI staging 两项更新为 Pass。
