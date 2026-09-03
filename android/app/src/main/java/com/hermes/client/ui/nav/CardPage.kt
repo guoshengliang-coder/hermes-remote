@@ -184,10 +184,7 @@ fun CardPage(
                 val deviceValue = state.deviceId ?: localized(language, "未连接", "Offline")
                 var statValueSp by remember(weekValue, deviceValue) { mutableStateOf(23f) }
                 var statSubSp by remember(weekValue, deviceValue) { mutableStateOf(15f) }
-                Row(
-                    Modifier.padding(vertical = 18.dp)
-                        .height(androidx.compose.foundation.layout.IntrinsicSize.Min),
-                ) {
+                Row(Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
                     StatCell(
                         title = localized(language, "本周用量", "This week"),
                         value = weekValue,
@@ -195,9 +192,10 @@ fun CardPage(
                         valueSp = statValueSp, subSp = statSubSp,
                         onValueOverflow = { if (statValueSp > 13f) statValueSp -= 1f },
                         onSubOverflow = { if (statSubSp > 11f) statSubSp -= 1f },
-                        modifier = Modifier.weight(1f).clickable { onNavigate("usage") },
+                        onClick = { onNavigate("usage") },
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
-                    Box(Modifier.width(1.dp).fillMaxHeight().background(hairline))
+                    Box(Modifier.width(1.dp).fillMaxHeight().padding(vertical = 18.dp).background(hairline))
                     val healthy = health as? GatewayHealth.Healthy
                     StatCell(
                         title = localized(language, "远程设备", "Remote device"),
@@ -212,7 +210,10 @@ fun CardPage(
                         onValueOverflow = { if (statValueSp > 13f) statValueSp -= 1f },
                         onSubOverflow = { if (statSubSp > 11f) statSubSp -= 1f },
                         subColor = if (state.deviceId == null) MaterialTheme.colorScheme.error else muted,
-                        modifier = Modifier.weight(1f),
+                        // No device page of its own yet; the relay/token screen is the honest
+                        // destination for "where is this device configured" until one exists.
+                        onClick = { onNavigate("settings_connection") },
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
             }
@@ -290,33 +291,49 @@ private fun StatCell(
     subSp: Float,
     onValueOverflow: () -> Unit,
     onSubOverflow: () -> Unit,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
     subColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
-    // Sizes are CONTROLLED by the parent so both cells stay in lockstep; the wrap-to-two-lines
-    // fallback stays per-cell (only the overlong value needs it).
-    Column(modifier.padding(horizontal = 16.dp)) {
-        Text(
-            title,
-            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        FitText(
-            value,
-            style = MaterialTheme.typography.headlineSmall.copy(
-                fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.3).sp,
-            ),
-            fontSizeSp = valueSp, minSp = 13f, onOverflow = onValueOverflow,
-            modifier = Modifier.padding(top = 5.dp, bottom = 4.dp),
-        )
-        sub?.let {
-            FitText(
-                it,
-                style = MaterialTheme.typography.bodyMedium.copy(color = subColor),
-                fontSizeSp = subSp, minSp = 11f, onOverflow = onSubOverflow,
+    // Both halves are entries, so each carries the chevron the entry-row contract requires and
+    // ripples over its whole half (the padding lives inside the clickable, not on the Row).
+    // 14dp side padding + a 16dp chevron is what keeps "mac-mini" at the full 23sp value size;
+    // the shared shrink below is the fallback, not the normal state.
+    Row(
+        modifier.clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Sizes are CONTROLLED by the parent so both cells stay in lockstep; the wrap-to-two-lines
+        // fallback stays per-cell (only the overlong value needs it).
+        Column(Modifier.weight(1f).padding(end = 4.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            FitText(
+                value,
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-0.3).sp,
+                ),
+                fontSizeSp = valueSp, minSp = 13f, onOverflow = onValueOverflow,
+                modifier = Modifier.padding(top = 5.dp, bottom = 4.dp),
+            )
+            sub?.let {
+                FitText(
+                    it,
+                    style = MaterialTheme.typography.bodyMedium.copy(color = subColor),
+                    fontSizeSp = subSp, minSp = 11f, onOverflow = onSubOverflow,
+                )
+            }
         }
+        Icon(
+            ThinChevron,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(16.dp),
+        )
     }
 }
 
