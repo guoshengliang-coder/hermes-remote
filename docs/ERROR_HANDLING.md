@@ -56,6 +56,7 @@ reassigned.
 | `PERM` | Android or service permissions | camera, notifications, storage access |
 | `NOTIF` | Notification delivery and actions | channel disabled, action/reply failure |
 | `UPDATE` | APK update and installation | manifest, download, hash, certificate, installer |
+| `RELEASE` | Server release packaging and candidate gates | build prerequisites, image identity, isolated smoke |
 | `CONFIG` | Local or deployment configuration | invalid URL, missing field, incompatible setting |
 | `STORE` | Local persistence | DataStore/database/cache failure |
 | `UNKNOWN` | Truly unmapped failures | last-resort boundary only; must be investigated |
@@ -169,6 +170,9 @@ expanded without changing the underlying meaning.
 | `HR-UPDATE-007` | System package installer could not be opened | 无法打开系统安装器，请重试。 | Couldn't open the system installer. Retry. | Yes |
 | `HR-UPDATE-008` | DownloadManager job, persisted metadata, or residual APK could not be cleaned up | 无法清理更新下载，请重试。 | Couldn't clean up the update download. Retry. | Yes |
 | `HR-UPDATE-009` | A restored/downloaded APK is no longer the manifest's latest release | 已发布更新版本，请删除旧下载后获取最新版。 | A newer release is available. Delete the old download and get the latest version. | No (delete old download, then download latest) |
+| `HR-RELEASE-001` | Gateway image prerequisites, source cleanliness, dependency build, or release packaging gate failed | 无法生成可验证的 Gateway 镜像，请检查构建环境和源码状态。 | Couldn't build a verifiable Gateway image. Check the build environment and source state. | Yes (inspect details, fix prerequisites, retry) |
+| `HR-RELEASE-002` | Gateway candidate image identity, architecture, isolation, startup, readiness, or Connector attachment check failed | Gateway 候选镜像未通过身份、隔离或就绪检查。 | The Gateway candidate image failed its identity, isolation, or readiness checks. | Yes (inspect details and retry) |
+| `HR-RELEASE-003` | Gateway candidate image REST, WebSocket, authentication, or release-contract smoke failed | Gateway 候选镜像的端到端验证失败，请检查诊断后重试。 | The Gateway candidate image failed end-to-end verification. Review diagnostics and retry. | Yes (inspect details and retry) |
 | `HR-FILE-001` | A selected attachment could not be read | 无法读取所选文件，请重新选择。 | Couldn't read the selected file. Choose it again. | Yes |
 | `HR-MEDIA-001` | Image save, preparation, or share operation failed | 图片操作失败，请重试。 | The image operation failed. Retry. | Yes |
 | `HR-MEDIA-002` | A picked avatar photo could not be decoded, cropped, or encoded (ImageDecoder/BitmapFactory failure, unreadable URI, empty image) | 无法读取所选照片，请换一张再试。 | Couldn't read the selected photo. Try a different one. | Yes |

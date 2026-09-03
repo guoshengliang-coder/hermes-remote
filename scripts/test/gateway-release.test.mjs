@@ -36,6 +36,8 @@ test("Gateway image build context is allowlisted and release packaging fails clo
   assert.equal(dockerignore.includes("!environment.md"), false);
 
   const dockerfile = await readFile("deploy/Dockerfile.gateway", "utf8");
+  assert.match(dockerfile, /FROM node:22-alpine@sha256:[0-9a-f]{64} AS build/);
+  assert.match(dockerfile, /FROM node:22-alpine@sha256:[0-9a-f]{64}\nWORKDIR \/app/);
   for (const required of [
     "HERMES_BUILD_COMMIT",
     "HERMES_REQUIRE_RELEASE_CLEAN",
@@ -51,4 +53,17 @@ test("Gateway image build context is allowlisted and release packaging fails clo
   assert(cleanGate >= 0 && imageBuild > cleanGate);
   assert.equal(packageScript.includes("HERMES_BUILD_DIRTY=0"), true);
   assert.equal(packageScript.includes("HERMES_REQUIRE_RELEASE_CLEAN=1"), true);
+
+  const imageTest = await readFile("scripts/test-gateway-image.sh", "utf8");
+  for (const required of [
+    "linux/amd64",
+    "--read-only",
+    "--cap-drop=ALL",
+    "--security-opt=no-new-privileges",
+    "verify-gateway-image-candidate.mjs",
+    "GATEWAY_OCI_RELEASE_OK",
+  ]) {
+    assert.equal(imageTest.includes(required), true, `${required} missing from Gateway OCI smoke gate`);
+  }
+  assert.equal(/docker\s+(?:push|login)/.test(imageTest), false);
 });

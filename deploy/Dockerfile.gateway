@@ -1,4 +1,5 @@
-FROM node:22-alpine AS build
+# Official Node 22 Alpine multi-platform image, pinned so the release input cannot drift by tag.
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS build
 WORKDIR /app
 ARG HERMES_BUILD_COMMIT=development
 ARG HERMES_BUILD_DIRTY=1
@@ -23,7 +24,7 @@ RUN npm ci --ignore-scripts \
     && REQUIRE_RELEASE_CLEAN="$HERMES_REQUIRE_RELEASE_CLEAN" \
        npm run release:verify -w @hermes-remote/gateway
 
-FROM node:22-alpine
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
 WORKDIR /app
 ARG HERMES_BUILD_COMMIT=development
 ARG HERMES_SERVER_VERSION=0.2.0
