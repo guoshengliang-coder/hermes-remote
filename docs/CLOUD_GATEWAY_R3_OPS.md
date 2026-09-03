@@ -44,7 +44,7 @@ OCI bundle manifest 结构如下：
     "protocolVersions": { "legacy": 1, "accountConnector": 2 },
     "minimumClients": { "android": "0.1.0", "desktop": "0.2.0", "connector": "0.1.1" },
     "minimumSourceVersion": "0.2.0",
-    "maintenanceRequired": false,
+    "maintenanceRequired": true,
     "rollbackSupported": true
   }
 }

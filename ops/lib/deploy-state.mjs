@@ -53,6 +53,7 @@ export function deploymentPlanDigest(config, source, target, inputMaterialFinger
     operator: config.operator,
     targetArtifactManifest: config.targetArtifactManifest,
     paths: config.paths,
+    legacySource: config.legacySource,
     slots: config.slots,
     gateway: config.gateway,
     database: config.database ? {
