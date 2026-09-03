@@ -381,9 +381,6 @@ class ChatViewModel @Inject constructor(
         language: AppLanguage = AppLanguage.ZH,
     ) {
         setAppLanguage(language)
-        // Set-only: configuration changes re-run open() with the default false, which must not
-        // clear the flag. It expires naturally — the greeting renders only while no messages exist.
-        if (isNewSession) mutateState { it.copy(isNewSession = it.messages.isEmpty()) }
         // Configuration changes recreate the composition and re-run its LaunchedEffect, while the
         // navigation-scoped ViewModel and runtime remain alive. Reopening the same key used to mark
         // history loading, restart REST/resume, and show the skeleton for a layout-only change.

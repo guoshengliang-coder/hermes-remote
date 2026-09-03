@@ -236,7 +236,7 @@ class MainActivity : ComponentActivity() {
                     chat.connect() // idempotent; a cold start has no socket yet
                     profileManager.refresh() // load active profile so the session isn't orphaned to default
                     chat.createSession(profileManager.active.value).id
-                }.onSuccess { id -> pendingRoute.value = "chat/$id" }
+                }.onSuccess { id -> pendingRoute.value = "chat/$id?new=true" }
                     .onFailure { e ->
                         if (e is kotlinx.coroutines.CancellationException) throw e
                         android.widget.Toast.makeText(
