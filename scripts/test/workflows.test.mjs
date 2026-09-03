@@ -40,6 +40,12 @@ test('ordinary CI, SAST, and the Gateway image gate stay unprivileged and never 
   assert.match(gatewayOci, /runs-on: ubuntu-24\.04/);
   assert.match(gatewayOci, /run: \.\/scripts\/test-gateway-image\.sh/);
   assert.match(gatewayOci, /run: \.\/scripts\/package-gateway-bundle\.sh outputs\/gateway-bundle/);
+  assert.match(gatewayOci, /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/);
+  assert.match(gatewayOci, /uses: actions\/upload-artifact@[0-9a-f]{40} # v7\.0\.1/);
+  assert.match(gatewayOci, /name: gateway-bundle-\$\{\{ github\.sha \}\}/);
+  assert.match(gatewayOci, /path: outputs\/gateway-bundle\//);
+  assert.match(gatewayOci, /if-no-files-found: error/);
+  assert.match(gatewayOci, /retention-days: 7/);
   assert.match(gatewayOci, /permissions:\n  contents: read/);
   assert.equal(/docker\s+(?:push|login)|packages: write|secrets\./.test(gatewayOci), false, 'Gateway OCI gate must not publish images or receive secrets');
 });
