@@ -252,6 +252,18 @@ class SearchViewModelTest {
         assertEquals("changed", saved.get<String>("q"))
     }
 
+    // A query arriving through the route (chat's "search all chats") searches by itself.
+    @Test fun restored_query_searches_messages_after_debounce() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        coEvery { sessionRepo.archivedAllProfiles() } returns emptyList()
+        coEvery { sessionRepo.search("handed over", "personal") } returns listOf(SearchResultDto(sessionId = "s1", snippet = "handed over"))
+        val vm = vm(SavedStateHandle(mapOf("q" to "handed over")))
+        advanceUntilIdle()
+        advanceTimeBy(debounce)
+        advanceUntilIdle()
+        assertTrue(vm.state.value.messages is MessageSearch.Results)
+    }
+
     @Test fun foregroundRecoveryRefreshesTheVisibleQuerySources() = runTest {
         coEvery { sessionRepo.listAllProfiles() } returns
             listOf(session("old", "Old result")) andThen

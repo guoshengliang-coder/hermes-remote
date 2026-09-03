@@ -130,6 +130,8 @@ fun ChatScreen(
     initialQuery: String? = null,
     vm: ChatViewModel = hiltViewModel(),
     onMenu: () -> Unit = {},
+    /** Escape hatch from a zero-hit in-chat search to the global search, carrying the query. */
+    onSearchAll: ((String) -> Unit)? = null,
     onNewChat: (String) -> Unit = {},
     onUnauthorized: () -> Unit = {},
 ) {
@@ -212,6 +214,18 @@ fun ChatScreen(
     var searchOpen by rememberSaveable(sessionId) { mutableStateOf(false) }
     var query by rememberSaveable(sessionId) { mutableStateOf("") }
     var currentMatch by rememberSaveable(sessionId) { mutableStateOf(0) }
+    // A query handed over from the search screen opens the in-chat search pre-filled; the first
+    // hit is positioned by the usual match/highlight flow once history has loaded. Consumed once
+    // per chat entry so rotation or returning here does not re-open it.
+    var initialQueryConsumed by rememberSaveable(sessionId) { mutableStateOf(false) }
+    LaunchedEffect(sessionId, initialQuery) {
+        val q = initialQuery?.trim().orEmpty()
+        if (q.isNotEmpty() && !initialQueryConsumed) {
+            initialQueryConsumed = true
+            query = q
+            searchOpen = true
+        }
+    }
     // Keyed by session: without the key, opening a different session in this screen slot
     // inherited the previous session's scroll position.
     val listState = androidx.compose.runtime.saveable.rememberSaveable(
@@ -279,6 +293,13 @@ fun ChatScreen(
     // the transient window after `matches` shrinks but before the reset effect runs.
     val currentHit = if (searchOpen && matches.isNotEmpty()) matches[currentMatch.coerceAtMost(matches.lastIndex)] else null
     val highlightIndex = currentHit?.turnIndex
+    val chatSearchContext = if (searchOpen && query.isNotBlank()) {
+        ChatSearchContext(
+            query = query,
+            currentMessageId = currentHit?.let { conversationTurns.getOrNull(it.turnIndex)?.id },
+            currentSource = currentHit?.source,
+        )
+    } else null
     // Highlight scrolling lives inside ChatMessageList: with reverseLayout the turn index must be
     // mapped to the reversed list index, and the list owns that mapping.
     // System back closes the search bar first (rather than leaving the chat) when it's open.
@@ -601,7 +622,20 @@ fun ChatScreen(
 
     Scaffold(
         topBar = {
-            Row(
+            // The search bar takes the top bar's place (docs/DESIGN.md §5.4): the transcript
+            // does not move when search opens.
+            if (searchOpen) ChatSearchBar(
+                query = query,
+                onQueryChange = { query = it },
+                matchCount = matches.size,
+                currentIndex = currentMatch,
+                currentHit = currentHit,
+                historyLoaded = state.historyLoaded,
+                onPrevious = { if (matches.isNotEmpty()) currentMatch = (currentMatch - 1 + matches.size) % matches.size },
+                onNext = { if (matches.isNotEmpty()) currentMatch = (currentMatch + 1) % matches.size },
+                onClose = { searchOpen = false; query = "" },
+                onSearchAll = onSearchAll,
+            ) else Row(
                 Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.background)
@@ -1065,86 +1099,12 @@ fun ChatScreen(
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
-                    if (searchOpen) {
-                        val accent = MaterialTheme.colorScheme.primary
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            OutlinedTextField(
-                                value = query,
-                                onValueChange = { query = it },
-                                placeholder = { Text(localized(language, "在对话中搜索…", "Search in chat…")) },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f),
-                            )
-                            // Coerce into range: `currentMatch` can transiently exceed a shrunk match
-                            // set before the reset effect runs — avoids a glitchy counter like "5/2".
-                            val displayIndex = if (matches.isEmpty()) 0 else currentMatch.coerceAtMost(matches.lastIndex) + 1
-                            Text(
-                                "$displayIndex/${matches.size}",
-                                color = accent,
-                                modifier = Modifier.padding(horizontal = 8.dp),
-                            )
-                            IconButton(
-                                onClick = { if (matches.isNotEmpty()) currentMatch = (currentMatch - 1 + matches.size) % matches.size },
-                                enabled = matches.isNotEmpty(),
-                            ) {
-                                Icon(
-                                    androidx.compose.material.icons.Icons.Rounded.KeyboardArrowUp,
-                                    contentDescription = localized(language, "上一个匹配项", "Previous match"),
-                                    tint = accent,
-                                )
-                            }
-                            IconButton(
-                                onClick = { if (matches.isNotEmpty()) currentMatch = (currentMatch + 1) % matches.size },
-                                enabled = matches.isNotEmpty(),
-                            ) {
-                                Icon(
-                                    androidx.compose.material.icons.Icons.Rounded.KeyboardArrowDown,
-                                    contentDescription = localized(language, "下一个匹配项", "Next match"),
-                                    tint = accent,
-                                )
-                            }
-                            IconButton(onClick = { searchOpen = false; query = "" }) {
-                                Icon(androidx.compose.material.icons.Icons.Rounded.Close, contentDescription = localized(language, "关闭搜索", "Close search"))
-                            }
-                        }
-                        currentHit?.let { hit ->
-                            Row(
-                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceVariant,
-                                    shape = RoundedCornerShape(6.dp),
-                                ) {
-                                    Text(
-                                        when (hit.source) {
-                                            SearchSource.TEXT -> localized(language, "正文", "Text")
-                                            SearchSource.THINKING -> localized(language, "思考", "Reasoning")
-                                            SearchSource.TOOL -> localized(language, "工具", "Tool")
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    )
-                                }
-                                Text(
-                                    hit.snippet,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 2,
-                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(start = 8.dp),
-                                )
-                            }
-                        }
-                    }
                     ChatMessageList(
                         state = state,
                         sessionId = sessionId,
                         listState = listState,
                         highlightIndex = highlightIndex,
+                        searchContext = chatSearchContext,
                         scrollToBottomTick = sendToBottomTick,
                         openPromptListTick = promptListTick,
                         viewportController = viewportController,

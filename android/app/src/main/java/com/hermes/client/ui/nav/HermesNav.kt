@@ -315,7 +315,10 @@ fun HermesNav(
                     onUnauthorized = onUnauthorized,
                 )
             }
-            composable("search") {
+            composable(
+                route = "search?q={q}",
+                arguments = listOf(navArgument("q") { type = NavType.StringType; nullable = true; defaultValue = null }),
+            ) {
                 val vm: SearchViewModel = hiltViewModel()
                 DisposableEffect(foregroundRecovery, vm) {
                     foregroundRecovery?.register("search") { vm.recoverForForeground() }
@@ -360,6 +363,7 @@ fun HermesNav(
                     initialQuery = entry.arguments?.getString("q"),
                     vm = vm,
                     onMenu = backToSessions,
+                    onSearchAll = { q -> nav.navigate("search?q=${Uri.encode(q)}") { launchSingleTop = true } },
                     onNewChat = { id ->
                         openCanonicalChat(chatRoute(ChatLaunch.new(id)))
                     },
