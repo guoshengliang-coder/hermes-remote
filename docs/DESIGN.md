@@ -500,6 +500,11 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
   200ms → **3s**：先让退避重连自愈，抖动一次不再触发探测与首屏数据恢复。
   由来：旧规则下任何一次掉线都把全屏门盖到聊天页上，实测 2026-09-03 单日 55 次重连 = 几十次
   「被弹回启动页」，用户读作 App 崩了；同一次恢复还会把 0.5 MB 的 transcript 重复下载 7 次。
+- **REST 首屏降级**（修正 2026-09-03）：已有可用配置时，`/api/status`、profile 与会话列表
+  都能成功即允许进入会话列表，不再因 `/api/ws` 未在 15 秒内收到 `gateway.ready`
+  而卡在开屏；WebSocket 由单例客户端继续后台退避重连。热恢复同样保留当前页面。
+  首次配对仍要求 WebSocket 就绪，不接受仅 HTTP 可达的半连接配置。连接设置页的
+  「测试连接」只探测 REST，成功文案明确为「Relay 与 Mac 基础连接正常」，避免暗示实时通道也已就绪。
 - **深浅**：由生效主题判定（§2.2）。底色是全 App 唯一必须与 window 资源一致的颜色
   （`@color/startup_background` 浅 `#F8FAFD` / `values-night` 深 `#0D141B` = surfaceContainerLowest dark），
   故浅深两组字面量成对写在 `StartupPalette`；次要色 `#74777F / #9AA0A8`，轨道 `#E7ECF6 / #2B323A`。

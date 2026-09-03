@@ -107,12 +107,14 @@ class StartupViewModel @Inject constructor(
     private var repairReason: StartupReason? = null
     private var activeDestination: StartupDestination = StartupDestination.Sessions
     @Volatile private var appForeground = false
+    @Volatile private var realtimeDegraded = false
 
     init {
         // Automatic backoff may recover after the 15-second UI timeout. If that happens while the
         // failure actions are visible, dismiss the gate without requiring an unnecessary tap.
         viewModelScope.launch {
             chat.connectionState.collect { connection ->
+                if (connection is ConnectionState.Connected) realtimeDegraded = false
                 val failed = _state.value as? StartupUiState.Failed
                 if (connection is ConnectionState.Connected && failed != null) {
                     when {
@@ -124,6 +126,7 @@ class StartupViewModel @Inject constructor(
                     connection !is ConnectionState.Connected &&
                     _state.value is StartupUiState.Hidden &&
                     attemptJob?.isActive != true &&
+                    !realtimeDegraded &&
                     runCatching { credentials.load() }.getOrNull() != null
                 ) {
                     startAttempt(StartupReason.CONNECTION_RECOVERY, HOT_START_DEBOUNCE_MS)
@@ -151,6 +154,10 @@ class StartupViewModel @Inject constructor(
         }
         if (!isUsableConfiguration(config, StartupReason.CONNECTION_RECOVERY)) return
         val failed = _state.value as? StartupUiState.Failed
+        if (realtimeDegraded && chat.connectionState.value !is ConnectionState.Connected) {
+            _state.value = StartupUiState.Hidden
+            return
+        }
         if (chat.connectionState.value is ConnectionState.Connected && connectivity.isOnline()) {
             if (failed != null) {
                 startAttempt(failed.reason, debounceMs = 0L)
@@ -179,6 +186,7 @@ class StartupViewModel @Inject constructor(
             return
         }
         if (!isUsableConfiguration(config, reason)) return
+        realtimeDegraded = false
         startAttempt(
             reason = reason,
             debounceMs = 0L,
@@ -206,12 +214,14 @@ class StartupViewModel @Inject constructor(
     /** Called after the repair screen has persisted edited values. */
     fun onConfigurationSaved() {
         val reason = repairReason ?: StartupReason.CONNECTION_RECOVERY
+        realtimeDegraded = false
         startAttempt(reason, debounceMs = 0L, forceReconnect = true)
     }
 
     /** First-time setup also completes WebSocket, profile and first-screen readiness before entry. */
     fun onInitialConfigurationSaved() {
         repairReason = StartupReason.INITIAL_SETUP
+        realtimeDegraded = false
         startAttempt(StartupReason.INITIAL_SETUP, debounceMs = 0L, forceReconnect = true)
     }
 
@@ -354,10 +364,43 @@ class StartupViewModel @Inject constructor(
                     }
                 } else {
                     minimumDisplay?.cancel()
-                    _state.value = StartupUiState.Failed(
-                        reason,
-                        StartupFailure.CONNECTION_FAILED,
-                    )
+                    // `/api/status`, profile metadata and the session list all use REST. If those
+                    // paths work, a delayed/blocked WebSocket must not strand an existing user on
+                    // the launch screen: the list is already usable and HermesGatewayClient keeps
+                    // retrying the realtime channel in the background. First-time setup remains
+                    // strict because it has no previously accepted configuration to fall back to.
+                    val usableWithoutRealtime = when (reason) {
+                        StartupReason.COLD_START -> try {
+                            withTimeoutOrNull(INITIAL_DATA_TIMEOUT_MS) {
+                                profiles.refresh()
+                                sessions.listAllProfiles()
+                                true
+                            } == true
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            false
+                        }
+                        StartupReason.CONNECTION_RECOVERY -> true
+                        StartupReason.INITIAL_SETUP -> false
+                    }
+                    if (usableWithoutRealtime) {
+                        realtimeDegraded = true
+                        _state.value = StartupUiState.Hidden
+                        if (repairReason != null) {
+                            repairReason = null
+                            _repairCompletion.value += 1
+                        }
+                    } else {
+                        _state.value = StartupUiState.Failed(
+                            reason,
+                            if (reason == StartupReason.COLD_START) {
+                                StartupFailure.INITIAL_DATA_FAILED
+                            } else {
+                                StartupFailure.CONNECTION_FAILED
+                            },
+                        )
+                    }
                 }
             }
         }

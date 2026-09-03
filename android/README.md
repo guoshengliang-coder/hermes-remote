@@ -191,6 +191,13 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.90 lets an existing installation enter its REST-backed session list when the Relay,
+  Mac Connector and Hermes HTTP path are healthy but `/api/ws` does not deliver `gateway.ready`
+  within the startup timeout. The realtime socket keeps reconnecting in the background instead of
+  holding the whole app behind `HR-CONN-002`; warm recovery likewise keeps the current screen and
+  avoids repeatedly restarting the recovery probe. First-time setup remains strict and still
+  requires the WebSocket handshake. The connection-test result now says that the Relay and Mac are
+  reachable rather than implying that the separate realtime channel has also been verified.
 - Version 0.1.89 stops the app from re-downloading a conversation it already has, and stops a
   routine reconnect from hiding the conversation behind the launch screen. Chat open, history
   reconciliation, foreground recovery and the startup coordinator used to wake together after a
@@ -519,7 +526,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.89-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.90-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
