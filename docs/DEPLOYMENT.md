@@ -119,6 +119,12 @@ node scripts/hermesctl.mjs production-audit \
   --confirm production:<configured-public-hostname>
 ```
 
+Every successful `Gateway OCI` push run on `main` retains its exact bundle as
+`gateway-bundle-<full-main-commit>` for seven days. Pull-request runs still build and verify the bundle but do
+not retain it. Download the artifact from the matching successful `main` run, preserve both the archive and
+manifest together, and use that manifest as `targetArtifactManifest`; never substitute a hand-written
+manifest or a bundle from another commit.
+
 The command aggregates every gate instead of stopping at the first missing prerequisite. It checks the exact
 Linux/amd64 host identity, minimum free disk and available memory, immutable target bundle, exact hashes of the
 currently running legacy Gateway, Nginx/public health, loopback-only legacy and PostgreSQL listeners, Docker,
