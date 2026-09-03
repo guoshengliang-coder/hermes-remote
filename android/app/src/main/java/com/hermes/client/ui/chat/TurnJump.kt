@@ -157,59 +157,76 @@ internal fun listMessageIndex(messageCount: Int, listIndex: Int): Int? =
     if (listIndex <= 0) null else messageCount - listIndex
 
 /** Frame budget for a jump to settle while asynchronously rendered Markdown around the target grows. */
-internal const val TURN_JUMP_SETTLE_FRAMES = 180
+internal const val TURN_JUMP_SETTLE_FRAMES = 90
 internal const val TURN_JUMP_STABLE_FRAMES = 3
+internal const val TURN_JUMP_TOLERANCE_PX = 2
 
 /**
  * Scroll so the item's TOP sits [topInsetPx] below the viewport's content edge and keep it there
  * while the transcript settles. A far jump lands among items whose Markdown has not been
  * measured yet: they grow over the next frames and would carry the target away, so the position
- * is corrected frame by frame (instant [scrollBy] deltas, like the viewport-restore logic).
+ * is re-applied frame by frame — always as an ABSOLUTE `scrollToItem(index, offset)`, never as a
+ * relative delta, so two corrections can never chase each other.
  *
- * "Settled" means the remaining error has not CHANGED for [TURN_JUMP_STABLE_FRAMES] frames, not
- * that it is zero: when the newer turns below the target are still placeholders the list clamps
- * at its bottom edge and the error stays large, then shrinks frame by frame as those turns
- * measure. Only once nothing moves any more — error zero, or a genuine end of the list — does the
- * loop stop. reverseLayout measures offsets from the bottom edge, hence the far-edge arithmetic.
+ * Stops when the residual is within [TURN_JUMP_TOLERANCE_PX] for [TURN_JUMP_STABLE_FRAMES]
+ * frames, when the residual stops changing (a genuine end of the list), or — the case that used
+ * to thrash — when the list is already clamped at the end the correction needs: a prompt in the
+ * last one or two turns has too little content below it to reach the top, and the old loop
+ * bounced between `scrollToItem` (target at the bottom) and a clamped `scrollBy` every frame for
+ * 180 frames, flickering and swallowing touches (device-verified 2026-09-03). Re-anchoring an
+ * off-screen target is done at most once for the same reason. reverseLayout measures offsets
+ * from the bottom edge, hence the far-edge arithmetic.
  */
 internal suspend fun LazyListState.alignItemTopToViewport(listIndex: Int, topInsetPx: Int) {
     fun info(index: Int): LazyListItemInfo? = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+    fun contentArea(): Int {
+        val li = layoutInfo
+        return li.viewportEndOffset - li.viewportStartOffset - li.beforeContentPadding - li.afterContentPadding
+    }
     // Pixels the item's top edge sits above its target line (positive = too high on screen).
     fun overshoot(item: LazyListItemInfo): Int {
         val li = layoutInfo
         val desiredFarEdge = li.viewportEndOffset - li.afterContentPadding - topInsetPx
         return (item.offset + item.size) - desiredFarEdge
     }
+    fun targetOffset(item: LazyListItemInfo): Int = item.size - contentArea() + topInsetPx
+
     val initial = info(listIndex)
     if (initial != null) {
         // Near target: one animated move; a stale size only leaves a residual the loop absorbs.
-        val li = layoutInfo
-        val contentArea = li.viewportEndOffset - li.viewportStartOffset - li.beforeContentPadding - li.afterContentPadding
-        animateScrollToItem(listIndex, initial.size - contentArea + topInsetPx)
+        animateScrollToItem(listIndex, targetOffset(initial))
     } else {
         scrollToItem(listIndex)
     }
     var lastDelta: Int? = null
     var stable = 0
+    var reanchored = false
     repeat(TURN_JUMP_SETTLE_FRAMES) {
         withFrameNanos { }
         val item = info(listIndex)
         if (item == null) {
-            // Growth below the anchor pushed the target off-screen: bring it back and re-measure.
+            // Growth below the anchor pushed the target off-screen: bring it back once and
+            // re-measure. A second miss means re-anchoring does not stick — stop, do not bounce.
+            if (reanchored) return
+            reanchored = true
             scrollToItem(listIndex)
             lastDelta = null
             stable = 0
             return@repeat
         }
         val delta = overshoot(item)
-        if (delta == lastDelta) {
+        if (abs(delta) <= TURN_JUMP_TOLERANCE_PX || delta == lastDelta) {
             if (++stable >= TURN_JUMP_STABLE_FRAMES) return
         } else {
             stable = 0
-            lastDelta = delta
         }
-        // Too high -> content must move down -> a positive (forward, towards older turns) delta.
-        if (abs(delta) > 1) scrollBy(delta.toFloat())
+        lastDelta = delta
+        if (abs(delta) <= TURN_JUMP_TOLERANCE_PX) return@repeat
+        // Too low (negative) -> content must move up, towards newer turns = the list start under
+        // reverseLayout. If that end is already reached the target simply cannot go higher.
+        if (delta < 0 && !canScrollBackward) return
+        if (delta > 0 && !canScrollForward) return
+        scrollToItem(listIndex, targetOffset(item))
     }
 }
 
