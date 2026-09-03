@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.NotificationManagerCompat
+import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.network.HermesGatewayClient
 import com.hermes.client.data.repository.NotificationSettings
 import dagger.hilt.android.AndroidEntryPoint
@@ -46,6 +47,14 @@ class GatewayConnectionService : Service() {
         super.onCreate()
         notifier.ensureChannels()
         startForeground(HermesNotifier.SERVICE_NOTIFICATION_ID, notifier.serviceNotification(activeCount()))
+        // A stop that arrived while the system was still waiting for the startForeground() above
+        // was deferred by the gate (see ForegroundStartGate). Honour it now that the foreground
+        // promise is kept; stopping any earlier would crash the process.
+        if (gate.onForegroundEntered()) {
+            DebugLog.log("service", "stop deferred past startForeground; stopping now")
+            stopSelf()
+            return
+        }
         client.connect()
         // START_STICKY means Android can recreate this service headlessly (no UI ever launched),
         // in which case ProfileManager's list is still empty — nothing but UI code ever calls
@@ -100,6 +109,7 @@ class GatewayConnectionService : Service() {
         // Session cards belong to the coordinator and must survive the service: a completed card
         // posted seconds before the service stops is exactly what the user comes back to.
         scope.cancel()
+        gate.onDestroyed()
         // LifecycleMonitoringCoordinator owns socket suspension. Do not close here: Service
         // destruction can be delivered after ON_START, and an old service closing the singleton
         // client would race and kill the newly restored foreground connection.
@@ -109,12 +119,27 @@ class GatewayConnectionService : Service() {
     companion object {
         private const val LIFECYCLE_POLL_MS = 3_000L
 
+        // One gate per process: every start/stop for this service class goes through it so a
+        // stop can never reach the system while a startForeground() promise is outstanding.
+        private val gate = ForegroundStartGate()
+
         fun start(context: Context) {
             val i = Intent(context, GatewayConnectionService::class.java)
-            androidx.core.content.ContextCompat.startForegroundService(context, i)
+            gate.onStartRequested()
+            try {
+                androidx.core.content.ContextCompat.startForegroundService(context, i)
+            } catch (e: RuntimeException) {
+                gate.onStartFailed()
+                throw e
+            }
         }
+
         fun stop(context: Context) {
-            context.stopService(Intent(context, GatewayConnectionService::class.java))
+            if (gate.onStopRequested()) {
+                context.stopService(Intent(context, GatewayConnectionService::class.java))
+            } else {
+                DebugLog.log("service", "stop deferred: startForeground still pending")
+            }
         }
     }
 }
