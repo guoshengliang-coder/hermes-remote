@@ -22,10 +22,20 @@ When multiple agents work at the same time, prefer a dedicated branch and worktr
 reset, or delete another worktree. The integration agent owns the final merge, version bump, build,
 and release artifact so those operations happen exactly once.
 
+The integration worktree — the one holding `main` — belongs to the integration agent alone. No other
+agent may edit files in it; every other task works on its own branch and worktree. An integration
+agent that finds uncommitted changes there stops, reports them, and neither commits nor discards
+them, because a release built or published from a shared worktree cannot be attributed to a commit.
+
 When the hosting plan cannot enforce branch protection, the integration agent must treat successful
 PR checks as a manual merge gate: inspect every check reported for the PR, merge only after all have
 completed successfully, and verify the resulting `main` checks before handoff. Do not use auto-merge
 as a substitute for this gate when the repository has no enforced required checks.
+
+`docs/INTEGRATION.md` defines the cross-subproject rules: which paths belong to Android, Desktop or
+Cloud; the contract surfaces whose change requires the other sides to be addressed in the same
+branch; and the separation of the merge, version and publish gates. Read it before merging into
+`main`, before bumping any version, and before treating a remote-ahead `main` as safe to merge.
 
 ## Repository map and boundaries
 
@@ -34,9 +44,13 @@ as a substitute for this gate when the repository has no enforced required check
 - `connector/`: outbound-only macOS bridge to the local Hermes service.
 - `desktop/`: native macOS menu-bar GUI and future managed Connector Agent.
 - `protocol/`: shared TypeScript wire protocol used by Gateway and Connector.
+- `ops/`: deployment orchestration for the Gateway — config schemas and the candidate/switch/
+  rollback state machine driven by `scripts/hermesctl.mjs`.
+- `release-server/`: the service backing the public Android release index.
 - `deploy/`: deployment and service templates; never store live credentials here.
-- `docs/`: architecture, environment shape, deployment record, smoke-test instructions, and the
-  Android UI design contract (`docs/DESIGN.md`).
+- `docs/`: architecture, environment shape, deployment record, smoke-test instructions, the
+  cross-subproject integration rules (`docs/INTEGRATION.md`), and the Android UI design contract
+  (`docs/DESIGN.md`).
 
 Changes to the shared protocol must update its tests and every affected consumer. Preserve the core
 security boundary: the Mac opens the outbound connection, the Mac Hermes credential stays on the Mac,
