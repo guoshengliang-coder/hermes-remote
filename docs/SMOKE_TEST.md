@@ -346,3 +346,51 @@ Device flows for the share-format picker. Pending device verification.
    suggests the Markdown file instead. Nothing crashes and no partial image is shared.
 6. **Failure surfaces.** If file creation or rendering fails, the toast carries HR-FILE-002 or
    HR-MEDIA-003 respectively.
+
+## Search smoke test (2026-09 branch claude/search-v1)
+
+Automated: `SearchQueryTest`, `HermesRestApiSearchTest`, `SearchTextTest`, `RecentSearchesTest`,
+`SearchViewModelTest`, `ChatSearchHighlightTest`, `ChatRouteTest`, `AppErrorTest`. The items below
+need a phone with a working Relay connection.
+
+### Production probe record (Mac mini, 2026-09-03, read-only)
+
+- Store: `~/.hermes/state.db`, 43k messages. FTS tables present: `messages_fts` (unicode61) and
+  `messages_fts_trigram`; **no `messages_fts_cjk`** (the loadable CJK tokenizer is not built on the
+  mini), so CJK queries take the trigram path (≥ 3 CJK chars) or the LIKE full scan (1–2 chars).
+- `SessionDB.search_messages` direct calls: `的历史记录` → 1 row in 2 ms (trigram);
+  `的历史记录*` → **0 rows** (the gateway route appends `*` to every unquoted token);
+  `"的历史记录"` → 1 row; `的历` → 50 rows in ~1.5 s (LIKE scan); `的历*` → 0 rows;
+  `gradle` → 50 rows in 4 ms (fts5). This is why the client quotes CJK tokens.
+- Snippet shape varies by path: ~22–51 chars around the match (trigram), 120 chars starting 40
+  before the match (LIKE), ~330 chars with an ellipsis (fts5). No markup markers. The client
+  re-centres to ±40 chars.
+- The HTTP route (`/api/sessions/search`) enriches each hit with `title`, `last_active`,
+  `archived`, `source`, `message_count`, `preview`. Gateway round-trip from the phone was not
+  measured (needs the app on a configured device); server-side search is single-digit ms except
+  the 1–2 char CJK LIKE scan.
+
+### Device cases
+
+1. Open search from the list. With an empty field the recent searches (if any) are listed with
+   ×; type one character and confirm the hint 输入至少 2 个字符可搜索消息正文 appears when no
+   title matches. Type a two-character **mid-sentence Chinese fragment** from a known chat and
+   wait: within ~1 s the 消息匹配 section shows the hit with the title as the first line, a
+   relative time on the right, and the fragment highlighted in the two-line snippet. Repeat with
+   an English word (prefix, e.g. `grad` for `gradle`).
+2. Edit the query (append characters): the previous query's message rows disappear at once and
+   the header reads 搜索中… until the new results land. Press the keyboard Search key mid-debounce:
+   results arrive without waiting.
+3. Turn off Wi-Fi and mobile data, search: the message section shows the error strip 消息搜索失败，
+   请重试。 (HR-SEARCH-001) with 重试 while title matches remain. Long-press the strip and paste
+   somewhere: the diagnostic contains the code and no token. Restore the network and tap 重试:
+   results appear.
+4. Tap a message hit: the chat opens with the search bar in the top bar's place, the query filled,
+   the counter at 1/N, the first hit's turn outlined and the matching words marked inside the
+   text (Markdown body, user bubble). Tap ↓ repeatedly: the counter advances and the outlined turn
+   follows. When a hit is inside 查看思考过程 or a tool card, that card opens by itself.
+5. In a chat, search for a word that does not occur: the bar reads 此会话中没有匹配 with
+   在全部会话中搜索; tap it and confirm the search screen opens with the query filled and the
+   message search running by itself.
+6. Rotate the phone with the search bar open, then press back: the bar closes first (chat stays);
+   press back again to leave. Re-enter the chat from the list: the search bar is not re-opened.

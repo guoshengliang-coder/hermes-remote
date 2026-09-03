@@ -71,13 +71,15 @@ import com.hermes.client.ui.startup.StartupDestination
 import com.hermes.client.ui.startup.ForegroundRecoveryCoordinator
 import com.hermes.client.data.diagnostics.CrashReporter
 
-private fun chatRoute(target: ChatLaunch): String = buildString {
+/** Route for a chat target. [encode] is injectable so the shape is unit-testable off-device. */
+internal fun chatRoute(target: ChatLaunch, encode: (String) -> String = { Uri.encode(it) }): String = buildString {
     append("chat/")
-    append(Uri.encode(target.sessionId))
+    append(encode(target.sessionId))
     val query = buildList {
-        target.profile?.takeIf { it.isNotBlank() }?.let { add("profile=${Uri.encode(it)}") }
-        target.title?.takeIf { it.isNotBlank() }?.let { add("title=${Uri.encode(it)}") }
+        target.profile?.takeIf { it.isNotBlank() }?.let { add("profile=${encode(it)}") }
+        target.title?.takeIf { it.isNotBlank() }?.let { add("title=${encode(it)}") }
         if (target.isNew) add("new=true")
+        target.initialQuery?.takeIf { it.isNotBlank() }?.let { add("q=${encode(it)}") }
     }
     if (query.isNotEmpty()) append('?').append(query.joinToString("&"))
 }
@@ -313,7 +315,10 @@ fun HermesNav(
                     onUnauthorized = onUnauthorized,
                 )
             }
-            composable("search") {
+            composable(
+                route = "search?q={q}",
+                arguments = listOf(navArgument("q") { type = NavType.StringType; nullable = true; defaultValue = null }),
+            ) {
                 val vm: SearchViewModel = hiltViewModel()
                 DisposableEffect(foregroundRecovery, vm) {
                     foregroundRecovery?.register("search") { vm.recoverForForeground() }
@@ -324,11 +329,12 @@ fun HermesNav(
 
             // ---- Pushed screens (back arrow) ----
             composable(
-                route = "chat/{id}?profile={profile}&title={title}&new={new}",
+                route = "chat/{id}?profile={profile}&title={title}&new={new}&q={q}",
                 arguments = listOf(
                     navArgument("profile") { type = NavType.StringType; nullable = true; defaultValue = null },
                     navArgument("title") { type = NavType.StringType; nullable = true; defaultValue = null },
                     navArgument("new") { type = NavType.BoolType; defaultValue = false },
+                    navArgument("q") { type = NavType.StringType; nullable = true; defaultValue = null },
                 ),
                 enterTransition = {
                     fadeIn(tween(170)) + slideInHorizontally(tween(190)) { it / 12 }
@@ -354,8 +360,10 @@ fun HermesNav(
                     sessionProfile = entry.arguments?.getString("profile"),
                     initialTitle = entry.arguments?.getString("title"),
                     isNewSession = entry.arguments?.getBoolean("new") ?: false,
+                    initialQuery = entry.arguments?.getString("q"),
                     vm = vm,
                     onMenu = backToSessions,
+                    onSearchAll = { q -> nav.navigate("search?q=${Uri.encode(q)}") { launchSingleTop = true } },
                     onNewChat = { id ->
                         openCanonicalChat(chatRoute(ChatLaunch.new(id)))
                     },
