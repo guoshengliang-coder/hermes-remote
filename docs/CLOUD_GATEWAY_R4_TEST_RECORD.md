@@ -31,7 +31,7 @@ R4 当前 `database: null` 发布路径的代码、回归、故障注入和一�
 | Fault-injection suite | Complete | 14 点显式矩阵经 PR #15 六项 checks、合并及 main CI/SAST/Gateway OCI 复核全部通过 |
 | Ephemeral upgrade/rollback | Complete | GitHub Actions run `33750219977` 在提交 `ae9855d` 完成真实 R3→R4→R3 往返，未访问香港服务器 |
 | R4 completion | Complete | 当前 `database: null` 发布路径满足本文六项完成定义；生产部署仍是独立授权 |
-| R4-F database activation | In progress | 本地迁移锁、重入、中断、版本门禁和切流前复核已通过；等待一次性 PostgreSQL staging 与 PR/main 门禁 |
+| R4-F database activation | Complete | PR #19 六项 checks、真实 PostgreSQL staging 和合并提交 `993623e` 的 main CI/SAST/Gateway OCI 均通过 |
 | Production deployment | Not authorized | R4 计划与代码工作不构成生产授权 |
 
 ## 仓库门禁说明
@@ -194,7 +194,16 @@ PostgreSQL 18 实例执行 `ACCOUNT_TEST_DATABASE_URL=<temporary> RUN_NETWORK_TE
 13 项、Connector 13 项、Gateway 53 项、release-server 30 项，以及脚本 62 个顶层测试（含子测试
 共 76 项）全部通过，零跳过。测试后实例已停止，临时数据目录已删除。
 
-一次性 workflow 已扩展为固定 R3 `0.2.0`、固定 R4 `0.3.0` 和待测 `0.4.0` 三个干净 OCI bundle：
-先保留既有 R3→R4→R3 往返，再部署 R4、以非空 database config 迁移并切到 `0.4.0`，验证 schema 7、
-公开 REST/WSS/Connector、旧制品数据库回滚拒绝和账号仍关闭时的应用回退。该 workflow 尚未在本
-提交上实际执行；通过前 R4-F 保持 In progress。香港服务器未连接、未安装 PostgreSQL、未迁移数据。
+一次性 workflow 使用固定 R3 `0.2.0`、固定 R4 `0.3.0` 和待测 `0.4.0` 三个干净 OCI bundle：先保留
+既有 R3→R4→R3 往返，再部署 R4、以非空 database config 迁移并切到 `0.4.0`，验证 schema 7、公开
+REST/WSS/Connector、旧制品数据库回滚拒绝和账号仍关闭时的应用回退。首次 run `33758927398` 在
+重复 R3→R4 转换时以 `HR-OPS-008/nginx_checkpoint_invalid` fail closed，暴露出已归档操作的 Nginx
+检查点仍会被相同转换复用；提交 `e7de6d5` 增加安全清理和回归断言。修复后的 run `33759536126`
+在提交 `e7de6d5` 完成全部流程，且 doctor、audit、journal 均未出现 App、Connector、内部状态 Token
+或数据库 URL。
+
+PR #19 的 CI run `33759517656`、SAST run `33759517759`、Gateway OCI run `33759517649` 六项检查
+全部通过；合并提交 `993623e` 的 main CI run `33760435041`、SAST run `33760434967`、Gateway OCI
+run `33760435024` 也全部成功。因此 R4-F 数据库 schema 准备路径满足本计划退出条件。账号认证和
+绑定 flag 仍为关闭；香港服务器未连接、未安装 PostgreSQL、未迁移数据，生产启用仍需独立授权及
+生产前置检查。
