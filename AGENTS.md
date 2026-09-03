@@ -24,8 +24,10 @@ and release artifact so those operations happen exactly once.
 
 The integration worktree — the one holding `main` — belongs to the integration agent alone. No other
 agent may edit files in it; every other task works on its own branch and worktree. An integration
-agent that finds uncommitted changes there stops, reports them, and neither commits nor discards
-them, because a release built or published from a shared worktree cannot be attributed to a commit.
+agent that finds uncommitted changes there reports them and never commits or discards them. Merging
+and pushing may continue when the change being integrated does not touch those files, but nothing is
+built or published from that worktree: cut a fresh worktree at the release commit instead, so that
+no one else's half-finished work can reach the artifact.
 
 When the hosting plan cannot enforce branch protection, the integration agent must treat successful
 PR checks as a manual merge gate: inspect every check reported for the PR, merge only after all have
