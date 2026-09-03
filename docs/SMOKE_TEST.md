@@ -96,6 +96,14 @@ curl -X POST -H "X-Hermes-Session-Token: $APP_TOKEN" \
 12. On Android 16, confirm the running card is promoted to a status-bar Live Update with the
     "n/m" chip when the run reports todos; with two runs the system picks one — no crash, no
     cross-overwrite.
+13. Foreground-service stop race (2026-09 branch claude/fgs-stop-race): with a locally started
+    run active, swipe the app to the background and back to the foreground as fast as possible,
+    ten times in a row; also background the app in the last second before the run completes.
+    The app must never crash with `ForegroundServiceDidNotStartInTimeException`. In the debug
+    log, a `stop deferred: startForeground still pending` line followed by `stop deferred past
+    startForeground; stopping now` shows the gate handled the race. The service notification
+    may flash for an instant in that case; afterwards it must be gone while the app is in the
+    foreground.
 
 For a deployed relay, set `PUBLIC_GATEWAY_URL` and `APP_TOKEN` in the invoking shell before running the same script. Keep the token out of command history and source control. A successful real-Hermes run accepts `gateway.ready` and any non-error result from `session.create`.
 
