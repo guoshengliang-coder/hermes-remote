@@ -24,8 +24,8 @@ R4 当前处于合同与实现阶段。本文只记录实际执行的结果；�
 | R4 plan and boundaries | Complete | `CLOUD_GATEWAY_R4_PLAN.md` 已定义双槽位、状态机、恢复矩阵、实施切片与退出条件 |
 | R4-A contract | Complete | PR #9 六项 checks 全部通过，合并提交 `c2f0600` 的 main CI、SAST、Gateway OCI 复核均通过 |
 | R4-B candidate path | Complete | PR #10 六项 checks 全部通过，合并提交 `9c3c54a` 的 main CI、SAST、Gateway OCI 复核均通过 |
-| R4-C switch/drain | In progress | 最终 snapshot 交接、持久 Nginx 检查点、原子切换、观察窗、提交与自动恢复已实现；聚焦故障注入通过，等待完整基线与 PR CI |
-| R4-D rollback | Not run | 尚未实现 |
+| R4-C switch/drain | Complete | PR #11 六项 checks 全部通过并合并为 `519a9ab`；合并后 main CI、SAST、Gateway OCI 复核全部通过 |
+| R4-D rollback | In progress | previous-only 门禁、committed journal 安全归档和反向 blue/green 完整往返已实现并通过聚焦测试；等待完整基线与 PR CI |
 | Fault-injection suite | Not run | 尚未实现 |
 | Ephemeral upgrade/rollback | Not run | 尚未实现；执行前不得触碰香港生产服务器 |
 | Production deployment | Not authorized | R4 计划与代码工作不构成生产授权 |
@@ -87,3 +87,19 @@ run `33742157459` 也全部成功。真实 systemd/Docker/Nginx 候选验证仍�
 13 项、Connector 13 项和 release-server 30 项全部通过。随后启用 `RUN_NETWORK_TESTS=1` 复核
 Gateway：初次在受限 sandbox 内因 `listen EPERM` 无法绑定 loopback；获准仅开放本机临时端口后
 重跑为 50 项通过、3 项仅因未配置一次性 PostgreSQL 而跳过。未连接香港服务器或任何生产服务。
+
+PR #11 的 Android、Desktop、Node、Secret、Semgrep、Gateway OCI 六项检查全部通过后合并；合并
+提交为 `519a9ab`。main 的 CI run `33744825657`、SAST run `33744825420` 与 Gateway OCI run
+`33744825444` 全部通过；其中 Android 完整复核耗时 8 分 16 秒并成功。
+
+## R4-D 当前本地证据
+
+聚焦往返测试覆盖 R3/schema 1 → R4/schema 2 deploy，再从 blue → green rollback 回到唯一 `previous`
+版本。它验证：rollback 维护策略由当前 R4 contract 治理、错误 previous 在任何服务操作前拒绝、上一份
+committed journal 内容一致后归档、目标旧 OCI identity 重新校验、lifecycle snapshot 反向槽位交接、
+公开观察通过后原子交换 `current/previous`，以及旧 blue 停止、新 green 活动。CLI 仍未开放，未执行
+真实 systemd/Docker/Nginx 或服务器测试。
+
+2026-09-03 执行 `npm run build`、`npm test` 与 `git diff --check` 均通过；脚本套件增至 47 项并
+全部通过。Protocol 13 项、Connector 13 项、release-server 30 项全部通过，Gateway 常规套件为
+42 项通过、11 项按既有网络/PostgreSQL 门禁跳过。本切片没有 Android/Desktop 源码或 APK 变化。

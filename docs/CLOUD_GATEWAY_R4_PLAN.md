@@ -143,6 +143,19 @@ journal 或路由实际状态与记录不一致时必须停止并返回结构化
 - `switchCandidate` 仍是内部执行边界。R4-D rollback 共用安全切换语义并完成前，不向操作者开放
   `deploy`/`rollback` CLI，也不允许据此触碰香港生产服务器。
 
+### R4-D 回滚边界
+
+- 候选准备与流量切换接受显式 `deploy`/`rollback` 操作，默认仍为 deploy；rollback 的兼容策略由
+  当前 schema 2 release contract 治理，因此即使目标是历史 schema 1，仍必须执行当前版本声明的
+  维护窗口、rollback policy 和数据库门禁。
+- rollback 目标必须与受管 `previous` symlink 的完整版本与 12 位提交身份一致；任意更老版本、手工
+  指定版本或伪造 symlink 都在停止服务前以 `HR-OPS-006` 拒绝。
+- 下一次操作只能在上一份 journal 已到 `committed`、其目标身份等于当前 source、活动槽位一致时开始。
+  原 journal 以 `0600` 归档到 history；既有同名归档内容不同会 fail closed，不能覆盖审计证据。
+- rollback 候选使用当前活动槽位的另一个 blue/green 槽位，复用 R4-C 的私有 smoke、最终 snapshot
+  交接、Nginx 检查点、公开观察和自动恢复。成功后 `current` 指向回滚版本，`previous` 指向回滚前版本。
+- R4-D 仍只提供内部执行边界；CLI 和一次性 staging 往返在 R4-E 接线与验证完成前保持关闭。
+
 ## 实施切片
 
 | 切片 | 内容 | 退出条件 |

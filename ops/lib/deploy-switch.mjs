@@ -29,6 +29,7 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
   const now = options.now ?? (() => new Date());
   const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   const runId = options.runId ?? randomUUID();
+  const operation = options.operation ?? "deploy";
   const ownership = options.ownership ?? {
     host: { uid: 0, gid: 0 },
     container: { uid: 1000, gid: 1000 },
@@ -43,7 +44,7 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
   try {
     authorizeSwitch(config, options);
     const transition = assessReleaseTransition(sourceManifest, targetManifest, {
-      operation: "deploy",
+      operation,
       databaseEnabled: config.database !== null,
     });
     if (config.database !== null) fail("database_migration_path_not_implemented", "switch_authorize");
@@ -56,7 +57,7 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
     const planDigest = deploymentPlanDigest(config, transition.source, transition.target, material.fingerprint);
     lock = await acquireDeploymentLock(paths.lock, runId);
     journal = await readDeploymentJournal(paths.journal);
-    verifyJournal(journal, planDigest, transition.source, transition.target);
+    verifyJournal(journal, operation, planDigest, transition.source, transition.target);
 
     const source = sourceDescriptor(config, journal.activeSlot);
     const candidate = slotDescriptor(config, journal.candidateSlot);
@@ -69,7 +70,7 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
       await assertSwitchedNginx(config, journal.candidateSlot);
       await options.publicSmoke(smokeRequest(config, targetManifest, journal.candidateSlot, true));
       await removeManagedFile(paths.handoff(planDigest), false);
-      return committedResult(config, journal, targetManifest);
+      return committedResult(config, journal, targetManifest, operation);
     }
     if (stageIndex < DEPLOYMENT_STAGES.indexOf("candidate_verified")) {
       fail("candidate_not_verified", "switch_resume");
@@ -125,7 +126,7 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
     journal = await persistStage(paths.journal, journal, "committed", now, ownership.host);
     await removeManagedFile(paths.handoff(planDigest), false);
     recoveryRequired = false;
-    return committedResult(config, journal, targetManifest);
+    return committedResult(config, journal, targetManifest, operation);
   } catch (error) {
     let recoveryError;
     if (recoveryRequired && journal?.checkpoint && checkpoint) {
@@ -445,8 +446,8 @@ async function archiveRecoveredJournal(paths, journal, now, owner) {
   await removeManagedFile(paths.journal, true);
 }
 
-function verifyJournal(journal, planDigest, source, target) {
-  if (journal.operation !== "deploy" || journal.planDigest !== planDigest
+function verifyJournal(journal, operation, planDigest, source, target) {
+  if (journal.operation !== operation || journal.planDigest !== planDigest
       || JSON.stringify(journal.source) !== JSON.stringify(source)
       || JSON.stringify(journal.target) !== JSON.stringify(target)) {
     fail("deployment_journal_identity_mismatch", "switch_resume");
@@ -526,6 +527,9 @@ function authorizeSwitch(config, options) {
   if (typeof options.candidateSmoke !== "function" || typeof options.publicSmoke !== "function") {
     fail("private_and_public_smoke_required", "switch_authorize");
   }
+  if (!new Set(["deploy", "rollback"]).has(options.operation ?? "deploy")) {
+    fail("switch_operation_invalid", "switch_authorize");
+  }
 }
 
 function switchPaths(config) {
@@ -539,10 +543,10 @@ function switchPaths(config) {
   };
 }
 
-function committedResult(config, journal, targetManifest) {
+function committedResult(config, journal, targetManifest, operation) {
   return {
     ok: true,
-    command: "switch-candidate",
+    command: operation === "rollback" ? "switch-rollback-candidate" : "switch-candidate",
     environment: config.environment,
     runId: journal.runId,
     activeSlot: journal.candidateSlot,
