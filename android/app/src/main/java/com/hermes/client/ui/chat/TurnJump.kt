@@ -52,6 +52,7 @@ import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import com.hermes.client.ui.components.ArrowToTopIcon
 import com.hermes.client.ui.components.PromptListIcon
+import com.hermes.client.ui.components.SheetCloseHandle
 import com.hermes.client.ui.components.ThinChevronIcon
 import com.hermes.client.ui.components.hermesSheetState
 import com.hermes.client.ui.localization.AppLanguage
@@ -132,7 +133,9 @@ internal data class TurnPillTarget(val groupIndex: Int, val showList: Boolean)
 internal const val TURN_PILL_LIST_MIN_GROUPS = 3
 
 /** How long the prompt just jumped to keeps the landing highlight (docs/DESIGN.md §5.4). */
-internal const val TURN_JUMP_FLASH_MS = 1_500L
+internal const val TURN_JUMP_FLASH_MS = 1_200L
+/** Part of TURN_JUMP_FLASH_MS the outline holds at full strength before fading. */
+internal const val TURN_JUMP_FLASH_HOLD_MS = 300L
 
 /** How long the list must sit still before the pill fades (docs/DESIGN.md §5.4). */
 internal const val TURN_PILL_IDLE_HIDE_MS = 1_500L
@@ -160,6 +163,9 @@ internal fun turnPillFor(
     if (groups[groupIndex].anchorIndex in visibleMessageRange) return null
     return TurnPillTarget(groupIndex, showList = groups.size >= TURN_PILL_LIST_MIN_GROUPS)
 }
+
+/** A queued jump: the reversed list index to align plus the message the landing feedback marks. */
+internal data class TurnJumpRequest(val listIndex: Int, val anchorIndex: Int)
 
 /** Reversed LazyColumn index of a message: slot 0 is the permanent bottom edge, newest turn is 1. */
 internal fun messageListIndex(messageCount: Int, messageIndex: Int): Int = messageCount - messageIndex
@@ -369,7 +375,14 @@ internal fun PromptListSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = hermesSheetState()
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    // Sheet gestures OFF (docs/DESIGN.md §5.8 global rule): scrolling the list never drags or
+    // closes the sheet; closing is the grab bar, the scrim, or back.
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        sheetGesturesEnabled = false,
+        dragHandle = { SheetCloseHandle(onDismiss) },
+    ) {
         PromptListHeader(count = rows.count { !it.isLeading }, onLatest = onLatest)
         PromptListContent(rows, onPick)
         Spacer(Modifier.height(16.dp))

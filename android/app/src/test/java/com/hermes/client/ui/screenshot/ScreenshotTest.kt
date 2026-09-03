@@ -496,6 +496,30 @@ class ScreenshotTest {
         ),
     )
 
+    // Turn-jump landing feedback vs search highlight (DESIGN.md §5.4): the landed bubble gets an
+    // outline only (shown at full alpha, i.e. the first frame); the search hit keeps fill + outline.
+    private fun snapLanding(name: String, darkTheme: Boolean) = snap(name, darkTheme = darkTheme) {
+        androidx.compose.foundation.layout.Column(
+            modifier = androidx.compose.ui.Modifier.padding(horizontal = 22.dp, vertical = 16.dp),
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(18.dp),
+        ) {
+            listOf(
+                Triple("plain", 0f, false),
+                Triple("landing", 1f, false),
+                Triple("search", 0f, true),
+            ).forEach { (id, landing, search) ->
+                com.hermes.client.ui.chat.UserBubble(
+                    msg = userTurn(id, "可以进一步加大虚拟内存什么的吗", com.hermes.client.domain.DeliveryState.SENT),
+                    onEditResend = {}, onImageSave = {}, onImageSaveAs = {}, onImageShare = {}, savingImageId = null,
+                    onFileOpen = {}, onFileShare = {}, highlighted = search, landingAlpha = landing,
+                )
+            }
+        }
+    }
+
+    @Test fun userBubbleLandingOutline() = snapLanding("user-bubble-landing", darkTheme = false)
+    @Test fun userBubbleLandingOutlineDark() = snapLanding("user-bubble-landing-dark", darkTheme = true)
+
     @Test fun userBubbleDeliveryStates() = snapDelivery("user-bubble-delivery", darkTheme = false)
     @Test fun userBubbleDeliveryStatesDark() = snapDelivery("user-bubble-delivery-dark", darkTheme = true)
 
