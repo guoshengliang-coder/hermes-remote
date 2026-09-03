@@ -41,6 +41,13 @@ const DEFINITIONS = Object.freeze({
     retryable: false,
     recoveryAction: "select_compatible_release",
   }),
+  deployment: Object.freeze({
+    code: "HR-OPS-007",
+    summaryZh: "Gateway 候选版本准备未完成，旧服务保持不变。请检查部署阶段后重试。",
+    summaryEn: "Gateway candidate preparation did not complete; the existing service was left unchanged. Inspect the deployment stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_deployment_stage_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;
