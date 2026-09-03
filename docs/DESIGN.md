@@ -469,6 +469,22 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
 - 历史：身份设置页曾把 52dp 通栏按钮放在滚动列末尾，高屏留一大截空白、矮屏又随内容滚走，
   两头不靠——这是本条的由来。
 
+### 5.10 分享对话（决策 2026-09-02）
+- 「更多 › 分享对话」**先弹格式选择层**（三项：文字 / Markdown 文件 / 长图），选定后才跳系统
+  分享盘。每项一行说明，讲清各自适用场景，不让用户猜。
+- **文字**：`EXTRA_TEXT` 直发，适合短对话直接粘贴。
+- **Markdown 文件**：写入 `cacheDir/transcripts/`，经 FileProvider 以 `text/markdown` 分享。
+  文件名 `HermesGO-<标题>-<时间戳>.md`，标题必须过 `transcriptFileBaseName` 清洗（路径分隔符、
+  保留字符、换行、超长一律处理）。正文原样保留 Markdown，代码块与表格必须无损。
+- **长图**：离屏 GraphicsLayer 渲染（`OffscreenTranscriptExporter`），三条硬规则 ——
+  ① **固定浅色**渲染，无论 App 当前主题（深色长图在他人聊天里过重，且更扛不住二次压缩）；
+  ② 底部**页脚**标注会话标题与导出时间 + Hermes GO；
+  ③ **限长策略 A**：渲染前用 `transcriptImageFitsBudget` 预估，超出
+  `TRANSCRIPT_IMAGE_MAX_HEIGHT_PX`（12000px，GPU 纹理与内存的安全线）**直接拒绝出图**并引导改用
+  Markdown 文件 —— 宁可不出，也不给用户一张残缺或渲染失败的图。
+- 长图中的图片附件：**已缓存的正常渲染，未缓存的画占位框**；导出绝不触发下载，分享动作不得
+  阻塞在网络上。
+
 ## 6. 文案
 
 - 产品名统一 **Hermes GO**（字标、磁贴、关于页、崩溃报告、诊断/对话分享主题、表格导出

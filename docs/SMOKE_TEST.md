@@ -326,3 +326,23 @@ Relay connection.
    previously chosen colours appear as the selected swatch on first open of 身份设置.
 8. Break the photo pipeline (pick a non-image or corrupt file if the picker allows it) and confirm
    the toast reads 无法读取所选照片，请换一张再试。 (HR-MEDIA-002) and the previous avatar stays.
+
+## Share transcript smoke test (2026-09, three formats)
+
+Device flows for the share-format picker. Pending device verification.
+
+1. **Picker appears.** 更多 › 分享对话 opens the format sheet (not the system share sheet) with
+   three rows: 文字 / Markdown 文件 / 长图. An empty conversation still shows the
+   "暂无可导出的内容" toast instead of the picker.
+2. **Plain text.** Unchanged behaviour: shares as text into WeChat/mail.
+3. **Markdown file.** Share to a file-capable target (mail, cloud drive, Obsidian). The received
+   file is `HermesGO-<title>-<stamp>.md`; opening it shows the title, the metadata line (time,
+   model, Hermes GO) and `## 你` / `## 助手` sections, with code fences and tables intact. Try a
+   session whose title contains `/`, `:` or emoji — the file must still save.
+4. **Image, short conversation.** Shares one PNG containing the whole conversation, rendered in
+   the LIGHT theme even when the app is in dark mode, with the footer showing title + date.
+   Cached inline images appear; images never downloaded show a placeholder box.
+5. **Image, long conversation.** A long transcript must NOT render: the picker closes and a toast
+   suggests the Markdown file instead. Nothing crashes and no partial image is shared.
+6. **Failure surfaces.** If file creation or rendering fails, the toast carries HR-FILE-002 or
+   HR-MEDIA-003 respectively.
