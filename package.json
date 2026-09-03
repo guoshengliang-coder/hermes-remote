@@ -27,6 +27,7 @@
     "ops:doctor": "node scripts/hermesctl.mjs doctor",
     "ops:deploy": "node scripts/hermesctl.mjs deploy",
     "ops:rollback": "node scripts/hermesctl.mjs rollback",
+    "ops:production-audit": "node scripts/hermesctl.mjs production-audit",
     "dev:gateway": "npm run dev -w @hermes-remote/gateway",
     "dev:connector": "npm run dev -w @hermes-remote/connector"
   },

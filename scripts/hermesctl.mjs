@@ -3,6 +3,8 @@ import { loadBundleManifest, loadDeployConfig, loadOpsConfig } from "../ops/lib/
 import { executeDeployment } from "../ops/lib/deploy-command.mjs";
 import { createStagingSmokeCallbacks } from "../ops/lib/deploy-smoke.mjs";
 import { errorPayload, OpsError } from "../ops/lib/errors.mjs";
+import { auditProductionReadiness } from "../ops/lib/production-audit.mjs";
+import { loadProductionAuditConfig } from "../ops/lib/production-config.mjs";
 import {
   bootstrapStaging,
   createDoctorBundle,
@@ -15,15 +17,22 @@ const command = process.argv[2];
 try {
   const args = parseArguments(command, process.argv.slice(3));
   const deploymentCommand = command === "deploy" || command === "rollback";
-  const config = deploymentCommand
-    ? await loadDeployConfig(args.config)
-    : await loadOpsConfig(args.config);
+  const productionAudit = command === "production-audit";
+  const config = productionAudit
+    ? await loadProductionAuditConfig(args.config)
+    : deploymentCommand
+      ? await loadDeployConfig(args.config)
+      : await loadOpsConfig(args.config);
   const manifest = await loadBundleManifest(
-    deploymentCommand ? config.targetArtifactManifest : config.artifactManifest,
-    { verifyArchive: command === "preflight" || command === "bootstrap" || deploymentCommand },
+    deploymentCommand || productionAudit ? config.targetArtifactManifest : config.artifactManifest,
+    { verifyArchive: command === "preflight" || command === "bootstrap" || deploymentCommand || productionAudit },
   );
 
-  if (command === "preflight") {
+  if (productionAudit) {
+    const result = await auditProductionReadiness(config, manifest, { confirmation: args.confirm });
+    print(result);
+    if (!result.ok) process.exitCode = 1;
+  } else if (command === "preflight") {
     print(await preflight(config, manifest));
   } else if (command === "bootstrap") {
     print(await bootstrapStaging(config, manifest, { confirmation: args.confirm }));
@@ -48,6 +57,8 @@ try {
       ? "bootstrap"
       : command === "deploy" || command === "rollback"
         ? "deployment"
+      : command === "production-audit"
+        ? "promotion"
       : command === "status"
         ? "status"
         : "config";
@@ -56,7 +67,7 @@ try {
 }
 
 function parseArguments(selectedCommand, values) {
-  if (!new Set(["preflight", "bootstrap", "status", "doctor", "deploy", "rollback"]).has(selectedCommand)) {
+  if (!new Set(["preflight", "bootstrap", "status", "doctor", "deploy", "rollback", "production-audit"]).has(selectedCommand)) {
     throw new OpsError("config", "command_not_supported", "arguments_parse");
   }
   const parsed = {};
@@ -76,6 +87,10 @@ function parseArguments(selectedCommand, values) {
   if (new Set(["bootstrap", "deploy", "rollback"]).has(selectedCommand)) {
     if (parsed.confirm !== "staging" || parsed.output) {
       throw new OpsError("config", `${selectedCommand}_requires_confirm_staging`, "arguments_parse");
+    }
+  } else if (selectedCommand === "production-audit") {
+    if (!/^production:[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/.test(parsed.confirm ?? "") || parsed.output) {
+      throw new OpsError("config", "production_audit_requires_exact_confirmation", "arguments_parse");
     }
   } else if (parsed.confirm) {
     throw new OpsError("config", "confirm_not_supported_for_command", "arguments_parse");

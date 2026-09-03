@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "environment": "production",
+  "operator": "replace-with-operator-id",
+  "targetArtifactManifest": "/secure-input/hermes-go/Hermes-Gateway-target-linux-amd64.manifest.json",
+  "host": {
+    "hostname": "replace-with-production-hostname",
+    "architecture": "amd64",
+    "minimumFreeDiskMiB": 10240,
+    "minimumAvailableMemoryMiB": 1024
+  },
+  "publicRoute": {
+    "serverName": "gateway.example.com",
+    "listenPort": 443,
+    "healthPath": "/relay-health"
+  },
+  "legacyGateway": {
+    "serviceName": "hermes-remote-gateway",
+    "gatewayPort": 8444,
+    "stateFile": "/var/lib/hermes-remote/lifecycle-events.json",
+    "identityFiles": [
+      {
+        "path": "/opt/hermes-remote/gateway/package.json",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "path": "/opt/hermes-remote/gateway/dist/index.js",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ]
+  },
+  "postgresql": {
+    "serviceName": "postgresql",
+    "majorVersion": 18,
+    "port": 5432
+  },
+  "evidence": {
+    "legacyRecoveryManifest": "/secure-evidence/hermes-go/legacy-recovery.json",
+    "databaseRestoreManifest": "/secure-evidence/hermes-go/postgresql-restore.json"
+  }
+}

@@ -62,6 +62,13 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "inspect_database_state_and_retry",
   }),
+  promotion: Object.freeze({
+    code: "HR-OPS-010",
+    summaryZh: "生产晋级前置门禁尚未全部通过，线上服务保持不变。请补齐阻断项后重新审计。",
+    summaryEn: "Production promotion gates are incomplete; the live service was left unchanged. Resolve the blockers and audit again.",
+    retryable: true,
+    recoveryAction: "resolve_production_gates_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;
