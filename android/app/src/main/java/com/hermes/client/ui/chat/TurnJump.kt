@@ -6,7 +6,9 @@ import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,26 +25,34 @@ import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import com.hermes.client.ui.components.ArrowToTopIcon
 import com.hermes.client.ui.components.PromptListIcon
+import com.hermes.client.ui.components.ThinChevronIcon
 import com.hermes.client.ui.components.hermesSheetState
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.LocalAppLanguage
@@ -118,8 +128,11 @@ internal fun promptSummary(message: ChatMessage, language: AppLanguage): String 
 /** What the pill should show for the current viewport, or null to hide it. */
 internal data class TurnPillTarget(val groupIndex: Int, val showList: Boolean)
 
-/** Groups from the end that keep a plain pill; from the next one on the list segment appears. */
-internal const val TURN_PILL_LIST_DEPTH = 2
+/** From this many groups on, the pill always carries the prompt-list segment (decision 2026-09-03). */
+internal const val TURN_PILL_LIST_MIN_GROUPS = 3
+
+/** How long the prompt just jumped to keeps the landing highlight (docs/DESIGN.md §5.4). */
+internal const val TURN_JUMP_FLASH_MS = 1_500L
 
 /** How long the list must sit still before the pill fades (docs/DESIGN.md §5.4). */
 internal const val TURN_PILL_IDLE_HIDE_MS = 1_500L
@@ -145,8 +158,7 @@ internal fun turnPillFor(
     if (atBottom || groups.isEmpty() || topVisibleMessageIndex < 0) return null
     val groupIndex = groupIndexOf(groups, topVisibleMessageIndex)
     if (groups[groupIndex].anchorIndex in visibleMessageRange) return null
-    val fromEnd = groups.lastIndex - groupIndex
-    return TurnPillTarget(groupIndex, showList = fromEnd >= TURN_PILL_LIST_DEPTH)
+    return TurnPillTarget(groupIndex, showList = groups.size >= TURN_PILL_LIST_MIN_GROUPS)
 }
 
 /** Reversed LazyColumn index of a message: slot 0 is the permanent bottom edge, newest turn is 1. */
@@ -242,6 +254,7 @@ internal suspend fun LazyListState.alignItemTopToViewport(listIndex: Int, topIns
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun TurnJumpPill(
     label: String,
@@ -267,7 +280,7 @@ internal fun TurnJumpPill(
             Row(
                 Modifier
                     .weight(1f, fill = false)
-                    .clickable(onClick = onJump)
+                    .combinedClickable(onClick = onJump, onLongClick = onOpenList)
                     .semantics { contentDescription = jumpDescription }
                     .padding(start = 14.dp, end = if (showList) 12.dp else 14.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -310,9 +323,10 @@ internal fun TurnJumpPill(
     }
 }
 
-/** One row of the prompt list. */
+/** One row of the prompt list. [ordinal] is 1-based over prompt groups; null for the leading group. */
 internal data class PromptRow(
     val groupIndex: Int,
+    val ordinal: Int?,
     val label: String,
     val time: String?,
     val isCurrent: Boolean,
@@ -325,88 +339,159 @@ internal fun promptRows(
     currentGroupIndex: Int?,
     language: AppLanguage,
     formatTime: (Long) -> String,
-): List<PromptRow> = groups.mapIndexed { index, group ->
-    val prompt = group.promptIndex?.let { messages[it] }
-    PromptRow(
-        groupIndex = index,
-        label = if (prompt == null) localized(language, "会话开始", "Start of chat") else promptSummary(prompt, language),
-        time = prompt?.timestamp?.let(formatTime),
-        isCurrent = index == currentGroupIndex,
-        isLeading = prompt == null,
-    )
+): List<PromptRow> {
+    var ordinal = 0
+    return groups.mapIndexed { index, group ->
+        val prompt = group.promptIndex?.let { messages[it] }
+        PromptRow(
+            groupIndex = index,
+            ordinal = if (prompt == null) null else ++ordinal,
+            label = if (prompt == null) localized(language, "会话开始", "Start of chat") else promptSummary(prompt, language),
+            time = prompt?.timestamp?.let(formatTime),
+            isCurrent = index == currentGroupIndex,
+            isLeading = prompt == null,
+        )
+    }
 }
+
+/** Rows above the current one kept in view when the sheet opens, so "here" sits mid-list. */
+internal const val PROMPT_LIST_ROWS_ABOVE_CURRENT = 2
+
+internal fun promptListInitialIndex(rows: List<PromptRow>): Int =
+    (rows.indexOfFirst { it.isCurrent } - PROMPT_LIST_ROWS_ABOVE_CURRENT).coerceAtLeast(0)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PromptListSheet(
     rows: List<PromptRow>,
     onPick: (PromptRow) -> Unit,
+    onLatest: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val language = LocalAppLanguage.current
     val sheetState = hermesSheetState()
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        // Left-aligned title on the 24dp text baseline shared with the rows (docs/DESIGN.md §5.5).
-        Text(
-            localized(language, "我的提问", "Your prompts"),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 8.dp),
-        )
+        PromptListHeader(count = rows.count { !it.isLeading }, onLatest = onLatest)
         PromptListContent(rows, onPick)
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(16.dp))
     }
 }
 
+/**
+ * Centred title with the prompt count as its subtitle (the model-sheet header pattern, DESIGN.md
+ * §5.8) and 「回到最新」 on the right: the only way out of a long list that is not "scroll".
+ */
+@Composable
+internal fun PromptListHeader(count: Int, onLatest: () -> Unit, modifier: Modifier = Modifier) {
+    val language = LocalAppLanguage.current
+    Box(modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+        Column(
+            Modifier.align(Alignment.Center),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(localized(language, "我的提问", "Your prompts"), style = MaterialTheme.typography.titleMedium)
+            Text(
+                localized(language, "$count 条", "$count prompts"),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        TextButton(onClick = onLatest, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp).testTag("prompt-list-latest")) {
+            Text(localized(language, "回到最新", "Latest"))
+        }
+    }
+}
+
+/**
+ * The rows (docs/DESIGN.md §5.4, decision 2026-09-03): ordinal circle → prompt (≤2 lines) → time
+ * only when the message has one → thin chevron. The ordinal is the stable coordinate because
+ * gateway history carries no timestamps; the current row is a primaryContainer block with a filled
+ * ordinal and NO extra text — the block and the circle already say "here"; TalkBack gets it as a
+ * state description instead.
+ */
 @Composable
 internal fun PromptListContent(
     rows: List<PromptRow>,
     onPick: (PromptRow) -> Unit,
     modifier: Modifier = Modifier,
-    listState: LazyListState = rememberLazyListState(
-        initialFirstVisibleItemIndex = rows.indexOfFirst { it.isCurrent }.coerceAtLeast(0),
-    ),
+    listState: LazyListState = rememberLazyListState(initialFirstVisibleItemIndex = promptListInitialIndex(rows)),
 ) {
     val language = LocalAppLanguage.current
+    val hairline = MaterialTheme.colorScheme.surfaceContainerHigh
     LazyColumn(state = listState, modifier = modifier.fillMaxWidth().testTag("prompt-list")) {
-        itemsIndexed(rows, key = { _, row -> row.groupIndex }) { _, row ->
-            // Only the current row paints a container; the others let the sheet's own colour through.
-            val background = if (row.isCurrent) MaterialTheme.colorScheme.surfaceContainerHigh else androidx.compose.ui.graphics.Color.Transparent
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .background(background)
-                    .clickable { onPick(row) }
-                    .padding(horizontal = 24.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        row.label,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (row.isLeading) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    val supporting = when {
-                        row.isCurrent && row.time != null -> localized(language, "${row.time} · 当前位置", "${row.time} · You are here")
-                        row.isCurrent -> localized(language, "当前位置", "You are here")
-                        else -> row.time
-                    }
-                    if (supporting != null) {
-                        Text(
-                            supporting,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (row.isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
-                    }
+        itemsIndexed(rows, key = { _, row -> row.groupIndex }) { index, row ->
+            val current = row.isCurrent
+            val description = when {
+                row.isLeading -> row.label
+                else -> localized(language, "第 ${row.ordinal} 条：${row.label}", "Prompt ${row.ordinal}: ${row.label}")
+            }
+            val hereLabel = localized(language, "当前位置", "You are here")
+            Column {
+                // Hairline from the text edge; none around the highlighted block.
+                if (index > 0 && !current && !rows[index - 1].isCurrent) {
+                    HorizontalDivider(color = hairline, modifier = Modifier.padding(start = 64.dp, end = 16.dp))
                 }
-                if (row.isCurrent) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (current) {
+                                Modifier
+                                    .padding(horizontal = 8.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                            } else Modifier,
+                        )
+                        .clickable { onPick(row) }
+                        .semantics(mergeDescendants = true) {
+                            contentDescription = description
+                            if (current) stateDescription = hereLabel
+                        }
+                        .padding(start = if (current) 16.dp else 24.dp, end = 16.dp, top = 13.dp, bottom = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (row.ordinal != null) {
+                        Box(
+                            Modifier
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .background(if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                row.ordinal.toString(),
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = if (current) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    } else {
+                        Spacer(Modifier.size(26.dp))
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            row.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (row.isLeading) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (row.time != null) {
+                            Text(
+                                row.time,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 2.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
                     Icon(
-                        ArrowToTopIcon,
+                        ThinChevronIcon,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 12.dp).size(18.dp),
+                        tint = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
                     )
                 }
             }
