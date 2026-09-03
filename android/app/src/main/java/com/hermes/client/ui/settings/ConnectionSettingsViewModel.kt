@@ -83,7 +83,10 @@ class ConnectionSettingsViewModel @Inject constructor(
             }
         } else {
             when (val probe = rest.probeStatusFor(url, s.token)) {
-                GatewayProbeResult.Reachable -> localizedText("连接成功 ✓", "Connected ✓")
+                GatewayProbeResult.Reachable -> localizedText(
+                    "Relay 与 Mac 基础连接正常 ✓",
+                    "Relay and Mac are reachable ✓",
+                )
                 is GatewayProbeResult.Unauthorized -> localizedText(
                     "App Token 无效或已失效（HR-AUTH-001）",
                     "The App Token is invalid or expired (HR-AUTH-001)",

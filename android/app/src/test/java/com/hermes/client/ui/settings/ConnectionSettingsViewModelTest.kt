@@ -65,7 +65,10 @@ class ConnectionSettingsViewModelTest {
         advanceUntilIdle()
         coVerify { rest.probeStatusFor("https://h", "t") }
         verify(exactly = 0) { store.save(any()) }
-        assertEquals("Connected ✓", vm.state.value.testResult?.resolve(com.hermes.client.ui.localization.AppLanguage.EN))
+        assertEquals(
+            "Relay and Mac are reachable ✓",
+            vm.state.value.testResult?.resolve(com.hermes.client.ui.localization.AppLanguage.EN),
+        )
     }
 
     @Test fun editingFieldsInvalidatesAnOlderInFlightProbeResult() = runTest {

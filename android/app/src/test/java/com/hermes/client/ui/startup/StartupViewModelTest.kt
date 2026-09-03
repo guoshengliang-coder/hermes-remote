@@ -263,34 +263,50 @@ class StartupViewModelTest {
         verify(exactly = 0) { chat.connect() }
     }
 
-    @Test fun gatewayReadyTimeoutOffersRecoveryInsteadOfBlockingForever() = runTest {
+    @Test fun gatewayReadyTimeoutStillOpensRestBackedSessionListOnColdStart() = runTest {
         val vm = vm()
 
         vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        advanceTimeBy(StartupViewModel.CONNECTION_TIMEOUT_MS)
+        runCurrent()
+
+        assertEquals(StartupUiState.Hidden, vm.state.value)
+        coVerify(exactly = 1) { profiles.refresh() }
+        coVerify(exactly = 1) { sessions.listAllProfiles() }
+    }
+
+    @Test fun initialSetupStillRequiresGatewayReady() = runTest {
+        val vm = vm()
+
+        vm.onInitialConfigurationSaved()
         runCurrent()
         advanceTimeBy(StartupViewModel.CONNECTION_TIMEOUT_MS)
         runCurrent()
 
         val failed = vm.state.value as StartupUiState.Failed
+        assertEquals(StartupReason.INITIAL_SETUP, failed.reason)
         assertEquals(StartupFailure.CONNECTION_FAILED, failed.failure)
+        coVerify(exactly = 0) { sessions.listAllProfiles() }
     }
 
-    @Test fun lateAutomaticRecoveryDismissesTimeoutActions() = runTest {
+    @Test fun warmRecoveryTimeoutLeavesCurrentScreenVisibleWhileSocketKeepsRetrying() = runTest {
         val vm = vm()
 
-        vm.onActivityCreated(processColdStart = true)
+        vm.onForeground()
+        advanceTimeBy(StartupViewModel.HOT_START_DEBOUNCE_MS)
         runCurrent()
         advanceTimeBy(StartupViewModel.CONNECTION_TIMEOUT_MS)
         runCurrent()
-        assertTrue(vm.state.value is StartupUiState.Failed)
 
-        connection.value = ConnectionState.Connected
-        runCurrent()
-        assertEquals(StartupPhase.READY, (vm.state.value as StartupUiState.Loading).phase)
-        advanceTimeBy(maxOf(StartupViewModel.MINIMUM_COLD_START_MS, StartupViewModel.SUCCESS_COMPLETION_MS))
+        assertEquals(StartupUiState.Hidden, vm.state.value)
+        coVerify(exactly = 0) { sessions.listAllProfiles() }
+
+        connection.value = ConnectionState.Connecting
+        advanceTimeBy(StartupViewModel.HOT_START_DEBOUNCE_MS)
         runCurrent()
         assertEquals(StartupUiState.Hidden, vm.state.value)
-        coVerify(exactly = 1) { sessions.listAllProfiles() }
+        coVerify(exactly = 1) { rest.probeStatusFor(config.baseUrl, config.token) }
     }
 
     @Test fun rejectedTokenRoutesToConfigurationRepair() = runTest {
