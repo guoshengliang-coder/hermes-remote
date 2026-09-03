@@ -191,6 +191,15 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.86 redesigns the chat's 我的提问 sheet around the user task of returning to any
+  turn in a long chat. Rows carry a 26dp ordinal circle, the prompt, a time only when the message
+  has one (gateway history carries no timestamps, which had collapsed the old rows into plain
+  text), and a thin chevron; the current row is a primaryContainer block with a filled ordinal and
+  no extra label (TalkBack gets a state description), and the sheet opens with two rows above it.
+  The header is centred with the prompt count as subtitle and 回到最新 on the right. Jumping
+  highlights the landed prompt for 1.5 s; the pill carries its list segment from three groups on
+  and long-pressing it opens the list. Design contract in `docs/DESIGN.md` §5.4, mockup under
+  `docs/design/prompt-list-redesign.html`; device-verified on the HONOR phone.
 - Version 0.1.85 finishes the turn-jump fix: 0.1.84 could still end a far jump at the bottom of
   the chat, because the turns below the target compose a line or two tall until their Markdown
   parses and the first placement clamped the list before they grew. The settle loop now keeps
@@ -483,7 +492,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.85-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.86-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
