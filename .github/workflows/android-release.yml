@@ -83,11 +83,10 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Run protocol checks
+      - name: Run Node build and test gate
         run: |
           npm ci --ignore-scripts
-          npm run build
-          npm test
+          npm run test:ci
 
       - name: Set up Java
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1

@@ -1,1 +1,1 @@
-{"name":"@hermes-remote/release-server","private":true,"type":"module","scripts":{"test":"node --test"},"engines":{"node":">=20"}}
+{"name":"@hermes-remote/release-server","private":true,"type":"module","scripts":{"test":"node --test","test:built":"node --test"},"engines":{"node":">=20"}}
