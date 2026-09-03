@@ -345,6 +345,9 @@ fun ChatScreen(
     // Image attach: read picked/captured bytes and stage them onto the session.
     val clipboard = LocalClipboardManager.current
     var transcriptMenu by remember { mutableStateOf(false) }
+    // Share-transcript format picker + the offscreen image export it can start.
+    var shareFormatSheet by remember { mutableStateOf(false) }
+    var transcriptImageExporting by remember { mutableStateOf(false) }
     // Menu entry to the prompt list; the list itself lives in ChatMessageList, which owns the turns.
     var promptListTick by remember { mutableStateOf(0L) }
     var showAttachSheet by remember { mutableStateOf(false) }
@@ -713,20 +716,12 @@ fun ChatScreen(
                                 leadingIcon = { Icon(Icons.Rounded.Share, contentDescription = null, Modifier.size(20.dp)) },
                                 text = { Text(localized(language, "分享对话", "Share transcript")) },
                                 onClick = {
-                                    val t = transcriptText(state.messages, language)
-                                    if (t.isBlank()) {
+                                    // The format picker owns the decision now: plain text, a
+                                    // Markdown file, or a rendered image.
+                                    if (state.messages.none { it.text.isNotBlank() }) {
                                         android.widget.Toast.makeText(context, localized(language, "暂无可导出的内容", "Nothing to export yet"), android.widget.Toast.LENGTH_SHORT).show()
                                     } else {
-                                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                                            type = "text/plain"
-                                            putExtra(android.content.Intent.EXTRA_SUBJECT, localized(language, "Hermes GO 对话记录", "Hermes GO chat transcript"))
-                                            putExtra(android.content.Intent.EXTRA_TEXT, t)
-                                        }
-                                        runCatching {
-                                            context.startActivity(android.content.Intent.createChooser(send, localized(language, "分享对话", "Share transcript")))
-                                        }.onFailure {
-                                            android.widget.Toast.makeText(context, localized(language, "无法分享对话", "Couldn't share transcript"), android.widget.Toast.LENGTH_SHORT).show()
-                                        }
+                                        shareFormatSheet = true
                                     }
                                     transcriptMenu = false
                                 },
@@ -1405,6 +1400,98 @@ fun ChatScreen(
             listLoading = providersLoading,
             listError = providersError,
             onRetryLoad = { vm.ensureProviders(force = true) },
+        )
+    }
+
+    if (shareFormatSheet) {
+        val density = androidx.compose.ui.platform.LocalDensity.current.density
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        val subject = localized(language, "Hermes GO 对话记录", "Hermes GO chat transcript")
+        ShareTranscriptSheet(
+            onText = {
+                shareFormatSheet = false
+                val body = transcriptText(state.messages, language)
+                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_SUBJECT, subject)
+                    putExtra(android.content.Intent.EXTRA_TEXT, body)
+                }
+                runCatching {
+                    context.startActivity(android.content.Intent.createChooser(send, localized(language, "分享对话", "Share transcript")))
+                }.onFailure {
+                    android.widget.Toast.makeText(context, localized(language, "无法分享对话", "Couldn't share transcript"), android.widget.Toast.LENGTH_SHORT).show()
+                }
+            },
+            onMarkdown = {
+                shareFormatSheet = false
+                val now = System.currentTimeMillis()
+                val markdown = transcriptMarkdown(
+                    title = sessionTitle,
+                    messages = state.messages,
+                    language = language,
+                    exportedAtMillis = now,
+                    model = currentModel,
+                )
+                scope.launch {
+                    val ok = TranscriptShare.shareMarkdown(
+                        context = context,
+                        baseName = transcriptFileBaseName(sessionTitle, now),
+                        markdown = markdown,
+                        chooserTitle = localized(language, "分享对话", "Share transcript"),
+                        subject = subject,
+                    )
+                    if (!ok) {
+                        android.widget.Toast.makeText(
+                            context,
+                            com.hermes.client.data.error.AppError(
+                                com.hermes.client.data.error.AppErrorCode.TRANSCRIPT_FILE_FAILED,
+                                retryable = true,
+                            ).localizedMessage(language),
+                            android.widget.Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            },
+            onImage = {
+                shareFormatSheet = false
+                // Strategy A (docs/DESIGN.md §5): refuse over-budget transcripts up front and
+                // point at the Markdown export rather than emitting a broken or OOM-ing capture.
+                if (!transcriptImageFitsBudget(state.messages, density)) {
+                    android.widget.Toast.makeText(
+                        context,
+                        localized(
+                            language,
+                            "对话较长，长图无法完整生成，建议改用 Markdown 文件分享。",
+                            "This conversation is too long for one image — share it as a Markdown file instead.",
+                        ),
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                } else {
+                    transcriptImageExporting = true
+                }
+            },
+            onDismiss = { shareFormatSheet = false },
+        )
+    }
+
+    if (transcriptImageExporting) {
+        OffscreenTranscriptExporter(
+            title = sessionTitle,
+            messages = state.messages,
+            exportedAtMillis = remember { System.currentTimeMillis() },
+            onDone = { ok ->
+                transcriptImageExporting = false
+                if (!ok) {
+                    android.widget.Toast.makeText(
+                        context,
+                        com.hermes.client.data.error.AppError(
+                            com.hermes.client.data.error.AppErrorCode.TRANSCRIPT_IMAGE_FAILED,
+                            retryable = true,
+                        ).localizedMessage(language),
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                }
+            },
         )
     }
 

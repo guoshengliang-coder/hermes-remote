@@ -181,7 +181,9 @@ expanded without changing the underlying meaning.
 | `HR-OPS-005` | A bounded allowlist-only diagnostic bundle could not be created safely | 无法生成安全的诊断包，请检查输出位置后重试。 | Couldn't create a safe diagnostic bundle. Check the output location and retry. | Yes (check output and retry) |
 | `HR-OPS-006` | Source and target Gateway release versions, schemas, protocols, or rollback policy are incompatible | 源版本与目标 Gateway 发布合同不兼容，请选择可升级或可回滚的版本。 | The source and target Gateway release contracts are incompatible. Select a compatible upgrade or rollback version. | No (select a compatible release) |
 | `HR-FILE-001` | A selected attachment could not be read | 无法读取所选文件，请重新选择。 | Couldn't read the selected file. Choose it again. | Yes |
+| `HR-FILE-002` | An exported transcript file could not be written or shared | 无法生成对话文件，请重试。 | Couldn't create the transcript file. Retry. | Yes |
 | `HR-MEDIA-001` | Image save, preparation, or share operation failed | 图片操作失败，请重试。 | The image operation failed. Retry. | Yes |
+| `HR-MEDIA-003` | The transcript image could not be rendered or shared | 无法生成对话长图，请重试或改用 Markdown 文件。 | Couldn't render the transcript image. Retry, or share it as a Markdown file. | Yes |
 | `HR-MEDIA-002` | A picked avatar photo could not be decoded, cropped, or encoded (ImageDecoder/BitmapFactory failure, unreadable URI, empty image) | 无法读取所选照片，请换一张再试。 | Couldn't read the selected photo. Try a different one. | Yes |
 | `HR-PERM-003` | Android blocks installation from this source | 需要允许安装未知应用，授权后请重试。 | Permission to install unknown apps is required. Grant it and retry. | Yes |
 | `HR-SESS-001` | Session no longer exists | 会话不存在或已被删除。 | The conversation no longer exists or was deleted. | No |
