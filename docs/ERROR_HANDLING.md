@@ -45,6 +45,9 @@ reassigned.
 |---|---|---|
 | `CONN` | Transport and WebSocket lifecycle | offline, handshake, reconnect, socket closed |
 | `AUTH` | Authentication and authorization | invalid App Token, expired session, forbidden |
+| `ACCOUNT` | Hermes GO account lifecycle | disabled account, account service unavailable |
+| `BIND` | Account-to-installation/Connector binding | no Desktop, conflict, revoke, replacement |
+| `MIGRATE` | Legacy-to-account Connector migration | preflight, duplicate process, rollback |
 | `RPC` | Gateway RPC | remote error, readiness timeout, response timeout |
 | `SESS` | Session/process lifecycle | stale live handle, resume failure, session missing |
 | `SYNC` | State and history reconciliation | incomplete history, conflicting terminal state |
@@ -118,6 +121,32 @@ expanded without changing the underlying meaning.
 | `HR-CONN-004` | Connection was interrupted during an operation | 连接中断，正在恢复会话。 | The connection was interrupted. Restoring the conversation. | Yes |
 | `HR-CONN-005` | Relay is reachable but the Mac Connector is offline | Mac 端当前离线，请启动 Hermes Go Desktop。 | The Mac is offline. Start Hermes Go Desktop. | Yes |
 | `HR-AUTH-001` | App Token rejected | App Token 无效或已失效，请重新配置。 | The App Token is invalid or expired. Configure it again. | No |
+| `HR-AUTH-002` | Google identity proof is invalid, expired, for the wrong audience/issuer, or fails nonce verification | 无法验证 Google 登录，请重新登录。 | Couldn't verify the Google sign-in. Sign in again. | No (interactive sign-in) |
+| `HR-AUTH-003` | Hermes GO account session expired and cannot be refreshed | 登录已过期，请重新登录。 | Your session expired. Sign in again. | No (interactive sign-in) |
+| `HR-AUTH-004` | Hermes GO account session or refresh family was revoked | 这台设备的登录已被撤销，请重新登录。 | This device's session was revoked. Sign in again. | No (interactive sign-in) |
+| `HR-AUTH-005` | A rotated refresh credential was reused; its token family was revoked | 检测到登录凭据重复使用，为保护账号已退出这台设备。 | Reuse of a sign-in credential was detected, so this device was signed out for safety. | No (interactive sign-in) |
+| `HR-AUTH-006` | A destructive account/binding operation requires recent Google reauthentication | 为确认是你本人，请重新验证 Google 账号。 | Verify your Google account again to confirm it's you. | No (interactive reauthentication) |
+| `HR-AUTH-007` | Google proof exchange or session refresh exceeded the per-source request limit | 登录请求过于频繁，请稍候再试。 | Too many sign-in requests. Wait a moment and try again. | Yes |
+| `HR-AUTH-008` | Desktop system-browser sign-in was cancelled, timed out, could not open, or returned to an invalid/unowned callback | Google 登录未完成，请重新尝试。 | Google sign-in did not finish. Try again. | Yes (interactive sign-in) |
+| `HR-ACCOUNT-001` | Hermes GO account is disabled | 此 Hermes GO 账号当前不可用，请联系支持。 | This Hermes GO account is currently unavailable. Contact support. | No |
+| `HR-ACCOUNT-002` | Hermes GO account service or transactional store is temporarily unavailable | 账号服务暂时不可用，请稍后重试。 | The account service is temporarily unavailable. Try again shortly. | Yes |
+| `HR-ACCOUNT-003` | Account-mode endpoints are disabled by the Gateway feature flag | 此 Relay 尚未启用账号登录，可继续使用原有连接方式。 | Account sign-in is not enabled on this Gateway yet. Continue with the legacy connection. | No (continue legacy) |
+| `HR-ACCOUNT-004` | Account-mode request path, method, content type, or bounded JSON input is invalid | 账号请求格式无效，请更新客户端或重试。 | The account request is invalid. Update the client or try again. | No |
+| `HR-ACCOUNT-005` | An account-scoped idempotency key was reused for a different operation input | 此重试标识已用于另一项请求，请重新发起操作。 | That retry key was already used for a different account request. | No (start a new operation) |
+| `HR-ACCOUNT-006` | An account-owned installation/binding target is absent or belongs to another account | 找不到这个账号下的目标设备。 | The requested account resource was not found. | No |
+| `HR-ACCOUNT-007` | A phone attempted a Desktop-only management operation, or the Desktop identity did not match the authenticated installation | 此操作只能在当前登录的 Hermes Go Desktop 上完成。 | This operation is available only from Hermes Go Desktop. | No |
+| `HR-BIND-001` | Account has no active Desktop Connector binding | 这个账号还没有连接 Desktop，请先在 Mac 上打开 Hermes Go Desktop。 | This account has no Desktop connection yet. Open Hermes Go Desktop on the Mac. | Yes |
+| `HR-BIND-002` | Account already has another active Desktop Connector binding | 这个账号已经连接另一台 Mac；确认替换前，原连接会继续工作。 | This account is already connected to another Mac. The existing connection will keep working until replacement is confirmed. | No (verify and replace) |
+| `HR-BIND-003` | First-binding or replacement request expired, or a single-use confirmation was consumed | Desktop 绑定确认已失效，请重新开始。 | The Desktop binding confirmation expired. Start again. | Yes (restart binding/replacement) |
+| `HR-BIND-004` | This phone installation was revoked | 这台手机的访问已被移除，请重新登录。 | Access for this phone was removed. Sign in again. | No (interactive sign-in) |
+| `HR-BIND-005` | Connector challenge proof, key generation, or active binding validation failed | Desktop Connector 身份验证失败，请在 Mac 上检查账号与设备。 | Desktop Connector authentication failed. Check Account & Devices on the Mac. | Yes |
+| `HR-BIND-006` | This Desktop Connector binding was replaced or explicitly revoked | 这台 Mac 已不再绑定当前账号，请重新绑定或使用现有 Mac。 | This Mac is no longer bound to the account. Bind it again or use the current Mac. | No |
+| `HR-BIND-007` | Connector replacement failed before commit and the original binding remains active | 未能更换 Mac，原来的连接仍在工作。 | Couldn't replace the Mac. The original connection is still working. | Yes |
+| `HR-BIND-008` | Account authentication is available but the binding control plane is still disabled | 此 Relay 尚未启用 Desktop 绑定，可继续使用原有连接。 | Desktop binding isn't enabled on this Gateway yet. Continue with the legacy connection. | No (continue legacy) |
+| `HR-MIGRATE-001` | Legacy-to-account Connector migration preflight failed before mutation | 暂时无法升级连接，现有连接未被修改。 | The connection can't be upgraded yet. The existing connection was not changed. | Yes |
+| `HR-MIGRATE-002` | Migration detected multiple, unknown, or mismatched Connector processes/ownership | 检测到异常的 Connector 运行状态，已停止升级以避免重复连接。 | An unexpected Connector state was found. Upgrade was stopped to prevent duplicate connections. | No (inspect diagnostics) |
+| `HR-MIGRATE-003` | Account-mode candidate failed authentication/health before commit and automatic rollback restored legacy | 新连接验证失败，已恢复原来的连接。 | The new connection failed validation, so the original connection was restored. | Yes |
+| `HR-MIGRATE-004` | Automatic rollback could not restore a known-good Connector and stopped to avoid a retry loop | 自动恢复未完成，请按诊断步骤修复 Connector；Hermes 未被修改。 | Automatic recovery did not finish. Follow the diagnostic steps to repair the Connector; Hermes was not changed. | No (manual recovery) |
 | `HR-RPC-001` | Gateway RPC returned an unmapped remote error | Relay 请求失败，请查看详情后重试。 | The Relay request failed. Review the details and retry. | Depends |
 | `HR-RPC-002` | Gateway RPC response timed out | Relay 响应超时，请稍后重试。 | The Relay response timed out. Try again shortly. | Yes |
 | `HR-RPC-003` | Model catalog could not be loaded | 无法加载模型列表，请重试。 | Couldn't load the model list. Retry. | Yes |
@@ -127,6 +156,9 @@ expanded without changing the underlying meaning.
 | `HR-CONFIG-001` | Configuration could not be loaded | 无法加载配置，请重试。 | Couldn't load the configuration. Retry. | Yes |
 | `HR-CONFIG-002` | Configuration could not be saved | 无法保存配置，请重试。 | Couldn't save the configuration. Retry. | Yes |
 | `HR-CONFIG-003` | Relay URL is invalid | Relay 地址格式无效，请检查后重试。 | The Relay URL is invalid. Check it and retry. | Yes |
+| `HR-CONFIG-004` | Desktop pairing configuration is missing its local name, Relay URL, or App Token | 请填写配置名称、Relay 地址和 App Token。 | Enter a configuration name, Relay URL, and App Token. | Yes |
+| `HR-CONFIG-005` | Relay URL and App Token exceed the reliable v1 QR payload limit | Relay 地址和 App Token 过长，无法生成可扫描的二维码。 | The Relay URL and App Token are too long to fit in a scannable QR code. | Yes |
+| `HR-CONFIG-006` | Desktop account mode has no valid Google macOS OAuth client configuration | 此版本尚未配置 Google 登录，请继续使用原有连接。 | Google sign-in is not configured in this build. Continue with the legacy connection. | No (continue legacy) |
 | `HR-STORE-001` | Per-profile identity settings (display name, avatar photo, colour, style) could not be written to DataStore | 无法保存身份设置，请重试。 | Couldn't save the profile settings. Retry. | Yes |
 | `HR-UPDATE-001` | Unmapped update check, download, verification, or installer failure | 更新操作失败，请重试。 | The update operation failed. Retry. | Yes |
 | `HR-UPDATE-002` | Update index could not be fetched or parsed | 无法检查更新，请检查网络后重试。 | Couldn't check for updates. Check your network and retry. | Yes |

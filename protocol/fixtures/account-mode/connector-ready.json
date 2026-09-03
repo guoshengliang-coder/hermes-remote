@@ -1,0 +1,9 @@
+{
+  "type": "connector.ready",
+  "version": 2,
+  "bindingId": "10000000-0000-4000-8000-000000000001",
+  "generation": 3,
+  "deviceId": "example-mac-mini",
+  "bindingStatus": "active",
+  "routingEnabled": true
+}

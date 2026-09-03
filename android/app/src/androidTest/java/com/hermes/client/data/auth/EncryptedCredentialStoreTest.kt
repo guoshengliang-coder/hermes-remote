@@ -18,6 +18,7 @@ class EncryptedCredentialStoreTest {
         assertEquals("http://hermes-mac:9119", loaded.baseUrl)
         assertEquals("abc", loaded.token)
         // Authentication now travels in a header or short-lived ticket, never in a persisted URL.
+        // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- private HTTP compatibility is the behavior under test.
         assertEquals("ws://hermes-mac:9119/api/ws", loaded.wsBase)
     }
 

@@ -2,6 +2,14 @@
 
 Start the gateway and mock connector as described in the root README. Connect a WebSocket client to `ws://127.0.0.1:8787/v1/connect` and send:
 
+Before opening the Connector, verify the release probes. With account mode disabled, both requests
+return `200`; `/readyz` reports the database and migration checks as `disabled`/`not_required`:
+
+```bash
+curl --fail http://127.0.0.1:8787/healthz
+curl --fail http://127.0.0.1:8787/readyz
+```
+
 ```json
 {"type":"hello","version":1,"role":"app","deviceId":"android-dev","token":"dev-app"}
 ```

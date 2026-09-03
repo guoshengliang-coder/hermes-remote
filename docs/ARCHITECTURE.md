@@ -8,6 +8,34 @@
 4. The Gateway routes opaque structured events and does not need access to Mac files.
 5. Hermes remains reachable only on the Mac's private interface and is never exposed publicly.
 
+## Planned account control plane (not implemented)
+
+The account-mode I0 contract adds a provider-neutral Hermes GO account above the existing relay:
+
+```text
+Google identity -> Hermes GO account -> one active Desktop Connector -> one local Hermes
+                                  \-> independent phone installation A
+                                  \-> independent phone installation B
+```
+
+Google proves identity only. The Gateway/account service verifies the platform-specific provider
+proof and issues its own short-lived access plus rotating refresh credentials. Connector
+authentication is independent: the Mac proves possession of a binding-specific private key against a
+short-lived Gateway challenge, so routine background reconnect does not depend on interactive Google
+login.
+
+The local account backend uses transactional PostgreSQL, separate from the existing legacy
+lifecycle JSON file. It enforces one active Connector binding per account, per-installation phone
+sessions/cursors, atomic replacement, and cross-account isolation. The existing App Token,
+Connector Token, `/api/*`, `/api/ws`, and `/v1/connect` remain available throughout the compatibility
+window. Account routes and Connector control messages are separately versioned under V2/capability
+gates.
+
+This plan does not modify Hermes. The local Hermes credential stays on the Mac, the Connector remains
+outbound-only, and migration snapshots contain only Hermes GO/Connector-owned state. See
+`ACCOUNT_MODE_API.md`, `ACCOUNT_MODE_SECURITY.md`, `ACCOUNT_MODE_MIGRATION.md`, and
+`ACCOUNT_MODE_TEST_PLAN.md`.
+
 ## MVP lifecycle
 
 1. Connector sends `hello(role=connector, deviceId=mac-mini)`.
@@ -86,6 +114,11 @@ Each transition is written atomically to the Connector outbox before it is sent.
 durably and only then acknowledges it; reconnects therefore replay safely and deduplicate by stable
 event ID. Android can consume the persisted inbox from `/api/mobile/events` even while the Mac is
 offline, then mark events delivered or read through the matching `/ack` and `/read` routes.
+
+Legacy Token mode stores one bounded JSON inbox. Account mode stores the sanitized event once in
+PostgreSQL and atomically fans out independent receipt rows to every active phone installation.
+Paging, delivered, and read state are therefore isolated per phone and account; no bearer token or
+account identifier is forwarded to Hermes.
 
 This read-only API exposes a generic `waiting` status, not the approval ID or approval choices owned
 by another client connection. Consequently, a PC-started approval can be notified as “needs

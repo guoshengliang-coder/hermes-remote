@@ -1,17 +1,37 @@
 FROM node:22-alpine AS build
 WORKDIR /app
+ARG HERMES_BUILD_COMMIT=development
+ARG HERMES_BUILD_DIRTY=1
+ARG HERMES_REQUIRE_RELEASE_CLEAN=0
+ARG SOURCE_DATE_EPOCH=0
 COPY package.json package-lock.json* tsconfig.base.json ./
 COPY protocol/package.json protocol/tsconfig.json ./protocol/
 COPY protocol/src ./protocol/src
 COPY gateway/package.json gateway/tsconfig.json ./gateway/
+COPY gateway/config.schema.json gateway/release-contract.json ./gateway/
+COPY gateway/migrations ./gateway/migrations
+COPY gateway/scripts ./gateway/scripts
 COPY gateway/src ./gateway/src
 COPY connector/package.json connector/tsconfig.json ./connector/
+COPY release-server/package.json ./release-server/
 RUN npm ci --ignore-scripts \
     && npm run build -w @hermes-remote/protocol \
-    && npm run build -w @hermes-remote/gateway
+    && HERMES_BUILD_COMMIT="$HERMES_BUILD_COMMIT" \
+       HERMES_BUILD_DIRTY="$HERMES_BUILD_DIRTY" \
+       SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+       npm run build -w @hermes-remote/gateway \
+    && REQUIRE_RELEASE_CLEAN="$HERMES_REQUIRE_RELEASE_CLEAN" \
+       npm run release:verify -w @hermes-remote/gateway
 
 FROM node:22-alpine
 WORKDIR /app
+ARG HERMES_BUILD_COMMIT=development
+ARG HERMES_SERVER_VERSION=0.2.0
+ARG HERMES_BUILD_TIME=1970-01-01T00:00:00.000Z
+LABEL org.opencontainers.image.title="Hermes GO Gateway" \
+      org.opencontainers.image.version="$HERMES_SERVER_VERSION" \
+      org.opencontainers.image.revision="$HERMES_BUILD_COMMIT" \
+      org.opencontainers.image.created="$HERMES_BUILD_TIME"
 ENV NODE_ENV=production
 COPY --from=build /app/package.json /app/package-lock.json* ./
 COPY --from=build /app/protocol/package.json ./protocol/
@@ -19,7 +39,10 @@ COPY --from=build /app/protocol/dist ./protocol/dist
 COPY --from=build /app/gateway/package.json ./gateway/
 COPY --from=build /app/gateway/dist ./gateway/dist
 COPY --from=build /app/connector/package.json ./connector/
+COPY --from=build /app/release-server/package.json ./release-server/
 RUN npm ci --omit=dev --ignore-scripts && chown -R node:node /app
 USER node
 EXPOSE 8787
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:8787/readyz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 CMD ["node", "gateway/dist/index.js"]

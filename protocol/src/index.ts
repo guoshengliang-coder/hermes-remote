@@ -1,4 +1,5 @@
 export const PROTOCOL_VERSION = 1 as const;
+export const ACCOUNT_CONNECTOR_PROTOCOL_VERSION = 2 as const;
 
 export type Role = "app" | "connector";
 
@@ -14,6 +15,61 @@ export interface HelloAckMessage {
   type: "hello_ack";
   version: typeof PROTOCOL_VERSION;
   deviceId: string;
+}
+
+export interface ConnectorIdentify {
+  type: "connector.identify";
+  version: typeof ACCOUNT_CONNECTOR_PROTOCOL_VERSION;
+  bindingId: string;
+  generation: number;
+  publicKeyFingerprint: string;
+}
+
+export interface ConnectorChallengeMessage {
+  type: "connector.challenge";
+  version: typeof ACCOUNT_CONNECTOR_PROTOCOL_VERSION;
+  bindingId: string;
+  generation: number;
+  publicKeyFingerprint: string;
+  challenge: string;
+  connectionNonce: string;
+  serverTime: string;
+  expiresAt: string;
+}
+
+export interface ConnectorAuthenticate {
+  type: "connector.authenticate";
+  version: typeof ACCOUNT_CONNECTOR_PROTOCOL_VERSION;
+  bindingId: string;
+  generation: number;
+  publicKeyFingerprint: string;
+  connectionNonce: string;
+  signature: string;
+}
+
+export interface ConnectorPreflightRequest {
+  type: "connector.preflight.request";
+  version: typeof ACCOUNT_CONNECTOR_PROTOCOL_VERSION;
+  requestId: string;
+  sentAt: string;
+}
+
+export interface ConnectorPreflightResult {
+  type: "connector.preflight.result";
+  version: typeof ACCOUNT_CONNECTOR_PROTOCOL_VERSION;
+  requestId: string;
+  hermesReachable: boolean;
+  hermesVersion?: string;
+}
+
+export interface ConnectorReady {
+  type: "connector.ready";
+  version: typeof ACCOUNT_CONNECTOR_PROTOCOL_VERSION;
+  bindingId: string;
+  generation: number;
+  deviceId: string;
+  bindingStatus: "pending" | "active";
+  routingEnabled: boolean;
 }
 
 export interface ChatCommand {
@@ -165,6 +221,12 @@ export interface TunnelSocketClose {
 export type WireMessage =
   | HelloMessage
   | HelloAckMessage
+  | ConnectorIdentify
+  | ConnectorChallengeMessage
+  | ConnectorAuthenticate
+  | ConnectorPreflightRequest
+  | ConnectorPreflightResult
+  | ConnectorReady
   | ChatCommand
   | RelayEvent
   | DeviceStatus
@@ -192,7 +254,8 @@ export function parseWireMessage(raw: string): WireMessage {
   if (!isRecord(value) || typeof value.type !== "string") {
     throw new Error("invalid_message");
   }
-  if (value.version !== PROTOCOL_VERSION) {
+  const accountConnectorType = value.type.startsWith("connector.");
+  if (value.version !== (accountConnectorType ? ACCOUNT_CONNECTOR_PROTOCOL_VERSION : PROTOCOL_VERSION)) {
     throw new Error("unsupported_version");
   }
 
@@ -200,6 +263,84 @@ export function parseWireMessage(raw: string): WireMessage {
   // validated before callers touch it; a cast here previously let values such as `token: null`
   // reach Buffer.from() in the Gateway and terminate the process before authentication.
   switch (value.type) {
+    case "connector.identify":
+      assertOnlyKeys(value, new Set([
+        "type", "version", "bindingId", "generation", "publicKeyFingerprint",
+      ]), "invalid_connector_identify_fields");
+      return {
+        type: "connector.identify",
+        version: ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
+        bindingId: uuid(value.bindingId, "invalid_binding_id"),
+        generation: integer(value.generation, "invalid_binding_generation", 1, 2_147_483_647),
+        publicKeyFingerprint: fingerprint(value.publicKeyFingerprint),
+      };
+    case "connector.challenge":
+      assertOnlyKeys(value, new Set([
+        "type", "version", "bindingId", "generation", "publicKeyFingerprint", "challenge",
+        "connectionNonce", "serverTime", "expiresAt",
+      ]), "invalid_connector_challenge_fields");
+      return {
+        type: "connector.challenge",
+        version: ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
+        bindingId: uuid(value.bindingId, "invalid_binding_id"),
+        generation: integer(value.generation, "invalid_binding_generation", 1, 2_147_483_647),
+        publicKeyFingerprint: fingerprint(value.publicKeyFingerprint),
+        challenge: base64url(value.challenge, "invalid_challenge", 43, 32),
+        connectionNonce: base64url(value.connectionNonce, "invalid_connection_nonce", 32, 24),
+        serverTime: isoTimestamp(value.serverTime),
+        expiresAt: isoTimestamp(value.expiresAt),
+      };
+    case "connector.authenticate":
+      assertOnlyKeys(value, new Set([
+        "type", "version", "bindingId", "generation", "publicKeyFingerprint",
+        "connectionNonce", "signature",
+      ]), "invalid_connector_authenticate_fields");
+      return {
+        type: "connector.authenticate",
+        version: ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
+        bindingId: uuid(value.bindingId, "invalid_binding_id"),
+        generation: integer(value.generation, "invalid_binding_generation", 1, 2_147_483_647),
+        publicKeyFingerprint: fingerprint(value.publicKeyFingerprint),
+        connectionNonce: base64url(value.connectionNonce, "invalid_connection_nonce", 32, 24),
+        signature: base64url(value.signature, "invalid_connector_signature", 86, 64),
+      };
+    case "connector.preflight.request":
+      assertOnlyKeys(value, new Set([
+        "type", "version", "requestId", "sentAt",
+      ]), "invalid_connector_preflight_fields");
+      return {
+        type: "connector.preflight.request",
+        version: ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
+        requestId: uuid(value.requestId, "invalid_request_id"),
+        sentAt: isoTimestamp(value.sentAt),
+      };
+    case "connector.preflight.result": {
+      assertOnlyKeys(value, new Set([
+        "type", "version", "requestId", "hermesReachable", "hermesVersion",
+      ]), "invalid_connector_preflight_fields");
+      const hermesVersion = optionalDisplayString(value.hermesVersion, "invalid_hermes_version", 64);
+      return {
+        type: "connector.preflight.result",
+        version: ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
+        requestId: uuid(value.requestId, "invalid_request_id"),
+        hermesReachable: booleanValue(value.hermesReachable, "invalid_hermes_reachable"),
+        ...(hermesVersion === undefined ? {} : { hermesVersion }),
+      };
+    }
+    case "connector.ready":
+      assertOnlyKeys(value, new Set([
+        "type", "version", "bindingId", "generation", "deviceId", "bindingStatus",
+        "routingEnabled",
+      ]), "invalid_connector_ready_fields");
+      return {
+        type: "connector.ready",
+        version: ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
+        bindingId: uuid(value.bindingId, "invalid_binding_id"),
+        generation: integer(value.generation, "invalid_binding_generation", 1, 2_147_483_647),
+        deviceId: boundedString(value.deviceId, "invalid_device_id", 1, 128),
+        bindingStatus: oneOf(value.bindingStatus, ["pending", "active"] as const, "invalid_binding_status"),
+        routingEnabled: booleanValue(value.routingEnabled, "invalid_routing_enabled"),
+      };
     case "hello":
       return {
         type: "hello",
@@ -409,6 +550,42 @@ function boundedString(
 function optionalString(value: unknown, error: string, maxLength: number): string | undefined {
   if (value === undefined) return undefined;
   return boundedString(value, error, 0, maxLength);
+}
+
+function optionalDisplayString(value: unknown, error: string, maxLength: number): string | undefined {
+  if (value === undefined) return undefined;
+  const result = boundedString(value, error, 1, maxLength);
+  if (/[\u0000-\u001f\u007f]/.test(result)) throw new Error(error);
+  return result;
+}
+
+function uuid(value: unknown, error: string): string {
+  const result = boundedString(value, error, 36, 36);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(result)) {
+    throw new Error(error);
+  }
+  return result.toLowerCase();
+}
+
+function fingerprint(value: unknown): string {
+  const result = boundedString(value, "invalid_public_key_fingerprint", 64, 64);
+  if (!/^[0-9a-f]{64}$/.test(result)) throw new Error("invalid_public_key_fingerprint");
+  return result;
+}
+
+function base64url(
+  value: unknown,
+  error: string,
+  encodedLength: number,
+  decodedLength: number,
+): string {
+  const result = boundedString(value, error, encodedLength, encodedLength);
+  if (!/^[A-Za-z0-9_-]+$/.test(result)) throw new Error(error);
+  const decoded = Uint8Array.from(Buffer.from(result, "base64url"));
+  if (decoded.byteLength !== decodedLength || Buffer.from(decoded).toString("base64url") !== result) {
+    throw new Error(error);
+  }
+  return result;
 }
 
 function optionalBase64(value: unknown): string | undefined {

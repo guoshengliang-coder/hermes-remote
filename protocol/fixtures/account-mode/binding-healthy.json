@@ -1,0 +1,25 @@
+{
+  "state": "bound",
+  "binding": {
+    "id": "10000000-0000-4000-8000-000000000001",
+    "generation": 3,
+    "desktopDisplayName": "Example Mac mini",
+    "deviceId": "example-mac-mini",
+    "publicKeyFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "connector": {
+      "online": true,
+      "lastSeenAt": "2026-09-02T04:00:00Z"
+    },
+    "hermes": {
+      "reachable": true,
+      "version": "0.0.0-example"
+    },
+    "gateway": {
+      "latencyMs": 42
+    },
+    "endToEnd": {
+      "healthy": true,
+      "checkedAt": "2026-09-02T04:00:00Z"
+    }
+  }
+}

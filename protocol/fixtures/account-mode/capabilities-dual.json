@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "accountAuth": {
+    "enabled": true,
+    "providers": ["google"],
+    "android": true,
+    "macos": true
+  },
+  "binding": {
+    "enabled": true,
+    "replacement": true,
+    "maxActiveConnectorsPerAccount": 1
+  },
+  "legacy": {
+    "appTokenAccepted": true,
+    "connectorTokenAccepted": true
+  }
+}
