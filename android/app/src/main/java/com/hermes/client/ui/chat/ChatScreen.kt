@@ -1138,6 +1138,7 @@ fun ChatScreen(
                             }
                         }
                     }
+                    Box(Modifier.weight(1f)) {
                     ChatMessageList(
                         state = state,
                         sessionId = sessionId,
@@ -1165,7 +1166,7 @@ fun ChatScreen(
                         savingImageId = savingImageId,
                         onFileOpen = { handleFile(it, share = false) },
                         onFileShare = { handleFile(it, share = true) },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxSize(),
                         onBlankAreaTap = {
                             if (composerFocused) {
                                 composerFocused = false
@@ -1173,6 +1174,28 @@ fun ChatScreen(
                             }
                         },
                     )
+                    // New-session greeting overlay: visible only while nothing has been said,
+                    // fades out 150ms with the first message. Display-only — the composer keeps
+                    // every control exactly where it already is.
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = state.isNewSession && state.messages.isEmpty() && !state.isGenerating,
+                        enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(150)),
+                        exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)),
+                    ) {
+                        val identities = com.hermes.client.ui.components.LocalProfileIdentities.current
+                        val reasoningEffort by vm.reasoningEffort.collectAsStateWithLifecycle()
+                        val effortSuffix = com.hermes.client.ui.models.reasoningLabel(reasoningEffort)
+                            ?.let { " · " + it.resolve(language) } ?: ""
+                        NewChatGreeting(
+                            profile = sessionProfile,
+                            identityName = identities[sessionProfile]?.displayName,
+                            modelLabel = if (currentModel.isNullOrBlank()) localized(language, "默认模型", "Default model")
+                            else compactModelLabel(currentModel!!) + effortSuffix,
+                            connection = connState,
+                            imeVisible = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0,
+                        )
+                    }
+                    }
                 }
             }
         }
