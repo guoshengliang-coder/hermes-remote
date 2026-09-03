@@ -247,6 +247,8 @@ Server 版本只由集成步骤在 R4 功能合并、准备打包两个真实版
 完成真实 R3 `0.2.0` → R4 `0.3.0` → R3 `0.2.0` 往返。详细 commit、run、恢复结果和未执行项见
 `CLOUD_GATEWAY_R4_TEST_RECORD.md`。
 
-该完成状态不授权香港生产部署。R4-F 已开始实现 PostgreSQL schema 准备能力，但在一次性数据库
-staging、PR/main 门禁和生产前置检查全部通过前，不能把数据库发布路径标记为 Complete。账号能力仍
-保持关闭；真实账号启用还需要 Google OAuth 配置、备份/恢复演练和独立 go/no-go。
+该完成状态不授权香港生产部署。2026-09-03，R4-F PostgreSQL schema 准备路径也已完成：一次性
+Ubuntu/PostgreSQL staging、PR #19 六项检查及合并提交 `993623e` 的 main CI/SAST/Gateway OCI 全部
+通过，详细证据见 `CLOUD_GATEWAY_R4_TEST_RECORD.md`。账号能力仍保持关闭；香港服务器尚未安装或
+启用 PostgreSQL，真实账号启用还需要生产数据库前置检查、异机备份/恢复演练、Google OAuth 配置和
+独立 go/no-go。
