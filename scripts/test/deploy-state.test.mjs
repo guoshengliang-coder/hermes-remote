@@ -24,6 +24,8 @@ import {
   renderNginxUpstream,
 } from "../../ops/lib/deploy-system.mjs";
 import { prepareCandidate } from "../../ops/lib/deploy.mjs";
+import { switchCandidate } from "../../ops/lib/deploy-switch.mjs";
+import { handoffLifecycleSnapshot } from "../../ops/lib/lifecycle-handoff.mjs";
 import { createOpsError, OpsError } from "../../ops/lib/errors.mjs";
 
 test("R4 blue/green templates isolate candidate process, state, and private port", async () => {
@@ -295,6 +297,277 @@ test("a competing deployment lock never stops its active candidate", async (t) =
   }
 });
 
+test("route switch hands off lifecycle state, observes the public path, and commits atomically", async (t) => {
+  const fixture = await createCandidateFixture(t);
+  const runner = createTransactionalRunner(fixture);
+  await prepareFixtureCandidate(fixture, runner);
+  await writeLifecycleSnapshot(fixture.config.legacySource.stateDirectory, [lifecycleRecord(1, "before-switch")], 2);
+  const publicChecks = [];
+
+  let result;
+  try {
+    result = await switchCandidate(fixture.config, fixture.sourceManifest, fixture.targetManifest, {
+      ...switchOptions(runner),
+      runId: "switch-success",
+      candidateSmoke: async () => {},
+      publicSmoke: async (request) => publicChecks.push(request),
+    });
+  } catch (error) {
+    assert.fail(`unexpected switch failure at ${error.stage}: ${error.technicalCause}`);
+  }
+
+  const targetRelease = `releases/${fixture.targetManifest.serverVersion}-${fixture.targetManifest.sourceCommit.slice(0, 12)}`;
+  assert.equal(result.stage, "committed");
+  assert.equal(result.activeSlot, "blue");
+  assert.equal(publicChecks.length, 2);
+  assert.equal(publicChecks.every((request) => request.publicRoute && !request.recovery), true);
+  assert.equal(await readlink(path.join(fixture.config.paths.installRoot, "current")), targetRelease);
+  assert.equal(await readlink(path.join(fixture.config.paths.installRoot, "previous")), fixture.currentTarget);
+  assert.match(await readFile(fixture.config.nginx.upstreamConfigFile, "utf8"), /127\.0\.0\.1:18787/);
+  assert.match(await readFile(fixture.config.nginx.configFile, "utf8"), /proxy_pass http:\/\/hermes_go_gateway_staging/);
+  const candidateState = JSON.parse(await readFile(path.join(
+    fixture.config.paths.stateRoot,
+    "gateway-slots",
+    "blue",
+    "lifecycle-events.json",
+  ), "utf8"));
+  assert.deepEqual(candidateState.events.map((record) => record.event.eventId), ["before-switch"]);
+  assert.equal(runner.active.has("hermes-go-gateway-staging"), false);
+  assert.equal(runner.active.has("hermes-go-gateway-blue"), true);
+  assert.equal(runner.enabled.has("hermes-go-gateway-blue"), true);
+  assert.equal(runner.enabled.has("hermes-go-gateway-staging"), false);
+  assert.equal((await readDeploymentJournal(path.join(fixture.config.paths.stateRoot, "ops", "deploy-state.json"))).stage, "committed");
+
+  const resumed = await switchCandidate(fixture.config, fixture.sourceManifest, fixture.targetManifest, {
+    ...switchOptions(runner),
+    runId: "switch-success-resume",
+    candidateSmoke: async () => {},
+    publicSmoke: async (request) => publicChecks.push(request),
+  });
+  assert.equal(resumed.stage, "committed");
+  assert.equal(publicChecks.length, 3);
+});
+
+test("public smoke failure restores the old route, service, release links, and latest lifecycle state", async (t) => {
+  const fixture = await createCandidateFixture(t);
+  const runner = createTransactionalRunner(fixture);
+  await prepareFixtureCandidate(fixture, runner);
+  await writeLifecycleSnapshot(fixture.config.legacySource.stateDirectory, [lifecycleRecord(1, "before-switch")], 2);
+  const candidateStateDirectory = path.join(fixture.config.paths.stateRoot, "gateway-slots", "blue");
+  let recoveryChecked = false;
+
+  let switchError;
+  await assert.rejects(
+    () => switchCandidate(fixture.config, fixture.sourceManifest, fixture.targetManifest, {
+      ...switchOptions(runner),
+      runId: "switch-recovery",
+      candidateSmoke: async () => {},
+      publicSmoke: async (request) => {
+        if (request.recovery) {
+          recoveryChecked = true;
+          assert.equal(request.expectedServerVersion, fixture.sourceManifest.serverVersion);
+          return;
+        }
+        await writeLifecycleSnapshot(candidateStateDirectory, [
+          lifecycleRecord(1, "before-switch"),
+          lifecycleRecord(2, "during-observation"),
+        ], 3);
+        throw new Error(`public smoke failed token=${fixture.tokens.app}`);
+      },
+    }),
+    (error) => {
+      switchError = error;
+      return isOpsCode("HR-OPS-008")(error) && !error.technicalCause.includes(fixture.tokens.app);
+    },
+  );
+
+  assert.equal(recoveryChecked, true, `${switchError.stage}: ${switchError.technicalCause}`);
+  assert.equal(await readFile(fixture.config.nginx.configFile, "utf8"), fixture.nginxContent);
+  await assert.rejects(() => readFile(fixture.config.nginx.upstreamConfigFile, "utf8"), { code: "ENOENT" });
+  assert.equal(await readlink(path.join(fixture.config.paths.installRoot, "current")), fixture.currentTarget);
+  await assert.rejects(() => readlink(path.join(fixture.config.paths.installRoot, "previous")), { code: "ENOENT" });
+  const restored = JSON.parse(await readFile(path.join(
+    fixture.config.legacySource.stateDirectory,
+    "lifecycle-events.json",
+  ), "utf8"));
+  assert.deepEqual(restored.events.map((record) => record.event.eventId), ["before-switch", "during-observation"]);
+  assert.equal(runner.active.has("hermes-go-gateway-staging"), true);
+  assert.equal(runner.active.has("hermes-go-gateway-blue"), false);
+  await assert.rejects(
+    () => readDeploymentJournal(path.join(fixture.config.paths.stateRoot, "ops", "deploy-state.json")),
+    { code: "ENOENT" },
+  );
+  assert.equal((await readFile(path.join(
+    fixture.config.paths.stateRoot,
+    "ops",
+    "deploy-state.recovered.candidate-fixture.json",
+  ), "utf8")).includes('"stage": "route_switched"'), true);
+});
+
+test("an interrupted pre-handoff maintenance window is detected and restores the source", async (t) => {
+  const fixture = await createCandidateFixture(t);
+  const runner = createTransactionalRunner(fixture);
+  await prepareFixtureCandidate(fixture, runner);
+  runner.active.delete(fixture.config.legacySource.serviceName);
+  let recoveryChecked = false;
+
+  await assert.rejects(
+    () => switchCandidate(fixture.config, fixture.sourceManifest, fixture.targetManifest, {
+      ...switchOptions(runner),
+      runId: "switch-crash-recovery",
+      candidateSmoke: async () => {},
+      publicSmoke: async (request) => {
+        assert.equal(request.recovery, true);
+        recoveryChecked = true;
+      },
+    }),
+    isOpsCode("HR-OPS-008"),
+  );
+
+  assert.equal(recoveryChecked, true);
+  assert.equal(runner.active.has(fixture.config.legacySource.serviceName), true);
+  assert.equal(runner.active.has(fixture.config.slots.blue.serviceName), false);
+  assert.equal(await readFile(fixture.config.nginx.configFile, "utf8"), fixture.nginxContent);
+});
+
+test("Nginx validation failure restores its exact old files before reloading", async (t) => {
+  const fixture = await createCandidateFixture(t);
+  const runner = createTransactionalRunner(fixture, { nginxTestFailures: 1 });
+  await prepareFixtureCandidate(fixture, runner);
+  await writeLifecycleSnapshot(fixture.config.legacySource.stateDirectory, [lifecycleRecord(1, "safe")], 2);
+  let recoveryChecked = false;
+
+  await assert.rejects(
+    () => switchCandidate(fixture.config, fixture.sourceManifest, fixture.targetManifest, {
+      ...switchOptions(runner),
+      runId: "switch-nginx-recovery",
+      candidateSmoke: async () => {},
+      publicSmoke: async (request) => {
+        assert.equal(request.recovery, true);
+        recoveryChecked = true;
+      },
+    }),
+    isOpsCode("HR-OPS-008"),
+  );
+
+  assert.equal(recoveryChecked, true);
+  assert.equal(await readFile(fixture.config.nginx.configFile, "utf8"), fixture.nginxContent);
+  await assert.rejects(() => readFile(fixture.config.nginx.upstreamConfigFile), { code: "ENOENT" });
+  assert.equal(runner.active.has(fixture.config.legacySource.serviceName), true);
+  assert.equal(runner.calls.filter((call) => call.command === "nginx" && call.args[0] === "-t").length, 2);
+  assert.equal(runner.calls.filter((call) => call.command === "systemctl" && call.args[0] === "reload").length, 1);
+});
+
+test("a route-switched journal resumes observation and commit after an operator process interruption", async (t) => {
+  const fixture = await createCandidateFixture(t);
+  const runner = createTransactionalRunner(fixture);
+  await prepareFixtureCandidate(fixture, runner);
+  await writeLifecycleSnapshot(fixture.config.legacySource.stateDirectory, [lifecycleRecord(1, "before-resume")], 2);
+  const opsRoot = path.join(fixture.config.paths.stateRoot, "ops");
+  const journalPath = path.join(opsRoot, "deploy-state.json");
+  let journal = await readDeploymentJournal(journalPath);
+  const oldNginx = Buffer.from(fixture.nginxContent);
+  await writeJson(path.join(opsRoot, `switch-checkpoint.${journal.planDigest}.json`), {
+    schemaVersion: 1,
+    planDigest: journal.planDigest,
+    nginxConfig: {
+      present: true,
+      sha256: createHash("sha256").update(oldNginx).digest("hex"),
+      contentBase64: oldNginx.toString("base64"),
+    },
+    upstream: { present: false, sha256: null, contentBase64: null },
+  });
+  const candidateStateDirectory = path.join(fixture.config.paths.stateRoot, "gateway-slots", "blue");
+  runner.active.delete(fixture.config.legacySource.serviceName);
+  await handoffLifecycleSnapshot(fixture.config.legacySource.stateDirectory, candidateStateDirectory, {
+    owner: currentOwnership().container,
+  });
+  await writeJson(path.join(opsRoot, `lifecycle-handoff.${journal.planDigest}.json`), {
+    schemaVersion: 1,
+    planDigest: journal.planDigest,
+    sourceStateDirectory: fixture.config.legacySource.stateDirectory,
+    candidateStateDirectory,
+    phase: "forward",
+    updatedAt: "2026-09-03T10:00:07.000Z",
+  });
+  await writeFile(fixture.config.nginx.upstreamConfigFile, renderNginxUpstream(fixture.config, "blue"), { mode: 0o644 });
+  await writeFile(fixture.config.nginx.configFile, renderDeployNginxConfig(fixture.config), { mode: 0o644 });
+  journal = advanceDeploymentJournal(journal, "route_switched", "2026-09-03T10:00:08.000Z");
+  await writeDeploymentJournal(journalPath, journal, currentOwnership().host);
+  let publicChecks = 0;
+
+  const result = await switchCandidate(fixture.config, fixture.sourceManifest, fixture.targetManifest, {
+    ...switchOptions(runner),
+    runId: "switch-resume",
+    candidateSmoke: async () => {},
+    publicSmoke: async () => { publicChecks += 1; },
+  });
+
+  assert.equal(result.stage, "committed");
+  assert.equal(publicChecks, 2);
+  assert.equal(runner.active.has(fixture.config.legacySource.serviceName), false);
+  assert.equal(runner.active.has(fixture.config.slots.blue.serviceName), true);
+});
+
+test("a second interruption never overwrites events written after reverse handoff", async (t) => {
+  const fixture = await createCandidateFixture(t);
+  const runner = createTransactionalRunner(fixture);
+  await prepareFixtureCandidate(fixture, runner);
+  const opsRoot = path.join(fixture.config.paths.stateRoot, "ops");
+  const journalPath = path.join(opsRoot, "deploy-state.json");
+  let journal = await readDeploymentJournal(journalPath);
+  const oldNginx = Buffer.from(fixture.nginxContent);
+  await writeJson(path.join(opsRoot, `switch-checkpoint.${journal.planDigest}.json`), {
+    schemaVersion: 1,
+    planDigest: journal.planDigest,
+    nginxConfig: {
+      present: true,
+      sha256: createHash("sha256").update(oldNginx).digest("hex"),
+      contentBase64: oldNginx.toString("base64"),
+    },
+    upstream: { present: false, sha256: null, contentBase64: null },
+  });
+  const candidateStateDirectory = path.join(fixture.config.paths.stateRoot, "gateway-slots", "blue");
+  await writeLifecycleSnapshot(candidateStateDirectory, [lifecycleRecord(1, "candidate-old")], 2);
+  await writeLifecycleSnapshot(fixture.config.legacySource.stateDirectory, [
+    lifecycleRecord(1, "restored"),
+    lifecycleRecord(2, "written-after-restart"),
+  ], 3);
+  await writeJson(path.join(opsRoot, `lifecycle-handoff.${journal.planDigest}.json`), {
+    schemaVersion: 1,
+    planDigest: journal.planDigest,
+    sourceStateDirectory: fixture.config.legacySource.stateDirectory,
+    candidateStateDirectory,
+    phase: "restored",
+    updatedAt: "2026-09-03T10:00:09.000Z",
+  });
+  journal = advanceDeploymentJournal(journal, "route_switched", "2026-09-03T10:00:10.000Z");
+  await writeDeploymentJournal(journalPath, journal, currentOwnership().host);
+  runner.active.delete(fixture.config.slots.blue.serviceName);
+  let recoveryChecked = false;
+
+  await assert.rejects(
+    () => switchCandidate(fixture.config, fixture.sourceManifest, fixture.targetManifest, {
+      ...switchOptions(runner),
+      runId: "switch-second-recovery",
+      candidateSmoke: async () => {},
+      publicSmoke: async (request) => {
+        assert.equal(request.recovery, true);
+        recoveryChecked = true;
+      },
+    }),
+    isOpsCode("HR-OPS-008"),
+  );
+
+  const sourceState = JSON.parse(await readFile(path.join(
+    fixture.config.legacySource.stateDirectory,
+    "lifecycle-events.json",
+  ), "utf8"));
+  assert.equal(recoveryChecked, true);
+  assert.deepEqual(sourceState.events.map((record) => record.event.eventId), ["restored", "written-after-restart"]);
+  assert.equal(runner.active.has(fixture.config.legacySource.serviceName), true);
+});
+
 async function createCandidateFixture(t) {
   const base = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-candidate-")));
   t.after(() => rm(base, { recursive: true, force: true }));
@@ -341,7 +614,7 @@ async function createCandidateFixture(t) {
       protocolVersions: { legacy: 1, accountConnector: 2 },
       minimumClients: { android: "0.1.0", desktop: "0.2.0", connector: "0.1.1" },
       minimumSourceVersion: "0.2.0",
-      maintenanceRequired: false,
+      maintenanceRequired: true,
       rollbackSupported: true,
     },
   };
@@ -364,6 +637,11 @@ async function createCandidateFixture(t) {
     operator: "ci-operator",
     targetArtifactManifest: manifestPath,
     paths,
+    legacySource: {
+      serviceName: "hermes-go-gateway-staging",
+      containerName: "hermes-go-gateway-staging",
+      stateDirectory: path.join(paths.stateRoot, "gateway"),
+    },
     slots: {
       blue: { serviceName: "hermes-go-gateway-blue", containerName: "hermes-go-gateway-blue", gatewayPort: 18787 },
       green: { serviceName: "hermes-go-gateway-green", containerName: "hermes-go-gateway-green", gatewayPort: 18788 },
@@ -403,6 +681,116 @@ async function createCandidateFixture(t) {
     currentTarget,
     nginxContent,
     tokens,
+  };
+}
+
+async function prepareFixtureCandidate(fixture, runner) {
+  return prepareCandidate(fixture.config, fixture.sourceManifest, fixture.targetManifest, {
+    runner,
+    platform: "linux",
+    architecture: "x64",
+    getUid: () => 0,
+    confirmation: "staging",
+    ownership: currentOwnership(),
+    fetchImpl: candidateFetch(fixture.targetManifest),
+    sleep: async () => {},
+    now: incrementingClock(),
+    runId: "candidate-fixture",
+    candidateSmoke: async () => {},
+  });
+}
+
+function switchOptions(runner) {
+  return {
+    runner,
+    platform: "linux",
+    architecture: "x64",
+    getUid: () => 0,
+    confirmation: "staging",
+    ownership: currentOwnership(),
+    fetchImpl: candidateFetch(targetIdentity()),
+    sleep: async () => {},
+    now: incrementingClock(),
+  };
+}
+
+function createTransactionalRunner(fixture, { nginxTestFailures = 0 } = {}) {
+  let imageLoaded = false;
+  const calls = [];
+  const active = new Set([fixture.config.legacySource.serviceName]);
+  const enabled = new Set([fixture.config.legacySource.serviceName]);
+  return {
+    calls,
+    active,
+    enabled,
+    run(command, args = []) {
+      calls.push({ command, args: [...args] });
+      if (command === "which") return success(`/usr/bin/${args[0]}\n`);
+      if (command === "nginx" && args[0] === "-t") {
+        if (nginxTestFailures > 0) {
+          nginxTestFailures -= 1;
+          return failure();
+        }
+        return success();
+      }
+      if (command === "systemctl" && args[0] === "is-system-running") return success("running\n");
+      if (command === "systemctl" && args[0] === "is-active") {
+        return active.has(args.at(-1).replace(/\.service$/, "")) ? success() : failure();
+      }
+      if (command === "systemctl" && ["restart", "start"].includes(args[0])) {
+        active.add(args[1].replace(/\.service$/, ""));
+        return success();
+      }
+      if (command === "systemctl" && args[0] === "stop") {
+        active.delete(args[1].replace(/\.service$/, ""));
+        return success();
+      }
+      if (command === "systemctl" && args[0] === "enable") {
+        enabled.add(args[1].replace(/\.service$/, ""));
+        return success();
+      }
+      if (command === "systemctl" && args[0] === "disable") {
+        enabled.delete(args[1].replace(/\.service$/, ""));
+        return success();
+      }
+      if (command === "docker" && args[0] === "info") return success("linux/x86_64\n");
+      if (command === "docker" && args[0] === "image" && args[1] === "inspect") {
+        return imageLoaded ? success(`${fixture.targetManifest.imageId}|amd64\n`) : failure();
+      }
+      if (command === "docker" && args[0] === "load") {
+        imageLoaded = true;
+        return success();
+      }
+      if (command === "ss") return success();
+      return success();
+    },
+  };
+}
+
+async function writeLifecycleSnapshot(directory, events, nextSequence) {
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  await writeFile(path.join(directory, "lifecycle-events.json"), `${JSON.stringify({
+    version: 1,
+    nextSequence,
+    events,
+  })}\n`, { mode: 0o600 });
+}
+
+function lifecycleRecord(sequence, eventId) {
+  return {
+    sequence,
+    event: {
+      type: "session.lifecycle",
+      version: 1,
+      eventId,
+      deviceId: "staging-mac",
+      runtimeSessionId: `runtime-${eventId}`,
+      storedSessionId: `stored-${eventId}`,
+      event: "run.completed",
+      state: "idle",
+      occurredAt: "2026-09-03T10:00:00.000Z",
+    },
+    receivedAt: "2026-09-03T10:00:01.000Z",
   };
 }
 

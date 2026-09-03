@@ -21,6 +21,7 @@ const DEPLOY_CONFIG_KEYS = [
   "operator",
   "targetArtifactManifest",
   "paths",
+  "legacySource",
   "slots",
   "gateway",
   "secrets",
@@ -143,6 +144,7 @@ export async function loadDeployConfig(filePath) {
   try {
     exactKeys(raw, DEPLOY_CONFIG_KEYS, "deploy_config");
     exactKeys(raw.paths, ["installRoot", "configRoot", "stateRoot", "systemdUnitDirectory"], "paths");
+    exactKeys(raw.legacySource, ["serviceName", "containerName", "stateDirectory"], "legacy_source");
     exactKeys(raw.slots, ["blue", "green"], "slots");
     exactKeys(raw.gateway, ["defaultDeviceId", "accountAuthEnabled", "accountBindingEnabled"], "gateway");
     exactKeys(raw.secrets, ["appTokenSource", "connectorTokenSource", "internalStatusTokenSource"], "secrets");
@@ -170,6 +172,11 @@ export async function loadDeployConfig(filePath) {
         configRoot: absolutePath(raw.paths.configRoot, "configRoot"),
         stateRoot: absolutePath(raw.paths.stateRoot, "stateRoot"),
         systemdUnitDirectory: absolutePath(raw.paths.systemdUnitDirectory, "systemdUnitDirectory"),
+      },
+      legacySource: {
+        serviceName: token(raw.legacySource.serviceName, /^[a-z0-9][a-z0-9.-]{0,62}$/, "legacySource.serviceName"),
+        containerName: token(raw.legacySource.containerName, /^[a-z0-9][a-z0-9_.-]{0,62}$/, "legacySource.containerName"),
+        stateDirectory: absolutePath(raw.legacySource.stateDirectory, "legacySource.stateDirectory"),
       },
       slots: {
         blue: deploySlot(raw.slots.blue, "blue"),
@@ -221,6 +228,13 @@ export async function loadDeployConfig(filePath) {
 
     const roots = [config.paths.installRoot, config.paths.configRoot, config.paths.stateRoot];
     validateManagedRoots(roots);
+    if (config.legacySource.stateDirectory !== path.join(config.paths.stateRoot, "gateway")) {
+      fail("legacy_state_directory_must_match_bootstrap_layout");
+    }
+    if (Object.values(config.slots).some((slot) => slot.serviceName === config.legacySource.serviceName
+        || slot.containerName === config.legacySource.containerName)) {
+      fail("legacy_and_slot_services_must_be_distinct");
+    }
     const inputs = [
       ...Object.values(config.secrets),
       config.nginx.certificateSource,

@@ -23,8 +23,8 @@ R4 当前处于合同与实现阶段。本文只记录实际执行的结果；�
 | --- | --- | --- |
 | R4 plan and boundaries | Complete | `CLOUD_GATEWAY_R4_PLAN.md` 已定义双槽位、状态机、恢复矩阵、实施切片与退出条件 |
 | R4-A contract | Complete | PR #9 六项 checks 全部通过，合并提交 `c2f0600` 的 main CI、SAST、Gateway OCI 复核均通过 |
-| R4-B candidate path | In progress | 双槽位模板、顺序 journal、nonce-fenced lock、候选私有探针与失败恢复已实现并通过聚焦单元测试；等待完整基线与 PR CI |
-| R4-C switch/drain | Not run | 尚未实现 |
+| R4-B candidate path | Complete | PR #10 六项 checks 全部通过，合并提交 `9c3c54a` 的 main CI、SAST、Gateway OCI 复核均通过 |
+| R4-C switch/drain | In progress | 最终 snapshot 交接、持久 Nginx 检查点、原子切换、观察窗、提交与自动恢复已实现；聚焦故障注入通过，等待完整基线与 PR CI |
 | R4-D rollback | Not run | 尚未实现 |
 | Fault-injection suite | Not run | 尚未实现 |
 | Ephemeral upgrade/rollback | Not run | 尚未实现；执行前不得触碰香港生产服务器 |
@@ -65,5 +65,25 @@ smoke 失败后只停止候选、相同计划恢复，以及竞争锁存在时�
 
 2026-09-03 执行 `npm run build` 与 `npm test` 均通过；脚本套件增至 36 项并全部通过。Gateway
 常规套件仍为 53 项（42 通过、11 项按网络/PostgreSQL 环境门禁跳过），既有 Protocol、Connector
-和 release-server 套件无回归。R4-B 仍需 PR CI 和后续一次性 staging 的真实 systemd/Docker/Nginx
-候选验证，不能据此部署香港服务器。
+和 release-server 套件无回归。PR #10 的 Android、Desktop、Node、Secret、Semgrep、Gateway OCI
+六项检查全部通过；main `9c3c54a` 的 CI run `33742157027`、SAST run `33742156994`、Gateway OCI
+run `33742157459` 也全部成功。真实 systemd/Docker/Nginx 候选验证仍属于后续一次性 staging，
+不能据此部署香港服务器。
+
+## R4-C 当前本地证据
+
+聚焦测试已覆盖：最终 lifecycle snapshot 正常交接、空源覆盖候选 smoke 状态、损坏/重复/symlink
+输入 fail closed、反向交接保留观察期新事件、成功切换并提交 symlink、公开 smoke 失败后恢复旧程序/
+旧路由/最新状态、交接前操作进程中断恢复、Nginx 校验失败逐字恢复，以及 `route_switched` journal
+在操作进程中断后的继续执行。双重中断测试还验证了反向交接一旦标记为 `restored`，下一次恢复不会
+用候选旧快照覆盖重启后产生的新事件。新增失败统一映射为双语 `HR-OPS-008` 并复用既有脱敏边界。
+
+当前实现按 release contract 明确要求 `maintenanceRequired: true`：旧 writer 停止后才复制最终快照，
+因此会有短暂断连，但公开 URL、Token 和客户端协议不变。`switchCandidate` 尚未接入公开 CLI；完整
+基线、PR CI、R4-D rollback 和一次性 staging 往返完成前，不构成部署授权或生产可用声明。
+
+2026-09-03 执行 `npm run build`、`npm test` 与 `git diff --check` 均通过；脚本套件增至 46 项并
+全部通过。Gateway 常规套件仍为 53 项（42 通过、11 项按网络/PostgreSQL 环境门禁跳过），Protocol
+13 项、Connector 13 项和 release-server 30 项全部通过。随后启用 `RUN_NETWORK_TESTS=1` 复核
+Gateway：初次在受限 sandbox 内因 `listen EPERM` 无法绑定 loopback；获准仅开放本机临时端口后
+重跑为 50 项通过、3 项仅因未配置一次性 PostgreSQL 而跳过。未连接香港服务器或任何生产服务。

@@ -220,7 +220,7 @@ async function installImmutableFile(filePath, content, mode, owner) {
   await atomicWrite(filePath, content, mode, owner);
 }
 
-async function verifyCandidateBase(config, manifest, slot, internalToken, options) {
+export async function verifyCandidateBase(config, manifest, slot, internalToken, options) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   const origin = `http://127.0.0.1:${config.slots[slot].gatewayPort}`;
