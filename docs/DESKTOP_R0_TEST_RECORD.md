@@ -164,3 +164,33 @@ sign-in was deliberately not attempted. Signed-in long-name fixtures, light/dark
 physical phones, candidate Connector proof, takeover/rollback, Developer ID signing/notarization,
 and any production deployment remain unverified. The isolated Gateway and Desktop test app are not
 release artifacts and must not be represented as such.
+
+## D0.6 scope
+
+- Added optional protected Google Desktop client-JSON packaging with client-ID matching and no
+  secret output to source control, logs, or diagnostics.
+- Added bounded Google token-endpoint rejection diagnostics and kept response descriptions,
+  authorization codes, access tokens, and ID tokens out of errors.
+- Prevented periodic signed-out refreshes from immediately erasing an actionable interactive OAuth
+  error; bootstrap and successful account-state transitions still clear stale errors.
+- Rebuilt and installed the isolated app as `/Applications/Hermes GO OAuth Test.app` with bundle ID
+  `com.hermesgo.desktop.oauth-test` and Keychain namespace `oauth-20260903`.
+
+## D0.6 executed results
+
+| Gate | Result |
+| --- | --- |
+| Desktop regression suite | Pass: 68 tests, 0 failures |
+| Build-script syntax and source whitespace | Pass |
+| Protected OAuth JSON packaging | Pass: downloaded client ID matched the configured Desktop client; the source JSON and secret were not printed or added to Git |
+| Isolated app signature/configuration | Pass: strict ad-hoc codesign; loopback Gateway, test bundle ID, client ID, and storage namespace matched without displaying the client secret |
+| Live Google browser OAuth | Pass: callback, Google token exchange, Gateway exchange, and signed-in Account & Devices UI completed on the target Mac |
+| Account persistence | Pass: disposable PostgreSQL contained one account, external identity, installation, account session, and refresh token |
+| Keychain persistence after app restart | Partial: isolated account-session and machine-identity items remained present; online refresh was unavailable because the disposable Gateway process had exited |
+| Legacy Connector non-mutation | Pass: state `running`, PID `11610`, launch count `19` |
+| Existing Desktop non-overwrite | Pass: `/Applications/Hermes Go Desktop.app` remained installed and running separately |
+
+The D0.6 app and loopback database are local test assets, not release artifacts. No production
+Gateway deployment, Connector takeover, binding operation, phone mutation, Developer ID signing, or
+notarization was performed. Restart-time online refresh remains a later persistent-service gate; its
+Keychain prerequisites were verified in the isolated namespace.

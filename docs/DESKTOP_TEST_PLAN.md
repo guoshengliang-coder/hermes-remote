@@ -30,6 +30,10 @@ The current automated suite covers:
 - Desktop account capability discovery and default-off behavior;
 - PKCE S256, cryptographic state/nonce, provider cancellation, state mismatch rejection, and a real
   ephemeral `127.0.0.1` loopback callback;
+- Google token-endpoint failures retain only the bounded HTTP status and allowlisted provider error
+  code for diagnostics; response descriptions, authorization codes, and tokens are discarded;
+- optional Google Desktop client-secret configuration is bounded and included only in the form body
+  of the token exchange, never in the authorization header or diagnostic error;
 - account HTTP paths/headers, bounded responses, stable error mapping, and diagnostic redaction;
 - separate account-session and Connector-machine identity stores, Ed25519 challenge signing, access
   refresh, and persisted idempotency-key reuse after a lost refresh response;
@@ -37,6 +41,8 @@ The current automated suite covers:
   Connector-machine identity Keychain services, including malformed-namespace fail-safe behavior;
 - signed-in dashboard reduction, two-phone listing, one-phone removal, and Desktop-only sign-out
   without deleting the machine identity.
+- periodic signed-out refresh preserves an interactive Google sign-in failure until the user retries
+  or the account state changes, while bootstrap still clears stale failures;
 - exact scoped-reauthentication, first-bind, replacement, confirmation, and unbind HTTP contracts;
 - fail-closed binding capability and response validation, conflict/expiry mapping, cancellation, and
   persisted idempotency-key reuse for every I3-B mutation after a lost response.
@@ -68,8 +74,8 @@ the project-wide `ERROR_HANDLING.md` contract.
 | Account mode disabled | Account & Devices reports unavailable and legacy connection remains usable | Automated + real 0.3.0 accessibility run 2026-09-03 |
 | Account mode enabled, signed out | Account & Devices offers account entry without mutating binding or legacy state | Verified against isolated PostgreSQL 18/Gateway and separate installed test app 2026-09-03 |
 | Isolated Desktop package | Test bundle and all three Keychain services remain separate from installed Desktop | Automated namespace test + signed/package/install verification 2026-09-03 |
-| Browser OAuth loopback | Listener binds an ephemeral `127.0.0.1` port and rejects mismatched state | Automated locally; live Google client pending |
-| Account session restart | Keychain session refreshes without changing the Connector machine identity | In-memory/store contract automated; packaged Keychain run pending |
+| Browser OAuth loopback | Listener binds an ephemeral `127.0.0.1` port and rejects mismatched state | Automated locally; live Google callback, token exchange, Gateway exchange, and signed-in account UI verified on target 2026-09-03 |
+| Account session restart | Keychain session refreshes without changing the Connector machine identity | In-memory/store contract automated; packaged account session and machine identity confirmed in the isolated Keychain namespace after restart, but online refresh still needs a persistent test Gateway |
 | Two account phones | Account & Devices lists both and removes only the selected installation | Controller/API automated; live backend and physical phones pending |
 | Binding capability disabled | No first-bind, replacement, confirmation, or unbind action is exposed | Automated + real 0.3.0 accessibility run 2026-09-03 |
 | Pending binding proof | Final confirmation appears only after key and health proof both pass | Automated reducer; capability-enabled UI fixture pending |

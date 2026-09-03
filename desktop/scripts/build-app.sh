@@ -33,6 +33,28 @@ fi
 if [ -n "${HERMES_GO_BUNDLE_IDENTIFIER:-}" ]; then
   validate_package_identifier "$HERMES_GO_BUNDLE_IDENTIFIER" HERMES_GO_BUNDLE_IDENTIFIER 255
 fi
+if [ -n "${HERMES_GO_GOOGLE_MACOS_CLIENT_SECRET_FILE:-}" ]; then
+  if [ ! -f "$HERMES_GO_GOOGLE_MACOS_CLIENT_SECRET_FILE" ]; then
+    echo "HERMES_GO_GOOGLE_MACOS_CLIENT_SECRET_FILE must point to a Google OAuth client JSON file." >&2
+    exit 1
+  fi
+  oauth_file_client_id="$(
+    ruby -rjson -e 'print JSON.parse(File.read(ARGV.fetch(0))).fetch("installed").fetch("client_id")' \
+      "$HERMES_GO_GOOGLE_MACOS_CLIENT_SECRET_FILE"
+  )"
+  oauth_file_client_secret="$(
+    ruby -rjson -e 'print JSON.parse(File.read(ARGV.fetch(0))).fetch("installed").fetch("client_secret")' \
+      "$HERMES_GO_GOOGLE_MACOS_CLIENT_SECRET_FILE"
+  )"
+  if [ -z "$oauth_file_client_id" ] || [ -z "$oauth_file_client_secret" ]; then
+    echo "The Google OAuth client JSON is missing its installed client ID or client secret." >&2
+    exit 1
+  fi
+  if [ -n "${HERMES_GO_GOOGLE_MACOS_CLIENT_ID:-}" ] && [ "$oauth_file_client_id" != "$HERMES_GO_GOOGLE_MACOS_CLIENT_ID" ]; then
+    echo "The Google OAuth client JSON does not match HERMES_GO_GOOGLE_MACOS_CLIENT_ID." >&2
+    exit 1
+  fi
+fi
 
 if ! cmp -s "$canonical_icon" "$icon_source"; then
   echo "Desktop AppIcon.png differs from the canonical Android app icon." >&2
@@ -69,6 +91,9 @@ if [ -n "${HERMES_GO_ACCOUNT_GATEWAY_URL:-}" ]; then
 fi
 if [ -n "${HERMES_GO_GOOGLE_MACOS_CLIENT_ID:-}" ]; then
   plutil -replace HermesGoGoogleMacOSClientID -string "$HERMES_GO_GOOGLE_MACOS_CLIENT_ID" "$app/Contents/Info.plist"
+fi
+if [ -n "${HERMES_GO_GOOGLE_MACOS_CLIENT_SECRET_FILE:-}" ]; then
+  plutil -replace HermesGoGoogleMacOSClientSecret -string "$oauth_file_client_secret" "$app/Contents/Info.plist"
 fi
 if [ -n "${HERMES_GO_STORAGE_NAMESPACE:-}" ]; then
   plutil -replace HermesGoStorageNamespace -string "$HERMES_GO_STORAGE_NAMESPACE" "$app/Contents/Info.plist"

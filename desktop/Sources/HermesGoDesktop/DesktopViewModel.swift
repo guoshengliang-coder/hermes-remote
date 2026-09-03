@@ -31,7 +31,9 @@ final class DesktopViewModel: ObservableObject {
                 base: "com.hermesgo.desktop.connection-profile"
             )
         )
-        let oauth = configuration.googleClientID.map { GoogleOAuthFlow(clientID: $0) }
+        let oauth = configuration.googleClientID.map {
+            GoogleOAuthFlow(clientID: $0, clientSecret: configuration.googleClientSecret)
+        }
         accountController = DesktopAccountController(
             api: AccountAPIClient(gatewayURL: configuration.gatewayURL),
             sessionStore: KeychainAccountSessionStore(
@@ -106,7 +108,7 @@ final class DesktopViewModel: ObservableObject {
             } else {
                 state = try await accountController.refresh()
             }
-            applyAccountState(state)
+            applyAccountState(state, preserveSignedOutIssue: !bootstrap)
         } catch let issue as AccountClientError {
             accountIssue = DesktopIssue.account(issue)
         } catch {
@@ -224,16 +226,16 @@ final class DesktopViewModel: ObservableObject {
         }
     }
 
-    private func applyAccountState(_ state: DesktopAccountState) {
+    private func applyAccountState(
+        _ state: DesktopAccountState,
+        preserveSignedOutIssue: Bool = false
+    ) {
         accountState = state
-        switch state {
-        case .unavailable:
-            accountIssue = DesktopIssue(code: .accountFeatureDisabled)
-        case .needsSignIn(let issueCode):
-            accountIssue = DesktopIssue(code: issueCode)
-        default:
-            accountIssue = nil
-        }
+        accountIssue = DesktopAccountIssueReducer.issue(
+            afterApplying: state,
+            existingIssue: accountIssue,
+            preserveSignedOutIssue: preserveSignedOutIssue
+        )
     }
 
     func refresh() async {

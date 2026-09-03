@@ -55,13 +55,15 @@ The next local slice adds account management without changing the phase-0 compat
   this-device-only Keychain items.
 - The account client discovers capabilities, refreshes sessions, displays binding/phone state,
   removes exactly one phone, and signs out only the Desktop management session.
+- A periodic signed-out refresh does not erase an actionable Google sign-in failure before the user
+  can inspect or copy its diagnostics.
 - Refresh and completion-operation idempotency keys are persisted before transmission so a lost
   response can be safely retried after restart.
 - The existing URL/Token/QR flow remains under Advanced: Legacy connection.
 
 I3-A does not create/confirm a binding, request replacement, unbind, migrate credentials, start a
-second Connector, or mutate Hermes. Live Google OAuth, production capability enablement, real
-Keychain restart, and target-Mac UI inspection remain separate gates.
+second Connector, or mutate Hermes. Production capability enablement, a persistent-service Keychain
+restart run, and physical-phone verification remain separate gates.
 
 ## I3-B account-control client — local transport only
 
@@ -81,6 +83,27 @@ The D0.5 local-deployment gate adds an opt-in Keychain storage namespace and tes
 identity overrides. This allows an account-enabled loopback build to be installed beside the current
 Desktop without reading or overwriting its connection profile, account session, or Connector machine
 key. Default and production packages keep the original identifiers and storage services.
+
+The D0.6 OAuth gate accepts an optional protected Google Desktop client JSON during packaging,
+verifies that its client ID matches the requested package, and embeds only the required client-secret
+value in the local app. Google token-endpoint failures retain only a bounded status and allowlisted
+provider code for diagnostics. A periodic signed-out refresh also preserves the interactive sign-in
+failure long enough for the user to inspect or retry it.
+
+### I3-A live OAuth verification — 2026-09-03
+
+- An isolated `Hermes GO OAuth Test` app completed the system-browser callback, Google token
+  exchange, Gateway ID-token exchange, and signed-in Account & Devices UI against a loopback-only
+  Gateway and disposable PostgreSQL 18 database.
+- The database contained exactly one account, external identity, installation, account session, and
+  refresh token. The app displayed the matching account and the current Desktop installation.
+- After relaunch, both the account-session and Connector-machine identity items remained present in
+  the isolated Keychain namespace. The disposable Gateway process had already exited, so the app
+  correctly failed closed to legacy mode; online refresh after restart remains pending against a
+  persistent test Gateway.
+- The legacy Connector remained at PID `11610` with launch count `19`, and the installed production
+  Desktop app remained open and unmodified. No production service, binding, phone, or Hermes state
+  was changed.
 
 ### I3-A local verification — 2026-09-02
 

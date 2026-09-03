@@ -3,13 +3,26 @@ import Foundation
 public struct DesktopAccountConfiguration: Equatable, Sendable {
     public let gatewayURL: URL
     public let googleClientID: String?
+    public let googleClientSecret: String?
     public let storageNamespace: String?
 
-    public init(gatewayURL: URL, googleClientID: String?, storageNamespace: String? = nil) {
+    public init(
+        gatewayURL: URL,
+        googleClientID: String?,
+        googleClientSecret: String? = nil,
+        storageNamespace: String? = nil
+    ) {
         self.gatewayURL = gatewayURL
         let normalized = googleClientID?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.googleClientID = normalized.flatMap {
             guard (8...512).contains($0.count),
+                  !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+            else { return nil }
+            return $0.nilIfEmpty
+        }
+        let normalizedSecret = googleClientSecret?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.googleClientSecret = normalizedSecret.flatMap {
+            guard (1...1_024).contains($0.count),
                   !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
             else { return nil }
             return $0.nilIfEmpty
@@ -30,6 +43,9 @@ public struct DesktopAccountConfiguration: Equatable, Sendable {
             ?? "https://mrlgs.net"
         let clientID = environment["HERMES_GO_GOOGLE_MACOS_CLIENT_ID"]
             ?? bundle.object(forInfoDictionaryKey: "HermesGoGoogleMacOSClientID") as? String
+        let clientSecret = bundle.object(
+            forInfoDictionaryKey: "HermesGoGoogleMacOSClientSecret"
+        ) as? String
         let storageNamespace = environment["HERMES_GO_STORAGE_NAMESPACE"]
             ?? bundle.object(forInfoDictionaryKey: "HermesGoStorageNamespace") as? String
         let gatewayURL = validatedAccountGatewayURL(gatewayValue)
@@ -37,6 +53,7 @@ public struct DesktopAccountConfiguration: Equatable, Sendable {
         return DesktopAccountConfiguration(
             gatewayURL: gatewayURL,
             googleClientID: clientID,
+            googleClientSecret: clientSecret,
             storageNamespace: storageNamespace
         )
     }
@@ -299,6 +316,7 @@ public enum GoogleOAuthError: Error, Equatable, Sendable {
     case callbackRejected
     case cancelled
     case tokenExchangeFailed
+    case tokenEndpointRejected(statusCode: Int, providerCode: String?)
     case invalidTokenResponse
 }
 

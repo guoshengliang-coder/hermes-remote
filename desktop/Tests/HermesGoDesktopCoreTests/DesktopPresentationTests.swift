@@ -28,6 +28,40 @@ final class DesktopPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.menuLabel, "已登录")
         XCTAssertEqual(presentation.settingsLabel, "已登录")
     }
+
+    func testPeriodicSignedOutRefreshPreservesInteractiveSignInFailure() {
+        let failure = DesktopIssue.oauth(.invalidTokenResponse)
+
+        let issue = DesktopAccountIssueReducer.issue(
+            afterApplying: .signedOut,
+            existingIssue: failure,
+            preserveSignedOutIssue: true
+        )
+
+        XCTAssertEqual(issue, failure)
+    }
+
+    func testBootstrapSignedOutClearsStaleIssue() {
+        let failure = DesktopIssue.oauth(.invalidTokenResponse)
+
+        let issue = DesktopAccountIssueReducer.issue(
+            afterApplying: .signedOut,
+            existingIssue: failure,
+            preserveSignedOutIssue: false
+        )
+
+        XCTAssertNil(issue)
+    }
+
+    func testSignedInRefreshClearsPreviousIssue() {
+        let issue = DesktopAccountIssueReducer.issue(
+            afterApplying: .signedIn(.fixture),
+            existingIssue: DesktopIssue.oauth(.invalidTokenResponse),
+            preserveSignedOutIssue: true
+        )
+
+        XCTAssertNil(issue)
+    }
 }
 
 private extension AccountDashboard {

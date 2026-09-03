@@ -52,7 +52,8 @@ public protocol GoogleOAuthTokenExchanging: Sendable {
         code: String,
         codeVerifier: String,
         redirectURI: URL,
-        clientID: String
+        clientID: String,
+        clientSecret: String?
     ) async throws -> String
 }
 
@@ -62,17 +63,21 @@ public protocol GoogleOAuthPerforming: Sendable {
 
 public actor GoogleOAuthFlow: GoogleOAuthPerforming {
     private let clientID: String
+    private let clientSecret: String?
     private let browserSession: any GoogleOAuthBrowserSession
     private let tokenExchanger: any GoogleOAuthTokenExchanging
     private let authorizationEndpoint: URL
 
     public init(
         clientID: String,
+        clientSecret: String? = nil,
         browserSession: any GoogleOAuthBrowserSession = SystemBrowserGoogleOAuthSession(),
         tokenExchanger: any GoogleOAuthTokenExchanging = GoogleOAuthTokenExchanger(),
         authorizationEndpoint: URL = URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!
     ) {
         self.clientID = clientID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedSecret = clientSecret?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.clientSecret = normalizedSecret.flatMap { $0.isEmpty ? nil : $0 }
         self.browserSession = browserSession
         self.tokenExchanger = tokenExchanger
         self.authorizationEndpoint = authorizationEndpoint
@@ -109,7 +114,8 @@ public actor GoogleOAuthFlow: GoogleOAuthPerforming {
             code: code,
             codeVerifier: verifier,
             redirectURI: callback.redirectURI,
-            clientID: clientID
+            clientID: clientID,
+            clientSecret: clientSecret
         )
         guard !idToken.isEmpty, idToken.count <= 16_384 else {
             throw GoogleOAuthError.invalidTokenResponse
@@ -217,7 +223,8 @@ public actor GoogleOAuthTokenExchanger: GoogleOAuthTokenExchanging {
         code: String,
         codeVerifier: String,
         redirectURI: URL,
-        clientID: String
+        clientID: String,
+        clientSecret: String?
     ) async throws -> String {
         var request = URLRequest(url: tokenEndpoint)
         request.httpMethod = "POST"
@@ -225,13 +232,15 @@ public actor GoogleOAuthTokenExchanger: GoogleOAuthTokenExchanging {
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.httpBody = formEncoded([
+        var fields = [
             ("client_id", clientID),
             ("code", code),
             ("code_verifier", codeVerifier),
             ("grant_type", "authorization_code"),
             ("redirect_uri", redirectURI.absoluteString),
-        ])
+        ]
+        if let clientSecret { fields.append(("client_secret", clientSecret)) }
+        request.httpBody = formEncoded(fields)
 
         let result: (Data, URLResponse)
         do {
@@ -240,9 +249,15 @@ public actor GoogleOAuthTokenExchanger: GoogleOAuthTokenExchanging {
             throw GoogleOAuthError.tokenExchangeFailed
         }
         guard result.0.count <= 64 * 1024,
-              let response = result.1 as? HTTPURLResponse,
-              (200..<300).contains(response.statusCode),
-              let token = try? JSONDecoder().decode(GoogleTokenResponse.self, from: result.0),
+              let response = result.1 as? HTTPURLResponse
+        else { throw GoogleOAuthError.invalidTokenResponse }
+        guard (200..<300).contains(response.statusCode) else {
+            throw GoogleOAuthError.tokenEndpointRejected(
+                statusCode: response.statusCode,
+                providerCode: googleProviderErrorCode(from: result.0)
+            )
+        }
+        guard let token = try? JSONDecoder().decode(GoogleTokenResponse.self, from: result.0),
               let idToken = token.idToken
         else { throw GoogleOAuthError.invalidTokenResponse }
         return idToken
@@ -427,6 +442,19 @@ private struct GoogleTokenResponse: Decodable {
     enum CodingKeys: String, CodingKey {
         case idToken = "id_token"
     }
+}
+
+private struct GoogleTokenErrorResponse: Decodable {
+    let error: String?
+}
+
+private func googleProviderErrorCode(from data: Data) -> String? {
+    guard let value = try? JSONDecoder().decode(GoogleTokenErrorResponse.self, from: data).error,
+          (1...64).contains(value.count)
+    else { return nil }
+    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_.-"))
+    guard value.unicodeScalars.allSatisfy(allowed.contains) else { return nil }
+    return value
 }
 
 private func secureRandomURLString(byteCount: Int) throws -> String {

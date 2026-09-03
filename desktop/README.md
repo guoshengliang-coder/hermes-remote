@@ -38,13 +38,21 @@ npm run desktop:dmg
 ```
 
 Default builds leave account mode unavailable. To create a development build wired to an approved
-Google **Desktop app** OAuth client, provide the public values only while packaging:
+Google **Desktop app** OAuth client, provide its client ID and protected downloaded JSON only while
+packaging:
 
 ```bash
 HERMES_GO_ACCOUNT_GATEWAY_URL=https://relay.example \
 HERMES_GO_GOOGLE_MACOS_CLIENT_ID=example.apps.googleusercontent.com \
+HERMES_GO_GOOGLE_MACOS_CLIENT_SECRET_FILE=/protected/path/oauth-client.json \
 npm run desktop:app
 ```
+
+The optional secret-file input is read only while packaging; the JSON file itself is not copied, but
+its client-secret value is embedded in the built app's `Info.plist` for the OAuth token exchange. It
+is never written into source control, build logs, or diagnostics. Installed apps cannot keep this
+value confidential, but the downloaded client JSON must still be treated as protected local build
+input and never committed.
 
 The app opens Google's account chooser in the system browser with PKCE S256, state, nonce, and a
 temporary `127.0.0.1` callback. It never reads Chrome/Safari profiles or stores a Google access token.

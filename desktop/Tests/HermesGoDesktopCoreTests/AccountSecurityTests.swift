@@ -35,9 +35,26 @@ final class AccountSecurityTests: XCTestCase {
 
         XCTAssertEqual(secure.gatewayURL.absoluteString, "https://relay.example")
         XCTAssertEqual(secure.googleClientID, "desktop.apps.googleusercontent.com")
+        XCTAssertNil(secure.googleClientSecret)
         XCTAssertEqual(loopback.gatewayURL.absoluteString, "http://127.0.0.1:8444")
         XCTAssertNil(loopback.googleClientID)
         XCTAssertEqual(insecure.gatewayURL.absoluteString, "https://mrlgs.net")
+    }
+
+    func testAccountConfigurationAcceptsOnlyBoundedClientSecret() {
+        let valid = DesktopAccountConfiguration(
+            gatewayURL: URL(string: "https://relay.example")!,
+            googleClientID: "desktop.apps.googleusercontent.com",
+            googleClientSecret: "  test-client-secret  "
+        )
+        let invalid = DesktopAccountConfiguration(
+            gatewayURL: URL(string: "https://relay.example")!,
+            googleClientID: "desktop.apps.googleusercontent.com",
+            googleClientSecret: "bad\nsecret"
+        )
+
+        XCTAssertEqual(valid.googleClientSecret, "test-client-secret")
+        XCTAssertNil(invalid.googleClientSecret)
     }
 
     func testAccountConfigurationUsesOnlyValidatedStorageNamespace() {

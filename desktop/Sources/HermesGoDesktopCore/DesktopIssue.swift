@@ -202,3 +202,22 @@ public struct DesktopIssue: Error, Equatable, Sendable {
         }
     }
 }
+
+public enum DesktopAccountIssueReducer {
+    public static func issue(
+        afterApplying state: DesktopAccountState,
+        existingIssue: DesktopIssue?,
+        preserveSignedOutIssue: Bool
+    ) -> DesktopIssue? {
+        switch state {
+        case .unavailable:
+            DesktopIssue(code: .accountFeatureDisabled)
+        case .needsSignIn(let issueCode):
+            DesktopIssue(code: issueCode)
+        case .signedOut where preserveSignedOutIssue:
+            existingIssue
+        default:
+            nil
+        }
+    }
+}

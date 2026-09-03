@@ -4,6 +4,11 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class GoogleOAuthTests: XCTestCase {
+    override func tearDown() {
+        GoogleOAuthURLProtocolStub.handler = nil
+        super.tearDown()
+    }
+
     func testSystemBrowserSessionOwnsAnEphemeralLoopbackCallback() async throws {
         let browser = SystemBrowserGoogleOAuthSession(timeout: 3) { authorizationURL in
             guard let authorization = URLComponents(url: authorizationURL, resolvingAgainstBaseURL: false),
@@ -43,6 +48,7 @@ final class GoogleOAuthTests: XCTestCase {
         let exchanger = RecordingTokenExchanger(idToken: "signed-google-id-token")
         let flow = GoogleOAuthFlow(
             clientID: "desktop.apps.googleusercontent.com",
+            clientSecret: "test-client-secret",
             browserSession: browser,
             tokenExchanger: exchanger,
             authorizationEndpoint: URL(string: "https://accounts.example/authorize")!
@@ -66,6 +72,7 @@ final class GoogleOAuthTests: XCTestCase {
         )
         XCTAssertEqual(exchange.code, "one-time-code")
         XCTAssertEqual(exchange.clientID, request.clientID)
+        XCTAssertTrue(exchange.includedClientSecret)
     }
 
     func testStateMismatchFailsBeforeTokenExchange() async {
@@ -99,6 +106,145 @@ final class GoogleOAuthTests: XCTestCase {
         let exchangeCount = await exchanger.exchangeCount()
         XCTAssertEqual(exchangeCount, 0)
     }
+
+    func testTokenEndpointRejectionKeepsOnlySafeProviderCode() async throws {
+        GoogleOAuthURLProtocolStub.handler = { request in
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+            XCTAssertFalse(String(decoding: request.capturedBody() ?? Data(), as: UTF8.self).contains("client_secret"))
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 400,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (
+                response,
+                Data(#"{"error":"invalid_grant","error_description":"authorization code details"}"#.utf8)
+            )
+        }
+        let exchanger = GoogleOAuthTokenExchanger(session: tokenStubSession())
+
+        await XCTAssertThrowsErrorAsync(
+            try await exchanger.exchange(
+                code: "one-time-code",
+                codeVerifier: "verifier",
+                redirectURI: URL(string: "http://127.0.0.1:54321/oauth/callback")!,
+                clientID: "desktop.apps.googleusercontent.com",
+                clientSecret: nil
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? GoogleOAuthError,
+                .tokenEndpointRejected(statusCode: 400, providerCode: "invalid_grant")
+            )
+            XCTAssertFalse(String(describing: error).contains("authorization code details"))
+        }
+    }
+
+    func testTokenExchangeIncludesOptionalClientSecretInFormBody() async throws {
+        GoogleOAuthURLProtocolStub.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+            let body = String(decoding: try XCTUnwrap(request.capturedBody()), as: UTF8.self)
+            let query = try XCTUnwrap(URLComponents(string: "https://token.example/?\(body)")?.queryItems)
+            let fields = Dictionary(uniqueKeysWithValues: query.map { ($0.name, $0.value ?? "") })
+            XCTAssertEqual(fields["client_id"], "desktop.apps.googleusercontent.com")
+            XCTAssertEqual(fields["client_secret"], "test-secret+value")
+            XCTAssertEqual(fields["code"], "one-time-code")
+            XCTAssertEqual(fields["code_verifier"], "verifier")
+
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, Data(#"{"id_token":"signed-id-token"}"#.utf8))
+        }
+        let exchanger = GoogleOAuthTokenExchanger(session: tokenStubSession())
+
+        let token = try await exchanger.exchange(
+            code: "one-time-code",
+            codeVerifier: "verifier",
+            redirectURI: URL(string: "http://127.0.0.1:54321/oauth/callback")!,
+            clientID: "desktop.apps.googleusercontent.com",
+            clientSecret: "test-secret+value"
+        )
+
+        XCTAssertEqual(token, "signed-id-token")
+    }
+
+    func testSuccessfulTokenResponseStillRequiresIDToken() async throws {
+        GoogleOAuthURLProtocolStub.handler = { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, Data(#"{"access_token":"must-not-be-used"}"#.utf8))
+        }
+        let exchanger = GoogleOAuthTokenExchanger(session: tokenStubSession())
+
+        await XCTAssertThrowsErrorAsync(
+            try await exchanger.exchange(
+                code: "one-time-code",
+                codeVerifier: "verifier",
+                redirectURI: URL(string: "http://127.0.0.1:54321/oauth/callback")!,
+                clientID: "desktop.apps.googleusercontent.com",
+                clientSecret: nil
+            )
+        ) { error in
+            XCTAssertEqual(error as? GoogleOAuthError, .invalidTokenResponse)
+        }
+    }
+}
+
+private func tokenStubSession() -> URLSession {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [GoogleOAuthURLProtocolStub.self]
+    return URLSession(configuration: configuration)
+}
+
+private final class GoogleOAuthURLProtocolStub: URLProtocol {
+    static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let handler = Self.handler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+private extension URLRequest {
+    func capturedBody() -> Data? {
+        if let httpBody { return httpBody }
+        guard let stream = httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4_096)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count <= 0 { break }
+            data.append(buffer, count: count)
+        }
+        return data
+    }
 }
 
 private actor RecordingBrowserSession: GoogleOAuthBrowserSession {
@@ -128,6 +274,7 @@ private actor RecordingTokenExchanger: GoogleOAuthTokenExchanging {
         let codeVerifier: String
         let redirectURI: URL
         let clientID: String
+        let includedClientSecret: Bool
     }
 
     private let idToken: String
@@ -140,14 +287,16 @@ private actor RecordingTokenExchanger: GoogleOAuthTokenExchanging {
         code: String,
         codeVerifier: String,
         redirectURI: URL,
-        clientID: String
+        clientID: String,
+        clientSecret: String?
     ) async throws -> String {
         count += 1
         exchange = Exchange(
             code: code,
             codeVerifier: codeVerifier,
             redirectURI: redirectURI,
-            clientID: clientID
+            clientID: clientID,
+            includedClientSecret: clientSecret != nil
         )
         return idToken
     }
