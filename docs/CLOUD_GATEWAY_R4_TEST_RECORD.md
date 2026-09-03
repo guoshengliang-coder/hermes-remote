@@ -1,6 +1,6 @@
 # Cloud Gateway R4 安全升级验证记录
 
-R4 当前处于合同与实现阶段。本文只记录实际执行的结果；未执行的生产或 staging 项不得写成通过。
+R4 当前处于完成门禁收尾阶段。本文只记录实际执行的结果；未执行的生产或 staging 项不得写成通过。
 
 ## 测试影响
 
@@ -26,9 +26,9 @@ R4 当前处于合同与实现阶段。本文只记录实际执行的结果；�
 | R4-B candidate path | Complete | PR #10 六项 checks 全部通过，合并提交 `9c3c54a` 的 main CI、SAST、Gateway OCI 复核均通过 |
 | R4-C switch/drain | Complete | PR #11 六项 checks 全部通过并合并为 `519a9ab`；合并后 main CI、SAST、Gateway OCI 复核全部通过 |
 | R4-D rollback | Complete | PR #12 六项 checks 全部通过并合并为 `ed30206`；合并后 main CI、SAST、Gateway OCI 复核全部通过 |
-| R4-E CLI/integration | In progress | staging-only deploy/rollback CLI、独立候选 smoke、`0.3.0` 版本和真实 R3→R4→R3 workflow 已接线；等待完整基线、PR CI 和手动演练 |
-| Fault-injection suite | Not run | 尚未实现 |
-| Ephemeral upgrade/rollback | Not run | 尚未实现；执行前不得触碰香港生产服务器 |
+| R4-E CLI/integration | Complete | PR #13 六项 checks 全部通过并合并为 `f78b234`；合并后 main CI、SAST、Gateway OCI 复核全部通过；手动演练也已通过 |
+| Fault-injection suite | Partial | 单元测试已覆盖候选 smoke、交接前中断、Nginx 校验、公开 smoke、切换后恢复和二次中断；尚缺按全部状态点执行的显式注入矩阵 |
+| Ephemeral upgrade/rollback | Complete | GitHub Actions run `33750219977` 在提交 `ae9855d` 完成真实 R3→R4→R3 往返，未访问香港服务器 |
 | Production deployment | Not authorized | R4 计划与代码工作不构成生产授权 |
 
 ## 仓库门禁说明
@@ -109,7 +109,7 @@ PR #12 的 Android、Desktop、Node、Secret、Semgrep、Gateway OCI 六项检�
 提交为 `ed30206`。main 的 CI run `33746348230`、SAST run `33746348140` 与 Gateway OCI run
 `33746348103` 全部成功。未连接香港服务器或任何生产服务。
 
-## R4-E 当前实现状态
+## R4-E 实现与验证证据
 
 R4-E 将 Gateway Server 版本统一递增为 `0.3.0`，并开放仍严格限定 staging 的 `hermesctl deploy`
 与 `hermesctl rollback`。命令不接收活动槽位参数：首次升级从受管 R3 `current` manifest 得到源身份，
@@ -122,11 +122,28 @@ started/success 或 failed 脱敏审计记录。单元/静态测试已覆盖 R3 
 缺失 smoke 环境关闭失败，以及 workflow 必须包含固定 R3 commit、PostgreSQL 18、deploy、rollback、
 双版本 smoke、release links、最终服务/journal 与八条审计记录检查。
 
-一次性 workflow 当前仅完成代码接线，尚未触发。它不会访问香港服务器；执行前仍需项目所有者确认。
-PostgreSQL 18 在 runner 中用于核对目标环境版本，但本轮账号能力关闭且 deploy config 为
-`database: null`，所以这不构成真实数据库迁移通过的证据。
+一次性 workflow 已在项目所有者确认后手动触发。它不会访问香港服务器。PostgreSQL 18 在 runner
+中用于核对目标环境版本，但本轮账号能力关闭且 deploy config 为 `database: null`，所以这不构成
+真实数据库迁移通过的证据。
 
 2026-09-03 本地执行 `npm run build`、`npm test` 与 `git diff --check` 全部通过：Protocol 13 项、
 Connector 13 项、release-server 30 项、脚本 50 项全部通过；Gateway 常规套件 42 项通过、11 项按
 环境门禁跳过。随后以 `RUN_NETWORK_TESTS=1` 重跑 Gateway，50 项通过，只有 3 项因未配置一次性
 PostgreSQL 测试数据库而跳过。上述执行未启动 systemd/Docker/Nginx 演练，也未连接香港服务器。
+
+PR #13 的 Android、Desktop、Node、Secret、Semgrep、Gateway OCI 六项检查全部通过后合并；合并
+提交为 `f78b234`。合并后的 CI run `33748570949`、SAST run `33748571254` 与 Gateway OCI run
+`33748570919` 全部成功。
+
+2026-09-03 手动触发 `Gateway Ephemeral Staging` run `33750219977`，在最新 main 提交
+`ae9855de123f2590de293d2242bcf02db67fab3f` 的 Ubuntu 24.04 x86_64 runner 上用 PostgreSQL 18.6
+完成 1 分 58 秒的隔离演练。它从固定历史提交 `e94d89dea9b4f416942a78e3120d14bb94500e5c`
+构建 R3/schema 1 `0.2.0`，从待测提交构建 R4/schema 2 `0.3.0`；R3 bootstrap 重入、status、doctor、
+初始公开 REST/WSS/Connector smoke、R4 deploy、R4 公开 smoke、R3 rollback 和回滚后公开 smoke
+全部通过。deploy 与 rollback journal 均提交，最终 green 槽位运行 R3、blue 与 legacy 停止，
+`current/previous` 指向正确版本，八条 started/success 审计记录及脱敏检查通过。workflow 使用临时
+证书和随机 Token，无仓库 Secret、SSH、镜像推送或生产域名；未连接或更改香港服务器。
+
+本次成功关闭 R4-E CLI/integration 与完整往返门禁，但不等于 R4 全部完成：现有自动化只对关键
+恢复路径做了故障注入，尚未形成覆盖部署状态机每个注入点的显式矩阵。真实数据库迁移仍未运行，
+因为当前 release contract 声明本轮不需要数据库且配置为 `database: null`。
