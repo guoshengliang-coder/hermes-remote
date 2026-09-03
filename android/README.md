@@ -191,6 +191,13 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.84 fixes the turn-jump pill freezing the chat. Jumping to a prompt in the last one
+  or two turns — the usual target when reading near the bottom — left the list clamped at its
+  end, and the settle loop bounced every frame between placing the target at the bottom and a
+  relative scroll that could not move, flickering for ~3 s while swallowing touches. Corrections
+  are now absolute `scrollToItem` calls that stop as soon as the list is at the needed end
+  (device-reproduced with per-frame logging and covered by `TurnJumpAlignTest`). The startup
+  entrance also starts at 2× so the icon is continuous with the system splash glyph.
 - Version 0.1.83 fixes the avatar photo that never refreshed once replaced (the decoded bitmap
   was kept across cache-key changes, so the identity preview stayed on the first photo and the
   list header disagreed with the card page) and tidies four interactions. Terminal run verdicts
@@ -467,7 +474,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.83-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.84-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
