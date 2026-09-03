@@ -10,6 +10,7 @@ import com.hermes.client.data.repository.ConfigRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SettingsStore
 import com.hermes.client.data.repository.ThemeMode
+import com.hermes.client.ui.usage.weekWindow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import com.hermes.client.data.repository.ToolsRepository
@@ -30,10 +31,10 @@ data class CardPageUiState(
     val cronAlerts: Int = 0,
     /** The connected Mac connector's DEVICE_ID, or null while unknown/offline. */
     val deviceId: String? = null,
-    /** Last-7-days token total for the active profile; null until loaded. */
+    /** Last-7-CALENDAR-days token total for the active profile; null until loaded. */
     val weekTokens: Long? = null,
-    /** Last-7-days estimated cost for the active profile; null until loaded. */
-    val weekCost: Double? = null,
+    /** Sessions started in the same seven days; the stat cell's subline. */
+    val weekSessions: Int? = null,
     /** The active profile's configured default model (config "model"); null while unknown. */
     val defaultModel: String? = null,
 )
@@ -154,10 +155,13 @@ class CardPageViewModel @Inject constructor(
         }
         viewModelScope.launch {
             runCatching { analytics.usage(p) }.onSuccess { usage ->
-                val week = usage.daily.sortedBy { it.day }.takeLast(7)
+                // Hermes emits a row only for days that had sessions, so `takeLast(7)` used to mean
+                // "the last seven ACTIVE days" — a label reading 本周 over a window that can span
+                // months when usage is sparse. Fill the calendar first, then take the week.
+                val week = weekWindow(usage.daily)
                 _state.value = _state.value.copy(
-                    weekTokens = week.sumOf { it.inputTokens + it.outputTokens },
-                    weekCost = week.sumOf { it.estimatedCost },
+                    weekTokens = week.sumOf { it.inputTokens + it.outputTokens + it.cacheReadTokens },
+                    weekSessions = week.sumOf { it.sessions },
                 )
             }
         }

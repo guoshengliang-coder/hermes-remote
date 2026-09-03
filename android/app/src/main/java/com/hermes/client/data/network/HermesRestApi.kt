@@ -416,8 +416,6 @@ class HermesRestApi(
     suspend fun analyticsUsage(profile: String? = null): UsageDto =
         get("/api/analytics/usage${profileParam(profile, first = true)}")
 
-    suspend fun analyticsModels(profile: String? = null): List<ModelUsageDto> =
-        get<ModelsUsageDto>("/api/analytics/models${profileParam(profile, first = true)}").models
 
     // ---- Config (whole-object GET-modify-PUT so no fields are ever dropped) ----
 
