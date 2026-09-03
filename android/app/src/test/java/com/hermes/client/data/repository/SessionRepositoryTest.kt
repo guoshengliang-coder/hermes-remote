@@ -7,6 +7,11 @@ import com.hermes.client.data.network.SessionDto
 import com.hermes.client.domain.Role
 import io.mockk.coEvery
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,7 +20,9 @@ import org.junit.Test
 
 class SessionRepositoryTest {
     private val rest = mockk<HermesRestApi>()
-    private val repo = SessionRepository(rest)
+    // Supervisor + Unconfined mirrors the injected app scope: a failed fetch must not take the
+    // scope down with it, and the shared work runs eagerly so the coalescing is deterministic.
+    private val repo = SessionRepository(rest, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
 
     private fun dto(id: String, source: String?, msgs: Int, archived: Boolean = false) =
         SessionDto(sessionId = id, source = source, messageCount = msgs, archived = archived, profile = "personal")
@@ -83,5 +90,50 @@ class SessionRepositoryTest {
         assertEquals(1, history.size)
         assertEquals(Role.SYSTEM, history.single().role)
         assertEquals("会话已恢复", history.single().text)
+    }
+
+    // Chat open, history reconciliation, foreground recovery and the startup coordinator all ask
+    // for the same transcript when a reconnect wakes them together. Measured on 2026-09-03, that
+    // downloaded one 0.5 MB conversation seven times in five seconds. Concurrent callers must
+    // share a single round trip.
+    @Test fun concurrent_history_fetches_share_one_round_trip() = runTest {
+        val release = CompletableDeferred<Unit>()
+        var calls = 0
+        coEvery { rest.messages("session-3", "default") } coAnswers {
+            calls += 1
+            if (calls == 1) release.await()
+            listOf(MessageDto(1, "user", "开始"))
+        }
+
+        val first = async(Dispatchers.Unconfined) { repo.history("session-3", "default") }
+        val second = async(Dispatchers.Unconfined) { repo.history("session-3", "default") }
+        assertEquals("the second caller must join the in-flight fetch", 1, calls)
+
+        release.complete(Unit)
+        assertEquals(listOf("开始"), first.await().map { it.text })
+        assertEquals(listOf("开始"), second.await().map { it.text })
+
+        // Sequential fetches still hit the network: the reconciliation ladder re-reads REST to
+        // wait out a turn Hermes has not committed yet, so coalescing must not become a cache.
+        repo.history("session-3", "default")
+        assertEquals(2, calls)
+    }
+
+    @Test fun concurrent_session_list_fetches_share_one_round_trip() = runTest {
+        val release = CompletableDeferred<Unit>()
+        var calls = 0
+        coEvery { rest.profileSessions(any(), false) } coAnswers {
+            calls += 1
+            if (calls == 1) release.await()
+            ProfileSessionsDto(sessions = listOf(dto("keep-tui", "tui", 5)))
+        }
+
+        val first = async(Dispatchers.Unconfined) { repo.listAllProfiles() }
+        val second = async(Dispatchers.Unconfined) { repo.listAllProfiles() }
+        assertEquals(1, calls)
+
+        release.complete(Unit)
+        assertEquals(listOf("keep-tui"), first.await().map { it.id })
+        assertEquals(listOf("keep-tui"), second.await().map { it.id })
     }
 }

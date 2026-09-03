@@ -229,6 +229,31 @@ class SessionRuntimeStoreTest {
         assertTrue(chat.messages.none { it.id == "persisted-answer" })
     }
 
+    // The ladder exists to wait out a turn Hermes has not committed yet. It used to run all four
+    // rungs unconditionally, so an already-reconciled conversation was re-downloaded in full three
+    // more times — per session, per reconnect. That is what made a half-megabyte transcript cost
+    // megabytes of mobile traffic every time the socket blinked (measured 2026-09-03).
+    @Test fun reconciliation_stops_downloading_once_a_snapshot_is_accepted() = runTest {
+        val sessions = mockk<com.hermes.client.data.repository.SessionRepository>()
+        val user = ChatMessage("persisted-user", Role.USER, "开始")
+        val answer = ChatMessage("persisted-answer", Role.ASSISTANT, "完成内容")
+        coEvery { sessions.history("s1", "personal") } returns listOf(user, answer)
+        val (store, events) = fixture(sessions)
+        val key = store.register("s1", "personal")
+        store.beginPrompt(key, "开始")
+        events.emit(event("message.complete", "s1", "完成内容"))
+        runCurrent()
+
+        advanceTimeBy(250L)
+        runCurrent()
+        assertTrue(store.runtimes.value.getValue(key).chat.historyLoaded)
+
+        // Run out the rest of the ladder (1s + 3s + 10s): no further passes may fire.
+        advanceTimeBy(14_000L)
+        runCurrent()
+        coVerify(exactly = 1) { sessions.history("s1", "personal") }
+    }
+
     @Test fun acceptHistory_reusesLiveIds_soListKeysSurviveReopen() = runTest {
         val (store, events) = fixture()
         val key = store.register("s1", "personal")

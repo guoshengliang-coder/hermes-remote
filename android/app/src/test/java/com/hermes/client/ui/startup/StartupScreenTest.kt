@@ -83,12 +83,6 @@ class StartupScreenTest {
         compose.onAllNodesWithText("正在准备会话").onFirst().assertIsDisplayed()
     }
 
-    @Test fun recoveryOverlayUsesRestoringCopy() {
-        show(StartupUiState.Loading(StartupReason.CONNECTION_RECOVERY, StartupPhase.CONNECTION))
-        advance(1_200)
-        compose.onNodeWithText("正在恢复连接").assertIsDisplayed()
-    }
-
     @Test fun failureShowsCodeOnItsOwnLineHidesProgressAndRetries() {
         show(StartupUiState.Failed(StartupReason.COLD_START, StartupFailure.CONNECTOR_OFFLINE))
         advance(600)
@@ -110,5 +104,25 @@ class StartupScreenTest {
         show(StartupUiState.Hidden)
         advance(600)
         compose.onNodeWithText("HERMES GO").assertDoesNotExist()
+    }
+
+    // DESIGN.md §5.11: a warm reconnect recovers silently. The conversation keeps the screen with
+    // the content it already committed; throwing the gate over it on every self-healing socket
+    // blip read as "the app went back to the launch screen".
+    @Test fun warmReconnectRecoversWithoutCoveringTheScreen() {
+        show(StartupUiState.Loading(StartupReason.CONNECTION_RECOVERY, StartupPhase.CONNECTION))
+        advance(STATUS_REVEAL_DELAY_MS + 900)
+        compose.onNodeWithText("HERMES GO").assertDoesNotExist()
+        compose.onNodeWithText("正在恢复连接").assertDoesNotExist()
+    }
+
+    // …but a recovery that actually FAILED still owns the screen: it carries the error code and
+    // the only two actions that can fix it.
+    @Test fun warmReconnectFailureStillOwnsTheScreen() {
+        show(StartupUiState.Failed(StartupReason.CONNECTION_RECOVERY, StartupFailure.CONNECTION_FAILED))
+        advance(600)
+        compose.onNodeWithText("HERMES GO").assertIsDisplayed()
+        compose.onNodeWithText("HR-CONN-002").assertIsDisplayed()
+        compose.onNodeWithText("重新连接").assertIsDisplayed()
     }
 }
