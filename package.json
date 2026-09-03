@@ -25,6 +25,8 @@
     "ops:bootstrap": "node scripts/hermesctl.mjs bootstrap",
     "ops:status": "node scripts/hermesctl.mjs status",
     "ops:doctor": "node scripts/hermesctl.mjs doctor",
+    "ops:deploy": "node scripts/hermesctl.mjs deploy",
+    "ops:rollback": "node scripts/hermesctl.mjs rollback",
     "dev:gateway": "npm run dev -w @hermes-remote/gateway",
     "dev:connector": "npm run dev -w @hermes-remote/connector"
   },

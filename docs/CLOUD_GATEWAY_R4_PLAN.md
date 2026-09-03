@@ -107,7 +107,7 @@ journal 或路由实际状态与记录不一致时必须停止并返回结构化
   严格拒绝缺失、额外或类型错误字段。历史 schema 1 只保留读取兼容，不能作为新 deploy 目标。
 - `ops/hermesctl-deploy-config.schema.json` 是双槽位配置合同，示例为
   `ops/staging.deploy.example.json`。它只接受 staging、互不重复的 blue/green unit、容器和端口、
-  明确的 R3 legacy source unit/container/state directory、独立的 Nginx upstream include、1–600 秒
+  明确的 R3 legacy source unit/container/loopback port/state directory、独立的 Nginx upstream include、1–600 秒
   排空窗、1–300 秒观察窗，以及可选数据库 URL Secret 文件与 PostgreSQL advisory lock ID。
 - `assessReleaseTransition` 在任何服务或路由操作之前判定源/目标版本方向、最低源版本、协议连续性、
   数据库 schema 倒退和 rollback policy。失败统一为不可重试的 `HR-OPS-006`。
@@ -155,6 +155,26 @@ journal 或路由实际状态与记录不一致时必须停止并返回结构化
 - rollback 候选使用当前活动槽位的另一个 blue/green 槽位，复用 R4-C 的私有 smoke、最终 snapshot
   交接、Nginx 检查点、公开观察和自动恢复。成功后 `current` 指向回滚版本，`previous` 指向回滚前版本。
 - R4-D 仍只提供内部执行边界；CLI 和一次性 staging 往返在 R4-E 接线与验证完成前保持关闭。
+
+### R4-E 集成与演练边界
+
+- Gateway Server 集成版本统一递增为 `0.3.0`；最低可升级与唯一 legacy rollback 基线保持为
+  `0.2.0`，不改变 Android、Desktop、Connector 的最低版本或公开协议。
+- `hermesctl deploy/rollback --config <file> --confirm staging` 只接受 R4 staging 配置、root、Linux
+  x86_64 和完整 smoke 环境。命令从受管 `current` manifest 读取源身份；R4 源必须有匹配的 committed
+  journal 才能推导活动槽位，不能用参数猜测或手工选择槽位。
+- 每次私有候选校验由 CLI 临时启动独立测试 Connector，验证私有端口的身份、REST、WebSocket 和
+  Connector 后立即停止；公开切换后再等待原公开 Connector 重连并复核 HTTPS/WSS，两个结果不能
+  相互替代。测试 Connector 的入口与 mock Hermes 环境仅由一次性 staging runner 提供，缺失时在
+  任何服务变更前以 `HR-OPS-001` 关闭失败。
+- 手动 workflow 固定从提交 `e94d89dea9b4f416942a78e3120d14bb94500e5c` 构建真实 R3/schema 1
+  `0.2.0` bundle，并从待测 clean commit 构建 R4/schema 2 `0.3.0` bundle；完整执行 bootstrap、
+  deploy、公开 smoke、rollback、公开 smoke、release links、systemd 状态、journal、审计与脱敏检查。
+- workflow 运行于一次性 Ubuntu 24.04 runner，并启动固定 digest 的 PostgreSQL 18 服务验证目标
+  运行环境。由于本轮账号能力保持关闭，deploy config 明确为 `database: null`，数据库迁移门禁仍按
+  release contract 判定为不需要；不得把这一项描述为生产数据库迁移演练。
+- workflow 仍为 `workflow_dispatch`，没有 push/PR/schedule 触发器、仓库 Secret、镜像推送、SSH
+  或生产域名。代码合并和生产部署都不会自动触发它。
 
 ## 实施切片
 

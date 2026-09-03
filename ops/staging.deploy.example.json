@@ -12,6 +12,7 @@
   "legacySource": {
     "serviceName": "hermes-go-gateway-staging",
     "containerName": "hermes-go-gateway-staging",
+    "gatewayPort": 8786,
     "stateDirectory": "/var/lib/hermes-go/gateway"
   },
   "slots": {

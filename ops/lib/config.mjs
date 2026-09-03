@@ -144,7 +144,7 @@ export async function loadDeployConfig(filePath) {
   try {
     exactKeys(raw, DEPLOY_CONFIG_KEYS, "deploy_config");
     exactKeys(raw.paths, ["installRoot", "configRoot", "stateRoot", "systemdUnitDirectory"], "paths");
-    exactKeys(raw.legacySource, ["serviceName", "containerName", "stateDirectory"], "legacy_source");
+    exactKeys(raw.legacySource, ["serviceName", "containerName", "gatewayPort", "stateDirectory"], "legacy_source");
     exactKeys(raw.slots, ["blue", "green"], "slots");
     exactKeys(raw.gateway, ["defaultDeviceId", "accountAuthEnabled", "accountBindingEnabled"], "gateway");
     exactKeys(raw.secrets, ["appTokenSource", "connectorTokenSource", "internalStatusTokenSource"], "secrets");
@@ -176,6 +176,7 @@ export async function loadDeployConfig(filePath) {
       legacySource: {
         serviceName: token(raw.legacySource.serviceName, /^[a-z0-9][a-z0-9.-]{0,62}$/, "legacySource.serviceName"),
         containerName: token(raw.legacySource.containerName, /^[a-z0-9][a-z0-9_.-]{0,62}$/, "legacySource.containerName"),
+        gatewayPort: port(raw.legacySource.gatewayPort, "legacySource.gatewayPort", 1024),
         stateDirectory: absolutePath(raw.legacySource.stateDirectory, "legacySource.stateDirectory"),
       },
       slots: {
@@ -232,9 +233,11 @@ export async function loadDeployConfig(filePath) {
       fail("legacy_state_directory_must_match_bootstrap_layout");
     }
     if (Object.values(config.slots).some((slot) => slot.serviceName === config.legacySource.serviceName
-        || slot.containerName === config.legacySource.containerName)) {
-      fail("legacy_and_slot_services_must_be_distinct");
+        || slot.containerName === config.legacySource.containerName
+        || slot.gatewayPort === config.legacySource.gatewayPort)) {
+      fail("legacy_and_slot_resources_must_be_distinct");
     }
+    if (config.legacySource.gatewayPort === config.nginx.listenPort) fail("legacy_and_nginx_ports_must_differ");
     const inputs = [
       ...Object.values(config.secrets),
       config.nginx.certificateSource,

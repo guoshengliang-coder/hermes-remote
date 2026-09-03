@@ -7,7 +7,7 @@ test("Gateway release contract stays aligned with package and protocol versions"
   const gatewayPackage = JSON.parse(await readFile("gateway/package.json", "utf8"));
   const contract = JSON.parse(await readFile("gateway/release-contract.json", "utf8"));
   const protocolSource = await readFile("protocol/src/index.ts", "utf8");
-  assert.equal(gatewayPackage.version, "0.2.0");
+  assert.equal(gatewayPackage.version, "0.3.0");
   assert.match(protocolSource, new RegExp(`PROTOCOL_VERSION = ${contract.protocolVersions.legacy}`));
   assert.match(
     protocolSource,
