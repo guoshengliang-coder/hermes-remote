@@ -1,0 +1,13 @@
+{
+  "provider": "google",
+  "issuer": "https://accounts.google.com",
+  "subject": "example-subject-not-a-real-account",
+  "audience": "example-android-client.apps.googleusercontent.com",
+  "platform": "android",
+  "nonce": "example-nonce-for-contract-tests",
+  "display": {
+    "email": "person@example.com",
+    "displayName": "Example Person",
+    "avatarUrl": null
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "type": "connector.preflight.result",
+  "version": 2,
+  "requestId": "20000000-0000-4000-8000-000000000002",
+  "hermesReachable": true,
+  "hermesVersion": "0.0.0-example"
+}

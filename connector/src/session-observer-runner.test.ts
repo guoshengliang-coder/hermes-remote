@@ -45,7 +45,7 @@ test("observer polls the read-only RPC and persists before forwarding transition
   const observer = new HermesSessionObserver({
     deviceId: "mac-mini",
     stateStore: new ObserverStateStore(join(root, "state.json")),
-    websocketUrl: async () => "ws://hermes.test/api/ws?ticket=test",
+    websocketUrl: async () => "wss://hermes.test/api/ws?ticket=test",
     createSocket: () => socket,
     sendLifecycle: (event) => { forwarded.push(event); return true; },
     activePollMs: 5,
@@ -95,7 +95,7 @@ test("unsupported active-list closes the observer without fabricating lifecycle 
   const observer = new HermesSessionObserver({
     deviceId: "mac-mini",
     stateStore: new ObserverStateStore(join(root, "state.json")),
-    websocketUrl: async () => "ws://hermes.test/api/ws?ticket=test",
+    websocketUrl: async () => "wss://hermes.test/api/ws?ticket=test",
     createSocket: () => socket,
     sendLifecycle: (event) => { forwarded.push(event); return true; },
     reconnectMs: 60_000,
@@ -129,7 +129,7 @@ test("a corrupt observer state file does not disable the Connector observer", as
   const observer = new HermesSessionObserver({
     deviceId: "mac-mini",
     stateStore: new ObserverStateStore(statePath),
-    websocketUrl: async () => "ws://hermes.test/api/ws?ticket=test",
+    websocketUrl: async () => "wss://hermes.test/api/ws?ticket=test",
     createSocket: () => { created += 1; return socket; },
     sendLifecycle: () => true,
     log: (message) => logs.push(message),
@@ -153,7 +153,7 @@ test("never forwards a lifecycle transition before its outbox snapshot is durabl
   const observer = new HermesSessionObserver({
     deviceId: "mac-mini",
     stateStore: failingStore,
-    websocketUrl: async () => "ws://hermes.test/api/ws?ticket=test",
+    websocketUrl: async () => "wss://hermes.test/api/ws?ticket=test",
     createSocket: () => socket,
     sendLifecycle: (event) => { forwarded.push(event); return true; },
     activePollMs: 60_000,

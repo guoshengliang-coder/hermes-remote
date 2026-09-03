@@ -332,7 +332,9 @@ private object Api36ProgressBuilder {
             .setDeleteIntent(deleteIntent)
             .setVisibility(Notification.VISIBILITY_PRIVATE)
             .setSortKey(sortKey)
-            .setRequestPromotedOngoing(true)
+        if (Build.VERSION.SDK_INT_FULL >= Build.VERSION_CODES_FULL.BAKLAVA_1) {
+            b.setRequestPromotedOngoing(true)
+        }
         publicVersion?.let { b.setPublicVersion(it) }
         listOfNotNull(spec.profileLabel, spec.stateLabel).takeIf { it.isNotEmpty() }?.let { b.setSubText(it.joinToString(" · ")) }
         spec.groupKey?.let { b.setGroup(it) }

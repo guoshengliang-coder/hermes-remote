@@ -62,8 +62,13 @@ class GatewayConnectionService : Service() {
                 .distinctUntilChanged()
                 .collect { count ->
                     runCatching {
-                        NotificationManagerCompat.from(this@GatewayConnectionService)
-                            .notify(HermesNotifier.SERVICE_NOTIFICATION_ID, notifier.serviceNotification(count))
+                        val notificationManager = NotificationManagerCompat.from(this@GatewayConnectionService)
+                        if (notificationManager.areNotificationsEnabled()) {
+                            notificationManager.notify(
+                                HermesNotifier.SERVICE_NOTIFICATION_ID,
+                                notifier.serviceNotification(count),
+                            )
+                        }
                     }
                 }
         }

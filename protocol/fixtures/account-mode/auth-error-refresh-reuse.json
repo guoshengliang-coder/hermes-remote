@@ -1,0 +1,9 @@
+{
+  "error": {
+    "code": "HR-AUTH-005",
+    "message": "Reuse of a sign-in credential was detected, so this device was signed out for safety.",
+    "retryable": false,
+    "recoveryAction": "sign_in",
+    "correlationId": "20000000-0000-4000-8000-000000000002"
+  }
+}
