@@ -834,7 +834,16 @@ test("rollback archives the committed deploy and reuses the reverse blue-green s
     "history",
     "deploy-state.committed.candidate-fixture.json",
   );
-  assert.equal((await readDeploymentJournal(archivedDeploy)).stage, "committed");
+  const archivedJournal = await readDeploymentJournal(archivedDeploy);
+  assert.equal(archivedJournal.stage, "committed");
+  await assert.rejects(
+    () => readFile(path.join(
+      rollbackConfig.paths.stateRoot,
+      "ops",
+      `switch-checkpoint.${archivedJournal.planDigest}.json`,
+    )),
+    { code: "ENOENT" },
+  );
 
   const rolledBack = await switchCandidate(rollbackConfig, fixture.targetManifest, fixture.rollbackManifest, {
     ...switchOptions(runner),

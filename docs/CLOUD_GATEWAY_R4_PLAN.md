@@ -155,6 +155,8 @@ journal 或路由实际状态与记录不一致时必须停止并返回结构化
   指定版本或伪造 symlink 都在停止服务前以 `HR-OPS-006` 拒绝。
 - 下一次操作只能在上一份 journal 已到 `committed`、其目标身份等于当前 source、活动槽位一致时开始。
   原 journal 以 `0600` 归档到 history；既有同名归档内容不同会 fail closed，不能覆盖审计证据。
+  归档成功后清理该操作的 Nginx/交接临时检查点，避免以后再次执行相同版本转换时把历史检查点误作
+  当前恢复现场；检查点类型或权限异常时继续 fail closed。
 - rollback 候选使用当前活动槽位的另一个 blue/green 槽位，复用 R4-C 的私有 smoke、最终 snapshot
   交接、Nginx 检查点、公开观察和自动恢复。成功后 `current` 指向回滚版本，`previous` 指向回滚前版本。
 - R4-D 仍只提供内部执行边界；CLI 和一次性 staging 往返在 R4-E 接线与验证完成前保持关闭。

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, readFile, readlink } from "node:fs/promises";
+import { lstat, readFile, readlink, unlink } from "node:fs/promises";
 import path from "node:path";
 import { manifestIdentity } from "./config.mjs";
 import {
@@ -93,13 +93,14 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
     }
     const source = transition.source;
     const target = transition.target;
-    await archiveCommittedDeploymentJournal(
+    const archivedDeployment = await archiveCommittedDeploymentJournal(
       paths.journal,
       paths.historyRoot,
       source,
       activeSlot,
       ownership.host,
     );
+    await removeArchivedOperationArtifacts(paths.opsRoot, archivedDeployment?.journal);
     const expectedJournal = createDeploymentJournal({
       operation,
       planDigest: deploymentPlanDigest(config, source, target, material.fingerprint),
@@ -201,6 +202,25 @@ async function prepareDeploymentDirectories(config, paths, candidateSlot, owners
   await ensureManagedDirectory(paths.slotConfigDir, 0o750, ownership.host);
   await ensureManagedDirectory(path.join(config.paths.stateRoot, "gateway-slots"), 0o700, ownership.container);
   await ensureManagedDirectory(path.join(config.paths.stateRoot, "gateway-slots", candidateSlot), 0o700, ownership.container);
+}
+
+async function removeArchivedOperationArtifacts(opsRoot, journal) {
+  if (!journal) return;
+  for (const name of [
+    `switch-checkpoint.${journal.planDigest}.json`,
+    `lifecycle-handoff.${journal.planDigest}.json`,
+  ]) {
+    const filePath = path.join(opsRoot, name);
+    try {
+      const info = await lstat(filePath);
+      if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0 || info.size > 3 * 1024 * 1024) {
+        fail("archived_operation_artifact_unsafe", "candidate_archive_cleanup");
+      }
+      await unlink(filePath);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
 }
 
 async function prepareLockDirectories(config, paths, ownership) {
