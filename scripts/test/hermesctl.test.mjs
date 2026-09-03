@@ -147,7 +147,7 @@ test("bundle manifest v2 embeds a strict release contract while v1 remains reada
 test("release transition matrix rejects unsafe deploy and rollback paths", () => {
   const legacy = releaseManifest("0.2.0", 1);
   const r4 = releaseManifest("0.3.0", 2);
-  const next = releaseManifest("0.4.0", 2);
+  const next = releaseManifest("0.4.0", 2, { manifestVersion: 2 });
 
   const deploy = assessReleaseTransition(legacy, r4, { operation: "deploy" });
   assert.equal(deploy.compatible, true);
@@ -200,6 +200,18 @@ test("release transition matrix rejects unsafe deploy and rollback paths", () =>
     isOpsCode("HR-OPS-006"),
   );
   assert.equal(assessReleaseTransition(r4, next, { operation: "deploy", databaseEnabled: true }).compatible, true);
+  assert.throws(
+    () => assessReleaseTransition(next, r4, { operation: "rollback", databaseEnabled: true }),
+    isOpsCode("HR-OPS-006"),
+  );
+  assert.throws(
+    () => assessReleaseTransition(
+      r4,
+      releaseManifest("0.4.0", 2, { databaseSchemaVersion: 8 }),
+      { operation: "deploy", databaseEnabled: true },
+    ),
+    isOpsCode("HR-OPS-006"),
+  );
 });
 
 test("preflight verifies host, private inputs, image identity, and managed port", async (t) => {
@@ -436,7 +448,7 @@ test("status is layered and doctor writes an exclusive allowlist-only private bu
 
 test("Cloud Ops failures keep stable bilingual codes and redact diagnostic values", async () => {
   const codes = Object.values(OPS_ERROR_DEFINITIONS).map((definition) => definition.code);
-  assert.deepEqual(codes, ["HR-OPS-001", "HR-OPS-002", "HR-OPS-003", "HR-OPS-004", "HR-OPS-005", "HR-OPS-006", "HR-OPS-007", "HR-OPS-008"]);
+  assert.deepEqual(codes, ["HR-OPS-001", "HR-OPS-002", "HR-OPS-003", "HR-OPS-004", "HR-OPS-005", "HR-OPS-006", "HR-OPS-007", "HR-OPS-008", "HR-OPS-009"]);
   for (const definition of Object.values(OPS_ERROR_DEFINITIONS)) {
     assert.match(definition.summaryZh, /[\u3400-\u9fff]/);
     assert.match(definition.summaryEn, /^[A-Z]/);
@@ -633,7 +645,7 @@ test("R4 CLI smoke fails closed before deployment when its isolated Connector en
   assert.equal(verifierEnvironment.INTERNAL_GATEWAY_URL, `http://127.0.0.1:${config.legacySource.gatewayPort}`);
 });
 
-test("ephemeral staging exercises the complete R3 to R4 round trip without production access", async () => {
+test("ephemeral staging exercises R3/R4 rollback and PostgreSQL activation without production access", async () => {
   const script = await readFile("scripts/test-gateway-staging-bootstrap.sh", "utf8");
   assert.equal((script.match(/hermesctl\.mjs bootstrap/g) || []).length, 2);
   for (const required of [
@@ -645,7 +657,11 @@ test("ephemeral staging exercises the complete R3 to R4 round trip without produ
     "verify-gateway-image-candidate.mjs",
     "GATEWAY_R4_EPHEMERAL_ROUND_TRIP_OK",
     "r3_commit=e94d89dea9b4f416942a78e3120d14bb94500e5c",
+    "r4_commit=1dc2c38e22e1e8eb049020361a29ee929144f839",
     "postgresql_18_unavailable",
+    "DATABASE_SCHEMA_VERSION=7",
+    "legacy_database_rollback_was_not_blocked",
+    "database_fallback_state_invalid",
     "rollback_journal_invalid",
     "doctor_collection_policy_invalid",
     "audit_sequence_invalid",

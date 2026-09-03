@@ -43,8 +43,11 @@ export function assessReleaseTransition(current, target, {
       if (current.schemaVersion !== 2 || target.schemaVersion !== 2) {
         incompatible("database_contract_required");
       }
-      if (target.releaseContract.databaseSchemaVersion < current.releaseContract.databaseSchemaVersion) {
-        incompatible("database_schema_regression");
+      if (target.releaseContract.manifestVersion < 2) {
+        incompatible("database_migration_contract_required");
+      }
+      if (target.releaseContract.databaseSchemaVersion !== current.releaseContract.databaseSchemaVersion) {
+        incompatible("database_schema_change_requires_compatibility_contract");
       }
     }
 

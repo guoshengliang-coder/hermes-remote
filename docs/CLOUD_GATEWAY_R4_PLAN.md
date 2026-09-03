@@ -155,6 +155,8 @@ journal 或路由实际状态与记录不一致时必须停止并返回结构化
   指定版本或伪造 symlink 都在停止服务前以 `HR-OPS-006` 拒绝。
 - 下一次操作只能在上一份 journal 已到 `committed`、其目标身份等于当前 source、活动槽位一致时开始。
   原 journal 以 `0600` 归档到 history；既有同名归档内容不同会 fail closed，不能覆盖审计证据。
+  归档成功后清理该操作的 Nginx/交接临时检查点，避免以后再次执行相同版本转换时把历史检查点误作
+  当前恢复现场；检查点类型或权限异常时继续 fail closed。
 - rollback 候选使用当前活动槽位的另一个 blue/green 槽位，复用 R4-C 的私有 smoke、最终 snapshot
   交接、Nginx 检查点、公开观察和自动恢复。成功后 `current` 指向回滚版本，`previous` 指向回滚前版本。
 - R4-D 仍只提供内部执行边界；CLI 和一次性 staging 往返在 R4-E 接线与验证完成前保持关闭。
@@ -179,6 +181,25 @@ journal 或路由实际状态与记录不一致时必须停止并返回结构化
 - workflow 仍为 `workflow_dispatch`，没有 push/PR/schedule 触发器、仓库 Secret、镜像推送、SSH
   或生产域名。代码合并和生产部署都不会自动触发它。
 
+### R4-F 数据库启用边界
+
+- Gateway Server 递增为 `0.4.0`，release manifest version 2 表示制品内含可由 Cloud Ops 调用的受控
+  迁移器。数据库模式只允许目标制品使用 version 2；向旧 version 1 制品执行数据库模式 rollback 会在
+  候选启动和公开切流前以 `HR-OPS-006` 拒绝。
+- 数据库 URL 只从权限受限的外部 Secret 文件读取，校验后复制到不向 Gateway 服务挂载的受管
+  `database-secrets` 目录。迁移容器通过只读 bind mount 读取它；连接串不进入命令参数、journal、审计、
+  诊断或错误正文。
+- 迁移器使用目标不可变 OCI image，校验 PostgreSQL 主版本，取得 session-level advisory lock，按连续
+  编号只执行尚未应用的迁移，再精确验证 `gateway_schema_state`。锁竞争、连接/SQL/版本/结果异常统一
+  返回 `HR-OPS-009`；容器只输出不含凭证的结构化成功标记。
+- 候选启动前执行迁移，切流前在新的部署锁内再次取得数据库锁并复核 exact schema。第二次复核失败时
+  清理候选并保持旧服务、旧 Nginx 和 release links 不变。
+- 当前发布合同只声明一个 exact schema，无法证明旧程序兼容更高 schema。因此数据库模式暂时只允许
+  源/目标 `databaseSchemaVersion` 相等；跨 schema 发布在引入明确兼容区间前 fail closed。
+- 本切片只准备 schema，`ACCOUNT_AUTH_ENABLED` 和 `ACCOUNT_BINDING_ENABLED` 继续固定为 `0`。因此可以
+  在回退到 `0.3.0` 时把数据库配置改回 `null` 并保留未使用的 schema；一旦账号数据成为权威状态，禁止
+  采用该回退方式，必须只回滚到具备数据库迁移合同且兼容同一 schema 的版本。
+
 ## 实施切片
 
 | 切片 | 内容 | 退出条件 |
@@ -188,6 +209,7 @@ journal 或路由实际状态与记录不一致时必须停止并返回结构化
 | R4-C 切换排空 | 原子 Nginx 切换、观察窗、在途排空、Connector 重连验证 | 切换后失败可恢复旧路由与旧程序 |
 | R4-D rollback | previous 选择、数据库兼容门禁、反向双槽位流程 | 成功回滚；不兼容回滚 fail closed |
 | R4-E staging 演练 | 一次性 Ubuntu + PostgreSQL 18，从 R3 基线升级到 R4 再回滚 | 每个注入点和完整往返均通过 |
+| R4-F 数据库启用 | advisory lock、目标镜像迁移、exact schema 复核、数据库回退门禁 | 真实 PostgreSQL 迁移/重入/锁竞争及应用回退演练通过 |
 
 Server 版本只由集成步骤在 R4 功能合并、准备打包两个真实版本时统一递增，避免并行切片重复改版。
 
@@ -225,6 +247,6 @@ Server 版本只由集成步骤在 R4 功能合并、准备打包两个真实版
 完成真实 R3 `0.2.0` → R4 `0.3.0` → R3 `0.2.0` 往返。详细 commit、run、恢复结果和未执行项见
 `CLOUD_GATEWAY_R4_TEST_RECORD.md`。
 
-该完成状态不授权香港生产部署，也不覆盖 PostgreSQL 数据迁移。当前账号能力关闭、deploy config 为
-`database: null`，非空数据库配置继续在任何服务写入前 fail closed。未来若启用账号数据库，必须
-另开发布切片实现 migration lock，并完成并发、迁移中断、旧版本兼容拒绝和真实数据库往返测试。
+该完成状态不授权香港生产部署。R4-F 已开始实现 PostgreSQL schema 准备能力，但在一次性数据库
+staging、PR/main 门禁和生产前置检查全部通过前，不能把数据库发布路径标记为 Complete。账号能力仍
+保持关闭；真实账号启用还需要 Google OAuth 配置、备份/恢复演练和独立 go/no-go。

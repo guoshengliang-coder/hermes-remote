@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -47,6 +47,8 @@ test("R4 blue/green templates isolate candidate process, state, and private port
   assert.match(green, /127\.0\.0\.1:8788:8787/);
   assert.match(green, /gateway-slots\/green/);
   assert.match(blueEnvironment, /ACCOUNT_AUTH_ENABLED=0/);
+  assert.equal(blue.includes("database-secrets"), false);
+  assert.equal(green.includes("database-secrets"), false);
   for (const required of ["--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", manifest.imageId]) {
     assert.equal(blue.includes(required), true, `${required} missing from blue unit`);
     assert.equal(green.includes(required), true, `${required} missing from green unit`);
@@ -265,6 +267,72 @@ test("candidate smoke failure stops only the candidate and safely resumes", asyn
   });
   assert.equal(recovered.stage, "candidate_verified");
   assert.equal(recoveryRunner.calls.some((call) => call.command === "systemctl" && call.args[0] === "restart"), true);
+});
+
+test("database migration is locked before candidate start and reverified before routing", async (t) => {
+  const fixture = await createCandidateFixture(t);
+  await enableDatabaseFixture(fixture);
+  const runner = createTransactionalRunner(fixture);
+  await prepareFixtureCandidate(fixture, runner);
+  await switchCandidate(fixture.config, fixture.sourceManifest, fixture.targetManifest, {
+    ...switchOptions(runner),
+    runId: "database-switch-success",
+    candidateSmoke: async () => {},
+    publicSmoke: async () => {},
+  });
+
+  const migrationCalls = runner.calls.filter((call) => call.command === "docker"
+    && call.args.at(-1) === "gateway/dist/ops/migrate-account.mjs");
+  assert.equal(migrationCalls.length, 2);
+  const candidateStartIndex = runner.calls.findIndex((call) => call.command === "systemctl"
+    && call.args[0] === "restart" && call.args[1] === "hermes-go-gateway-blue.service");
+  assert.equal(runner.calls.indexOf(migrationCalls[0]) < candidateStartIndex, true);
+  assert.equal(migrationCalls.every((call) => call.args.some((arg) => arg.includes(
+    path.join(fixture.config.paths.configRoot, "database-secrets", "account-database-url"),
+  ))), true);
+  assert.equal(migrationCalls.every((call) => call.args.every((arg) => !arg.includes("database-test-password"))), true);
+  const installedDatabaseSecret = await lstat(path.join(
+    fixture.config.paths.configRoot,
+    "database-secrets",
+    "account-database-url",
+  ));
+  assert.equal(installedDatabaseSecret.mode & 0o777, 0o440);
+});
+
+test("database input with group or world permissions is rejected before managed state changes", async (t) => {
+  const fixture = await createCandidateFixture(t);
+  await enableDatabaseFixture(fixture);
+  await chmod(fixture.databaseUrlSource, 0o640);
+  const runner = createTransactionalRunner(fixture);
+
+  await assert.rejects(
+    () => prepareFixtureCandidate(fixture, runner),
+    isOpsCode("HR-OPS-001"),
+  );
+  assert.equal(runner.calls.some((call) => call.command === "docker" && call.args[0] === "run"), false);
+  assert.equal(await readlink(path.join(fixture.config.paths.installRoot, "current")), fixture.currentTarget);
+});
+
+test("database drift before routing stops the candidate and preserves the old public release", async (t) => {
+  const fixture = await createCandidateFixture(t);
+  await enableDatabaseFixture(fixture);
+  const runner = createTransactionalRunner(fixture, { databaseFailureAt: 2 });
+  await prepareFixtureCandidate(fixture, runner);
+
+  await assert.rejects(
+    () => switchCandidate(fixture.config, fixture.sourceManifest, fixture.targetManifest, {
+      ...switchOptions(runner),
+      runId: "database-switch-blocked",
+      candidateSmoke: async () => {},
+      publicSmoke: async () => {},
+    }),
+    isOpsCode("HR-OPS-009"),
+  );
+
+  assert.equal(runner.active.has(fixture.config.legacySource.serviceName), true);
+  assert.equal(runner.active.has(fixture.config.slots.blue.serviceName), false);
+  assert.equal(await readFile(fixture.config.nginx.configFile, "utf8"), fixture.nginxContent);
+  assert.equal(await readlink(path.join(fixture.config.paths.installRoot, "current")), fixture.currentTarget);
 });
 
 test("a competing deployment lock never stops its active candidate", async (t) => {
@@ -766,7 +834,16 @@ test("rollback archives the committed deploy and reuses the reverse blue-green s
     "history",
     "deploy-state.committed.candidate-fixture.json",
   );
-  assert.equal((await readDeploymentJournal(archivedDeploy)).stage, "committed");
+  const archivedJournal = await readDeploymentJournal(archivedDeploy);
+  assert.equal(archivedJournal.stage, "committed");
+  await assert.rejects(
+    () => readFile(path.join(
+      rollbackConfig.paths.stateRoot,
+      "ops",
+      `switch-checkpoint.${archivedJournal.planDigest}.json`,
+    )),
+    { code: "ENOENT" },
+  );
 
   const rolledBack = await switchCandidate(rollbackConfig, fixture.targetManifest, fixture.rollbackManifest, {
     ...switchOptions(runner),
@@ -835,7 +912,7 @@ async function createCandidateFixture(t) {
     archiveSha256: createHash("sha256").update("candidate-oci-archive").digest("hex"),
     createdAt: "2026-09-03T10:00:00.000Z",
     releaseContract: {
-      manifestVersion: 1,
+      manifestVersion: 2,
       configSchemaVersion: 1,
       databaseSchemaVersion: 7,
       supportedPostgresqlMajors: [18],
@@ -945,11 +1022,12 @@ function switchOptions(runner) {
   };
 }
 
-function createTransactionalRunner(fixture, { nginxTestFailures = 0 } = {}) {
+function createTransactionalRunner(fixture, { nginxTestFailures = 0, databaseFailureAt = null } = {}) {
   const loadedImages = new Set();
   const calls = [];
   const active = new Set([fixture.config.legacySource.serviceName]);
   const enabled = new Set([fixture.config.legacySource.serviceName]);
+  let databaseCalls = 0;
   return {
     calls,
     active,
@@ -998,9 +1076,34 @@ function createTransactionalRunner(fixture, { nginxTestFailures = 0 } = {}) {
         if (manifest) loadedImages.add(manifest.imageReference);
         return success();
       }
+      if (command === "docker" && args[0] === "run"
+          && args.at(-1) === "gateway/dist/ops/migrate-account.mjs") {
+        databaseCalls += 1;
+        if (databaseCalls === databaseFailureAt) return failure();
+        return success(`DATABASE_MIGRATION_OK ${JSON.stringify({
+          schemaVersion: fixture.targetManifest.releaseContract.databaseSchemaVersion,
+          postgresqlMajor: fixture.targetManifest.releaseContract.supportedPostgresqlMajors[0],
+          appliedMigrations: databaseCalls === 1 ? [1, 2, 3, 4, 5, 6, 7] : [],
+        })}\n`);
+      }
       if (command === "ss") return success();
       return success();
     },
+  };
+}
+
+async function enableDatabaseFixture(fixture) {
+  const databaseUrlSource = path.join(fixture.base, "inputs", "account-database-url");
+  await writePrivate(
+    databaseUrlSource,
+    "postgresql://database-test-user:database-test-password@127.0.0.1/hermes_test\n",
+  );
+  fixture.config.database = { urlSource: databaseUrlSource, ssl: false, migrationLockId: 741852 };
+  fixture.databaseUrlSource = databaseUrlSource;
+  fixture.sourceManifest = {
+    ...fixture.sourceManifest,
+    schemaVersion: 2,
+    releaseContract: structuredClone(fixture.targetManifest.releaseContract),
   };
 }
 

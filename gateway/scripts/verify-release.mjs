@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 const dist = resolve("dist");
 const manifest = JSON.parse(await readFile(resolve(dist, "release-manifest.json"), "utf8"));
-if (manifest.manifestVersion !== 1 || typeof manifest.serverVersion !== "string") {
+if (manifest.manifestVersion !== 2 || typeof manifest.serverVersion !== "string") {
   throw new Error("Gateway release manifest is invalid");
 }
 if (process.env.REQUIRE_RELEASE_CLEAN === "1" && manifest.sourceDirty !== false) {

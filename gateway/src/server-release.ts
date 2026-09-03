@@ -6,7 +6,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { sendJson } from "./http-utils.js";
 
 export interface ServerReleaseManifest {
-  manifestVersion: 1;
+  manifestVersion: 1 | 2;
   serverVersion: string;
   configSchemaVersion: number;
   databaseSchemaVersion: number;
@@ -123,7 +123,7 @@ export function loadServerReleaseManifest(
 
 function parseManifest(value: unknown): ServerReleaseManifest {
   if (!isObject(value)
-      || value.manifestVersion !== 1
+      || !new Set([1, 2]).has(value.manifestVersion as number)
       || !isVersion(value.serverVersion)
       || !isPositiveInteger(value.configSchemaVersion)
       || !isPositiveInteger(value.databaseSchemaVersion)

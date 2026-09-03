@@ -104,3 +104,24 @@ workflow instead of reusing the HK production host. The workflow uses a disposab
 one-time generated test material, a private local CA, and a 15-minute timeout. It receives no repository
 secrets and has no production hostname or SSH path. Passing this workflow proves the R3 bootstrap path
 on an isolated host; it does not authorize or perform a production deployment.
+
+## PostgreSQL production gate (not yet executed)
+
+The existing HK host has enough nominal CPU and memory for the initial low-volume Gateway database,
+so a second server is not a prerequisite. PostgreSQL must remain a separate system service, listen only
+on loopback, and never expose port 5432 through Nginx or the host firewall. Gateway and migration access
+use one dedicated least-privilege database role whose URL is stored in a root-owned `0600` Secret file;
+the URL must not appear in shell history, unit files, Git, logs, diagnostics, or chat.
+
+Before installing or changing anything, an explicitly authorized read-only preflight must record free
+disk, memory pressure, existing PostgreSQL/packages/listeners, filesystem ownership, current Gateway
+health, and the exact current release identity. Installation, database creation, migration, service
+restart, and account-feature enablement each require production authorization and a recorded rollback
+point. R4-F prepares schema while both account flags remain `0`; it does not authorize Google login or
+make PostgreSQL authoritative for existing Token clients.
+
+A same-host database is also a same-host failure domain. Before production migration, create an
+encrypted logical backup, copy it off the HK host, restore it into a separate disposable database, and
+run schema plus account smoke checks against the restored copy. Daily backup retention, failure alerts,
+periodic restore rehearsal, disk thresholds, and credential rotation must be in place before account
+mode is enabled. Keeping the only backup on the HK disk does not satisfy this gate.

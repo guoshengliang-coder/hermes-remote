@@ -31,6 +31,7 @@ R4 当前 `database: null` 发布路径的代码、回归、故障注入和一�
 | Fault-injection suite | Complete | 14 点显式矩阵经 PR #15 六项 checks、合并及 main CI/SAST/Gateway OCI 复核全部通过 |
 | Ephemeral upgrade/rollback | Complete | GitHub Actions run `33750219977` 在提交 `ae9855d` 完成真实 R3→R4→R3 往返，未访问香港服务器 |
 | R4 completion | Complete | 当前 `database: null` 发布路径满足本文六项完成定义；生产部署仍是独立授权 |
+| R4-F database activation | In progress | 本地迁移锁、重入、中断、版本门禁和切流前复核已通过；等待一次性 PostgreSQL staging 与 PR/main 门禁 |
 | Production deployment | Not authorized | R4 计划与代码工作不构成生产授权 |
 
 ## 仓库门禁说明
@@ -174,6 +175,26 @@ PR #15 的 Android、Desktop、Node、Secret、Semgrep、Gateway OCI 六项检�
 提交为 `f4b09dc`。main 的 CI run `33753434445`、SAST run `33753434278` 与 Gateway OCI run
 `33753434269` 全部成功。因此当前 `database: null` 发布路径的 R4 六项完成定义均已满足。
 
-该状态不包含香港生产部署，也不宣称数据库迁移已经通过。当前 release contract 关闭账号能力且
-部署配置为 `database: null`；任何未来启用 PostgreSQL 的 Gateway 发布必须另开实现与验证切片，
-补齐 migration lock、并发/中断恢复和真实数据库兼容测试，不能沿用本轮 Complete 结论。
+该状态不包含香港生产部署，也不宣称数据库迁移已经通过。该阶段的 release contract 关闭账号能力且
+部署配置为 `database: null`；后续启用 PostgreSQL 的 Gateway 发布必须另开实现与验证切片，补齐
+migration lock、并发/中断恢复和真实数据库兼容测试，不能沿用上述 Complete 结论。下节记录的 R4-F
+正是该独立切片。
+
+## R4-F 数据库启用本地证据
+
+2026-09-03 在 `codex/cloud-gateway-r4-database-release` 开始 R4-F。Gateway Server 版本递增为
+`0.4.0`，release manifest version 2 声明目标 OCI 制品包含受控迁移器。迁移路径验证 PostgreSQL 18、
+session advisory lock、连续迁移集合、重入后的零重复执行和 exact schema 7；失败统一映射到新注册的
+双语 `HR-OPS-009`，不把数据库连接串或底层数据库正文带入诊断。
+
+本地测试覆盖：首次迁移、重复迁移、锁竞争、迁移中断后释放锁、数据库版本高于制品时零写入、
+目标镜像与 hardened Docker 参数、失败脱敏、候选启动前迁移、切流前二次复核，以及二次复核失败时
+旧服务/旧 Nginx/current link 保持不变。随后用 `/private/tmp` 下仅监听 `127.0.0.1` 的一次性
+PostgreSQL 18 实例执行 `ACCOUNT_TEST_DATABASE_URL=<temporary> RUN_NETWORK_TESTS=1 npm test`：Protocol
+13 项、Connector 13 项、Gateway 53 项、release-server 30 项，以及脚本 62 个顶层测试（含子测试
+共 76 项）全部通过，零跳过。测试后实例已停止，临时数据目录已删除。
+
+一次性 workflow 已扩展为固定 R3 `0.2.0`、固定 R4 `0.3.0` 和待测 `0.4.0` 三个干净 OCI bundle：
+先保留既有 R3→R4→R3 往返，再部署 R4、以非空 database config 迁移并切到 `0.4.0`，验证 schema 7、
+公开 REST/WSS/Connector、旧制品数据库回滚拒绝和账号仍关闭时的应用回退。该 workflow 尚未在本
+提交上实际执行；通过前 R4-F 保持 In progress。香港服务器未连接、未安装 PostgreSQL、未迁移数据。
