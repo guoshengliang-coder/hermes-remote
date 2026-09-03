@@ -631,9 +631,6 @@ data class ChatUiState(
     val historyLoading: Boolean = false,
     val historyLoaded: Boolean = false,
     val historyError: String? = null,
-    // Locally created and never messaged: renders the greeting empty state and suppresses the
-    // history-error text (a brand-new session HAS no server history; a fetch miss is expected).
-    val isNewSession: Boolean = false,
 ) {
     companion object {
         // historyLoading = true: the pre-open frame of a freshly composed chat screen must show

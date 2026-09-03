@@ -428,6 +428,9 @@ private val LocalChatViewportController = staticCompositionLocalOf<ChatViewportC
 @Composable
 fun ChatMessageList(
     state: ChatUiState,
+    // From the nav argument (NOT ChatUiState: that object is a mirror of runtime.chat and any
+    // flag written into it is overwritten on the next runtime collect — the 0.1.88 bug).
+    isNewSession: Boolean = false,
     sessionId: String,
     modifier: Modifier = Modifier,
     listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
@@ -876,7 +879,7 @@ fun ChatMessageList(
         when {
             // A locally created session has nothing to load and nothing to fail: the greeting
             // overlay (ChatScreen) owns this area, so render only the blank ground for it.
-            state.isNewSession -> Box(modifier.fillMaxSize())
+            isNewSession -> Box(modifier.fillMaxSize())
             state.historyLoading -> ChatHistorySkeleton(modifier.fillMaxSize())
             state.historyError != null -> Box(
                 modifier.fillMaxSize().padding(24.dp),

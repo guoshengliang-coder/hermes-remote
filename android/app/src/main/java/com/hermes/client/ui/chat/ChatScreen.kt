@@ -1095,6 +1095,7 @@ fun ChatScreen(
                     Box(Modifier.weight(1f)) {
                     ChatMessageList(
                         state = state,
+                        isNewSession = isNewSession,
                         sessionId = sessionId,
                         listState = listState,
                         highlightIndex = highlightIndex,
@@ -1133,7 +1134,7 @@ fun ChatScreen(
                     // fades out 150ms with the first message. Display-only — the composer keeps
                     // every control exactly where it already is.
                     androidx.compose.animation.AnimatedVisibility(
-                        visible = state.isNewSession && state.messages.isEmpty() && !state.isGenerating,
+                        visible = isNewSession && state.messages.isEmpty() && !state.isGenerating,
                         enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(150)),
                         exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)),
                     ) {
