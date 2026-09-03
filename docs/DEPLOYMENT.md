@@ -105,6 +105,38 @@ one-time generated test material, a private local CA, and a 15-minute timeout. I
 secrets and has no production hostname or SSH path. Passing this workflow proves the R3 bootstrap path
 on an isolated host; it does not authorize or perform a production deployment.
 
+## Production-promotion audit (read-only)
+
+R5 adds a separate `production-audit` command. It does not relax the staging-only R3/R4 configuration,
+does not expose a production `deploy` or `rollback` command, and does not install packages, write managed
+files, stop/restart services, or alter routing. Prepare a private config from
+`ops/production.audit.example.json`; never commit the filled config or evidence files. The exact confirmation
+binds the read-only probe to the configured public hostname:
+
+```bash
+node scripts/hermesctl.mjs production-audit \
+  --config /secure-input/hermes-go/production-audit.json \
+  --confirm production:<configured-public-hostname>
+```
+
+The command aggregates every gate instead of stopping at the first missing prerequisite. It checks the exact
+Linux/amd64 host identity, minimum free disk and available memory, immutable target bundle, exact hashes of the
+currently running legacy Gateway, Nginx/public health, loopback-only legacy and PostgreSQL listeners, Docker,
+PostgreSQL 18 client/service availability, and fresh separate-host recovery evidence. A blocked result returns
+`HR-OPS-010`; this is an expected no-go report and leaves the live service unchanged.
+
+The two evidence files use strict schema version 1. `hermes-go-legacy-recovery-v1` must record verified checks
+`archive_hash`, `files_restored`, and `service_start`. `hermes-go-postgresql-restore-v1` must record
+`encrypted_backup_hash`, `database_restore`, `schema_exact`, and `account_smoke`. Both record source and restore
+hostnames, UTC creation/restore times, and artifact SHA-256; legacy evidence is bound to the configured runtime
+identity digest, while database evidence is bound to the exact schema and PostgreSQL major version. The hosts
+must differ and restore verification must be no older than 30 days. R5-A defines and consumes this evidence but does not yet create it: only the isolated
+R5-B capture/restore tooling and its produced output may satisfy the production gate. A hand-written manifest is
+not deployment evidence.
+
+See `CLOUD_GATEWAY_R5_PLAN.md`. Running the audit on the HK host still requires explicit read-only production
+authorization. Resolving any blocker is a separate mutating operation and needs another approval.
+
 ## PostgreSQL production gate (not yet executed)
 
 The existing HK host has enough nominal CPU and memory for the initial low-volume Gateway database,
