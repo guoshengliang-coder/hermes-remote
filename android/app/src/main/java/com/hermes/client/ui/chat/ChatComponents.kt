@@ -620,10 +620,35 @@ fun ChatMessageList(
             }
         }
     }
+    // Single owner of programmatic bottom snaps. A user drag holds the scroll mutex at UserInput
+    // priority, so a losing Default-priority snap surfaces as a CancellationException; swallow the
+    // theft (the user wants control) and rethrow only when this effect itself is being cancelled.
+    // One uncaught theft used to kill the old scroll executor for the rest of the screen.
+    val bottomRequests = remember(sessionId) { Channel<Unit>(Channel.CONFLATED) }
+    LaunchedEffect(sessionId, listState, bottomRequests) {
+        for (request in bottomRequests) {
+            try {
+                listState.scrollToItem(0)
+            } catch (stolen: CancellationException) {
+                currentCoroutineContext().ensureActive()
+            }
+        }
+    }
+
+    // Landing feedback: the prompt just jumped to borrows the search highlight for a moment so the
+    // eye finds it without hunting (docs/DESIGN.md §5.4).
+    var jumpFlashIndex by remember(sessionId) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(jumpFlashIndex) {
+        if (jumpFlashIndex != null) {
+            delay(TURN_JUMP_FLASH_MS)
+            jumpFlashIndex = null
+        }
+    }
     val jumpToGroup: (Int) -> Unit = { groupIndex ->
         turnGroups.getOrNull(groupIndex)?.let { group ->
             semanticViewport.cancelRestoreForUser()
             jumpRequests.trySend(messageListIndex(turnCount, group.anchorIndex))
+            jumpFlashIndex = group.promptIndex
         }
     }
     var promptListOpen by remember(sessionId) { mutableStateOf(false) }
@@ -637,6 +662,10 @@ fun ChatMessageList(
             onPick = { row ->
                 promptListOpen = false
                 jumpToGroup(row.groupIndex)
+            },
+            onLatest = {
+                promptListOpen = false
+                bottomRequests.trySend(Unit)
             },
             onDismiss = { promptListOpen = false },
         )
@@ -678,21 +707,6 @@ fun ChatMessageList(
         )
         semanticViewport.lockForOverlay()
         onOpenTableFullscreen(raw)
-    }
-
-    // Single owner of programmatic bottom snaps. A user drag holds the scroll mutex at UserInput
-    // priority, so a losing Default-priority snap surfaces as a CancellationException; swallow the
-    // theft (the user wants control) and rethrow only when this effect itself is being cancelled.
-    // One uncaught theft used to kill the old scroll executor for the rest of the screen.
-    val bottomRequests = remember(sessionId) { Channel<Unit>(Channel.CONFLATED) }
-    LaunchedEffect(sessionId, listState, bottomRequests) {
-        for (request in bottomRequests) {
-            try {
-                listState.scrollToItem(0)
-            } catch (stolen: CancellationException) {
-                currentCoroutineContext().ensureActive()
-            }
-        }
     }
 
     // Sending returns to the bottom because the USER pressed send — driven directly by that
@@ -1049,7 +1063,7 @@ fun ChatMessageList(
                         onFileOpen,
                         onFileShare,
                         smoothLiveResize = smoothLiveResize,
-                        highlighted = index == highlightIndex,
+                        highlighted = index == highlightIndex || index == jumpFlashIndex,
                     )
                 }
             }

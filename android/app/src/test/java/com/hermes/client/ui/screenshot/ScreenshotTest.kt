@@ -117,12 +117,16 @@ class ScreenshotTest {
 
     @Test fun promptListRows() = snap("prompt-list-rows") {
         val rows = listOf(
-            com.hermes.client.ui.chat.PromptRow(0, "会话开始", time = null, isCurrent = false, isLeading = true),
-            com.hermes.client.ui.chat.PromptRow(1, longPrompt, time = "09:12", isCurrent = true, isLeading = false),
-            com.hermes.client.ui.chat.PromptRow(2, "限流阈值放到配置里。", time = "09:40", isCurrent = false, isLeading = false),
-            com.hermes.client.ui.chat.PromptRow(3, "跑一遍完整测试，把失败的贴给我。", time = "昨天 10:05", isCurrent = false, isLeading = false),
+            com.hermes.client.ui.chat.PromptRow(0, ordinal = null, "会话开始", time = null, isCurrent = false, isLeading = true),
+            com.hermes.client.ui.chat.PromptRow(1, ordinal = 1, longPrompt, time = "09:12", isCurrent = false, isLeading = false),
+            com.hermes.client.ui.chat.PromptRow(2, ordinal = 2, "限流阈值放到配置里。", time = null, isCurrent = true, isLeading = false),
+            com.hermes.client.ui.chat.PromptRow(3, ordinal = 3, "跑一遍完整测试，把失败的贴给我。", time = "昨天 10:05", isCurrent = false, isLeading = false),
+            com.hermes.client.ui.chat.PromptRow(4, ordinal = 4, "把 chrome 关掉", time = null, isCurrent = false, isLeading = false),
         )
-        com.hermes.client.ui.chat.PromptListContent(rows, onPick = {}, modifier = androidx.compose.ui.Modifier.height(320.dp))
+        androidx.compose.foundation.layout.Column {
+            com.hermes.client.ui.chat.PromptListHeader(count = 4, onLatest = {})
+            com.hermes.client.ui.chat.PromptListContent(rows, onPick = {}, modifier = androidx.compose.ui.Modifier.height(360.dp))
+        }
     }
 
     @Test fun toolCardFailure() = snap("tool-card-failure") {
