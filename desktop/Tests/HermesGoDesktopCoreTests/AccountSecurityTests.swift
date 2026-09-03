@@ -40,6 +40,31 @@ final class AccountSecurityTests: XCTestCase {
         XCTAssertEqual(insecure.gatewayURL.absoluteString, "https://mrlgs.net")
     }
 
+    func testAccountConfigurationUsesOnlyValidatedStorageNamespace() {
+        let isolated = DesktopAccountConfiguration.load(environment: [
+            "HERMES_GO_ACCOUNT_GATEWAY_URL": "http://127.0.0.1:58787",
+            "HERMES_GO_STORAGE_NAMESPACE": "local-r2.20260903",
+        ])
+        let invalid = DesktopAccountConfiguration.load(environment: [
+            "HERMES_GO_STORAGE_NAMESPACE": "../shared",
+        ])
+        let blank = DesktopAccountConfiguration.load(environment: [
+            "HERMES_GO_STORAGE_NAMESPACE": "   ",
+        ])
+
+        XCTAssertEqual(isolated.storageNamespace, "local-r2.20260903")
+        XCTAssertEqual(
+            isolated.keychainService(base: "com.hermesgo.desktop.account-session"),
+            "com.hermesgo.desktop.account-session.local-r2.20260903"
+        )
+        XCTAssertEqual(invalid.storageNamespace, "invalid-configuration")
+        XCTAssertEqual(
+            invalid.keychainService(base: "com.hermesgo.desktop.account-session"),
+            "com.hermesgo.desktop.account-session.invalid-configuration"
+        )
+        XCTAssertNil(blank.storageNamespace)
+    }
+
     func testGatewaySessionResponseDecodesWithoutClientOnlyRecoveryFields() throws {
         let data = Data(#"{"account":{"id":"10000000-0000-4000-8000-000000000001","displayName":"Liang","email":"liang@example.invalid","avatarUrl":null},"installation":{"id":"20000000-0000-4000-8000-000000000001","kind":"desktop","platform":"macos","displayName":"Mac mini"},"session":{"accessToken":"hga_fake","accessExpiresAt":"2099-09-02T01:00:00Z","refreshToken":"hgr_fake","refreshExpiresAt":"2099-10-02T00:00:00Z"}}"#.utf8)
 

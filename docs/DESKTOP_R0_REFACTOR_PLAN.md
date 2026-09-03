@@ -1,8 +1,9 @@
 # Hermes Go Desktop R0 refactor plan
 
-Status: active on `codex/desktop-r0`, based on the account/Desktop checkpoint `fb253f4`. D0.1 was
-completed locally on 2026-09-02; D0.2, D0.3, and the D0.4 implementation were completed locally on
-2026-09-03. State-rich visual checks remain part of D0.5's isolated deployment.
+Status: D0.1 through D0.5 completed on `codex/desktop-r0`, based on the account/Desktop checkpoint
+`fb253f4`. The Cloud Gateway R2 line was integrated at merge commit `bc37eac`; the combined Desktop,
+PostgreSQL 18, Gateway, compatibility, installation, and Connector non-mutation gates passed locally
+on 2026-09-03. Live Google OAuth and physical multi-device acceptance remain later release gates.
 
 Desktop R0 prepares the macOS client for I3-B without changing the Gateway, Connector, Protocol,
 Hermes, or any production service. The concurrent Cloud Gateway work owns its own branch and
@@ -28,7 +29,7 @@ live binding integration until the Gateway runtime boundary is stable.
 | D0.2 presentation orchestration | Completed: account/health presentation, legacy observation, probe orchestration, and health snapshot assembly now live outside the root view model | 46 Desktop tests and the packaged app gate pass with behavior-compatible state reduction |
 | D0.3 I3-B client operations | Completed: scoped reauthentication, first-bind, replacement, both confirmation paths, and unbind use strict HTTP contracts and crash-safe persisted retry keys | 56 Desktop tests cover success, retry, cancellation, expiry, conflict, fail-closed decoding, and lost responses without contacting a live Gateway |
 | D0.4 I3-B interaction states | Implemented: explicit candidate/final/destructive confirmations, proof/health gates, conflict/revoked recovery, progress/completion status, and VoiceOver labels/hints | 60 tests and a real 0.3.0 app accessibility run pass; light/dark and long-name state fixtures continue in D0.5 deployment |
-| D0.5 integration | Rebase or cherry-pick Desktop-only commits after Cloud R0/R1 integration, then run live disposable-Gateway/PostgreSQL tests | Desktop, Gateway, account database, legacy compatibility, and Connector non-mutation gates pass together |
+| D0.5 integration | Completed: merged Cloud R2, added explicit test-package/Keychain isolation, deployed PostgreSQL 18 + account-enabled Gateway on loopback, and installed a separately identified Desktop test app | 61 Desktop tests and all 53 Gateway tests pass; schema 7, release probes, capability-enabled signed-out UI, strict ad-hoc signing, and unchanged legacy Connector PID/count verified |
 
 Connector takeover and rollback remain I5 work. They cannot begin until the Cloud R1 runtime/session
 boundary is merged and reviewed. A distributable or production-enabled DMG also depends on the Cloud
@@ -47,7 +48,8 @@ git diff --check
 ```
 
 Run `npm test` before handoff to catch accidental shared-contract regressions. Live Google OAuth,
-account-enabled Gateway, physical phones, Connector takeover, and production deployment must be
-reported as untested until their separately authorized gates are available.
+physical phones, Connector takeover, and production deployment must be reported as untested until
+their separately authorized gates are available. D0.5 exercised account and binding capabilities on
+an isolated loopback Gateway only; it did not use a provider proof or create a binding.
 
 Local evidence is recorded in `DESKTOP_R0_TEST_RECORD.md`.

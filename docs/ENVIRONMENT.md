@@ -103,6 +103,12 @@ public identifier, never a client secret. Default packages leave it empty, so Go
 unavailable even if a user opens the unfinished account screen. The app also obeys the Gateway's
 independent capability flags and never infers enablement from the presence of a client ID.
 
+An isolated local Desktop package may additionally set `HERMES_GO_STORAGE_NAMESPACE` together with
+test-only `HERMES_GO_BUNDLE_IDENTIFIER` and `HERMES_GO_DISPLAY_NAME` values at package time. The
+namespace creates distinct connection-profile, account-session, and Connector-machine-key Keychain
+services. Production packages leave these overrides unset; a test package must never reuse the
+production namespace.
+
 The deployment copies the certificate into `/etc/hermes-remote/tls` with narrowly scoped permissions and refreshes it from a Certbot deploy hook. Because DERP owns port 80, the `mrlgs.net` renewal configuration stops DERP before the standalone HTTP-01 challenge and starts it again afterward. The actual environment file belongs at `/etc/hermes-remote/gateway.env`; tokens are separate files readable only by the service group. None of them may be committed.
 
 ## Security items outside this repository

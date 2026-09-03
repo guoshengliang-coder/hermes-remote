@@ -11,6 +11,29 @@ canonical_icon="$project_root/android/app/src/main/ic_launcher-playstore.png"
 module_cache="$build_root/module-cache"
 swiftpm_module_cache="$build_root/swiftpm-module-cache"
 
+validate_package_identifier() {
+  value="$1"
+  label="$2"
+  maximum="$3"
+  case "$value" in
+    *[!A-Za-z0-9.-]*|.*|*.|*..*)
+      echo "$label must contain only letters, digits, dots, and hyphens, with no empty components." >&2
+      exit 1
+      ;;
+  esac
+  if [ "${#value}" -gt "$maximum" ]; then
+    echo "$label must contain at most $maximum characters." >&2
+    exit 1
+  fi
+}
+
+if [ -n "${HERMES_GO_STORAGE_NAMESPACE:-}" ]; then
+  validate_package_identifier "$HERMES_GO_STORAGE_NAMESPACE" HERMES_GO_STORAGE_NAMESPACE 64
+fi
+if [ -n "${HERMES_GO_BUNDLE_IDENTIFIER:-}" ]; then
+  validate_package_identifier "$HERMES_GO_BUNDLE_IDENTIFIER" HERMES_GO_BUNDLE_IDENTIFIER 255
+fi
+
 if ! cmp -s "$canonical_icon" "$icon_source"; then
   echo "Desktop AppIcon.png differs from the canonical Android app icon." >&2
   echo "Run desktop/scripts/sync-app-icon.sh before packaging." >&2
@@ -46,6 +69,16 @@ if [ -n "${HERMES_GO_ACCOUNT_GATEWAY_URL:-}" ]; then
 fi
 if [ -n "${HERMES_GO_GOOGLE_MACOS_CLIENT_ID:-}" ]; then
   plutil -replace HermesGoGoogleMacOSClientID -string "$HERMES_GO_GOOGLE_MACOS_CLIENT_ID" "$app/Contents/Info.plist"
+fi
+if [ -n "${HERMES_GO_STORAGE_NAMESPACE:-}" ]; then
+  plutil -replace HermesGoStorageNamespace -string "$HERMES_GO_STORAGE_NAMESPACE" "$app/Contents/Info.plist"
+fi
+if [ -n "${HERMES_GO_BUNDLE_IDENTIFIER:-}" ]; then
+  plutil -replace CFBundleIdentifier -string "$HERMES_GO_BUNDLE_IDENTIFIER" "$app/Contents/Info.plist"
+fi
+if [ -n "${HERMES_GO_DISPLAY_NAME:-}" ]; then
+  plutil -replace CFBundleDisplayName -string "$HERMES_GO_DISPLAY_NAME" "$app/Contents/Info.plist"
+  plutil -replace CFBundleName -string "$HERMES_GO_DISPLAY_NAME" "$app/Contents/Info.plist"
 fi
 
 iconset="$build_root/AppIcon.iconset"

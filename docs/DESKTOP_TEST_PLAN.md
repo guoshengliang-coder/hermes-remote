@@ -33,6 +33,8 @@ The current automated suite covers:
 - account HTTP paths/headers, bounded responses, stable error mapping, and diagnostic redaction;
 - separate account-session and Connector-machine identity stores, Ed25519 challenge signing, access
   refresh, and persisted idempotency-key reuse after a lost refresh response;
+- opt-in test-package namespace isolation across the connection profile, account session, and
+  Connector-machine identity Keychain services, including malformed-namespace fail-safe behavior;
 - signed-in dashboard reduction, two-phone listing, one-phone removal, and Desktop-only sign-out
   without deleting the machine identity.
 - exact scoped-reauthentication, first-bind, replacement, confirmation, and unbind HTTP contracts;
@@ -63,7 +65,9 @@ the project-wide `ERROR_HANDLING.md` contract.
 | v1 QR payload | JSON contains only compatible `v`, `url`, and `token` fields | Automated 2026-09-02 |
 | QR reveal | Real QR is hidden by default and carries an explicit long-lived-token warning | Local + target UI verified 2026-09-02; Android scan pending |
 | End-to-end success | Saved App Token reaches Gateway → Connector → Hermes through `/api/status` | Pending target production-token check |
-| Account mode disabled | Account & Devices reports unavailable and legacy connection remains usable | Automated core behavior; packaged UI inspection pending |
+| Account mode disabled | Account & Devices reports unavailable and legacy connection remains usable | Automated + real 0.3.0 accessibility run 2026-09-03 |
+| Account mode enabled, signed out | Account & Devices offers account entry without mutating binding or legacy state | Verified against isolated PostgreSQL 18/Gateway and separate installed test app 2026-09-03 |
+| Isolated Desktop package | Test bundle and all three Keychain services remain separate from installed Desktop | Automated namespace test + signed/package/install verification 2026-09-03 |
 | Browser OAuth loopback | Listener binds an ephemeral `127.0.0.1` port and rejects mismatched state | Automated locally; live Google client pending |
 | Account session restart | Keychain session refreshes without changing the Connector machine identity | In-memory/store contract automated; packaged Keychain run pending |
 | Two account phones | Account & Devices lists both and removes only the selected installation | Controller/API automated; live backend and physical phones pending |

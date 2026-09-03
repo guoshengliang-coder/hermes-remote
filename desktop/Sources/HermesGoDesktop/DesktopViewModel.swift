@@ -24,21 +24,33 @@ final class DesktopViewModel: ObservableObject {
     private let accountController: DesktopAccountController
     private var monitorTask: Task<Void, Never>?
 
-    init(profileStore: any ConnectionProfileStoring = KeychainConnectionProfileStore()) {
-        self.profileStore = profileStore
+    init(profileStore: (any ConnectionProfileStoring)? = nil) {
         let configuration = DesktopAccountConfiguration.load()
+        self.profileStore = profileStore ?? KeychainConnectionProfileStore(
+            service: configuration.keychainService(
+                base: "com.hermesgo.desktop.connection-profile"
+            )
+        )
         let oauth = configuration.googleClientID.map { GoogleOAuthFlow(clientID: $0) }
         accountController = DesktopAccountController(
             api: AccountAPIClient(gatewayURL: configuration.gatewayURL),
-            sessionStore: KeychainAccountSessionStore(),
-            machineIdentityStore: KeychainConnectorMachineIdentityStore(),
+            sessionStore: KeychainAccountSessionStore(
+                service: configuration.keychainService(
+                    base: "com.hermesgo.desktop.account-session"
+                )
+            ),
+            machineIdentityStore: KeychainConnectorMachineIdentityStore(
+                service: configuration.keychainService(
+                    base: "com.hermesgo.desktop.connector-machine-key"
+                )
+            ),
             oauth: oauth,
             displayName: Host.current().localizedName ?? "Mac",
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
                 ?? "development"
         )
         do {
-            if let profile = try profileStore.load() {
+            if let profile = try self.profileStore.load() {
                 connectionProfile = profile
                 profileName = profile.name
                 gatewayAddress = profile.gatewayURL.absoluteString

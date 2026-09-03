@@ -30,6 +30,8 @@
   <string>https://mrlgs.net</string>
   <key>HermesGoGoogleMacOSClientID</key>
   <string></string>
+  <key>HermesGoStorageNamespace</key>
+  <string></string>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSPrincipalClass</key>

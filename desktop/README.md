@@ -49,6 +49,12 @@ npm run desktop:app
 The app opens Google's account chooser in the system browser with PKCE S256, state, nonce, and a
 temporary `127.0.0.1` callback. It never reads Chrome/Safari profiles or stores a Google access token.
 
+For an isolated local deployment, the packaging script also accepts
+`HERMES_GO_STORAGE_NAMESPACE`, `HERMES_GO_BUNDLE_IDENTIFIER`, and `HERMES_GO_DISPLAY_NAME`.
+The storage namespace suffixes all three Desktop Keychain services, so a test installation cannot
+read or overwrite the installed app's connection profile, account session, or Connector machine key.
+Default packages leave the namespace empty and retain the existing identifiers and Keychain services.
+
 The current local test package is version `0.3.0` (bundle build `4`). Binding confirmation remains
 unavailable until a separately managed candidate has passed both key proof and health verification.
 

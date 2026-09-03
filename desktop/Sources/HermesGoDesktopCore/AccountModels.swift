@@ -3,8 +3,9 @@ import Foundation
 public struct DesktopAccountConfiguration: Equatable, Sendable {
     public let gatewayURL: URL
     public let googleClientID: String?
+    public let storageNamespace: String?
 
-    public init(gatewayURL: URL, googleClientID: String?) {
+    public init(gatewayURL: URL, googleClientID: String?, storageNamespace: String? = nil) {
         self.gatewayURL = gatewayURL
         let normalized = googleClientID?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.googleClientID = normalized.flatMap {
@@ -12,6 +13,11 @@ public struct DesktopAccountConfiguration: Equatable, Sendable {
                   !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
             else { return nil }
             return $0.nilIfEmpty
+        }
+        let normalizedNamespace = storageNamespace?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.storageNamespace = normalizedNamespace.flatMap { value in
+            guard !value.isEmpty else { return nil }
+            return validatedStorageNamespace(value) ?? "invalid-configuration"
         }
     }
 
@@ -24,10 +30,37 @@ public struct DesktopAccountConfiguration: Equatable, Sendable {
             ?? "https://mrlgs.net"
         let clientID = environment["HERMES_GO_GOOGLE_MACOS_CLIENT_ID"]
             ?? bundle.object(forInfoDictionaryKey: "HermesGoGoogleMacOSClientID") as? String
+        let storageNamespace = environment["HERMES_GO_STORAGE_NAMESPACE"]
+            ?? bundle.object(forInfoDictionaryKey: "HermesGoStorageNamespace") as? String
         let gatewayURL = validatedAccountGatewayURL(gatewayValue)
             ?? URL(string: "https://mrlgs.net")!
-        return DesktopAccountConfiguration(gatewayURL: gatewayURL, googleClientID: clientID)
+        return DesktopAccountConfiguration(
+            gatewayURL: gatewayURL,
+            googleClientID: clientID,
+            storageNamespace: storageNamespace
+        )
     }
+
+    public func keychainService(base: String) -> String {
+        guard let storageNamespace else { return base }
+        return "\(base).\(storageNamespace)"
+    }
+}
+
+private func validatedStorageNamespace(_ normalized: String) -> String? {
+    guard (1...64).contains(normalized.count),
+          let first = normalized.unicodeScalars.first,
+          let last = normalized.unicodeScalars.last
+    else { return nil }
+    let alphaNumeric = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    )
+    let allowed = alphaNumeric.union(CharacterSet(charactersIn: ".-"))
+    guard alphaNumeric.contains(first), alphaNumeric.contains(last),
+          normalized.unicodeScalars.allSatisfy(allowed.contains),
+          !normalized.contains("..")
+    else { return nil }
+    return normalized
 }
 
 public struct AccountCapabilities: Codable, Equatable, Sendable {

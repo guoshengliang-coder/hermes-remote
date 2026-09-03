@@ -122,5 +122,45 @@ unbind.
 
 Screen recording remained unavailable to the test process and the temporary capture contained only
 the desktop wallpaper, so it was deleted and is not treated as visual evidence. Light/dark rendering,
-long account/device names, and each capability-enabled confirmation dialog still require the isolated
-D0.5 fixture deployment; no live account or binding mutation was attempted in this run.
+long account/device names, and each capability-enabled confirmation dialog remained pending after
+D0.4; no live account or binding mutation was attempted in this run.
+
+## D0.5 scope
+
+- Integrated the Cloud Gateway R2 history at merge commit `bc37eac`, including release metadata,
+  liveness/readiness probes, schema-version enforcement, and the PostgreSQL 18 support contract.
+- Added an explicit Desktop storage namespace and package-time bundle/display-name overrides for
+  isolated installations. The namespace covers the connection profile, account session, and
+  Connector machine key; invalid non-empty namespaces fail into a non-production namespace, and the
+  packaging script rejects malformed identifiers before building.
+- Deployed a disposable PostgreSQL 18.6 cluster and an account/binding-enabled Gateway bound only to
+  `127.0.0.1`. No production host, token, database, Connector, or traffic path was used.
+- Installed the test app separately as `/Applications/Hermes Go Desktop Test.app`; the existing
+  `/Applications/Hermes Go Desktop.app` remained at `0.2.0` build `3`.
+
+## D0.5 executed results
+
+| Gate | Result |
+| --- | --- |
+| PostgreSQL runtime | Pass: Homebrew PostgreSQL `18.6`, disposable cluster on loopback |
+| `account:migrate` twice | Pass: exact schema version `7`; repeated execution remained idempotent |
+| `ACCOUNT_TEST_DATABASE_URL=<disposable> RUN_NETWORK_TESTS=1 npm test -w @hermes-remote/gateway` | Pass: 53 tests, 0 failures, 0 skipped |
+| Deployed `/healthz` | Pass: `alive` |
+| Deployed `/readyz` | Pass: config/database/migrations `ok`, PostgreSQL `supported` |
+| Deployed `/v2/capabilities` | Pass: account auth, installation sessions, binding/replacement, lifecycle inbox, and legacy auth advertised together |
+| Protected `/internal/version` | Pass: unauthenticated request `401`; authorized test request reported server `0.2.0`, schema `7`, PostgreSQL major `18`, and source `bc37eac` |
+| Desktop storage-isolation regression | Pass: 61 tests; valid namespace suffixes all services, malformed namespace cannot fall back into production storage |
+| Invalid package namespace | Pass: packaging stopped before build with a bounded validation message |
+| Isolated `npm run desktop:app` | Pass: `0.3.0` build `4`, bundle `com.hermesgo.desktop.local-r2-20260903`, strict ad-hoc codesign |
+| Separate installation and launch | Pass: `/Applications/Hermes Go Desktop Test.app`; final rebuilt instance observed at PID `91908` |
+| Capability-enabled Account & Devices UI | Pass via macOS accessibility API: the installed app reached the signed-out account page through the named sidebar action and exposed the account safety copy |
+| Database non-mutation after Desktop refresh | Pass: schema `7`; accounts `0`, installations `0`, bindings `0` |
+| Legacy Connector non-mutation | Pass: state `running`, PID `11610`, launch count `19` before and after installation/launch |
+| Existing Desktop non-overwrite | Pass: installed production-path app remained `0.2.0` build `3` |
+| `ACCOUNT_TEST_DATABASE_URL=<disposable> RUN_NETWORK_TESTS=1 npm test` | Pass: 122 tests across Protocol, Connector, Gateway, Release Server, and scripts; 0 failures, 0 skipped |
+
+The local Gateway used impossible test credentials and placeholder OAuth audiences, so live Google
+sign-in was deliberately not attempted. Signed-in long-name fixtures, light/dark visual capture,
+physical phones, candidate Connector proof, takeover/rollback, Developer ID signing/notarization,
+and any production deployment remain unverified. The isolated Gateway and Desktop test app are not
+release artifacts and must not be represented as such.

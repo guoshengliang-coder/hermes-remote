@@ -77,6 +77,11 @@ The D0.4 UI exposes those actions only when the Gateway advertises its independe
 gates activation on key and health proof, and requires explicit confirmations. I5 still owns candidate
 proof, process migration, activation ordering, and rollback.
 
+The D0.5 local-deployment gate adds an opt-in Keychain storage namespace and test-only package
+identity overrides. This allows an account-enabled loopback build to be installed beside the current
+Desktop without reading or overwriting its connection profile, account session, or Connector machine
+key. Default and production packages keep the original identifiers and storage services.
+
 ### I3-A local verification — 2026-09-02
 
 - All 38 Desktop core tests passed, including a real ephemeral IPv4-loopback callback, PKCE/state/
@@ -142,7 +147,25 @@ transition with validation and automatic rollback; see `DESKTOP_TEST_PLAN.md`.
   installed and running for local inspection.
 
 Physical two-phone use, managed-Agent takeover, and rollback remain pending. Phase 0 still makes no
-Hermes, Gateway, Android, token, or Connector configuration changes.
+Hermes, production Gateway, Android, token, or Connector configuration changes.
+
+### D0.5 isolated deployment verification — 2026-09-03
+
+- Cloud Gateway R2 and Desktop D0.1–D0.4 were combined on `codex/desktop-r0`.
+- A disposable PostgreSQL 18.6 cluster reached exact schema version 7; migration replay and all 53
+  database/network/compatibility Gateway tests passed with no skips.
+- The account/binding-enabled Gateway was deployed on `127.0.0.1:58787`; liveness, readiness,
+  capabilities, and protected release metadata matched the R2 contract.
+- The separately identified and namespaced `0.3.0` build 4 app was installed as
+  `/Applications/Hermes Go Desktop Test.app`, passed strict ad-hoc code-sign verification, launched,
+  and displayed the capability-enabled signed-out account state through the accessibility tree.
+- The final full repository gate passed 122 tests across Protocol, Connector, Gateway, Release
+  Server, and scripts with no failures or environment skips.
+- The existing Desktop remained `0.2.0` build 3. The legacy Connector remained running at PID
+  `11610` with launch count `19`, and the empty test database contained no account, installation, or
+  binding created by the Desktop check.
+- No live OAuth proof, production service, physical phone, Connector replacement, or Hermes mutation
+  was used. Those remain explicit later gates.
 
 ### Phase 0.5 local verification
 
