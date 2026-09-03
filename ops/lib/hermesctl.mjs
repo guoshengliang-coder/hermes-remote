@@ -386,7 +386,7 @@ export function verifyLoadedImage(runner, manifest) {
   return image;
 }
 
-async function inspectInputMaterial(config) {
+export async function inspectInputMaterial(config) {
   const app = await readPrivateToken(config.secrets.appTokenSource, "app_token");
   const connector = await readPrivateToken(config.secrets.connectorTokenSource, "connector_token");
   const internal = await readPrivateToken(config.secrets.internalStatusTokenSource, "internal_status_token");
@@ -402,7 +402,7 @@ async function inspectInputMaterial(config) {
   return { app, connector, internal, certificate, privateKey, fingerprint };
 }
 
-async function verifyArchiveAtUse(manifest) {
+export async function verifyArchiveAtUse(manifest) {
   if (!manifest.archivePath) throw new OpsError("artifact", "bundle_archive_path_missing", "artifact_archive_verify");
   try {
     await assertRegularFile(manifest.archivePath, "artifact_archive");
