@@ -568,6 +568,115 @@ test("a second interruption never overwrites events written after reverse handof
   assert.equal(runner.active.has(fixture.config.legacySource.serviceName), true);
 });
 
+test("switch fault-injection matrix always leaves the old public release verified", async (t) => {
+  const scenarios = [
+    { name: "candidate private smoke", kind: "candidate-smoke", recovery: false },
+    { name: "candidate stop", command: commandIs("systemctl", "stop", "hermes-go-gateway-blue.service"), recovery: false },
+    { name: "source stop", command: commandIs("systemctl", "stop", "hermes-go-gateway-staging.service"), recovery: false },
+    { name: "lifecycle handoff", kind: "handoff", recovery: true },
+    { name: "candidate restart", command: commandIs("systemctl", "restart", "hermes-go-gateway-blue.service"), recovery: true },
+    { name: "post-restart identity", versionProbeFailureAt: 2, recovery: true },
+    { name: "nginx validation", command: commandIs("nginx", "-t"), recovery: true },
+    { name: "nginx reload", command: commandIs("systemctl", "reload", "nginx.service"), recovery: true },
+    { name: "first public smoke", publicSmokeFailureAt: 1, recovery: true },
+    { name: "observation window", kind: "observation", recovery: true },
+    { name: "post-observation identity", versionProbeFailureAt: 3, recovery: true },
+    { name: "second public smoke", publicSmokeFailureAt: 2, recovery: true },
+    { name: "candidate enable", command: commandIs("systemctl", "enable", "hermes-go-gateway-blue.service"), recovery: true },
+    { name: "source disable", command: commandIs("systemctl", "disable", "hermes-go-gateway-staging.service"), recovery: true },
+  ];
+
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async (scenarioTest) => {
+      const fixture = await createCandidateFixture(scenarioTest);
+      const baseRunner = createTransactionalRunner(fixture);
+      await prepareFixtureCandidate(fixture, baseRunner);
+      await writeLifecycleSnapshot(
+        fixture.config.legacySource.stateDirectory,
+        [lifecycleRecord(1, `safe-${scenario.name.replaceAll(" ", "-")}`)],
+        2,
+      );
+      if (scenario.kind === "handoff") {
+        await mkdir(path.join(
+          fixture.config.paths.stateRoot,
+          "gateway-slots",
+          "blue",
+          "lifecycle-events.json",
+        ));
+      }
+
+      const runner = scenario.command ? injectOneCommandFailure(baseRunner, scenario.command) : baseRunner;
+      const healthyFetch = candidateFetch(fixture.targetManifest);
+      let versionProbeCount = 0;
+      let publicSmokeCount = 0;
+      let recoverySmokeCount = 0;
+      const fetchImpl = async (url, init) => {
+        if (new URL(url).pathname === "/internal/version") {
+          versionProbeCount += 1;
+          if (versionProbeCount === scenario.versionProbeFailureAt) {
+            return new Response(JSON.stringify({ serverVersion: "0.0.0", sourceCommit: "0".repeat(40) }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            });
+          }
+        }
+        return healthyFetch(url, init);
+      };
+
+      await assert.rejects(
+        () => switchCandidate(fixture.config, fixture.sourceManifest, fixture.targetManifest, {
+          ...switchOptions(runner),
+          runId: `fault-${scenario.name.replaceAll(" ", "-")}`,
+          fetchImpl,
+          candidateSmoke: async () => {
+            if (scenario.kind === "candidate-smoke") throw new Error("injected candidate smoke failure");
+          },
+          publicSmoke: async (request) => {
+            if (request.recovery) {
+              recoverySmokeCount += 1;
+              return;
+            }
+            publicSmokeCount += 1;
+            if (publicSmokeCount === scenario.publicSmokeFailureAt) {
+              throw new Error("injected public smoke failure");
+            }
+          },
+          sleep: scenario.kind === "observation"
+            ? async () => { throw new Error("injected observation failure"); }
+            : async () => {},
+        }),
+        isOpsCode("HR-OPS-008"),
+      );
+
+      if (scenario.command) assert.equal(runner.injected, true, "command fault was not reached");
+      assert.equal(recoverySmokeCount, scenario.recovery ? 1 : 0);
+      if (!scenario.recovery) {
+        assert.equal(runner.calls.some((call) => call.command === "docker"
+          && call.args[0] === "rm" && call.args.at(-1) === fixture.config.slots.blue.containerName), true);
+      }
+      assert.equal(runner.active.has(fixture.config.legacySource.serviceName), true);
+      assert.equal(runner.active.has(fixture.config.slots.blue.serviceName), false);
+      assert.equal(runner.enabled.has(fixture.config.legacySource.serviceName), true);
+      assert.equal(runner.enabled.has(fixture.config.slots.blue.serviceName), false);
+      assert.equal(await readFile(fixture.config.nginx.configFile, "utf8"), fixture.nginxContent);
+      await assert.rejects(() => readFile(fixture.config.nginx.upstreamConfigFile), { code: "ENOENT" });
+      assert.equal(await readlink(path.join(fixture.config.paths.installRoot, "current")), fixture.currentTarget);
+      await assert.rejects(
+        () => readlink(path.join(fixture.config.paths.installRoot, "previous")),
+        { code: "ENOENT" },
+      );
+      const sourceState = JSON.parse(await readFile(path.join(
+        fixture.config.legacySource.stateDirectory,
+        "lifecycle-events.json",
+      ), "utf8"));
+      assert.deepEqual(
+        sourceState.events.map((record) => record.event.eventId),
+        [`safe-${scenario.name.replaceAll(" ", "-")}`],
+      );
+    });
+  }
+});
+
 test("rollback archives the committed deploy and reuses the reverse blue-green safety path", async (t) => {
   const fixture = await createCandidateFixture(t);
   const rollbackVersion = fixture.sourceManifest.serverVersion;
@@ -891,6 +1000,29 @@ function createTransactionalRunner(fixture, { nginxTestFailures = 0 } = {}) {
       }
       if (command === "ss") return success();
       return success();
+    },
+  };
+}
+
+function commandIs(command, ...args) {
+  return (actualCommand, actualArgs) => actualCommand === command
+    && args.every((argument, index) => actualArgs[index] === argument);
+}
+
+function injectOneCommandFailure(runner, matches) {
+  let injected = false;
+  return {
+    calls: runner.calls,
+    active: runner.active,
+    enabled: runner.enabled,
+    get injected() { return injected; },
+    run(command, args = [], options) {
+      if (!injected && matches(command, args)) {
+        injected = true;
+        runner.calls.push({ command, args: [...args] });
+        return failure();
+      }
+      return runner.run(command, args, options);
     },
   };
 }

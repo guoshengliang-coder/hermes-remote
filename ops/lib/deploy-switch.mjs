@@ -40,6 +40,7 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
   let checkpoint;
   let sourceStopped = false;
   let recoveryRequired = false;
+  let candidateControlled = false;
 
   try {
     authorizeSwitch(config, options);
@@ -75,6 +76,7 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
     if (stageIndex < DEPLOYMENT_STAGES.indexOf("candidate_verified")) {
       fail("candidate_not_verified", "switch_resume");
     }
+    candidateControlled = true;
 
     if (stageIndex < switchedIndex) {
       await assertCurrentRelease(config, journal.checkpoint.currentReleaseTarget);
@@ -136,6 +138,12 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
       } catch (recoveryFailure) {
         recoveryError = recoveryFailure;
       }
+    } else if (candidateControlled) {
+      try {
+        await cleanCandidateBeforeSwitch(config, journal, runner);
+      } catch (cleanupFailure) {
+        recoveryError = cleanupFailure;
+      }
     }
     if (recoveryError) {
       fail(`automatic_recovery_failed:${technical(recoveryError)}`, "switch_recovery_failed");
@@ -148,6 +156,13 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
   } finally {
     await releaseDeploymentLock(lock).catch(() => {});
   }
+}
+
+async function cleanCandidateBeforeSwitch(config, journal, runner) {
+  const candidate = slotDescriptor(config, journal.candidateSlot);
+  mustRun(runner, "systemctl", ["stop", `${candidate.serviceName}.service`], "pre_switch_candidate_stop");
+  await assertServiceInactive(runner, candidate.serviceName, "pre_switch_candidate_did_not_stop");
+  runner.run("docker", ["rm", "--force", candidate.containerName], { allowFailure: true });
 }
 
 async function recoverExistingService(config, journal, checkpoint, runner, options, ownership, paths) {

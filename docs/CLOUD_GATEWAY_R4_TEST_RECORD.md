@@ -27,8 +27,9 @@ R4 当前处于完成门禁收尾阶段。本文只记录实际执行的结果�
 | R4-C switch/drain | Complete | PR #11 六项 checks 全部通过并合并为 `519a9ab`；合并后 main CI、SAST、Gateway OCI 复核全部通过 |
 | R4-D rollback | Complete | PR #12 六项 checks 全部通过并合并为 `ed30206`；合并后 main CI、SAST、Gateway OCI 复核全部通过 |
 | R4-E CLI/integration | Complete | PR #13 六项 checks 全部通过并合并为 `f78b234`；合并后 main CI、SAST、Gateway OCI 复核全部通过；手动演练也已通过 |
-| Fault-injection suite | Partial | 单元测试已覆盖候选 smoke、交接前中断、Nginx 校验、公开 smoke、切换后恢复和二次中断；尚缺按全部状态点执行的显式注入矩阵 |
+| Fault-injection suite | In review | 14 点显式矩阵已在本地全部通过并补齐切换前候选清理；等待 PR checks、合并及 main 复核后关闭门禁 |
 | Ephemeral upgrade/rollback | Complete | GitHub Actions run `33750219977` 在提交 `ae9855d` 完成真实 R3→R4→R3 往返，未访问香港服务器 |
+| R4 completion | Pending | 只等待故障注入矩阵合并和 main 复核；生产部署仍是独立授权 |
 | Production deployment | Not authorized | R4 计划与代码工作不构成生产授权 |
 
 ## 仓库门禁说明
@@ -144,6 +145,26 @@ PR #13 的 Android、Desktop、Node、Secret、Semgrep、Gateway OCI 六项检�
 `current/previous` 指向正确版本，八条 started/success 审计记录及脱敏检查通过。workflow 使用临时
 证书和随机 Token，无仓库 Secret、SSH、镜像推送或生产域名；未连接或更改香港服务器。
 
-本次成功关闭 R4-E CLI/integration 与完整往返门禁，但不等于 R4 全部完成：现有自动化只对关键
-恢复路径做了故障注入，尚未形成覆盖部署状态机每个注入点的显式矩阵。真实数据库迁移仍未运行，
-因为当前 release contract 声明本轮不需要数据库且配置为 `database: null`。
+本次成功关闭 R4-E CLI/integration 与完整往返门禁。运行当时仍缺显式故障注入矩阵；该缺口由下一节
+记录的后续切片处理。真实数据库迁移仍未运行，因为当前 release contract 声明本轮不需要数据库且
+配置为 `database: null`。
+
+## R4 故障注入矩阵本地证据
+
+2026-09-03 在 `codex/cloud-gateway-r4-fault-matrix` 增加 14 点显式矩阵：候选私有 smoke、候选停止、
+源停止、lifecycle 交接、候选重启、重启后身份复核、Nginx 校验、Nginx reload、第一次公开 smoke、
+观察窗、观察后身份复核、第二次公开 smoke、候选 enable 和源 disable。每个注入点都要求返回稳定的
+`HR-OPS-008`，并同时验证旧服务活动、候选不活动、开机启动状态恢复、Nginx 原文和 upstream 恢复、
+`current/previous` 未误提交以及 lifecycle 事件未丢失。
+
+矩阵暴露并修复了一个切换前恢复缺口：journal 身份已经验证、但旧服务尚未停止时，如果候选二次
+私有 smoke 或停止动作失败，旧公开服务虽保持健康，候选 unit/容器此前不会被主动清理。现在只有在
+持有正确部署锁并验证 journal 后才取得候选清理权；切换前失败会停止候选、确认 inactive 并尽力移除
+容器，竞争锁和 committed 复核路径不会触碰活动服务。
+
+聚焦 `deploy-state` 套件共 28 项全部通过。完整执行 `npm run build`、`npm test` 与
+`git diff --check` 全部通过；Protocol 13 项、Connector 13 项、release-server 30 项、脚本 51 个
+顶层测试（含子测试共 65 项）全部通过，Gateway 常规套件 42 项通过、11 项按既有环境门禁跳过。
+随后启用 `RUN_NETWORK_TESTS=1` 复核 Gateway，50 项通过，3 项仅因未配置一次性 PostgreSQL 账号
+测试库而跳过。本切片未修改 Android、Desktop、Connector 协议或 Gateway 公开 API，未生成 APK，
+未连接香港服务器。以上仍是本地证据；PR checks 与合并后 main 复核完成前不把 R4 标为 Complete。
