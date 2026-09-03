@@ -18,6 +18,7 @@ import {
   renderDeployGatewayEnvironment,
   renderDeploySystemdUnit,
 } from "./deploy-system.mjs";
+import { verifyDatabaseMigration } from "./database-migration.mjs";
 import { OpsError } from "./errors.mjs";
 import {
   inspectInputMaterial,
@@ -63,7 +64,6 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
       operation,
       databaseEnabled: config.database !== null,
     });
-    if (config.database !== null) fail("database_migration_path_not_implemented", "candidate_authorize");
     verifyCurrentIdentity(await readReleaseLink(config.paths.installRoot, "current", true), sourceManifest);
     if (operation === "rollback") {
       verifyPreviousIdentity(await readReleaseLink(config.paths.installRoot, "previous", true), targetManifest);
@@ -88,6 +88,9 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
     await prepareLockDirectories(config, paths, ownership);
     lock = await acquireDeploymentLock(paths.lock, runId);
     await prepareDeploymentDirectories(config, paths, candidateSlot, ownership);
+    if (config.database !== null) {
+      await atomicWrite(paths.databaseUrl, `${material.databaseUrl}\n`, 0o440, ownership.secret);
+    }
     const source = transition.source;
     const target = transition.target;
     await archiveCommittedDeploymentJournal(
@@ -124,9 +127,6 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
       journal = advanceDeploymentJournal(journal, "checkpoint_created", now(), { checkpoint });
       await writeDeploymentJournal(paths.journal, journal, ownership.host);
     }
-    journal = await persistStage(paths.journal, journal, "migration_verified", now, ownership.host);
-
-    await installCandidateFiles(config, targetManifest, candidateSlot, paths, material, ownership);
     if (!inspectLoadedImage(runner, targetManifest).loaded) {
       await verifyArchiveAtUse(targetManifest);
       const loaded = runner.run("docker", ["load", "--input", targetManifest.archivePath], {
@@ -136,6 +136,10 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
       if (loaded.status !== 0) fail("bundle_image_load_failed", "candidate_image_load");
     }
     verifyLoadedImage(runner, targetManifest);
+    verifyDatabaseMigration(config, targetManifest, runner);
+    journal = await persistStage(paths.journal, journal, "migration_verified", now, ownership.host);
+
+    await installCandidateFiles(config, targetManifest, candidateSlot, paths, material, ownership);
 
     if (reached(journal, "route_switched")) fail("candidate_phase_already_complete", "candidate_resume");
     candidateStartAttempted = true;
@@ -176,7 +180,7 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
       });
       runner.run("docker", ["rm", "--force", config.slots[candidateSlot].containerName], { allowFailure: true });
     }
-    if (error instanceof OpsError && new Set(["artifact", "compatibility", "config", "deployment"]).has(error.kind)) {
+    if (error instanceof OpsError && new Set(["artifact", "compatibility", "config", "database", "deployment"]).has(error.kind)) {
       throw error;
     }
     fail(error instanceof Error ? error.message : error, journal ? `candidate_${journal.stage}` : "candidate_prepare");
@@ -191,6 +195,7 @@ async function prepareDeploymentDirectories(config, paths, candidateSlot, owners
   await ensureManagedDirectory(paths.releaseDir, 0o755, ownership.host);
   await ensureManagedDirectory(config.paths.configRoot, 0o750, ownership.host);
   await ensureManagedDirectory(path.join(config.paths.configRoot, "secrets"), 0o750, ownership.secret);
+  await ensureManagedDirectory(path.join(config.paths.configRoot, "database-secrets"), 0o750, ownership.secret);
   await ensureManagedDirectory(path.join(config.paths.configRoot, "tls"), 0o750, ownership.host);
   await ensureManagedDirectory(path.join(config.paths.configRoot, "slots"), 0o750, ownership.host);
   await ensureManagedDirectory(paths.slotConfigDir, 0o750, ownership.host);
@@ -339,6 +344,7 @@ function deploymentPaths(config, manifest, slot) {
     appToken: path.join(config.paths.configRoot, "secrets", "app-token"),
     connectorToken: path.join(config.paths.configRoot, "secrets", "connector-token"),
     internalStatusToken: path.join(config.paths.configRoot, "secrets", "internal-status-token"),
+    databaseUrl: path.join(config.paths.configRoot, "database-secrets", "account-database-url"),
     certificate: path.join(config.paths.configRoot, "tls", "fullchain.pem"),
     privateKey: path.join(config.paths.configRoot, "tls", "privkey.pem"),
     journal: path.join(opsRoot, "deploy-state.json"),

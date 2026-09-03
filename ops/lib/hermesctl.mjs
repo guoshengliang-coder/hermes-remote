@@ -396,10 +396,16 @@ export async function inspectInputMaterial(config) {
   }
   const certificate = await readCertificate(config.nginx.certificateSource);
   const privateKey = await readPrivateKey(config.nginx.privateKeySource);
+  const databaseUrl = config.database
+    ? await readPrivateDatabaseUrl(config.database.urlSource)
+    : null;
+  const databaseFingerprint = databaseUrl ? sha256(databaseUrl) : null;
+  const materialFingerprints = [...fingerprints, sha256(certificate), sha256(privateKey)];
+  if (databaseFingerprint) materialFingerprints.push(databaseFingerprint);
   const fingerprint = createHash("sha256")
-    .update([...fingerprints, sha256(certificate), sha256(privateKey)].join(":"), "utf8")
+    .update(materialFingerprints.join(":"), "utf8")
     .digest("hex");
-  return { app, connector, internal, certificate, privateKey, fingerprint };
+  return { app, connector, internal, certificate, privateKey, databaseUrl, fingerprint };
 }
 
 export async function verifyArchiveAtUse(manifest) {
@@ -435,6 +441,29 @@ async function readPrivateToken(filePath, label) {
   const raw = await readFile(filePath, "utf8");
   const value = raw.endsWith("\n") ? raw.slice(0, -1) : raw;
   if (!/^[^\s]{32,4096}$/.test(value)) throw new OpsError("config", `${label}_format_invalid`, "preflight_secrets");
+  return value;
+}
+
+async function readPrivateDatabaseUrl(filePath) {
+  const info = await assertRegularFile(filePath, "account_database_url");
+  if ((info.mode & 0o077) !== 0 || info.size < 16 || info.size > 4097) {
+    throw new OpsError("config", "account_database_url_permissions_or_size_invalid", "preflight_database");
+  }
+  const raw = await readFile(filePath, "utf8");
+  const value = raw.endsWith("\n") ? raw.slice(0, -1) : raw;
+  if (/\s/.test(value)) {
+    throw new OpsError("config", "account_database_url_format_invalid", "preflight_database");
+  }
+  try {
+    const parsed = new URL(value);
+    if (!new Set(["postgres:", "postgresql:"]).has(parsed.protocol)
+        || !parsed.hostname || !parsed.username || !parsed.password
+        || parsed.pathname.length < 2 || parsed.hash) {
+      throw new Error("invalid");
+    }
+  } catch {
+    throw new OpsError("config", "account_database_url_format_invalid", "preflight_database");
+  }
   return value;
 }
 

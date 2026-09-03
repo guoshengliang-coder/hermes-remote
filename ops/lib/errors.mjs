@@ -55,6 +55,13 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "inspect_recovery_state_and_retry",
   }),
+  database: Object.freeze({
+    code: "HR-OPS-009",
+    summaryZh: "Gateway 数据库迁移或版本校验未完成，已阻止发布。请检查数据库状态后重试。",
+    summaryEn: "The Gateway database migration or version check did not complete, so the release was blocked. Inspect the database state and retry.",
+    retryable: true,
+    recoveryAction: "inspect_database_state_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;

@@ -17,6 +17,7 @@ green_port=28789
 edge_port=28443
 mock_port=29001
 r3_commit=e94d89dea9b4f416942a78e3120d14bb94500e5c
+r4_commit=1dc2c38e22e1e8eb049020361a29ee929144f839
 run_dir=
 mock_pid=
 connector_pid=
@@ -61,12 +62,15 @@ fi
 run_dir=$(mktemp -d "${TMPDIR:-/tmp}/hermes-r4-ephemeral.XXXXXX")
 chmod 0700 "$run_dir"
 mkdir -m 0700 "$run_dir/inputs" "$run_dir/runtime" "$run_dir/runtime/uploads" \
-  "$run_dir/runtime/candidate" "$run_dir/runtime/candidate/uploads" "$run_dir/r3-bundle"
+  "$run_dir/runtime/candidate" "$run_dir/runtime/candidate/uploads" \
+  "$run_dir/r3-bundle" "$run_dir/r4-bundle"
 
 umask 077
 openssl rand -hex 32 >"$run_dir/inputs/app-token"
 openssl rand -hex 32 >"$run_dir/inputs/connector-token"
 openssl rand -hex 32 >"$run_dir/inputs/internal-status-token"
+printf '%s\n' 'postgresql://hermes_staging:ephemeral-only-password@127.0.0.1:5432/hermes_staging' \
+  >"$run_dir/inputs/account-database-url"
 
 openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 \
   -subj "/CN=Hermes R4 Ephemeral Root" \
@@ -90,6 +94,7 @@ openssl x509 -req -sha256 -days 1 \
 chmod 0600 "$run_dir/inputs/app-token" \
   "$run_dir/inputs/connector-token" \
   "$run_dir/inputs/internal-status-token" \
+  "$run_dir/inputs/account-database-url" \
   "$run_dir/inputs/privkey.pem"
 chmod 0644 "$run_dir/inputs/fullchain.pem" "$run_dir/inputs/ca.crt"
 
@@ -117,23 +122,40 @@ if [ "$r3_server_version" != "0.2.0" ] || [ "$r3_source_commit" != "$r3_commit" 
   exit 1
 fi
 
-output_name="gateway-r4-staging-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
+git clone --quiet --no-local "$repo_root" "$run_dir/r4-source"
+git -C "$run_dir/r4-source" checkout --quiet --detach "$r4_commit"
+(
+  cd "$run_dir/r4-source"
+  npm ci --ignore-scripts
+  ./scripts/package-gateway-bundle.sh "$run_dir/r4-bundle"
+) >"$run_dir/runtime/r4-bundle-output"
+r4_bundle_output=$(cat "$run_dir/runtime/r4-bundle-output")
+printf '%s\n' "$r4_bundle_output"
+r4_manifest_path=$(printf '%s\n' "$r4_bundle_output" | sed -n 's/^MANIFEST=//p')
+r4_server_version=$(printf '%s\n' "$r4_bundle_output" | sed -n 's/^SERVER_VERSION=//p' | tail -n 1)
+r4_source_commit=$(printf '%s\n' "$r4_bundle_output" | sed -n 's/^SOURCE_COMMIT=//p' | tail -n 1)
+if [ "$r4_server_version" != "0.3.0" ] || [ "$r4_source_commit" != "$r4_commit" ]; then
+  report_failure candidate "r4_bundle_identity_invalid"
+  exit 1
+fi
+
+output_name="gateway-r4-database-staging-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
 case "$output_name" in
   *[!A-Za-z0-9._-]*)
     report_failure prerequisite "output_identity_invalid"
     exit 1
     ;;
 esac
-if ! r4_bundle_output=$(./scripts/package-gateway-bundle.sh "outputs/$output_name"); then
+if ! database_bundle_output=$(./scripts/package-gateway-bundle.sh "outputs/$output_name"); then
   report_failure prerequisite "bundle_package_failed"
   exit 1
 fi
-printf '%s\n' "$r4_bundle_output"
-r4_manifest_path=$(printf '%s\n' "$r4_bundle_output" | sed -n 's/^MANIFEST=//p')
-r4_server_version=$(printf '%s\n' "$r4_bundle_output" | sed -n 's/^SERVER_VERSION=//p' | tail -n 1)
-r4_source_commit=$(printf '%s\n' "$r4_bundle_output" | sed -n 's/^SOURCE_COMMIT=//p' | tail -n 1)
-if [ -z "$r3_manifest_path" ] || [ -z "$r4_manifest_path" ] \
-    || [ "$r4_server_version" != "0.3.0" ] || [ -z "$r4_source_commit" ]; then
+printf '%s\n' "$database_bundle_output"
+database_manifest_path=$(printf '%s\n' "$database_bundle_output" | sed -n 's/^MANIFEST=//p')
+database_server_version=$(printf '%s\n' "$database_bundle_output" | sed -n 's/^SERVER_VERSION=//p' | tail -n 1)
+database_source_commit=$(printf '%s\n' "$database_bundle_output" | sed -n 's/^SOURCE_COMMIT=//p' | tail -n 1)
+if [ -z "$r3_manifest_path" ] || [ -z "$r4_manifest_path" ] || [ -z "$database_manifest_path" ] \
+    || [ "$database_server_version" != "0.4.0" ] || [ -z "$database_source_commit" ]; then
   report_failure candidate "bundle_identity_missing"
   exit 1
 fi
@@ -238,6 +260,11 @@ fi
 deploy_config_path="$run_dir/inputs/deploy.json"
 write_deploy_config() {
   target_manifest=$1
+  database_mode=${2:-disabled}
+  database_json=null
+  if [ "$database_mode" = enabled ]; then
+    database_json="{\"urlSource\":\"$run_dir/inputs/account-database-url\",\"ssl\":false,\"migrationLockId\":741852}"
+  fi
   cat >"$deploy_config_path" <<EOF
 {
   "schemaVersion": 2,
@@ -278,7 +305,7 @@ write_deploy_config() {
     "connectorTokenSource": "$run_dir/inputs/connector-token",
     "internalStatusTokenSource": "$run_dir/inputs/internal-status-token"
   },
-  "database": null,
+  "database": $database_json,
   "nginx": {
     "serverName": "$server_name",
     "listenPort": $edge_port,
@@ -356,6 +383,73 @@ EXPECTED_SERVER_VERSION="$r3_server_version" \
 EXPECTED_DEVICE_ID=oci-staging \
   node scripts/verify-gateway-image-candidate.mjs
 
+write_deploy_config "$r4_manifest_path"
+run_transition deploy
+
+write_deploy_config "$database_manifest_path" enabled
+run_transition deploy
+
+expected_database_release="releases/${database_server_version}-$(printf '%s' "$database_source_commit" | cut -c1-12)"
+if [ "$(sudo readlink /opt/hermes-go-ephemeral/current)" != "$expected_database_release" ] \
+    || [ "$(sudo readlink /opt/hermes-go-ephemeral/previous)" != "$expected_r4_release" ] \
+    || [ "$(PGPASSWORD=ephemeral-only-password psql \
+      --host 127.0.0.1 --username hermes_staging --dbname hermes_staging \
+      --tuples-only --no-align --command 'SELECT version FROM gateway_schema_state WHERE singleton = true')" != "7" ]; then
+  report_failure candidate "database_deploy_state_invalid"
+  exit 1
+fi
+
+NODE_EXTRA_CA_CERTS="$run_dir/inputs/ca.crt" \
+PUBLIC_GATEWAY_URL="https://${server_name}:${edge_port}" \
+INTERNAL_GATEWAY_URL="http://127.0.0.1:${green_port}" \
+RELAY_HEALTH_PATH=/relay-health \
+APP_TOKEN="$app_token" \
+INTERNAL_STATUS_TOKEN="$internal_status_token" \
+EXPECTED_SOURCE_COMMIT="$database_source_commit" \
+EXPECTED_SERVER_VERSION="$database_server_version" \
+EXPECTED_DEVICE_ID=oci-staging \
+  node scripts/verify-gateway-image-candidate.mjs
+
+write_deploy_config "$r4_manifest_path" enabled
+if database_rollback_error=$(run_transition rollback 2>&1); then
+  report_failure candidate "legacy_database_rollback_was_not_blocked"
+  exit 1
+fi
+case "$database_rollback_error" in
+  *HR-OPS-006*) ;;
+  *) report_failure candidate "legacy_database_rollback_error_invalid"; exit 1 ;;
+esac
+if [ "$(sudo readlink /opt/hermes-go-ephemeral/current)" != "$expected_database_release" ] \
+    || ! sudo systemctl is-active --quiet "${green_service_name}.service"; then
+  report_failure candidate "blocked_database_rollback_changed_service"
+  exit 1
+fi
+
+write_deploy_config "$r4_manifest_path"
+run_transition rollback
+
+if [ "$(sudo readlink /opt/hermes-go-ephemeral/current)" != "$expected_r4_release" ] \
+    || [ "$(sudo readlink /opt/hermes-go-ephemeral/previous)" != "$expected_database_release" ] \
+    || ! sudo systemctl is-active --quiet "${blue_service_name}.service" \
+    || sudo systemctl is-active --quiet "${green_service_name}.service" \
+    || [ "$(PGPASSWORD=ephemeral-only-password psql \
+      --host 127.0.0.1 --username hermes_staging --dbname hermes_staging \
+      --tuples-only --no-align --command 'SELECT version FROM gateway_schema_state WHERE singleton = true')" != "7" ]; then
+  report_failure candidate "database_fallback_state_invalid"
+  exit 1
+fi
+
+NODE_EXTRA_CA_CERTS="$run_dir/inputs/ca.crt" \
+PUBLIC_GATEWAY_URL="https://${server_name}:${edge_port}" \
+INTERNAL_GATEWAY_URL="http://127.0.0.1:${blue_port}" \
+RELAY_HEALTH_PATH=/relay-health \
+APP_TOKEN="$app_token" \
+INTERNAL_STATUS_TOKEN="$internal_status_token" \
+EXPECTED_SOURCE_COMMIT="$r4_source_commit" \
+EXPECTED_SERVER_VERSION="$r4_server_version" \
+EXPECTED_DEVICE_ID=oci-staging \
+  node scripts/verify-gateway-image-candidate.mjs
+
 audit_path=/var/lib/hermes-go-ephemeral/ops/operations.jsonl
 if [ "$(sudo stat -c '%a' "$audit_path")" != "600" ]; then
   report_failure candidate "audit_permissions_invalid"
@@ -365,14 +459,18 @@ sudo env "PATH=$PATH" \
   "APP_TOKEN=$app_token" \
   "CONNECTOR_TOKEN=$connector_token" \
   "INTERNAL_STATUS_TOKEN=$internal_status_token" \
+  "ACCOUNT_DATABASE_URL=$(sed -n '1p' "$run_dir/inputs/account-database-url")" \
   "DOCTOR_PATH=$doctor_path" \
   "AUDIT_PATH=$audit_path" \
+  "JOURNAL_PATH=/var/lib/hermes-go-ephemeral/ops/deploy-state.json" \
   node --input-type=module -e '
     import { readFileSync } from "node:fs";
     const doctorText = readFileSync(process.env.DOCTOR_PATH, "utf8");
     const auditText = readFileSync(process.env.AUDIT_PATH, "utf8");
-    for (const name of ["APP_TOKEN", "CONNECTOR_TOKEN", "INTERNAL_STATUS_TOKEN"]) {
-      if (doctorText.includes(process.env[name]) || auditText.includes(process.env[name])) {
+    const journalText = readFileSync(process.env.JOURNAL_PATH, "utf8");
+    for (const name of ["APP_TOKEN", "CONNECTOR_TOKEN", "INTERNAL_STATUS_TOKEN", "ACCOUNT_DATABASE_URL"]) {
+      if (doctorText.includes(process.env[name]) || auditText.includes(process.env[name]) ||
+          journalText.includes(process.env[name])) {
         throw new Error("diagnostic_secret_leak");
       }
     }
@@ -383,15 +481,26 @@ sudo env "PATH=$PATH" \
       throw new Error("doctor_collection_policy_invalid");
     }
     const audit = auditText.trim().split("\n").map(JSON.parse);
-    if (audit.length !== 8 || audit.some((entry, index) =>
+    const expectedResults = [
+      "started", "success", "started", "success",
+      "started", "success", "started", "success",
+      "started", "success", "started", "success",
+      "started", "failed", "started", "success",
+    ];
+    if (audit.length !== expectedResults.length || audit.some((entry, index) =>
       entry.environment !== "staging" || entry.operator !== "github-actions" ||
-      entry.result !== (index % 2 === 0 ? "started" : "success")) ||
+      entry.result !== expectedResults[index]) ||
         audit[4].operation !== "deploy" || audit[5].operation !== "deploy" ||
-        audit[6].operation !== "rollback" || audit[7].operation !== "rollback") {
+        audit[6].operation !== "rollback" || audit[7].operation !== "rollback" ||
+        audit[8].operation !== "deploy" || audit[9].operation !== "deploy" ||
+        audit[10].operation !== "deploy" || audit[11].operation !== "deploy" ||
+        audit[12].operation !== "rollback" || audit[12].errorCode !== null ||
+        audit[13].operation !== "rollback" || audit[13].errorCode !== "HR-OPS-006" ||
+        audit[14].operation !== "rollback" || audit[15].operation !== "rollback") {
       throw new Error("audit_sequence_invalid");
     }
-    const journal = JSON.parse(readFileSync("/var/lib/hermes-go-ephemeral/ops/deploy-state.json", "utf8"));
-    if (journal.operation !== "rollback" || journal.stage !== "committed" || journal.candidateSlot !== "green") {
+    const journal = JSON.parse(journalText);
+    if (journal.operation !== "rollback" || journal.stage !== "committed" || journal.candidateSlot !== "blue") {
       throw new Error("rollback_journal_invalid");
     }
   '
@@ -401,3 +510,6 @@ echo "R3_SERVER_VERSION=$r3_server_version"
 echo "R3_SOURCE_COMMIT=$r3_source_commit"
 echo "R4_SERVER_VERSION=$r4_server_version"
 echo "R4_SOURCE_COMMIT=$r4_source_commit"
+echo "DATABASE_SERVER_VERSION=$database_server_version"
+echo "DATABASE_SOURCE_COMMIT=$database_source_commit"
+echo "DATABASE_SCHEMA_VERSION=7"

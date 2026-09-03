@@ -21,6 +21,7 @@ import { handoffLifecycleSnapshot } from "./lifecycle-handoff.mjs";
 import { assessReleaseTransition } from "./release-transition.mjs";
 import { assertNoSymlinkAncestors, atomicWrite, createCommandRunner } from "./system.mjs";
 import { verifyCandidateBase } from "./deploy.mjs";
+import { verifyDatabaseMigration } from "./database-migration.mjs";
 
 const FILE_LIMIT = 1024 * 1024;
 
@@ -48,7 +49,6 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
       operation,
       databaseEnabled: config.database !== null,
     });
-    if (config.database !== null) fail("database_migration_path_not_implemented", "switch_authorize");
     if (transition.maintenanceRequired !== true) {
       fail("target_must_declare_maintenance_window", "switch_authorize");
     }
@@ -77,6 +77,7 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
       fail("candidate_not_verified", "switch_resume");
     }
     candidateControlled = true;
+    verifyDatabaseMigration(config, targetManifest, runner);
 
     if (stageIndex < switchedIndex) {
       await assertCurrentRelease(config, journal.checkpoint.currentReleaseTarget);
@@ -149,7 +150,7 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
       fail(`automatic_recovery_failed:${technical(recoveryError)}`, "switch_recovery_failed");
     }
     if (error instanceof OpsError && (error.kind === "switch"
-        || (!recoveryRequired && new Set(["artifact", "compatibility", "config"]).has(error.kind)))) {
+        || (!recoveryRequired && new Set(["artifact", "compatibility", "config", "database"]).has(error.kind)))) {
       throw error;
     }
     fail(technical(error), sourceStopped ? "switch_recovered" : "switch_prepare");

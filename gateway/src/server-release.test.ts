@@ -18,7 +18,7 @@ import {
 
 test("generated release manifest matches protocol constants and verifies every build file", () => {
   const manifest = loadServerReleaseManifest();
-  assert.equal(manifest.manifestVersion, 1);
+  assert.equal(manifest.manifestVersion, 2);
   assert.equal(manifest.protocolVersions.legacy, PROTOCOL_VERSION);
   assert.equal(manifest.protocolVersions.accountConnector, ACCOUNT_CONNECTOR_PROTOCOL_VERSION);
   assert.equal(manifest.databaseSchemaVersion, 7);

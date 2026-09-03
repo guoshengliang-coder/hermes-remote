@@ -59,9 +59,13 @@ MAX_ACCOUNT_LIFECYCLE_EVENTS=10000
 
 SQL migrations are applied explicitly, in filename order, with
 `npm run account:migrate -w @hermes-remote/gateway`; the migration runner reads the same
-`ACCOUNT_DATABASE_URL` or `_FILE` setting as the Gateway.
+`ACCOUNT_DATABASE_URL` or `_FILE` setting as the Gateway. Direct operator use must also provide a
+positive `ACCOUNT_DATABASE_MIGRATION_LOCK_ID`, the release's exact
+`ACCOUNT_DATABASE_SCHEMA_VERSION`, and its comma-separated `ACCOUNT_DATABASE_SUPPORTED_MAJORS`.
 The command first builds the versioned migration payload under `gateway/dist`; schema version `7`
-is then recorded in `gateway_schema_state` for readiness checks. Gateway startup never mutates schema.
+is then recorded in `gateway_schema_state` for readiness checks. R4-F Cloud Ops supplies these values
+from the verified target release contract and executes the migrator from that immutable image under a
+PostgreSQL advisory lock. Gateway startup never mutates schema.
 Google proofs and Hermes GO bearer tokens must not be placed
 in these files or logs.
 
