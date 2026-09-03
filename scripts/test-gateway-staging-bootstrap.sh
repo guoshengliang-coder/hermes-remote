@@ -97,8 +97,8 @@ if ! bundle_output=$(./scripts/package-gateway-bundle.sh "outputs/$output_name")
 fi
 printf '%s\n' "$bundle_output"
 manifest_path=$(printf '%s\n' "$bundle_output" | sed -n 's/^MANIFEST=//p')
-server_version=$(printf '%s\n' "$bundle_output" | sed -n 's/^SERVER_VERSION=//p')
-source_commit=$(printf '%s\n' "$bundle_output" | sed -n 's/^SOURCE_COMMIT=//p')
+server_version=$(printf '%s\n' "$bundle_output" | sed -n 's/^SERVER_VERSION=//p' | tail -n 1)
+source_commit=$(printf '%s\n' "$bundle_output" | sed -n 's/^SOURCE_COMMIT=//p' | tail -n 1)
 if [ -z "$manifest_path" ] || [ -z "$server_version" ] || [ -z "$source_commit" ]; then
   report_failure candidate "bundle_identity_missing"
   exit 1
