@@ -7,6 +7,7 @@ import {fileURLToPath} from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const WORKFLOWS = path.join(ROOT, '.github', 'workflows');
 const read = async name => readFile(path.join(WORKFLOWS, name), 'utf8');
+const readRoot = async name => readFile(path.join(ROOT, name), 'utf8');
 
 test('every action is pinned to a full commit SHA with a readable version comment', async () => {
   const files = (await readdir(WORKFLOWS)).filter(name => name.endsWith('.yml'));
@@ -42,6 +43,53 @@ test('ordinary CI, SAST, and the Gateway image gate stay unprivileged and never 
   assert.match(gatewayOci, /run: \.\/scripts\/package-gateway-bundle\.sh outputs\/gateway-bundle/);
   assert.match(gatewayOci, /permissions:\n  contents: read/);
   assert.equal(/docker\s+(?:push|login)|packages: write|secrets\./.test(gatewayOci), false, 'Gateway OCI gate must not publish images or receive secrets');
+});
+
+test('routine workflows cancel stale PR runs and bound every job', async () => {
+  for (const file of ['ci.yml', 'sast.yml', 'gateway-oci.yml']) {
+    const workflow = await read(file);
+    assert.match(workflow, /group: .+\$\{\{ github\.event\.pull_request\.number \|\| github\.ref \}\}/);
+    assert.match(workflow, /cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/);
+    const jobsText = workflow.slice(workflow.indexOf('\njobs:\n') + '\njobs:\n'.length);
+    const headers = [...jobsText.matchAll(/^  ([a-z][\w-]*):$/gm)];
+    assert.ok(headers.length > 0, `${file}: no jobs found`);
+    for (const [index, header] of headers.entries()) {
+      const body = jobsText.slice(header.index, headers[index + 1]?.index ?? jobsText.length);
+      assert.match(body, /^    timeout-minutes: \d+$/m, `${file}: ${header[1]} has no timeout`);
+    }
+  }
+});
+
+test('CI keeps secret scanning universal while component builds use tested path selection', async () => {
+  const ci = await read('ci.yml');
+  assert.match(ci, /run: node scripts\/ci\/changed-components\.mjs/);
+  for (const component of ['node', 'android', 'desktop']) {
+    assert.match(ci, new RegExp(`  ${component}:[\\s\\S]*?needs: changes[\\s\\S]*?if: needs\\.changes\\.outputs\\.${component} == 'true'`));
+  }
+  assert.match(ci, /  secrets:\n    runs-on:/, 'secret scanning must not depend on the path-selection job');
+  assert.match(ci, /if: steps\.filter\.outputs\.assets == 'true'[\s\S]*?run: cmp android\/app\/src\/main\/ic_launcher-playstore\.png desktop\/Packaging\/AppIcon\.png/);
+  const desktopJob = ci.slice(ci.indexOf('\n  desktop:'), ci.indexOf('\n  secrets:'));
+  assert.equal(desktopJob.includes('desktop:assets:test'), false, 'icon parity must not require a macOS runner');
+
+  const sast = await read('sast.yml');
+  assert.match(sast, /pull_request:\n    paths-ignore:[\s\S]*?docs\/\*\*/);
+  assert.match(sast, /schedule:\n    - cron:/, 'weekly full SAST scan must remain enabled');
+});
+
+test('CI and Android release build Node workspaces once before running the full test gate', async () => {
+  for (const file of ['ci.yml', 'android-release.yml']) {
+    const workflow = await read(file);
+    assert.match(workflow, /npm run test:ci/);
+    assert.equal(/npm run build\s*\n\s*npm test/.test(workflow), false, `${file}: repeats builds through npm test`);
+  }
+
+  const rootPackage = JSON.parse(await readRoot('package.json'));
+  assert.equal(rootPackage.scripts['test:ci'], 'npm run build && npm run test:built');
+  assert.match(rootPackage.scripts['test:built'], /@hermes-remote\/protocol/);
+  assert.match(rootPackage.scripts['test:built'], /@hermes-remote\/connector/);
+  assert.match(rootPackage.scripts['test:built'], /@hermes-remote\/gateway/);
+  assert.match(rootPackage.scripts['test:built'], /@hermes-remote\/release-server/);
+  assert.match(rootPackage.scripts['test:built'], /test:scripts/);
 });
 
 test('Gateway ephemeral staging is manual, bounded, secretless, and production-isolated', async () => {
