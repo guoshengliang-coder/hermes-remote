@@ -11,7 +11,11 @@ on:
       - "package.json"
       - "package-lock.json"
       - "protocol/**"
+      - "ops/**"
+      - "scripts/hermesctl.mjs"
+      - "scripts/package-gateway-bundle.sh"
       - "scripts/package-gateway-image.sh"
+      - "scripts/write-gateway-bundle-manifest.mjs"
       - "scripts/test-gateway-image.sh"
       - "scripts/verify-gateway-image-candidate.mjs"
       - "scripts/lib/release-errors.mjs"
@@ -27,7 +31,11 @@ on:
       - "package.json"
       - "package-lock.json"
       - "protocol/**"
+      - "ops/**"
+      - "scripts/hermesctl.mjs"
+      - "scripts/package-gateway-bundle.sh"
       - "scripts/package-gateway-image.sh"
+      - "scripts/write-gateway-bundle-manifest.mjs"
       - "scripts/test-gateway-image.sh"
       - "scripts/verify-gateway-image-candidate.mjs"
       - "scripts/lib/release-errors.mjs"
@@ -49,3 +57,5 @@ jobs:
           cache: npm
       - name: Build and smoke the exact Gateway image
         run: ./scripts/test-gateway-image.sh
+      - name: Package the immutable staging bundle
+        run: ./scripts/package-gateway-bundle.sh outputs/gateway-bundle
