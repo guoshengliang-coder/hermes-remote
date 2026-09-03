@@ -126,6 +126,8 @@ fun ChatScreen(
     sessionProfile: String? = null,
     initialTitle: String? = null,
     isNewSession: Boolean = false,
+    /** Search text handed over from the search screen; consumed once per chat entry. */
+    initialQuery: String? = null,
     vm: ChatViewModel = hiltViewModel(),
     onMenu: () -> Unit = {},
     onNewChat: (String) -> Unit = {},

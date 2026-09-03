@@ -98,11 +98,23 @@ data class ModelOptionDto(
     val messages: Int = 0,
 )
 
+/**
+ * One gateway search hit. The gateway (upstream `/api/sessions/search`) collapses hits by
+ * conversation and enriches each with the session row, so a hit carries enough to render a
+ * list row without a second lookup. Every enrichment field is optional: an older gateway that
+ * returns only `session_id` + `snippet` still parses.
+ */
 @Serializable data class SearchResultDto(
     @SerialName("session_id") val sessionId: String,
     val snippet: String? = null,
     val model: String? = null,
     val role: String? = null,
+    val title: String? = null,
+    val archived: Boolean = false,
+    /** Epoch seconds (float), same unit as [SessionDto.lastActive]. */
+    @SerialName("last_active") val lastActive: Double? = null,
+    val source: String? = null,
+    @SerialName("message_count") val messageCount: Int = 0,
 )
 @Serializable data class SearchResultsDto(val results: List<SearchResultDto> = emptyList())
 

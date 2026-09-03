@@ -81,8 +81,9 @@ class SessionRepository(private val rest: HermesRestApi) {
         rest.profileSessions(archivedOnly = true).sessions.map { it.toDomain() }
             .filter { it.archived && it.isInteractive() }
     suspend fun stats(profile: String? = null): SessionStatsDto = rest.sessionStats(profile)
+    /** Message-content search over the same interactive sources the list shows. */
     suspend fun search(query: String, profile: String? = null): List<SearchResultDto> =
-        rest.searchSessions(query, profile)
+        rest.searchSessions(query, profile, excludeSources = EXCLUDED_SOURCES)
     suspend fun archived(profile: String? = null): List<Session> =
         rest.archivedSessions(profile).map { it.toDomain() }
     // Tool/function turns are model context, not conversation turns. Their payload format is not

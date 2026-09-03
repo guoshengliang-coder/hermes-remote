@@ -72,6 +72,8 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "任务停止了，但没有确认完成，请打开会话检查。", "The task stopped without a confirmed completion. Open the conversation to check.")
         AppErrorCode.NOTIFICATION_ACTION_FAILED ->
             localized(language, "通知操作未能发送，请重试。", "The notification action couldn't be sent. Try again.")
+        AppErrorCode.SEARCH_FAILED ->
+            localized(language, "消息搜索失败，请重试。", "Message search failed. Retry.")
         AppErrorCode.UNKNOWN ->
             localized(language, "出现未知错误，请重试。", "An unknown error occurred. Retry.")
     }

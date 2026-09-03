@@ -2,6 +2,7 @@ package com.hermes.client.data.error
 
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.localizedMessage
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -16,6 +17,18 @@ class AppErrorTest {
         assertTrue(save.localizedMessage(AppLanguage.EN).let { it.contains("profile settings") && it.endsWith("(HR-STORE-001)") })
         assertTrue(photo.retryable && save.retryable)
         assertTrue(photo.sanitizedDiagnostic().contains("HR-MEDIA-002"))
+    }
+
+    // HR-SEARCH-001: gateway message search failed. Retryable, bilingual, code kept.
+    @Test fun searchFailureHasBilingualCopyAndIsRetryable() {
+        val error = AppError(AppErrorCode.SEARCH_FAILED, retryable = true, technicalCause = "HTTP 502 token=abc")
+        assertTrue(error.localizedMessage(AppLanguage.ZH).let { it.contains("消息搜索失败") && it.endsWith("(HR-SEARCH-001)") })
+        assertTrue(error.localizedMessage(AppLanguage.EN).let { it.contains("Message search failed") && it.endsWith("(HR-SEARCH-001)") })
+        assertTrue(error.retryable)
+        assertEquals("SEARCH-001", AppErrorCode.SEARCH_FAILED.compact)
+        val diagnostic = error.sanitizedDiagnostic()
+        assertTrue(diagnostic.contains("HR-SEARCH-001"))
+        assertFalse(diagnostic.contains("abc"))
     }
 
     @Test fun diagnosticsKeepTheCodeAndRedactSecrets() {
