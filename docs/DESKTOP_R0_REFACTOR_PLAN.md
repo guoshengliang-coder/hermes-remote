@@ -1,7 +1,7 @@
 # Hermes Go Desktop R0 refactor plan
 
 Status: active on `codex/desktop-r0`, based on the account/Desktop checkpoint `fb253f4`. D0.1 was
-completed locally on 2026-09-02.
+completed locally on 2026-09-02; D0.2 was completed locally on 2026-09-03.
 
 Desktop R0 prepares the macOS client for I3-B without changing the Gateway, Connector, Protocol,
 Hermes, or any production service. The concurrent Cloud Gateway work owns its own branch and
@@ -24,7 +24,7 @@ live binding integration until the Gateway runtime boundary is stable.
 | Iteration | Scope | Exit gate |
 | --- | --- | --- |
 | D0.1 view boundaries | Split independent Logs, Account & Devices, and Settings views; add typed internal binding states while retaining the raw wire value | Desktop tests and app build pass with no visible behavior change |
-| D0.2 presentation orchestration | Separate account presentation, legacy observation, and diagnostics orchestration from the root view model | Existing state reduction and restart behavior remain green |
+| D0.2 presentation orchestration | Completed: account/health presentation, legacy observation, probe orchestration, and health snapshot assembly now live outside the root view model | 46 Desktop tests and the packaged app gate pass with behavior-compatible state reduction |
 | D0.3 I3-B client operations | Add reauthentication, first-bind, replacement, confirm, and unbind client operations with crash-safe idempotency and mock transports | Success, retry, cancellation, expiry, conflict, and lost-response tests pass without contacting a live Gateway |
 | D0.4 I3-B interaction states | Add explicit confirmations, conflict/revoked recovery, keyboard/VoiceOver behavior, and redacted diagnostics | Light/dark, long-name, keyboard, accessibility, and bilingual error checks pass |
 | D0.5 integration | Rebase or cherry-pick Desktop-only commits after Cloud R0/R1 integration, then run live disposable-Gateway/PostgreSQL tests | Desktop, Gateway, account database, legacy compatibility, and Connector non-mutation gates pass together |

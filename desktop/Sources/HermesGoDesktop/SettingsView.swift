@@ -38,7 +38,7 @@ struct SettingsView: View {
                     Text("Hermes GO 账号")
                         .font(.system(size: 16, weight: .bold))
                         .padding(.bottom, 12)
-                    settingRow("账号状态", accountStatus)
+                    settingRow("账号状态", model.accountPresentation.settingsLabel)
                     if case .signedIn(let dashboard) = model.accountState {
                         Divider()
                         settingRow("账号", dashboard.session.account.email ?? dashboard.session.account.displayName ?? "已登录")
@@ -67,16 +67,6 @@ struct SettingsView: View {
                 .hermesCard()
             }
             .padding(34)
-        }
-    }
-
-    private var accountStatus: String {
-        switch model.accountState {
-        case .signedIn: "已登录"
-        case .signedOut: "未登录"
-        case .needsSignIn: "需要重新登录"
-        case .checking, .signingIn: "正在检查"
-        case .unavailable: "账号模式未开放"
         }
     }
 

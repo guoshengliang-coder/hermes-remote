@@ -42,3 +42,25 @@ completed successfully.
 - Staging or production deployment.
 
 Those gates remain assigned to later Desktop integration, I5 migration, and release iterations.
+
+## D0.2 scope
+
+- Moved legacy inspection and the three health probes onto a dedicated non-main-actor coordinator.
+- Moved deterministic component-health assembly into a pure Core boundary with focused coverage for
+  latency, structured issue propagation, missing legacy installation, and observer-disabled states.
+- Centralized overall-health and account-state presentation so the main window, menu bar, and settings
+  surfaces no longer maintain separate state switches.
+- Kept URLs, request headers, Keychain formats, refresh cadence, visible wording, and legacy Connector
+  behavior unchanged.
+
+## D0.2 executed results
+
+| Gate | Result |
+| --- | --- |
+| Focused `swift test --package-path desktop` | Pass: 46 tests |
+| `npm run desktop:assets:test` | Pass |
+| `npm run desktop:app` | Pass: release Swift build, app assembly, and ad-hoc signing |
+| `git diff --check` during iteration | Pass |
+
+The repository-wide gate is deferred until the Desktop I3-B checkpoint because D0.2 did not modify
+Node, Gateway, Connector, Protocol, or shared build behavior.

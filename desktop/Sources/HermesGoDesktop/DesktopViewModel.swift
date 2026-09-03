@@ -18,8 +18,7 @@ final class DesktopViewModel: ObservableObject {
     @Published private(set) var accountIssue: DesktopIssue?
     @Published private(set) var isAccountOperationInProgress = false
 
-    private let inspector = LegacyConnectorInspector(runner: SystemCommandRunner())
-    private let prober = HTTPHealthProber()
+    private let healthCoordinator = DesktopHealthCoordinator()
     private let profileStore: any ConnectionProfileStoring
     private let accountController: DesktopAccountController
     private var monitorTask: Task<Void, Never>?
@@ -53,30 +52,19 @@ final class DesktopViewModel: ObservableObject {
     }
 
     var statusTitle: String {
-        switch health.overall {
-        case .checking: "正在检查"
-        case .healthy: "工作正常"
-        case .degraded: "部分功能受限"
-        case .needsAttention: "需要处理"
-        }
+        health.presentation.title
     }
 
     var statusDetail: String {
-        switch health.overall {
-        case .checking: "正在确认旧 Connector 与连接链路"
-        case .healthy: "这台 Mac 正在安全连接 Hermes GO"
-        case .degraded: "主链路可用，但有一项能力需要确认"
-        case .needsAttention: "连接链路中有一项关键检查未通过"
-        }
+        health.presentation.detail
     }
 
     var overallLevel: HealthLevel {
-        switch health.overall {
-        case .checking: .checking
-        case .healthy: .healthy
-        case .degraded: .degraded
-        case .needsAttention: .failed
-        }
+        health.presentation.level
+    }
+
+    var accountPresentation: DesktopAccountPresentation {
+        accountState.presentation(hasIssue: accountIssue != nil)
     }
 
     func startMonitoring() {
@@ -191,81 +179,9 @@ final class DesktopViewModel: ObservableObject {
         isRefreshing = true
         defer { isRefreshing = false }
 
-        let inspector = self.inspector
-        let observation = await Task.detached(priority: .utility) {
-            inspector.inspect()
-        }.value
-        legacy = observation
-
-        let checkedAt = Date()
-        let agentHealth = ComponentHealth(
-            component: .desktopAgent,
-            level: observation.isRunning ? .healthy : (observation.isInstalled ? .failed : .unavailable),
-            detail: observation.isRunning
-                ? "旧 Connector 正在运行（兼容观察模式）"
-                : (observation.isInstalled ? "已安装但当前未运行" : "未检测到旧 Connector"),
-            checkedAt: checkedAt
-        )
-
-        let relayResult: ProbeResult
-        if let relayURL = observation.config.relayHealthURL {
-            relayResult = await prober.probeRelay(relayURL)
-        } else {
-            relayResult = ProbeResult(level: .unavailable, detail: "缺少可观察的 Gateway 地址")
-        }
-
-        let hermesResult: ProbeResult
-        if let hermesURL = observation.config.hermesStatusURL {
-            hermesResult = await prober.probeHermes(hermesURL)
-        } else {
-            hermesResult = ProbeResult(level: .unavailable, detail: "Hermes 地址无效")
-        }
-
-        let endToEndResult: ProbeResult
-        if let connectionProfile {
-            endToEndResult = await prober.probeEndToEnd(connectionProfile)
-        } else {
-            endToEndResult = ProbeResult(
-                level: .unavailable,
-                detail: "尚未保存 App Token，未执行"
-            )
-        }
-
-        let relayDetail = relayResult.latencyMilliseconds.map {
-            "\(relayResult.detail) · \($0) ms"
-        } ?? relayResult.detail
-        let hermesDetail = hermesResult.latencyMilliseconds.map {
-            "\(hermesResult.detail) · \($0) ms"
-        } ?? hermesResult.detail
-
-        health = DesktopHealthSnapshot(
-            components: [
-                agentHealth,
-                ComponentHealth(
-                    component: .gateway,
-                    level: relayResult.level,
-                    detail: relayDetail,
-                    checkedAt: checkedAt
-                ),
-                ComponentHealth(
-                    component: .hermes,
-                    level: hermesResult.level,
-                    detail: hermesDetail,
-                    checkedAt: checkedAt
-                ),
-                observerHealth(observation, checkedAt: checkedAt),
-                ComponentHealth(
-                    component: .endToEnd,
-                    level: endToEndResult.level,
-                    detail: endToEndResult.latencyMilliseconds.map {
-                        "\(endToEndResult.detail) · \($0) ms"
-                    } ?? endToEndResult.detail,
-                    checkedAt: checkedAt,
-                    issue: endToEndResult.issue
-                ),
-            ],
-            checkedAt: checkedAt
-        )
+        let refreshed = await healthCoordinator.refresh(connectionProfile: connectionProfile)
+        legacy = refreshed.legacy
+        health = refreshed.health
     }
 
     func saveConnectionProfile() async {
@@ -316,28 +232,6 @@ final class DesktopViewModel: ObservableObject {
     func copyDiagnostics(_ issue: DesktopIssue) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(issue.sanitizedDiagnostic, forType: .string)
-    }
-
-    private func observerHealth(
-        _ observation: LegacyConnectorSnapshot,
-        checkedAt: Date
-    ) -> ComponentHealth {
-        guard observation.isInstalled else {
-            return ComponentHealth(
-                component: .observer,
-                level: .unavailable,
-                detail: "未检测到旧 Connector",
-                checkedAt: checkedAt
-            )
-        }
-        return ComponentHealth(
-            component: .observer,
-            level: observation.config.observerEnabled ? .checking : .unavailable,
-            detail: observation.config.observerEnabled
-                ? "按现有配置启用，阶段 0 尚未独立上报"
-                : "现有配置已关闭",
-            checkedAt: checkedAt
-        )
     }
 
     func openHermes() {

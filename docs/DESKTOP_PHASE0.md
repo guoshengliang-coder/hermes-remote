@@ -13,6 +13,8 @@ Gateway, and Hermes behavior, and be packaged as an app/DMG before any backgroun
 - Strict allowlist parsing of non-secret fields from the legacy `connector.env`.
 - Public Relay and local Hermes reachability probes.
 - Bounded legacy log tailing with centralized redaction.
+- Background health coordination keeps legacy inspection and network probes off the main actor, with
+  deterministic health and account presentation shared by the window, menu bar, and settings.
 - Explicit compatibility-observation messaging.
 - Canonical Android app-icon reuse with a packaging consistency gate.
 - Ad-hoc local `.app` and `.dmg` build scripts.

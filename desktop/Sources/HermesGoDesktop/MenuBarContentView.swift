@@ -62,23 +62,11 @@ struct MenuBarContentView: View {
     }
 
     private var accountStatusRow: some View {
-        let presentation: (HealthLevel, String)
-        if model.accountIssue != nil, model.accountState == .checking {
-            presentation = (.degraded, "需确认")
-        } else {
-            presentation = switch model.accountState {
-            case .signedIn: (.healthy, "已登录")
-            case .needsSignIn: (.failed, "需登录")
-            case .checking, .signingIn: (.checking, "检查中")
-            case .unavailable: (.unavailable, "未开放")
-            case .signedOut: (.unavailable, "未登录")
-            }
-        }
         return HStack {
             Text("Hermes GO 账号")
             Spacer()
-            StatusDot(level: presentation.0, size: 8)
-            Text(presentation.1)
+            StatusDot(level: model.accountPresentation.level, size: 8)
+            Text(model.accountPresentation.menuLabel)
                 .foregroundStyle(.secondary)
         }
         .font(.system(size: 12))

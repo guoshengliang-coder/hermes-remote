@@ -13,6 +13,8 @@ npm run desktop:app
 The current automated suite covers:
 
 - overall status reduction and optional-capability degradation;
+- deterministic health-snapshot assembly, latency/issue propagation, and shared menu/window/settings
+  presentation for every health and account state;
 - legacy Connector config parsing with a strict non-secret allowlist;
 - current Gateway WSS to Relay health URL conversion;
 - legacy launchd/install/log discovery through injected command execution;
