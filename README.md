@@ -68,6 +68,8 @@ For the Android base, configure the public Gateway URL and the Gateway `APP_TOKE
 - App and connector credentials are separate.
 - Production traffic must use TLS (`wss://`).
 - Secrets are supplied through environment variables and are excluded from Git.
+- Pull requests run gitleaks plus Semgrep Community Edition in a digest-pinned, read-only CI job;
+  Semgrep telemetry is disabled and the job receives no repository secrets.
 - The MVP is single-user and single-Mac by design; multi-user authorization is deferred.
 - Attachment uploads are capped and stored transiently on the Mac; output files stream with
   acknowledged backpressure instead of crossing the control channel as one oversized message.

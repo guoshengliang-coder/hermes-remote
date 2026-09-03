@@ -19,6 +19,7 @@ data class GatewayConfig(
     /** Base WS endpoint with no auth query. Authentication is carried in a header or short-lived ticket. */
     val wsBase: String
         get() {
+            // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- normalizeGatewayBaseUrl rejects non-local cleartext endpoints.
             val ws = baseUrl.replaceFirst("https://", "wss://").replaceFirst("http://", "ws://")
             return "${ws.trimEnd('/')}/api/ws"
         }

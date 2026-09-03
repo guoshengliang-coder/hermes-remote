@@ -31,7 +31,7 @@ export class ProtectedResponseCodec {
     if (nonce.byteLength !== NONCE_BYTES || tag.byteLength !== 16 || ciphertext.byteLength > 16_384) {
       throw new Error("invalid protected response bounds");
     }
-    const decipher = createDecipheriv("aes-256-gcm", this.key, nonce);
+    const decipher = createDecipheriv("aes-256-gcm", this.key, nonce, { authTagLength: 16 });
     decipher.setAAD(Buffer.from(context, "utf8"));
     decipher.setAuthTag(tag);
     return JSON.parse(Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8"));

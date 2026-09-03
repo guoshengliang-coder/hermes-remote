@@ -362,7 +362,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isToken(value: unknown, prefix: "hga_" | "hgr_" | "hgg_"): value is string {
-  return typeof value === "string" && new RegExp(`^${prefix}[A-Za-z0-9_-]{43}$`).test(value);
+  return typeof value === "string"
+    && value.startsWith(prefix)
+    && /^[A-Za-z0-9_-]{43}$/.test(value.slice(prefix.length));
 }
 
 function isIsoDate(value: unknown): value is string {

@@ -21,15 +21,20 @@ test('every action is pinned to a full commit SHA with a readable version commen
   }
 });
 
-test('ordinary CI compiles and tests Android without asking for signing material', async () => {
-  for (const file of ['ci.yml', 'codeql.yml']) {
+test('ordinary CI and SAST stay unprivileged and never require signing material', async () => {
+  for (const file of ['ci.yml', 'sast.yml']) {
     const text = await read(file);
     assert.equal(/gradlew[^\n]*assemble/.test(text), false, `${file}: packages an APK, which needs the canonical debug key`);
     assert.equal(/KEYSTORE|RELEASE_SSH/.test(text), false, `${file}: references release signing or deployment secrets`);
   }
   const ci = await read('ci.yml');
   assert.match(ci, /gradlew :app:testDebugUnitTest :app:lintDebug :app:compileDebugSources/);
-  assert.match(await read('codeql.yml'), /gradlew :app:compileDebugSources/);
+
+  const sast = await read('sast.yml');
+  assert.match(sast, /semgrep\/semgrep:1\.176\.0@sha256:[0-9a-f]{64}/);
+  assert.match(sast, /semgrep scan[\s\S]*--config p\/default[\s\S]*--error[\s\S]*--metrics off/);
+  assert.match(sast, /permissions:\n  contents: read/);
+  assert.equal(/security-events|SEMGREP_APP_TOKEN|secrets\./.test(sast), false, 'SAST must not upload source or receive secrets');
 });
 
 test('release secrets stay scoped to the steps that consume them', async () => {

@@ -33,6 +33,8 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.Hermes">
+        <!-- MainActivity is the launcher/share/deep-link entry point, so Android requires it to be exported. -->
+        <!-- nosemgrep: java.android.security.exported_activity.exported_activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
