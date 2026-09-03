@@ -191,6 +191,11 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.87 makes both halves of the card page's stats block real entries. 本周用量 had
+  been silently tappable with no chevron while 远程设备 was inert; now each half carries its own
+  16dp chevron and destination (usage, and the relay/token screen until a device page exists), and
+  the ripple covers a whole half because the padding moved inside the clickable. Cell side padding
+  drops to 14dp so the 23sp value keeps full size next to the new chevron.
 - Version 0.1.86 redesigns the chat's 我的提问 sheet around the user task of returning to any
   turn in a long chat. Rows carry a 26dp ordinal circle, the prompt, a time only when the message
   has one (gateway history carries no timestamps, which had collapsed the old rows into plain
@@ -492,7 +497,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.86-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.87-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
