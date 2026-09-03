@@ -14,13 +14,19 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { loadBundleManifest, loadOpsConfig } from "../../ops/lib/config.mjs";
+import {
+  loadBundleManifest,
+  loadDeployConfig,
+  loadOpsConfig,
+  manifestIdentity,
+} from "../../ops/lib/config.mjs";
 import {
   createOpsError,
   OPS_ERROR_DEFINITIONS,
   OpsError,
   redactOpsValue,
 } from "../../ops/lib/errors.mjs";
+import { assessReleaseTransition, compareVersions } from "../../ops/lib/release-transition.mjs";
 import {
   bootstrapStaging,
   createDoctorBundle,
@@ -55,6 +61,131 @@ test("hermesctl config and OCI bundle parsing fail closed", async (t) => {
   await writeJson(fixture.configPath, fixture.config);
   await writeFile(fixture.archivePath, "tampered");
   await assert.rejects(() => loadBundleManifest(fixture.manifestPath), isOpsCode("HR-OPS-002"));
+});
+
+test("R4 deploy config strictly isolates two staging slots", async (t) => {
+  const fixture = await createFixture(t);
+  const example = JSON.parse(await readFile("ops/staging.deploy.example.json", "utf8"));
+  const schema = JSON.parse(await readFile("ops/hermesctl-deploy-config.schema.json", "utf8"));
+  const configPath = path.join(fixture.inputs, "deploy.json");
+  await writeJson(configPath, {
+    ...example,
+    targetArtifactManifest: fixture.manifestPath,
+    paths: fixture.config.paths,
+    secrets: fixture.config.secrets,
+    nginx: {
+      ...example.nginx,
+      certificateSource: fixture.config.nginx.certificateSource,
+      privateKeySource: fixture.config.nginx.privateKeySource,
+      configFile: path.join(fixture.base, "nginx", "hermes-go-staging.conf"),
+      upstreamConfigFile: path.join(fixture.base, "nginx", "hermes-go-staging-upstream.conf"),
+    },
+  });
+  const parsed = await loadDeployConfig(configPath);
+  assert.equal(parsed.environment, "staging");
+  assert.notEqual(parsed.slots.blue.gatewayPort, parsed.slots.green.gatewayPort);
+  assert.equal(schema.additionalProperties, false);
+  assert.equal(schema.properties.environment.const, "staging");
+  assert.equal(schema.properties.database.oneOf[0].type, "null");
+
+  await writeJson(configPath, {
+    ...example,
+    targetArtifactManifest: fixture.manifestPath,
+    paths: fixture.config.paths,
+    secrets: fixture.config.secrets,
+    slots: { ...example.slots, green: { ...example.slots.green, gatewayPort: example.slots.blue.gatewayPort } },
+    nginx: {
+      ...example.nginx,
+      certificateSource: fixture.config.nginx.certificateSource,
+      privateKeySource: fixture.config.nginx.privateKeySource,
+      configFile: path.join(fixture.base, "nginx", "hermes-go-staging.conf"),
+      upstreamConfigFile: path.join(fixture.base, "nginx", "hermes-go-staging-upstream.conf"),
+    },
+  });
+  await assert.rejects(() => loadDeployConfig(configPath), isOpsCode("HR-OPS-001"));
+});
+
+test("bundle manifest v2 embeds a strict release contract while v1 remains readable", async (t) => {
+  const fixture = await createFixture(t);
+  const legacy = await loadBundleManifest(fixture.manifestPath);
+  assert.equal(legacy.schemaVersion, 1);
+
+  const manifestV2 = {
+    ...fixture.manifest,
+    schemaVersion: 2,
+    releaseContract: createReleaseContract(),
+  };
+  await writeJson(fixture.manifestPath, manifestV2);
+  const parsed = await loadBundleManifest(fixture.manifestPath);
+  assert.equal(parsed.releaseContract.minimumSourceVersion, "0.2.0");
+  assert.equal(parsed.releaseContract.rollbackSupported, true);
+  const reorderedContract = Object.fromEntries(Object.entries(manifestV2.releaseContract).reverse());
+  assert.equal(
+    JSON.stringify(manifestIdentity(manifestV2)),
+    JSON.stringify(manifestIdentity({ ...manifestV2, releaseContract: reorderedContract })),
+  );
+
+  await writeJson(fixture.manifestPath, {
+    ...manifestV2,
+    releaseContract: { ...manifestV2.releaseContract, unexpected: true },
+  });
+  await assert.rejects(() => loadBundleManifest(fixture.manifestPath), isOpsCode("HR-OPS-002"));
+});
+
+test("release transition matrix rejects unsafe deploy and rollback paths", () => {
+  const legacy = releaseManifest("0.2.0", 1);
+  const r4 = releaseManifest("0.3.0", 2);
+  const next = releaseManifest("0.4.0", 2);
+
+  const deploy = assessReleaseTransition(legacy, r4, { operation: "deploy" });
+  assert.equal(deploy.compatible, true);
+  assert.equal(deploy.source.serverVersion, "0.2.0");
+  assert.equal(compareVersions("0.10.0", "0.9.9"), 1);
+  assert.equal(compareVersions("1.0.0", "1.0.0"), 0);
+
+  assert.throws(
+    () => assessReleaseTransition(legacy, releaseManifest("0.3.0", 2, { minimumSourceVersion: "0.2.1" }), { operation: "deploy" }),
+    isOpsCode("HR-OPS-006"),
+  );
+  assert.throws(
+    () => assessReleaseTransition(r4, legacy, { operation: "deploy" }),
+    isOpsCode("HR-OPS-006"),
+  );
+  assert.throws(
+    () => assessReleaseTransition(r4, releaseManifest("0.4.0", 2, {
+      protocolVersions: { legacy: 2, accountConnector: 2 },
+    }), { operation: "deploy" }),
+    isOpsCode("HR-OPS-006"),
+  );
+
+  const rollback = assessReleaseTransition(r4, legacy, { operation: "rollback" });
+  assert.equal(rollback.compatible, true);
+  assert.equal(rollback.target.manifestSchemaVersion, 1);
+  assert.throws(
+    () => assessReleaseTransition(
+      releaseManifest("0.3.0", 2, { rollbackSupported: false }),
+      legacy,
+      { operation: "rollback" },
+    ),
+    isOpsCode("HR-OPS-006"),
+  );
+  assert.throws(
+    () => assessReleaseTransition(r4, legacy, { operation: "rollback", databaseEnabled: true }),
+    isOpsCode("HR-OPS-006"),
+  );
+  assert.throws(
+    () => assessReleaseTransition(r4, releaseManifest("0.2.1", 1), { operation: "rollback" }),
+    isOpsCode("HR-OPS-006"),
+  );
+  assert.throws(
+    () => assessReleaseTransition(
+      releaseManifest("0.4.0", 2, { databaseSchemaVersion: 8 }),
+      releaseManifest("0.3.0", 2, { databaseSchemaVersion: 7 }),
+      { operation: "rollback", databaseEnabled: true },
+    ),
+    isOpsCode("HR-OPS-006"),
+  );
+  assert.equal(assessReleaseTransition(r4, next, { operation: "deploy", databaseEnabled: true }).compatible, true);
 });
 
 test("preflight verifies host, private inputs, image identity, and managed port", async (t) => {
@@ -291,7 +422,7 @@ test("status is layered and doctor writes an exclusive allowlist-only private bu
 
 test("Cloud Ops failures keep stable bilingual codes and redact diagnostic values", async () => {
   const codes = Object.values(OPS_ERROR_DEFINITIONS).map((definition) => definition.code);
-  assert.deepEqual(codes, ["HR-OPS-001", "HR-OPS-002", "HR-OPS-003", "HR-OPS-004", "HR-OPS-005"]);
+  assert.deepEqual(codes, ["HR-OPS-001", "HR-OPS-002", "HR-OPS-003", "HR-OPS-004", "HR-OPS-005", "HR-OPS-006"]);
   for (const definition of Object.values(OPS_ERROR_DEFINITIONS)) {
     assert.match(definition.summaryZh, /[\u3400-\u9fff]/);
     assert.match(definition.summaryEn, /^[A-Z]/);
@@ -318,7 +449,12 @@ test("Gateway bundle packaging and hermesctl CLI remain wired to clean immutable
   assert.match(packageScript, /bundle_output_relative_path_must_use_outputs/);
   assert.match(packageScript, /external_bundle_output_must_be_existing_directory/);
   assert.match(packageScript, /report_failure prerequisite/);
+  assert.match(packageScript, /gateway\/release-contract\.json/);
   assert.equal(/docker\s+(?:push|login)/.test(packageScript), false);
+
+  const manifestWriter = await readFile("scripts/write-gateway-bundle-manifest.mjs", "utf8");
+  assert.match(manifestWriter, /schemaVersion: 2/);
+  assert.match(manifestWriter, /releaseContract/);
 
   const cli = await readFile("scripts/hermesctl.mjs", "utf8");
   for (const command of ["preflight", "bootstrap", "status", "doctor"]) {
@@ -435,6 +571,31 @@ async function createFixture(t) {
     archivePath,
     archiveSha256,
     tokens,
+  };
+}
+
+function createReleaseContract(overrides = {}) {
+  return {
+    manifestVersion: 1,
+    configSchemaVersion: 1,
+    databaseSchemaVersion: 7,
+    supportedPostgresqlMajors: [18],
+    protocolVersions: { legacy: 1, accountConnector: 2 },
+    minimumClients: { android: "0.1.0", desktop: "0.2.0", connector: "0.1.1" },
+    minimumSourceVersion: "0.2.0",
+    maintenanceRequired: false,
+    rollbackSupported: true,
+    ...overrides,
+  };
+}
+
+function releaseManifest(serverVersion, schemaVersion, contractOverrides = {}) {
+  return {
+    schemaVersion,
+    serverVersion,
+    sourceCommit: "a".repeat(40),
+    imageId: `sha256:${"b".repeat(64)}`,
+    ...(schemaVersion === 2 ? { releaseContract: createReleaseContract(contractOverrides) } : {}),
   };
 }
 

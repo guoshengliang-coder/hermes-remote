@@ -158,7 +158,8 @@ if ! node scripts/write-gateway-bundle-manifest.mjs \
     "$architecture" \
     "$server_version" \
     "$source_commit" \
-    "$created_at"; then
+    "$created_at" \
+    "$repo_root/gateway/release-contract.json"; then
   report_failure prerequisite "bundle_manifest_write_failed"
   exit 1
 fi

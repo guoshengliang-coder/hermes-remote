@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hermes-go.invalid/schemas/hermesctl-deploy-config-v2.json",
+  "title": "Hermes GO Cloud Ops staging deployment configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "environment",
+    "operator",
+    "targetArtifactManifest",
+    "paths",
+    "slots",
+    "gateway",
+    "secrets",
+    "database",
+    "nginx",
+    "deployment"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "environment": { "const": "staging" },
+    "operator": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+    "targetArtifactManifest": { "type": "string", "pattern": "^/" },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["installRoot", "configRoot", "stateRoot", "systemdUnitDirectory"],
+      "properties": {
+        "installRoot": { "type": "string", "pattern": "^/" },
+        "configRoot": { "type": "string", "pattern": "^/" },
+        "stateRoot": { "type": "string", "pattern": "^/" },
+        "systemdUnitDirectory": { "type": "string", "pattern": "^/" }
+      }
+    },
+    "slots": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blue", "green"],
+      "properties": {
+        "blue": { "$ref": "#/$defs/slot" },
+        "green": { "$ref": "#/$defs/slot" }
+      }
+    },
+    "gateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["defaultDeviceId", "accountAuthEnabled", "accountBindingEnabled"],
+      "properties": {
+        "defaultDeviceId": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+        "accountAuthEnabled": { "const": false },
+        "accountBindingEnabled": { "const": false }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["appTokenSource", "connectorTokenSource", "internalStatusTokenSource"],
+      "properties": {
+        "appTokenSource": { "type": "string", "pattern": "^/" },
+        "connectorTokenSource": { "type": "string", "pattern": "^/" },
+        "internalStatusTokenSource": { "type": "string", "pattern": "^/" }
+      }
+    },
+    "database": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["urlSource", "ssl", "migrationLockId"],
+          "properties": {
+            "urlSource": { "type": "string", "pattern": "^/" },
+            "ssl": { "type": "boolean" },
+            "migrationLockId": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+          }
+        }
+      ]
+    },
+    "nginx": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serverName", "listenPort", "certificateSource", "privateKeySource", "configFile", "upstreamConfigFile"],
+      "properties": {
+        "serverName": { "type": "string", "pattern": "^[A-Za-z0-9.-]{1,253}$" },
+        "listenPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "certificateSource": { "type": "string", "pattern": "^/" },
+        "privateKeySource": { "type": "string", "pattern": "^/" },
+        "configFile": { "type": "string", "pattern": "^/" },
+        "upstreamConfigFile": { "type": "string", "pattern": "^/" }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["drainTimeoutSeconds", "observationSeconds"],
+      "properties": {
+        "drainTimeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 600 },
+        "observationSeconds": { "type": "integer", "minimum": 1, "maximum": 300 }
+      }
+    }
+  },
+  "$defs": {
+    "slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serviceName", "containerName", "gatewayPort"],
+      "properties": {
+        "serviceName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,62}$" },
+        "containerName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,62}$" },
+        "gatewayPort": { "type": "integer", "minimum": 1024, "maximum": 65535 }
+      }
+    }
+  }
+}

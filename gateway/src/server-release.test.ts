@@ -22,6 +22,9 @@ test("generated release manifest matches protocol constants and verifies every b
   assert.equal(manifest.protocolVersions.legacy, PROTOCOL_VERSION);
   assert.equal(manifest.protocolVersions.accountConnector, ACCOUNT_CONNECTOR_PROTOCOL_VERSION);
   assert.equal(manifest.databaseSchemaVersion, 7);
+  assert.equal(manifest.minimumSourceVersion, "0.2.0");
+  assert.equal(manifest.maintenanceRequired, false);
+  assert.equal(manifest.rollbackSupported, true);
   assert(Object.keys(manifest.files).length > 0);
 });
 
@@ -38,6 +41,9 @@ test("release manifest loader rejects a modified artifact file", async () => {
       supportedPostgresqlMajors: [18],
       protocolVersions: { legacy: 1, accountConnector: 2 },
       minimumClients: { android: "0.1.0", desktop: "0.2.0", connector: "0.1.1" },
+      minimumSourceVersion: "0.2.0",
+      maintenanceRequired: false,
+      rollbackSupported: true,
       sourceCommit: "development",
       sourceDirty: true,
       builtAt: "2026-09-03T00:00:00.000Z",
