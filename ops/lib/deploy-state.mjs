@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, open, readFile, unlink } from "node:fs/promises";
 import { hostname as systemHostname } from "node:os";
+import path from "node:path";
 import { OpsError } from "./errors.mjs";
 import { atomicWrite } from "./system.mjs";
 import { DEPLOY_SLOTS } from "./deploy-system.mjs";
@@ -53,6 +54,7 @@ export function deploymentPlanDigest(config, source, target, inputMaterialFinger
     operator: config.operator,
     targetArtifactManifest: config.targetArtifactManifest,
     paths: config.paths,
+    legacySource: config.legacySource,
     slots: config.slots,
     gateway: config.gateway,
     database: config.database ? {
@@ -191,6 +193,51 @@ export async function writeDeploymentJournal(filePath, journal, owner) {
   } catch (error) {
     if (error instanceof OpsError && error.kind === "deployment") throw error;
     fail(error instanceof Error ? error.technicalCause || error.message : error, "deploy_journal_write");
+  }
+}
+
+export async function archiveCommittedDeploymentJournal(filePath, historyRoot, expectedSource, activeSlot, owner) {
+  let journal;
+  let originalInfo;
+  try {
+    originalInfo = await lstat(filePath);
+    journal = await readDeploymentJournal(filePath);
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+  if (journal.stage !== "committed") return null;
+  if (journal.candidateSlot !== activeSlot || JSON.stringify(journal.target) !== JSON.stringify(expectedSource)) {
+    fail("committed_journal_does_not_match_active_release", "deploy_journal_archive");
+  }
+  const archivePath = path.join(historyRoot, `deploy-state.committed.${journal.runId}.json`);
+  try {
+    let archiveMissing = false;
+    try {
+      const existing = await readDeploymentJournal(archivePath);
+      if (JSON.stringify(existing) !== JSON.stringify(journal)) {
+        fail("committed_journal_archive_conflict", "deploy_journal_archive");
+      }
+    } catch (error) {
+      if (error?.code === "ENOENT") archiveMissing = true;
+      else throw error;
+    }
+    if (archiveMissing) {
+      await atomicWrite(archivePath, `${JSON.stringify(journal, null, 2)}\n`, 0o600, owner);
+    }
+    const archived = await readDeploymentJournal(archivePath);
+    if (JSON.stringify(archived) !== JSON.stringify(journal)) {
+      fail("committed_journal_archive_mismatch", "deploy_journal_archive");
+    }
+    const currentInfo = await lstat(filePath);
+    if (currentInfo.dev !== originalInfo.dev || currentInfo.ino !== originalInfo.ino) {
+      fail("committed_journal_changed", "deploy_journal_archive");
+    }
+    await unlink(filePath);
+    return { journal, archivePath };
+  } catch (error) {
+    if (error instanceof OpsError) throw error;
+    fail(error instanceof Error ? error.message : error, "deploy_journal_archive");
   }
 }
 

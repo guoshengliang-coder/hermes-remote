@@ -48,6 +48,13 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "inspect_deployment_stage_and_retry",
   }),
+  switch: Object.freeze({
+    code: "HR-OPS-008",
+    summaryZh: "Gateway 路由切换未完成，已尝试恢复原服务。请检查恢复状态。",
+    summaryEn: "The Gateway route switch did not complete. Recovery of the existing service was attempted. Inspect the recovery state.",
+    retryable: true,
+    recoveryAction: "inspect_recovery_state_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;

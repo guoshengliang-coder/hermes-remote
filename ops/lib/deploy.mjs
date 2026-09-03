@@ -5,6 +5,7 @@ import { manifestIdentity } from "./config.mjs";
 import {
   acquireDeploymentLock,
   advanceDeploymentJournal,
+  archiveCommittedDeploymentJournal,
   createDeploymentJournal,
   DEPLOYMENT_STAGES,
   deploymentPlanDigest,
@@ -40,6 +41,7 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
   const getUid = options.getUid ?? (() => process.getuid?.());
   const now = options.now ?? (() => new Date());
   const runId = options.runId ?? randomUUID();
+  const operation = options.operation ?? "deploy";
   const activeSlot = options.activeSlot ?? null;
   const candidateSlot = options.candidateSlot ?? (activeSlot === null ? "blue" : otherSlot(activeSlot));
   const ownership = options.ownership ?? {
@@ -56,13 +58,16 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
   const paths = deploymentPaths(config, targetManifest, candidateSlot);
 
   try {
-    authorizeCandidate(config, options.confirmation, getUid, platform, architecture, candidateSmoke);
+    authorizeCandidate(config, options.confirmation, getUid, platform, architecture, candidateSmoke, operation);
     const transition = assessReleaseTransition(sourceManifest, targetManifest, {
-      operation: "deploy",
+      operation,
       databaseEnabled: config.database !== null,
     });
     if (config.database !== null) fail("database_migration_path_not_implemented", "candidate_authorize");
     verifyCurrentIdentity(await readReleaseLink(config.paths.installRoot, "current", true), sourceManifest);
+    if (operation === "rollback") {
+      verifyPreviousIdentity(await readReleaseLink(config.paths.installRoot, "previous", true), targetManifest);
+    }
 
     await verifyArchiveAtUse(targetManifest);
     for (const command of CANDIDATE_COMMANDS) {
@@ -85,8 +90,15 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
     await prepareDeploymentDirectories(config, paths, candidateSlot, ownership);
     const source = transition.source;
     const target = transition.target;
+    await archiveCommittedDeploymentJournal(
+      paths.journal,
+      paths.historyRoot,
+      source,
+      activeSlot,
+      ownership.host,
+    );
     const expectedJournal = createDeploymentJournal({
-      operation: "deploy",
+      operation,
       planDigest: deploymentPlanDigest(config, source, target, material.fingerprint),
       runId,
       activeSlot,
@@ -138,13 +150,14 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
       internalStatusTokenSource: config.secrets.internalStatusTokenSource,
       expectedServerVersion: targetManifest.serverVersion,
       expectedSourceCommit: targetManifest.sourceCommit,
+      expectedDeviceId: config.gateway.defaultDeviceId,
       candidateSlot,
     });
     journal = await persistStage(paths.journal, journal, "candidate_verified", now, ownership.host);
 
     return {
       ok: true,
-      command: "prepare-candidate",
+      command: operation === "rollback" ? "prepare-rollback-candidate" : "prepare-candidate",
       environment: config.environment,
       runId,
       activeSlot,
@@ -188,6 +201,7 @@ async function prepareDeploymentDirectories(config, paths, candidateSlot, owners
 async function prepareLockDirectories(config, paths, ownership) {
   await ensureManagedDirectory(config.paths.stateRoot, 0o750, ownership.host);
   await ensureManagedDirectory(paths.opsRoot, 0o700, ownership.host);
+  await ensureManagedDirectory(paths.historyRoot, 0o700, ownership.host);
 }
 
 async function installCandidateFiles(config, manifest, slot, paths, material, ownership) {
@@ -220,7 +234,7 @@ async function installImmutableFile(filePath, content, mode, owner) {
   await atomicWrite(filePath, content, mode, owner);
 }
 
-async function verifyCandidateBase(config, manifest, slot, internalToken, options) {
+export async function verifyCandidateBase(config, manifest, slot, internalToken, options) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   const origin = `http://127.0.0.1:${config.slots[slot].gatewayPort}`;
@@ -281,6 +295,13 @@ function verifyCurrentIdentity(currentTarget, sourceManifest) {
   if (currentTarget !== expected) fail("current_release_identity_mismatch", "candidate_checkpoint");
 }
 
+function verifyPreviousIdentity(previousTarget, targetManifest) {
+  const expected = `releases/${targetManifest.serverVersion}-${targetManifest.sourceCommit.slice(0, 12)}`;
+  if (previousTarget !== expected) {
+    throw new OpsError("compatibility", "rollback_target_must_match_previous_release", "release_compatibility");
+  }
+}
+
 async function optionalRegularFileSha256(filePath) {
   try {
     const info = await lstat(filePath);
@@ -323,14 +344,16 @@ function deploymentPaths(config, manifest, slot) {
     journal: path.join(opsRoot, "deploy-state.json"),
     lock: path.join(opsRoot, "deploy.lock"),
     opsRoot,
+    historyRoot: path.join(opsRoot, "history"),
   };
 }
 
-function authorizeCandidate(config, confirmation, getUid, platform, architecture, candidateSmoke) {
+function authorizeCandidate(config, confirmation, getUid, platform, architecture, candidateSmoke, operation) {
   if (confirmation !== "staging" || config.environment !== "staging") fail("staging_confirmation_required", "candidate_authorize");
   if (getUid() !== 0) fail("candidate_requires_root", "candidate_authorize");
   if (platform !== "linux" || architecture !== "x64") fail(`unsupported_host=${platform}/${architecture}`, "candidate_authorize");
   if (typeof candidateSmoke !== "function") fail("candidate_full_smoke_required", "candidate_authorize");
+  if (!new Set(["deploy", "rollback"]).has(operation)) fail("candidate_operation_invalid", "candidate_authorize");
 }
 
 function stripArchivePath(manifest) {

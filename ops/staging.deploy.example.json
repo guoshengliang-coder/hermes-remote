@@ -9,6 +9,12 @@
     "stateRoot": "/var/lib/hermes-go",
     "systemdUnitDirectory": "/etc/systemd/system"
   },
+  "legacySource": {
+    "serviceName": "hermes-go-gateway-staging",
+    "containerName": "hermes-go-gateway-staging",
+    "gatewayPort": 8786,
+    "stateDirectory": "/var/lib/hermes-go/gateway"
+  },
   "slots": {
     "blue": {
       "serviceName": "hermes-go-gateway-blue",

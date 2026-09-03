@@ -151,7 +151,7 @@ export async function bootstrapStaging(config, manifest, options = {}) {
   lock = await acquireBootstrapLock(paths.lock, runId);
 
   try {
-    await appendAudit(paths.audit, {
+    await appendOpsAudit(paths.audit, {
       runId,
       operator: config.operator,
       environment: config.environment,
@@ -205,7 +205,7 @@ export async function bootstrapStaging(config, manifest, options = {}) {
     await updateJournal(paths.journal, journal, stage, now, ownership.host);
 
     const finishedAt = now().toISOString();
-    await appendAudit(paths.audit, {
+    await appendOpsAudit(paths.audit, {
       runId,
       operator: config.operator,
       environment: config.environment,
@@ -230,7 +230,7 @@ export async function bootstrapStaging(config, manifest, options = {}) {
       resumedFrom: journal.initialStage,
     };
   } catch (error) {
-    await appendAudit(paths.audit, {
+    await appendOpsAudit(paths.audit, {
       runId,
       operator: config.operator,
       environment: config.environment,
@@ -587,11 +587,11 @@ async function updateJournal(filePath, journal, stage, now, owner) {
   await atomicWrite(filePath, `${JSON.stringify(stripInternalJournal(journal), null, 2)}\n`, 0o600, owner);
 }
 
-async function appendAudit(filePath, record) {
+export async function appendOpsAudit(filePath, record, { kind = "bootstrap", stage = "bootstrap_audit" } = {}) {
   try {
     const info = await lstat(filePath);
     if (info.isSymbolicLink() || !info.isFile() || (info.mode & 0o077) !== 0) {
-      throw new OpsError("bootstrap", "audit_log_unsafe", "bootstrap_audit");
+      throw new OpsError(kind, "audit_log_unsafe", stage);
     }
   } catch (error) {
     if (error instanceof OpsError) throw error;
