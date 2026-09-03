@@ -67,6 +67,19 @@ release 或未完成 journal 属于不同配置，R3 会停止，交由后续 de
 每次 bootstrap 都追加脱敏操作记录：run ID、操作人 ID、环境、版本、源提交、开始/结束时间、阶段
 和结果，不记录 Secret。
 
+## 单服务器情况下的临时 staging
+
+当项目只有香港生产服务器时，不在该主机上模拟 staging。仓库提供手动触发的 GitHub Actions
+任务 `Gateway Ephemeral Staging`：它创建一次性 Ubuntu 24.04 x86_64 虚拟机，在任务内生成短期
+测试 Token、私有 CA 与仅用于 `staging.hermes.invalid` 的 TLS 证书，依次完成 bundle 打包、
+preflight、两次 bootstrap、真实 Nginx TLS/WSS 路由、Connector 到模拟 Hermes 的全链路验证、
+status、doctor 以及操作审计检查。任务结束后虚拟机销毁，不保留测试 Secret 或安装状态。
+
+该任务只允许手动启动，最长 15 分钟、同一时间最多一个，不读取仓库 Secret，不登录或推送 OCI，
+也不包含 SSH、生产域名或香港服务器入口。因此它不构成生产部署授权，也不会改变 Android、Mac
+Connector 或线上 Gateway。它验证的是同机回环下的真实安装和 TLS/WSS 路径；公网 DNS、移动网络
+和独立主机网络质量仍需后续正式 staging 或受控生产发布验证。
+
 ## 测试影响
 
 R3 新增的可测试边界包括：未知配置字段、production 误操作、archive/manifest/image 不匹配、错误
@@ -75,5 +88,5 @@ R3 新增的可测试边界包括：未知配置字段、production 误操作、
 
 自动化测试必须覆盖配置与 manifest 严格解析、哈希校验、无 shell 命令执行、模板硬化、阶段恢复、
 幂等写入、操作日志字段、`HR-OPS-001` 至 `HR-OPS-005` 双语语义以及 Token/Cookie/私钥/邮箱/
-用户目录脱敏。真正执行测试或隔离 staging bootstrap 前需要项目所有者确认；生产部署不在 R3
-授权范围内。
+用户目录脱敏。临时 staging 自动化的执行需要项目所有者确认并消耗 GitHub Actions 分钟；生产
+部署不在 R3 授权范围内。

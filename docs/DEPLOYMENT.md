@@ -98,3 +98,9 @@ route smoke checks. Re-running the identical input is idempotent; a different cu
 deployment digest stops with a structured `HR-OPS-*` error and must use the later R4 deploy/rollback
 path. The doctor output deliberately excludes journals, request bodies, environment files, Secret
 contents and source paths. See `CLOUD_GATEWAY_R3_OPS.md` for the full contract.
+
+When no separate staging server exists, manually run the `Gateway Ephemeral Staging` GitHub Actions
+workflow instead of reusing the HK production host. The workflow uses a disposable Ubuntu x86_64 VM,
+one-time generated test material, a private local CA, and a 15-minute timeout. It receives no repository
+secrets and has no production hostname or SSH path. Passing this workflow proves the R3 bootstrap path
+on an isolated host; it does not authorize or perform a production deployment.

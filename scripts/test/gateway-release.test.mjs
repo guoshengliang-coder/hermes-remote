@@ -67,3 +67,13 @@ test("Gateway image build context is allowlisted and release packaging fails clo
   }
   assert.equal(/docker\s+(?:push|login)/.test(imageTest), false);
 });
+
+test("Gateway candidate smoke can split public and private verification routes safely", async () => {
+  const verifier = await readFile("scripts/verify-gateway-image-candidate.mjs", "utf8");
+  assert.match(verifier, /process\.env\.INTERNAL_GATEWAY_URL \|\| baseUrl/);
+  assert.match(verifier, /process\.env\.RELAY_HEALTH_PATH \|\| "\/health"/);
+  assert.match(verifier, /fetchJsonFrom\(internalBaseUrl, "\/internal\/version"/);
+  assert.match(verifier, /const relayHealth = await fetchJson\(relayHealthPath\)/);
+  assert.equal(verifier.includes('required("INTERNAL_GATEWAY_URL")'), false);
+  assert.equal(verifier.includes('required("RELAY_HEALTH_PATH")'), false);
+});

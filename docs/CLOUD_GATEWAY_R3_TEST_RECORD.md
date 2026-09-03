@@ -29,10 +29,11 @@ R3 实现受控 Ubuntu/x86_64 staging 的 `preflight/bootstrap/status/doctor` �
 | Security scan | Pass | PR #4 的 digest-pinned Semgrep 与 Gitleaks jobs 均通过，未向任务提供仓库 Secret |
 | OCI bundle packaging | Pass | PR #4 的 Ubuntu/amd64 Gateway OCI job 从 clean commit 完成 image smoke、archive 与 strict manifest 打包 |
 | Cross-component CI | Pass | PR #4 Android 与 Desktop jobs 均通过；R3 未修改移动端或桌面端代码 |
-| Isolated staging preflight | Not run | 需要一次性 Ubuntu/x86_64 staging 主机 |
-| First bootstrap and smoke | Not run | 属于部署/测试动作，执行前需要明确确认 |
-| Repeated bootstrap | Not run | 首次成功后以同一配置和制品重跑，验证幂等 |
-| Status/doctor audit | Not run | 需要检查分层状态、文件权限、hash 与诊断内容 |
+| Ephemeral staging workflow | Pending | 已设计为手动、15 分钟上限、无仓库 Secret 的 Ubuntu 24.04 x86_64 任务；等待合并后首次执行 |
+| Isolated staging preflight | Pending | 将在一次性 GitHub runner 上执行，不使用香港生产服务器 |
+| First bootstrap and smoke | Pending | 已获项目所有者明确测试授权；等待临时任务执行 |
+| Repeated bootstrap | Pending | 同一任务内以相同配置和制品重跑，验证幂等 |
+| Status/doctor audit | Pending | 同一任务检查分层状态、`0600` 权限、白名单策略、操作序列与 Secret 不泄漏 |
 
 首次静态检查发现并修复了 public smoke URL 的字符串闭合错误；修复后完整静态门禁与上述测试均
 通过。第一次网络回环尝试被受限沙箱以 `listen EPERM` 阻止，允许仅监听本机 `127.0.0.1` 后原命令

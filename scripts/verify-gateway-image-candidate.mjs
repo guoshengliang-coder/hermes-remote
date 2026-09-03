@@ -3,6 +3,8 @@ import { WebSocket } from "ws";
 import { serializeReleaseError } from "./lib/release-errors.mjs";
 
 let baseUrl;
+let internalBaseUrl;
+let relayHealthPath;
 let appToken;
 let internalStatusToken;
 let expectedCommit;
@@ -10,6 +12,8 @@ let expectedVersion;
 
 try {
   baseUrl = required("PUBLIC_GATEWAY_URL").replace(/\/$/, "");
+  internalBaseUrl = (process.env.INTERNAL_GATEWAY_URL || baseUrl).replace(/\/$/, "");
+  relayHealthPath = process.env.RELAY_HEALTH_PATH || "/health";
   appToken = required("APP_TOKEN");
   internalStatusToken = required("INTERNAL_STATUS_TOKEN");
   expectedCommit = required("EXPECTED_SOURCE_COMMIT");
@@ -40,7 +44,7 @@ async function verify() {
   assert.equal(capabilities.legacy?.connectorTokenAccepted, true);
   assert.equal(capabilities.server?.version, expectedVersion);
 
-  const version = await fetchJson("/internal/version", {
+  const version = await fetchJsonFrom(internalBaseUrl, "/internal/version", {
     headers: { authorization: `Bearer ${internalStatusToken}` },
   });
   assert.equal(version.serverVersion, expectedVersion);
@@ -48,7 +52,7 @@ async function verify() {
   assert.equal(version.sourceDirty, false);
   assert.ok(Number.isSafeInteger(version.artifactFileCount) && version.artifactFileCount > 0);
 
-  const relayHealth = await fetchJson("/health");
+  const relayHealth = await fetchJson(relayHealthPath);
   assert.equal(relayHealth.ok, true);
   assert.equal(relayHealth.connectors, 1);
   assert.deepEqual(relayHealth.devices, [{ deviceId: "oci-staging", online: true }]);
@@ -68,7 +72,11 @@ async function verify() {
 }
 
 async function fetchJson(path, init = {}) {
-  const response = await fetch(`${baseUrl}${path}`, {
+  return fetchJsonFrom(baseUrl, path, init);
+}
+
+async function fetchJsonFrom(origin, path, init = {}) {
+  const response = await fetch(`${origin}${path}`, {
     ...init,
     signal: AbortSignal.timeout(5_000),
   });
