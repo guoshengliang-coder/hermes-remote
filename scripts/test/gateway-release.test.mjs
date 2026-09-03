@@ -18,6 +18,15 @@ test("Gateway release contract stays aligned with package and protocol versions"
     `gateway/migrations/${String(contract.databaseSchemaVersion).padStart(3, "0")}_gateway_schema_state.sql`,
     constants.R_OK,
   );
+
+  assert.deepEqual(contract.supportedPostgresqlMajors, [18]);
+  const ci = await readFile(".github/workflows/ci.yml", "utf8");
+  assert.match(
+    ci,
+    new RegExp(
+      `image: postgres:${contract.supportedPostgresqlMajors[0]}-alpine@sha256:[0-9a-f]{64}`,
+    ),
+  );
 });
 
 test("Gateway image build context is allowlisted and release packaging fails closed", async () => {

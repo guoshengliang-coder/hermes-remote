@@ -54,6 +54,7 @@ PostgreSQL 集成门禁覆盖。Readiness 只暴露固定枚举，因此不新�
 | Gateway release manifest/unit tests | Pass | 53 个 Gateway 测试中的 manifest 结构、文件篡改、内部鉴权、readiness、配置 schema 测试通过 |
 | Legacy loopback | Pass | `RUN_NETWORK_TESTS=1` 下 REST、流式 HTTP、App WebSocket、控制通道、生命周期与新增 release endpoints 全部通过 |
 | PostgreSQL migration replay | Pass | 一次性 PostgreSQL `18.6` 上 7 个迁移连续执行两次成功 |
+| CI compatibility | Pass | GitHub Actions PostgreSQL service 已与 R2 认证矩阵统一为带固定 multi-platform digest 的 `postgres:18-alpine` |
 | Account/database loopback | Pass | PostgreSQL `18.6` + schema `7` 下 Gateway `53/53`，无跳过；包含账号路由、绑定隔离和真实 `/readyz` |
 | Repository baseline | Pass | `npm run build && npm test` 通过；Protocol 13、Connector 13、Gateway 本地基线 42、Release Server 30、脚本 13 个测试通过 |
 | Dirty source release guard | Pass | `scripts/package-gateway-image.sh` 在当前开发 worktree 进入 Docker 前按预期拒绝打包 |
