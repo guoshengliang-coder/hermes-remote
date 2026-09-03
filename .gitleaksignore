@@ -1,0 +1,20 @@
+# Test-only idempotency keys added in fb253f4 are inert fixtures, not credentials.
+# Keep these exclusions fingerprint-specific so new findings in the same files still fail CI.
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-control.test.ts:generic-api-key:53
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-control.test.ts:generic-api-key:71
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-control.test.ts:generic-api-key:162
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-control.test.ts:generic-api-key:169
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-control.test.ts:generic-api-key:198
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-control.test.ts:generic-api-key:216
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-control.test.ts:generic-api-key:229
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-control.test.ts:generic-api-key:241
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generic-api-key:187
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generic-api-key:218
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generic-api-key:240
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generic-api-key:262
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generic-api-key:291
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generic-api-key:304
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generic-api-key:309
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generic-api-key:320
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generic-api-key:397
+fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generic-api-key:493
