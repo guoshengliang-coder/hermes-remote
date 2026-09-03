@@ -1,6 +1,7 @@
 # Cloud Gateway R4 安全升级验证记录
 
-R4 当前处于完成门禁收尾阶段。本文只记录实际执行的结果；未执行的生产或 staging 项不得写成通过。
+R4 当前 `database: null` 发布路径的代码、回归、故障注入和一次性 staging 门禁均已完成。本文只记录
+实际执行的结果；生产部署和未执行的数据库迁移不得写成通过。
 
 ## 测试影响
 
@@ -27,9 +28,9 @@ R4 当前处于完成门禁收尾阶段。本文只记录实际执行的结果�
 | R4-C switch/drain | Complete | PR #11 六项 checks 全部通过并合并为 `519a9ab`；合并后 main CI、SAST、Gateway OCI 复核全部通过 |
 | R4-D rollback | Complete | PR #12 六项 checks 全部通过并合并为 `ed30206`；合并后 main CI、SAST、Gateway OCI 复核全部通过 |
 | R4-E CLI/integration | Complete | PR #13 六项 checks 全部通过并合并为 `f78b234`；合并后 main CI、SAST、Gateway OCI 复核全部通过；手动演练也已通过 |
-| Fault-injection suite | In review | 14 点显式矩阵已在本地全部通过并补齐切换前候选清理；等待 PR checks、合并及 main 复核后关闭门禁 |
+| Fault-injection suite | Complete | 14 点显式矩阵经 PR #15 六项 checks、合并及 main CI/SAST/Gateway OCI 复核全部通过 |
 | Ephemeral upgrade/rollback | Complete | GitHub Actions run `33750219977` 在提交 `ae9855d` 完成真实 R3→R4→R3 往返，未访问香港服务器 |
-| R4 completion | Pending | 只等待故障注入矩阵合并和 main 复核；生产部署仍是独立授权 |
+| R4 completion | Complete | 当前 `database: null` 发布路径满足本文六项完成定义；生产部署仍是独立授权 |
 | Production deployment | Not authorized | R4 计划与代码工作不构成生产授权 |
 
 ## 仓库门禁说明
@@ -167,4 +168,12 @@ PR #13 的 Android、Desktop、Node、Secret、Semgrep、Gateway OCI 六项检�
 顶层测试（含子测试共 65 项）全部通过，Gateway 常规套件 42 项通过、11 项按既有环境门禁跳过。
 随后启用 `RUN_NETWORK_TESTS=1` 复核 Gateway，50 项通过，3 项仅因未配置一次性 PostgreSQL 账号
 测试库而跳过。本切片未修改 Android、Desktop、Connector 协议或 Gateway 公开 API，未生成 APK，
-未连接香港服务器。以上仍是本地证据；PR checks 与合并后 main 复核完成前不把 R4 标为 Complete。
+未连接香港服务器。
+
+PR #15 的 Android、Desktop、Node、Secret、Semgrep、Gateway OCI 六项检查全部通过后合并；合并
+提交为 `f4b09dc`。main 的 CI run `33753434445`、SAST run `33753434278` 与 Gateway OCI run
+`33753434269` 全部成功。因此当前 `database: null` 发布路径的 R4 六项完成定义均已满足。
+
+该状态不包含香港生产部署，也不宣称数据库迁移已经通过。当前 release contract 关闭账号能力且
+部署配置为 `database: null`；任何未来启用 PostgreSQL 的 Gateway 发布必须另开实现与验证切片，
+补齐 migration lock、并发/中断恢复和真实数据库兼容测试，不能沿用本轮 Complete 结论。
