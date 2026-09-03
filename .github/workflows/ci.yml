@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 # Ordinary CI is deliberately unprivileged: it never receives the canonical debug signing key or any
 # release secret, so it must only run checks that work without signing material.
