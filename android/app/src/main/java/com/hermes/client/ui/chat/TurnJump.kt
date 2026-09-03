@@ -134,6 +134,8 @@ internal const val TURN_PILL_LIST_MIN_GROUPS = 3
 
 /** How long the prompt just jumped to keeps the landing highlight (docs/DESIGN.md §5.4). */
 internal const val TURN_JUMP_FLASH_MS = 1_200L
+/** Part of TURN_JUMP_FLASH_MS the outline holds at full strength before fading. */
+internal const val TURN_JUMP_FLASH_HOLD_MS = 300L
 
 /** How long the list must sit still before the pill fades (docs/DESIGN.md §5.4). */
 internal const val TURN_PILL_IDLE_HIDE_MS = 1_500L
@@ -161,6 +163,9 @@ internal fun turnPillFor(
     if (groups[groupIndex].anchorIndex in visibleMessageRange) return null
     return TurnPillTarget(groupIndex, showList = groups.size >= TURN_PILL_LIST_MIN_GROUPS)
 }
+
+/** A queued jump: the reversed list index to align plus the message the landing feedback marks. */
+internal data class TurnJumpRequest(val listIndex: Int, val anchorIndex: Int)
 
 /** Reversed LazyColumn index of a message: slot 0 is the permanent bottom edge, newest turn is 1. */
 internal fun messageListIndex(messageCount: Int, messageIndex: Int): Int = messageCount - messageIndex

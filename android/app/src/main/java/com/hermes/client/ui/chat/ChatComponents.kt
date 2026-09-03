@@ -611,12 +611,31 @@ fun ChatMessageList(
     val turnTopInsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { (2.dp - TURN_SPACING).roundToPx() }
     // One owner for programmatic turn jumps, mirroring bottomRequests: a user drag steals the
     // scroll mutex and surfaces as CancellationException, which is the user's call.
-    val jumpRequests = remember(sessionId) { Channel<Int>(Channel.CONFLATED) }
+    val jumpRequests = remember(sessionId) { Channel<TurnJumpRequest>(Channel.CONFLATED) }
+    // Landing feedback (docs/DESIGN.md §5.4, decision 2026-09-03): the prompt jumped to shows an
+    // outline only — no fill, unlike the search highlight — that fades over TURN_JUMP_FLASH_MS.
+    // It starts when the jump has LANDED, not when the row was tapped: closing the sheet and the
+    // scroll itself take most of a second, and a fade started at the tap was gone on arrival.
+    var jumpFlashIndex by remember(sessionId) { mutableStateOf<Int?>(null) }
+    var jumpFlashTick by remember(sessionId) { mutableStateOf(0L) }
+    val jumpFlash = remember(sessionId) { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(jumpFlashTick) {
+        if (jumpFlashIndex != null) {
+            // Hold at full strength first so the eye catches it, then fade.
+            jumpFlash.snapTo(1f)
+            delay(TURN_JUMP_FLASH_HOLD_MS)
+            jumpFlash.animateTo(0f, tween((TURN_JUMP_FLASH_MS - TURN_JUMP_FLASH_HOLD_MS).toInt(), easing = Motion.Standard))
+            jumpFlashIndex = null
+        }
+    }
     LaunchedEffect(sessionId, listState, jumpRequests) {
-        for (listIndex in jumpRequests) {
+        for (request in jumpRequests) {
             try {
-                listState.alignItemTopToViewport(listIndex, turnTopInsetPx)
+                listState.alignItemTopToViewport(request.listIndex, turnTopInsetPx)
+                jumpFlashIndex = request.anchorIndex
+                jumpFlashTick = System.nanoTime()
             } catch (stolen: CancellationException) {
+                // The user dragged during the jump: no landing to announce.
                 currentCoroutineContext().ensureActive()
             }
         }
@@ -636,25 +655,10 @@ fun ChatMessageList(
         }
     }
 
-    // Landing feedback (docs/DESIGN.md §5.4, decision 2026-09-03): the prompt just jumped to shows
-    // an outline only — no fill, unlike the search highlight — that fades out over
-    // TURN_JUMP_FLASH_MS. A repeat jump to the same prompt restarts the fade.
-    var jumpFlashIndex by remember(sessionId) { mutableStateOf<Int?>(null) }
-    var jumpFlashTick by remember(sessionId) { mutableStateOf(0L) }
-    val jumpFlash = remember(sessionId) { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(jumpFlashTick) {
-        if (jumpFlashIndex != null) {
-            jumpFlash.snapTo(1f)
-            jumpFlash.animateTo(0f, tween(TURN_JUMP_FLASH_MS.toInt(), easing = Motion.Standard))
-            jumpFlashIndex = null
-        }
-    }
     val jumpToGroup: (Int) -> Unit = { groupIndex ->
         turnGroups.getOrNull(groupIndex)?.let { group ->
             semanticViewport.cancelRestoreForUser()
-            jumpRequests.trySend(messageListIndex(turnCount, group.anchorIndex))
-            jumpFlashIndex = group.anchorIndex
-            jumpFlashTick = System.nanoTime()
+            jumpRequests.trySend(TurnJumpRequest(messageListIndex(turnCount, group.anchorIndex), group.anchorIndex))
         }
     }
     var promptListOpen by remember(sessionId) { mutableStateOf(false) }
