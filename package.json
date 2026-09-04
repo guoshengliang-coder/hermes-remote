@@ -33,6 +33,9 @@
     "ops:production-monitor": "node scripts/production-monitor.mjs",
     "ops:legacy-capture": "node scripts/hermesctl.mjs legacy-capture",
     "ops:legacy-restore": "node scripts/hermesctl.mjs legacy-restore",
+    "ops:postgresql-backup": "node scripts/postgresql-recovery.mjs backup",
+    "ops:postgresql-restore": "node scripts/postgresql-recovery.mjs restore",
+    "ops:postgresql-activate-status": "node scripts/postgresql-recovery.mjs activate-status",
     "dev:gateway": "npm run dev -w @hermes-remote/gateway",
     "dev:connector": "npm run dev -w @hermes-remote/connector"
   },

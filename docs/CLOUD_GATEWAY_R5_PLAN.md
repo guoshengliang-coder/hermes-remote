@@ -97,3 +97,9 @@ R5-C4 代码阶段新增严格的根磁盘/加密异机备份新鲜度监控、`
 恢复证据。当前源码尚未部署到香港主机，timer 尚未启用，外部手机/邮件告警渠道也尚未接入。安装与启用
 仍需单独生产授权，详见 `CLOUD_GATEWAY_R5_MONITORING.md`。在真实数据库备份、异机恢复证据、受管基线
 和最终切流完成前，生产晋级仍是 no-go。
+
+R5-E 代码阶段新增独立 PostgreSQL 恢复入口、严格配置/manifest、CMS AES-256-GCM 流式备份、无明文
+`pg_restore`、目标不可变 Gateway 镜像内账号事务 smoke、R5-A 证据、R5-C4 状态候选与生产端原子状态
+激活，并以 `HR-OPS-013` 失败关闭。实现与操作边界见 `CLOUD_GATEWAY_R5_DATABASE_RECOVERY.md`。
+当前仅完成本地代码和自动测试；生产数据库/角色/schema 迁移、捕获、异机真实恢复、状态激活、timer 启用
+和服务切换均未执行，R5-E 生产门禁仍为 no-go。

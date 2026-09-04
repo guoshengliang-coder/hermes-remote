@@ -30,7 +30,7 @@ node scripts/production-monitor.mjs \
 异机各自计算的密文 SHA-256/大小、PostgreSQL major、数据库 schema，以及一个不含凭据且不同于来源
 主机名的异机存储 ID。监控要求两端哈希与大小完全一致。
 
-该文件只能由 R5-E 的备份流程在下列步骤全部成功后原子替换：
+该文件只能由 R5-E 的 `scripts/postgresql-recovery.mjs` 流程在下列步骤全部成功后原子替换：
 
 1. `pg_dump` 逻辑备份完成并直接加密，香港主机不保留明文；
 2. 密文复制到 Mac 或另一独立故障域；
@@ -39,6 +39,10 @@ node scripts/production-monitor.mjs \
 
 手写示例状态、仅复制到香港主机另一目录、只检查文件存在或只更新复制时间，都不能表示备份成功。监控状态
 也不替代 R5-A 所要求的独立 PostgreSQL 真实恢复证据；账号模式仍须等 R5-E 完成恢复和 account smoke。
+
+R5-E 先在异机生成严格状态候选，再由生产端 `activate-status` 对 manifest、异机恢复证据与候选进行交叉
+核对，并以 `0640` 临时文件加 `fsync`/rename 更新监控路径。复制候选文件或手工改 JSON 本身不构成激活；
+具体安全边界和命令见 `CLOUD_GATEWAY_R5_DATABASE_RECOVERY.md`。
 
 ## systemd 模板与通知边界
 
