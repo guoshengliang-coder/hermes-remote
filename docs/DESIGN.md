@@ -321,8 +321,13 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
   - **任务清单**用 M3 复选框。给 `Markdown()` 传自定义 `components` 会覆盖掉 m3 默认注入的
     `checkbox`，漏传时 `- [ ]` 会渲染成字面文本 `[ ]`，必须显式带上。
   - **表格**正文 15sp/23。
-  - **待办**（未立项）：链接点击直接走库的 `LocalUriHandler`，无浏览器时抛异常、且没有 scheme
-    白名单，需要按 `docs/ERROR_HANDLING.md` 补 `HR-CHAT-*` 码；超长无空格 URL 不做中间断行。
+  - **链接点击**（`ChatLinks.kt`）：正文里的地址是模型输出，不可信。渲染器在构建链接注解时就
+    捕获 `LocalUriHandler`，所以受控 handler 必须包在 `Markdown()` 外层，而不是点击处。
+    只放行 `http/https/mailto/tel`（`intent:` 能指定任意组件、`file:` 能指向本地存储），
+    无 scheme 的 `www.` 自动链接补 `https://`，其余拒绝 → `HR-LINK-002`。系统无法打开时
+    （设备没有浏览器，Compose 默认 handler 会把 `ActivityNotFoundException` 重抛成
+    `IllegalArgumentException` 直接崩）→ 复制链接到剪贴板 + `HR-LINK-001`。
+  - **待办**（未立项）：超长无空格 URL 不做中间断行。
   - **验证**：`MarkdownTypographyScreenshotTest` 三张 golden（浅色 / 深色 / 边界情况）覆盖上述
     全部取值，改动后用 `-Proborazzi.test.record=true` 重录并肉眼比对。
 - 输入区：浮动 `Surface`，圆角 30（聚焦 28）、tonal 1dp + shadow 7dp、最小高 60dp；

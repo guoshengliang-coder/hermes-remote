@@ -61,6 +61,7 @@ reassigned.
 | `CONFIG` | Local or deployment configuration | invalid URL, missing field, incompatible setting |
 | `STORE` | Local persistence | DataStore/database/cache failure |
 | `SEARCH` | Session and message search | gateway search request failed, search backend unavailable |
+| `LINK` | Links inside message content | no app can open the link, non-web scheme refused |
 | `UNKNOWN` | Truly unmapped failures | last-resort boundary only; must be investigated |
 
 ## Canonical structured error
@@ -204,6 +205,8 @@ expanded without changing the underlying meaning.
 | `HR-PERM-001` | Camera permission denied | 相机权限未开启，请前往系统设置允许。 | Camera permission is disabled. Allow it in system settings. | Yes |
 | `HR-PERM-002` | Notification permission denied | 通知权限未开启，后台任务可能无法及时提醒。 | Notifications are disabled, so background alerts may be delayed. | Yes |
 | `HR-NOTIF-001` | A notification action (approve/deny/reply/choice) could not be delivered to the gateway | 通知操作未能发送，请重试。 | The notification action couldn't be sent. Try again. | Yes |
+| `HR-LINK-001` | A link in an assistant answer could not be handed to any app (no browser or handler installed, or the launch was refused). The link is copied to the clipboard so it can still be used | 没有能打开链接的应用，链接已复制。 | No app can open this link. It was copied to the clipboard. | No (paste the link elsewhere) |
+| `HR-LINK-002` | A link in an assistant answer is not an openable web address: its scheme is outside the http/https/mailto/tel allowlist, or it has no scheme at all (a relative or anchor-only target). Refused before reaching the system, so a crafted `intent:`/`file:` target cannot launch anything | 这个链接无法打开。 | This link can't be opened. | No |
 | `HR-SEARCH-001` | Gateway message search (`/api/sessions/search`) failed: transport error, non-2xx response, or unparseable body. The title matches on the search screen stay; only the message section shows the error with Retry | 消息搜索失败，请重试。 | Message search failed. Retry. | Yes |
 | `HR-UNKNOWN-001` | Unmapped boundary failure | 出现未知错误，请复制诊断信息协助定位。 | An unknown error occurred. Copy diagnostics to help investigate. | Depends |
 

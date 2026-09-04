@@ -161,6 +161,7 @@ import com.hermes.client.ui.theme.Motion
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -2021,6 +2022,9 @@ private fun AssistantMarkdownBlock(
             searchAnnotator.annotate?.invoke(this, content, child) ?: false
         }
     }
+    // The renderer captures LocalUriHandler when it builds the link annotations, so the guarded
+    // handler has to be in scope around Markdown() rather than at the tap site.
+    CompositionLocalProvider(LocalUriHandler provides rememberChatUriHandler()) {
     Markdown(
         content = content,
         annotator = annotator,
@@ -2059,6 +2063,7 @@ private fun AssistantMarkdownBlock(
         ),
         dimens = markdownDimens(tableCellWidth = 110.dp, tableCellPadding = 8.dp),
     )
+    }
 }
 
 private const val STREAM_RENDER_INTERVAL_MS = 64L
