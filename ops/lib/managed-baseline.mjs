@@ -147,7 +147,7 @@ async function verifyLegacyInputs(config, runner) {
   const content = candidateContent.toString("utf8");
   const include = `include ${config.nginx.upstreamConfigFile};`;
   if (content.split(include).length !== 2
-      || !new RegExp(`\\bserver_name\\s+${escapeRegex(config.nginx.serverName)}\\s*;`).test(content)
+      || !hasExactServerName(content, config.nginx.serverName)
       || !content.includes("proxy_pass http://hermes_go_gateway_production")
       || content.includes(`proxy_pass http://127.0.0.1:${config.legacySource.gatewayPort}`)) {
     fail("managed_baseline_nginx_candidate_contract_invalid");
@@ -234,8 +234,9 @@ async function sha256(filePath) {
   return createHash("sha256").update(await readFile(filePath)).digest("hex");
 }
 
-function escapeRegex(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function hasExactServerName(content, expected) {
+  return [...content.matchAll(/\bserver_name\s+([A-Za-z0-9.-]+)\s*;/g)]
+    .some((match) => match[1] === expected);
 }
 
 function fail(cause) {

@@ -227,7 +227,7 @@ async function desiredNginxConfig(config) {
   const include = `include ${config.nginx.upstreamConfigFile};`;
   const upstream = "hermes_go_gateway_production";
   if (content.split(include).length !== 2
-      || !new RegExp(`\\bserver_name\\s+${escapeRegex(config.nginx.serverName)}\\s*;`).test(content)
+      || !hasExactServerName(content, config.nginx.serverName)
       || !content.includes(`proxy_pass http://${upstream}`)
       || content.includes(`proxy_pass http://127.0.0.1:${config.legacySource.gatewayPort}`)) {
     fail("production_nginx_candidate_contract_invalid", "nginx_configuration_source");
@@ -235,8 +235,9 @@ async function desiredNginxConfig(config) {
   return candidate.content;
 }
 
-function escapeRegex(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function hasExactServerName(content, expected) {
+  return [...content.matchAll(/\bserver_name\s+([A-Za-z0-9.-]+)\s*;/g)]
+    .some((match) => match[1] === expected);
 }
 
 async function restoreNginxCheckpoint(config, checkpoint, runner, owner) {
