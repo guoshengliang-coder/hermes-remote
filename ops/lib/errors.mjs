@@ -69,6 +69,13 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "resolve_production_gates_and_retry",
   }),
+  recovery: Object.freeze({
+    code: "HR-OPS-011",
+    summaryZh: "旧 Gateway 恢复制品的捕获或隔离验证未完成，线上服务保持不变。请检查恢复阶段后重试。",
+    summaryEn: "Legacy Gateway recovery capture or isolated verification did not complete; the live service was left unchanged. Inspect the recovery stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_legacy_recovery_stage_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;

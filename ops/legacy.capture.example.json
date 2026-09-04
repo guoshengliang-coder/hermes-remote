@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "environment": "production",
+  "operator": "replace-with-operator-id",
+  "sourceHostname": "replace-with-production-hostname",
+  "service": {
+    "name": "hermes-remote-gateway",
+    "workingDirectory": "/opt/hermes-remote/gateway",
+    "entrypoint": "/opt/hermes-remote/gateway/dist/index.js",
+    "environmentFile": "/etc/hermes-remote/gateway.env",
+    "healthPath": "/health",
+    "authenticatedPath": "/api/status"
+  },
+  "recipientCertificate": "/secure-input/hermes-go/recovery-recipient-cert.pem",
+  "archiveFile": "/secure-output/hermes-go/legacy-gateway.cms",
+  "manifestFile": "/secure-output/hermes-go/legacy-gateway.manifest.json",
+  "maximumTotalBytes": 1073741824,
+  "roots": [
+    { "role": "runtime", "path": "/opt/hermes-remote/gateway" },
+    { "role": "configuration", "path": "/etc/hermes-remote/gateway.env" },
+    { "role": "lifecycle", "path": "/var/lib/hermes-remote/lifecycle-events.json" },
+    { "role": "nginx", "path": "/etc/nginx/sites-enabled/hermes-remote-gateway" },
+    { "role": "systemd", "path": "/etc/systemd/system/hermes-remote-gateway.service" }
+  ],
+  "identityFiles": [
+    {
+      "path": "/opt/hermes-remote/gateway/package.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "path": "/opt/hermes-remote/gateway/dist/index.js",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ]
+}

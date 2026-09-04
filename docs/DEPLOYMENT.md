@@ -143,6 +143,22 @@ not deployment evidence.
 See `CLOUD_GATEWAY_R5_PLAN.md`. Running the audit on the HK host still requires explicit read-only production
 authorization. Resolving any blocker is a separate mutating operation and needs another approval.
 
+## Legacy Gateway recovery baseline (R5-B; production authorization required)
+
+The `legacy-capture` and `legacy-restore` commands create the evidence consumed by the R5-A
+`legacy_recovery` gate. Capture streams an allowlisted file inventory directly through authenticated CMS
+AES-256-GCM encryption, verifies that the old service stayed active and the source files did not change, and
+never writes a plaintext archive on the source host. Restore is required to run on a differently named host;
+it verifies and extracts into a disposable private root, binds the recovered process to loopback, runs the
+legacy health and Token-routing contract, stops it, removes plaintext, and only then writes evidence.
+
+Use the strict examples `ops/legacy.capture.example.json` and `ops/legacy.restore.example.json`. Filled configs,
+the private key, encrypted archive, private archive manifest, restored plaintext, and generated evidence are
+operational secrets and must not be committed. Source capture is a production action because it reads live
+configuration and state and creates a new encrypted output. It requires a separate explicit approval even
+after CI passes; do not infer that approval from a merge or from an R5-A audit. The full key-handling,
+invocation, rollback, and verification procedure is in `CLOUD_GATEWAY_R5_RECOVERY.md`.
+
 ## PostgreSQL production gate (not yet executed)
 
 The existing HK host has enough nominal CPU and memory for the initial low-volume Gateway database,
