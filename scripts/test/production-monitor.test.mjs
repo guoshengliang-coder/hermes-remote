@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
+import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { OPS_ERROR_DEFINITIONS } from "../../ops/lib/errors.mjs";
@@ -141,7 +142,10 @@ test("production monitor systemd templates generate local daemon.alert without s
   const service = await readFile("deploy/hermes-go-production-monitor.service.template", "utf8");
   const timer = await readFile("deploy/hermes-go-production-monitor.timer.template", "utf8");
   const alert = await readFile("deploy/hermes-go-production-monitor-alert.service.template", "utf8");
-  assert.match(service, /production-monitor/);
+  const rootPackage = JSON.parse(await readFile("package.json", "utf8"));
+  assert.match(service, /scripts\/production-monitor\.mjs/);
+  assert.doesNotMatch(service, /hermesctl\.mjs/);
+  assert.equal(rootPackage.scripts["ops:production-monitor"], "node scripts/production-monitor.mjs");
   assert.match(service, /--confirm production:__PRODUCTION_HOSTNAME__/);
   assert.match(service, /OnFailure=hermes-go-production-monitor-alert\.service/);
   assert.match(timer, /OnCalendar=\*:0\/15/);
@@ -152,6 +156,83 @@ test("production monitor systemd templates generate local daemon.alert without s
     assert.doesNotMatch(content, /^ExecStart=.*\/(?:systemctl|docker|psql|pg_dump)\b/m);
     assert.doesNotMatch(content, /^ExecStart=.*\b(?:restart|stop|reload|install|rm|run|exec)\b/m);
   }
+});
+
+test("production monitor entrypoint runs from an isolated dependency-free snapshot", async (t) => {
+  const fixture = await createFixture(t);
+  const isolated = path.join(fixture.base, "isolated");
+  const bin = path.join(isolated, "bin");
+  await mkdir(path.join(isolated, "scripts"), { recursive: true });
+  await mkdir(path.join(isolated, "ops", "lib"), { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await cp("scripts/production-monitor.mjs", path.join(isolated, "scripts", "production-monitor.mjs"));
+  for (const name of [
+    "config.mjs",
+    "errors.mjs",
+    "production-monitor-config.mjs",
+    "production-monitor.mjs",
+    "system.mjs",
+  ]) {
+    await cp(path.join("ops", "lib", name), path.join(isolated, "ops", "lib", name));
+  }
+
+  const actualHostname = hostname();
+  const now = Date.now();
+  await writeJson(fixture.statusPath, {
+    ...fixture.status,
+    sourceHostname: actualHostname,
+    backupCompletedAt: new Date(now - 5 * 60 * 1000).toISOString(),
+    offHostCopiedAt: new Date(now - 4 * 60 * 1000).toISOString(),
+  });
+  await writeJson(fixture.configPath, {
+    ...fixture.config,
+    host: {
+      ...fixture.config.host,
+      hostname: actualHostname,
+      warningFreeDiskMiB: 2048,
+      criticalFreeDiskMiB: 1024,
+    },
+  });
+  const fakeDf = path.join(bin, "df");
+  await writeFile(fakeDf, "#!/bin/sh\nprintf 'Filesystem 1024-blocks Used Available Capacity Mounted on\\n/dev/test 100000000 1000000 41943040 3%% /\\n'\n", { mode: 0o700 });
+
+  const entrypoint = path.join(isolated, "scripts", "production-monitor.mjs");
+  const result = spawnSync(process.execPath, [
+    entrypoint,
+    "--config",
+    fixture.configPath,
+    "--confirm",
+    `production:${actualHostname}`,
+  ], {
+    cwd: isolated,
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+  });
+
+  assert.equal(result.stderr, "");
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.command, "production-monitor");
+  assert.deepEqual(payload.checks.slice(1).map(({ status }) => status), ["pass", "pass"]);
+  if (process.platform === "linux" && process.arch === "x64") {
+    assert.equal(result.status, 0, result.stdout);
+    assert.equal(payload.ok, true);
+    assert.equal(payload.checks[0].status, "pass");
+  } else {
+    assert.equal(result.status, 1, result.stdout);
+    assert.equal(payload.ok, false);
+    assert.equal(payload.checks[0].detail, "host_identity_mismatch");
+  }
+
+  const rejected = spawnSync(process.execPath, [entrypoint, "--config", fixture.configPath], {
+    cwd: isolated,
+    encoding: "utf8",
+  });
+  assert.equal(rejected.status, 1);
+  assert.equal(rejected.stdout, "");
+  const error = JSON.parse(rejected.stderr);
+  assert.equal(error.code, "HR-OPS-001");
+  assert.equal(error.retryable, true);
+  assert.equal(error.stage, "arguments_parse");
 });
 
 test("production monitoring error is localized, retryable, and registered", async () => {

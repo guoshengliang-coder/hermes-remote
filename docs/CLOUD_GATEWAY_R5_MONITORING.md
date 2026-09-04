@@ -13,7 +13,7 @@ R5-C4 提供一个独立、只读、失败关闭的生产监控命令，用来�
 命令只执行一次 `df -Pk -- /`，并以 no-follow 方式读取不允许 group/world 写入的 JSON 状态文件：
 
 ```bash
-node scripts/hermesctl.mjs production-monitor \
+node scripts/production-monitor.mjs \
   --config /etc/hermes-remote/production-monitor.json \
   --confirm production:<configured-hostname>
 ```
@@ -48,7 +48,10 @@ node scripts/hermesctl.mjs production-monitor \
 
 安装时必须先把 `__PRODUCTION_HOSTNAME__` 替换为与私密配置完全相同的主机名，并让
 `/opt/hermes-go-ops` 使用经审核提交的独立只读代码快照，避免覆盖旧 Gateway 所在的
-`/opt/hermes-remote`；`hermes-remote` 用户只能读取所需代码、配置与状态文件。模板不包含外发网络能力，
+`/opt/hermes-remote`。快照只需包含 `scripts/production-monitor.mjs`，以及 `ops/lib` 中的
+`config.mjs`、`errors.mjs`、`production-monitor-config.mjs`、`production-monitor.mjs` 和 `system.mjs`。
+该独立入口不加载部署、迁移或 Gateway 协议模块，也不需要 `node_modules`。`hermes-remote` 用户只能读取
+所需代码、配置与状态文件。模板不包含外发网络能力，
 因此当前告警可由
 `systemctl --failed` 和 journal 发现，但不会主动发送到手机、邮件或第三方平台。若需要外部通知，应由受保护
 的日志采集器消费 `daemon.alert`；不要把 webhook、邮箱、Token 或其他凭据写进 unit、仓库或命令输出。

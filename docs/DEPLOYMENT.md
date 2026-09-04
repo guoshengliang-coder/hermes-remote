@@ -188,7 +188,7 @@ files, restart a service, or change routing. Create the private config from
 `ops/production.monitor.example.json` and bind the invocation to the configured production hostname:
 
 ```bash
-node scripts/hermesctl.mjs production-monitor \
+node scripts/production-monitor.mjs \
   --config /etc/hermes-remote/production-monitor.json \
   --confirm production:<configured-hostname>
 ```
@@ -207,4 +207,6 @@ The three `deploy/hermes-go-production-monitor*.template` units schedule the rea
 minutes and convert a failed run into a local `daemon.alert` journal event. They deliberately contain no
 network notification credential or auto-remediation. Installation and timer enablement require explicit
 production authorization; this source change does not deploy them. See `CLOUD_GATEWAY_R5_MONITORING.md`
-for the status-writer contract, validation sequence, and external-notification boundary.
+for the dependency-free code snapshot, status-writer contract, validation sequence, and external-notification
+boundary. The dedicated entrypoint must be used by systemd; `scripts/hermesctl.mjs` remains available for
+interactive compatibility but loads unrelated deployment modules and is not the production timer entrypoint.
