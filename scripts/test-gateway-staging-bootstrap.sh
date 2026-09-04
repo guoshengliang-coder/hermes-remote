@@ -340,6 +340,9 @@ run_transition() {
 
 if [ "${HERMES_R5D_ONLY:-0}" = 1 ]; then
   production_hostname=$(hostname)
+  managed_install_root=/opt/hermes-go-r5d-ephemeral
+  managed_config_root=/etc/hermes-go-r5d-ephemeral
+  managed_state_root=/var/lib/hermes-go-r5d-ephemeral
   r3_archive_path=$(node --input-type=module -e '
     import { readFileSync } from "node:fs";
     import path from "node:path";
@@ -394,9 +397,9 @@ if [ "${HERMES_R5D_ONLY:-0}" = 1 ]; then
   "targetArtifactManifest": "$r4_manifest_path",
   "host": { "hostname": "$production_hostname", "architecture": "amd64" },
   "paths": {
-    "installRoot": "/opt/hermes-go-ephemeral",
-    "configRoot": "/etc/hermes-go-ephemeral",
-    "stateRoot": "/var/lib/hermes-go-ephemeral",
+    "installRoot": "$managed_install_root",
+    "configRoot": "$managed_config_root",
+    "stateRoot": "$managed_state_root",
     "systemdUnitDirectory": "/etc/systemd/system"
   },
   "legacySource": {
@@ -437,9 +440,6 @@ if [ "${HERMES_R5D_ONLY:-0}" = 1 ]; then
 EOF
   chmod 0600 "$production_config_path"
 
-  # The disposable R3 bootstrap has its own release identity; production starts without managed links.
-  sudo unlink /opt/hermes-go-ephemeral/current
-
   sudo env \
     "PATH=$PATH" \
     "NODE_EXTRA_CA_CERTS=$run_dir/inputs/ca.crt" \
@@ -456,12 +456,12 @@ EOF
 
   expected_r5d_release="releases/${r4_server_version}-$(printf '%s' "$r4_source_commit" | cut -c1-12)"
   expected_legacy_release="releases/${r3_server_version}-$(printf '%s' "$identity_digest" | cut -c1-12)"
-  if [ "$(sudo readlink /opt/hermes-go-ephemeral/current)" != "$expected_r5d_release" ] \
-      || [ "$(sudo readlink /opt/hermes-go-ephemeral/previous)" != "$expected_legacy_release" ] \
+  if [ "$(sudo readlink "$managed_install_root/current")" != "$expected_r5d_release" ] \
+      || [ "$(sudo readlink "$managed_install_root/previous")" != "$expected_legacy_release" ] \
       || ! sudo systemctl is-active --quiet "${blue_service_name}.service" \
       || sudo systemctl is-active --quiet "${service_name}.service" \
-      || ! sudo grep '^ACCOUNT_AUTH_ENABLED=0$' /etc/hermes-go-ephemeral/slots/blue/gateway.env >/dev/null \
-      || ! sudo grep '^ACCOUNT_BINDING_ENABLED=0$' /etc/hermes-go-ephemeral/slots/blue/gateway.env >/dev/null; then
+      || ! sudo grep '^ACCOUNT_AUTH_ENABLED=0$' "$managed_config_root/slots/blue/gateway.env" >/dev/null \
+      || ! sudo grep '^ACCOUNT_BINDING_ENABLED=0$' "$managed_config_root/slots/blue/gateway.env" >/dev/null; then
     report_failure candidate "managed_baseline_final_state_invalid"
     exit 1
   fi
