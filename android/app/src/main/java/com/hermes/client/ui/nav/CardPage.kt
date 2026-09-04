@@ -95,9 +95,9 @@ fun CardPage(
     // The dark branch derives from surface, so it followed the palette on its own. The light
     // literals did not: #FAFAF8 / #ECECEA are warm whites and read yellow now that the sheet
     // around them is cool.
-    val tile = if (dark) lerp(MaterialTheme.colorScheme.surface, Color.White, 0.06f) else Color(0xFFFAFBFD)
-    val tileShadow = if (dark) 0.dp else 1.dp
-    val hairline = if (dark) lerp(MaterialTheme.colorScheme.surface, Color.White, 0.14f) else Color(0xFFEBEDF2)
+    val tile = com.hermes.client.ui.theme.tileColor()
+    val tileShadow = com.hermes.client.ui.theme.tileShadow()
+    val hairline = com.hermes.client.ui.theme.hairlineColor()
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
     ModalDrawerSheet(

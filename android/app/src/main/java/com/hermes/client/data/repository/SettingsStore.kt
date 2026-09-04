@@ -19,6 +19,9 @@ class SettingsStore(private val context: Context) {
     private val toolDisplayKey = stringPreferencesKey("tool_call_display") // "product" | "technical"
     private val debugLoggingKey = booleanPreferencesKey("debug_logging")
     private val languageKey = stringPreferencesKey("app_language")
+    // Usage page window. A viewing preference, so it stays on the device and is never synced
+    // or scoped per profile (DESIGN.md §5.14).
+    private val usageRangeKey = stringPreferencesKey("usage_range_days")
 
     val themeMode: Flow<ThemeMode> = context.settingsDataStore.data.map { prefs ->
         runCatching { ThemeMode.valueOf(prefs[themeKey] ?: "SYSTEM") }.getOrDefault(ThemeMode.SYSTEM)
@@ -50,7 +53,19 @@ class SettingsStore(private val context: Context) {
     /** Diagnostic logging toggle (Settings → Diagnostics). Off by default. */
     val debugLogging: Flow<Boolean> = context.settingsDataStore.data.map { it[debugLoggingKey] ?: false }
 
+    val usageRangeDays: Flow<Int> = context.settingsDataStore.data.map { prefs ->
+        prefs[usageRangeKey]?.toIntOrNull()?.takeIf { it in USAGE_RANGE_CHOICES } ?: 30
+    }
+
+    suspend fun setUsageRangeDays(days: Int) {
+        if (days !in USAGE_RANGE_CHOICES) return
+        context.settingsDataStore.edit { it[usageRangeKey] = days.toString() }
+    }
+
     suspend fun setDebugLogging(enabled: Boolean) {
         context.settingsDataStore.edit { it[debugLoggingKey] = enabled }
     }
 }
+
+/** The only windows the usage page offers. Upstream clamps `days` to 1-365 regardless. */
+val USAGE_RANGE_CHOICES = listOf(7, 30, 90)
