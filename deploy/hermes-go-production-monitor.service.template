@@ -1,0 +1,29 @@
+[Unit]
+Description=Hermes GO production disk and backup monitor
+After=local-fs.target
+OnFailure=hermes-go-production-monitor-alert.service
+
+[Service]
+Type=oneshot
+User=hermes-remote
+Group=hermes-remote
+WorkingDirectory=/opt/hermes-go-ops
+ExecStart=/usr/bin/node /opt/hermes-go-ops/scripts/hermesctl.mjs production-monitor --config /etc/hermes-remote/production-monitor.json --confirm production:__PRODUCTION_HOSTNAME__
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+UMask=0077
+StandardOutput=journal
+StandardError=journal

@@ -10,10 +10,11 @@ PostgreSQL 迁移，但所有命令仍明确拒绝 production。R5 的目标不�
 
 ## 当前生产差距
 
-2026-09-03 的已授权只读检查确认：线上 Gateway 仍是 `/opt/hermes-remote` 下的旧 Node 服务，缺少
-受管 `current`/`previous` 和制品 manifest；Docker 与 PostgreSQL 18 尚未安装；Gateway 的 8444 端口
-仍绑定公网地址；尚无旧服务恢复制品，也无异机数据库恢复证据。现有 443 路由、Gateway、发布服务、
-DERP 和证书均健康，后续操作必须保留这些服务和既有 Android/Connector 的 URL、Token 与协议。
+2026-09-03 的首次只读检查确认线上 Gateway 仍是 `/opt/hermes-remote` 下的旧 Node 服务，缺少受管
+`current`/`previous` 和制品 manifest。到 2026-09-04，R5-B 与 R5-C1～C3 已经补齐旧服务异机恢复、
+Docker、PostgreSQL 18 和 loopback 监听基线；数据库恢复证据、受管 release/slot 与正式迁移仍未完成。
+现有 443 路由、Gateway、发布服务、DERP 和证书必须继续保持健康，后续操作不得改变既有
+Android/Connector 的 URL、Token 与协议。
 
 ## 切片与授权边界
 
@@ -78,11 +79,21 @@ HK 与 Mac 删除，未修改 `/opt`、`/etc`、`/var/lib`、数据库、路由�
 
 首次实机检查还发现 `Gateway OCI` 只在临时 runner 内生成 bundle，成功后没有保留可下载的候选制品。
 工作流因此只对 `main` push 保留七天的精确 bundle，PR 仍仅构建验证；正式聚合审计必须使用匹配
-`main` 提交的该制品。R5-B 及之后尚未开始，香港服务器保持不变；即使 R5-A 全部通过，也仍然是
-production no-go。
+`main` 提交的该制品。
 
-R5-B 的代码阶段现已建立严格的 `legacy-capture` / `legacy-restore` 合同、AES-256-GCM CMS 流式加密、
+随后经单独授权，R5-B 已使用严格的 `legacy-capture` / `legacy-restore` 合同、AES-256-GCM CMS 流式加密、
 文件级恢复校验、异机主机约束、loopback 临时启动兼容 smoke、`HR-OPS-011` 和可被 R5-A 直接读取的
-证据输出。配置示例和生产门禁见 `CLOUD_GATEWAY_R5_RECOVERY.md`。这只表示工具进入 PR 验证阶段；尚未
-读取或复制新的线上内容，尚未生成生产快照或异机恢复证据，香港服务器仍保持不变。实际捕获仍需单独
-生产授权。
+证据输出，在 Mac 完成加密制品校验与异机恢复测试。受保护恢复制品保存在 Mac 运维目录，没有提交到
+仓库；生产捕获没有停止、重启或切换 Gateway。配置示例和生产门禁见
+`CLOUD_GATEWAY_R5_RECOVERY.md`。
+
+R5-C1 已把旧 Gateway 8444 从公网监听收口到 `127.0.0.1`，重启后公开 health 与正确/错误 Token 路由
+保持预期；R5-C2 已安装 Ubuntu 官方 Docker/containerd/runc，未创建业务容器；R5-C3 已安装并初始化空的
+PostgreSQL 18 集群，显式只监听 `127.0.0.1:5432`，尚未创建 Hermes 数据库、账号或迁移数据。每一步均在
+授权范围内单独验证，未重启 Nginx，也未改变公开 443 路由。
+
+R5-C4 代码阶段新增严格的根磁盘/加密异机备份新鲜度监控、`HR-OPS-012`、15 分钟 systemd timer 和
+本机 `daemon.alert` 模板。它只读取 `df` 和由未来 R5-E 备份流程原子更新的状态文件；状态文件不是数据库
+恢复证据。当前源码尚未部署到香港主机，timer 尚未启用，外部手机/邮件告警渠道也尚未接入。安装与启用
+仍需单独生产授权，详见 `CLOUD_GATEWAY_R5_MONITORING.md`。在真实数据库备份、异机恢复证据、受管基线
+和最终切流完成前，生产晋级仍是 no-go。

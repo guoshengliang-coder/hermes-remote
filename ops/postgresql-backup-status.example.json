@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "kind": "hermes-go-postgresql-backup-status-v1",
+  "sourceHostname": "replace-with-production-hostname",
+  "backupCompletedAt": "2026-09-04T00:00:00.000Z",
+  "offHostCopiedAt": "2026-09-04T00:05:00.000Z",
+  "artifactSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "encryptedBytes": 1048576,
+  "offHostSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "offHostBytes": 1048576,
+  "postgresqlMajorVersion": 18,
+  "databaseSchemaVersion": 7,
+  "offHostStorageId": "mac-recovery-store"
+}
