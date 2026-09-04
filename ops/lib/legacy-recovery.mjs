@@ -185,6 +185,7 @@ async function collectInventory(roots, maximumTotalBytes) {
       const names = [];
       for await (const item of directory) {
         if (/[\u0000-\u001f\u007f]/.test(item.name)) fail("legacy_capture_filename_unsafe", "legacy_capture_inventory");
+        if (item.name.startsWith("._")) continue;
         names.push(item.name);
       }
       names.sort();
