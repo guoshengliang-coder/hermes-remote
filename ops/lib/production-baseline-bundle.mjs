@@ -4,7 +4,7 @@ import { open, readFile } from "node:fs/promises";
 import path from "node:path";
 import { OpsError } from "./errors.mjs";
 
-const MANIFEST_KEYS = Object.freeze([
+const MANIFEST_V1_KEYS = Object.freeze([
   "schemaVersion",
   "kind",
   "sourceCommit",
@@ -14,12 +14,19 @@ const MANIFEST_KEYS = Object.freeze([
   "entrypoint",
   "connectorEntry",
 ]);
+const MANIFEST_V2_KEYS = Object.freeze([...MANIFEST_V1_KEYS, "smokeRuntimeEntry"]);
 
-export async function loadProductionBaselineBundleManifest(filePath, { verifyArchive = true } = {}) {
+export async function loadProductionBaselineBundleManifest(filePath, {
+  verifyArchive = true,
+  allowLegacySchema = false,
+} = {}) {
   try {
     const raw = await readStrictJson(filePath);
-    exactKeys(raw, MANIFEST_KEYS);
-    if (raw.schemaVersion !== 1 || raw.kind !== "hermes-go-production-baseline-bundle-v1") fail("bundle_contract_invalid");
+    const keys = raw.schemaVersion === 1 ? MANIFEST_V1_KEYS : raw.schemaVersion === 2 ? MANIFEST_V2_KEYS : undefined;
+    if (!keys) fail("bundle_contract_invalid");
+    exactKeys(raw, keys);
+    if (raw.kind !== `hermes-go-production-baseline-bundle-v${raw.schemaVersion}`) fail("bundle_contract_invalid");
+    if (raw.schemaVersion === 1 && !allowLegacySchema) fail("bundle_smoke_runtime_required");
     if (!/^[0-9a-f]{40}$/.test(raw.sourceCommit)) fail("bundle_source_commit_invalid");
     if (!isCanonicalTimestamp(raw.createdAt)) fail("bundle_created_at_invalid");
     const sourceShort = raw.sourceCommit.slice(0, 12);
@@ -28,6 +35,9 @@ export async function loadProductionBaselineBundleManifest(filePath, { verifyArc
     if (raw.entrypoint !== "scripts/production-baseline.mjs"
         || raw.connectorEntry !== "connector/dist/index.js") {
       fail("bundle_entrypoints_invalid");
+    }
+    if (raw.schemaVersion === 2 && raw.smokeRuntimeEntry !== "ops/lib/production-smoke-runtime.mjs") {
+      fail("bundle_smoke_runtime_entry_invalid");
     }
     if (verifyArchive) {
       const archivePath = path.join(path.dirname(filePath), raw.archiveFile);
@@ -43,14 +53,15 @@ export async function loadProductionBaselineBundleManifest(filePath, { verifyArc
 
 export function createProductionBaselineBundleManifest({ sourceCommit, createdAt, archiveFile, archiveSha256 }) {
   return {
-    schemaVersion: 1,
-    kind: "hermes-go-production-baseline-bundle-v1",
+    schemaVersion: 2,
+    kind: "hermes-go-production-baseline-bundle-v2",
     sourceCommit,
     createdAt,
     archiveFile,
     archiveSha256,
     entrypoint: "scripts/production-baseline.mjs",
     connectorEntry: "connector/dist/index.js",
+    smokeRuntimeEntry: "ops/lib/production-smoke-runtime.mjs",
   };
 }
 

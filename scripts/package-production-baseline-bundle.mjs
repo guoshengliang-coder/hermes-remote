@@ -48,7 +48,11 @@ try {
   temporaryRoot = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-r5d-ops-package-")));
   await stageRuntime(temporaryRoot);
   run("npm", ["ci", "--omit=dev", "--ignore-scripts"], { cwd: temporaryRoot, timeout: 120_000 });
-  run("node", ["--input-type=module", "-e", "await import('ws'); await import('@hermes-remote/protocol');"], {
+  run("node", ["--input-type=module", "-e", [
+    "await import('ws');",
+    "await import('@hermes-remote/protocol');",
+    "await import('./ops/lib/production-smoke-runtime.mjs');",
+  ].join(" ")], {
     cwd: temporaryRoot,
   });
 

@@ -129,6 +129,14 @@ test('R5-D managed baseline runs only on a disposable secretless host', async ()
   const harness = await readRoot('scripts/test-gateway-staging-bootstrap.sh');
   assert.match(harness, /GATEWAY_R5D_MANAGED_BASELINE_OK/);
   assert.match(harness, /scripts\/production-baseline\.mjs/);
+  const entrypoint = await readRoot('scripts/production-baseline.mjs');
+  assert.match(entrypoint, /withProductionSmokeRuntime/);
+  assert.match(entrypoint, /\.\.\/connector\/dist\/index\.js/);
+  const packager = await readRoot('scripts/package-production-baseline-bundle.mjs');
+  assert.match(packager, /\.\/ops\/lib\/production-smoke-runtime\.mjs/);
+  const smokeRuntime = await readRoot('ops/lib/production-smoke-runtime.mjs');
+  assert.match(smokeRuntime, /server\.listen\(0, "127\.0\.0\.1"\)/);
+  assert.equal(/0\.0\.0\.0|HERMES_SESSION_TOKEN/.test(smokeRuntime), false);
 });
 
 test('R5-E recovery uses only disposable PostgreSQL 18 and an immutable local image', async () => {
