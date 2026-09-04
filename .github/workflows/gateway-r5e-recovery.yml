@@ -1,0 +1,81 @@
+name: Gateway R5-E Recovery
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/gateway-r5e-recovery.yml"
+      - "deploy/Dockerfile.gateway"
+      - "gateway/**"
+      - "ops/**"
+      - "package-lock.json"
+      - "package.json"
+      - "protocol/**"
+      - "scripts/package-gateway-image.sh"
+      - "scripts/postgresql-recovery.mjs"
+      - "scripts/test/postgresql-recovery-e2e.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gateway-r5e-recovery-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  encrypted-off-host-restore:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_USER: hermes_r5e
+          POSTGRES_PASSWORD: ephemeral-only-password
+          POSTGRES_DB: hermes_r5e_source
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hermes_r5e -d hermes_r5e_source"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      postgres_restore:
+        image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_USER: hermes_r5e
+          POSTGRES_PASSWORD: ephemeral-only-password
+          POSTGRES_DB: hermes_r5e_restore
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U hermes_r5e -d hermes_r5e_restore"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies and build exact source
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+      - id: image
+        name: Build immutable Gateway image
+        run: |
+          output=$(./scripts/package-gateway-image.sh)
+          printf '%s\n' "$output"
+          printf 'name=%s\n' "$(printf '%s\n' "$output" | sed -n 's/^ARTIFACT_IMAGE=//p')" >> "$GITHUB_OUTPUT"
+          printf 'id=%s\n' "$(printf '%s\n' "$output" | sed -n 's/^IMAGE_ID=//p')" >> "$GITHUB_OUTPUT"
+      - name: Exercise encrypted backup and restored account path
+        env:
+          R5E_SOURCE_DATABASE_URL: postgresql://hermes_r5e:ephemeral-only-password@127.0.0.1:5432/hermes_r5e_source
+          R5E_RESTORE_DATABASE_URL: postgresql://hermes_r5e:ephemeral-only-password@127.0.0.1:5433/hermes_r5e_restore
+          R5E_SOURCE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          R5E_RESTORE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres_restore.id }}
+          R5E_TARGET_IMAGE: ${{ steps.image.outputs.name }}
+          R5E_TARGET_IMAGE_ID: ${{ steps.image.outputs.id }}
+        run: node scripts/test/postgresql-recovery-e2e.mjs

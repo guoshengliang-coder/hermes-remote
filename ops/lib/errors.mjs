@@ -83,6 +83,13 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "inspect_production_monitor_alert_and_retry",
   }),
+  databaseRecovery: Object.freeze({
+    code: "HR-OPS-013",
+    summaryZh: "PostgreSQL 加密备份或异机恢复验证未完成，未更新有效备份状态。请检查失败阶段后重试。",
+    summaryEn: "PostgreSQL encrypted backup or off-host restore verification did not complete, so no valid backup status was published. Inspect the failed stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_database_recovery_stage_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;
@@ -124,6 +131,7 @@ export function errorPayload(error, fallbackKind = "status", fallbackStage) {
 
 export function redactOpsValue(value) {
   return String(value ?? "unknown_failure")
+    .replace(/\b(postgres(?:ql)?):\/\/[^\s/@:]+:[^\s/@]+@/gi, "$1://[REDACTED]@")
     .replace(/-----BEGIN [^-\r\n]*PRIVATE KEY-----[\s\S]*?-----END [^-\r\n]*PRIVATE KEY-----/gi, "[REDACTED_PRIVATE_KEY]")
     .replace(/-----BEGIN [^-\r\n]*PRIVATE KEY-----/gi, "[REDACTED_PRIVATE_KEY]")
     .replace(/\bauthorization\s*[=:]\s*(?:(?:bearer|basic)\s+)?[^\s,;]+/gi, "authorization=[REDACTED]")

@@ -22,8 +22,8 @@ test('every action is pinned to a full commit SHA with a readable version commen
   }
 });
 
-test('ordinary CI, SAST, and the Gateway image gate stay unprivileged and never require signing material', async () => {
-  for (const file of ['ci.yml', 'sast.yml', 'gateway-oci.yml']) {
+test('ordinary CI, SAST, and the Gateway image gates stay unprivileged and never require signing material', async () => {
+  for (const file of ['ci.yml', 'sast.yml', 'gateway-oci.yml', 'gateway-r5e-recovery.yml']) {
     const text = await read(file);
     assert.equal(/gradlew[^\n]*assemble/.test(text), false, `${file}: packages an APK, which needs the canonical debug key`);
     assert.equal(/KEYSTORE|RELEASE_SSH/.test(text), false, `${file}: references release signing or deployment secrets`);
@@ -52,7 +52,7 @@ test('ordinary CI, SAST, and the Gateway image gate stay unprivileged and never 
 });
 
 test('routine workflows cancel stale PR runs and bound every job', async () => {
-  for (const file of ['ci.yml', 'sast.yml', 'gateway-oci.yml']) {
+  for (const file of ['ci.yml', 'sast.yml', 'gateway-oci.yml', 'gateway-r5e-recovery.yml']) {
     const workflow = await read(file);
     assert.match(workflow, /group: .+\$\{\{ github\.event\.pull_request\.number \|\| github\.ref \}\}/);
     assert.match(workflow, /cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/);
@@ -111,6 +111,25 @@ test('Gateway ephemeral staging is manual, bounded, secretless, and production-i
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /run: \.\/scripts\/test-gateway-staging-bootstrap\.sh/);
   assert.equal(/secrets\.|docker\s+(?:push|login)|packages: write|ssh\b|mrlgs\.net/.test(workflow), false);
+});
+
+test('R5-E recovery uses only disposable PostgreSQL 18 and an immutable local image', async () => {
+  const workflow = await read('gateway-r5e-recovery.yml');
+  assert.match(workflow, /pull_request:[\s\S]*workflow_dispatch:/);
+  assert.match(workflow, /permissions:\n  contents: read/);
+  assert.match(workflow, /runs-on: ubuntu-24\.04/);
+  assert.match(workflow, /timeout-minutes: 25/);
+  assert.match(workflow, /image: postgres:18-alpine@sha256:[0-9a-f]{64}/);
+  assert.match(workflow, /run: node scripts\/test\/postgresql-recovery-e2e\.mjs/);
+  assert.match(workflow, /R5E_SOURCE_POSTGRES_CONTAINER_ID: \$\{\{ job\.services\.postgres\.id \}\}/);
+  assert.match(workflow, /R5E_RESTORE_POSTGRES_CONTAINER_ID: \$\{\{ job\.services\.postgres_restore\.id \}\}/);
+  assert.match(workflow, /R5E_TARGET_IMAGE_ID: \$\{\{ steps\.image\.outputs\.id \}\}/);
+  assert.equal(/secrets\.|docker\s+(?:push|login)|packages: write|ssh\b|mrlgs\.net|47\.239\./.test(workflow), false);
+  const harness = await readRoot('scripts/test/postgresql-recovery-e2e.mjs');
+  assert.match(harness, /capturePostgresqlBackup/);
+  assert.match(harness, /verifyPostgresqlRestore/);
+  assert.match(harness, /publishPostgresqlBackupStatus/);
+  assert.match(harness, /account_smoke_transaction_not_rolled_back/);
 });
 
 test('release secrets stay scoped to the steps that consume them', async () => {

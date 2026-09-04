@@ -159,7 +159,7 @@ configuration and state and creates a new encrypted output. It requires a separa
 after CI passes; do not infer that approval from a merge or from an R5-A audit. The full key-handling,
 invocation, rollback, and verification procedure is in `CLOUD_GATEWAY_R5_RECOVERY.md`.
 
-## PostgreSQL production gate (not yet executed)
+## PostgreSQL production gate (R5-E code ready; production not executed)
 
 The existing HK host has enough nominal CPU and memory for the initial low-volume Gateway database,
 so a second server is not a prerequisite. PostgreSQL must remain a separate system service, listen only
@@ -179,6 +179,12 @@ encrypted logical backup, copy it off the HK host, restore it into a separate di
 run schema plus account smoke checks against the restored copy. Daily backup retention, failure alerts,
 periodic restore rehearsal, disk thresholds, and credential rotation must be in place before account
 mode is enabled. Keeping the only backup on the HK disk does not satisfy this gate.
+
+The R5-E implementation and three separately authorized phases are documented in
+`CLOUD_GATEWAY_R5_DATABASE_RECOVERY.md`. Its dedicated entrypoint performs encrypted capture,
+off-host restore verification with the immutable Gateway image, and evidence-bound atomic status
+activation. No production database, migration, capture, transfer, restore, status activation, or
+timer enablement is implied by the source implementation.
 
 ## Production disk and backup monitoring (R5-C4; not deployed)
 
