@@ -18,6 +18,8 @@
   "roots": [
     { "role": "runtime", "path": "/opt/hermes-remote/gateway" },
     { "role": "configuration", "path": "/etc/hermes-remote/gateway.env" },
+    { "role": "configuration", "path": "/etc/hermes-remote/secrets/app-token" },
+    { "role": "configuration", "path": "/etc/hermes-remote/secrets/connector-token" },
     { "role": "lifecycle", "path": "/var/lib/hermes-remote/lifecycle-events.json" },
     { "role": "nginx", "path": "/etc/nginx/sites-enabled/hermes-remote-gateway" },
     { "role": "systemd", "path": "/etc/systemd/system/hermes-remote-gateway.service" }

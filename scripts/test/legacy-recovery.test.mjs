@@ -143,6 +143,17 @@ test("legacy recovery parsers reject unknown fields and unsafe topology", async 
   assert.equal(captureSchema.additionalProperties, false);
   assert.equal(restoreSchema.additionalProperties, false);
   assert.equal(captureSchema.properties.roots.minItems, 5);
+  assert.equal(captureSchema.properties.roots.maxItems, 16);
+
+  const repeatedRolePath = path.join(fixture.base, "capture-repeated-role.json");
+  await writeJson(repeatedRolePath, {
+    ...fixture.captureConfig,
+    roots: [
+      ...fixture.captureConfig.roots,
+      { role: "configuration", path: path.join(fixture.base, "second-config-file") },
+    ],
+  });
+  assert.equal((await loadLegacyCaptureConfig(repeatedRolePath)).roots.length, 6);
 
   const capturePath = path.join(fixture.base, "capture.json");
   await writeJson(capturePath, { ...fixture.captureConfig, unexpected: true });

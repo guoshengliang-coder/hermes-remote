@@ -30,7 +30,7 @@
     "roots": {
       "type": "array",
       "minItems": 5,
-      "maxItems": 5,
+      "maxItems": 16,
       "items": {
         "type": "object",
         "additionalProperties": false,

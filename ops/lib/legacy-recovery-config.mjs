@@ -161,16 +161,20 @@ export async function loadLegacyArchiveManifest(filePath) {
 }
 
 function captureRoots(value) {
-  if (!Array.isArray(value) || value.length !== CAPTURE_ROLES.length) throw new Error("legacy_capture_roots_invalid");
+  if (!Array.isArray(value) || value.length < CAPTURE_ROLES.length || value.length > 16) {
+    throw new Error("legacy_capture_roots_invalid");
+  }
   const roots = value.map((entry) => {
     exactKeys(entry, ["role", "path"], "legacy_capture_root");
+    if (!CAPTURE_ROLES.includes(entry.role)) throw new Error("legacy_capture_role_invalid");
     return {
       role: token(entry.role, /^[a-z][a-z0-9_-]{0,31}$/, "root.role"),
       path: absolutePath(entry.path, "root.path"),
     };
   });
-  const roles = roots.map((entry) => entry.role).sort();
-  if (roles.some((role, index) => role !== CAPTURE_ROLES[index])) throw new Error("legacy_capture_roles_incomplete");
+  if (CAPTURE_ROLES.some((role) => !roots.some((entry) => entry.role === role))) {
+    throw new Error("legacy_capture_roles_incomplete");
+  }
   if (new Set(roots.map((entry) => entry.path)).size !== roots.length) throw new Error("legacy_capture_root_paths_duplicate");
   return roots;
 }
