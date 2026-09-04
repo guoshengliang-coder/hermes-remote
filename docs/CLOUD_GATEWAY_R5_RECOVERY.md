@@ -13,13 +13,16 @@ Nginx 和 systemd 文件，把 tar 数据流直接送入 OpenSSL CMS AES-256-GCM
   active，并且 R5-A 使用的 identity 文件哈希完全一致。
 - 被恢复执行的 Gateway 入口文件必须位于这组 identity 文件中；归档清单会重新计算 identity digest，不能
   只修改清单字段来伪造 R5-A 绑定关系。
-- 捕获根固定覆盖 `runtime`、`configuration`、`lifecycle`、`nginx` 和 `systemd` 五个角色。根路径本身
-  不能经过符号链接；内部只接受普通文件、目录和目标仍位于捕获根内的相对符号链接。设备、socket、
-  FIFO、绝对链接、路径穿越、超限文件集和捕获期间发生变化的内容都会失败关闭。
+- 捕获根必须覆盖 `runtime`、`configuration`、`lifecycle`、`nginx` 和 `systemd` 五个角色；同一角色可列出
+  多个精确路径，以免为了两个 Secret 文件捕获整个配置目录或 TLS 私钥。根路径本身不能经过符号链接；
+  内部只接受普通文件、目录和目标仍位于捕获根内的相对符号链接。设备、socket、FIFO、绝对链接、路径
+  穿越、超限文件集和捕获期间发生变化的内容都会失败关闭。为保证 Linux 捕获能在 macOS 异机严格校验，
+  目录遍历会忽略 Finder/AppleDouble 生成且不参与服务运行的 `._*` 元数据文件。
 - 输出使用独占创建，不覆盖已有归档、清单或证据。失败时删除本次部分输出，线上文件保持只读。
 - 恢复必须在主机名不同的机器上，以 `isolated:<sourceHostname>` 精确确认。工具先校验密文大小、SHA-256、
   收件证书和归档文件清单，再解密到一次性 `0700` 根目录；无论成功失败都会停止临时进程并删除明文。
-- 临时 Gateway 强制绑定 `127.0.0.1` 的指定高位端口，并强制关闭账号认证和绑定开关。兼容 smoke 要求
+- 临时 Gateway 强制绑定 `127.0.0.1` 的指定高位端口、移除生产 `TLS_CERT_FILE`/`TLS_KEY_FILE`，并强制关闭
+  账号认证和绑定开关；因此生产 TLS 私钥不进入恢复包。兼容 smoke 要求
   `/health` 返回 200、错误旧 Token 返回 401、恢复出的正确旧 Token 返回 200 或预期的 Connector 离线
   状态 502/503/504。它不连接公网 Nginx，也不要求 Connector 在线。
 
@@ -36,7 +39,8 @@ openssl req -x509 -newkey rsa:3072 -nodes -days 31 \
 ```
 
 把公开证书复制到香港主机，按照 `ops/legacy.capture.example.json` 创建不入库的私密配置。`identityFiles`
-必须与已审计的 R5-A 生产配置逐字一致。Nginx 根应填写真实普通文件，而不是 `sites-enabled` 符号链接。
+必须与已审计的 R5-A 生产配置逐字一致。配置根应只列出 Gateway 恢复必需的环境与 Token 文件，不得顺带
+捕获 TLS 私钥；Nginx 根应填写真实普通文件，而不是 `sites-enabled` 符号链接。
 确认输出目录空间和权限后运行：
 
 ```bash

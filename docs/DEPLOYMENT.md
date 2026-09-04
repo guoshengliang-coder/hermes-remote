@@ -119,11 +119,13 @@ node scripts/hermesctl.mjs production-audit \
   --confirm production:<configured-public-hostname>
 ```
 
-Every successful `Gateway OCI` push run on `main` retains its exact bundle as
-`gateway-bundle-<full-main-commit>` for seven days. Pull-request runs still build and verify the bundle but do
-not retain it. Download the artifact from the matching successful `main` run, preserve both the archive and
-manifest together, and use that manifest as `targetArtifactManifest`; never substitute a hand-written
-manifest or a bundle from another commit.
+Every successful `Gateway OCI` push run on `main` retains its exact artifact as
+`gateway-bundle-<full-main-commit>` for seven days. It contains the Gateway archive/manifest and the separately
+hashed R5-D operator archive/manifest. Pull-request runs still build and verify both bundles but do not retain
+them. Download the artifact from the matching successful `main` run, preserve every archive with its manifest,
+and use the Gateway manifest as `targetArtifactManifest`; never substitute a hand-written manifest or combine
+bundles from different commits. Verify the operator archive with
+`scripts/verify-production-baseline-bundle.mjs` before and after transfer.
 
 The command aggregates every gate instead of stopping at the first missing prerequisite. It checks the exact
 Linux/amd64 host identity, minimum free disk and available memory, immutable target bundle, exact hashes of the
@@ -159,7 +161,7 @@ configuration and state and creates a new encrypted output. It requires a separa
 after CI passes; do not infer that approval from a merge or from an R5-A audit. The full key-handling,
 invocation, rollback, and verification procedure is in `CLOUD_GATEWAY_R5_RECOVERY.md`.
 
-## PostgreSQL production gate (not yet executed)
+## PostgreSQL production gate (R5-E code ready; production not executed)
 
 The existing HK host has enough nominal CPU and memory for the initial low-volume Gateway database,
 so a second server is not a prerequisite. PostgreSQL must remain a separate system service, listen only
@@ -179,3 +181,55 @@ encrypted logical backup, copy it off the HK host, restore it into a separate di
 run schema plus account smoke checks against the restored copy. Daily backup retention, failure alerts,
 periodic restore rehearsal, disk thresholds, and credential rotation must be in place before account
 mode is enabled. Keeping the only backup on the HK disk does not satisfy this gate.
+
+The R5-E implementation and three separately authorized phases are documented in
+`CLOUD_GATEWAY_R5_DATABASE_RECOVERY.md`. Its dedicated entrypoint performs encrypted capture,
+off-host restore verification with the immutable Gateway image, and evidence-bound atomic status
+activation. No production database, migration, capture, transfer, restore, status activation, or
+timer enablement is implied by the source implementation.
+
+## Production disk and backup monitoring (R5-C4; not deployed)
+
+R5-C4 adds a separate `production-monitor` command. It reads only the root filesystem capacity and one
+strict PostgreSQL encrypted-backup status file; it does not run `pg_dump`, connect to PostgreSQL, remove
+files, restart a service, or change routing. Create the private config from
+`ops/production.monitor.example.json` and bind the invocation to the configured production hostname:
+
+```bash
+node scripts/production-monitor.mjs \
+  --config /etc/hermes-remote/production-monitor.json \
+  --confirm production:<configured-hostname>
+```
+
+The command exits nonzero with `HR-OPS-012` when free disk is below either configured threshold or the
+off-host backup status is missing, invalid, stale, in the future, undersized, or bound to the wrong host,
+PostgreSQL major, or database schema. Warning-level disk results also exit nonzero so the timer cannot
+silently ignore them. Output excludes the status path, artifact hash, and off-host storage identifier.
+
+The status file follows `ops/postgresql-backup-status.schema.json`. It may be atomically replaced only by
+the later R5-E backup job after encryption, off-host copy, full remote byte/hash verification, and final
+metadata binding all succeed. It is an operational freshness signal, not a substitute for the separate-host
+restore evidence required by `production-audit`.
+
+The three `deploy/hermes-go-production-monitor*.template` units schedule the read-only check every 15
+minutes and convert a failed run into a local `daemon.alert` journal event. They deliberately contain no
+network notification credential or auto-remediation. Installation and timer enablement require explicit
+production authorization; this source change does not deploy them. See `CLOUD_GATEWAY_R5_MONITORING.md`
+for the dependency-free code snapshot, status-writer contract, validation sequence, and external-notification
+boundary. The dedicated entrypoint must be used by systemd; `scripts/hermesctl.mjs` remains available for
+interactive compatibility but loads unrelated deployment modules and is not the production timer entrypoint.
+
+## Production managed baseline (R5-D; production not executed)
+
+R5-D keeps the ordinary `hermesctl deploy/rollback` commands staging-only. Its dedicated
+`scripts/production-baseline.mjs` entrypoint accepts only a strict production configuration, an exact
+`production:<hostname>` confirmation, the immutable target bundle, unchanged legacy identity files, and fresh
+R5-B off-host recovery evidence. It requires full candidate, public, and legacy compatibility smoke callbacks
+and fixes database/account features off for this transition.
+
+Do not generate the production Nginx file from the staging template. Start from the actual production site
+file, preserve every unrelated route, replace only the Gateway upstream, review the complete diff, and pin its
+SHA-256 in the private configuration. The switch installs that exact file and restores the original bytes if
+validation, reload, state handoff, observation, or smoke fails. See `CLOUD_GATEWAY_R5_MANAGED_BASELINE.md` for
+the config, topology, disposable test, maintenance-window checklist, and recovery boundary. Source review or a
+successful disposable workflow does not authorize running this command on the HK host.

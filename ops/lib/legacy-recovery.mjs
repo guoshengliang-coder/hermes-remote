@@ -185,6 +185,7 @@ async function collectInventory(roots, maximumTotalBytes) {
       const names = [];
       for await (const item of directory) {
         if (/[\u0000-\u001f\u007f]/.test(item.name)) fail("legacy_capture_filename_unsafe", "legacy_capture_inventory");
+        if (item.name.startsWith("._")) continue;
         names.push(item.name);
       }
       names.sort();
@@ -313,6 +314,8 @@ async function verifyRestoredEntries(restoreRoot, manifest) {
 async function startAndSmokeRestoredService(config, manifest, options) {
   const environmentPath = restoredPath(config.restoreRoot, manifest.service.environmentFile);
   const environment = parseEnvironment(await readFile(environmentPath, "utf8"));
+  delete environment.TLS_CERT_FILE;
+  delete environment.TLS_KEY_FILE;
   for (const [key, value] of Object.entries(environment)) {
     if ((key.endsWith("_FILE") || key === "LIFECYCLE_EVENT_STORE_FILE") && path.isAbsolute(value)) {
       const candidate = restoredPath(config.restoreRoot, value);

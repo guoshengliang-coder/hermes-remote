@@ -20,6 +20,7 @@ const execFileAsync = promisify(execFile);
 
 test("legacy recovery captures with authenticated encryption and proves an off-host isolated start", async (t) => {
   const fixture = await createFixture(t);
+  await writeFile(path.join(fixture.runtime, "._index.mjs"), "AppleDouble metadata must not enter the archive");
   const capture = await captureLegacyRecovery(fixture.captureConfig, {
     confirmation: "production:prod-host",
     hostname: "prod-host",
@@ -33,6 +34,7 @@ test("legacy recovery captures with authenticated encryption and proves an off-h
   const manifest = await loadLegacyArchiveManifest(fixture.captureConfig.manifestFile);
   assert.equal(manifest.archiveSha256, capture.archiveSha256);
   assert.equal(manifest.entries.some((entry) => entry.type === "symlink"), true);
+  assert.equal(manifest.entries.some((entry) => path.basename(entry.path).startsWith("._")), false);
 
   const restored = await verifyLegacyRecovery(fixture.restoreConfig, {
     confirmation: "isolated:prod-host",
@@ -143,6 +145,17 @@ test("legacy recovery parsers reject unknown fields and unsafe topology", async 
   assert.equal(captureSchema.additionalProperties, false);
   assert.equal(restoreSchema.additionalProperties, false);
   assert.equal(captureSchema.properties.roots.minItems, 5);
+  assert.equal(captureSchema.properties.roots.maxItems, 16);
+
+  const repeatedRolePath = path.join(fixture.base, "capture-repeated-role.json");
+  await writeJson(repeatedRolePath, {
+    ...fixture.captureConfig,
+    roots: [
+      ...fixture.captureConfig.roots,
+      { role: "configuration", path: path.join(fixture.base, "second-config-file") },
+    ],
+  });
+  assert.equal((await loadLegacyCaptureConfig(repeatedRolePath)).roots.length, 6);
 
   const capturePath = path.join(fixture.base, "capture.json");
   await writeJson(capturePath, { ...fixture.captureConfig, unexpected: true });
@@ -199,7 +212,14 @@ server.listen(Number(process.env.PORT), process.env.HOST);
 process.on("SIGTERM", () => server.close(() => process.exit(0)));
 `);
   await writeFile(packageFile, '{"name":"legacy-fixture","version":"0.1.0","type":"module"}\n');
-  await writeFile(configuration, "APP_TOKEN=test-app-token\nHOST=0.0.0.0\nPORT=8444\n");
+  await writeFile(configuration, [
+    "APP_TOKEN=test-app-token",
+    "HOST=0.0.0.0",
+    "PORT=8444",
+    "TLS_CERT_FILE=/production-only/tls/fullchain.pem",
+    "TLS_KEY_FILE=/production-only/tls/privkey.pem",
+    "",
+  ].join("\n"));
   await writeFile(lifecycle, '{"events":[],"nextSequence":1}\n', { mode: 0o600 });
   await writeFile(nginx, "location / { proxy_pass http://127.0.0.1:8444; }\n");
   await writeFile(systemd, "[Service]\nExecStart=/usr/bin/node index.mjs\n");

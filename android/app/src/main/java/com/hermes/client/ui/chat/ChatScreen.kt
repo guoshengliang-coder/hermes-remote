@@ -147,11 +147,16 @@ fun ChatScreen(
     LaunchedEffect(language) { vm.setAppLanguage(language) }
     val state by vm.state.collectAsStateWithLifecycle()
     val connState by vm.connectionState.collectAsStateWithLifecycle()
+    // Null while the connection is fine, and also during a short outage the user should never
+    // learn about (see connectionBanner). connState itself stays raw for send-enablement.
+    val bannerState by vm.connectionBanner.collectAsStateWithLifecycle()
     var connectionWasInterrupted by remember(sessionId) { mutableStateOf(false) }
     var recoveryNotice by remember(sessionId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(connState, sessionId) {
-        when (connState) {
-            ConnectionState.Connected -> if (connectionWasInterrupted) {
+    LaunchedEffect(bannerState, sessionId) {
+        // "Connection restored" is only news to someone who was told it broke. Keying this off the
+        // banner rather than the raw state means a blip announces neither the loss nor the repair.
+        if (bannerState == null) {
+            if (connectionWasInterrupted) {
                 recoveryNotice = localized(
                     language,
                     "连接已恢复，正在同步会话…",
@@ -161,10 +166,9 @@ fun ChatScreen(
                 kotlinx.coroutines.delay(3_000L)
                 recoveryNotice = null
             }
-            else -> {
-                connectionWasInterrupted = true
-                recoveryNotice = null
-            }
+        } else {
+            connectionWasInterrupted = true
+            recoveryNotice = null
         }
     }
     val unauthorized by vm.unauthorized.collectAsStateWithLifecycle()
@@ -1027,11 +1031,9 @@ fun ChatScreen(
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            if (!connected) {
-                ConnectionBanner(connState, onRetry = { vm.reconnect() })
-            } else {
-                recoveryNotice?.let { ConnectionRecoveryBanner(it) }
-            }
+            bannerState?.let { banner ->
+                ConnectionBanner(banner, onRetry = { vm.reconnect() })
+            } ?: recoveryNotice?.let { ConnectionRecoveryBanner(it) }
             // Parked clarify: a slim strip that reopens the decision card.
             if (state.pendingClarify != null && clarifyCollapsed) {
                 Surface(

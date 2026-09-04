@@ -426,3 +426,101 @@ sparse real-world data, a genuinely offline Mac, or a stalled tunnel.
    chart. This is upstream behaviour, not a client bug; the footnote exists to state it.
 7. Both themes: the error state's code line and the empty state's icon must be legible in dark mode
    (the error colour family is now explicit — see `ErrorColorsTest`).
+
+## Background connection smoke test (2026-09 branch claude/background-connection, R1)
+
+R1 changes when the app is allowed to keep its socket while backgrounded. Everything below is
+reproducible on the emulator against the local dev stack — no production access and no real device
+are needed for cases 1–5.
+
+Environment (build and boot separately; the emulator on the dev host starves under concurrent
+Gradle work — see the header of `scripts/dev/emulator.sh`):
+
+```bash
+./scripts/dev/emulator.sh start Pixel_9_API_36_1
+./scripts/dev/dev-stack.sh start
+# logs: $TMPDIR/hermes-dev-stack/{mock,gateway,connector}.log
+```
+
+The gateway itself logs only startup and shutdown, so its log proves nothing about a socket. The
+decisive evidence is the app's own diagnostic log, which mirrors to logcat once 设置 → 诊断 →
+诊断日志 is on:
+
+```bash
+adb logcat -s HermesDebug | grep -E "\[(ws|service|lifecycle)\]"
+```
+
+`socket closed (gen=N): client closing` is the client deciding to disconnect; `opening socket` marks
+a reconnect. A window containing neither means the connection was never dropped — which is the
+distinction that matters here, because the R3 banner grace deliberately hides a fast reconnect and
+would otherwise make a dropped socket look like a socket that survived.
+
+### Emulator cases
+
+1. **The reported bug.** Turn every notification switch off. Send a prompt, and while the answer is
+   still streaming switch to the launcher for ~90 seconds (longer than the 45s grace), then return.
+   Expected: no reconnect banner, the stream continues, and the gateway log shows no close. Before
+   R1 this closed the socket at 45s and the session came back as 正在恢复连接….
+2. **Ownership survives an intermediate completion.** With notifications still off, run a prompt
+   that leaves a background process running, wait for the assistant message to complete, then
+   background the app for ~90s. Expected: still connected — `message.complete` no longer releases
+   phone ownership while work continues.
+3. **Idle still disconnects.** Notifications off, nothing running: background the app for ~90s.
+   Expected: the socket closes after the grace period (`1000 / client closing` in the gateway log)
+   and no foreground-service card appears. R1 must not turn into "always connected".
+4. **Power saving still wins.** Set 监控策略 to 省电, start a run, background the app. Expected: the
+   socket closes after the grace period — an explicit instruction outranks the run.
+5. **The service card.** With notifications off and a run in flight, the MIN `service` card appears
+   while backgrounded and disappears when the run ends (docs/DESIGN.md §5.10). Confirm it is silent
+   and cannot be dismissed while the run is live.
+
+### Emulator cases — banner and reconnect cost (R3)
+
+6. **A blip says nothing.** With a run streaming, switch to the launcher and back within ~2 seconds.
+   Expected: no banner at any point, and no 连接已恢复 strip either — if the user was never told it
+   broke, there is nothing to repair. Repeat a few times; a flash of red on the first frame back is
+   the regression.
+7. **A real outage still reports promptly.** Stop the dev stack (`./scripts/dev/dev-stack.sh stop`)
+   while the chat is open. Expected: within ~2.5s the banner appears in the calm progress style
+   (spinner, 正在重新连接…), not the red failure style, and it keeps updating through the backoff
+   rather than staying hidden. Restart the stack: the banner disappears and 连接已恢复，正在同步会话…
+   appears for three seconds.
+8. **Failure still looks like failure.** Point the app at an unreachable gateway. Expected: the red
+   `errorContainer` banner with HR-CONN-002, 详情 and 重试.
+9. **No transcript storm.** With diagnostic logging on, open an idle chat (nothing running), drop
+   and restore the connection. Expected: the `history` channel shows no reconcile pass for that
+   chat — an idle chat has no gap to recover. Repeat with a chat that is mid-answer: that one must
+   reconcile.
+10. **Notification settings copy.** Turn 启用通知 off: the explanation about the silent 后台保持连接
+    card appears under the switch and disappears when the switch is back on.
+
+### Emulator pass, 2026-09-04 (branch claude/background-connection)
+
+Cases 1–5, 9 and 10 were run on Pixel_9_API_36_1 against the local stack and passed. Two findings
+came out of the pass rather than out of review, and both are fixed on the branch:
+
+- The 「连接已恢复」 strip still appeared after a *deliberate* idle disconnect. The outage had burned
+  its grace while the app was backgrounded, so the first frame back was already "interrupted". The
+  grace now only runs while the chat is on screen (see docs/DESIGN.md, connection visual grading).
+- With notifications off the 后台监控方式 group was greyed out, which after R1 left those users no
+  way to opt out of the keep-alive at all — 省电 is now the only control that does that. The group
+  is reachable regardless of the notification switch.
+
+Ports: the stack was run on 8788 rather than the script's 8787, which was held by an unrelated
+project. Note that `dev-stack.sh stop` kills whatever holds its ports.
+
+### Device cases (still unverified — no real device on the dev host)
+
+11. **Screen-off survival.** Start a run, lock the phone for 5–10 minutes, unlock. Record whether the
+   socket survived and, if not, the close code and the elapsed time. This is the M1 item: the
+   emulator reaches the gateway over `adb reverse` on loopback, which never drops and never passes
+   through the edge nginx `proxy_read_timeout 75s`, so it cannot answer this question. The result
+   decides whether the 45s ping cadence R2 settled on is enough tolerance. If sockets still die with
+   the screen off, the next step is an application-level heartbeat that can forgive a single missed
+   beat — OkHttp's own ping treats one late pong as a dead connection and offers no leniency knob,
+   which is why R2 could only widen the window rather than add tolerance.
+12. **Reaching the real edge.** Because loopback bypasses nginx, at least one run should be observed
+   against the production gateway to confirm the 45s ping actually keeps the proxy's 75s idle timer
+   from firing. Ordinary use of the app is enough; no deployment is involved.
+13. **Vendor battery management.** On a Chinese OEM ROM, confirm the foreground service is not killed
+   during a run, and whether the app needs to be added to the battery whitelist.

@@ -24,7 +24,8 @@
 
 - **android**：`scripts/package-debug-apk.sh`、`scripts/publish-android-apk.sh`、
   `scripts/import-android-release-history.sh`、`scripts/lib/release_metadata.py`、`docs/DESIGN.md`
-- **cloud**：`scripts/hermesctl.mjs`、`scripts/deploy-*.sh`、`scripts/bootstrap-release-server.sh`、
+- **cloud**：`scripts/hermesctl.mjs`、`scripts/production-monitor.mjs`、`scripts/deploy-*.sh`、
+  `scripts/bootstrap-release-server.sh`、
   `scripts/test/**`、`docs/CLOUD_*`、`docs/DEPLOYMENT.md`
 - **共用**：`scripts/dev/**`、`scripts/mock-hermes*.mjs`（本地联调工具；不阻断合并，但改动要在提交
   信息里说明，因为三边都可能依赖它复现问题）

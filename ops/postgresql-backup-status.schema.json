@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hermes-go.invalid/schemas/postgresql-backup-status-v1.json",
+  "title": "Hermes GO PostgreSQL encrypted off-host backup status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "sourceHostname",
+    "backupCompletedAt",
+    "offHostCopiedAt",
+    "artifactSha256",
+    "encryptedBytes",
+    "offHostSha256",
+    "offHostBytes",
+    "postgresqlMajorVersion",
+    "databaseSchemaVersion",
+    "offHostStorageId"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "hermes-go-postgresql-backup-status-v1" },
+    "sourceHostname": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$" },
+    "backupCompletedAt": { "type": "string", "format": "date-time" },
+    "offHostCopiedAt": { "type": "string", "format": "date-time" },
+    "artifactSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "encryptedBytes": { "type": "integer", "minimum": 1, "maximum": 1099511627776 },
+    "offHostSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "offHostBytes": { "type": "integer", "minimum": 1, "maximum": 1099511627776 },
+    "postgresqlMajorVersion": { "type": "integer", "minimum": 1, "maximum": 99 },
+    "databaseSchemaVersion": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+    "offHostStorageId": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" }
+  }
+}

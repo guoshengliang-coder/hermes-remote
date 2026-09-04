@@ -3,6 +3,7 @@ package com.hermes.client.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.ConnectionState
+import com.hermes.client.data.network.connectionBanner
 import com.hermes.client.data.network.HermesApiException
 import com.hermes.client.data.network.GatewayRpcException
 import com.hermes.client.data.network.ProfileDto
@@ -40,6 +41,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -172,6 +174,21 @@ class ChatViewModel @Inject constructor(
     }
 
     val connectionState: StateFlow<ConnectionState> = chat.connectionState
+
+    /**
+     * What the chat banner should say, or null for "say nothing". An outage shorter than the grace
+     * never reaches the UI: switching away and back is not news, and flashing a banner for it made
+     * a run that never stopped look broken. [connectionState] stays raw for send-enablement.
+     */
+    val connectionBanner: StateFlow<ConnectionState?> = chat.connectionState
+        .connectionBanner()
+        // WhileSubscribed, not Eagerly, and the difference is the whole point: the screen stops
+        // collecting at ON_STOP, so the grace only ever runs while the chat is actually on screen.
+        // Shared eagerly, an outage that began in the background — the socket is closed on purpose
+        // once a backgrounded app goes idle — burned its grace where nobody could see it, and the
+        // first frame back was already "interrupted", which then announced a recovery for a
+        // disconnection the user was never shown. Time the user could not see is not disruption.
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 0), null)
 
     // I1: expose 401 unauthorized so the nav layer can route back to Setup
     private val _unauthorized = MutableStateFlow(false)
