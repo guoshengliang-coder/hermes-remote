@@ -340,6 +340,9 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
 2. **一个周期 `Motion.LoopPeriod = 1200ms`，一个延迟门 `Motion.RevealDelay = 250ms`
    + `Motion.RevealFade = 200ms`。** 1200ms 已是发送呼吸环与启动流光的周期；
    250ms 内结束的等待**什么加载物都不出现**（同 §5.4 气泡呼吸、§5.11 启动状态）。
+   延迟门只管**占位型**加载 —— 在空白处新插入的加载物（`LoadingState` / `ListLoadingState`）。
+   **原地替换一个已有图标**的行内标记（顶栏刷新钮、行尾切换态、上传图标）不加门：它不是多出来的
+   家具，是同一位置的状态切换，用户刚点完就该立刻有反馈。
    聊天历史骨架原本自带 1350ms，已并入本 token。
 3. **不确定 = 品牌标记；确定 = 渐变条。** 永不显示假进度。`reduceMotion()`
    （系统"关闭动画"）下所有循环停在最亮一帧的 60%，静态可读，不留空框。
@@ -352,7 +355,7 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
 | 行形状未知的页面首载（用量 / 模型 / MCP / 记忆 / 工具） | `LoadingState` = `HermesMark` | 32dp |
 | 已有内容的刷新 / 加载更多 | `TopProgressLine` | 2dp 全宽，置顶不遮挡 |
 | 聊天运行中（尚无内容 / 生成中 / 思考 / 跑工具） | `RunningStatusLine` = 标记 + 状态文字 | 14dp |
-| 行内等待、按钮内提交 | `HermesMark` / M3 转盘（按钮内） | 20dp |
+| 行内等待（刷新、切换身份、上传、图片加载、横幅） | `HermesMark` | 14–24dp，跟随原尺寸 |
 
 - **标记**：H 静止，一束锥形亮光绕横梁中心（图标四色的交汇点）顺时针转；暗部 `DIM_ALPHA = 0.30`
   保证任何相位下 H 都读得出来。比例 14:15 取自图标本身。**不做**旋转形状、不做四象限跳闪。
@@ -364,6 +367,10 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
   首个 token 之前**只有标记、不给文字**（「正在准备」只会被读一次就被真状态替换）；
   文字出现后标记不动、行高不变，48dp 页脚高度契约不变（§5.4 尾跳保护）。
   状态文字不再随呼吸变透明度 —— 一次只有一个东西在动。
+- **仍然用 M3 转盘的三种情况**（决策 2026-09-04，逐处在代码里写明原因）：① 按钮 / FAB 内部
+  （新建会话），② 画在照片或头像上（全屏图保存、身份换头像）—— 这两种的底色不可预知，单色标记
+  没有对比度保证；③ 颜色承载**状态语义**的指示器（会话行 `RuntimeIndicator` 走 `StatusColors`），
+  染成品牌色会把两套色彩系统搅在一起。除此之外页面内不应再出现转盘。
 - 验证：`BrandLoaderTest`（延迟门、行数封顶、关闭动画仍可见）、`RunningRowTest`（三态只有一个指示物）、
   截图 `status-preparing / loading-mark / loading-skeleton / loading-skeleton-dark`。
 

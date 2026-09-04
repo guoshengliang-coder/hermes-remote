@@ -1502,7 +1502,7 @@ private fun ChatImageThumbnail(image: ChatImage, modifier: Modifier, onClick: ()
         } else if (image.state == ImageTransferState.UPLOADING ||
             ((image.remotePath != null || image.sourceUrl != null) && image.state != ImageTransferState.FAILED)
         ) {
-            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            com.hermes.client.ui.components.HermesMark(size = 24.dp)
         } else {
             Icon(
                 Icons.Rounded.BrokenImage,
@@ -1570,6 +1570,8 @@ private fun FullScreenImage(
                     enabled = !saving,
                     onClick = onSave,
                 ) {
+                    // Stays an M3 spinner: white-on-photo, where a single-colour brand mark
+                    // has no guaranteed contrast (docs/DESIGN.md §5.6).
                     if (saving) CircularProgressIndicator(Modifier.size(21.dp), strokeWidth = 2.dp, color = Color.White)
                     else Icon(Icons.Rounded.Download, null, tint = Color.White)
                 }
@@ -1646,7 +1648,7 @@ private fun ChatFileList(
                         }
                     }
                     when (file.state) {
-                        FileTransferState.UPLOADING -> CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                        FileTransferState.UPLOADING -> com.hermes.client.ui.components.HermesMark(size = 22.dp)
                         FileTransferState.FAILED -> Icon(Icons.Rounded.BrokenImage, contentDescription = localized(LocalAppLanguage.current, "文件不可用", "File unavailable"))
                         FileTransferState.READY -> {
                             if (file.remotePath != null || file.localPath != null) {
@@ -1690,7 +1692,7 @@ private fun BackgroundProcessesCard(processes: List<com.hermes.client.data.repos
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (running > 0) {
-                    CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                    com.hermes.client.ui.components.HermesMark(size = 17.dp)
                     Spacer(Modifier.width(10.dp))
                 }
                 Text(

@@ -309,6 +309,8 @@ fun ProfileEditScreen(
                 Box(Modifier.size(96.dp)) {
                     ProfileAvatar(vm.profile, size = 96.dp, identity = preview)
                     if (state.importing) {
+                        // Overlays the avatar (photo or hashed colour), so contrast is unknown:
+                        // M3 spinner rather than the single-colour brand mark (§5.6).
                         CircularProgressIndicator(Modifier.align(Alignment.Center).size(32.dp), strokeWidth = 3.dp)
                     }
                     Surface(

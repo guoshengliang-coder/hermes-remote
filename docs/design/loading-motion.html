@@ -213,7 +213,8 @@ tr:last-child td{border-bottom:0}
 理由不只是规范洁癖：加载动效里出现绿色会与 <code>StatusColors</code> 的"已完成 / 已连接"抢语义。</p></div>
 <div class="rule"><span class="n">2</span><p style="margin:0"><b>一个周期 1200ms，一个延迟门 250ms + 200ms 淡入。</b>
 1200ms 已经是发送呼吸环和启动流光的周期，全部动效对齐它，不引入第四条曲线（<code>§5.6</code>：新动效先对齐既有时长）。
-延迟门沿用两处既有决策（气泡呼吸 250ms、启动状态 700ms）：<b>加载在 250ms 内结束就什么都不出现</b>，快的操作只看到内容直接出现。</p></div>
+延迟门沿用两处既有决策（气泡呼吸 250ms、启动状态 700ms）：<b>加载在 250ms 内结束就什么都不出现</b>，快的操作只看到内容直接出现。
+门只管<b>占位型</b>加载（在空白处新插入的加载物）；原地替换一个已有图标的行内标记（顶栏刷新钮、行尾切换态）不加门 —— 那不是多出来的家具，是同一位置的状态切换，用户刚点完就该立刻有反馈。</p></div>
 <div class="rule"><span class="n">3</span><p style="margin:0"><b>不确定进度 = 品牌标记；确定进度 = 品牌渐变条。</b>
 两者不混用：不知道要多久的用标记（永不显示假进度），知道百分比的（上传、下载、更新）用渐变条 / 弧。
 无障碍：<code>reduce-motion</code> 或省电模式下所有循环停在最亮一帧的 60%，保留静态标记与文字，不做动画。</p></div>
@@ -396,8 +397,8 @@ tr:last-child td{border-bottom:0}
     <div style="display:flex;align-items:center;gap:14px;height:44px">
       <span class="mark s20 sweepm"><i></i></span><span style="font-size:12px;color:var(--sec)">方案 20dp 标记</span>
     </div>
-    <div class="cap"><b>不确定的行内等待</b>模型列表刷新、人格加载、附件解析：换成 20dp 标记。
-    <b>但</b>按钮内部（保存中、连接中）仍用转盘 —— 按钮里的图形要和文字基线对齐、且常是白色描边，标记在 <code>onPrimary</code> 上的单色版本可读性差。这条留作待决 ①。</div>
+    <div class="cap"><b>不确定的行内等待</b>模型列表刷新、人格加载、切换身份、附件上传、图片加载、连接恢复横幅：全部换成标记（14–24dp，跟随原尺寸）。
+    <b>保留转盘只有三种</b>（决策 2026-09-04）：按钮 / FAB 内部；画在照片或头像上；颜色承载状态语义的指示器（会话行运行态走 <code>StatusColors</code>）。前两种底色不可预知，第三种换成品牌色会把两套色彩系统搅在一起。</div>
   </div>
   <div class="cell stage light" style="width:300px">
     <div style="height:44px;display:flex;align-items:center;gap:10px">
@@ -425,8 +426,8 @@ tr:last-child td{border-bottom:0}
 <tr><td>非列表页空白首载</td><td>品牌标记（方向 1）</td><td>32dp</td><td>1200ms</td><td>250ms</td><td>单色</td></tr>
 <tr><td>已有内容刷新 / 加载更多</td><td>顶部细线</td><td>2dp 全宽</td><td>1200ms</td><td>250ms</td><td>单色</td></tr>
 <tr><td>聊天生成中 / 思考 / 跑工具</td><td>标记 + 状态文字</td><td>14dp</td><td>1200ms</td><td>250ms</td><td>单色</td></tr>
-<tr><td>行内等待（刷新、解析）</td><td>标记</td><td>20dp</td><td>1200ms</td><td>250ms</td><td>单色</td></tr>
-<tr><td>按钮内提交</td><td>转盘（待决 ①）</td><td>20dp</td><td>—</td><td>250ms</td><td>onPrimary</td></tr>
+<tr><td>行内等待（刷新 / 切换 / 上传 / 图片 / 横幅）</td><td>标记</td><td>14–24dp</td><td>1200ms</td><td>250ms</td><td>单色</td></tr>
+<tr><td>按钮内 / 照片上 / 状态色指示器</td><td>M3 转盘（唯一保留）</td><td>原尺寸</td><td>—</td><td>250ms</td><td>随容器</td></tr>
 <tr><td>确定进度（上传 / 更新）</td><td>渐变条</td><td>4dp</td><td>—</td><td>立即</td><td><b>三色</b></td></tr>
 <tr><td>启动门</td><td>多彩图标 + 三色进度条（已定）</td><td>144dp</td><td>1200ms</td><td>700ms</td><td><b>多彩</b></td></tr>
 <tr><td>发送中气泡</td><td>呼吸环（已定）</td><td>12dp</td><td>1200ms</td><td>250ms</td><td>单色</td></tr>

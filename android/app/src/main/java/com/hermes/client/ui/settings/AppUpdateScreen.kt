@@ -24,7 +24,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -158,11 +157,9 @@ fun AppUpdateContent(
                 actions = {
                     if (state.checking) {
                         Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(
-                                Modifier.size(20.dp).semantics {
-                                    contentDescription = localized(language, "正在检查更新", "Checking for updates")
-                                },
-                                strokeWidth = 2.dp,
+                            com.hermes.client.ui.components.HermesMark(
+                                size = 20.dp,
+                                contentDescription = localized(language, "正在检查更新", "Checking for updates"),
                             )
                         }
                     } else {

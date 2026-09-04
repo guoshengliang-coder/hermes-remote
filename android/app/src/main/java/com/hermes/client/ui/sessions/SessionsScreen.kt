@@ -247,6 +247,8 @@ fun SessionsScreen(
                 contentColor = MaterialTheme.colorScheme.onPrimary,
             ) {
                 if (creatingSession) {
+                    // Button-internal wait keeps the M3 spinner: the brand mark is drawn in one
+                    // colour and reads poorly on onPrimary (docs/DESIGN.md §5.6).
                     CircularProgressIndicator(
                         modifier = Modifier.size(24.dp),
                         strokeWidth = 2.5.dp,
@@ -966,6 +968,8 @@ private fun RuntimeIndicator(runtime: SessionRuntime) {
             SessionRunPhase.WAITING_ATTENTION,
         )
     ) {
+        // Not the brand mark: this indicator's colour carries run status (§2.1 keeps status
+        // colours independent of the brand), and a tinted H would blur the two systems.
         CircularProgressIndicator(
             modifier = Modifier.size(18.dp),
             color = color,
