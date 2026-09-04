@@ -66,7 +66,8 @@ The staging-only R4 safe-upgrade design and completed isolated staging/fault-inj
 The production-promotion work is deliberately separate from those staging commands. Its read-only audit contract,
 legacy recovery boundary, PostgreSQL/off-host restore gates, and still-pending production actions are tracked in
 `docs/CLOUD_GATEWAY_R5_PLAN.md`; the R5-C4 disk/backup status and local-alert contract is in
-`docs/CLOUD_GATEWAY_R5_MONITORING.md`, and the R5-E encrypted PostgreSQL/off-host restore contract is in
+`docs/CLOUD_GATEWAY_R5_MONITORING.md`, the R5-D production managed-baseline adoption contract is in
+`docs/CLOUD_GATEWAY_R5_MANAGED_BASELINE.md`, and the R5-E encrypted PostgreSQL/off-host restore contract is in
 `docs/CLOUD_GATEWAY_R5_DATABASE_RECOVERY.md`.
 
 For the Android base, configure the public Gateway URL and the Gateway `APP_TOKEN` in token mode. The public token terminates in Hong Kong; the separate local Hermes credential exists only on the Mac Connector.

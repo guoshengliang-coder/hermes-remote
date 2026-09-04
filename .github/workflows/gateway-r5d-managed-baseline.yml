@@ -1,0 +1,46 @@
+name: Gateway R5-D Managed Baseline
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gateway-r5d-managed-baseline
+  cancel-in-progress: false
+
+jobs:
+  managed-baseline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_USER: hermes_staging
+          POSTGRES_PASSWORD: ephemeral-only-password
+          POSTGRES_DB: hermes_staging
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hermes_staging -d hermes_staging"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install disposable-host dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install --yes nginx openssl postgresql-client
+      - name: Exercise legacy adoption and managed cutover
+        env:
+          HERMES_R5D_ONLY: "1"
+        run: ./scripts/test-gateway-staging-bootstrap.sh

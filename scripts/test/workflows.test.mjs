@@ -113,6 +113,23 @@ test('Gateway ephemeral staging is manual, bounded, secretless, and production-i
   assert.equal(/secrets\.|docker\s+(?:push|login)|packages: write|ssh\b|mrlgs\.net/.test(workflow), false);
 });
 
+test('R5-D managed baseline runs only on a disposable secretless host', async () => {
+  const workflow = await read('gateway-r5d-managed-baseline.yml');
+  assert.match(workflow, /^on:\n  workflow_dispatch:\s*$/m);
+  assert.equal(/\n\s+(?:push|pull_request|schedule):/.test(workflow), false);
+  assert.match(workflow, /permissions:\n  contents: read/);
+  assert.match(workflow, /runs-on: ubuntu-24\.04/);
+  assert.match(workflow, /timeout-minutes: 30/);
+  assert.match(workflow, /group: gateway-r5d-managed-baseline/);
+  assert.match(workflow, /image: postgres:18-alpine@sha256:[0-9a-f]{64}/);
+  assert.match(workflow, /HERMES_R5D_ONLY: "1"/);
+  assert.match(workflow, /run: \.\/scripts\/test-gateway-staging-bootstrap\.sh/);
+  assert.equal(/secrets\.|docker\s+(?:push|login)|packages: write|ssh\b|mrlgs\.net|47\.239\./.test(workflow), false);
+  const harness = await readRoot('scripts/test-gateway-staging-bootstrap.sh');
+  assert.match(harness, /GATEWAY_R5D_MANAGED_BASELINE_OK/);
+  assert.match(harness, /scripts\/production-baseline\.mjs/);
+});
+
 test('R5-E recovery uses only disposable PostgreSQL 18 and an immutable local image', async () => {
   const workflow = await read('gateway-r5e-recovery.yml');
   assert.match(workflow, /pull_request:[\s\S]*workflow_dispatch:/);

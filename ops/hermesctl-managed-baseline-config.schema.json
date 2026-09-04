@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hermes-go.invalid/schemas/hermesctl-managed-baseline-config-v1.json",
+  "title": "Hermes GO production managed-baseline adoption configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "environment", "operator", "targetArtifactManifest", "host", "paths", "legacySource", "slots", "gateway", "secrets", "database", "nginx", "deployment"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "environment": { "const": "production" },
+    "operator": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+    "targetArtifactManifest": { "$ref": "#/$defs/absolutePath" },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostname", "architecture"],
+      "properties": {
+        "hostname": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$" },
+        "architecture": { "const": "amd64" }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["installRoot", "configRoot", "stateRoot", "systemdUnitDirectory"],
+      "properties": {
+        "installRoot": { "$ref": "#/$defs/absolutePath" },
+        "configRoot": { "$ref": "#/$defs/absolutePath" },
+        "stateRoot": { "$ref": "#/$defs/absolutePath" },
+        "systemdUnitDirectory": { "$ref": "#/$defs/absolutePath" }
+      }
+    },
+    "legacySource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serviceName", "containerName", "gatewayPort", "stateDirectory", "compatibilityVersion", "identityFiles", "recoveryEvidence"],
+      "properties": {
+        "serviceName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,62}$" },
+        "containerName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,62}$" },
+        "gatewayPort": { "type": "integer", "minimum": 1024, "maximum": 65535 },
+        "stateDirectory": { "$ref": "#/$defs/absolutePath" },
+        "compatibilityVersion": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$" },
+        "recoveryEvidence": { "$ref": "#/$defs/absolutePath" },
+        "identityFiles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "sha256"],
+            "properties": {
+              "path": { "$ref": "#/$defs/absolutePath" },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+            }
+          }
+        }
+      }
+    },
+    "slots": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blue", "green"],
+      "properties": {
+        "blue": { "$ref": "#/$defs/slot" },
+        "green": { "$ref": "#/$defs/slot" }
+      }
+    },
+    "gateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["defaultDeviceId", "accountAuthEnabled", "accountBindingEnabled"],
+      "properties": {
+        "defaultDeviceId": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+        "accountAuthEnabled": { "const": false },
+        "accountBindingEnabled": { "const": false }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["appTokenSource", "connectorTokenSource", "internalStatusTokenSource"],
+      "properties": {
+        "appTokenSource": { "$ref": "#/$defs/absolutePath" },
+        "connectorTokenSource": { "$ref": "#/$defs/absolutePath" },
+        "internalStatusTokenSource": { "$ref": "#/$defs/absolutePath" }
+      }
+    },
+    "database": { "type": "null" },
+    "nginx": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serverName", "listenPort", "certificateSource", "privateKeySource", "candidateConfigSource", "candidateConfigSha256", "configFile", "upstreamConfigFile"],
+      "properties": {
+        "serverName": { "type": "string", "pattern": "^[A-Za-z0-9.-]{1,253}$" },
+        "listenPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "certificateSource": { "$ref": "#/$defs/absolutePath" },
+        "privateKeySource": { "$ref": "#/$defs/absolutePath" },
+        "candidateConfigSource": { "$ref": "#/$defs/absolutePath" },
+        "candidateConfigSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "configFile": { "$ref": "#/$defs/absolutePath" },
+        "upstreamConfigFile": { "$ref": "#/$defs/absolutePath" }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["drainTimeoutSeconds", "observationSeconds"],
+      "properties": {
+        "drainTimeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 600 },
+        "observationSeconds": { "type": "integer", "minimum": 1, "maximum": 300 }
+      }
+    }
+  },
+  "$defs": {
+    "absolutePath": { "type": "string", "pattern": "^/[^\\u0000-\\u001f\\u007f]+$" },
+    "slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serviceName", "containerName", "gatewayPort"],
+      "properties": {
+        "serviceName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,62}$" },
+        "containerName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,62}$" },
+        "gatewayPort": { "type": "integer", "minimum": 1024, "maximum": 65535 }
+      }
+    }
+  }
+}

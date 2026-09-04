@@ -71,7 +71,7 @@ export function renderNginxUpstream(config, slot) {
   assertSlot(slot);
   const selected = config.slots[slot];
   if (!selected) throw new OpsError("deployment", "candidate_slot_missing", "upstream_template");
-  return `upstream hermes_go_gateway_staging {
+  return `upstream ${upstreamName(config)} {
     server 127.0.0.1:${selected.gatewayPort};
     keepalive 32;
 }
@@ -95,32 +95,32 @@ server {
     client_max_body_size 10m;
 
     location = /healthz {
-        proxy_pass http://hermes_go_gateway_staging/healthz;
+        proxy_pass http://${upstreamName(config)}/healthz;
         ${commonProxyHeaders(75)}
     }
 
     location = /readyz {
-        proxy_pass http://hermes_go_gateway_staging/readyz;
+        proxy_pass http://${upstreamName(config)}/readyz;
         ${commonProxyHeaders(75)}
     }
 
     location = /relay-health {
-        proxy_pass http://hermes_go_gateway_staging/health;
+        proxy_pass http://${upstreamName(config)}/health;
         ${commonProxyHeaders(75)}
     }
 
     location = /v2/capabilities {
-        proxy_pass http://hermes_go_gateway_staging/v2/capabilities;
+        proxy_pass http://${upstreamName(config)}/v2/capabilities;
         ${commonProxyHeaders(75)}
     }
 
     location = /api/ws {
-        proxy_pass http://hermes_go_gateway_staging;
+        proxy_pass http://${upstreamName(config)};
         ${webSocketProxyHeaders()}
     }
 
     location /api/ {
-        proxy_pass http://hermes_go_gateway_staging;
+        proxy_pass http://${upstreamName(config)};
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         ${forwardedHeaders()}
@@ -130,7 +130,7 @@ server {
     }
 
     location = /v1/connect {
-        proxy_pass http://hermes_go_gateway_staging/v1/connect;
+        proxy_pass http://${upstreamName(config)}/v1/connect;
         ${webSocketProxyHeaders()}
     }
 
@@ -139,6 +139,10 @@ server {
     }
 }
 `;
+}
+
+function upstreamName(config) {
+  return config.managedBaseline === true ? "hermes_go_gateway_production" : "hermes_go_gateway_staging";
 }
 
 function commonProxyHeaders(timeoutSeconds) {

@@ -90,6 +90,13 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "inspect_database_recovery_stage_and_retry",
   }),
+  managedBaseline: Object.freeze({
+    code: "HR-OPS-014",
+    summaryZh: "生产 Gateway 受管基线接管未完成，已阻止切换或尝试恢复旧服务。请检查接管阶段后重试。",
+    summaryEn: "The managed production Gateway baseline was not established. The switch was blocked or legacy recovery was attempted. Inspect the adoption stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_managed_baseline_stage_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;

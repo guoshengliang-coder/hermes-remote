@@ -338,6 +338,139 @@ run_transition() {
     node scripts/hermesctl.mjs "$operation" --config "$deploy_config_path" --confirm staging
 }
 
+if [ "${HERMES_R5D_ONLY:-0}" = 1 ]; then
+  production_hostname=$(hostname)
+  r3_archive_path=$(node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import path from "node:path";
+    const manifestPath = process.argv[1];
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    process.stdout.write(path.join(path.dirname(manifestPath), manifest.archiveFile));
+  ' "$r3_manifest_path")
+  r3_manifest_sha=$(sha256sum "$r3_manifest_path" | cut -d' ' -f1)
+  r3_archive_sha=$(sha256sum "$r3_archive_path" | cut -d' ' -f1)
+  identity_digest=$(R3_MANIFEST_PATH="$r3_manifest_path" R3_MANIFEST_SHA="$r3_manifest_sha" \
+    R3_ARCHIVE_PATH="$r3_archive_path" R3_ARCHIVE_SHA="$r3_archive_sha" \
+    node --input-type=module -e '
+      import { createHash } from "node:crypto";
+      const files = [
+        { path: process.env.R3_MANIFEST_PATH, sha256: process.env.R3_MANIFEST_SHA },
+        { path: process.env.R3_ARCHIVE_PATH, sha256: process.env.R3_ARCHIVE_SHA },
+      ].sort((left, right) => left.path.localeCompare(right.path));
+      process.stdout.write(createHash("sha256").update(JSON.stringify(files)).digest("hex"));
+    ')
+  legacy_evidence_path="$run_dir/inputs/legacy-recovery.json"
+  SOURCE_HOSTNAME="$production_hostname" IDENTITY_DIGEST="$identity_digest" \
+    node --input-type=module -e '
+      import { writeFileSync } from "node:fs";
+      const now = new Date();
+      const evidence = {
+        schemaVersion: 1,
+        kind: "hermes-go-legacy-recovery-v1",
+        sourceHostname: process.env.SOURCE_HOSTNAME,
+        createdAt: new Date(now.getTime() - 1000).toISOString(),
+        artifactSha256: "e".repeat(64),
+        subject: { identityDigest: process.env.IDENTITY_DIGEST },
+        restoreHostname: "isolated-r5d-restore",
+        restoredAt: now.toISOString(),
+        verifiedChecks: ["archive_hash", "files_restored", "service_start"],
+      };
+      writeFileSync(process.argv[1], `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
+    ' "$legacy_evidence_path"
+
+  candidate_nginx_path="$run_dir/inputs/hermes-go-ephemeral.candidate.conf"
+  sed \
+    -e "1i\\include /etc/nginx/hermes-go-upstreams/hermes-go-ephemeral-upstream.conf;" \
+    -e "s#http://127.0.0.1:${gateway_port}#http://hermes_go_gateway_production#g" \
+    /etc/nginx/conf.d/hermes-go-ephemeral.conf >"$candidate_nginx_path"
+  chmod 0600 "$candidate_nginx_path"
+  candidate_nginx_sha=$(sha256sum "$candidate_nginx_path" | cut -d' ' -f1)
+  production_config_path="$run_dir/inputs/managed-baseline.json"
+  cat >"$production_config_path" <<EOF
+{
+  "schemaVersion": 1,
+  "environment": "production",
+  "operator": "github-actions",
+  "targetArtifactManifest": "$r4_manifest_path",
+  "host": { "hostname": "$production_hostname", "architecture": "amd64" },
+  "paths": {
+    "installRoot": "/opt/hermes-go-ephemeral",
+    "configRoot": "/etc/hermes-go-ephemeral",
+    "stateRoot": "/var/lib/hermes-go-ephemeral",
+    "systemdUnitDirectory": "/etc/systemd/system"
+  },
+  "legacySource": {
+    "serviceName": "$service_name",
+    "containerName": "$container_name",
+    "gatewayPort": $gateway_port,
+    "stateDirectory": "/var/lib/hermes-go-ephemeral/gateway",
+    "compatibilityVersion": "$r3_server_version",
+    "identityFiles": [
+      { "path": "$r3_manifest_path", "sha256": "$r3_manifest_sha" },
+      { "path": "$r3_archive_path", "sha256": "$r3_archive_sha" }
+    ],
+    "recoveryEvidence": "$legacy_evidence_path"
+  },
+  "slots": {
+    "blue": { "serviceName": "$blue_service_name", "containerName": "$blue_container_name", "gatewayPort": $blue_port },
+    "green": { "serviceName": "$green_service_name", "containerName": "$green_container_name", "gatewayPort": $green_port }
+  },
+  "gateway": { "defaultDeviceId": "oci-staging", "accountAuthEnabled": false, "accountBindingEnabled": false },
+  "secrets": {
+    "appTokenSource": "$run_dir/inputs/app-token",
+    "connectorTokenSource": "$run_dir/inputs/connector-token",
+    "internalStatusTokenSource": "$run_dir/inputs/internal-status-token"
+  },
+  "database": null,
+  "nginx": {
+    "serverName": "$server_name",
+    "listenPort": $edge_port,
+    "certificateSource": "$run_dir/inputs/fullchain.pem",
+    "privateKeySource": "$run_dir/inputs/privkey.pem",
+    "candidateConfigSource": "$candidate_nginx_path",
+    "candidateConfigSha256": "$candidate_nginx_sha",
+    "configFile": "/etc/nginx/conf.d/hermes-go-ephemeral.conf",
+    "upstreamConfigFile": "/etc/nginx/hermes-go-upstreams/hermes-go-ephemeral-upstream.conf"
+  },
+  "deployment": { "drainTimeoutSeconds": 5, "observationSeconds": 1 }
+}
+EOF
+  chmod 0600 "$production_config_path"
+
+  # The disposable R3 bootstrap has its own release identity; production starts without managed links.
+  sudo unlink /opt/hermes-go-ephemeral/current
+
+  sudo env \
+    "PATH=$PATH" \
+    "NODE_EXTRA_CA_CERTS=$run_dir/inputs/ca.crt" \
+    "HERMES_SMOKE_CONNECTOR_ENTRY=$repo_root/connector/dist/index.js" \
+    "HERMES_MODE=live" \
+    "HERMES_BASE_URL=http://127.0.0.1:${mock_port}" \
+    "HERMES_BASIC_AUTH_USERNAME=demo" \
+    "HERMES_BASIC_AUTH_PASSWORD=secret" \
+    "FILES_ROOT=$run_dir/runtime/candidate" \
+    "UPLOAD_ROOT=$run_dir/runtime/candidate/uploads" \
+    node scripts/production-baseline.mjs \
+      --config "$production_config_path" \
+      --confirm "production:${production_hostname}"
+
+  expected_r5d_release="releases/${r4_server_version}-$(printf '%s' "$r4_source_commit" | cut -c1-12)"
+  expected_legacy_release="releases/${r3_server_version}-$(printf '%s' "$identity_digest" | cut -c1-12)"
+  if [ "$(sudo readlink /opt/hermes-go-ephemeral/current)" != "$expected_r5d_release" ] \
+      || [ "$(sudo readlink /opt/hermes-go-ephemeral/previous)" != "$expected_legacy_release" ] \
+      || ! sudo systemctl is-active --quiet "${blue_service_name}.service" \
+      || sudo systemctl is-active --quiet "${service_name}.service" \
+      || ! sudo grep '^ACCOUNT_AUTH_ENABLED=0$' /etc/hermes-go-ephemeral/slots/blue/gateway.env >/dev/null \
+      || ! sudo grep '^ACCOUNT_BINDING_ENABLED=0$' /etc/hermes-go-ephemeral/slots/blue/gateway.env >/dev/null; then
+    report_failure candidate "managed_baseline_final_state_invalid"
+    exit 1
+  fi
+  echo "GATEWAY_R5D_MANAGED_BASELINE_OK"
+  echo "TARGET_SERVER_VERSION=$r4_server_version"
+  echo "TARGET_SOURCE_COMMIT=$r4_source_commit"
+  exit 0
+fi
+
 write_deploy_config "$r4_manifest_path"
 run_transition deploy
 

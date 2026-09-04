@@ -90,6 +90,7 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
       await assertServiceActive(runner, candidate.serviceName, "candidate_service_not_active");
       await verifyCandidateBase(config, targetManifest, journal.candidateSlot, material.internal, options);
       await options.candidateSmoke(smokeRequest(config, targetManifest, journal.candidateSlot, false));
+      if (config.managedBaseline === true) await options.sourcePreflight();
 
       mustRun(runner, "systemctl", ["stop", `${candidate.serviceName}.service`], "candidate_stop");
       mustRun(runner, "systemctl", ["stop", `${source.serviceName}.service`], "source_stop");
@@ -191,14 +192,15 @@ async function recoverExistingService(config, journal, checkpoint, runner, optio
   await restoreReleaseLinks(config.paths.installRoot, journal.checkpoint);
   mustRun(runner, "systemctl", ["enable", `${source.serviceName}.service`], "recovery_source_enable");
   runner.run("systemctl", ["disable", `${candidate.serviceName}.service`], { allowFailure: true });
-  await options.publicSmoke(smokeRequest(config, journal.source, journal.activeSlot, true, true));
+  const recoverySmoke = options.legacySmoke ?? options.publicSmoke;
+  await recoverySmoke(smokeRequest(config, journal.source, journal.activeSlot, true, true));
   if (marker) await removeManagedFile(paths.handoff(planDigest), true);
 }
 
 async function atomicSwitchNginx(config, slot, runner, owner) {
   try {
     await atomicWrite(config.nginx.upstreamConfigFile, renderNginxUpstream(config, slot), 0o644, owner);
-    await atomicWrite(config.nginx.configFile, renderDeployNginxConfig(config), 0o644, owner);
+    await atomicWrite(config.nginx.configFile, await desiredNginxConfig(config), 0o644, owner);
   } catch (error) {
     fail(technical(error), "nginx_configuration_write");
   }
@@ -209,10 +211,32 @@ async function atomicSwitchNginx(config, slot, runner, owner) {
 async function assertSwitchedNginx(config, slot) {
   const nginxConfig = await readManagedFile(config.nginx.configFile, true);
   const upstream = await readManagedFile(config.nginx.upstreamConfigFile, true);
-  if (!nginxConfig.content.equals(Buffer.from(renderDeployNginxConfig(config)))
+  if (!nginxConfig.content.equals(await desiredNginxConfig(config))
       || !upstream.content.equals(Buffer.from(renderNginxUpstream(config, slot)))) {
     fail("switched_nginx_configuration_mismatch", "switch_resume");
   }
+}
+
+async function desiredNginxConfig(config) {
+  if (config.managedBaseline !== true) return Buffer.from(renderDeployNginxConfig(config));
+  const candidate = await readManagedFile(config.nginx.candidateConfigSource, true);
+  if (createHash("sha256").update(candidate.content).digest("hex") !== config.nginx.candidateConfigSha256) {
+    fail("production_nginx_candidate_hash_mismatch", "nginx_configuration_source");
+  }
+  const content = candidate.content.toString("utf8");
+  const include = `include ${config.nginx.upstreamConfigFile};`;
+  const upstream = "hermes_go_gateway_production";
+  if (content.split(include).length !== 2
+      || !new RegExp(`\\bserver_name\\s+${escapeRegex(config.nginx.serverName)}\\s*;`).test(content)
+      || !content.includes(`proxy_pass http://${upstream}`)
+      || content.includes(`proxy_pass http://127.0.0.1:${config.legacySource.gatewayPort}`)) {
+    fail("production_nginx_candidate_contract_invalid", "nginx_configuration_source");
+  }
+  return candidate.content;
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function restoreNginxCheckpoint(config, checkpoint, runner, owner) {
@@ -536,13 +560,26 @@ function smokeRequest(config, manifest, candidateSlot, publicRoute, recovery = f
 }
 
 function authorizeSwitch(config, options) {
-  if (options.confirmation !== "staging" || config.environment !== "staging") fail("staging_confirmation_required", "switch_authorize");
+  const staging = options.confirmation === "staging" && config.environment === "staging";
+  const managedBaseline = options.authorization === "production-managed-baseline"
+    && config.managedBaseline === true
+    && config.environment === "production"
+    && options.confirmation === `production:${config.host?.hostname}`
+    && (options.operation ?? "deploy") === "deploy"
+    && options.activeSlot === null;
+  if (!staging && !managedBaseline) fail("staging_confirmation_required", "switch_authorize");
   if ((options.getUid ?? (() => process.getuid?.()))() !== 0) fail("switch_requires_root", "switch_authorize");
   if ((options.platform ?? process.platform) !== "linux" || (options.architecture ?? process.arch) !== "x64") {
     fail("unsupported_switch_host", "switch_authorize");
   }
   if (typeof options.candidateSmoke !== "function" || typeof options.publicSmoke !== "function") {
     fail("private_and_public_smoke_required", "switch_authorize");
+  }
+  if (managedBaseline && typeof options.legacySmoke !== "function") {
+    fail("managed_baseline_legacy_smoke_required", "switch_authorize");
+  }
+  if (managedBaseline && typeof options.sourcePreflight !== "function") {
+    fail("managed_baseline_source_preflight_required", "switch_authorize");
   }
   if (!new Set(["deploy", "rollback"]).has(options.operation ?? "deploy")) {
     fail("switch_operation_invalid", "switch_authorize");
