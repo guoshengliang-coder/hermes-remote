@@ -1,0 +1,117 @@
+<!-- @dsCard group="Screens" -->
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>聊天正文排版 · 间距与字号规范</title>
+<style>
+  body{margin:0;padding:36px 44px;background:#EEF1F5;color:#252B33;font-family:-apple-system,"PingFang SC",Roboto,sans-serif}
+  h1{font-size:20px;font-weight:600;margin:0 0 4px}
+  .sub{font-size:13px;color:#74777F;margin:0 0 26px;line-height:1.7;max-width:1180px}
+  h2{font-size:15px;font-weight:600;margin:34px 0 12px;color:#43474E}
+  .strip{display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap}
+  .col{width:380px}
+  .shot{width:380px;border-radius:14px;overflow:hidden;box-shadow:0 0 0 1px rgba(0,0,0,.10)}
+  .shot img{display:block;width:100%}
+  .cap{font-size:12px;color:#74777F;margin:9px 2px 0;line-height:1.6}
+  .cap b{display:block;color:#252B33;font-size:13px;margin-bottom:2px}
+  .cap b.bad{color:#B3261E}.cap b.good{color:#146C2E}
+  table{border-collapse:collapse;font-size:12.5px;margin-top:6px;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 0 0 1px rgba(0,0,0,.07)}
+  th,td{padding:7px 13px;text-align:left;border-bottom:1px solid #E7ECF6}
+  th{background:#F1F4FA;font-weight:600;color:#43474E;font-size:12px}
+  tr:last-child td{border-bottom:none}
+  td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .bad{color:#B3261E;font-weight:600}.good{color:#146C2E;font-weight:600}
+  .note{font-size:12.5px;color:#5A5E66;line-height:1.8;max-width:900px;margin:10px 0 0}
+  code{background:#E7ECF6;padding:1px 5px;border-radius:4px;font-size:11.5px}
+</style></head><body>
+
+<h1>聊天正文排版 · 间距与字号规范</h1>
+<p class="sub">
+助手回复正文（<code>AssistantMarkdownBlock</code>）此前没有排版契约，DESIGN.md §5.4 只定义了用户气泡。
+本稿把间距与字号定为一套明确取值。左右两栏都是 <b>真实渲染器</b>（Roborazzi，411dp / 420dpi / 字体缩放 1.0）的输出，不是网页近似。
+下方所有 dp 数字为逐行扫描测得的<b>纯空白高度</b>。
+</p>
+
+<h2>核心问题：列表项之间比项内换行还紧</h2>
+<p class="note">
+Compose 会裁掉每个 <code>Text</code> 首行上方、末行下方的半行距。所以正文 <code>lineHeight = 29sp</code> 只在<b>一个列表项内部</b>买到了空气，
+<b>两项之间</b>一点都没有 —— 项间距 = <code>listItemTop 2</code> + <code>listItemBottom 2</code> + 字体升降部 ≈ 7dp = <b>11dp</b>，
+而同一项折行的间距是 <b>12.6dp</b>。<b>项边界比行边界还弱</b>，这就是「1、2、3 点」塌成信息墙的原因；靠调行高解决不了。
+</p>
+
+<h2>浅色 · 常规内容</h2>
+<div class="strip">
+  <div class="col"><div class="shot"><img src="markdown-audit/current-general.png"></div>
+    <div class="cap"><b class="bad">现状</b>列表项间 11.0 / 10.3dp（小于项内换行 12.6dp）；H2 下方仅 14.5dp，标题粘在正文上；链接只有下划线，和 <b>加粗</b> 混淆；引用块上方 10.7dp；表格卡与代码块贴在一起。</div></div>
+  <div class="col"><div class="shot"><img src="markdown-audit/proposed-general.png"></div>
+    <div class="cap"><b class="good">提案</b>列表项间 17.1 / 16.4dp（明显大于 12.6dp，分条成立）；H2 下方 23.2dp；链接 = primary 色 + 细下划线 + 前置外链图标；引用块上方 18.7dp；块级元素统一 8dp 外边距。</div></div>
+</div>
+
+<h2>深色 · 同一内容</h2>
+<div class="strip">
+  <div class="col"><div class="shot"><img src="markdown-audit/current-general-dark.png"></div><div class="cap"><b class="bad">现状</b></div></div>
+  <div class="col"><div class="shot"><img src="markdown-audit/proposed-general-dark.png"></div><div class="cap"><b class="good">提案</b>链接走 Blue80，图标同色；深色下无对比度问题。</div></div>
+</div>
+
+<h2>边界情况</h2>
+<div class="strip">
+  <div class="col"><div class="shot"><img src="markdown-audit/current-edge-cases.png"></div>
+    <div class="cap"><b class="bad">现状</b>H5（13sp）比正文（17sp）还小，层级倒挂；任务清单渲染成字面 <code>[ ]</code> / <code>[x]</code>；<code>10.</code> 把文字左缘顶歪；分隔线上下无留白；嵌套缩进仅 8dp/层。</div></div>
+  <div class="col"><div class="shot"><img src="markdown-audit/proposed-edge-cases.png"></div>
+    <div class="cap"><b class="good">提案</b>H4 = 17sp Bold、H5/H6 = 15.5sp Bold（靠字重而非缩小承担层级）；任务清单恢复 M3 复选框；编号列定宽 28dp，左缘对齐；分隔线上下 16dp；嵌套 20dp/层。</div></div>
+</div>
+
+<h2>实测间距对照（纯空白，dp）</h2>
+<table>
+  <tr><th>边界</th><th>现状</th><th>提案</th><th>说明</th></tr>
+  <tr><td>段内换行（基准）</td><td class="n">12.6</td><td class="n">12.6</td><td>不变</td></tr>
+  <tr><td>段 → 段</td><td class="n">≈17.6</td><td class="n">≈17.6</td><td>你认可，不动</td></tr>
+  <tr><td><b>有序列表项之间</b></td><td class="n bad">11.0 / 10.3</td><td class="n good">17.1 / 16.4</td><td>核心修复</td></tr>
+  <tr><td>无序列表项之间</td><td class="n bad">12.2</td><td class="n good">18.3</td><td></td></tr>
+  <tr><td>正文 → 列表</td><td class="n">18.3</td><td class="n">21.3</td><td>列表成组</td></tr>
+  <tr><td>段 → H2</td><td class="n">21.3</td><td class="n">35.4</td><td>标题开章</td></tr>
+  <tr><td><b>H2 → 正文</b></td><td class="n bad">14.5</td><td class="n good">23.2</td><td>标题不再粘住正文</td></tr>
+  <tr><td>H3 → 正文</td><td class="n bad">13.7</td><td class="n good">20.2</td><td></td></tr>
+  <tr><td>正文 → 引用块</td><td class="n bad">10.7</td><td class="n good">18.7</td><td>引用是块，不是续行</td></tr>
+  <tr><td>代码块 → 正文</td><td class="n">22.1</td><td class="n">30.1</td><td></td></tr>
+</table>
+
+<h2>取值表（写进 DESIGN.md §5.4）</h2>
+<table>
+  <tr><th>令牌</th><th>现状</th><th>提案</th></tr>
+  <tr><td>正文</td><td class="n">17sp / 29sp</td><td class="n">17sp / 29sp（不变）</td></tr>
+  <tr><td><code>block</code> 段落间</td><td class="n">5dp</td><td class="n">5dp（不变）</td></tr>
+  <tr><td><code>listItemTop/Bottom</code></td><td class="n">2 / 2</td><td class="n">5 / 5</td></tr>
+  <tr><td><code>list</code> 列表上下</td><td class="n">4（库默认）</td><td class="n">4（保持；再大会打洞）</td></tr>
+  <tr><td><code>listIndent</code> 每层缩进</td><td class="n">8（库默认）</td><td class="n">20</td></tr>
+  <tr><td>有序编号列宽</td><td class="n">自适应</td><td class="n">定宽 28dp</td></tr>
+  <tr><td>H1 上 / 下</td><td class="n">0 / 0</td><td class="n">22 / 8</td></tr>
+  <tr><td>H2 上 / 下</td><td class="n">6 / 0</td><td class="n">20 / 8</td></tr>
+  <tr><td>H3 上 / 下</td><td class="n">4 / 0</td><td class="n">16 / 6</td></tr>
+  <tr><td>H4 上 / 下</td><td class="n">0 / 0</td><td class="n">14 / 6</td></tr>
+  <tr><td>h2 / h3 字号</td><td class="n">21 / 18sp</td><td class="n">22 / 18.5sp</td></tr>
+  <tr><td>h4 / h5 / h6 字号</td><td class="n bad">16 / 13 / 13sp</td><td class="n good">17 Bold / 15.5 Bold / 15.5 Bold</td></tr>
+  <tr><td>表格正文</td><td class="n">14sp / 22</td><td class="n">15sp / 23</td></tr>
+  <tr><td>引用块上下</td><td class="n">0</td><td class="n">8</td></tr>
+  <tr><td>分隔线上下</td><td class="n">0</td><td class="n">16</td></tr>
+  <tr><td>代码块 / 表格卡外边距</td><td class="n">0 / 4</td><td class="n">8 / 8</td></tr>
+  <tr><td>链接</td><td class="n bad">仅下划线（同正文色）</td><td class="n good">primary + 细下划线 + 前置 13dp 外链图标</td></tr>
+  <tr><td>任务清单</td><td class="n bad">字面 <code>[ ]</code></td><td class="n good">M3 复选框</td></tr>
+</table>
+
+<h2>链接图标</h2>
+<p class="note">
+新增 <code>ExternalLinkIcon</code>（<code>StrokeIcons.kt</code>）：24×24 viewport 手绘描边、圆头圆角，走 DESIGN.md §4.1 的
+<b>小尺寸补偿</b>（2.4 描边，13dp 下 ≈1.3dp，与 17sp 正文同重）。通过 <code>MarkdownAnnotator</code> +
+<code>InlineTextContent</code> 插在链接文字前，后面跟一个 <code>U+2060 WORD JOINER</code> —— 否则断行器会把图标当独立单词，
+留在上一行行尾、和链接分家（第一版原型就出现了这个问题）。
+</p>
+
+<h2>不在本稿范围内（已记录，需你决定是否另立项）</h2>
+<p class="note">
+① 链接点击目前直接走库的 <code>LocalUriHandler.openUri</code>：设备无浏览器时 <code>ActivityNotFoundException</code> 会崩，且没有
+scheme 白名单（<code>javascript:</code> / <code>file:</code> 会照开）。按 <code>docs/ERROR_HANDLING.md</code> 这条路径需要一个
+<code>HR-CHAT-*</code> 错误码（目前一个都没注册）。<br>
+② 超长无空格 URL 仍不做中间断行（本稿的 WORD JOINER 顺带改善了一部分）。<br>
+③ 项目符号「•」偏小、顶对齐，未改。
+</p>
+
+</body></html>
