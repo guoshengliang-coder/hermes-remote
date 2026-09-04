@@ -59,15 +59,22 @@ SHA-256。输出只含稳定检查 ID、状态与受限原因，不包含文件�
   证据完整且新鲜。
 - staging 的 R3/R4 parser、CLI 和全量测试必须原样通过；R5-A 不能让 production config 进入现有
   `bootstrap`、`deploy` 或 `rollback`。
-- 基线为 `npm run build`、`npm test`、`git diff --check`、PR CI/SAST；实际 HK 审计、任何生产修改、
-  Android 真机复核均记录为未执行，直到得到对应授权。
+- 基线为 `npm run build`、`npm test`、`git diff --check`、PR CI/SAST；实际 HK 审计结果记录在下方，
+  任何生产修改和 Android 真机复核均保持未执行，直到得到对应授权。
 
 ## 当前完成状态
 
 2026-09-04，R5-A 的独立配置、只读聚合审计、严格证据读取、`HR-OPS-010` 和回归测试已通过 GitHub
-PR 门禁。经授权的 HK 白名单读取确认 Linux/amd64、磁盘和内存满足阈值，旧 Gateway 与 Nginx 活跃且
-公开 health 正常；同时确认 8444 仍公开监听、Docker 与 PostgreSQL 18 不存在，旧服务和数据库的异机
-恢复证据尚未建立。普通运维账户无法读取 TLS 私钥，因此正式 `nginx -t` 仍需受控提权复核。
+PR 门禁。经授权的 HK 正式审计使用 `main` 提交 `a5aaf18eb3df5eae50eaeb0fa0bb2e0bd8613548`
+产生并校验的 Gateway 0.4.0 linux/amd64 bundle。十项检查中，`host_identity`、`host_resources`、
+`target_artifact` 与 `legacy_identity` 通过；`dependencies`、`public_routing`、`docker`、`postgresql`、
+`legacy_recovery` 与 `off_host_database_restore` 返回预期的 `HR-OPS-010` no-go。
+
+同一次白名单读取确认旧 Gateway 与 Nginx 活跃、公开 health 返回 HTTP 200，但 8444 仍在
+`0.0.0.0` 监听，Docker 与 PostgreSQL 18 客户端不存在，旧服务和数据库的异机恢复证据尚未建立。
+普通运维账户无法读取 TLS 私钥，所以 `nginx -t` 在正式审计中以 `public_route_unhealthy` 阻断；这不
+改变 8444 必须改为 loopback 的独立阻断事实。审计后 Gateway/Nginx 仍为 active，临时上传内容已从
+HK 与 Mac 删除，未修改 `/opt`、`/etc`、`/var/lib`、数据库、路由或运行中服务。
 
 首次实机检查还发现 `Gateway OCI` 只在临时 runner 内生成 bundle，成功后没有保留可下载的候选制品。
 工作流因此只对 `main` push 保留七天的精确 bundle，PR 仍仅构建验证；正式聚合审计必须使用匹配
