@@ -18,6 +18,19 @@ object Motion {
     const val DurationMedium = 250
     const val DurationLong = 400
 
+    /**
+     * One loop period for every brand loading animation (mark, skeleton sweep, top line, sending
+     * bubble). Already the period of the startup progress sweep — new loading motion aligns with
+     * it instead of adding a fourth cadence (docs/DESIGN.md §5.6).
+     */
+    const val LoopPeriod = 1200
+
+    /** Nothing that says "loading" may appear before this; faster waits show no furniture at all. */
+    const val RevealDelay = 250
+
+    /** Fade used when a loading surface finally does appear. */
+    const val RevealFade = 200
+
     /** Material "emphasized" easing — energetic in, gentle settle. Good for expand/collapse. */
     val Emphasized: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 

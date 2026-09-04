@@ -294,7 +294,7 @@ fun SearchScreen(
                 }
             }
             if (state.searching) {
-                androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+                com.hermes.client.ui.components.TopProgressLine()
             }
         }
     }

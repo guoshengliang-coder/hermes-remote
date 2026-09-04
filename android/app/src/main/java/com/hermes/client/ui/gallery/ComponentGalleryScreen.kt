@@ -1,7 +1,10 @@
 package com.hermes.client.ui.gallery
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,6 +17,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.hermes.client.domain.ChatMessage
@@ -29,7 +34,6 @@ import com.hermes.client.ui.chat.SemanticToolCard
 import com.hermes.client.ui.chat.StyledMarkdownTableSample
 import com.hermes.client.ui.chat.TodoCard
 import com.hermes.client.ui.chat.ToolTimelineCard
-import com.hermes.client.ui.chat.TypingIndicator
 import com.hermes.client.ui.localization.l10n
 import com.hermes.client.ui.localization.LocalizedText
 import com.hermes.client.ui.localization.localizedText
@@ -132,7 +136,29 @@ private val gallerySections: List<Pair<LocalizedText, @Composable () -> Unit>> =
             ),
         )
     },
-    galleryTitle("打字指示器", "Typing indicator") to { TypingIndicator() },
+    galleryTitle("运行状态行 · 尚无内容", "Running status · nothing yet") to {
+        RunningStatusLine(streamingMsg())
+    },
+    galleryTitle("品牌加载标记 32 / 20 / 14dp", "Brand loading mark 32 / 20 / 14dp") to {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            com.hermes.client.ui.components.HermesMark(size = 32.dp)
+            Spacer(Modifier.width(20.dp))
+            com.hermes.client.ui.components.HermesMark(size = 20.dp)
+            Spacer(Modifier.width(20.dp))
+            com.hermes.client.ui.components.HermesMark(size = 14.dp)
+        }
+    },
+    galleryTitle("品牌加载标记 · 关闭动画", "Brand loading mark · animations off") to {
+        CompositionLocalProvider(com.hermes.client.ui.components.LocalReduceMotion provides true) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                com.hermes.client.ui.components.HermesMark(size = 32.dp)
+                Spacer(Modifier.width(20.dp))
+                com.hermes.client.ui.components.HermesMark(size = 14.dp)
+            }
+        }
+    },
+    galleryTitle("列表骨架", "List skeleton") to { com.hermes.client.ui.components.SkeletonRows() },
+    galleryTitle("顶部刷新细线", "Top refresh line") to { com.hermes.client.ui.components.TopProgressLine() },
     galleryTitle("决策卡 · 单选", "Clarify · single") to {
         com.hermes.client.ui.chat.ClarifySheetContent(
             com.hermes.client.ui.chat.ClarifyRequest(

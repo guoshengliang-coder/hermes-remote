@@ -12,12 +12,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Inbox
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -27,11 +31,16 @@ import com.hermes.client.ui.localization.l10n
 import com.hermes.client.data.error.AppError
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localizedMessage
+import kotlinx.coroutines.delay
 
 // Shared screen-state surfaces so loading/empty/error look identical everywhere instead of
 // the ad-hoc CircularProgressIndicator + bare `Text(error!!)` that was copy-pasted across
 // ~12 screens. Every screen should route through these.
 
+/** A wait long enough to explain itself; below this the mark stands alone (docs/DESIGN.md §5.6). */
+internal const val LOADING_LABEL_DELAY_MS = 3_000L
+
+/** Page-level indeterminate wait for screens whose content shape is not known in advance. */
 @Composable
 fun LoadingState(modifier: Modifier = Modifier, label: String? = null) {
     Column(
@@ -39,12 +48,33 @@ fun LoadingState(modifier: Modifier = Modifier, label: String? = null) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        CircularProgressIndicator()
-        if (label != null) {
-            Spacer(Modifier.height(16.dp))
-            Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        DelayedReveal {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                HermesMark(size = 32.dp, contentDescription = l10n("正在加载", "Loading"))
+                if (label != null) {
+                    // "Loading…" is noise on a fast page; the label is for waits that overstay.
+                    var explain by remember(label) { mutableStateOf(false) }
+                    LaunchedEffect(label) {
+                        delay(LOADING_LABEL_DELAY_MS)
+                        explain = true
+                    }
+                    if (explain) {
+                        Spacer(Modifier.height(16.dp))
+                        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
         }
     }
+}
+
+/**
+ * First load of a list whose row shape is known (sessions / projects / archived / search share
+ * one). Skeleton rows keep the layout still, so content arrival is not a jump from empty to full.
+ */
+@Composable
+fun ListLoadingState(modifier: Modifier = Modifier, rows: Int = SKELETON_MAX_ROWS) {
+    DelayedReveal { SkeletonRows(rows = rows, modifier = modifier) }
 }
 
 @Composable

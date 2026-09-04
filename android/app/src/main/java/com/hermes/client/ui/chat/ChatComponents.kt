@@ -1181,19 +1181,11 @@ internal fun ChatMessage.streamContentRevision(): Int =
 
 @Composable
 private fun ChatHistorySkeleton(modifier: Modifier = Modifier) {
-    val base = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-    val highlight = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.085f)
-    val animationsEnabled = remember { android.animation.ValueAnimator.areAnimatorsEnabled() }
-    val transition = rememberInfiniteTransition(label = "chat-history-skeleton")
-    val sweep by transition.animateFloat(
-        initialValue = if (animationsEnabled) 0f else 0.5f,
-        targetValue = if (animationsEnabled) 1f else 0.5f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = SKELETON_SWEEP_MS, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "skeleton-sweep",
-    )
+    // One skeleton language app-wide: same base, same highlight, same 1200ms sweep as the list
+    // skeleton (ui/components/BrandLoader.kt). This used to run at its own 1350ms.
+    val base = com.hermes.client.ui.components.skeletonBaseColor()
+    val highlight = com.hermes.client.ui.components.skeletonHighlightColor()
+    val sweep = com.hermes.client.ui.components.rememberSkeletonSweep()
     fun Modifier.bar(widthFraction: Float): Modifier = this
         .fillMaxWidth(widthFraction)
         .height(18.dp)
@@ -1852,11 +1844,7 @@ private fun AssistantTurn(
                     // Reserve the same footer height during and after a run. Replacing a short
                     // status row with the 48dp action row used to grow the last item exactly when
                     // message.complete arrived, producing the final visible jump to the bottom.
-                    if (msg.text.isBlank() && msg.tools.isEmpty() && msg.thinking.isBlank()) {
-                        TypingIndicator()
-                    } else {
-                        RunningStatusLine(msg)
-                    }
+                    RunningStatusLine(msg)
                 } else {
                 Row(
                     modifier = Modifier.fillMaxWidth().align(Alignment.BottomStart),
@@ -1997,7 +1985,6 @@ private const val VIEWPORT_RESTORE_MAX_FRAMES = 90
 private const val VIEWPORT_EXACT_WIDTH_WAIT_FRAMES = 18
 private const val VIEWPORT_RESTORE_STABLE_FRAMES = 4
 private const val VIEWPORT_RESTORE_TOLERANCE_PX = 0.75f
-private const val SKELETON_SWEEP_MS = 1_350
 private val TURN_SPACING = 22.dp
 
 /** "14:32" today, "昨天 14:32" yesterday, "8月30日 14:32" this year, full date otherwise. */
@@ -2642,9 +2629,16 @@ private fun MessageActionSheet(actions: List<MessageAction>, onDismiss: () -> Un
     }
 }
 
+/**
+ * The one thing on screen that says "your Mac is working". It stays put from the moment the turn
+ * starts to the first token to the tool that follows: only the text beside it changes, so nothing
+ * jumps (docs/DESIGN.md §5.6). The three bouncing dots it replaced were an instant-messaging idiom
+ * for "someone is typing", which is not what happens here.
+ */
 @Composable
 internal fun RunningStatusLine(msg: ChatMessage) {
     val language = LocalAppLanguage.current
+    val hasOutput = msg.text.isNotBlank() || msg.tools.isNotEmpty() || msg.thinking.isNotBlank()
     val status = runningStatusFor(msg)
     // Live elapsed time, anchored on the turn's real timestamp (not a local counter), so a
     // process restart or reconnect still shows the true duration of the run.
@@ -2658,37 +2652,26 @@ internal fun RunningStatusLine(msg: ChatMessage) {
     val elapsedSuffix = msg.timestamp?.let { start ->
         " · " + formatElapsedTime(nowTick - start, zh = language == com.hermes.client.ui.localization.AppLanguage.ZH)
     }.orEmpty()
-    val transition = rememberInfiniteTransition(label = "running")
-    val pulse by transition.animateFloat(
-        initialValue = 0.45f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "pulse",
-    )
     Row(
         Modifier.padding(top = 8.dp).fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier
-                .padding(end = 8.dp)
-                .size(7.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = pulse)),
+        com.hermes.client.ui.components.HermesMark(
+            size = 14.dp,
+            modifier = Modifier.padding(end = 8.dp),
+            contentDescription = localized(language, "正在生成", "Generating"),
         )
+        // Before the first token there is nothing true to say yet; the mark alone says it.
+        // "Preparing…" would only be read once and then replaced a beat later by the real status.
         val style = MaterialTheme.typography.bodySmall
         val color = MaterialTheme.colorScheme.onSurfaceVariant
-        when (status) {
+        if (hasOutput) when (status) {
             is RunningStatus.Tool -> Text(
                 localized(language, "正在运行 ", "Running ") + status.label + "…" + elapsedSuffix,
                 style = style.copy(fontFamily = FontFamily.Monospace),
                 color = color,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.alpha(pulse.coerceAtLeast(0.7f)),
             )
             is RunningStatus.Thinking -> Text(
                 status.preview + elapsedSuffix,
@@ -2696,38 +2679,11 @@ internal fun RunningStatusLine(msg: ChatMessage) {
                 color = color,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.alpha(pulse.coerceAtLeast(0.7f)),
             )
             RunningStatus.Generating -> Text(
                 localized(language, "生成中…", "Generating…") + elapsedSuffix,
                 style = style,
                 color = color,
-                modifier = Modifier.alpha(pulse),
-            )
-        }
-    }
-}
-
-@Composable
-internal fun TypingIndicator() {
-    val transition = rememberInfiniteTransition(label = "typing")
-    Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        repeat(3) { i ->
-            val alpha by transition.animateFloat(
-                initialValue = 0.25f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(durationMillis = 600, delayMillis = i * 160, easing = LinearEasing),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-                label = "dot$i",
-            )
-            Box(
-                Modifier
-                    .padding(end = 5.dp)
-                    .size(7.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)),
             )
         }
     }

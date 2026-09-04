@@ -74,18 +74,41 @@ class ScreenshotTest {
             text = text, thinking = thinking, tools = tools, isStreaming = true,
         )
 
-    @Test fun runningStatusGenerating() = snap("status-generating") {
+    @Test fun runningStatusGenerating() = snap("status-generating", manualClock = true) {
         com.hermes.client.ui.chat.RunningStatusLine(msg(text = "partial output"))
     }
 
-    @Test fun runningStatusThinking() = snap("status-thinking") {
+    @Test fun runningStatusThinking() = snap("status-thinking", manualClock = true) {
         com.hermes.client.ui.chat.RunningStatusLine(msg(thinking = "先检查 nginx 配置，然后逐一验证每个 upstream 的证书链"))
     }
 
-    @Test fun runningStatusTool() = snap("status-tool") {
+    @Test fun runningStatusTool() = snap("status-tool", manualClock = true) {
         com.hermes.client.ui.chat.RunningStatusLine(
             msg(text = "x", tools = listOf(com.hermes.client.domain.ToolCall("t", "Bash", com.hermes.client.domain.ToolStatus.RUNNING, command = "npm test"))),
         )
+    }
+
+    /** Before the first token: the mark alone, no dots and no "Generating…" to read twice. */
+    @Test fun runningStatusPreparing() = snap("status-preparing", manualClock = true) {
+        com.hermes.client.ui.chat.RunningStatusLine(msg())
+    }
+
+    // Brand loading motion (docs/DESIGN.md §5.6). The clock is frozen so the sweep is deterministic.
+    @Test fun listSkeleton() = snap("loading-skeleton", manualClock = true) {
+        com.hermes.client.ui.components.SkeletonRows()
+    }
+
+    @Test fun listSkeletonDark() = snap("loading-skeleton-dark", darkTheme = true, manualClock = true) {
+        com.hermes.client.ui.components.SkeletonRows()
+    }
+
+    @Test fun pageLoadingMark() = snap("loading-mark", manualClock = true) {
+        androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxWidth().height(120.dp)) {
+            com.hermes.client.ui.components.HermesMark(
+                size = 32.dp,
+                modifier = androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.Center),
+            )
+        }
     }
 
     // Turn navigation (docs/DESIGN.md §5.4): the pill and the prompt list rows.

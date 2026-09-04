@@ -50,7 +50,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -268,7 +267,7 @@ fun SessionsScreen(
                 Box(Modifier.fillMaxSize()) {
                     when {
                         projectsState.loading && projectsState.tree.isEmpty() ->
-                            com.hermes.client.ui.components.LoadingState()
+                            com.hermes.client.ui.components.ListLoadingState()
                         projectsState.error != null ->
                             com.hermes.client.ui.components.ErrorState(
                                 error = projectsState.error!!,
@@ -308,7 +307,7 @@ fun SessionsScreen(
                 Box(Modifier.fillMaxSize()) {
                     when {
                         archivedState.loading && archivedState.sessions.isEmpty() ->
-                            com.hermes.client.ui.components.LoadingState()
+                            com.hermes.client.ui.components.ListLoadingState()
                         archivedState.error != null ->
                             com.hermes.client.ui.components.ErrorState(
                                 error = archivedState.error!!,
@@ -396,7 +395,7 @@ fun SessionsScreen(
                 }
                 Box(Modifier.fillMaxSize()) {
                     when {
-                        state.loading && state.sessions.isEmpty() -> com.hermes.client.ui.components.LoadingState()
+                        state.loading && state.sessions.isEmpty() -> com.hermes.client.ui.components.ListLoadingState()
                         state.error != null && state.sessions.isEmpty() -> com.hermes.client.ui.components.ErrorState(
                             error = state.error!!,
                             onRetry = { vm.refresh() },
@@ -582,8 +581,9 @@ fun SessionsScreen(
                         }
                     }
                     if (state.loading && state.sessions.isNotEmpty()) {
-                        LinearProgressIndicator(
-                            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
+                        // Content already on screen: a 2dp line at the top, never a cover.
+                        com.hermes.client.ui.components.TopProgressLine(
+                            modifier = Modifier.align(Alignment.TopCenter),
                         )
                     }
                 }
