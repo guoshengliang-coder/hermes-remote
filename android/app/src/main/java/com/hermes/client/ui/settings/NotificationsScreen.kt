@@ -106,6 +106,24 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
                 localized(language, "任务完成、需要处理或出现重要状态时提醒。", "Notify when tasks finish, need attention, or reach an important state."),
                 prefs.enabled,
             ) { on -> if (on) enable() else vm.setEnabled(false) }
+            // Turning notifications off no longer disconnects a run in flight (docs/DESIGN.md
+            // §5.10), so say what the user will still see — an unannounced ongoing card would
+            // read as the switch not working.
+            if (!prefs.enabled) {
+                Text(
+                    localized(
+                        language,
+                        "关闭后仍会在任务运行期间显示一张静默的「后台保持连接」卡片，任务结束即消失——" +
+                            "手机需要它才能跟完这次运行。选择「省电」可以连这个也一起停掉。",
+                        "Even when this is off, a silent \"Connected in the background\" card appears " +
+                            "while a run is in flight and disappears when it ends — the phone needs it to " +
+                            "follow the run through. Choose Power saving to stop that too.",
+                    ),
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             HorizontalDivider()
             Text(
                 localized(language, "后台监控方式", "Background monitoring"),

@@ -233,6 +233,37 @@ class SessionRuntimeStoreTest {
     // rungs unconditionally, so an already-reconciled conversation was re-downloaded in full three
     // more times — per session, per reconnect. That is what made a half-megabyte transcript cost
     // megabytes of mobile traffic every time the socket blinked (measured 2026-09-03).
+    /**
+     * Reconnecting used to re-download the transcript of every chat that merely happened to be on
+     * screen. An idle chat has no gap to recover — nothing was streaming — and the foreground
+     * startup gate already refreshes the visible destination, so that fetch was pure duplication.
+     */
+    @Test fun reconnecting_only_re_reads_transcripts_that_had_work_in_flight() = runTest {
+        val sessions = mockk<com.hermes.client.data.repository.SessionRepository>()
+        coEvery { sessions.history(any(), any()) } returns listOf(
+            ChatMessage("u", Role.USER, "开始"),
+            ChatMessage("a", Role.ASSISTANT, "回答"),
+        )
+        val fixture = fixture(sessions)
+
+        val watching = fixture.store.register("idle-but-open", "personal")
+        fixture.store.setVisible(watching, true)
+
+        val busy = fixture.store.register("still-running", "personal")
+        fixture.store.beginPrompt(busy, "跑起来")
+        fixture.events.emit(event("message.start", "still-running"))
+        fixture.events.emit(event("message.delta", "still-running", "半截"))
+        runCurrent()
+
+        fixture.connection.value = ConnectionState.Reconnecting
+        runCurrent()
+        fixture.connection.value = ConnectionState.Connected
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { sessions.history("idle-but-open", "personal") }
+        coVerify(atLeast = 1) { sessions.history("still-running", "personal") }
+    }
+
     @Test fun reconciliation_stops_downloading_once_a_snapshot_is_accepted() = runTest {
         val sessions = mockk<com.hermes.client.data.repository.SessionRepository>()
         val user = ChatMessage("persisted-user", Role.USER, "开始")

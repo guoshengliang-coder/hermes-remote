@@ -169,10 +169,14 @@ class SessionRuntimeStore(
                 }
                 if (current is ConnectionState.Connected && previous != null && previous !is ConnectionState.Connected) {
                     resumeRunningSessions()
-                    // WebSocket notifications are not replayed across a disconnect. Re-read every
-                    // active/visible transcript so any events produced in the gap are recovered.
+                    // WebSocket notifications are not replayed across a disconnect, so a run
+                    // that was streaming has to be re-read to recover the gap. An idle chat that
+                    // merely happens to be on screen has no gap to recover: nothing was streaming,
+                    // and the foreground startup gate already refreshes the visible destination
+                    // (ForegroundRecoveryCoordinator) when the app comes back. Pulling its whole
+                    // transcript here too was the common case of the reconnect fetch storm.
                     _runtimes.value.values
-                        .filter { it.phase.isActive || it.key in visible || it.chat.isGenerating }
+                        .filter { it.phase.isActive || it.chat.isGenerating }
                         .forEach { runtime ->
                             val expectation = expectationFor(runtime).let { expected ->
                                 // A stream interrupted mid-answer may not be a literal prefix of

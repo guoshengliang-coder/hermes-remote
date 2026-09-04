@@ -465,12 +465,32 @@ read the `ws` and `service` channels.
    while backgrounded and disappears when the run ends (docs/DESIGN.md §5.10). Confirm it is silent
    and cannot be dismissed while the run is live.
 
+### Emulator cases — banner and reconnect cost (R3)
+
+6. **A blip says nothing.** With a run streaming, switch to the launcher and back within ~2 seconds.
+   Expected: no banner at any point, and no 连接已恢复 strip either — if the user was never told it
+   broke, there is nothing to repair. Repeat a few times; a flash of red on the first frame back is
+   the regression.
+7. **A real outage still reports promptly.** Stop the dev stack (`./scripts/dev/dev-stack.sh stop`)
+   while the chat is open. Expected: within ~2.5s the banner appears in the calm progress style
+   (spinner, 正在重新连接…), not the red failure style, and it keeps updating through the backoff
+   rather than staying hidden. Restart the stack: the banner disappears and 连接已恢复，正在同步会话…
+   appears for three seconds.
+8. **Failure still looks like failure.** Point the app at an unreachable gateway. Expected: the red
+   `errorContainer` banner with HR-CONN-002, 详情 and 重试.
+9. **No transcript storm.** With diagnostic logging on, open an idle chat (nothing running), drop
+   and restore the connection. Expected: the `history` channel shows no reconcile pass for that
+   chat — an idle chat has no gap to recover. Repeat with a chat that is mid-answer: that one must
+   reconcile.
+10. **Notification settings copy.** Turn 启用通知 off: the explanation about the silent 后台保持连接
+    card appears under the switch and disappears when the switch is back on.
+
 ### Device cases (still unverified — no real device on the dev host)
 
-6. **Screen-off survival.** Start a run, lock the phone for 5–10 minutes, unlock. Record whether the
+11. **Screen-off survival.** Start a run, lock the phone for 5–10 minutes, unlock. Record whether the
    socket survived and, if not, the close code and the elapsed time. This is the M1 item: the
    emulator reaches the gateway over `adb reverse` on loopback, which never drops and never passes
    through the edge nginx `proxy_read_timeout 75s`, so it cannot answer this question. The result
    decides whether R2's 45s background heartbeat needs adjusting.
-7. **Vendor battery management.** On a Chinese OEM ROM, confirm the foreground service is not killed
+12. **Vendor battery management.** On a Chinese OEM ROM, confirm the foreground service is not killed
    during a run, and whether the app needs to be added to the battery whitelist.
