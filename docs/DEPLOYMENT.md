@@ -119,11 +119,13 @@ node scripts/hermesctl.mjs production-audit \
   --confirm production:<configured-public-hostname>
 ```
 
-Every successful `Gateway OCI` push run on `main` retains its exact bundle as
-`gateway-bundle-<full-main-commit>` for seven days. Pull-request runs still build and verify the bundle but do
-not retain it. Download the artifact from the matching successful `main` run, preserve both the archive and
-manifest together, and use that manifest as `targetArtifactManifest`; never substitute a hand-written
-manifest or a bundle from another commit.
+Every successful `Gateway OCI` push run on `main` retains its exact artifact as
+`gateway-bundle-<full-main-commit>` for seven days. It contains the Gateway archive/manifest and the separately
+hashed R5-D operator archive/manifest. Pull-request runs still build and verify both bundles but do not retain
+them. Download the artifact from the matching successful `main` run, preserve every archive with its manifest,
+and use the Gateway manifest as `targetArtifactManifest`; never substitute a hand-written manifest or combine
+bundles from different commits. Verify the operator archive with
+`scripts/verify-production-baseline-bundle.mjs` before and after transfer.
 
 The command aggregates every gate instead of stopping at the first missing prerequisite. It checks the exact
 Linux/amd64 host identity, minimum free disk and available memory, immutable target bundle, exact hashes of the

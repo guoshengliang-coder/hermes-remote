@@ -35,6 +35,22 @@ SHA-256；接管开始和停服前都会重新校验，实际安装时再校验�
 符号链接。切换检查点以内容、存在性和哈希保存原主配置与 upstream；`nginx -t` 或 reload 失败时恢复
 原始字节。候选配置属于受保护运维输入，不得提交仓库。
 
+生产现有的 `/etc/nginx/conf.d/hermes-edge.conf` 是历史部署的真实主配置，因此严格 parser 只在原有
+`hermes-go-*`、`hermes-remote-*` 命名规则之外额外允许这个精确 basename；其他任意文件名仍拒绝。
+不能把候选写成第二个并行 `*.conf` 来绕过检查，否则 Nginx 会同时加载两个 443 default server。
+
+## 运维执行 bundle
+
+香港主机不以 Git checkout 或 npm 工具链作为生产依赖。`Gateway OCI` 门禁除了目标 OCI archive 与
+manifest，还生成 `Hermes-R5D-Ops-<commit>.tar.gz` 和同名 manifest。运维 bundle 只包含 R5-D 入口、
+`ops/lib`、候选/兼容 smoke、已构建 Connector/Protocol 和 production-only Node 依赖；不包含 Token、
+TLS 私钥、生产配置、恢复证据或主机地址。
+
+运维 manifest 用 archive SHA-256 绑定完整内容，并将入口固定为 `scripts/production-baseline.mjs`、测试
+Connector 固定为 `connector/dist/index.js`。上传前后都必须运行
+`scripts/verify-production-baseline-bundle.mjs`，且运维 bundle、Gateway bundle 和当前 `main` 必须是同一
+个完整提交。不能在生产主机临时安装 npm、复用旧 Connector 或从另一个提交拼接脚本。
+
 ## 本地与一次性测试
 
 单元和故障注入覆盖严格 parser、错误确认值、主机不匹配、旧 identity 漂移、证据绑定、账号/数据库
@@ -51,7 +67,8 @@ SHA-256；接管开始和停服前都会重新校验，实际安装时再校验�
 
 生产运行前必须重新完成并人工复核：
 
-1. 从匹配 `main` 成功构建下载的目标 bundle，其 archive、manifest、commit 与 image ID 完全一致；
+1. 从匹配 `main` 成功构建下载目标 Gateway 与运维两个 bundle；两者 archive、manifest、commit 与
+   image ID/入口完全一致；
 2. R5-B 加密恢复证据仍在 30 天内，旧 identity 文件没有变化；
 3. 候选 Nginx 完整配置的 diff 和 SHA-256，确认没有删除发布服务或其他既有路由；
 4. blue/green 端口空闲、旧 8444 与 PostgreSQL 5432 仍只监听 loopback；
@@ -67,3 +84,16 @@ node scripts/production-baseline.mjs \
 
 失败入口统一向操作者返回 `HR-OPS-014`，内部 R4 阶段原因会经过凭据和用户路径脱敏后保留用于诊断。
 代码阶段没有连接香港服务器，没有部署、重启、切流或启用 timer。
+
+## 2026-09-04 部署前只读预检
+
+经单独授权的白名单读取确认生产主机仍为 Linux x86_64，根盘约 100 GiB 且使用率 16%，可用内存约
+5.4 GiB；旧 Gateway、Nginx、Docker 与 PostgreSQL 均 active/enabled，Nginx 配置检查通过，公开 Gateway
+与发布服务健康。8444 和 PostgreSQL 5432 只监听 loopback，旧 identity 与当天 R5-B 异机恢复证据完全
+匹配，三个新受管 root、两个候选 unit/container 和 upstream 文件均不存在，符合首次接管条件。
+
+预检同时发现并保持 fail-closed：默认绿色端口 8788 已被既有业务容器占用，私密生产配置必须改用当前
+空闲的 18787/18788 并在停服前复核；实际 Nginx 文件名需要上述精确兼容；生产主机没有与目标 `main`
+绑定的运维 bundle；现有共享 Token 文件为组可读且内部状态 Token 尚不存在，不能直接作为 R5-D 输入。
+后续需在获得写入授权后，将现有 App/Connector Token 复制到独立 `0600` 输入文件并生成独立内部状态
+Token，不改动原文件。此次预检未上传文件、创建目录、安装软件、重启服务、重载 Nginx 或切换流量。
