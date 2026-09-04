@@ -227,6 +227,13 @@ R5-D keeps the ordinary `hermesctl deploy/rollback` commands staging-only. Its d
 R5-B off-host recovery evidence. It requires full candidate, public, and legacy compatibility smoke callbacks
 and fixes database/account features off for this transition.
 
+Use only an R5-D operator manifest with schema version 2 for a new production adoption. The entrypoint starts
+its own one-time Hermes smoke service on an operating-system-assigned `127.0.0.1` port, passes only an allowlisted
+environment with generated credentials to the bundled Connector, and removes its listener, child processes,
+and private temporary directory on success or failure. Never copy Mac Hermes credentials to the HK host and
+never replace the bundled smoke runtime with an ad-hoc script. Schema version 1 remains readable solely to audit
+artifacts produced before this boundary was closed.
+
 Do not generate the production Nginx file from the staging template. Start from the actual production site
 file, preserve every unrelated route, replace only the Gateway upstream, review the complete diff, and pin its
 SHA-256 in the private configuration. The switch installs that exact file and restores the original bytes if

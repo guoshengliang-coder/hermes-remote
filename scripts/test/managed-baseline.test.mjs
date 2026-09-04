@@ -194,9 +194,26 @@ test("R5-D operator bundle manifest binds one safe archive to the exact source c
   });
   await writeJson(manifestPath, manifest);
   const parsed = await loadProductionBaselineBundleManifest(manifestPath);
+  assert.equal(parsed.schemaVersion, 2);
+  assert.equal(parsed.kind, "hermes-go-production-baseline-bundle-v2");
   assert.equal(parsed.sourceCommit, sourceCommit);
   assert.equal(parsed.entrypoint, "scripts/production-baseline.mjs");
   assert.equal(parsed.connectorEntry, "connector/dist/index.js");
+  assert.equal(parsed.smokeRuntimeEntry, "ops/lib/production-smoke-runtime.mjs");
+
+  const legacyManifest = { ...manifest };
+  delete legacyManifest.smokeRuntimeEntry;
+  legacyManifest.schemaVersion = 1;
+  legacyManifest.kind = "hermes-go-production-baseline-bundle-v1";
+  await writeJson(manifestPath, legacyManifest);
+  await assert.rejects(() => loadProductionBaselineBundleManifest(manifestPath), isCode("HR-OPS-014"));
+  assert.equal((await loadProductionBaselineBundleManifest(manifestPath, { allowLegacySchema: true })).schemaVersion, 1);
+  await writeJson(manifestPath, manifest);
+  const incompleteManifest = { ...manifest };
+  delete incompleteManifest.smokeRuntimeEntry;
+  await writeJson(manifestPath, incompleteManifest);
+  await assert.rejects(() => loadProductionBaselineBundleManifest(manifestPath), isCode("HR-OPS-014"));
+  await writeJson(manifestPath, manifest);
 
   await writeFile(archivePath, "tampered\n", { mode: 0o644 });
   await assert.rejects(() => loadProductionBaselineBundleManifest(manifestPath), isCode("HR-OPS-014"));

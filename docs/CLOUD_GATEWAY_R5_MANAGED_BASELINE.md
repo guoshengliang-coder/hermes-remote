@@ -44,18 +44,27 @@ SHA-256；接管开始和停服前都会重新校验，实际安装时再校验�
 香港主机不以 Git checkout 或 npm 工具链作为生产依赖。`Gateway OCI` 门禁除了目标 OCI archive 与
 manifest，还生成 `Hermes-R5D-Ops-<commit>.tar.gz` 和同名 manifest。运维 bundle 只包含 R5-D 入口、
 `ops/lib`、候选/兼容 smoke、已构建 Connector/Protocol 和 production-only Node 依赖；不包含 Token、
-TLS 私钥、生产配置、恢复证据或主机地址。
+TLS 私钥、生产配置、恢复证据、主机地址或 Mac Hermes 凭据。
 
-运维 manifest 用 archive SHA-256 绑定完整内容，并将入口固定为 `scripts/production-baseline.mjs`、测试
-Connector 固定为 `connector/dist/index.js`。上传前后都必须运行
+运维 manifest 用 archive SHA-256 绑定完整内容。R5-D3 的 schema v2 将入口固定为
+`scripts/production-baseline.mjs`、测试 Connector 固定为 `connector/dist/index.js`，并将内置 smoke runtime
+固定为 `ops/lib/production-smoke-runtime.mjs`；schema v1 只为旧审计制品保持可读，不能用于新的生产接管。
+上传前后都必须运行
 `scripts/verify-production-baseline-bundle.mjs`，且运维 bundle、Gateway bundle 和当前 `main` 必须是同一
 个完整提交。不能在生产主机临时安装 npm、复用旧 Connector 或从另一个提交拼接脚本。
+
+生产入口在任何接管动作前创建权限隔离的临时目录，随机生成一次性 Basic Auth 与 Cookie，只在随机
+`127.0.0.1` 端口启动模拟 Hermes，并把白名单环境交给测试 Connector。Mac 的 Hermes 地址、用户名、
+密码、Cookie 和 WS ticket 不会进入香港主机。成功、失败和正常进程退出都会关闭监听、终止仍存活的
+smoke 子进程并删除临时目录；该 runtime 只验证候选 Gateway 的 Connector/REST/WebSocket 链路，不参与
+真实用户流量。
 
 ## 本地与一次性测试
 
 单元和故障注入覆盖严格 parser、错误确认值、主机不匹配、旧 identity 漂移、证据绑定、账号/数据库
-关闭、受管描述符幂等、production capability 隔离，以及公开 smoke 失败后专用 legacy smoke、旧 unit、
-原 Nginx、release links 和最新 lifecycle 状态的恢复。
+关闭、受管描述符幂等、production capability 隔离、loopback-only smoke 认证与 WebSocket、失败后的
+目录/监听/子进程清理，以及公开 smoke 失败后专用 legacy smoke、旧 unit、原 Nginx、release links 和
+最新 lifecycle 状态的恢复。
 
 手动 workflow `Gateway R5-D Managed Baseline` 在一次性 Ubuntu 24.04 runner 内建立 R3 legacy 服务、
 本地 CA、Nginx、真实 Connector 与两个隔离槽，生成仅供本次 runner 使用的恢复证据，然后用 R4 0.3.0
@@ -72,7 +81,8 @@ Connector 固定为 `connector/dist/index.js`。上传前后都必须运行
 2. R5-B 加密恢复证据仍在 30 天内，旧 identity 文件没有变化；
 3. 候选 Nginx 完整配置的 diff 和 SHA-256，确认没有删除发布服务或其他既有路由；
 4. blue/green 端口空闲、旧 8444 与 PostgreSQL 5432 仍只监听 loopback；
-5. Connector 测试环境齐全，维护窗内允许短暂停止旧 Gateway 与重载 Nginx；
+5. schema v2 运维 bundle 的内置 loopback smoke runtime 与 Connector 入口验证通过，维护窗内允许短暂
+   停止旧 Gateway 与重载 Nginx；不得向香港主机复制 Mac Hermes 凭据；
 6. 明确的失败判定：任何私有/公开 smoke、状态交接、`nginx -t`、reload 或观察失败都立即恢复旧服务；
 7. 项目所有者明确授权本次 R5-D 生产接管后，才运行：
 
