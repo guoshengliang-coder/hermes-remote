@@ -76,6 +76,13 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "inspect_legacy_recovery_stage_and_retry",
   }),
+  monitoring: Object.freeze({
+    code: "HR-OPS-012",
+    summaryZh: "生产主机磁盘或数据库备份监控发现异常，请检查告警项并尽快处理。",
+    summaryEn: "Production disk or database-backup monitoring found a problem. Inspect the alert and resolve it promptly.",
+    retryable: true,
+    recoveryAction: "inspect_production_monitor_alert_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;

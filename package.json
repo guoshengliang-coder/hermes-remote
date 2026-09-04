@@ -30,6 +30,7 @@
     "ops:deploy": "node scripts/hermesctl.mjs deploy",
     "ops:rollback": "node scripts/hermesctl.mjs rollback",
     "ops:production-audit": "node scripts/hermesctl.mjs production-audit",
+    "ops:production-monitor": "node scripts/hermesctl.mjs production-monitor",
     "ops:legacy-capture": "node scripts/hermesctl.mjs legacy-capture",
     "ops:legacy-restore": "node scripts/hermesctl.mjs legacy-restore",
     "dev:gateway": "npm run dev -w @hermes-remote/gateway",

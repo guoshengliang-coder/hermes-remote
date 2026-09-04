@@ -179,3 +179,32 @@ encrypted logical backup, copy it off the HK host, restore it into a separate di
 run schema plus account smoke checks against the restored copy. Daily backup retention, failure alerts,
 periodic restore rehearsal, disk thresholds, and credential rotation must be in place before account
 mode is enabled. Keeping the only backup on the HK disk does not satisfy this gate.
+
+## Production disk and backup monitoring (R5-C4; not deployed)
+
+R5-C4 adds a separate `production-monitor` command. It reads only the root filesystem capacity and one
+strict PostgreSQL encrypted-backup status file; it does not run `pg_dump`, connect to PostgreSQL, remove
+files, restart a service, or change routing. Create the private config from
+`ops/production.monitor.example.json` and bind the invocation to the configured production hostname:
+
+```bash
+node scripts/hermesctl.mjs production-monitor \
+  --config /etc/hermes-remote/production-monitor.json \
+  --confirm production:<configured-hostname>
+```
+
+The command exits nonzero with `HR-OPS-012` when free disk is below either configured threshold or the
+off-host backup status is missing, invalid, stale, in the future, undersized, or bound to the wrong host,
+PostgreSQL major, or database schema. Warning-level disk results also exit nonzero so the timer cannot
+silently ignore them. Output excludes the status path, artifact hash, and off-host storage identifier.
+
+The status file follows `ops/postgresql-backup-status.schema.json`. It may be atomically replaced only by
+the later R5-E backup job after encryption, off-host copy, full remote byte/hash verification, and final
+metadata binding all succeed. It is an operational freshness signal, not a substitute for the separate-host
+restore evidence required by `production-audit`.
+
+The three `deploy/hermes-go-production-monitor*.template` units schedule the read-only check every 15
+minutes and convert a failed run into a local `daemon.alert` journal event. They deliberately contain no
+network notification credential or auto-remediation. Installation and timer enablement require explicit
+production authorization; this source change does not deploy them. See `CLOUD_GATEWAY_R5_MONITORING.md`
+for the status-writer contract, validation sequence, and external-notification boundary.

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Hermes GO production monitoring every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=60
+AccuracySec=30
+Unit=hermes-go-production-monitor.service
+
+[Install]
+WantedBy=timers.target
