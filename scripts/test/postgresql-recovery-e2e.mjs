@@ -214,15 +214,17 @@ async function installPostgresqlWrappers(directory, sourcePostgresContainerId, r
     const filePath = path.join(directory, tool);
     const script = `#!/bin/sh
 case "$PGDATABASE" in
-  *:5432/*) container=${sourcePostgresContainerId} ;;
+  *:5432/*)
+    container=${sourcePostgresContainerId}
+    database=hermes_r5e_source
+    ;;
   *:5433/*)
     container=${restorePostgresContainerId}
-    PGDATABASE=$(printf '%s' "$PGDATABASE" | sed 's/@127\\.0\\.0\\.1:5433\//@127.0.0.1:5432\//')
-    export PGDATABASE
+    database=hermes_r5e_restore
     ;;
   *) exit 64 ;;
 esac
-exec docker exec -i -e PGDATABASE "$container" ${tool} "$@"
+exec docker exec -i "$container" ${tool} --username hermes_r5e --dbname "$database" "$@"
 `;
     await writeFile(filePath, script, { flag: "wx", mode: 0o700 });
     await chmod(filePath, 0o700);
