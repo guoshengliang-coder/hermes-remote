@@ -491,6 +491,12 @@ read the `ws` and `service` channels.
    socket survived and, if not, the close code and the elapsed time. This is the M1 item: the
    emulator reaches the gateway over `adb reverse` on loopback, which never drops and never passes
    through the edge nginx `proxy_read_timeout 75s`, so it cannot answer this question. The result
-   decides whether R2's 45s background heartbeat needs adjusting.
-12. **Vendor battery management.** On a Chinese OEM ROM, confirm the foreground service is not killed
+   decides whether the 45s ping cadence R2 settled on is enough tolerance. If sockets still die with
+   the screen off, the next step is an application-level heartbeat that can forgive a single missed
+   beat — OkHttp's own ping treats one late pong as a dead connection and offers no leniency knob,
+   which is why R2 could only widen the window rather than add tolerance.
+12. **Reaching the real edge.** Because loopback bypasses nginx, at least one run should be observed
+   against the production gateway to confirm the 45s ping actually keeps the proxy's 75s idle timer
+   from firing. Ordinary use of the app is enough; no deployment is involved.
+13. **Vendor battery management.** On a Chinese OEM ROM, confirm the foreground service is not killed
    during a run, and whether the app needs to be added to the battery whitelist.

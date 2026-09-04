@@ -120,7 +120,17 @@ class LifecycleMonitoringCoordinator @Inject constructor(
             }
             LifecycleMonitoringMode.ACTIVE_BACKGROUND -> {
                 LifecycleEventJobScheduler.cancel(context)
-                GatewayConnectionService.start(context)
+                if (!GatewayConnectionService.start(context)) {
+                    // The system refused the foreground service (Android 12+ restricts background
+                    // starts). The run is still worth following, so the socket stays — but without
+                    // a service this is an ordinary background process that the system can freeze
+                    // or kill at any time, so hold it on a lease instead of indefinitely.
+                    // collectLatest cancels this the moment the app returns or the run ends.
+                    DebugLog.log("lifecycle", "no foreground service; holding the socket on a lease")
+                    delay(UNPROTECTED_ACTIVE_GRACE_MS)
+                    DebugLog.log("lifecycle", "unprotected keep-alive lease expired; closing")
+                    gatewayClient.close()
+                }
             }
             LifecycleMonitoringMode.IDLE_BACKGROUND -> {
                 GatewayConnectionService.stop(context)
@@ -151,5 +161,12 @@ class LifecycleMonitoringCoordinator @Inject constructor(
     private companion object {
         const val FOREGROUND_POLL_MS = 2_000L
         const val BACKGROUND_SOCKET_GRACE_MS = 45_000L
+
+        /**
+         * How long to keep a backgrounded run's socket when the foreground service was refused.
+         * Long enough to cover a real answer finishing, short enough that a process the system
+         * never promised to keep does not hold a socket open for the rest of the day.
+         */
+        const val UNPROTECTED_ACTIVE_GRACE_MS = 5 * 60_000L
     }
 }

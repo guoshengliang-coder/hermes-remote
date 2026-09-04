@@ -40,6 +40,22 @@ import javax.inject.Qualifier
 @Retention(AnnotationRetention.BINARY)
 annotation class UpdateHttpClient
 
+/**
+ * WebSocket ping cadence, which OkHttp also uses as the pong deadline: no pong within one interval
+ * and the client declares the connection lost.
+ *
+ * It is bounded on both sides. Too long and the edge proxy hangs up first — nginx closes an idle
+ * upstream at `proxy_read_timeout 75s` (deploy/hermes-edge.nginx.conf.template), so the ping has to
+ * be comfortably under that. Too short and a sleeping device kills its own healthy socket: the app
+ * holds no wake lock, so with the screen off the timer is batched and a pong can easily arrive late.
+ * 20s was doing exactly that. Whether 45s is enough tolerance in practice is the open question that
+ * needs a real device (docs/SMOKE_TEST.md, background connection, case 11).
+ *
+ * The cost of the larger value is slower detection of a silently dead socket in the foreground —
+ * still well inside the 60s RPC timeout, so a send fails with a connection error either way.
+ */
+const val GATEWAY_PING_INTERVAL_SECONDS = 45L
+
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
@@ -71,7 +87,7 @@ object AppModule {
         // Preserve the pinned DNS fallback for existing installations that still use the legacy
         // sslip.io URL. The mrlgs.net production URL uses normal Android DNS resolution.
         .dns(RelayDns())
-        .pingInterval(20, TimeUnit.SECONDS)
+        .pingInterval(GATEWAY_PING_INTERVAL_SECONDS, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         // Gated-dashboard auth: the cookie jar carries the session cookies on every REST call,
         // and the authenticator re-logs-in and retries on a 401. In loopback/token mode the jar
