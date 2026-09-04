@@ -15,9 +15,13 @@ on:
       - "scripts/hermesctl.mjs"
       - "scripts/package-gateway-bundle.sh"
       - "scripts/package-gateway-image.sh"
+      - "scripts/package-production-baseline-bundle.mjs"
+      - "scripts/production-baseline.mjs"
+      - "scripts/smoke-compat-client.mjs"
       - "scripts/write-gateway-bundle-manifest.mjs"
       - "scripts/test-gateway-image.sh"
       - "scripts/verify-gateway-image-candidate.mjs"
+      - "scripts/verify-production-baseline-bundle.mjs"
       - "scripts/lib/release-errors.mjs"
       - "scripts/report-release-error.mjs"
   push:
@@ -35,9 +39,13 @@ on:
       - "scripts/hermesctl.mjs"
       - "scripts/package-gateway-bundle.sh"
       - "scripts/package-gateway-image.sh"
+      - "scripts/package-production-baseline-bundle.mjs"
+      - "scripts/production-baseline.mjs"
+      - "scripts/smoke-compat-client.mjs"
       - "scripts/write-gateway-bundle-manifest.mjs"
       - "scripts/test-gateway-image.sh"
       - "scripts/verify-gateway-image-candidate.mjs"
+      - "scripts/verify-production-baseline-bundle.mjs"
       - "scripts/lib/release-errors.mjs"
       - "scripts/report-release-error.mjs"
   workflow_dispatch:
@@ -63,12 +71,16 @@ jobs:
         run: ./scripts/test-gateway-image.sh
       - name: Package the immutable staging bundle
         run: ./scripts/package-gateway-bundle.sh outputs/gateway-bundle
+      - name: Package the production-baseline operator bundle
+        run: node scripts/package-production-baseline-bundle.mjs outputs/production-baseline-bundle
       - name: Retain the main candidate for production audit
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: gateway-bundle-${{ github.sha }}
-          path: outputs/gateway-bundle/
+          path: |
+            outputs/gateway-bundle/
+            outputs/production-baseline-bundle/
           if-no-files-found: error
           retention-days: 7
           compression-level: 0

@@ -119,11 +119,13 @@ node scripts/hermesctl.mjs production-audit \
   --confirm production:<configured-public-hostname>
 ```
 
-Every successful `Gateway OCI` push run on `main` retains its exact bundle as
-`gateway-bundle-<full-main-commit>` for seven days. Pull-request runs still build and verify the bundle but do
-not retain it. Download the artifact from the matching successful `main` run, preserve both the archive and
-manifest together, and use that manifest as `targetArtifactManifest`; never substitute a hand-written
-manifest or a bundle from another commit.
+Every successful `Gateway OCI` push run on `main` retains its exact artifact as
+`gateway-bundle-<full-main-commit>` for seven days. It contains the Gateway archive/manifest and the separately
+hashed R5-D operator archive/manifest. Pull-request runs still build and verify both bundles but do not retain
+them. Download the artifact from the matching successful `main` run, preserve every archive with its manifest,
+and use the Gateway manifest as `targetArtifactManifest`; never substitute a hand-written manifest or combine
+bundles from different commits. Verify the operator archive with
+`scripts/verify-production-baseline-bundle.mjs` before and after transfer.
 
 The command aggregates every gate instead of stopping at the first missing prerequisite. It checks the exact
 Linux/amd64 host identity, minimum free disk and available memory, immutable target bundle, exact hashes of the
@@ -216,3 +218,18 @@ production authorization; this source change does not deploy them. See `CLOUD_GA
 for the dependency-free code snapshot, status-writer contract, validation sequence, and external-notification
 boundary. The dedicated entrypoint must be used by systemd; `scripts/hermesctl.mjs` remains available for
 interactive compatibility but loads unrelated deployment modules and is not the production timer entrypoint.
+
+## Production managed baseline (R5-D; production not executed)
+
+R5-D keeps the ordinary `hermesctl deploy/rollback` commands staging-only. Its dedicated
+`scripts/production-baseline.mjs` entrypoint accepts only a strict production configuration, an exact
+`production:<hostname>` confirmation, the immutable target bundle, unchanged legacy identity files, and fresh
+R5-B off-host recovery evidence. It requires full candidate, public, and legacy compatibility smoke callbacks
+and fixes database/account features off for this transition.
+
+Do not generate the production Nginx file from the staging template. Start from the actual production site
+file, preserve every unrelated route, replace only the Gateway upstream, review the complete diff, and pin its
+SHA-256 in the private configuration. The switch installs that exact file and restores the original bytes if
+validation, reload, state handoff, observation, or smoke fails. See `CLOUD_GATEWAY_R5_MANAGED_BASELINE.md` for
+the config, topology, disposable test, maintenance-window checklist, and recovery boundary. Source review or a
+successful disposable workflow does not authorize running this command on the HK host.
