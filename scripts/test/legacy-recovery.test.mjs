@@ -212,7 +212,14 @@ server.listen(Number(process.env.PORT), process.env.HOST);
 process.on("SIGTERM", () => server.close(() => process.exit(0)));
 `);
   await writeFile(packageFile, '{"name":"legacy-fixture","version":"0.1.0","type":"module"}\n');
-  await writeFile(configuration, "APP_TOKEN=test-app-token\nHOST=0.0.0.0\nPORT=8444\n");
+  await writeFile(configuration, [
+    "APP_TOKEN=test-app-token",
+    "HOST=0.0.0.0",
+    "PORT=8444",
+    "TLS_CERT_FILE=/production-only/tls/fullchain.pem",
+    "TLS_KEY_FILE=/production-only/tls/privkey.pem",
+    "",
+  ].join("\n"));
   await writeFile(lifecycle, '{"events":[],"nextSequence":1}\n', { mode: 0o600 });
   await writeFile(nginx, "location / { proxy_pass http://127.0.0.1:8444; }\n");
   await writeFile(systemd, "[Service]\nExecStart=/usr/bin/node index.mjs\n");

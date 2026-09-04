@@ -314,6 +314,8 @@ async function verifyRestoredEntries(restoreRoot, manifest) {
 async function startAndSmokeRestoredService(config, manifest, options) {
   const environmentPath = restoredPath(config.restoreRoot, manifest.service.environmentFile);
   const environment = parseEnvironment(await readFile(environmentPath, "utf8"));
+  delete environment.TLS_CERT_FILE;
+  delete environment.TLS_KEY_FILE;
   for (const [key, value] of Object.entries(environment)) {
     if ((key.endsWith("_FILE") || key === "LIFECYCLE_EVENT_STORE_FILE") && path.isAbsolute(value)) {
       const candidate = restoredPath(config.restoreRoot, value);
