@@ -191,6 +191,20 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.90 rebuilds the usage page and gives the app one loading language. The usage figures
+  used to contradict each other: the headline summed Hermes's main-agent rows while the model list
+  underneath already included auxiliary calls, so the rows added up to more than the total. Both
+  now derive from one response and the split is stated outright. 本周用量 means seven calendar days
+  rather than the last seven days that happened to have traffic, and the chart plots real dates
+  instead of spacing unequal gaps evenly. The window is selectable (7 / 30 / 90); the trend has an
+  axis and opens a per-day breakdown on tap; auxiliary spend is broken out by task, answering what
+  context compression actually costs; cost is isolated at the bottom with a sheet explaining what
+  it excludes, and it follows Hermes's own switch when that is turned off. An offline Mac and a
+  timed-out request now say so instead of sharing one generic failure, and a profile with no usage
+  gets an empty state rather than zeros that looked identical to a broken connector. Loading is now
+  one system derived from the launcher icon — light moving over a still shape, on a single period
+  and a 250ms reveal gate, replacing every bare spinner. The assistant body gets a spacing and type
+  contract, and links opened from an answer no longer crash on a device with no browser.
 - Version 0.1.89 stops the app from re-downloading a conversation it already has, and stops a
   routine reconnect from hiding the conversation behind the launch screen. Chat open, history
   reconciliation, foreground recovery and the startup coordinator used to wake together after a
@@ -519,7 +533,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.89-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.90-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
