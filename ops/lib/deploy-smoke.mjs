@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { OpsError } from "./errors.mjs";
 
 const verifierPath = fileURLToPath(new URL("../../scripts/verify-gateway-image-candidate.mjs", import.meta.url));
+const compatibilityVerifierPath = fileURLToPath(new URL("../../scripts/smoke-compat-client.mjs", import.meta.url));
 
 export async function createStagingSmokeCallbacks(config, options = {}) {
   const env = options.env ?? process.env;
@@ -68,6 +69,41 @@ export async function createStagingSmokeCallbacks(config, options = {}) {
         internalStatusToken,
         env,
         spawnImpl,
+      });
+    },
+  };
+}
+
+export async function createProductionBaselineSmokeCallbacks(config, options = {}) {
+  const smoke = await createStagingSmokeCallbacks(config, options);
+  const env = options.env ?? process.env;
+  const spawnImpl = options.spawnImpl ?? spawn;
+  const appToken = await readPrivateToken(config.secrets.appTokenSource, "app_token");
+  return {
+    ...smoke,
+    legacySmoke: async (request) => {
+      await new Promise((resolve, reject) => {
+        const child = spawnImpl(process.execPath, [compatibilityVerifierPath], {
+          env: {
+            ...env,
+            PUBLIC_GATEWAY_URL: request.gatewayUrl,
+            APP_TOKEN: appToken,
+          },
+          stdio: "ignore",
+        });
+        child.once("error", () => reject(new OpsError(
+          "managedBaseline",
+          "legacy_compatibility_smoke_process_failed",
+          "managed_baseline_legacy_smoke",
+        )));
+        child.once("exit", (code, signal) => {
+          if (code === 0) resolve();
+          else reject(new OpsError(
+            "managedBaseline",
+            `legacy_compatibility_smoke_failed=${code ?? signal ?? "unknown"}`,
+            "managed_baseline_legacy_smoke",
+          ));
+        });
       });
     },
   };

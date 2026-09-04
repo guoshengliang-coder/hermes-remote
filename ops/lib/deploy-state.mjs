@@ -66,6 +66,10 @@ export function deploymentPlanDigest(config, source, target, inputMaterialFinger
       listenPort: config.nginx.listenPort,
       configFile: config.nginx.configFile,
       upstreamConfigFile: config.nginx.upstreamConfigFile,
+      ...(config.managedBaseline === true ? {
+        candidateConfigSource: config.nginx.candidateConfigSource,
+        candidateConfigSha256: config.nginx.candidateConfigSha256,
+      } : {}),
     },
     deployment: config.deployment,
     source,

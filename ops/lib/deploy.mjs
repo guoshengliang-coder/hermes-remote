@@ -59,7 +59,7 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
   const paths = deploymentPaths(config, targetManifest, candidateSlot);
 
   try {
-    authorizeCandidate(config, options.confirmation, getUid, platform, architecture, candidateSmoke, operation);
+    authorizeCandidate(config, options, getUid, platform, architecture, candidateSmoke, operation, activeSlot);
     const transition = assessReleaseTransition(sourceManifest, targetManifest, {
       operation,
       databaseEnabled: config.database !== null,
@@ -374,12 +374,22 @@ function deploymentPaths(config, manifest, slot) {
   };
 }
 
-function authorizeCandidate(config, confirmation, getUid, platform, architecture, candidateSmoke, operation) {
-  if (confirmation !== "staging" || config.environment !== "staging") fail("staging_confirmation_required", "candidate_authorize");
+function authorizeCandidate(config, options, getUid, platform, architecture, candidateSmoke, operation, activeSlot) {
+  const staging = options.confirmation === "staging" && config.environment === "staging";
+  const managedBaseline = options.authorization === "production-managed-baseline"
+    && config.managedBaseline === true
+    && config.environment === "production"
+    && options.confirmation === `production:${config.host?.hostname}`
+    && operation === "deploy"
+    && activeSlot === null;
+  if (!staging && !managedBaseline) fail("staging_confirmation_required", "candidate_authorize");
   if (getUid() !== 0) fail("candidate_requires_root", "candidate_authorize");
   if (platform !== "linux" || architecture !== "x64") fail(`unsupported_host=${platform}/${architecture}`, "candidate_authorize");
   if (typeof candidateSmoke !== "function") fail("candidate_full_smoke_required", "candidate_authorize");
   if (!new Set(["deploy", "rollback"]).has(operation)) fail("candidate_operation_invalid", "candidate_authorize");
+  if (managedBaseline && typeof options.legacySmoke !== "function") {
+    fail("managed_baseline_legacy_smoke_required", "candidate_authorize");
+  }
 }
 
 function stripArchivePath(manifest) {

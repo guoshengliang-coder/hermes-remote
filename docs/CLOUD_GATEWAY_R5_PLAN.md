@@ -103,3 +103,10 @@ R5-E 代码阶段新增独立 PostgreSQL 恢复入口、严格配置/manifest、
 激活，并以 `HR-OPS-013` 失败关闭。实现与操作边界见 `CLOUD_GATEWAY_R5_DATABASE_RECOVERY.md`。
 当前仅完成本地代码和自动测试；生产数据库/角色/schema 迁移、捕获、异机真实恢复、状态激活、timer 启用
 和服务切换均未执行，R5-E 生产门禁仍为 no-go。
+
+R5-D 代码阶段新增独立 `production-baseline` 入口、严格 production-only 配置、R5-B evidence 与旧运行时
+identity 绑定、候选 Nginx 文件哈希门禁，以及仅限首次 `activeSlot: null` 的 R4 蓝绿状态机 capability。
+账号认证、账号绑定与数据库均固定关闭；切换失败使用 legacy 专用兼容 smoke 复核自动恢复。手动
+`Gateway R5-D Managed Baseline` workflow 只在无 Secret、无 SSH、无生产地址的一次性 Ubuntu 主机运行。
+源码尚未执行生产接管，香港 Gateway/Nginx 未因本阶段变化。操作细节与维护窗门禁见
+`CLOUD_GATEWAY_R5_MANAGED_BASELINE.md`。
