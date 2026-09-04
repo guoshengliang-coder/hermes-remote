@@ -151,7 +151,7 @@ export async function bootstrapStaging(config, manifest, options = {}) {
   lock = await acquireBootstrapLock(paths.lock, runId);
 
   try {
-    await appendAudit(paths.audit, {
+    await appendOpsAudit(paths.audit, {
       runId,
       operator: config.operator,
       environment: config.environment,
@@ -205,7 +205,7 @@ export async function bootstrapStaging(config, manifest, options = {}) {
     await updateJournal(paths.journal, journal, stage, now, ownership.host);
 
     const finishedAt = now().toISOString();
-    await appendAudit(paths.audit, {
+    await appendOpsAudit(paths.audit, {
       runId,
       operator: config.operator,
       environment: config.environment,
@@ -230,7 +230,7 @@ export async function bootstrapStaging(config, manifest, options = {}) {
       resumedFrom: journal.initialStage,
     };
   } catch (error) {
-    await appendAudit(paths.audit, {
+    await appendOpsAudit(paths.audit, {
       runId,
       operator: config.operator,
       environment: config.environment,
@@ -386,7 +386,7 @@ export function verifyLoadedImage(runner, manifest) {
   return image;
 }
 
-async function inspectInputMaterial(config) {
+export async function inspectInputMaterial(config) {
   const app = await readPrivateToken(config.secrets.appTokenSource, "app_token");
   const connector = await readPrivateToken(config.secrets.connectorTokenSource, "connector_token");
   const internal = await readPrivateToken(config.secrets.internalStatusTokenSource, "internal_status_token");
@@ -396,13 +396,19 @@ async function inspectInputMaterial(config) {
   }
   const certificate = await readCertificate(config.nginx.certificateSource);
   const privateKey = await readPrivateKey(config.nginx.privateKeySource);
+  const databaseUrl = config.database
+    ? await readPrivateDatabaseUrl(config.database.urlSource)
+    : null;
+  const databaseFingerprint = databaseUrl ? sha256(databaseUrl) : null;
+  const materialFingerprints = [...fingerprints, sha256(certificate), sha256(privateKey)];
+  if (databaseFingerprint) materialFingerprints.push(databaseFingerprint);
   const fingerprint = createHash("sha256")
-    .update([...fingerprints, sha256(certificate), sha256(privateKey)].join(":"), "utf8")
+    .update(materialFingerprints.join(":"), "utf8")
     .digest("hex");
-  return { app, connector, internal, certificate, privateKey, fingerprint };
+  return { app, connector, internal, certificate, privateKey, databaseUrl, fingerprint };
 }
 
-async function verifyArchiveAtUse(manifest) {
+export async function verifyArchiveAtUse(manifest) {
   if (!manifest.archivePath) throw new OpsError("artifact", "bundle_archive_path_missing", "artifact_archive_verify");
   try {
     await assertRegularFile(manifest.archivePath, "artifact_archive");
@@ -435,6 +441,29 @@ async function readPrivateToken(filePath, label) {
   const raw = await readFile(filePath, "utf8");
   const value = raw.endsWith("\n") ? raw.slice(0, -1) : raw;
   if (!/^[^\s]{32,4096}$/.test(value)) throw new OpsError("config", `${label}_format_invalid`, "preflight_secrets");
+  return value;
+}
+
+async function readPrivateDatabaseUrl(filePath) {
+  const info = await assertRegularFile(filePath, "account_database_url");
+  if ((info.mode & 0o077) !== 0 || info.size < 16 || info.size > 4097) {
+    throw new OpsError("config", "account_database_url_permissions_or_size_invalid", "preflight_database");
+  }
+  const raw = await readFile(filePath, "utf8");
+  const value = raw.endsWith("\n") ? raw.slice(0, -1) : raw;
+  if (/\s/.test(value)) {
+    throw new OpsError("config", "account_database_url_format_invalid", "preflight_database");
+  }
+  try {
+    const parsed = new URL(value);
+    if (!new Set(["postgres:", "postgresql:"]).has(parsed.protocol)
+        || !parsed.hostname || !parsed.username || !parsed.password
+        || parsed.pathname.length < 2 || parsed.hash) {
+      throw new Error("invalid");
+    }
+  } catch {
+    throw new OpsError("config", "account_database_url_format_invalid", "preflight_database");
+  }
   return value;
 }
 
@@ -587,11 +616,11 @@ async function updateJournal(filePath, journal, stage, now, owner) {
   await atomicWrite(filePath, `${JSON.stringify(stripInternalJournal(journal), null, 2)}\n`, 0o600, owner);
 }
 
-async function appendAudit(filePath, record) {
+export async function appendOpsAudit(filePath, record, { kind = "bootstrap", stage = "bootstrap_audit" } = {}) {
   try {
     const info = await lstat(filePath);
     if (info.isSymbolicLink() || !info.isFile() || (info.mode & 0o077) !== 0) {
-      throw new OpsError("bootstrap", "audit_log_unsafe", "bootstrap_audit");
+      throw new OpsError(kind, "audit_log_unsafe", stage);
     }
   } catch (error) {
     if (error instanceof OpsError) throw error;

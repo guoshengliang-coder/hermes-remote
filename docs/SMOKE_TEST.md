@@ -326,3 +326,103 @@ Relay connection.
    previously chosen colours appear as the selected swatch on first open of 身份设置.
 8. Break the photo pipeline (pick a non-image or corrupt file if the picker allows it) and confirm
    the toast reads 无法读取所选照片，请换一张再试。 (HR-MEDIA-002) and the previous avatar stays.
+
+## Share transcript smoke test (2026-09, three formats)
+
+Device flows for the share-format picker. Pending device verification.
+
+1. **Picker appears.** 更多 › 分享对话 opens the format sheet (not the system share sheet) with
+   three rows: 文字 / Markdown 文件 / 长图. An empty conversation still shows the
+   "暂无可导出的内容" toast instead of the picker.
+2. **Plain text.** Unchanged behaviour: shares as text into WeChat/mail.
+3. **Markdown file.** Share to a file-capable target (mail, cloud drive, Obsidian). The received
+   file is `HermesGO-<title>-<stamp>.md`; opening it shows the title, the metadata line (time,
+   model, Hermes GO) and `## 你` / `## 助手` sections, with code fences and tables intact. Try a
+   session whose title contains `/`, `:` or emoji — the file must still save.
+4. **Image, short conversation.** Shares one PNG containing the whole conversation, rendered in
+   the LIGHT theme even when the app is in dark mode, with the footer showing title + date.
+   Cached inline images appear; images never downloaded show a placeholder box.
+5. **Image, long conversation.** A long transcript must NOT render: the picker closes and a toast
+   suggests the Markdown file instead. Nothing crashes and no partial image is shared.
+6. **Failure surfaces.** If file creation or rendering fails, the toast carries HR-FILE-002 or
+   HR-MEDIA-003 respectively.
+
+## Search smoke test (2026-09 branch claude/search-v1)
+
+Automated: `SearchQueryTest`, `HermesRestApiSearchTest`, `SearchTextTest`, `RecentSearchesTest`,
+`SearchViewModelTest`, `ChatSearchHighlightTest`, `ChatRouteTest`, `AppErrorTest`. The items below
+need a phone with a working Relay connection.
+
+### Production probe record (Mac mini, 2026-09-03, read-only)
+
+- Store: `~/.hermes/state.db`, 43k messages. FTS tables present: `messages_fts` (unicode61) and
+  `messages_fts_trigram`; **no `messages_fts_cjk`** (the loadable CJK tokenizer is not built on the
+  mini), so CJK queries take the trigram path (≥ 3 CJK chars) or the LIKE full scan (1–2 chars).
+- `SessionDB.search_messages` direct calls: `的历史记录` → 1 row in 2 ms (trigram);
+  `的历史记录*` → **0 rows** (the gateway route appends `*` to every unquoted token);
+  `"的历史记录"` → 1 row; `的历` → 50 rows in ~1.5 s (LIKE scan); `的历*` → 0 rows;
+  `gradle` → 50 rows in 4 ms (fts5). This is why the client quotes CJK tokens.
+- Snippet shape varies by path: ~22–51 chars around the match (trigram), 120 chars starting 40
+  before the match (LIKE), ~330 chars with an ellipsis (fts5). No markup markers. The client
+  re-centres to ±40 chars.
+- The HTTP route (`/api/sessions/search`) enriches each hit with `title`, `last_active`,
+  `archived`, `source`, `message_count`, `preview`. Gateway round-trip from the phone was not
+  measured (needs the app on a configured device); server-side search is single-digit ms except
+  the 1–2 char CJK LIKE scan.
+
+### Device cases
+
+1. Open search from the list. With an empty field the recent searches (if any) are listed with
+   ×; type one character and confirm the hint 输入至少 2 个字符可搜索消息正文 appears when no
+   title matches. Type a two-character **mid-sentence Chinese fragment** from a known chat and
+   wait: within ~1 s the 消息匹配 section shows the hit with the title as the first line, a
+   relative time on the right, and the fragment highlighted in the two-line snippet. Repeat with
+   an English word (prefix, e.g. `grad` for `gradle`).
+2. Edit the query (append characters): the previous query's message rows disappear at once and
+   the header reads 搜索中… until the new results land. Press the keyboard Search key mid-debounce:
+   results arrive without waiting.
+3. Turn off Wi-Fi and mobile data, search: the message section shows the error strip 消息搜索失败，
+   请重试。 (HR-SEARCH-001) with 重试 while title matches remain. Long-press the strip and paste
+   somewhere: the diagnostic contains the code and no token. Restore the network and tap 重试:
+   results appear.
+4. Tap a message hit: the chat opens with the search bar in the top bar's place, the query filled,
+   the counter at 1/N, the first hit's turn outlined and the matching words marked inside the
+   text (Markdown body, user bubble). Tap ↓ repeatedly: the counter advances and the outlined turn
+   follows. When a hit is inside 查看思考过程 or a tool card, that card opens by itself.
+5. In a chat, search for a word that does not occur: the bar reads 此会话中没有匹配 with
+   在全部会话中搜索; tap it and confirm the search screen opens with the query filled and the
+   message search running by itself.
+6. Rotate the phone with the search bar open, then press back: the bar closes first (chat stays);
+   press back again to leave. Re-enter the chat from the list: the search bar is not re-opened.
+
+## Usage figures smoke test (2026-09 branch claude/usage-data-correctness)
+
+Automated: `UsageMathTest` (calendar filling, the week window against sparse rows, main/auxiliary
+reconciliation, empty-vs-failed, error mapping, wire parsing with null aggregates), `ErrorColorsTest`.
+Verified on the Pixel 9 emulator against `scripts/dev/dev-stack.sh`: empty state, a populated page
+whose figures reconciled to the fixture, and the drawer stat cell. The cases below need a phone with
+a working Relay connection and a profile that has real history — the emulator path cannot produce
+sparse real-world data, a genuinely offline Mac, or a stalled tunnel.
+
+### Device cases
+
+1. Open 用量 from the drawer's 本周用量 cell. Confirm 主对话 / 辅助 is a real split (not `x / 0`
+   unless the profile truly has no auxiliary traffic) and that the model rows' token figures add up
+   to at least the 主对话 figure — `by_model` includes auxiliary spend, `totals` does not, so the
+   rows summing higher is correct and the reverse is a regression.
+2. Check the drawer cell against the page: 本周用量 covers seven calendar days, the page covers the
+   window named in the footnote, so the cell should be the smaller number. On a profile used once a
+   month the cell must read 0 for a quiet week rather than reaching back to the last active day.
+3. Confirm the daily chart's bars sit on real dates: a profile with gaps should show blank slots,
+   not a run of adjacent bars. Compare the busiest bar against the same day in Hermes's own
+   dashboard.
+4. Quit Hermes Go Desktop on the Mac and reopen 用量: the page must show Mac 端当前离线，请启动
+   Hermes Go Desktop with `HR-CONN-005` and a working 重试, not the generic Relay failure. Restart
+   the Desktop app and retry: the page loads.
+5. Switch to a profile that has never run a session: the empty state 这个身份还没有用量记录 appears
+   — not zeros. Switch back and confirm the figures return.
+6. Confirm the footnote reads 统计窗口 N 天 · 按会话开始日归集 · 日界为 UTC, and that a session
+   started between 00:00 and 08:00 local time (UTC+8) is attributed to the previous day in the
+   chart. This is upstream behaviour, not a client bug; the footnote exists to state it.
+7. Both themes: the error state's code line and the empty state's icon must be legible in dark mode
+   (the error colour family is now explicit — see `ErrorColorsTest`).

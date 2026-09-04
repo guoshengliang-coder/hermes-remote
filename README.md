@@ -61,8 +61,11 @@ The behavior-preserving Cloud Gateway modularization and its staged release gate
 `docs/CLOUD_GATEWAY_REFACTOR_PLAN.md`.
 The staging-only R3 Cloud Ops command contract and its completed ephemeral deployment-test gates are documented in
 `docs/CLOUD_GATEWAY_R3_OPS.md` and `docs/CLOUD_GATEWAY_R3_TEST_RECORD.md`.
-The staging-only R4 safe-upgrade design, fault-injection sequence, and pending evidence are documented in
+The staging-only R4 safe-upgrade design and completed isolated staging/fault-injection evidence are documented in
 `docs/CLOUD_GATEWAY_R4_PLAN.md` and `docs/CLOUD_GATEWAY_R4_TEST_RECORD.md`.
+The production-promotion work is deliberately separate from those staging commands. Its read-only audit contract,
+legacy recovery boundary, PostgreSQL/off-host restore gates, and still-pending production actions are tracked in
+`docs/CLOUD_GATEWAY_R5_PLAN.md`.
 
 For the Android base, configure the public Gateway URL and the Gateway `APP_TOKEN` in token mode. The public token terminates in Hong Kong; the separate local Hermes credential exists only on the Mac Connector.
 

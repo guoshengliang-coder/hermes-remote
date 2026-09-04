@@ -9,6 +9,7 @@ let appToken;
 let internalStatusToken;
 let expectedCommit;
 let expectedVersion;
+let expectedDeviceId;
 
 try {
   baseUrl = required("PUBLIC_GATEWAY_URL").replace(/\/$/, "");
@@ -18,6 +19,7 @@ try {
   internalStatusToken = required("INTERNAL_STATUS_TOKEN");
   expectedCommit = required("EXPECTED_SOURCE_COMMIT");
   expectedVersion = required("EXPECTED_SERVER_VERSION");
+  expectedDeviceId = process.env.EXPECTED_DEVICE_ID || "oci-staging";
   await verify();
   console.log(`GATEWAY_OCI_SMOKE_OK version=${expectedVersion} commit=${expectedCommit}`);
 } catch (error) {
@@ -55,7 +57,7 @@ async function verify() {
   const relayHealth = await fetchJson(relayHealthPath);
   assert.equal(relayHealth.ok, true);
   assert.equal(relayHealth.connectors, 1);
-  assert.deepEqual(relayHealth.devices, [{ deviceId: "oci-staging", online: true }]);
+  assert.deepEqual(relayHealth.devices, [{ deviceId: expectedDeviceId, online: true }]);
 
   const unauthorized = await fetch(`${baseUrl}/api/status`, {
     headers: { "x-hermes-session-token": "deliberately-wrong-token" },

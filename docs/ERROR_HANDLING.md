@@ -60,6 +60,7 @@ reassigned.
 | `OPS` | Cloud host installation and diagnostics | preflight, artifact integrity, bootstrap, status, doctor |
 | `CONFIG` | Local or deployment configuration | invalid URL, missing field, incompatible setting |
 | `STORE` | Local persistence | DataStore/database/cache failure |
+| `SEARCH` | Session and message search | gateway search request failed, search backend unavailable |
 | `UNKNOWN` | Truly unmapped failures | last-resort boundary only; must be investigated |
 
 ## Canonical structured error
@@ -179,8 +180,15 @@ expanded without changing the underlying meaning.
 | `HR-OPS-003` | Staging bootstrap, stage recovery, managed-file installation, service start, or smoke did not complete | Staging 初始化未完成，请检查阶段状态后安全重试。 | Staging bootstrap did not complete. Inspect its stage and retry safely. | Yes (inspect recorded stage, retry the same configuration) |
 | `HR-OPS-004` | One or more systemd, Nginx, container, image, liveness, or readiness status layers are degraded | Staging 服务未全部就绪，请查看分层状态。 | Not all staging services are ready. Review the layered status. | Yes (inspect status and retry) |
 | `HR-OPS-005` | A bounded allowlist-only diagnostic bundle could not be created safely | 无法生成安全的诊断包，请检查输出位置后重试。 | Couldn't create a safe diagnostic bundle. Check the output location and retry. | Yes (check output and retry) |
+| `HR-OPS-006` | Source and target Gateway release versions, schemas, protocols, or rollback policy are incompatible | 源版本与目标 Gateway 发布合同不兼容，请选择可升级或可回滚的版本。 | The source and target Gateway release contracts are incompatible. Select a compatible upgrade or rollback version. | No (select a compatible release) |
+| `HR-OPS-007` | Candidate slot preparation, deployment journal, or deployment lock did not complete before public routing changed | Gateway 候选版本准备未完成，旧服务保持不变。请检查部署阶段后重试。 | Gateway candidate preparation did not complete; the existing service was left unchanged. Inspect the deployment stage and retry. | Yes (inspect the deployment stage and retry) |
+| `HR-OPS-008` | Lifecycle-state handoff, public route switch, observation, or automatic recovery did not complete | Gateway 路由切换未完成，已尝试恢复原服务。请检查恢复状态。 | The Gateway route switch did not complete. Recovery of the existing service was attempted. Inspect the recovery state. | Yes (inspect the recovery state and retry) |
+| `HR-OPS-009` | PostgreSQL version validation, advisory migration lock, ordered migration, or exact schema verification did not complete | Gateway 数据库迁移或版本校验未完成，已阻止发布。请检查数据库状态后重试。 | The Gateway database migration or version check did not complete, so the release was blocked. Inspect the database state and retry. | Yes (inspect database state and retry; public routing remains unchanged) |
+| `HR-OPS-010` | One or more read-only production-promotion gates for host identity, resources, artifact, legacy rollback, loopback routing, Docker, PostgreSQL, or off-host restore evidence are incomplete | 生产晋级前置门禁尚未全部通过，线上服务保持不变。请补齐阻断项后重新审计。 | Production promotion gates are incomplete; the live service was left unchanged. Resolve the blockers and audit again. | Yes (resolve the reported gates and rerun the read-only audit) |
 | `HR-FILE-001` | A selected attachment could not be read | 无法读取所选文件，请重新选择。 | Couldn't read the selected file. Choose it again. | Yes |
+| `HR-FILE-002` | An exported transcript file could not be written or shared | 无法生成对话文件，请重试。 | Couldn't create the transcript file. Retry. | Yes |
 | `HR-MEDIA-001` | Image save, preparation, or share operation failed | 图片操作失败，请重试。 | The image operation failed. Retry. | Yes |
+| `HR-MEDIA-003` | The transcript image could not be rendered or shared | 无法生成对话长图，请重试或改用 Markdown 文件。 | Couldn't render the transcript image. Retry, or share it as a Markdown file. | Yes |
 | `HR-MEDIA-002` | A picked avatar photo could not be decoded, cropped, or encoded (ImageDecoder/BitmapFactory failure, unreadable URI, empty image) | 无法读取所选照片，请换一张再试。 | Couldn't read the selected photo. Try a different one. | Yes |
 | `HR-PERM-003` | Android blocks installation from this source | 需要允许安装未知应用，授权后请重试。 | Permission to install unknown apps is required. Grant it and retry. | Yes |
 | `HR-SESS-001` | Session no longer exists | 会话不存在或已被删除。 | The conversation no longer exists or was deleted. | No |
@@ -196,6 +204,7 @@ expanded without changing the underlying meaning.
 | `HR-PERM-001` | Camera permission denied | 相机权限未开启，请前往系统设置允许。 | Camera permission is disabled. Allow it in system settings. | Yes |
 | `HR-PERM-002` | Notification permission denied | 通知权限未开启，后台任务可能无法及时提醒。 | Notifications are disabled, so background alerts may be delayed. | Yes |
 | `HR-NOTIF-001` | A notification action (approve/deny/reply/choice) could not be delivered to the gateway | 通知操作未能发送，请重试。 | The notification action couldn't be sent. Try again. | Yes |
+| `HR-SEARCH-001` | Gateway message search (`/api/sessions/search`) failed: transport error, non-2xx response, or unparseable body. The title matches on the search screen stay; only the message section shows the error with Retry | 消息搜索失败，请重试。 | Message search failed. Retry. | Yes |
 | `HR-UNKNOWN-001` | Unmapped boundary failure | 出现未知错误，请复制诊断信息协助定位。 | An unknown error occurred. Copy diagnostics to help investigate. | Depends |
 
 ## Implementation and review checklist

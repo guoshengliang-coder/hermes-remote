@@ -98,11 +98,23 @@ data class ModelOptionDto(
     val messages: Int = 0,
 )
 
+/**
+ * One gateway search hit. The gateway (upstream `/api/sessions/search`) collapses hits by
+ * conversation and enriches each with the session row, so a hit carries enough to render a
+ * list row without a second lookup. Every enrichment field is optional: an older gateway that
+ * returns only `session_id` + `snippet` still parses.
+ */
 @Serializable data class SearchResultDto(
     @SerialName("session_id") val sessionId: String,
     val snippet: String? = null,
     val model: String? = null,
     val role: String? = null,
+    val title: String? = null,
+    val archived: Boolean = false,
+    /** Epoch seconds (float), same unit as [SessionDto.lastActive]. */
+    @SerialName("last_active") val lastActive: Double? = null,
+    val source: String? = null,
+    @SerialName("message_count") val messageCount: Int = 0,
 )
 @Serializable data class SearchResultsDto(val results: List<SearchResultDto> = emptyList())
 
@@ -170,15 +182,67 @@ data class ModelOptionDto(
 )
 @Serializable data class MessagingPlatformsDto(val platforms: List<MessagingPlatformDto> = emptyList())
 
+/**
+ * One day of MAIN-AGENT usage. Hermes groups these with SQLite `date(started_at,'unixepoch')`, so
+ * [day] is a UTC date and the tokens are attributed to the day a session STARTED, not the day they
+ * were spent. Auxiliary calls never reach this table — see [AuxTaskUsageDto].
+ */
 @Serializable data class UsageDayDto(
     val day: String,
     @SerialName("input_tokens") val inputTokens: Long = 0,
     @SerialName("output_tokens") val outputTokens: Long = 0,
+    @SerialName("cache_read_tokens") val cacheReadTokens: Long = 0,
+    @SerialName("reasoning_tokens") val reasoningTokens: Long = 0,
     @SerialName("estimated_cost") val estimatedCost: Double = 0.0,
+    @SerialName("actual_cost") val actualCost: Double = 0.0,
     val sessions: Int = 0,
     @SerialName("api_calls") val apiCalls: Int = 0,
+) {
+    val totalTokens: Long get() = inputTokens + outputTokens + cacheReadTokens
+}
+
+/** Window totals as Hermes computes them. Same scope as [UsageDayDto]: main agent only. */
+@Serializable data class UsageTotalsDto(
+    @SerialName("total_input") val inputTokens: Long = 0,
+    @SerialName("total_output") val outputTokens: Long = 0,
+    @SerialName("total_cache_read") val cacheReadTokens: Long = 0,
+    @SerialName("total_reasoning") val reasoningTokens: Long = 0,
+    @SerialName("total_estimated_cost") val estimatedCost: Double = 0.0,
+    @SerialName("total_actual_cost") val actualCost: Double = 0.0,
+    @SerialName("total_sessions") val sessions: Int = 0,
+    @SerialName("total_api_calls") val apiCalls: Int = 0,
+) {
+    val totalTokens: Long get() = inputTokens + outputTokens + cacheReadTokens
+}
+
+/**
+ * Auxiliary model usage grouped by task (context compression, title generation, vision, ...).
+ * These calls are recorded per (model, task) with NO day dimension, which is why the daily chart
+ * can only ever show main-agent traffic.
+ */
+@Serializable data class AuxTaskUsageDto(
+    val task: String,
+    @SerialName("input_tokens") val inputTokens: Long = 0,
+    @SerialName("output_tokens") val outputTokens: Long = 0,
+    @SerialName("estimated_cost") val estimatedCost: Double = 0.0,
+    @SerialName("api_calls") val apiCalls: Int = 0,
+    val models: List<String> = emptyList(),
+) {
+    val totalTokens: Long get() = inputTokens + outputTokens
+}
+
+/**
+ * `daily`/`totals` cover the main agent only; `by_model` already has auxiliary usage folded in.
+ * Summing `daily` and reading `by_model` therefore disagree — always reconcile through
+ * `com.hermes.client.ui.usage.UsageSummary` rather than adding these up ad hoc.
+ */
+@Serializable data class UsageDto(
+    val daily: List<UsageDayDto> = emptyList(),
+    @SerialName("by_model") val byModel: List<ModelUsageDto> = emptyList(),
+    @SerialName("by_task") val byTask: List<AuxTaskUsageDto> = emptyList(),
+    val totals: UsageTotalsDto = UsageTotalsDto(),
+    @SerialName("period_days") val periodDays: Int = 30,
 )
-@Serializable data class UsageDto(val daily: List<UsageDayDto> = emptyList())
 
 @Serializable data class ModelUsageDto(
     val model: String,
@@ -189,7 +253,6 @@ data class ModelOptionDto(
     val sessions: Int = 0,
     @SerialName("api_calls") val apiCalls: Int = 0,
 )
-@Serializable data class ModelsUsageDto(val models: List<ModelUsageDto> = emptyList())
 
 @Serializable data class EnvVarDto(
     @SerialName("is_set") val isSet: Boolean = false,

@@ -403,11 +403,11 @@ tr:last-child td{border-bottom:0}
   <div class="cell stage light" style="width:300px">
     <div style="height:44px;display:flex;align-items:center;gap:10px">
       <div style="flex:1;height:4px;border-radius:2px;background:var(--conth);overflow:hidden">
-        <div style="width:62%;height:100%;background:linear-gradient(90deg,#1F84FD,#3DA340,#FEC302);background-size:161% 100%"></div>
+        <div style="width:62%;height:100%;background:var(--p)"></div>
       </div><span style="font-size:11px;color:var(--sec)">62%</span>
     </div>
-    <div class="cap"><b>确定进度</b>上传 / 下载 / 更新用 4dp 渐变条，三色渐变<b>锚定整条宽度</b>、clip 露出进度（沿用启动进度条已定的做法，右端不会永远是黄）。
-    这是多彩唯一被允许进入页面内的例外：它表达的是"还剩多少"，不是"正在转"。</div>
+    <div class="cap"><b>确定进度</b>下载 / 检查更新这类卡内进度继续用单色 M3 进度条（有百分比是确定态，没有是不确定态）。
+    标记只替换<b>转盘形态</b>，进度条是另一个家族。早期草案想让它走三色渐变，砍掉了 —— 多一条例外就多一处会漂移的边界，多彩只留在启动门。</div>
   </div>
   <div class="cell stage light" style="width:300px">
     <div style="height:44px;display:flex;align-items:center;gap:12px">
@@ -428,7 +428,7 @@ tr:last-child td{border-bottom:0}
 <tr><td>聊天生成中 / 思考 / 跑工具</td><td>标记 + 状态文字</td><td>14dp</td><td>1200ms</td><td>250ms</td><td>单色</td></tr>
 <tr><td>行内等待（刷新 / 切换 / 上传 / 图片 / 横幅）</td><td>标记</td><td>14–24dp</td><td>1200ms</td><td>250ms</td><td>单色</td></tr>
 <tr><td>按钮内 / 照片上 / 状态色指示器</td><td>M3 转盘（唯一保留）</td><td>原尺寸</td><td>—</td><td>250ms</td><td>随容器</td></tr>
-<tr><td>确定进度（上传 / 更新）</td><td>渐变条</td><td>4dp</td><td>—</td><td>立即</td><td><b>三色</b></td></tr>
+<tr><td>下载 / 检查更新（卡内进度）</td><td>M3 进度条</td><td>全宽</td><td>—</td><td>立即</td><td>单色</td></tr>
 <tr><td>启动门</td><td>多彩图标 + 三色进度条（已定）</td><td>144dp</td><td>1200ms</td><td>700ms</td><td><b>多彩</b></td></tr>
 <tr><td>发送中气泡</td><td>呼吸环（已定）</td><td>12dp</td><td>1200ms</td><td>250ms</td><td>单色</td></tr>
 </table>

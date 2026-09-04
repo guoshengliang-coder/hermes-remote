@@ -188,7 +188,14 @@ fun CardPage(
                     StatCell(
                         title = localized(language, "本周用量", "This week"),
                         value = weekValue,
-                        sub = state.weekCost?.let { localized(language, "预估 $%.2f".format(it), "est. $%.2f".format(it)) },
+                        // Was an estimated dollar figure. Hermes computes cost from successful
+                        // main-agent responses only and hides the number in its own dashboard by
+                        // default, so a two-decimal "$0.42" on the drawer's first screen read as
+                        // billing when it is a lower bound. A session count says something the
+                        // source data actually supports (decision 2026-09-03).
+                        sub = state.weekSessions?.let {
+                            localized(language, "$it 次会话", if (it == 1) "$it session" else "$it sessions")
+                        },
                         valueSp = statValueSp, subSp = statSubSp,
                         onValueOverflow = { if (statValueSp > 13f) statValueSp -= 1f },
                         onSubOverflow = { if (statSubSp > 11f) statSubSp -= 1f },

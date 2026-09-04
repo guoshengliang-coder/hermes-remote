@@ -104,3 +104,62 @@ workflow instead of reusing the HK production host. The workflow uses a disposab
 one-time generated test material, a private local CA, and a 15-minute timeout. It receives no repository
 secrets and has no production hostname or SSH path. Passing this workflow proves the R3 bootstrap path
 on an isolated host; it does not authorize or perform a production deployment.
+
+## Production-promotion audit (read-only)
+
+R5 adds a separate `production-audit` command. It does not relax the staging-only R3/R4 configuration,
+does not expose a production `deploy` or `rollback` command, and does not install packages, write managed
+files, stop/restart services, or alter routing. Prepare a private config from
+`ops/production.audit.example.json`; never commit the filled config or evidence files. The exact confirmation
+binds the read-only probe to the configured public hostname:
+
+```bash
+node scripts/hermesctl.mjs production-audit \
+  --config /secure-input/hermes-go/production-audit.json \
+  --confirm production:<configured-public-hostname>
+```
+
+Every successful `Gateway OCI` push run on `main` retains its exact bundle as
+`gateway-bundle-<full-main-commit>` for seven days. Pull-request runs still build and verify the bundle but do
+not retain it. Download the artifact from the matching successful `main` run, preserve both the archive and
+manifest together, and use that manifest as `targetArtifactManifest`; never substitute a hand-written
+manifest or a bundle from another commit.
+
+The command aggregates every gate instead of stopping at the first missing prerequisite. It checks the exact
+Linux/amd64 host identity, minimum free disk and available memory, immutable target bundle, exact hashes of the
+currently running legacy Gateway, Nginx/public health, loopback-only legacy and PostgreSQL listeners, Docker,
+PostgreSQL 18 client/service availability, and fresh separate-host recovery evidence. A blocked result returns
+`HR-OPS-010`; this is an expected no-go report and leaves the live service unchanged.
+
+The two evidence files use strict schema version 1. `hermes-go-legacy-recovery-v1` must record verified checks
+`archive_hash`, `files_restored`, and `service_start`. `hermes-go-postgresql-restore-v1` must record
+`encrypted_backup_hash`, `database_restore`, `schema_exact`, and `account_smoke`. Both record source and restore
+hostnames, UTC creation/restore times, and artifact SHA-256; legacy evidence is bound to the configured runtime
+identity digest, while database evidence is bound to the exact schema and PostgreSQL major version. The hosts
+must differ and restore verification must be no older than 30 days. R5-A defines and consumes this evidence but does not yet create it: only the isolated
+R5-B capture/restore tooling and its produced output may satisfy the production gate. A hand-written manifest is
+not deployment evidence.
+
+See `CLOUD_GATEWAY_R5_PLAN.md`. Running the audit on the HK host still requires explicit read-only production
+authorization. Resolving any blocker is a separate mutating operation and needs another approval.
+
+## PostgreSQL production gate (not yet executed)
+
+The existing HK host has enough nominal CPU and memory for the initial low-volume Gateway database,
+so a second server is not a prerequisite. PostgreSQL must remain a separate system service, listen only
+on loopback, and never expose port 5432 through Nginx or the host firewall. Gateway and migration access
+use one dedicated least-privilege database role whose URL is stored in a root-owned `0600` Secret file;
+the URL must not appear in shell history, unit files, Git, logs, diagnostics, or chat.
+
+Before installing or changing anything, an explicitly authorized read-only preflight must record free
+disk, memory pressure, existing PostgreSQL/packages/listeners, filesystem ownership, current Gateway
+health, and the exact current release identity. Installation, database creation, migration, service
+restart, and account-feature enablement each require production authorization and a recorded rollback
+point. R4-F prepares schema while both account flags remain `0`; it does not authorize Google login or
+make PostgreSQL authoritative for existing Token clients.
+
+A same-host database is also a same-host failure domain. Before production migration, create an
+encrypted logical backup, copy it off the HK host, restore it into a separate disposable database, and
+run schema plus account smoke checks against the restored copy. Daily backup retention, failure alerts,
+periodic restore rehearsal, disk thresholds, and credential rotation must be in place before account
+mode is enabled. Keeping the only backup on the HK disk does not satisfy this gate.

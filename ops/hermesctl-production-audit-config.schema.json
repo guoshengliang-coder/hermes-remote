@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hermes-go.invalid/schemas/hermesctl-production-audit-config-v1.json",
+  "title": "Hermes GO read-only production promotion audit configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "environment",
+    "operator",
+    "targetArtifactManifest",
+    "host",
+    "publicRoute",
+    "legacyGateway",
+    "postgresql",
+    "evidence"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "environment": { "const": "production" },
+    "operator": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+    "targetArtifactManifest": { "type": "string", "pattern": "^/" },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostname", "architecture", "minimumFreeDiskMiB", "minimumAvailableMemoryMiB"],
+      "properties": {
+        "hostname": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$" },
+        "architecture": { "const": "amd64" },
+        "minimumFreeDiskMiB": { "type": "integer", "minimum": 1024, "maximum": 1048576 },
+        "minimumAvailableMemoryMiB": { "type": "integer", "minimum": 256, "maximum": 1048576 }
+      }
+    },
+    "publicRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serverName", "listenPort", "healthPath"],
+      "properties": {
+        "serverName": { "type": "string", "pattern": "^[A-Za-z0-9.-]{1,253}$" },
+        "listenPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "healthPath": { "type": "string", "pattern": "^/" }
+      }
+    },
+    "legacyGateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serviceName", "gatewayPort", "stateFile", "identityFiles"],
+      "properties": {
+        "serviceName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,62}$" },
+        "gatewayPort": { "type": "integer", "minimum": 1024, "maximum": 65535 },
+        "stateFile": { "type": "string", "pattern": "^/" },
+        "identityFiles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "sha256"],
+            "properties": {
+              "path": { "type": "string", "pattern": "^/" },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+            }
+          }
+        }
+      }
+    },
+    "postgresql": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serviceName", "majorVersion", "port"],
+      "properties": {
+        "serviceName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9@.-]{0,62}$" },
+        "majorVersion": { "const": 18 },
+        "port": { "const": 5432 }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["legacyRecoveryManifest", "databaseRestoreManifest"],
+      "properties": {
+        "legacyRecoveryManifest": { "type": "string", "pattern": "^/" },
+        "databaseRestoreManifest": { "type": "string", "pattern": "^/" }
+      }
+    }
+  }
+}

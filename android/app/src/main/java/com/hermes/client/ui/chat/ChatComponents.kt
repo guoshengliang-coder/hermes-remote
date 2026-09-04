@@ -428,6 +428,9 @@ private val LocalChatViewportController = staticCompositionLocalOf<ChatViewportC
 @Composable
 fun ChatMessageList(
     state: ChatUiState,
+    // From the nav argument (NOT ChatUiState: that object is a mirror of runtime.chat and any
+    // flag written into it is overwritten on the next runtime collect — the 0.1.88 bug).
+    isNewSession: Boolean = false,
     sessionId: String,
     modifier: Modifier = Modifier,
     listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
@@ -452,6 +455,8 @@ fun ChatMessageList(
     viewportController: ChatViewportController? = null,
     onBlankAreaTap: () -> Unit = {},
     openPromptListTick: Long = 0L,
+    /** Active in-chat search (query + current hit) for text marks and card auto-expand. */
+    searchContext: ChatSearchContext? = null,
 ) {
     val language = LocalAppLanguage.current
     val semanticViewport = viewportController ?: remember(sessionId) { ChatViewportController() }
@@ -874,7 +879,7 @@ fun ChatMessageList(
         when {
             // A locally created session has nothing to load and nothing to fail: the greeting
             // overlay (ChatScreen) owns this area, so render only the blank ground for it.
-            state.isNewSession -> Box(modifier.fillMaxSize())
+            isNewSession -> Box(modifier.fillMaxSize())
             state.historyLoading -> ChatHistorySkeleton(modifier.fillMaxSize())
             state.historyError != null -> Box(
                 modifier.fillMaxSize().padding(24.dp),
@@ -1078,6 +1083,7 @@ fun ChatMessageList(
                         smoothLiveResize = smoothLiveResize,
                         highlighted = index == highlightIndex,
                         landingAlpha = if (index == jumpFlashIndex) jumpFlash.value else 0f,
+                        searchContext = searchContext,
                     )
                 }
             }
@@ -1246,6 +1252,7 @@ private fun MessageBubble(
     smoothLiveResize: Boolean = false,
     highlighted: Boolean = false,
     landingAlpha: Float = 0f,
+    searchContext: ChatSearchContext? = null,
 ) {
     // Server-injected timeline markers render as a quiet centered note (no bubble,
     // no long-press actions) — see TimelineNote.kt for the classification rules.
@@ -1253,9 +1260,14 @@ private fun MessageBubble(
         TimelineNoteRow(note, msg)
         return
     }
-    when (msg.role) {
-        Role.USER -> UserBubble(msg, onEditResend, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted, landingAlpha = landingAlpha, onRetrySend = onRetrySend, sendDiagnostic = sendDiagnosticFor(msg.id))
-        else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, highlighted = highlighted, landingAlpha = landingAlpha)
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalChatSearch provides searchContext,
+        LocalTurnIsCurrentHit provides (searchContext != null && searchContext.currentMessageId == msg.id),
+    ) {
+        when (msg.role) {
+            Role.USER -> UserBubble(msg, onEditResend, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted, landingAlpha = landingAlpha, onRetrySend = onRetrySend, sendDiagnostic = sendDiagnosticFor(msg.id))
+            else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, highlighted = highlighted, landingAlpha = landingAlpha)
+    }
     }
 }
 
@@ -1347,7 +1359,7 @@ internal fun UserBubble(
                 }
                 if (msg.text.isNotBlank()) {
                     Text(
-                        msg.text,
+                        searchHighlighted(msg.text),
                         style = MaterialTheme.typography.bodyLarge.copy(
                             fontSize = 17.sp,
                             lineHeight = 25.sp,
@@ -1948,8 +1960,10 @@ private fun AssistantMarkdownBlock(
         lineHeight = 29.sp,
         letterSpacing = 0.sp,
     )
+    val annotator = rememberSearchAnnotator()
     Markdown(
         content = content,
+        annotator = annotator,
         modifier = modifier.onGloballyPositioned { viewport?.updateBlock(anchorKey, it.boundsInWindow()) },
         colors = markdownColor(
             inlineCodeBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
@@ -2697,6 +2711,10 @@ private fun ThinkingCard(messageId: String, text: String) {
     // rememberSaveable keyed by the message id: plain remember lost the expanded state whenever
     // the item scrolled out of the Lazy viewport and was recycled.
     var expanded by androidx.compose.runtime.saveable.rememberSaveable(messageId) { mutableStateOf(false) }
+    // The search counter landed on a hit inside this reasoning: open it so the hit is visible.
+    // Closing the search does not fold it back; the reader may be mid-read.
+    val autoExpand = shouldAutoExpand(LocalChatSearch.current, LocalTurnIsCurrentHit.current, SearchSource.THINKING, text)
+    LaunchedEffect(autoExpand) { if (autoExpand) expanded = true }
     AssistChip(
         onClick = { expanded = !expanded },
         label = { Text(if (expanded) localized(language, "收起思考过程", "Hide reasoning") else localized(language, "查看思考过程", "View reasoning")) },
@@ -2704,7 +2722,7 @@ private fun ThinkingCard(messageId: String, text: String) {
     if (expanded) {
         SelectionContainer {
             Text(
-                text,
+                searchHighlighted(text),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),

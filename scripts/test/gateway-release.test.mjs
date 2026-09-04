@@ -7,13 +7,17 @@ test("Gateway release contract stays aligned with package and protocol versions"
   const gatewayPackage = JSON.parse(await readFile("gateway/package.json", "utf8"));
   const contract = JSON.parse(await readFile("gateway/release-contract.json", "utf8"));
   const protocolSource = await readFile("protocol/src/index.ts", "utf8");
-  assert.equal(gatewayPackage.version, "0.2.0");
+  assert.equal(gatewayPackage.version, "0.4.0");
+  assert.equal(contract.manifestVersion, 2);
   assert.match(protocolSource, new RegExp(`PROTOCOL_VERSION = ${contract.protocolVersions.legacy}`));
   assert.match(
     protocolSource,
     new RegExp(`ACCOUNT_CONNECTOR_PROTOCOL_VERSION = ${contract.protocolVersions.accountConnector}`),
   );
   assert.equal(contract.databaseSchemaVersion, 7);
+  assert.equal(contract.minimumSourceVersion, "0.2.0");
+  assert.equal(contract.maintenanceRequired, true);
+  assert.equal(contract.rollbackSupported, true);
   await access(
     `gateway/migrations/${String(contract.databaseSchemaVersion).padStart(3, "0")}_gateway_schema_state.sql`,
     constants.R_OK,

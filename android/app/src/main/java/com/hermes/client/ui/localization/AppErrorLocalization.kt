@@ -14,6 +14,8 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "Mac 端当前离线，请启动 Hermes Go Desktop。", "The Mac is offline. Start Hermes Go Desktop.")
         AppErrorCode.RPC_FAILED ->
             localized(language, "Relay 请求失败，请重试。", "The Relay request failed. Retry.")
+        AppErrorCode.RPC_TIMEOUT ->
+            localized(language, "Relay 响应超时，请稍后重试。", "The Relay response timed out. Try again shortly.")
         AppErrorCode.MODEL_LIST_FAILED ->
             localized(language, "无法加载模型列表，请重试。", "Couldn't load the model list. Retry.")
         AppErrorCode.MODEL_SWITCH_FAILED ->
@@ -50,6 +52,10 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "已发布更新版本，请删除旧下载后获取最新版。", "A newer release is available. Delete the old download and get the latest version.")
         AppErrorCode.FILE_READ_FAILED ->
             localized(language, "无法读取所选文件，请重新选择。", "Couldn't read the selected file. Choose it again.")
+        AppErrorCode.TRANSCRIPT_FILE_FAILED ->
+            localized(language, "无法生成对话文件，请重试。", "Couldn't create the transcript file. Retry.")
+        AppErrorCode.TRANSCRIPT_IMAGE_FAILED ->
+            localized(language, "无法生成对话长图，请重试或改用 Markdown 文件。", "Couldn't render the transcript image. Retry, or share it as a Markdown file.")
         AppErrorCode.AVATAR_PHOTO_FAILED ->
             localized(language, "无法读取所选照片，请换一张再试。", "Couldn't read the selected photo. Try a different one.")
         AppErrorCode.PROFILE_IDENTITY_SAVE_FAILED ->
@@ -72,6 +78,8 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "任务停止了，但没有确认完成，请打开会话检查。", "The task stopped without a confirmed completion. Open the conversation to check.")
         AppErrorCode.NOTIFICATION_ACTION_FAILED ->
             localized(language, "通知操作未能发送，请重试。", "The notification action couldn't be sent. Try again.")
+        AppErrorCode.SEARCH_FAILED ->
+            localized(language, "消息搜索失败，请重试。", "Message search failed. Retry.")
         AppErrorCode.UNKNOWN ->
             localized(language, "出现未知错误，请重试。", "An unknown error occurred. Retry.")
     }

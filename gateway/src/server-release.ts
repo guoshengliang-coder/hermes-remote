@@ -6,7 +6,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { sendJson } from "./http-utils.js";
 
 export interface ServerReleaseManifest {
-  manifestVersion: 1;
+  manifestVersion: 1 | 2;
   serverVersion: string;
   configSchemaVersion: number;
   databaseSchemaVersion: number;
@@ -20,6 +20,9 @@ export interface ServerReleaseManifest {
     desktop: string;
     connector: string;
   };
+  minimumSourceVersion: string;
+  maintenanceRequired: boolean;
+  rollbackSupported: boolean;
   sourceCommit: string;
   sourceDirty: boolean;
   builtAt: string;
@@ -120,7 +123,7 @@ export function loadServerReleaseManifest(
 
 function parseManifest(value: unknown): ServerReleaseManifest {
   if (!isObject(value)
-      || value.manifestVersion !== 1
+      || !new Set([1, 2]).has(value.manifestVersion as number)
       || !isVersion(value.serverVersion)
       || !isPositiveInteger(value.configSchemaVersion)
       || !isPositiveInteger(value.databaseSchemaVersion)
@@ -134,6 +137,9 @@ function parseManifest(value: unknown): ServerReleaseManifest {
       || !isVersion(value.minimumClients.android)
       || !isVersion(value.minimumClients.desktop)
       || !isVersion(value.minimumClients.connector)
+      || !isVersion(value.minimumSourceVersion)
+      || typeof value.maintenanceRequired !== "boolean"
+      || typeof value.rollbackSupported !== "boolean"
       || typeof value.sourceCommit !== "string"
       || !(value.sourceCommit === "development" || /^[0-9a-f]{40}$/.test(value.sourceCommit))
       || typeof value.sourceDirty !== "boolean"

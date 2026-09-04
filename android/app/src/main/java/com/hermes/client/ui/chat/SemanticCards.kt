@@ -295,6 +295,9 @@ internal fun SemanticToolCard(tool: ToolCall) {
     val clipboard = LocalClipboardManager.current
     val technical = LocalToolCallTechnical.current
     var expanded by rememberSaveable(tool.id) { mutableStateOf(false) }
+    // A tool-output hit in the current turn opens the card so the hit is visible (see ThinkingCard).
+    val autoExpand = shouldAutoExpand(LocalChatSearch.current, LocalTurnIsCurrentHit.current, SearchSource.TOOL, tool.output)
+    androidx.compose.runtime.LaunchedEffect(autoExpand) { if (autoExpand) expanded = true }
     val hasOutput = tool.output.isNotBlank()
     val running = tool.status == ToolStatus.RUNNING
     val failed = !running && (tool.exitCode ?: 0) != 0
@@ -373,7 +376,7 @@ internal fun SemanticToolCard(tool: ToolCall) {
                         if (expanded && body.isNotBlank()) {
                             SelectionContainer {
                                 Text(
-                                    text = body.take(12_000),
+                                    text = searchHighlighted(body.take(12_000)),
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         fontFamily = FontFamily.Monospace,
                                         fontSize = 12.sp,

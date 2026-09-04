@@ -9,11 +9,40 @@ permissions:
   contents: read
   pull-requests: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # Ordinary CI is deliberately unprivileged: it never receives the canonical debug signing key or any
 # release secret, so it must only run checks that work without signing material.
 jobs:
-  node:
+  changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      node: ${{ steps.filter.outputs.node }}
+      android: ${{ steps.filter.outputs.android }}
+      desktop: ${{ steps.filter.outputs.desktop }}
+      assets: ${{ steps.filter.outputs.assets }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - id: filter
+        name: Select affected component jobs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/ci/changed-components.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+      - name: Verify shared app icon
+        if: steps.filter.outputs.assets == 'true'
+        run: cmp android/app/src/main/ic_launcher-playstore.png desktop/Packaging/AppIcon.png
+
+  node:
+    needs: changes
+    if: needs.changes.outputs.node == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
@@ -38,11 +67,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm run build
-      - run: npm test
+      - run: npm run test:ci
 
   android:
+    needs: changes
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: android
@@ -60,15 +91,18 @@ jobs:
       - run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:compileDebugSources --no-daemon
 
   desktop:
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
     runs-on: macos-15
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - run: npm run desktop:assets:test
       - run: npm run desktop:test
       - run: npm run desktop:app
 
   secrets:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:

@@ -67,7 +67,7 @@ test("Relay durably acknowledges and serves Connector lifecycle events", {
         minimumClients: { android: string; desktop: string; connector: string };
       };
     };
-    assert.equal(capabilities.server.version, "0.2.0");
+    assert.equal(capabilities.server.version, "0.4.0");
     assert.deepEqual(capabilities.server.protocolVersions, { legacy: 1, accountConnector: 2 });
 
     assert.equal((await fetch(`http://127.0.0.1:${port}/internal/version`)).status, 401);
@@ -80,7 +80,7 @@ test("Relay durably acknowledges and serves Connector lifecycle events", {
       sourceCommit: string;
       capabilities: { legacyAuth: boolean; accountAuth: boolean };
     };
-    assert.equal(version.serverVersion, "0.2.0");
+    assert.equal(version.serverVersion, "0.4.0");
     assert.match(version.sourceCommit, /^(?:development|[0-9a-f]{40})$/);
     assert.deepEqual(version.capabilities, {
       accountAuth: false,

@@ -26,7 +26,7 @@ OCI bundle manifest 结构如下：
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "kind": "hermes-go-gateway-oci",
   "serverVersion": "0.2.0",
   "sourceCommit": "<40 hex commit>",
@@ -35,13 +35,27 @@ OCI bundle manifest 结构如下：
   "architecture": "amd64",
   "archiveFile": "Hermes-Gateway-0.2.0-<commit>-linux-amd64.tar",
   "archiveSha256": "<64 hex>",
-  "createdAt": "<commit timestamp in UTC>"
+  "createdAt": "<commit timestamp in UTC>",
+  "releaseContract": {
+    "manifestVersion": 1,
+    "configSchemaVersion": 1,
+    "databaseSchemaVersion": 7,
+    "supportedPostgresqlMajors": [18],
+    "protocolVersions": { "legacy": 1, "accountConnector": 2 },
+    "minimumClients": { "android": "0.1.0", "desktop": "0.2.0", "connector": "0.1.1" },
+    "minimumSourceVersion": "0.2.0",
+    "maintenanceRequired": true,
+    "rollbackSupported": true
+  }
 }
 ```
 
 `scripts/package-gateway-bundle.sh <output-directory>` 从 clean commit 构建 image，保存 versioned OCI
 archive，并以排他创建方式写入 manifest。仓库内的相对输出必须是 `outputs/<单层目录名>`，外部
 绝对输出目录必须预先存在；已有同名文件不会被覆盖。
+
+R4 开始后，新打包的 bundle 使用 schema 2，并嵌入 Gateway 构建时同源的 release contract；R3
+Cloud Ops loader 仍接受历史 schema 1 bundle，以保证已经生成的 staging 制品可继续验证和读取。
 
 R3 的 manifest 提供受控传输中的完整性与内容身份校验，但不宣称具备独立的制品来源签名。
 在后续签名与生产发布门禁完成前，此 bundle 只能进入隔离 staging，不能晋升到生产。

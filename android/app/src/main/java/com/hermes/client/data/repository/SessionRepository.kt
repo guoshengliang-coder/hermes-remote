@@ -6,6 +6,9 @@ import com.hermes.client.data.network.SessionStatsDto
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Session
 import com.hermes.client.domain.toDomain
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 
 /**
  * Mirror the desktop sidebar session list: show interactive, used sessions only. Sessions whose
@@ -17,12 +20,46 @@ import com.hermes.client.domain.toDomain
 private fun Session.isInteractive(): Boolean =
     messageCount > 0 && (source == null || source !in SessionRepository.EXCLUDED_SOURCES)
 
-class SessionRepository(private val rest: HermesRestApi) {
+class SessionRepository(
+    private val rest: HermesRestApi,
+    private val scope: CoroutineScope,
+) {
     @Volatile private var allProfilesCache: List<Session> = emptyList()
     @Volatile private var allProfilesLoaded: Boolean = false
     private val historyCache = object : LinkedHashMap<String, List<ChatMessage>>(12, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<ChatMessage>>?): Boolean =
             size > 10
+    }
+
+    // A transcript and the cross-profile session list are each fetched by several independent
+    // owners (chat open, history reconciliation, foreground recovery, the sessions screen, the
+    // startup coordinator). They all wake up together after a reconnect, so before coalescing a
+    // single recovery downloaded the SAME 0.5 MB transcript up to seven times in five seconds
+    // (measured 2026-09-03 in the gateway access log). Identical concurrent fetches now share one
+    // round trip; sequential retries still issue a fresh request, which is what the "wait for
+    // Hermes to commit the turn" reconciliation ladder depends on.
+    private val inFlightFetches = mutableMapOf<String, Deferred<*>>()
+
+    /**
+     * Runs [block] once per [key] while a call is in flight, handing every concurrent caller the
+     * same result. The work runs on [scope], not the caller, so one caller giving up (the startup
+     * gate abandons recovery after its own budget) neither cancels the shared fetch nor fails the
+     * other waiters — and the response finishes instead of leaving the Connector streaming into an
+     * aborted request. Each REST call carries its own deadline, so an entry cannot linger.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private suspend fun <T> coalesced(key: String, block: suspend () -> T): T {
+        val deferred = synchronized(inFlightFetches) {
+            inFlightFetches[key] ?: scope.async { block() }.also { started ->
+                inFlightFetches[key] = started
+                started.invokeOnCompletion {
+                    synchronized(inFlightFetches) {
+                        if (inFlightFetches[key] === started) inFlightFetches.remove(key)
+                    }
+                }
+            }
+        }
+        return deferred.await() as T
     }
 
     companion object {
@@ -38,6 +75,12 @@ class SessionRepository(private val rest: HermesRestApi) {
             "weixin", "wecom", "qqbot", "yuanbao", "dingtalk", "feishu",
         )
         private val INTERNAL_TOOL_ROLES = setOf("tool", "function", "tool_result", "tool_call")
+
+        // Coalescing keys. The two list keys are distinct because they are different queries;
+        // `activityFeed` keeps cron sessions, so it deliberately does NOT share the list key.
+        private const val LIST_ALL_KEY = "sessions:all"
+        private const val ARCHIVED_ALL_KEY = "sessions:archived"
+        private const val HISTORY_KEY_PREFIX = "history:"
     }
 
     suspend fun list(profile: String? = null): List<Session> =
@@ -49,12 +92,12 @@ class SessionRepository(private val rest: HermesRestApi) {
      * sessions screen. The endpoint already excludes archived; the filter is defensive.
      * [isInteractive] hides cron + empty sessions so the counts match the desktop dashboard.
      */
-    suspend fun listAllProfiles(): List<Session> {
+    suspend fun listAllProfiles(): List<Session> = coalesced(LIST_ALL_KEY) {
         val loaded = rest.profileSessions().sessions.map { it.toDomain() }
             .filter { !it.archived && it.isInteractive() }
         allProfilesCache = loaded
         allProfilesLoaded = true
-        return loaded
+        loaded
     }
 
     fun cachedAllProfiles(): List<Session> = allProfilesCache
@@ -77,12 +120,14 @@ class SessionRepository(private val rest: HermesRestApi) {
             .filter { !it.archived && it.messageCount > 0 }
 
     /** All archived sessions across every profile (the cross-profile archived view). */
-    suspend fun archivedAllProfiles(): List<Session> =
+    suspend fun archivedAllProfiles(): List<Session> = coalesced(ARCHIVED_ALL_KEY) {
         rest.profileSessions(archivedOnly = true).sessions.map { it.toDomain() }
             .filter { it.archived && it.isInteractive() }
+    }
     suspend fun stats(profile: String? = null): SessionStatsDto = rest.sessionStats(profile)
+    /** Message-content search over the same interactive sources the list shows. */
     suspend fun search(query: String, profile: String? = null): List<SearchResultDto> =
-        rest.searchSessions(query, profile)
+        rest.searchSessions(query, profile, excludeSources = EXCLUDED_SOURCES)
     suspend fun archived(profile: String? = null): List<Session> =
         rest.archivedSessions(profile).map { it.toDomain() }
     // Tool/function turns are model context, not conversation turns. Their payload format is not
@@ -90,16 +135,17 @@ class SessionRepository(private val rest: HermesRestApi) {
     // so trying to recognize individual payload shapes will always leak the next variant. Remove
     // these roles at the data boundary and render only user/assistant/system conversation history.
     // Live tool activity still appears through tool.start/tool.complete as compact status cards.
-    suspend fun history(sessionId: String, profile: String? = null): List<ChatMessage> {
-        val loaded = rest.messages(sessionId, profile)
-            .filterNot { it.role.lowercase() in INTERNAL_TOOL_ROLES }
-            .mapIndexed { i, dto ->
-            val m = dto.toDomain()
-            m.copy(id = "h-$i-${m.id}")
+    suspend fun history(sessionId: String, profile: String? = null): List<ChatMessage> =
+        coalesced("$HISTORY_KEY_PREFIX${historyKey(sessionId, profile)}") {
+            val loaded = rest.messages(sessionId, profile)
+                .filterNot { it.role.lowercase() in INTERNAL_TOOL_ROLES }
+                .mapIndexed { i, dto ->
+                    val m = dto.toDomain()
+                    m.copy(id = "h-$i-${m.id}")
+                }
+            synchronized(historyCache) { historyCache[historyKey(sessionId, profile)] = loaded }
+            loaded
         }
-        synchronized(historyCache) { historyCache[historyKey(sessionId, profile)] = loaded }
-        return loaded
-    }
 
     fun cachedHistory(sessionId: String, profile: String? = null): List<ChatMessage>? =
         synchronized(historyCache) { historyCache[historyKey(sessionId, profile)] }

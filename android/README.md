@@ -191,6 +191,28 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.89 stops the app from re-downloading a conversation it already has, and stops a
+  routine reconnect from hiding the conversation behind the launch screen. Chat open, history
+  reconciliation, foreground recovery and the startup coordinator used to wake together after a
+  reconnect and each fetch the same transcript: one 0.5 MB conversation was pulled 144 times in a
+  day, up to seven times in five seconds for a single screen recovery, and every fetch the phone
+  abandoned stalled the Connector for a further 30 seconds. Identical in-flight fetches now share
+  one round trip, and the history reconciliation ladder stops as soon as a snapshot is accepted
+  instead of running all four rungs. The startup gate no longer renders for a warm reconnect: the
+  conversation keeps the screen with the content it already committed while the socket comes back
+  on its own backoff, and only a cold start or a real failure takes the screen. A blip shorter than
+  three seconds now costs nothing at all.
+- Version 0.1.88 adds session search and transcript sharing. Search V1 runs automatically as you
+  type, across session titles and message bodies, and returns enriched hits that anchor to the exact
+  message rather than the session; CJK queries are quoted so a Chinese phrase is matched as a phrase
+  instead of being split into characters, and a failed search surfaces `HR-SEARCH-001` with a retry
+  instead of an empty list. Opening a result hands the query to the chat, which marks every substring
+  occurrence, auto-expands collapsed content around a hit, and keeps a search bar in the top bar for
+  searching inside the open conversation. A conversation can now be shared as plain text, as a
+  Markdown file, or as an image. A new chat opens on a greeting empty state instead of a blank
+  transcript. Landing feedback is outline-only, and sheet gestures are off as a global rule: list
+  scrolling never collapses or dismisses a sheet, which closes only from the grab area, the scrim, or
+  the back key.
 - Version 0.1.87 makes both halves of the card page's stats block real entries. 本周用量 had
   been silently tappable with no chevron while 远程设备 was inert; now each half carries its own
   16dp chevron and destination (usage, and the relay/token screen until a device page exists), and
@@ -497,7 +519,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.87-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.89-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

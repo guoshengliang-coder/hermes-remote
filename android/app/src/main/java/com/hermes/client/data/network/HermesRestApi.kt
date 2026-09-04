@@ -328,9 +328,21 @@ class HermesRestApi(
     suspend fun sessionStats(profile: String? = null): SessionStatsDto =
         get("/api/sessions/stats${profileParam(profile, first = true)}")
 
-    suspend fun searchSessions(query: String, profile: String? = null): List<SearchResultDto> {
-        val q = java.net.URLEncoder.encode(query, "UTF-8")
-        return get<SearchResultsDto>("/api/sessions/search?q=$q&limit=30${profileParam(profile)}").results
+    /**
+     * Gateway full-text search. [query] is the user's raw text; [buildSearchQuery] quotes CJK
+     * tokens so the gateway's prefix wildcard does not break them (see SearchQuery.kt).
+     * [excludeSources] mirrors the list's source filter so cron/subagent/platform sessions do
+     * not surface as hits the list cannot show.
+     */
+    suspend fun searchSessions(
+        query: String,
+        profile: String? = null,
+        excludeSources: Collection<String> = emptyList(),
+    ): List<SearchResultDto> {
+        val q = java.net.URLEncoder.encode(buildSearchQuery(query), "UTF-8")
+        val exclude = excludeSources.filter { it.isNotBlank() }.joinToString(",")
+        val excludeParam = if (exclude.isEmpty()) "" else "&exclude_sources=${java.net.URLEncoder.encode(exclude, "UTF-8")}"
+        return get<SearchResultsDto>("/api/sessions/search?q=$q&limit=30$excludeParam${profileParam(profile)}").results
     }
 
     suspend fun archivedSessions(profile: String? = null): List<SessionDto> =
@@ -404,8 +416,6 @@ class HermesRestApi(
     suspend fun analyticsUsage(profile: String? = null): UsageDto =
         get("/api/analytics/usage${profileParam(profile, first = true)}")
 
-    suspend fun analyticsModels(profile: String? = null): List<ModelUsageDto> =
-        get<ModelsUsageDto>("/api/analytics/models${profileParam(profile, first = true)}").models
 
     // ---- Config (whole-object GET-modify-PUT so no fields are ever dropped) ----
 

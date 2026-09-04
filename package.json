@@ -12,6 +12,8 @@
   "scripts": {
     "build": "npm run build -w @hermes-remote/protocol && npm run build -w @hermes-remote/gateway && npm run build -w @hermes-remote/connector",
     "test": "npm run test -w @hermes-remote/protocol && npm run test -w @hermes-remote/connector && npm run test -w @hermes-remote/gateway && npm run test -w @hermes-remote/release-server && npm run test:scripts",
+    "test:built": "npm run test:built -w @hermes-remote/protocol && npm run test:built -w @hermes-remote/connector && npm run test:built -w @hermes-remote/gateway && npm run test:built -w @hermes-remote/release-server && npm run test:scripts",
+    "test:ci": "npm run build && npm run test:built",
     "test:scripts": "node --test \"scripts/test/*.test.mjs\"",
     "desktop:build": "swift build --package-path desktop",
     "desktop:test": "swift test --package-path desktop",
@@ -25,6 +27,9 @@
     "ops:bootstrap": "node scripts/hermesctl.mjs bootstrap",
     "ops:status": "node scripts/hermesctl.mjs status",
     "ops:doctor": "node scripts/hermesctl.mjs doctor",
+    "ops:deploy": "node scripts/hermesctl.mjs deploy",
+    "ops:rollback": "node scripts/hermesctl.mjs rollback",
+    "ops:production-audit": "node scripts/hermesctl.mjs production-audit",
     "dev:gateway": "npm run dev -w @hermes-remote/gateway",
     "dev:connector": "npm run dev -w @hermes-remote/connector"
   },

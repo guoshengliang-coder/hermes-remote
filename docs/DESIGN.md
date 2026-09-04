@@ -196,7 +196,7 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
   项目段最多占副行 60% 后省略号，模型名保持可见。**默认项目不显示项目段**（缺省即默认，
   不写「无项目」占位）。图标用 onSurfaceVariant 中性色，不用品牌蓝。会话列表、已归档、搜索
   标题匹配三处共用；项目内钻入行改为 `[分支图标] 分支 · 模型`（项目名由页头承担）。
-  搜索的消息匹配行第三行为「会话标题 · [文件夹] 项目」，不显示模型。
+  搜索的消息匹配行不显示模型（见下「搜索页」）。
 - **置顶标记在副行**（决策 2026-09-02，设计稿 `docs/design/pinned-row.html` 方案 B）：
   `[14dp 品牌蓝描边图钉] [文件夹] 项目 · 模型`，图钉是副行第一个前缀。**不再用 ListItem 的
   leading 槽**：旧版 Material 实心图钉在三行项里顶对齐、两行项里居中，且把标题推到 52dp，
@@ -217,6 +217,35 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
   - 会话正被查看（前台 + 可见）时发生的中断或失败也不留结论，与「已完成」规则一致。
   - 行尾圆点只给「已完成」（绿）与未读；「已中断」「运行失败」**只留文字不留圆点**——
     终态灰点与未读圆点只差 1dp，曾被误读为未读。
+
+#### 搜索页（`SearchScreen.kt` / `SearchResultRows.kt`，决策 2026-09-03，分析与规划稿
+<https://claude.ai/code/artifact/b09c3722-1943-41df-bbae-504c14f85899> /
+<https://claude.ai/code/artifact/f73ffe6d-66b3-42a3-affb-ccd6854136d8>）
+- **作用域**：当前身份，活跃 + 已归档。标题匹配在本地即时完成，规则只有一条：**标题或项目名**
+  （副行显示的那个）包含查询词，活跃与归档同规则，不再匹配完整路径。首帧用仓库缓存出结果。
+- **搜索框**：全 app 唯一形态 `ui/components/SearchField.kt` —— 填充式 `surfaceVariant`、圆角 18dp、
+  高 40dp、前置放大镜、有字时尾部 ×；IME 动作 = 搜索。聊天内搜索共用。
+- **正文搜索触发**：自动。停顿 450ms 且 ≥ 2 字符后请求网关；键盘搜索键立即请求；新输入取消
+  飞行中的请求。中文 / 日文 / 韩文 token 由客户端加引号后发送（网关会给未加引号的 token 追加前缀
+  通配，而生产库的 CJK 路径把 `词*` 当字面量，永远不命中；`SearchQuery.kt`）。
+- **两段结构保留**：「标题匹配」「消息匹配」各自段头（labelMedium primary，右侧计数 /
+  状态）。消息段有六态：Idle（< 2 字，标题为空时提示"输入至少 2 个字符可搜索消息正文"）→
+  Pending（改词即进入，**旧结果立即消失**）→ Searching（段头右侧「搜索中…」+ 顶部细进度条）→
+  Results / Empty（段内一行「消息中没有匹配“xx”」）/ Failed（段内 `errorContainer` 圆角 8dp 错误条：
+  `HR-SEARCH-001` 文案 + 「重试」，长按复制脱敏诊断）。标题段永不受正文失败影响。
+- **消息匹配行**：主行 = 会话标题（单行省略）+ 已归档标签 + 相对时间（`relativeTimeLabel`，与列表
+  时间口径一致）；副行 = 片段最多两行，以首个命中处为中心截取 ±40 字（`centerSnippet`，网关
+  片段长度随搜索路径变化，客户端统一）；第三行 = `[文件夹 14dp] 项目名`，默认项目不显示。
+  标题匹配行 = 列表行 + `SessionSubline`。两类行都用**查询词高亮**：primary 色 + Medium 字重
+  （`highlighted()`）。行间保留分隔线（本页是 §5.2 无分隔线规则的例外）。
+- **来源过滤**：请求带 `exclude_sources`（= 列表的 `EXCLUDED_SOURCES`），cron / 子代理 / 各平台会话
+  不出现在命中里；客户端再兜底过滤一次。网关一个会话只回一条命中、不带消息 ID，因此行是
+  「会话 + 一条证据」，定位到句子由打开后的聊天内搜索完成。
+- **最近搜索**：空查询时显示，按身份各存 8 条（`RecentSearchesStore`，DataStore），一次正文搜索
+  完成或点开任一结果时写入；行 = 历史图标 + 词 + ×（删单条），段头右侧「清除」。
+- **打开行为**：点任一结果先收起键盘，再带着查询词打开会话（`ChatLaunch.initialQuery`）：聊天页
+  展开搜索条、填入词、定位第一处命中（§5.4）。查询词经 `SavedStateHandle` 跨进程重建。
+- **第一版不做**：筛选器（项目 / 日期 / 角色）、消息级跳转（需网关返回消息 ID）、分页。
 
 ### 5.3 项目 / 已归档
 - **默认项目**（决策 2026-09-02）：网关启动目录是一个真实项目，名为「默认项目」，永远排在
@@ -317,6 +346,20 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
     该组起点，气泡落地高亮 1.5s。英文 Your prompts / N prompts / Latest / You are here / Start of chat。
   - 数据侧待办（另立项）：连接器给历史消息补 `created_at`，之后副行时间自然出现。
 
+- **聊天内搜索**（决策 2026-09-03，`ChatSearchBar.kt` / `ChatSearchHighlight.kt`）：
+  - 搜索条**替换顶栏位置**（同一高度，`Scaffold.topBar` 二选一），消息列表不位移；行 =
+    `SearchField` + 计数 `n/m`（0 时中性色）+ ↑ ↓ + ×；返回键先关搜索条。下一行三选一：当前命中的
+    来源标签（正文 / 思考 / 工具）+ 片段（命中词高亮）；历史未加载完「正在加载对话…」；
+    0 命中且 ≥ 2 字「此会话中没有匹配」+ 「在全部会话中搜索」（导航到搜索页 `search?q=`）。
+  - **子串高亮**：正文经 Markdown 渲染器的 `annotator` 在 TEXT token 内加背景色 span；用户气泡、
+    思考、工具输出是纯文本，直接 `AnnotatedString`。当前命中所在回合的标记 primary@38%，其余
+    回合 primary@16%；整回合描边高亮（§5.4 既有）保留。多词查询按「整句优先，其次每个 ≥2 字
+    的词」标记，因为 Markdown 行内文本按空白 / 标点切 token，整句很少落在同一 token 里。
+  - **自动展开**：当前命中来源是思考 / 工具时，该回合内含查询词的思考卡 / 工具卡自动展开
+    （`shouldAutoExpand`）；关闭搜索不强制收回。
+  - **带词打开**：`ChatLaunch.initialQuery` 非空时进入即展开搜索条并填词，历史加载完后由既有
+    的匹配 / 高亮流程定位第一处；每次进入只消费一次（`rememberSaveable`），旋转或返回不重开。
+
 ### 5.5 长按菜单与底部弹出框范式
 统一 `ModalBottomSheet`：标题（≤2 行）+ `ListItem` 操作项（leading 图标）；破坏性操作
 红色（error）且必须 `AlertDialog` 二次确认。
@@ -334,9 +377,9 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
 所以我们的加载语汇是**光在转、形不动**，不是转盘在转。三条硬规则：
 
 1. **多彩只属于品牌时刻，页面内一律单色 primary。** 依据 §1 原则 3 与 §2.1：加载动效里出现
-   绿色会与 `StatusColors` 的"已完成 / 已连接"抢语义。多彩形态只留在启动门（§5.11）；
-   页面内唯一的例外是**确定进度条**（上传 / 更新），它表达"还剩多少"而非"正在转"，
-   沿用启动门锚定全宽的三色渐变。
+   绿色会与 `StatusColors` 的"已完成 / 已连接"抢语义。多彩形态**只**留在启动门（§5.11），页面内
+   没有例外：更新下载条也是单色 primary 的 M3 进度条。（早期草案想让确定进度也走三色渐变，
+   砍掉了 —— 多一条例外就多一处会漂移的边界。）
 2. **一个周期 `Motion.LoopPeriod = 1200ms`，一个延迟门 `Motion.RevealDelay = 250ms`
    + `Motion.RevealFade = 200ms`。** 1200ms 已是发送呼吸环与启动流光的周期；
    250ms 内结束的等待**什么加载物都不出现**（同 §5.4 气泡呼吸、§5.11 启动状态）。
@@ -344,7 +387,9 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
    **原地替换一个已有图标**的行内标记（顶栏刷新钮、行尾切换态、上传图标）不加门：它不是多出来的
    家具，是同一位置的状态切换，用户刚点完就该立刻有反馈。
    聊天历史骨架原本自带 1350ms，已并入本 token。
-3. **不确定 = 品牌标记；确定 = 渐变条。** 永不显示假进度。`reduceMotion()`
+3. **标记只替换"转盘形态"。** 进度条是另一个家族：页面刷新用顶部细线，下载 / 检查更新这类
+   **卡内进度**继续用 M3 `LinearProgressIndicator`（有百分比是确定态，没有是不确定态）。
+   永不显示假进度。`reduceMotion()`
    （系统"关闭动画"）下所有循环停在最亮一帧的 60%，静态可读，不留空框。
 
 形态与场景对照（权威见 `BrandLoader.kt`）：
@@ -356,6 +401,7 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
 | 已有内容的刷新 / 加载更多 | `TopProgressLine` | 2dp 全宽，置顶不遮挡 |
 | 聊天运行中（尚无内容 / 生成中 / 思考 / 跑工具） | `RunningStatusLine` = 标记 + 状态文字 | 14dp |
 | 行内等待（刷新、切换身份、上传、图片加载、横幅） | `HermesMark` | 14–24dp，跟随原尺寸 |
+| 下载 / 检查更新（卡内进度） | M3 `LinearProgressIndicator`，单色 | 全宽 |
 
 - **标记**：H 静止，一束锥形亮光绕横梁中心（图标四色的交汇点）顺时针转；暗部 `DIM_ALPHA = 0.30`
   保证任何相位下 H 都读得出来。比例 14:15 取自图标本身。**不做**旋转形状、不做四象限跳闪。
@@ -494,7 +540,14 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
 - **入场 / 退场**：冷启动图标从系统 splash 落点（屏幕中心、**2×**——系统 splash 容器 288dp 对
   我们的 144dp，真机实测 118dp:58dp；2026-09-03 由 1.5× 修正）缩放平移到位（320ms，Standard），
   字标与标语延迟向上淡入 12dp；就绪后整屏 `fadeOut + scaleOut(0.98)`（`Motion.DurationMedium`），
-  首页同时 `fadeIn + 上浮 16dp`（`MainActivity`）。热恢复遮罩无 splash 可承接，改为 150ms 淡入。
+  首页同时 `fadeIn + 上浮 16dp`（`MainActivity`）。失败态无 splash 可承接，改为 150ms 淡入。
+- **热恢复静默**（决策 2026-09-03，取代「热恢复遮罩 150ms 淡入」）：**只有冷启动和真正的失败态
+  可以占屏**。`CONNECTION_RECOVERY` 的加载态一律不渲染门 —— 会话页留在原位，继续显示它已经提交的
+  内容，socket 由 `HermesGatewayClient` 自己的 500ms→10s 退避重连恢复。恢复失败才升起失败态门
+  （它带错误码和「重新连接」/「检查连接设置」两个动作，是可操作的）。同时 `HOT_START_DEBOUNCE_MS`
+  200ms → **3s**：先让退避重连自愈，抖动一次不再触发探测与首屏数据恢复。
+  由来：旧规则下任何一次掉线都把全屏门盖到聊天页上，实测 2026-09-03 单日 55 次重连 = 几十次
+  「被弹回启动页」，用户读作 App 崩了；同一次恢复还会把 0.5 MB 的 transcript 重复下载 7 次。
 - **深浅**：由生效主题判定（§2.2）。底色是全 App 唯一必须与 window 资源一致的颜色
   （`@color/startup_background` 浅 `#F8FAFD` / `values-night` 深 `#0D141B` = surfaceContainerLowest dark），
   故浅深两组字面量成对写在 `StartupPalette`；次要色 `#74777F / #9AA0A8`，轨道 `#E7ECF6 / #2B323A`。
@@ -505,8 +558,9 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
   居中，「检查连接设置」文字钮同宽，不再通栏。
 - **紧凑（横屏 / 高度 < 560dp）**：图标 96dp 与字标（24sp）横排、左对齐，品牌组顶边 10% 屏高，
   状态与失败态仍在其下方居中。
-- 验证：`StartupScreenTest`（延迟揭示、READY 早到不揭示、文案合并、失败态结构、版本行）、
-  `StartupCopyTest`，截图 `startup-loading / startup-loading-dark / startup-failed`。
+- 验证：`StartupScreenTest`（延迟揭示、READY 早到不揭示、文案合并、失败态结构、版本行、
+  热恢复不占屏、热恢复失败仍占屏）、`StartupCopyTest`，截图
+  `startup-loading / startup-loading-dark / startup-failed`。
 
 ### 5.12 底部主操作按钮（决策 2026-09-02，首例 `ui/profiles/ProfileEditScreen.kt`）
 - **适用**：页面有一个明确的提交类主操作（保存 / 连接 / 创建）且内容可能超过一屏。
@@ -530,6 +584,22 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
   语音的位置与交互不因空态改版发生变动。首条消息出现，整组 150ms 淡出。
 - TalkBack：整组一个语义节点，播报「新会话。{问候}。{副行} 当前 {胶囊}」。
 - 未来的智能建议（服务端推荐/历史提炼）在胶囊下方追加，不改本节既有元素。
+
+### 5.13 分享对话（决策 2026-09-02）
+- 「更多 › 分享对话」**先弹格式选择层**（三项：文字 / Markdown 文件 / 长图），选定后才跳系统
+  分享盘。每项一行说明，讲清各自适用场景，不让用户猜。
+- **文字**：`EXTRA_TEXT` 直发，适合短对话直接粘贴。
+- **Markdown 文件**：写入 `cacheDir/transcripts/`，经 FileProvider 以 `text/markdown` 分享。
+  文件名 `HermesGO-<标题>-<时间戳>.md`，标题必须过 `transcriptFileBaseName` 清洗（路径分隔符、
+  保留字符、换行、超长一律处理）。正文原样保留 Markdown，代码块与表格必须无损。
+- **长图**：离屏 GraphicsLayer 渲染（`OffscreenTranscriptExporter`），三条硬规则 ——
+  ① **固定浅色**渲染，无论 App 当前主题（深色长图在他人聊天里过重，且更扛不住二次压缩）；
+  ② 底部**页脚**标注会话标题与导出时间 + Hermes GO；
+  ③ **限长策略 A**：渲染前用 `transcriptImageFitsBudget` 预估，超出
+  `TRANSCRIPT_IMAGE_MAX_HEIGHT_PX`（12000px，GPU 纹理与内存的安全线）**直接拒绝出图**并引导改用
+  Markdown 文件 —— 宁可不出，也不给用户一张残缺或渲染失败的图。
+- 长图中的图片附件：**已缓存的正常渲染，未缓存的画占位框**；导出绝不触发下载，分享动作不得
+  阻塞在网络上。
 
 ## 6. 文案
 

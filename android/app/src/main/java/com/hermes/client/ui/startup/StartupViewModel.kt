@@ -417,7 +417,12 @@ class StartupViewModel @Inject constructor(
     }
 
     internal companion object {
-        const val HOT_START_DEBOUNCE_MS = 200L
+        // A dropped socket is normally self-healing: HermesGatewayClient reconnects on its own
+        // 500ms→10s backoff. Waiting out that first window before running a recovery pass means a
+        // routine blip costs nothing at all — no /api/status probe, no destination recovery, no
+        // full transcript re-fetch. At 200ms every one of the 55 reconnects observed in a single
+        // day (2026-09-03) paid for a complete recovery.
+        const val HOT_START_DEBOUNCE_MS = 3_000L
         const val MINIMUM_COLD_START_MS = 450L
         const val CONNECTION_TIMEOUT_MS = 15_000L
         const val INITIAL_DATA_TIMEOUT_MS = 15_000L

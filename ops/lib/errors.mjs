@@ -34,6 +34,41 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "check_output_and_retry",
   }),
+  compatibility: Object.freeze({
+    code: "HR-OPS-006",
+    summaryZh: "源版本与目标 Gateway 发布合同不兼容，请选择可升级或可回滚的版本。",
+    summaryEn: "The source and target Gateway release contracts are incompatible. Select a compatible upgrade or rollback version.",
+    retryable: false,
+    recoveryAction: "select_compatible_release",
+  }),
+  deployment: Object.freeze({
+    code: "HR-OPS-007",
+    summaryZh: "Gateway 候选版本准备未完成，旧服务保持不变。请检查部署阶段后重试。",
+    summaryEn: "Gateway candidate preparation did not complete; the existing service was left unchanged. Inspect the deployment stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_deployment_stage_and_retry",
+  }),
+  switch: Object.freeze({
+    code: "HR-OPS-008",
+    summaryZh: "Gateway 路由切换未完成，已尝试恢复原服务。请检查恢复状态。",
+    summaryEn: "The Gateway route switch did not complete. Recovery of the existing service was attempted. Inspect the recovery state.",
+    retryable: true,
+    recoveryAction: "inspect_recovery_state_and_retry",
+  }),
+  database: Object.freeze({
+    code: "HR-OPS-009",
+    summaryZh: "Gateway 数据库迁移或版本校验未完成，已阻止发布。请检查数据库状态后重试。",
+    summaryEn: "The Gateway database migration or version check did not complete, so the release was blocked. Inspect the database state and retry.",
+    retryable: true,
+    recoveryAction: "inspect_database_state_and_retry",
+  }),
+  promotion: Object.freeze({
+    code: "HR-OPS-010",
+    summaryZh: "生产晋级前置门禁尚未全部通过，线上服务保持不变。请补齐阻断项后重新审计。",
+    summaryEn: "Production promotion gates are incomplete; the live service was left unchanged. Resolve the blockers and audit again.",
+    retryable: true,
+    recoveryAction: "resolve_production_gates_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;

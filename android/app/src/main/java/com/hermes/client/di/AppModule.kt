@@ -53,6 +53,11 @@ object AppModule {
     fun provideJson(): Json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
+        // Hermes analytics rows come straight from SQLite aggregates, and SUM() over an empty
+        // group returns NULL rather than 0. Without coercion a brand-new profile makes the whole
+        // usage response fail to parse. Only non-nullable fields that declare a default are
+        // coerced, so genuinely optional fields keep their null meaning.
+        coerceInputValues = true
     }
 
     @Provides
@@ -195,8 +200,8 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideSessionRepository(rest: HermesRestApi): SessionRepository =
-        SessionRepository(rest)
+    fun provideSessionRepository(rest: HermesRestApi, scope: CoroutineScope): SessionRepository =
+        SessionRepository(rest, scope)
 
     @Provides
     @Singleton
@@ -232,6 +237,13 @@ object AppModule {
         @ApplicationContext context: Context,
     ): com.hermes.client.data.repository.ProjectPrefsStore =
         com.hermes.client.data.repository.ProjectPrefsStore(context)
+
+    @Provides
+    @Singleton
+    fun provideRecentSearchesStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.RecentSearchesStore =
+        com.hermes.client.data.repository.RecentSearchesStore(context)
 
     @Provides
     @Singleton
