@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -153,11 +154,14 @@ import com.hermes.client.domain.ImageTransferState
 import com.hermes.client.domain.ChatFile
 import com.hermes.client.domain.FileTransferState
 import com.hermes.client.ui.theme.LocalToolCallTechnical
+import com.hermes.client.ui.components.ExternalLinkIcon
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.theme.Motion
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material3.IconButton
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
@@ -172,7 +176,20 @@ import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.markdownDimens
+import com.mikepenz.markdown.compose.elements.listDepth
+import com.mikepenz.markdown.model.DefaultMarkdownInlineContent
+import com.mikepenz.markdown.model.markdownAnnotator
 import com.mikepenz.markdown.model.markdownPadding
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.style.TextDecoration
+import org.intellij.markdown.MarkdownElementTypes
+import org.intellij.markdown.ast.ASTNode
+import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 
 data class ChatViewportAnchor(
     val blockKey: String,
@@ -1741,7 +1758,7 @@ private fun BackgroundProcessesCard(processes: List<com.hermes.client.data.repos
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun AssistantTurn(
+internal fun AssistantTurn(
     msg: ChatMessage,
     canRegenerate: Boolean,
     showActions: Boolean,
@@ -1960,7 +1977,50 @@ private fun AssistantMarkdownBlock(
         lineHeight = 29.sp,
         letterSpacing = 0.sp,
     )
-    val annotator = rememberSearchAnnotator()
+    val linkColor = MaterialTheme.colorScheme.primary
+    // Colour AND underline AND a leading glyph: in CJK body text an underlined run is nearly
+    // indistinguishable from **bold**, and colour alone is not an accessible-enough signal.
+    val linkStyles = remember(linkColor) {
+        TextLinkStyles(
+            style = SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline),
+            pressedStyle = SpanStyle(color = linkColor.copy(alpha = 0.7f), textDecoration = TextDecoration.Underline),
+        )
+    }
+    // Held across recompositions on purpose: InlineTextContent has no equals(), so rebuilding
+    // this map on every streaming tick would hand Markdown a "changed" argument each frame.
+    // The placeholder is 17sp square while the glyph is 13sp, which is where the gap between
+    // icon and link text comes from; both are sp so the pair tracks the system font scale.
+    val linkIcon = remember(linkColor) {
+        DefaultMarkdownInlineContent(
+            mapOf(
+                MARKDOWN_LINK_ICON_TAG to InlineTextContent(
+                    Placeholder(17.sp, 17.sp, PlaceholderVerticalAlign.TextCenter),
+                ) {
+                    Icon(
+                        ExternalLinkIcon,
+                        contentDescription = null,
+                        modifier = Modifier.size(with(LocalDensity.current) { 13.sp.toDp() }),
+                        tint = linkColor,
+                    )
+                },
+            ),
+        )
+    }
+    // Two annotators share this one slot. They are disjoint — search highlighting only claims
+    // TEXT tokens, the glyph only reacts to link nodes — so the link pass runs first and always
+    // defers, then search decides whether it handled the node.
+    val searchAnnotator = rememberSearchAnnotator()
+    val annotator = remember(searchAnnotator) {
+        markdownAnnotator(config = searchAnnotator.config) { content, child ->
+            if (shouldPrefixLinkIcon(child)) {
+                appendInlineContent(MARKDOWN_LINK_ICON_TAG, "\uFFFC")
+                // WORD JOINER: without it the line breaker treats the glyph as its own word and
+                // happily leaves it stranded at the end of the previous line.
+                append('\u2060')
+            }
+            searchAnnotator.annotate?.invoke(this, content, child) ?: false
+        }
+    }
     Markdown(
         content = content,
         annotator = annotator,
@@ -1971,21 +2031,32 @@ private fun AssistantMarkdownBlock(
         ),
         typography = markdownTypography(
             h1 = MaterialTheme.typography.headlineSmall.copy(lineHeight = 34.sp),
-            h2 = MaterialTheme.typography.titleLarge.copy(fontSize = 21.sp, lineHeight = 31.sp),
-            h3 = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold),
-            h4 = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-            h5 = MaterialTheme.typography.titleSmall,
-            h6 = MaterialTheme.typography.titleSmall,
+            h2 = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp, lineHeight = 32.sp),
+            h3 = MaterialTheme.typography.titleMedium.copy(fontSize = 18.5.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold),
+            // h4/h5/h6 used to fall back to titleMedium/titleSmall (16sp/13sp), i.e. a "level 5
+            // heading" rendered SMALLER than the 17sp body it introduced. A heading never sits
+            // below body size; below h4 the hierarchy is carried by weight, not by shrinking.
+            h4 = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp, lineHeight = 26.sp, fontWeight = FontWeight.Bold),
+            h5 = MaterialTheme.typography.titleMedium.copy(fontSize = 15.5.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold),
+            h6 = MaterialTheme.typography.titleMedium.copy(fontSize = 15.5.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold),
             text = body,
             paragraph = body,
             ordered = body,
             bullet = body,
             list = body,
             quote = body.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
-            table = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 22.sp),
+            textLink = linkStyles,
+            table = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 23.sp),
         ),
         components = components,
-        padding = markdownPadding(block = 5.dp, listItemTop = 2.dp, listItemBottom = 2.dp),
+        inlineContent = linkIcon,
+        padding = markdownPadding(
+            block = MD_BLOCK,
+            list = MD_LIST,
+            listItemTop = MD_LIST_ITEM,
+            listItemBottom = MD_LIST_ITEM,
+            listIndent = MD_LIST_INDENT,
+        ),
         dimens = markdownDimens(tableCellWidth = 110.dp, tableCellPadding = 8.dp),
     )
 }
@@ -2002,6 +2073,63 @@ private const val VIEWPORT_EXACT_WIDTH_WAIT_FRAMES = 18
 private const val VIEWPORT_RESTORE_STABLE_FRAMES = 4
 private const val VIEWPORT_RESTORE_TOLERANCE_PX = 0.75f
 private val TURN_SPACING = 22.dp
+
+// Assistant body layout scale (DESIGN.md §5.4). Compose trims the half-leading above the first
+// line and below the last line of every Text, so the 29sp body lineHeight buys air INSIDE a
+// paragraph or list item and none at all BETWEEN two of them. Before this scale existed, two
+// list items sat 11dp apart while two wrapped lines of ONE item sat 12.6dp apart — the item
+// boundary was weaker than the line boundary, which is what made numbered answers read as a wall.
+private val MD_BLOCK = 5.dp        // paragraph <-> paragraph (~17.6dp of visible white)
+private val MD_LIST = 4.dp         // above/below a whole list; the item padding already
+                                   // separates the group, so a big value here punches a hole
+private val MD_LIST_ITEM = 5.dp    // each side of an item -> ~17dp between items
+private val MD_LIST_INDENT = 20.dp // per nesting level (library default 8dp read as noise)
+private val MD_RULE_GAP = 16.dp    // above/below a thematic break
+private val MD_BLOCK_ELEMENT_GAP = 8.dp // code blocks and table cards against their neighbours
+private val MD_QUOTE_GAP = 8.dp    // a quote is a block, not a paragraph continuation
+// Headings: generous above (a heading opens a chapter), modest but unambiguous below. The old
+// values gave h2 6dp above and NOTHING below, gluing every heading to its first paragraph.
+private val MD_H1_TOP = 22.dp
+private val MD_H2_TOP = 20.dp
+private val MD_H3_TOP = 16.dp
+private val MD_H4_TOP = 14.dp
+private val MD_H_BOTTOM_LARGE = 8.dp
+private val MD_H_BOTTOM_SMALL = 6.dp
+
+private val MARKDOWN_LINK_TYPES = setOf(
+    MarkdownElementTypes.INLINE_LINK,
+    MarkdownElementTypes.AUTOLINK,
+    MarkdownElementTypes.FULL_REFERENCE_LINK,
+    MarkdownElementTypes.SHORT_REFERENCE_LINK,
+    GFMTokenTypes.GFM_AUTOLINK,
+)
+private const val MARKDOWN_LINK_ICON_TAG = "hermes-link-icon"
+
+/**
+ * Whether this AST node is a link that should get the external-link glyph in front of it.
+ *
+ * A GFM autolink is only a link when it stands on its own in the prose. The parser also emits one
+ * inside `[label](url)` — as the LINK_DESTINATION, and as the LINK_TEXT too when the label happens
+ * to be a URL — and those are parts of the surrounding INLINE_LINK, not links in their own right.
+ * Counting them would put two or three glyphs on a single link.
+ */
+internal fun shouldPrefixLinkIcon(node: ASTNode): Boolean {
+    if (node.type !in MARKDOWN_LINK_TYPES) return false
+    if (node.type != GFMTokenTypes.GFM_AUTOLINK) return true
+    return node.parent?.type !in NESTED_AUTOLINK_PARENTS
+}
+
+/** Parents whose GFM_AUTOLINK child is a component of an enclosing link, not a link itself. */
+private val NESTED_AUTOLINK_PARENTS = setOf(
+    MarkdownElementTypes.LINK_TEXT,
+    MarkdownElementTypes.LINK_DESTINATION,
+    MarkdownElementTypes.LINK_LABEL,
+)
+// One marker column for both list types, so ordered and unordered share a text edge. Sized in sp,
+// not dp: 28sp clears a two-digit "10." beside 17sp body — a list running past nine items keeps a
+// straight left edge instead of stepping right at item 10 — and it has to keep clearing it when
+// the reader turns the system font up.
+private val MD_MARKER_WIDTH = 28.sp
 
 /** "14:32" today, "昨天 14:32" yesterday, "8月30日 14:32" this year, full date otherwise. */
 internal fun formatTimeSeparator(ts: Long, language: com.hermes.client.ui.localization.AppLanguage): String {
@@ -2054,15 +2182,71 @@ private fun chatMarkdownComponents(
             }
         },
         // Section headings get breathing room above so long answers read in visual chapters
-        // (approved normal-content mockup): spacing carries the hierarchy, not decoration.
+        // (approved normal-content mockup): spacing carries the hierarchy, not decoration. The
+        // space BELOW matters just as much — without it a heading reads as the paragraph's first
+        // line rather than as its title.
+        heading1 = { m ->
+            Column(Modifier.padding(top = MD_H1_TOP, bottom = MD_H_BOTTOM_LARGE)) {
+                com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h1)
+            }
+        },
         heading2 = { m ->
-            Column(Modifier.padding(top = 6.dp)) {
+            Column(Modifier.padding(top = MD_H2_TOP, bottom = MD_H_BOTTOM_LARGE)) {
                 com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h2)
             }
         },
         heading3 = { m ->
-            Column(Modifier.padding(top = 4.dp)) {
+            Column(Modifier.padding(top = MD_H3_TOP, bottom = MD_H_BOTTOM_SMALL)) {
                 com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h3)
+            }
+        },
+        heading4 = { m ->
+            Column(Modifier.padding(top = MD_H4_TOP, bottom = MD_H_BOTTOM_SMALL)) {
+                com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h4)
+            }
+        },
+        // A proportional marker column let "10." push its text further right than "9.", so the
+        // left edge of a 10+ item list came out ragged. Reserve one fixed column instead.
+        orderedList = { m ->
+            // markerModifier is not a composable lambda, so resolve the scaled width out here.
+            val markerWidth = with(LocalDensity.current) { MD_MARKER_WIDTH.toDp() }
+            com.mikepenz.markdown.compose.elements.MarkdownOrderedList(
+                content = m.content,
+                node = m.node,
+                depth = m.listDepth,
+                markerModifier = { Modifier.widthIn(min = markerWidth) },
+            )
+        },
+        // Same fixed column for bullets, so ordered and unordered lists share one text edge.
+        // Rebuilt on MarkdownListItems rather than MarkdownBulletList because the latter hangs
+        // padding(bottom = listItemBottom) on the marker itself: at listItemBottom = 5dp that
+        // lifted every bullet off its own first baseline.
+        unorderedList = { m ->
+            val markerWidth = with(LocalDensity.current) { MD_MARKER_WIDTH.toDp() }
+            com.mikepenz.markdown.compose.elements.MarkdownListItems(
+                content = m.content,
+                node = m.node,
+                depth = m.listDepth,
+                markerModifier = { Modifier.widthIn(min = markerWidth) },
+            ) { _, _, _ ->
+                MarkdownBullet(m.listDepth, m.typography.bullet)
+            }
+        },
+        // Passing a custom component set drops the M3 checkbox that m3 Markdown() injects by
+        // default, which rendered GFM task lists as the literal text "[ ]" / "[x]".
+        checkbox = { m ->
+            com.mikepenz.markdown.m3.elements.MarkdownCheckBox(m.content, m.node, m.typography.text)
+        },
+        horizontalRule = {
+            Column(Modifier.padding(vertical = MD_RULE_GAP)) {
+                com.mikepenz.markdown.compose.elements.MarkdownDivider(Modifier.fillMaxWidth())
+            }
+        },
+        // Without an outer margin a quote sat 10.7dp under its paragraph — closer than two
+        // wrapped lines of that paragraph, so it read as a continuation rather than an aside.
+        blockQuote = { m ->
+            Column(Modifier.padding(vertical = MD_QUOTE_GAP)) {
+                com.mikepenz.markdown.compose.elements.MarkdownBlockQuote(m.content, m.node)
             }
         },
         // Tables render as a card with a header bar (label + copy-as-TSV + fullscreen), matching
@@ -2082,6 +2266,27 @@ private fun chatMarkdownComponents(
             }
         },
     )
+
+/**
+ * List bullet drawn rather than typeset. A "\u2022" glyph sits at Latin x-height, which reads as
+ * floating well above the optical centre of a CJK line, and the library additionally hangs
+ * listItemBottom padding on the marker text. Drawing inside a box exactly one line tall centres
+ * the mark on the item's first line at any font scale, and gives the three depths one geometry.
+ */
+@Composable
+private fun MarkdownBullet(depth: Int, style: TextStyle) {
+    val color = com.mikepenz.markdown.compose.LocalMarkdownColors.current.text
+    val lineHeight = with(LocalDensity.current) { style.lineHeight.toDp() }
+    Box(Modifier.height(lineHeight), contentAlignment = Alignment.Center) {
+        when (depth % 3) {
+            0 -> Canvas(Modifier.size(5.dp)) { drawCircle(color) }
+            1 -> Canvas(Modifier.size(5.5.dp)) {
+                drawCircle(color, radius = size.minDimension / 2f - 0.75.dp.toPx(), style = Stroke(1.5.dp.toPx()))
+            }
+            else -> Canvas(Modifier.size(4.5.dp)) { drawRect(color) }
+        }
+    }
+}
 
 /** The styled table body shared by the in-chat card and the fullscreen dialog. */
 @Composable
@@ -2175,7 +2380,7 @@ internal fun StyledMarkdownTableSample(raw: String) {
         modifier = Modifier.fillMaxWidth(),
         colors = markdownColor(),
         typography = markdownTypography(
-            table = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 22.sp),
+            table = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 23.sp),
         ),
         components = markdownComponents(
             table = { m -> StyledMarkdownTable(m.content, m.node, m.typography.table) },
@@ -2268,7 +2473,7 @@ internal fun ChatTableCard(
             MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
         ),
         color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.padding(vertical = 4.dp),
+        modifier = Modifier.padding(vertical = MD_BLOCK_ELEMENT_GAP),
     ) {
         Column {
             Row(
@@ -2510,6 +2715,7 @@ internal fun CodeWithCopy(code: String, language: String?, style: TextStyle) {
     // the language is visible at a glance.
     Column(
         Modifier
+            .padding(vertical = MD_BLOCK_ELEMENT_GAP)
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant),

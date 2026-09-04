@@ -120,7 +120,27 @@ const PROSE_C = `## 结论
 
 最后确认一遍所有服务的健康状态，全部正常后本次排查结束。整体来看系统架构是健康的，只是这一处配置需要微调。`;
 
-const FULL_TEXT = PROSE_A + CODE_BLOCK + RAW_JSON + PROSE_B + DIFF_BLOCK + CODE_BLOCK_2 + PROSE_C;
+// Ordered/bulleted lists and links are the most common shape of a real answer and were the one
+// thing this fixture never produced, so body-typography changes could not be seen on a device.
+const PROSE_LIST = `### 三个可能原因
+
+1. **证书链深度不足** \u2014 \`proxy_ssl_verify_depth\` 默认是 1，中间 CA 校验会直接失败，这是最常见的一种。
+2. **upstream 超时** \u2014 网关重启期间连接池没有排空，旧连接还在被复用。
+3. **端口占用** \u2014 \`8444\` 已被占用，服务起不来。
+
+排查顺序建议：
+
+- 先看证书链，成本最低
+- 再看端口占用
+  - \`lsof -i :8444\`
+  - \`systemctl status\`
+- 最后才动连接池配置
+
+参考 [nginx SSL 模块文档](https://nginx.org/en/docs/http/ngx_http_ssl_module.html) 与内部记录 https://mrlgs.net/relay-health 。
+
+`;
+
+const FULL_TEXT = PROSE_A + CODE_BLOCK + RAW_JSON + PROSE_B + PROSE_LIST + DIFF_BLOCK + CODE_BLOCK_2 + PROSE_C;
 const REASONING = "用户报告了部署问题。我需要先检查 nginx 配置，然后验证证书链。可能的原因有三类：超时、证书、连接池。逐一排查是最稳妥的路径。先用只读命令收集信息，避免影响线上服务。";
 
 function chunks(text, size) {
