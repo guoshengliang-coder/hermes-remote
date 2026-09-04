@@ -80,3 +80,9 @@ HK 与 Mac 删除，未修改 `/opt`、`/etc`、`/var/lib`、数据库、路由�
 工作流因此只对 `main` push 保留七天的精确 bundle，PR 仍仅构建验证；正式聚合审计必须使用匹配
 `main` 提交的该制品。R5-B 及之后尚未开始，香港服务器保持不变；即使 R5-A 全部通过，也仍然是
 production no-go。
+
+R5-B 的代码阶段现已建立严格的 `legacy-capture` / `legacy-restore` 合同、AES-256-GCM CMS 流式加密、
+文件级恢复校验、异机主机约束、loopback 临时启动兼容 smoke、`HR-OPS-011` 和可被 R5-A 直接读取的
+证据输出。配置示例和生产门禁见 `CLOUD_GATEWAY_R5_RECOVERY.md`。这只表示工具进入 PR 验证阶段；尚未
+读取或复制新的线上内容，尚未生成生产快照或异机恢复证据，香港服务器仍保持不变。实际捕获仍需单独
+生产授权。

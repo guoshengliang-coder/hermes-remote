@@ -448,7 +448,7 @@ test("status is layered and doctor writes an exclusive allowlist-only private bu
 
 test("Cloud Ops failures keep stable bilingual codes and redact diagnostic values", async () => {
   const codes = Object.values(OPS_ERROR_DEFINITIONS).map((definition) => definition.code);
-  assert.deepEqual(codes, ["HR-OPS-001", "HR-OPS-002", "HR-OPS-003", "HR-OPS-004", "HR-OPS-005", "HR-OPS-006", "HR-OPS-007", "HR-OPS-008", "HR-OPS-009", "HR-OPS-010"]);
+  assert.deepEqual(codes, ["HR-OPS-001", "HR-OPS-002", "HR-OPS-003", "HR-OPS-004", "HR-OPS-005", "HR-OPS-006", "HR-OPS-007", "HR-OPS-008", "HR-OPS-009", "HR-OPS-010", "HR-OPS-011"]);
   for (const definition of Object.values(OPS_ERROR_DEFINITIONS)) {
     assert.match(definition.summaryZh, /[\u3400-\u9fff]/);
     assert.match(definition.summaryEn, /^[A-Z]/);
@@ -483,7 +483,7 @@ test("Gateway bundle packaging and hermesctl CLI remain wired to clean immutable
   assert.match(manifestWriter, /releaseContract/);
 
   const cli = await readFile("scripts/hermesctl.mjs", "utf8");
-  for (const command of ["preflight", "bootstrap", "status", "doctor", "deploy", "rollback", "production-audit"]) {
+  for (const command of ["preflight", "bootstrap", "status", "doctor", "deploy", "rollback", "production-audit", "legacy-capture", "legacy-restore"]) {
     assert.equal(cli.includes(`\"${command}\"`), true);
   }
   assert.match(cli, /confirmation: args\.confirm/);
