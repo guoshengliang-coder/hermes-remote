@@ -293,6 +293,43 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
     长按菜单多一项「复制诊断信息」（诊断里仍是全码）。
     替代旧的单独红色「消息发送失败」错误行。TalkBack 只播报未发送，不播报发送中。
   - 发送失败时会话回到 IDLE（不是运行失败），列表页不标"运行失败"，失败只由气泡承载。
+- **助手正文排版**（决策 2026-09-04，设计稿 `docs/design/chat-markdown-typography.html`，
+  `AssistantMarkdownBlock`）：助手回复是纯 Markdown 排版，没有气泡，所以**间距就是全部的结构**。
+  取值集中在 `ChatComponents.kt` 顶部的 `MD_*` 常量，改版先改常量、再录 golden。
+  - **为什么必须显式给间距**：Compose 会裁掉每个 `Text` 首行上方、末行下方的半行距。正文
+    `lineHeight = 29sp` 只在**一个段落/列表项内部**买到空气，**两项之间一点都没有**。本次改动之前
+    列表项间距 = `listItemTop 2` + `listItemBottom 2` + 字体升降部 ≈ 11dp，而同一项折行是 12.6dp
+    —— **项边界比行边界还弱**，「1、2、3 点」因此塌成一堵信息墙。靠调行高解决不了这个问题。
+  - **正文** bodyLarge 17sp/29，`letterSpacing = 0`（跟随系统字体缩放，§3.1）。
+  - **间距**（实测纯空白）：段内换行 12.6dp 是基准线，任何**块之间**的间距都必须明显大于它。
+    `block` 5dp（段↔段 ≈17.6dp）；`listItemTop/Bottom` 各 5dp（**项间 ≈17dp**）；`list` 4dp
+    （列表整体上下，再大会在列表和邻居之间打洞）；`listIndent` 20dp/层；引用块上下 8dp；
+    分隔线上下 16dp；代码块与表格卡外边距各 8dp。
+  - **标题**：上方留白开章、下方留白断句，**两侧都要给**。旧值 h2 上 6dp、下 0，标题读起来像
+    段落的第一行。现为 h1 22/8、h2 20/8、h3 16/6、h4 14/6（上/下）。字号 h1 24、h2 22、
+    h3 18.5、**h4 17 Bold、h5/h6 15.5 Bold**。**标题字号一律不小于正文**：旧的 h5 = 13sp 比
+    17sp 正文还小一大截，层级是倒挂的；h4 以下靠**字重**承担层级，不靠缩小。
+  - **列表标记**：有序与无序共用 **28dp 定宽标记列**，两种列表的文字左缘对齐。28dp 是按
+    17sp 下两位数 `10.` 的宽度定的 —— 标记列自适应时，列表跑到第 10 条文字左缘会整体右移。
+    项目符号**画出来而不是排字**（`MarkdownBullet`）：`•` 字形位于拉丁 x-height，在 CJK 行里
+    看着浮在上面，且库还给标记挂了 `listItemBottom` 内边距。改为在「恰好一行高」的盒子里居中
+    绘制，任何字体缩放下都落在首行光学中心；三层依次为 5dp 实心圆 / 5.5dp 空心环 / 4.5dp 方块。
+  - **链接**：`primary` 色 + 细下划线 + **前置 13dp 外链图标**（`ExternalLinkIcon`，§4 描边体系，
+    小尺寸补偿 2.4 描边）。三重编码是刻意的：中文正文里「加粗 + 下划线」和 `**加粗**` 几乎分不出来，
+    而只靠颜色区分不满足无障碍。图标经 `MarkdownAnnotator` + `InlineTextContent` 插入，后面必须跟
+    一个 `U+2060 WORD JOINER` —— 否则断行器把图标当独立单词，会把它留在上一行行尾、和链接分家。
+  - **任务清单**用 M3 复选框。给 `Markdown()` 传自定义 `components` 会覆盖掉 m3 默认注入的
+    `checkbox`，漏传时 `- [ ]` 会渲染成字面文本 `[ ]`，必须显式带上。
+  - **表格**正文 15sp/23。
+  - **链接点击**（`ui/components/AppLinks.kt`，全 app 共用）：正文里的地址是模型输出，不可信。渲染器在构建链接注解时就
+    捕获 `LocalUriHandler`，所以受控 handler 必须包在 `Markdown()` 外层，而不是点击处。
+    只放行 `http/https/mailto/tel`（`intent:` 能指定任意组件、`file:` 能指向本地存储），
+    无 scheme 的 `www.` 自动链接补 `https://`，其余拒绝 → `HR-LINK-002`。系统无法打开时
+    （设备没有浏览器，Compose 默认 handler 会把 `ActivityNotFoundException` 重抛成
+    `IllegalArgumentException` 直接崩）→ 复制链接到剪贴板 + `HR-LINK-001`。
+  - **待办**（未立项）：超长无空格 URL 不做中间断行。
+  - **验证**：`MarkdownTypographyScreenshotTest` 三张 golden（浅色 / 深色 / 边界情况）覆盖上述
+    全部取值，改动后用 `-Proborazzi.test.record=true` 重录并肉眼比对。
 - 输入区：浮动 `Surface`，圆角 30（聚焦 28）、tonal 1dp + shadow 7dp、最小高 60dp；
   内含麦克风、无边框输入框、48dp 圆形发送键 —— 发送键用 **theme primary**（明确决策：
   核心全局控件不随身份变色）。

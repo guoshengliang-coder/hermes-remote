@@ -80,6 +80,10 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "通知操作未能发送，请重试。", "The notification action couldn't be sent. Try again.")
         AppErrorCode.SEARCH_FAILED ->
             localized(language, "消息搜索失败，请重试。", "Message search failed. Retry.")
+        AppErrorCode.LINK_NO_HANDLER ->
+            localized(language, "没有能打开链接的应用，链接已复制。", "No app can open this link. It was copied to the clipboard.")
+        AppErrorCode.LINK_NOT_OPENABLE ->
+            localized(language, "这个链接无法打开。", "This link can't be opened.")
         AppErrorCode.UNKNOWN ->
             localized(language, "出现未知错误，请重试。", "An unknown error occurred. Retry.")
     }

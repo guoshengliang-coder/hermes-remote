@@ -206,3 +206,28 @@ val PinStrokeIcon: ImageVector by lazy {
         moveTo(12f, 14f); lineTo(12f, 21f)
     }
 }
+
+/**
+ * External-link glyph for inline markdown links: a frame with an arrow leaving its top-right
+ * corner. Rendered next to 17sp body text at ~14dp, so it uses the small-stroke compensation
+ * (DESIGN.md §4.1) — 1.7 would thin out to ~1.0 beside the body weight.
+ */
+val ExternalLinkIcon: ImageVector by lazy {
+    smallStrokeIcon("StrokeExternalLink") {
+        // Frame, open at the top-right where the arrow leaves.
+        moveTo(13f, 4.6f)
+        lineTo(6.4f, 4.6f)
+        arcTo(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 4.6f, y1 = 6.4f)
+        lineTo(4.6f, 17.6f)
+        arcTo(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 6.4f, y1 = 19.4f)
+        lineTo(17.6f, 19.4f)
+        arcTo(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 19.4f, y1 = 17.6f)
+        lineTo(19.4f, 11f)
+        // Arrow out of the corner.
+        moveTo(11.4f, 12.6f)
+        lineTo(19.4f, 4.6f)
+        moveTo(13.8f, 4.6f)
+        lineTo(19.4f, 4.6f)
+        lineTo(19.4f, 10.2f)
+    }
+}
