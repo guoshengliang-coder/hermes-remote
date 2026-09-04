@@ -20,6 +20,7 @@ const execFileAsync = promisify(execFile);
 
 test("legacy recovery captures with authenticated encryption and proves an off-host isolated start", async (t) => {
   const fixture = await createFixture(t);
+  await writeFile(path.join(fixture.runtime, "._index.mjs"), "AppleDouble metadata must not enter the archive");
   const capture = await captureLegacyRecovery(fixture.captureConfig, {
     confirmation: "production:prod-host",
     hostname: "prod-host",
@@ -33,6 +34,7 @@ test("legacy recovery captures with authenticated encryption and proves an off-h
   const manifest = await loadLegacyArchiveManifest(fixture.captureConfig.manifestFile);
   assert.equal(manifest.archiveSha256, capture.archiveSha256);
   assert.equal(manifest.entries.some((entry) => entry.type === "symlink"), true);
+  assert.equal(manifest.entries.some((entry) => path.basename(entry.path).startsWith("._")), false);
 
   const restored = await verifyLegacyRecovery(fixture.restoreConfig, {
     confirmation: "isolated:prod-host",
