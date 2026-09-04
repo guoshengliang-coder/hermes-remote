@@ -65,7 +65,6 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -715,7 +714,9 @@ fun ChatScreen(
                             DropdownMenuItem(
                                 leadingIcon = {
                                     if (refreshingConversation) {
-                                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                        Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+                                            com.hermes.client.ui.components.HermesMark(size = 20.dp)
+                                        }
                                     } else {
                                         Icon(Icons.Rounded.Refresh, contentDescription = null, Modifier.size(20.dp))
                                     }
@@ -1598,9 +1599,8 @@ private fun ConnectionBanner(state: ConnectionState, onRetry: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (model.progress) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                strokeWidth = 2.dp,
+            com.hermes.client.ui.components.HermesMark(
+                size = 16.dp,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
             Spacer(Modifier.width(8.dp))
@@ -1659,9 +1659,8 @@ private fun ConnectionRecoveryBanner(message: String) {
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(16.dp),
-            strokeWidth = 2.dp,
+        com.hermes.client.ui.components.HermesMark(
+            size = 16.dp,
             color = MaterialTheme.colorScheme.onSecondaryContainer,
         )
         Text(

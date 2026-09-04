@@ -1,0 +1,453 @@
+<!-- @dsCard group="Motion" -->
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>Loading 动效体系 · 从启动图标衍生</title>
+<style>
+:root{
+  --red:#F1342A;--red2:#D21713;--yel:#FEC302;--yel2:#FF9602;
+  --blu:#1F84FC;--blu2:#0160E4;--grn:#3DA240;--grn2:#07863C;
+  --hclip:polygon(0% 0%,28.6% 0%,28.6% 36.7%,71.4% 36.7%,71.4% 0%,100% 0%,100% 100%,71.4% 100%,71.4% 63.3%,28.6% 63.3%,28.6% 100%,0% 100%);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:34px 40px 60px;background:#EEF1F5;color:#252B33;
+     font-family:-apple-system,"PingFang SC",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+h1{font-size:21px;font-weight:600;margin:0 0 6px}
+h2{font-size:15px;font-weight:600;margin:36px 0 14px;padding-bottom:8px;border-bottom:1px solid #DDE2E9}
+h3{font-size:13px;font-weight:600;margin:18px 0 10px;color:#43474E}
+p,li{font-size:12.5px;line-height:1.75;color:#43474E;margin:0 0 8px;max-width:1120px}
+ul{margin:0 0 10px;padding-left:18px}
+.sub{color:#74777F}
+b.k{color:#0B5FD0}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;background:#E3E8F0;padding:1px 5px;border-radius:4px}
+.row{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+.cell{background:#fff;border-radius:14px;padding:14px 16px;box-shadow:0 0 0 1px rgba(0,0,0,.05)}
+.cap{font-size:11.5px;color:#74777F;line-height:1.6;margin-top:10px;max-width:280px}
+.cap b{display:block;color:#252B33;font-size:12.5px;font-weight:600;margin-bottom:2px}
+.tag{display:inline-block;font-size:10.5px;padding:2px 7px;border-radius:5px;background:#E3E8F0;color:#5A6068;margin-left:6px;vertical-align:2px}
+.tag.rec{background:#D9E6FB;color:#0B5FD0}
+.tag.no{background:#F6DEDC;color:#8C1D18}
+table{border-collapse:collapse;font-size:12px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 0 0 1px rgba(0,0,0,.05)}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid #EDF0F4;vertical-align:top}
+th{background:#F4F6FA;font-weight:600;font-size:11.5px;color:#43474E}
+tr:last-child td{border-bottom:0}
+
+/* ---------- themes ---------- */
+.light{--bg:#F7F9FD;--surf:#FFFFFF;--fg:#1A1C20;--sec:#74777F;--cont:#E3E7EE;--conth:#E5EAF2;
+       --hair:#EBEDF2;--p:#0B5FD0;--pFull:rgba(11,95,208,1);--pDim:rgba(11,95,208,.30);
+       --sweep:rgba(26,28,32,.085);--bub:#E7ECF6}
+.dark{--bg:#0D141B;--surf:#121921;--fg:#E1E3E9;--sec:#9AA0A8;--cont:#1E252E;--conth:#283039;
+      --hair:#2B323A;--p:#A9C7FF;--pFull:rgba(169,199,255,1);--pDim:rgba(169,199,255,.30);
+      --sweep:rgba(225,227,233,.085);--bub:#273039}
+.stage{background:var(--bg);color:var(--fg);border-radius:14px;padding:18px;box-shadow:0 0 0 1px rgba(0,0,0,.06)}
+.dark .cap{color:#9AA0A8}.dark .cap b{color:#E1E3E9}
+
+/* ---------- the brand mark ---------- */
+.mark{position:relative;display:inline-block;vertical-align:middle;
+      clip-path:var(--hclip);-webkit-clip-path:var(--hclip)}
+.s48{width:45px;height:48px}.s32{width:30px;height:32px}.s20{width:19px;height:20px}
+.s14{width:13px;height:14px}.s12{width:11px;height:12px}
+.still{background:var(--pDim)}
+/* 方向 1 · 折面轮光 */
+.sweepm i{position:absolute;inset:-60%;animation:spin 1.2s linear infinite;
+  background:conic-gradient(from 315deg,var(--pFull) 0deg,var(--pDim) 110deg,var(--pDim) 250deg,var(--pFull) 360deg)}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* 方向 2 · 横梁中继 */
+.relaym{background:var(--pDim)}
+.relaym i{position:absolute;left:0;top:0;bottom:0;width:65%;animation:travel 1.2s linear infinite;
+  background:linear-gradient(90deg,transparent,var(--pFull),transparent)}
+@keyframes travel{0%{transform:translateX(-105%)}100%{transform:translateX(205%)}}
+/* 方向 3 · 四折面轮转 */
+.facetm{background:var(--pDim)}
+.facetm b{position:absolute;inset:-60%;opacity:0;animation:pop 1.2s linear infinite}
+.facetm b:nth-child(1){background:conic-gradient(from 270deg,var(--pFull) 0deg 90deg,transparent 90deg);animation-delay:0s}
+.facetm b:nth-child(2){background:conic-gradient(from 0deg,var(--pFull) 0deg 90deg,transparent 90deg);animation-delay:.3s}
+.facetm b:nth-child(3){background:conic-gradient(from 90deg,var(--pFull) 0deg 90deg,transparent 90deg);animation-delay:.6s}
+.facetm b:nth-child(4){background:conic-gradient(from 180deg,var(--pFull) 0deg 90deg,transparent 90deg);animation-delay:.9s}
+@keyframes pop{0%{opacity:0}10%{opacity:1}45%{opacity:0}100%{opacity:0}}
+/* 品牌时刻 · 多彩 */
+.brandm b{position:absolute;inset:-60%}
+.brandm b:nth-child(1){background:conic-gradient(from 270deg,var(--red) 0deg 90deg,transparent 90deg)}
+.brandm b:nth-child(2){background:conic-gradient(from 0deg,var(--yel) 0deg 90deg,transparent 90deg)}
+.brandm b:nth-child(3){background:conic-gradient(from 90deg,var(--grn) 0deg 90deg,transparent 90deg)}
+.brandm b:nth-child(4){background:conic-gradient(from 180deg,var(--blu) 0deg 90deg,transparent 90deg)}
+.brandm i{position:absolute;inset:-60%;animation:spin 1.2s linear infinite;
+  background:conic-gradient(from 315deg,rgba(255,255,255,.55) 0deg,rgba(0,0,0,.16) 110deg,rgba(0,0,0,.16) 250deg,rgba(255,255,255,.55) 360deg)}
+/* 词汇小样 */
+.chip{width:26px;height:28px}
+.conv i{position:absolute;width:22%;height:22%;border-radius:50%;background:var(--pFull);animation:conv 1.2s ease-in-out infinite}
+.conv i:nth-child(1){left:4%;top:2%;animation-delay:0s}.conv i:nth-child(2){right:4%;top:2%;animation-delay:.1s}
+.conv i:nth-child(3){right:4%;bottom:2%;animation-delay:.2s}.conv i:nth-child(4){left:4%;bottom:2%;animation-delay:.3s}
+@keyframes conv{0%,100%{transform:translate(0,0);opacity:.3}50%{transform:translate(0,0) scale(.6);opacity:1}}
+.draw path{stroke:var(--pFull);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;
+  stroke-dasharray:66;animation:draw 1.6s ease-in-out infinite}
+@keyframes draw{0%{stroke-dashoffset:66}55%{stroke-dashoffset:0}80%{stroke-dashoffset:0;opacity:1}100%{stroke-dashoffset:0;opacity:0}}
+
+/* ---------- 骨架 ---------- */
+.sk{background:var(--cont);border-radius:7px}
+.shim{position:relative;overflow:hidden}
+.shim:after{content:"";position:absolute;inset:0;pointer-events:none;animation:shim 1.2s linear infinite;
+  background:linear-gradient(100deg,transparent 38%,var(--sweep) 50%,transparent 62%)}
+@keyframes shim{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+/* 顶部细线 */
+.topbar{height:2px;background:var(--hair);position:relative;overflow:hidden}
+.topbar i{position:absolute;left:0;top:0;bottom:0;width:36%;animation:tb 1.2s cubic-bezier(.45,0,.55,1) infinite;
+  background:linear-gradient(90deg,transparent,var(--pFull),transparent)}
+@keyframes tb{0%{transform:translateX(-100%)}100%{transform:translateX(278%)}}
+/* 现状 · M3 spinner */
+.m3{width:40px;height:40px;border-radius:50%;border:4px solid var(--conth);border-top-color:var(--p);
+  animation:spin .9s linear infinite;display:inline-block}
+.m3.sm{width:20px;height:20px;border-width:2px}
+/* 现状 · 蓝点 / 三点 */
+.dot{width:7px;height:7px;border-radius:50%;background:var(--p);display:inline-block;
+  animation:breathe .9s linear infinite alternate}
+@keyframes breathe{from{opacity:.45}to{opacity:1}}
+.tdots span{width:7px;height:7px;border-radius:50%;background:var(--sec);display:inline-block;margin-right:5px;
+  animation:breathe .6s linear infinite alternate}
+.tdots span:nth-child(2){animation-delay:.16s}.tdots span:nth-child(3){animation-delay:.32s}
+
+/* ---------- 手机框 ---------- */
+.phone{width:286px;border-radius:20px;background:var(--surf);overflow:hidden;
+  box-shadow:0 0 0 1px rgba(0,0,0,.08);color:var(--fg)}
+.dark .phone{box-shadow:0 0 0 1px rgba(255,255,255,.07)}
+.tb{display:flex;align-items:center;gap:10px;padding:12px 14px;font-size:14px;font-weight:600}
+.av{width:26px;height:26px;border-radius:50%;background:#2E7D5B;color:#fff;font-size:11px;
+  display:flex;align-items:center;justify-content:center;font-weight:600}
+.seg{display:flex;gap:4px;margin:2px 14px 8px;background:var(--cont);border-radius:9px;padding:3px}
+.seg u{flex:1;text-align:center;font-size:11px;padding:5px 0;border-radius:7px;text-decoration:none;color:var(--sec)}
+.seg u.on{background:var(--surf);color:var(--fg);font-weight:600}
+.gh{font-size:11px;color:var(--sec);padding:8px 16px 4px;font-weight:600}
+.lrow{padding:11px 16px}
+.lrow .t{font-size:14px;line-height:1.35}
+.lrow .s{font-size:11.5px;color:var(--sec);margin-top:3px}
+.blank{height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
+.blank .lb{font-size:11.5px;color:var(--sec)}
+.bubble{margin:10px 14px 0 auto;width:max-content;max-width:78%;padding:10px 15px;
+  border-radius:20px 20px 6px 20px;background:var(--bub);font-size:14px;line-height:1.45}
+.arow{display:flex;align-items:center;gap:7px;padding:12px 16px 16px;font-size:11.5px;color:var(--sec)}
+.ans{padding:2px 16px 14px;font-size:13px;line-height:1.6;color:var(--fg)}
+.ib{margin:10px 14px 14px;height:38px;border-radius:19px;background:var(--cont);display:flex;
+  align-items:center;padding:0 14px;font-size:12.5px;color:var(--sec)}
+.rule{display:flex;gap:10px;align-items:flex-start;margin-bottom:12px}
+.rule .n{flex:0 0 20px;height:20px;border-radius:50%;background:#0B5FD0;color:#fff;font-size:11px;
+  display:flex;align-items:center;justify-content:center;font-weight:600}
+.sw{display:flex;gap:0;border-radius:8px;overflow:hidden;box-shadow:0 0 0 1px rgba(0,0,0,.06)}
+.sw div{width:56px;height:44px;display:flex;align-items:flex-end;justify-content:center;
+  font-size:9.5px;color:#fff;padding-bottom:3px;font-family:ui-monospace,Menlo,monospace}
+</style></head><body>
+
+<h1>Loading 动效体系 · 从启动图标衍生</h1>
+<p class="sub">目标：把全 App 的"正在加载"从 Material 默认转盘和无品牌的蓝点，统一成一套<b>可缩放、可解释、由启动图标推导</b>的动效。
+方向已定（折面轮光 + 删三点 + 只做一个骨架组件），已落地在分支 <code>claude/loading-motion</code>，<b>未合并</b>；规则同步进 <code>DESIGN.md §5.6</code>。动画在浏览器里实时播放，PNG 截图只能看到某一帧。</p>
+
+<h2>1. 图标解构</h2>
+<div class="row">
+  <div class="cell">
+    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAIAAADdvvtQAAAn7UlEQVR42u19+c+tWVbW8+z3PfPwffe7Q92hbo1dVV10g0BEJm1UVGQI/CAQEKKJ/uB/ob/4iyaiJGpsacAYYxsig9A2NCQQ6EQGBWkgXSJTo111h+/W/cYzvu/ejz+8097vObcBQ91zmrtXOpXqb6pz3rP22ms961nPoiREi/b/ayY+gmjRgaJFB4oWHShadKBo0aIDRYsOFC06ULToQNGiRQeKFh0oWnSgaNGBokWLDhQtOlC06EDRogNFixYdKFp0oGjRgaJFB4oWHShatOhA0aIDRYsOFC06ULRo0YGiRQeKFh0oWnSgaNGiA0WLDhQtOlC06EDRotWWxkfwHpvewz9MRgcCJDhXPGbWT+ZP8oHQ+5Ut3yVFcmfPmp93f/hP9iqiyObOApEEsvR9ARBY+UXxodROHx4pIl5h3hN0n/l9/uf/NF8u6MSEW566q1I1GqCIVab+avkLcsUPqPgwrAOETocpzWzN7/w73Tdeh3MwTyXnkwUT3f8kz/6RdZdcQy4j2Hzyqhym8B8WL1reu6kicvlL9L1GooGznSPz5g8zOYAcaJ5dB7LvvN35iR/pzmZpkhSOIlXPuDm2Ku4g+WdRgGH5L1JdDwiUk6xMvzNfLnEyS77ma7tvvI6nHGuXJ/ilX+ANmCsWWX0GtoUjPjlecdsPO4BIekdyOZJnOgcqogmd07LXl7VQ6TyoDl4d4atvsIj0EkhBrP4K4coDXf52alxmH53OhklytbuLt2kSmB7+0NmEHJWfOtS6kKp/F1Qdkpb3NJdbdZSMoXM5bI97UETvQxJNOiebwzlJ3HQx55/S8okTYuE9pClik8oHzfLjMw8fna7mq9GgJ+v+yNz8PYmviSDLz1q+YWDghUCH9n0GerGXje+E2T8BwMmQDnTvYYn3+YQDGZKUEySqzh8rZ1HhJOXXCBKNlxSe1DxalX8kMWY2W8wuFyToyvD1lHPPwq9hxAXxkMVRLd28ldOEr6+JQmzcq86OmnO0H2W82ZcKpTydapcbBOu7yn94tU/ViSVAgiSIPLOnJ5cs3G0HzlNlchIEJMBD4BIwheOE9xREkFIYTSgQYjvyynMj7kVZthcOxDKXaUqP8MGIRSRi9WUyeNzFASZIA4LGnJxdrrOMhevtFqcofMA5vC1IT/ysy/StebncmmWXSVLr9DzjEchJEgqsj/Ty5+qBqxWYvOOr5n/Fg08Ss1iuL2cLU1Ts2t1jrqtIAUY4Bx4RKb1sZ2v8IFUfjyouqV276T3FuD8Pe2FsKvSizKqfoLyYJHj1vYKHWV0LTjg5vQDlRSvuOFUQ4IAEeECsy7SOYT3PwE0qr9fGqQniboxA2N53gGr/ICCGCRA3zzibdPz0dLZeZYZGXha1k0sscBECBsiFdwSzAfMIKrI6sj5DAY7YdrKm9I8OVKSW8AKOwiSIKs6s/8jU/qQIkMxye35+WSO5bPXJnn4SjRbsKTwmzlvgSXgfa8td1fYcRDpHkAPRx8rUOlncCN9PaJwa8vT00jlXQNaUF6N2GIECRwYg3GOBbBUpMxhCh63rtt3keK9b/J+XV5i49Y4pHyXBJzwvegkpOZuvZrOFqbpCOy+/FOLHZT2WADPgIZFU+IL8aq36oudvCGp5oenZcB/ikdmTHFpb7qXyn1IF8AQBqXp8RVHvdHJ6IcnD3bjjo6ogLW5ibCI8ABZAWqBCYdThtpTHKwhQxa89uc32IgKpbkhvlhzcRmSo3KP4LRpeXM5X6wxk5UJqIXo7u8Pqtrv/JizwgGUnePNmYutvcOPe0v5kQ2Zv2DIeqQFVR6iOP37BywDYJ5Fl9vx8Zhh2BuoTT+4G8lcbpChhHQGpcAKcobrI2j+40SxsRTXuTxpk9gMECuuN8kFXnrAJmzW3mUxiTs9mmbUgQZHe3YZdJgvkZjpE/5XjnbCpuvFrrQPhd8QYk+hWullFb2351jbvKc6zoVks1rPZnDRVQcMwC90zLrQgSA4wwgw4JtLP6Q8KbzABrHAPRSS6lUcXGNB21MfrVniZkKSTk4vmSWpLj4jcdbWi+rUJDV+FSISHwJIw+uP4ID0uCApHig609QmF8UNNiGLTsCeQGF5cLhbLNQ0ZEoj9PGlXtRh9JCLgjlXvzghr4YGXCWkj3m4jK5qqabMPmbTZoxtM8jpBrNipVdUVUIoBMs/d2fms+oxUZ6hUq0rRzuJO60aWAk9yQAo8Bi5ZMlPJIMPhNu4G5MrOR7zCFHpQjf2owT1U4sp1DCoIrTCGZxfzPM+NYZh8lvWOmotwd1eYK3HSDR9W0C27/ySK9MYhkLBniLTZ/Z21efeUiZBaT4lVWDKGq1V2cTGnMX6dRmID/K3ZZjsjAxFsQlHFp1SNThngHDgl0k04VdtuMW7/8rNcxrfZhaiZe9WNVhLpC8qHBDw+vbTWeWmSBEqgT3+FRO7BSZXQJjCxJtgXAfMekAkGfkdwy2nzkioFzN5nPolmeOX7B7bGAVleXmYxXy1mi8T4R5YtjNZPX7njsmAbOFWXZhIScFE0yNhm/GgDPuWeNMH2Cgdq8R8UJAnyWJ4kXNH2qh6lmvEFtPCRarxzN0g0/UDCCqFQq1VTHZfE4ViYK5zzUvOjEtrtYUYHamOwVW9dFUO4dJri/DnBGHMxW66z3BijMDfaKHi0W9BWW8YGRASjA/IDpgUeEoYheUMBc451uhcprdtnMkqf8eqz+hmLxDq3Z+eXpmKpSmKTlnpdSy/P2C2rw5B15DDcOm9a8Z5T4AQl3WwrY1pPUfrj860bv0EKbsg+1aiCZMjz81mW5d7NwBqg9tmrwufIRp8q0ylozPtjOqzoGf7rFXAvoGRWZ0itCYKmuRZxoAJvk4fceOxEn4XI1Tq7vFwkhqpCVTkwD1FeeC/rOjYzDbsIQkUUdeXFxSdo1ygg3hvpQngMLxNilT9tISo+81cYw+Epb9pCHhWvToJPzubWuYI8VE3tqR7z9KfKWDOsCe0IshW999EmmPFJBSKNcE/IPne2rEhp3ex2sgbZKhaVCJGQQGMWy/V8uTTGiM2dVU39wFVZM2soWyoypV3lQAzmuRRWZlIzakr6AdcAq2KCzBtEZOsvYg+u530CEtVmn5PejHxZup/NAB8S8qt1eVHH+8VtpManO9pcBUKF6LQa8pjKAQA2+FcKHBNLHxZSWKky4GXGMn4DYFNNwxOQJOZytlyt1mRTlMmv39QmeRKqbq5dszm0rY7yRvbpXXMNlykXHrCRFGLrb0RC2R9Vj3qjClxn9vR8ViU+dbyqp8HYtFifQMPa2UkNmdnSE6ZKyTq4lPVBUnTpa6ZHm+CheIVti0AKTi1LHOXsfJ5bS0OFyFHDfS7S6pBNJu0HVEKfw9TKaFjLSnglFxty9ANvVpV7mEDvTyujRRpvZk3Nap1dXs6NYVXnV7QfVvGfNdaiUNijhn21MyyRAShVtbaq9JkbVbkfbFLgXDgV2sR7IhyLiw7kdbtq5ljZSufJyWXuXENIVFDtew9dbOl4cF/QEtYtdBWqakFfnUFGzLb/3ScsPa9TOFUQHSisT9XwzsXEzGaL2XxpivZQwTTkZuzS1oEGgru/vLg5GOAhXXpCusQqY0qEhfSuyln6pnFGxVbGRt9TXgdeIOV0ejYrMgA/4Wmql1IGZsvZLbLqPeB8ViO0pN9dkcI8WDVtUSFAQRjwGFiHIJDEvUmG0n0q4ZscsWh7LZbrOvthG9Mn2ZY79XU9ig/MGDChA50AB1Hk5iT+n7Z+R5XkGGOMcUUvL5xNVQ1l1RMEDBi5tYR0hSveEvKGYLQ/nMR0j4Yx2DQjrHWnZ7OaHt1gOdqkDKtmbBH+LCtkjE2ShJh0HQh0kie0Bv7UP4kEAHoJEmQGxnmxkC3SPQseJT0xzQZ/LhwsAR5Bh0KPBdHX7AHLYK+XrSSJOT27zHKbJI1sawjpUG2iA30GhKNx4Chb9Bfzk8mtT9/rm7fWLrOmk0hyDsU/CxU8lppo8rHtogHn/Kn2uvFWkJyrT7ouDgEYQ+usMdZpMjg//bJMQwBw1lAgJVO2eOs2fSWMzWaykm0/AjLxocGLggUIJ5m9IUWnewIjkiwhfcPVKj+/mCcm8J5WYcwtsqUS6Jh0ZEfrc8p+5rkPfPz1b/2Z17715A/ef/kr7vTRIu2lAGhdeRkaA9DJmeI+UYUR1x0qJ3+eSIUoNRuSdv3fL1YtmEQukzqTu6/9zPWjH7qNL/mro7Ovnb/9uj0HHAgLEjDeihJuzPAwgDYEESlwClwDRoDdE6rKPjmQP0ZO8Oxs7pyjYc3YK4JB9TzZVp0kLA3Bvl0N1yfz3vSXXv3an/qiv/vzr37DSWc8ytFf28NDGiTv3j+FtcFiidp1WikMvbuwpUhEr53r5LUaLNZj9h6+/gX/7u7tn18v+vcw+D4N/0P/xlfo9Jvs8Zdnj4b5qgiQIikv76En1ipfWI3lOy4EPV4OhUtiBPJ7QwKMMctVdjlbkIH3bK14i4aZkKRy0/WFcfnbR6/80mt/7yc++N1v3fhSJuitdG2xdjQ5SGh6NE47neN3TrLFimkCUHJN1ClvEZWLSxwCMeFG9dJ7OUXe5QhYSMoHV+782msf/PC099nFfCLYBPbQytJ80lz7ZOf63e78b6wffF1+/JI9L24+Z0zjRl7zt0EhpPJRJMIZcA4cAnlRT+wFDpTuSyOM5eE7PZtJMuX5VL3+wlfbKQ4xaLp2NVyerDr9T738oY994Xf+3IvfdDq51ncYrXLIOSa5Set6eb2ynX7n1svXT48vz9+9LP841WDfhaB5IApW05QMsKVMEmiMdXkfyF76gn//8vv+i5FZZxMwL3whA0mOYJHrPnr/tvvyRzvPf5nOvsU9+Mrlo8Sui/AJ0PiRx+N7By78ADio6ja5GIGCgUFjOJutF4sVEypUS/RuEjqTJHDD1WXHrR9deeGnvuS7f/KN7/it239x3cNgicPFWqCDAZPi5lOTJ0NOhrhxezoYdR+9fWKzDKlpb0zYcp21sOBK6dyIsG41Ghz94fu/+PuuH3xqvRzlFJg3JFQSUC5QTKmpy6z4s+baLwyuvdGd/eXFvb+ZH992s+IutDSmKhDUkFZVFgkpMSMew1yV8mL5VYxA3rm20tnFvIxElVJL/WlaGJH9fD3OT1ed/m++9NUff/Pbf/HVb75/9WYnQ39p+2vrTOKYehid/ImhGnvJ1m447t18+frjB2eL8wUTU+PfzWx1a8JVIXsbhiaXS+V6z73046+/+UP97my1moC5KP8/V2OJoiQ4ggZT5Fjhd8zgN/uvflR3v8qdfFP24M/nJ6kyCDlJNFKPQRwy0EPwsCg5Yg7kxaAk4fn5arFcm6ToGTWIc67EwI2zy55d3z+4+5OvfddPf+C7f+PFr1wRgyWm52uQjolj4m+JUs1trfjT8vJTa10nTW7ePTo/XTy+f6ai28/q4G9sgAvRPhlmLj/sDB+8/gUfvnXzF23WX2U9MpcCfKYlj8USx0EOAOo5O4BWSD5mnvvE8Ob77fk3LO//FfvwuluAkjG2GFVVwFfkEu6EvAY4G6swb/CAnM8XhJwrMBiBxondfHmQnS6640+98NU/9/5v+9k3vuXh+GbHob+wAzlLY02yhbRVFDlNRqo6nrH2J0kWh1eG/X56/M7per5AkmwbQWTYp8qFjsuGR89/8s0P/MCg+062nsjYamNDWN3JY1hWQLmqS9UJljTAgXJleAuj3+i99v3mpQ+5R1+/uv8l+UnqHIichtXylULVBsfAIdgz+wAlpnshjwhenM9WqyxJmIuWTORGy4uuXb995cUfe+Pvf+KD3/HWjS/PEgwzHCzWjnQ0Dqa6lCi1xOyKpVvyK6a69eqXzFnuuv3O7ZevnTw8P3t0AfhEUuO3nwAwscoG7Cxf+cC/efGF/wrXWWdjmMwnpNaKoRt6vaLoUUyakZIcFNSHGzq3kPlRc+vH+zfexOwb8od/bfHwyM4BKKGDIUgjzIET6E5EoutP1vDscpHBJOTALQfL+awz+NUX/tJPf/Dbf/m1b3l7ciOxGK3tKHMWtCYt0ptKQJpt5p+/HUPBhLo8yLfsngnOOpLXbx0OR73je2f5Oi9FDoSQV+20mo6u//7rH/zeo+lv5+up6KpqS6p/ikXrrkmmyljEaqNBdZ9VGTbrnCk3JDBxuchPY/zr6fgHh3e+yr77je74S/OLBGuAmQNo0kdwt7bIvD6TDpQks8zlq2y8vuwwf3zt1Y+9/s0fe9/feuu5r1j3MFrhyjyzKMC3xNOsZLlIVd5uzGq4ULXgB/0kurlOvAHEEkDIMzecDG4Puo/unc7P5jCGZHXdWLmeXHrzfT/2vjf/Y5fL9WoKkzcZdtM+Vyivxs05LvkbMOqRZ1awD5ATkAZyI+ic6Y90bn+8c/sLMfvry4cfmt17zi1BhxV0kRTp/7PuQIm1g4efGVD/85Wv+cSb3/nL7//mB9OjdInB2o5mzhqT02y0GEqQKFyapCD9oCdpQY/+0FRS3h47gqC1LjF87vmrF+PB4/snzlmmBrJaT9PBO+/74A/cuf3f8vUgQ6/0nhI3UktKfsvMqIgNmSmp3chjNcsGwBlKSIFD5VrzU8noV9JXP9y/8zX58Tcmp1+8fJQ+mkt5VejxWXSgguPwbp5+9PV/8PEv/a63nvuiZYZehoOzDIaOtEzCnnM550XQG/elN41aTy0w2JnZPGK/4yQG8KTKkCN3cDTsDzrH945XSwccXrnzC2+8+ZFh/zhfTcQcyBVo0bFdbXNzsYW/uZLlKG3VLqnVIbRNaz2ngTDI7BDZIkl+mLc/Nrj9gcHZ183ct+Vkd6fuA6+rt6P0GT/12+7rP2ym/fzOgZHcyhbwLgE458911htUG9kX/+6qyEANmyNcuaS6DkPtK4EUprxmlNIULk8ePTi+/txHXn71Yy5PnLpCrrbsSktKn8HyM/lwgHx+q8JsvkqdyhdGv4xjWTCCSFKl0nyG311zPLn1W3/7+0edUXNjP2sRyDkkBiYxN6fZ8R88/L13O+NxOpyOe70uJGddKBxVMegZ9kFb4lTFWHwTmfwPT9XEWI0TeaIgDVQkQMpS9n83eeWfzvRr84vpcEQnWzTT1bojN1Sy6nAYLsxlsxzMe4H0VBQbzhzZIvsmFIRFbh6uzfGpW2f5F95a58qf6RyoKCKc0+Ra5/y4Nz+/fLzg6Vk2mQ6mB71Ot0vJOZ/20LBYK2GXqrJq9sgHM+cMKvdG9EW+88nzCViqQ4PLzo9e8l/Jzmd2enFmX2HyXJ9506+q4kNL6bFx2C0az+UaXjZRtKBHMuzXVjh82TRJCIiX1ty7cO8unTVy5J0pp12sbPZMO1A9rZBbjA778/NLdrrO6ezR+fmJG02GB4eTfr8rwDpR1dQOawyFPp/I37Ee8OxV5aZs4cPNlEM1Tm+NOrl597L3L5b8BPMB0eukuRXfOs5OhuaVo7STKHOCmhEihQFwcxTES9Nqpli4TEzw+171zHNiAPB0jgdznFrkFomVyV1v2Hn+KM3zvZhPTfdhXVi2wnjavziYLmdLUjCScHk6v7xYDke96cFoMOoTxjkH1qV79bTp99DD7S1ezeXfCaGed/FTjkgMkmX6ixed78nxGWMnruBSO1LqJLy/wMVD++oVc9ijlUdb9v6DanEj67Ld2+sqv3BSu+Em0BAJkInHcxzPcL5SQX1LCRhka7w0QM/sy1xYuus1T7AOEhLy+nOTz35mDZsVLImiJz+/XM0vVv1hd3o4Goz7iTHlOkuWqAs2VoUXsb/CeutPi+Hl4kcvJ9ehWZ0PPjJzH6VATRyKA84qVUc3wdLqNx/a58d88dAYwjrRIJzXD4AfD/2uNGlKxZBKwQ+qRfblYIiUyKx5uND9uWZrUS41rBUacnLc43MD5LlMpLT6bE45dXvJaNy7fFzSOeqMlwbLxWo5X3V7ncnhcHwwSpNETq7evKYN9dMmjQ3mPb0+p+rk1aiTp79zkv6TTL9uMBEk5BVi0NwuDqCQUP/3UmdrvH6UTPpmnTufNRBkM2Wq7kkU019cJY9gCQMkxCrDO0s+mLmlFaliRbhTE29F88LVJDVYy0nah8menVZhgiFokKTAClY4OBrNzmZlHVsnvBV8uF5l7z44OzudT6bDyXSQdlJJzlU6QI0WEIMqTF5AaCbJKFnajklw2f3ozHzEuRnt1DEv0aNALy1Yo9whLnJ96l33ytTcHNE5WFcGEnneERbuhYZ1XbqpGspQApFcZDye4eHCrXKXmEIl0UvSRUBWuNLn9ZHJcwvIxamMGscpt4c41+mn06PJ2fFFWbZKfuIJQxJ5lp8cn52dXI4PBpPJsNfvAnDOyVVNMNUJMgO1Sk+xB3AGHdt5cDr452v8HLM+MRByuErIUFs40SVXSUoTyul/v5s/XphXDthPmRViaOGijibi1KFIklzxZ40BHGcr3J/jZOEyp8Sga+RUkoe8LLu8BO8emOLdRU50W+6v1KqwOrw6mp0v8ixv+BBs8J8iAYKhc+788ezibDEa9yeHw0G/RyB3js7ftCq/UaZmS3RHwrL305fdf+3cPbqxaCWrCsFWxSZSG3WqiMgSxY7B8dxerPm+q51rA2bWyblyxITe+I7nR/XYmIDzpR7MebJQbpUSacU4Q+g9hb/ljtcHPOgiL2j8DkDsxofbwIoLK+0kh1dHj945RUJP2Z/BJEKRjRpIuDxbXJ7PB8Pu9HA8HPZNYqxzUOsaYlV3OYOOkvPz9F8u8WPMu+TIIYOBHOS4uVgQDfzUyELJlXltJ2FOfvqxvTM2LwxgANfomlcu4102KWFh3l3iwaXOV3BwiVGHpcZm3eell7QVLyXtmLuHprq3pN0ukdmvJFrVgZcEWKuDo9H56WK9WBZzW2Xob/WzygRXNJS4uFguLla9YW96OByN+0mS2lKPswIKjQAD11kl/+Oi/z0Wv2OysZxzJkd1LXjUZ6KG+cLpteDqJYv8K5E+e5qfnOOVQ14ZJ7mTnKqGSRm3UsNM5sEM9y/dZQ5QCVXoIIpBVc9Arl8gMou7E076XOWq3FEkYhlfywA1GquSRHN4ffzw/6xDUDZc/VgzN+QAMkkkrRar48XqtNeZHAxHk2GSJAXsYmiJDjvuvPeDF+vvp3UpJ0pcNc1YgtkwvkYzm3EjNsOPla+BqNcuE1DPYCn9rwvzYmJuDR0ccgelopCSa/CdCzyYaWYdpUTBNnD/qmzadtWRcUCvg9tj5LlKtLyRXoyUVh9Pq64Im7vxZHAx7i8uFjR180hee9KvjegRukgyW2WP75+cPb6YHIwn02HaTXLTWSe/f9n/Z+verxIDWcjYZuTUsVivULXIN5gYgQK+J9NbKDhYSYIBU5Mn/O2z/HiOV64kw45DjsVKj5Z4tNQiLyvzUmbKVdt2yvhT9mLKs9Tw02Bz3LmWDLpcZ857JYyjzZtgfwP4CTi8Pl5cLILEJwBcKs2OamNS1Uh3IJEkNnOnj84uzs6Go8kX/7l7/eGHV8tzM/oLmmTI5YyXcbgadHKggWGZoprKa5xQfAuu3HprKvahtU29liTs0CzzLEO/Nxi5s9969w+P51hRBkiNxHqWS205mmb7ijeLQliHYdfcHDGzHgzRQApxrAcb6ykFEs66/rA7PhxePp4xNdK2ujXoBfjD8tXxJSlla/3jr777ofd/71N+Xz/5e7/ybR//h+iuUic5OVVkFDSdf6/PW01Rem1YCs7x+QPTMSgcSKFK+T5cYWYfrjBuykYLEg5vTJkmcC6QXvZVWhX+CYW1kwAh7Q3EIYDcPaXHnTsLQMalfVPmacE6WGyuOdvceU4gtzjomxtjU75yNjMiezIUthcOpC1fEAhZdbrp9GgkJ262tqlwgx9bHe76s3G5dTZ/mllDQwoolK3KWTNfsd6PI1U7nxsCAAlfODKsLs7m3VXZvKLEHbboSnqLLq07uDpO+11vHw+fJAqv1nfV7KPbmXJow3oEglUyvkimN5PUrAehFa4OzZUecutMayFf1UNjFNncDEX+c5aQpMnB1YmnKgivv1HPDbMlNF3h13UDZBcPmuEiPC85U72paptMf4GgG5jnx5X+FDektBGvsCfuOfAHdeCcm1wZdoc9yFvO20p9uHWddq3lw93kmqqwTnl3bigZUUsae/6kIvu5MTYHA2OdF5Ql7J/euNkHbSBt2YKlOk1OEl65MfWX7zaFsK8ZLU8YCnshp1wqNzYBkhsnhoEmaNGOlbodPn9orCs3+2xghoprv7fvk9iYqCpxxdGkN5j0ZV29P7XqZai9UFTbV27sTLTmiV/wGUr1eAZpkIs3J2aYlGMF2rKbru7YPts5UPn2nXwZTS9eqNYqlXDl+gRJIn+z2KYPslk65inPaR+qS09iaIO57dVn1mmQ8M6IuZX/IORr+gsArLXPugOpreHbjNiolQlZDYbd8cEA1tH/Juok2ldX8B+8dudD8rf01PNCdZerOjfNZk4AueWdKXspFG7lYai4B8E5tw+EDrMv8i4IlziVwEhTuVqnw6sjJona9XnAJtX2FU87usS2RqQKFWLlPNW4razDpM+bkyR3NSGx4VsrXCW760Vo+7axMMhnhGCFHwDKqtvrTK8M4RyB7UPEbe/Z5bIwBoFUVeuKfoANhkQA53B3mqTGVxcOFjkUj8RUih8RB2pjN7XOtgqVskafCwCd08HROOmmapobLlxpq43Ly2OyPvW46rXwinl4cesrkShYhysDXhsis6Lxl4d556wik4hIksTtgc7mvuBADKnLlWa7v+JAsi7tJgdHY7jNFRt+tsnQmZ464q8w/Mkj+/sXD9mSqX/hsNAEqPQa1cINFfZrGHOgcBSm2j9bM1wrxUHVqtDWuunRsDPoVsQ8BkvaGsaggm9xd+vMpYKhQYareGuhe5FE0bg47DN3fqu99DivxqwFRbQfhMQ92xdWZpNoa7HIW75ljDm4OoZrRvI2iRy79J4QUqicpAU3BKFFYpLw7mGiQAimGUviHyNHf7Y3FrZXIRWNsMqXKhG4AjqzuRtN+73xQLYuaRiwO7bxCncIVHiSaGVu3Gh9GtLQWj43TiY9Wl8spN5BVL6hADbk3rjQviTRChZVUvRlmeRTfAQYwys3JuWqCp9/RX9dmHb/gFksZ6luVPrU/ArOEXop74xRDZNU6goNhYie3nTYAGSswqrrnMHjUX1KGSQ31YYTi+G4N5z04VBt1XB+j6jqO5r9iENoFi8XnlHr0Ei51e0DM+zQWV9kmuXee7JVF5SuRVrnnvUyns3SrBoXa9rp1aBnmHvW03ZOB9cmNNU8R7tA5hZ+144KhOLNGARngdVQwLDDmyN6bMmyd9qa+1IDapdsxCQxsYwPnzLCQdDKjSp/CtYwO+cGw+74cKjcei1Y17hg2VslQe0SS6yW1xXxxPiNOlrw+QPTTUrOYdig8TLE9vEBtCcLC/egF2YAEy504iZtmG0tR4LOanp1ZDqdkpDY4jvswfNV/corPKImw5HIHaZdFpRnBn0ZlqG3zoTYGjtQJJRtftZeq8fHEcmQDeNtKXTq9NLp1TGsa7QsGSDaXka1o5Ht1v5KT6Ba4N0Dk7CsBBTQc0N+fTVYWW6lgqd3Hx3IR93Y0LDkyZ1uUl/KH5TDwdVR2u+E7ldP7DXKFnvAB2q8gUDudHVorg5N7hTQ6VtrPMmmugzAjnKQIDpQ0zytQn64xLAhnftLSps2hUnMwdUJXMiMbajEajSld1N9hSsWG3FgPD+tCD6ebD620E+8HrxqJuxeTBXuDZ2DTbIcEu/QWr7EsDtN0Fk3ORz2xn340z9sJVHc9dS2h6YTueWNcTLtIXeiJzPcTt+4ZUE5gUBCJDqQp98in1TGNtWs3Q4gWWjUkbhyfVLvnfdXBe70ORMbGuRFed5J+fy02B0dYtUt4rNqkKxWQGtYiZ6m8TPPB2pEVdiq6rVtiF5NIatSaXo47g+nA7gCfmOwqFfaGSNRrVHZUtP41tQMO6ypvBus53q3WGuZhryVrZXWVgQSi1x4iypGIzQgekmx15WmP0JzeHXMhMIuedCbhFY2dA0RdA6DDu+Mq7YXGmqhl9SwZCVUoKFa6zebvxqrMABuqyB3NQ/jP9a6oRQkFyDgnHr9zuhg5Ouf7AciFIylWfH5qek0K6noUekCQjfV1KEBFiFPby3mQOGk5rbBCg9LaUHVQqOHWYoxHI1NmtTJBIndUlpDliQccDgwN+rGhULxvioKeQJA9ToEtSfntQ+94p1fYU+se4MkSFt4PQobrMU9qG4vOTgcyVZ9Ju2IO+PpGPrL6Bz4/KEp94wL4tbnETZval8Sq0kwQoiDhaVOdGFJ0uwK8EM/m/HfJ5SzwZC8nNX0aJT2OoXKlD6HBMhTOBlshpZB5E5XBjzqMXeCYTNDWZERWEtIV8yEhtPRgi4qafaYRLf3tSm4szwyMbCdA1MRzVCJOCeJObw6qYhD2i0O1GQtDiRemJiCeFAtzAgQxColZsBf3YZsFVe2dXks48tXUBy+qlT1HMprpYvhlSBv32k9f04668YH/e6wi5Iuwx3rjJCGtMCNcXLQR+7C2TWPHa9AEQJbpDh8tMwwMemzXoXVNHNnW3p1DTZL1KsF6VGF/JZHs66k1CgwPLo+BdNSpvvpF2KsBT9JwgEdY+5OE9VrDlTLlrUXa2wu/WgAoFDjhobPejNVnhAUAtaON3tazhj6iO0Wd/BHW+U0mg5Gk4FyC+4031TBOcSNsRl1YFW3M9RG19WGHwIgkv7G4C0bZp7tKqw8ka4FG8sf86KHgkCtmCKvNV1ee84dXB0xSQFDcieKgsVLckKvy9tT5kITduoERxuCUVLYzvFUf71zIuyHwN2+9MK0sSWupaXUnD9vEYC8jlHYfLTW9Qad8ZUhnCC7GzUmkgmdw62R6Sd0zlWUsgYpVSMY3hrv9rt4Uig7Ue0Xe+arsLrcSpI6DpVRu5rLrM+svHllb2izGIGW72NyEgRndXhlZNJUsuQunrXkrEaJuTWkdfBKBE9qvtU5I9ScHq+I98hy1V5DOrmCE61nfNUBBSPQANZ7XsE672qFF5qNtwGHsVY6czKVpofk+r302q3p+YlLTLKDAGTIbuelG+qlLiuWmhGCqz3fwJRcRX+rVYMH0duz6i11LlhQFqlJuAf7MnYvNL7O5Tp0WcquN7ZShEdTSbt7S04M4RQstqlL/vp3iwVkKwL90fQm1vn66cfW9Xr10tXkWidx66SrEjyUc/IwCi8OMbjEg63y9BTxWCxEz7KsN+ljL6RVdlcKFpXHO+f6728D1vmLL4pExzBYAyDB1Lu9G5KZvI+iWDVBX3Oo20u+/Laujgk9JRJf0Si9P3v01smn5VzpNAxgwEppjU7OG/5pQz/VCnp5wQiFOEm32/uKW1/WS3rPrgNF+zNg6T7Mjzu1hsL+FDa3+P/X7IJALDVrgd8j0r6heaavsGh/BszERxAtOlC06EDRogNFiw4ULVp0oGjRgaJFB4oWHShatOhA0aIDRYsOFC06ULRo0YGiRQeKFh0oWnSgaNGiA0WLDhQtOlC06EDRogNFixYdKFp0oGjRgaJFB4oWLTpQtOhA0aIDRYsOFC1adKBo0YGiRQeKFh0oWrToQNGiA0WLDhTt893+H3UYtBhuRMO6AAAAAElFTkSuQmCC" width="140" height="140" style="display:block;border-radius:16px;box-shadow:0 0 0 1px rgba(0,0,0,.06)">
+    <div class="cap"><b>启动图标</b>折面（低多边形）风格的 H，四色四象限。</div>
+  </div>
+  <div class="cell">
+    <svg width="140" height="140" viewBox="0 0 24 24" style="display:block">
+      <rect x="0" y="0" width="24" height="24" fill="#F7F9FD" rx="1"/>
+      <path d="M5,4.5H9V10H15V4.5H19V19.5H15V14H9V19.5H5Z" fill="#DDE6F5" stroke="#0B5FD0" stroke-width=".25"/>
+      <line x1="12" y1="2.5" x2="12" y2="21.5" stroke="#0B5FD0" stroke-width=".12" stroke-dasharray=".5 .4"/>
+      <line x1="3" y1="12" x2="21" y2="12" stroke="#0B5FD0" stroke-width=".12" stroke-dasharray=".5 .4"/>
+      <line x1="6" y1="6" x2="18" y2="18" stroke="#D21713" stroke-width=".1" stroke-dasharray=".4 .35"/>
+      <line x1="18" y1="6" x2="6" y2="18" stroke="#D21713" stroke-width=".1" stroke-dasharray=".4 .35"/>
+      <circle cx="12" cy="12" r=".55" fill="#0B5FD0"/>
+      <text x="12" y="10.9" font-size="1.1" fill="#0B5FD0" text-anchor="middle" font-family="Menlo">C</text>
+      <text x="7" y="3.6" font-size="1.2" fill="#43474E" text-anchor="middle" font-family="Menlo">29%</text>
+      <text x="21.6" y="12.4" font-size="1.2" fill="#43474E" text-anchor="middle" font-family="Menlo">27%</text>
+    </svg>
+    <div class="cap"><b>几何</b>竖条宽 = 总宽 29%；横梁高 = 总高 27%，略偏上（顶边在 37% 处）。
+    四色的分界是<b>竖轴 + 横梁</b>，折面的明暗分界是<b>两条对角线</b>，全部交于横梁中心 <code>C</code>。</div>
+  </div>
+  <div class="cell">
+    <div class="sw" style="margin-bottom:6px">
+      <div style="background:#F1342A">F1342A</div><div style="background:#D21713">D21713</div>
+      <div style="background:#FEC302;color:#3a2a00">FEC302</div><div style="background:#FF9602">FF9602</div>
+    </div>
+    <div class="sw">
+      <div style="background:#1F84FC">1F84FC</div><div style="background:#0160E4">0160E4</div>
+      <div style="background:#3DA240">3DA240</div><div style="background:#07863C">07863C</div>
+    </div>
+    <div class="cap"><b>折面色板（取自 512px 源图）</b>每色两档 = 一个受光面 + 一个背光面，光源方向全图一致。
+    启动页进度条已经在用其中三色 <code>#1F84FD / #3DA340 / #FEC302</code>。</div>
+  </div>
+</div>
+<p style="margin-top:12px"><b>四条可用的结构事实：</b></p>
+<ul>
+  <li><b class="k">四色四象限，顺时针 红 → 黄 → 绿 → 蓝</b>：天生的四拍序列器，任何 4 步循环都能对上。</li>
+  <li><b class="k">单一光源的折面</b>：每个色块的明暗只由"光从哪来"决定 —— 所以<b>转动光而不是转动形状</b>，就是这枚图标自己的动效逻辑。</li>
+  <li><b class="k">横梁是桥</b>：H 的横梁把两条腿连起来，正好是产品本体（手机 → 网关 → Mac）。"东西正在过桥" = 正在工作。</li>
+  <li><b class="k">中心 C 是唯一汇聚点</b>：四色、四条折线全交于横梁中心，天然的旋转轴与收束点。</li>
+</ul>
+
+<h2>2. 能衍生的五个动作</h2>
+<div class="row light">
+  <div class="cell stage" style="text-align:center;width:170px">
+    <span class="mark chip sweepm"><i></i></span>
+    <div class="cap" style="max-width:none"><b>轮光</b>光绕 C 旋转，折面依次被照亮。<span class="tag rec">方向 1</span></div>
+  </div>
+  <div class="cell stage" style="text-align:center;width:170px">
+    <span class="mark chip relaym"><i></i></span>
+    <div class="cap" style="max-width:none"><b>中继</b>亮段从左腿过横梁到右腿。<span class="tag">方向 2</span></div>
+  </div>
+  <div class="cell stage" style="text-align:center;width:170px">
+    <span class="mark chip facetm"><b></b><b></b><b></b><b></b></span>
+    <div class="cap" style="max-width:none"><b>折面轮转</b>四象限按顺时针逐个点亮。<span class="tag">方向 3</span></div>
+  </div>
+  <div class="cell stage" style="text-align:center;width:170px">
+    <span class="mark chip still conv"><i></i><i></i><i></i><i></i></span>
+    <div class="cap" style="max-width:none"><b>汇聚</b>四点向 C 收束。<span class="tag no">否决</span>四个点在 12dp 下糊成一团，且与"发送中呼吸环"撞形。</div>
+  </div>
+  <div class="cell stage" style="text-align:center;width:170px">
+    <svg class="draw chip" viewBox="0 0 24 24" width="26" height="28" style="overflow:visible">
+      <path d="M6,4V20M6,12H18M18,4V20"/></svg>
+    <div class="cap" style="max-width:none"><b>勾画</b>按描边图标语言把 H 画出来。<span class="tag no">否决</span>1.7dp 描边在 12–20dp 下几乎消失；"画完又擦掉"的循环观感不安。</div>
+  </div>
+</div>
+
+<h2>3. 三条系统规则（先定规则，再选形态）</h2>
+<div class="rule"><span class="n">1</span><p style="margin:0"><b>多彩只属于"品牌时刻"，页面内一律单色 primary。</b>
+依据 <code>DESIGN.md §1 原则 3</code>（chrome 永远蓝）与 <code>§2.1</code>（状态色独立于品牌色）。
+多彩形态只出现在<b>启动门</b>（已定）和未来的"更新完成"一类一次性庆祝；会话列表、聊天页、设置页里的加载全部是 primary 单色 + 透明度。
+理由不只是规范洁癖：加载动效里出现绿色会与 <code>StatusColors</code> 的"已完成 / 已连接"抢语义。</p></div>
+<div class="rule"><span class="n">2</span><p style="margin:0"><b>一个周期 1200ms，一个延迟门 250ms + 200ms 淡入。</b>
+1200ms 已经是发送呼吸环和启动流光的周期，全部动效对齐它，不引入第四条曲线（<code>§5.6</code>：新动效先对齐既有时长）。
+延迟门沿用两处既有决策（气泡呼吸 250ms、启动状态 700ms）：<b>加载在 250ms 内结束就什么都不出现</b>，快的操作只看到内容直接出现。
+门只管<b>占位型</b>加载（在空白处新插入的加载物）；原地替换一个已有图标的行内标记（顶栏刷新钮、行尾切换态）不加门 —— 那不是多出来的家具，是同一位置的状态切换，用户刚点完就该立刻有反馈。</p></div>
+<div class="rule"><span class="n">3</span><p style="margin:0"><b>不确定进度 = 品牌标记；确定进度 = 品牌渐变条。</b>
+两者不混用：不知道要多久的用标记（永不显示假进度），知道百分比的（上传、下载、更新）用渐变条 / 弧。
+无障碍：<code>reduce-motion</code> 或省电模式下所有循环停在最亮一帧的 60%，保留静态标记与文字，不做动画。</p></div>
+
+<h2>4. 通用标记 · 三个方向对比</h2>
+<p>同一枚标记要在 <b>48 / 32 / 20 / 14 / 12dp</b> 五档都成立（页空态 → 行内）。下面每格都在实时播放，浅色深色各一份。</p>
+<div class="row">
+  <div class="cell stage light">
+    <div style="display:flex;gap:20px;align-items:flex-end;height:56px">
+      <span class="mark s48 sweepm"><i></i></span><span class="mark s32 sweepm"><i></i></span>
+      <span class="mark s20 sweepm"><i></i></span><span class="mark s14 sweepm"><i></i></span><span class="mark s12 sweepm"><i></i></span>
+    </div>
+    <div class="cap"><b>方向 1 · 折面轮光<span class="tag rec">建议</span></b>
+    锥形渐变的亮瓣绕 C 顺时针转，1200ms 匀速，形状不动；暗部保 30%，任何相位下 H 都读得出来。<br>
+    <b style="display:inline;font-weight:600">优</b> 连续、无机械感；12dp 下仍读得出"H 在转光"；就是图标自己的明暗逻辑。<br>
+    <b style="display:inline;font-weight:600">劣</b> 需要 sweepGradient + clipPath，比转盘贵一点。</div>
+  </div>
+  <div class="cell stage dark">
+    <div style="display:flex;gap:20px;align-items:flex-end;height:56px">
+      <span class="mark s48 sweepm"><i></i></span><span class="mark s32 sweepm"><i></i></span>
+      <span class="mark s20 sweepm"><i></i></span><span class="mark s14 sweepm"><i></i></span><span class="mark s12 sweepm"><i></i></span>
+    </div>
+    <div class="cap"><b>方向 1 · 深色</b>亮瓣用 Blue80，暗部 24%，深底上不发灰。</div>
+  </div>
+</div>
+<div class="row" style="margin-top:14px">
+  <div class="cell stage light">
+    <div style="display:flex;gap:20px;align-items:flex-end;height:56px">
+      <span class="mark s48 relaym"><i></i></span><span class="mark s32 relaym"><i></i></span>
+      <span class="mark s20 relaym"><i></i></span><span class="mark s14 relaym"><i></i></span><span class="mark s12 relaym"><i></i></span>
+    </div>
+    <div class="cap"><b>方向 2 · 横梁中继</b>H 常驻 22%，一段亮光从左腿经横梁扫到右腿，1200ms。<br>
+    <b style="display:inline;font-weight:600">优</b> 叙事最贴产品：数据正在从 Mac 过桥；与启动进度条的流光同源。<br>
+    <b style="display:inline;font-weight:600">劣</b> 20dp 以下亮段只剩几像素，退化成"整体闪一下"；方向性强，只适合"连接 / 传输"，用在"列表在读本地缓存"上语义过头。</div>
+  </div>
+  <div class="cell stage light">
+    <div style="display:flex;gap:20px;align-items:flex-end;height:56px">
+      <span class="mark s48 facetm"><b></b><b></b><b></b><b></b></span><span class="mark s32 facetm"><b></b><b></b><b></b><b></b></span>
+      <span class="mark s20 facetm"><b></b><b></b><b></b><b></b></span><span class="mark s14 facetm"><b></b><b></b><b></b><b></b></span><span class="mark s12 facetm"><b></b><b></b><b></b><b></b></span>
+    </div>
+    <div class="cap"><b>方向 3 · 四折面轮转</b>四象限按 红→黄→绿→蓝 的位置顺时针逐个点亮，每拍 300ms。<br>
+    <b style="display:inline;font-weight:600">优</b> 最抗缩小（12dp 下就是四个方块在轮转）；实现最简单。<br>
+    <b style="display:inline;font-weight:600">劣</b> 离散的四拍偏"数字化 / 忙碌"，与 App 其余动效的连续感（呼吸、流光）不是一路；横梁在拍与拍之间会闪断。</div>
+  </div>
+  <div class="cell stage light">
+    <div style="display:flex;gap:20px;align-items:flex-end;height:56px">
+      <span class="mark s48 brandm"><b></b><b></b><b></b><b></b><i></i></span>
+      <span class="mark s32 brandm"><b></b><b></b><b></b><b></b><i></i></span>
+    </div>
+    <div class="cap"><b>品牌时刻 · 多彩轮光</b>方向 1 的多彩版：四象限各自本色，白/黑亮瓣绕 C 转，等于"图标在呼吸"。
+    <b>只准</b>用在启动门（替代或补充现有 144dp 静态图标）与一次性庆祝，<b>不得</b>进入任何页面内加载。</div>
+  </div>
+</div>
+
+<h2>5. 场景落地</h2>
+
+<h3>5.1 列表空白首载（会话 / 项目 / 已归档 / 搜索）</h3>
+<p>现状：<code>LoadingState()</code> 在整页正中放一个 M3 转盘 —— 无品牌、且把"页面是空的"这件事强调了一遍；数据回来时布局从"空"跳到"满"。
+建议：<b>已知行形状的页面用骨架行</b>，而不是标记。标记留给形状未知的页面（5.2）。</p>
+<div class="row">
+  <div class="cell stage light">
+    <div class="phone">
+      <div class="tb"><span class="av">郭</span><span style="flex:1;text-align:center">会话</span><span style="width:26px"></span></div>
+      <div class="seg"><u class="on">会话</u><u>项目</u><u>已归档</u></div>
+      <div class="blank"><span class="m3"></span><span class="lb">（无文字）</span></div>
+    </div>
+    <div class="cap"><b>现状</b>M3 默认转盘，居中，无品牌。</div>
+  </div>
+  <div class="cell stage light">
+    <div class="phone">
+      <div class="tb"><span class="av">郭</span><span style="flex:1;text-align:center">会话</span><span style="width:26px"></span></div>
+      <div class="seg"><u class="on">会话</u><u>项目</u><u>已归档</u></div>
+      <div class="shim">
+        <div class="gh"><span class="sk" style="display:inline-block;width:52px;height:10px"></span></div>
+        <div class="lrow"><div class="sk" style="width:62%;height:15px"></div><div class="sk" style="width:38%;height:11px;margin-top:7px"></div></div>
+        <div class="lrow"><div class="sk" style="width:48%;height:15px"></div><div class="sk" style="width:44%;height:11px;margin-top:7px"></div></div>
+        <div class="lrow"><div class="sk" style="width:70%;height:15px"></div><div class="sk" style="width:32%;height:11px;margin-top:7px"></div></div>
+        <div class="gh"><span class="sk" style="display:inline-block;width:64px;height:10px"></span></div>
+        <div class="lrow"><div class="sk" style="width:55%;height:15px"></div><div class="sk" style="width:40%;height:11px;margin-top:7px"></div></div>
+        <div class="lrow"><div class="sk" style="width:66%;height:15px"></div><div class="sk" style="width:30%;height:11px;margin-top:7px"></div></div>
+      </div>
+    </div>
+    <div class="cap"><b>方案 · 骨架行 + 品牌流光</b>骨架块底色 <code>surfaceVariant @50%</code>、高光 <code>onSurface @8.5%</code>、圆角 7dp，尺寸照真实行；
+    两个分组头也画。流光是<b>整页一条</b>斜向高光，1200ms 匀速，与启动进度条同一手法（不是每块各闪）。
+    5 行封顶，超出视口不再画。</div>
+  </div>
+  <div class="cell stage dark">
+    <div class="phone">
+      <div class="tb"><span class="av">郭</span><span style="flex:1;text-align:center">会话</span><span style="width:26px"></span></div>
+      <div class="seg"><u class="on">会话</u><u>项目</u><u>已归档</u></div>
+      <div class="shim">
+        <div class="gh"><span class="sk" style="display:inline-block;width:52px;height:10px"></span></div>
+        <div class="lrow"><div class="sk" style="width:62%;height:15px"></div><div class="sk" style="width:38%;height:11px;margin-top:7px"></div></div>
+        <div class="lrow"><div class="sk" style="width:48%;height:15px"></div><div class="sk" style="width:44%;height:11px;margin-top:7px"></div></div>
+        <div class="lrow"><div class="sk" style="width:70%;height:15px"></div><div class="sk" style="width:32%;height:11px;margin-top:7px"></div></div>
+        <div class="gh"><span class="sk" style="display:inline-block;width:64px;height:10px"></span></div>
+        <div class="lrow"><div class="sk" style="width:55%;height:15px"></div><div class="sk" style="width:40%;height:11px;margin-top:7px"></div></div>
+      </div>
+    </div>
+    <div class="cap"><b>深色骨架</b>同一套 token 不做深浅分支：高光是 <code>onSurface @8.5%</code>，浅色下是一道暗光、深色下自然变成近白弱光。
+    这套底色/高光取自已经在跑的聊天历史骨架，本轮把它的 1350ms 也并进 1200ms —— 全 App 只有一种骨架语言。</div>
+  </div>
+</div>
+
+<h3>5.2 非列表页首载（用量 / 模型 / MCP / 记忆 / 工具）</h3>
+<div class="row">
+  <div class="cell stage light">
+    <div class="phone">
+      <div class="tb"><span style="width:26px">‹</span><span style="flex:1;text-align:center">用量</span><span style="width:26px"></span></div>
+      <div class="blank"><span class="mark s32 sweepm"><i></i></span></div>
+    </div>
+    <div class="cap"><b>方案 · 32dp 标记，无文字</b>行形状未知的页面用标记。默认<b>不带文字</b>（"正在加载"是废话）；
+    只有超过 <b>3s</b> 才淡入一行 13sp 次要色说明（如"正在读取用量"），与启动页"快启动不解释"同一策略。</div>
+  </div>
+  <div class="cell stage light">
+    <div class="phone">
+      <div class="tb"><span style="width:26px">‹</span><span style="flex:1;text-align:center">会话</span><span style="width:26px"></span></div>
+      <div class="topbar"><i></i></div>
+      <div class="lrow"><div class="t">给 Gateway 加一层限流</div><div class="s">📁 hermes-remote · Opus 5</div></div>
+      <div class="lrow"><div class="t">升级 connector 依赖</div><div class="s">📁 hermes-remote · Sonnet 5</div></div>
+      <div class="lrow"><div class="t">周报草稿</div><div class="s">Opus 5</div></div>
+    </div>
+    <div class="cap"><b>已有内容时刷新 · 顶部 2dp 细线</b>下拉刷新 / 回前台重取 / 加载更多时<b>绝不</b>盖住已有内容，也不换成骨架。
+    2dp 轨道 <code>hairline</code>、亮段 36% 宽 primary 渐变往返，1200ms。单色（规则 1），因此和启动门的三色渐变条不会认错。</div>
+  </div>
+</div>
+
+<h3>5.3 聊天页"正在出内容"</h3>
+<p>现状有<b>两个</b>不同的指示物在表达同一件事：还没有任何内容时是 <code>TypingIndicator</code>（三个灰点跳动），
+有状态时是 <code>RunningStatusRow</code>（7dp 蓝点 0.45↔1 呼吸 900ms + 文字）。
+三点跳动是 IM 借来的语汇（"对方正在输入"），而这里发生的事是"你的 Mac 正在干活"；启动页已经因为同样的理由删掉了跳动的省略号。
+建议：<b>合成一个对象</b> —— 标记恒定在位，文字随阶段变化，从"没内容"到"生成中"到"跑工具"不换形态、不跳位。</p>
+<div class="row">
+  <div class="cell stage light">
+    <div class="phone">
+      <div class="bubble">帮我看下限流该放在哪一层</div>
+      <div class="arow"><span class="tdots"><span></span><span></span><span></span></span></div>
+      <div class="ib">发消息…</div>
+    </div>
+    <div class="cap"><b>现状 A</b>还没有内容：三个灰点跳动，无品牌、无进度信息。</div>
+  </div>
+  <div class="cell stage light">
+    <div class="phone">
+      <div class="bubble">帮我看下限流该放在哪一层</div>
+      <div class="arow"><span class="dot"></span><span>生成中… 2.3s</span></div>
+      <div class="ib">发消息…</div>
+    </div>
+    <div class="cap"><b>现状 B</b>有状态：7dp 蓝点呼吸 + 文字。点是纯装饰，且和列表页的"连接点 / 状态点"同形不同义。</div>
+  </div>
+  <div class="cell stage light">
+    <div class="phone">
+      <div class="bubble">帮我看下限流该放在哪一层</div>
+      <div class="arow"><span class="mark s14 sweepm"><i></i></span><span>生成中… 2.3s</span></div>
+      <div class="ans" style="padding-top:0;color:var(--sec);font-size:12px">↓ 首个 token 到达后</div>
+      <div class="arow" style="padding-bottom:6px"><span class="mark s14 sweepm"><i></i></span><span style="font-style:italic">…先确认限流是按 token 还是按请求</span></div>
+      <div class="ans">限流要放在网关，理由有三条：</div>
+      <div class="ib">发消息…</div>
+    </div>
+    <div class="cap"><b>方案 · 14dp 标记 + 状态文字</b>一个对象贯穿三态：
+    ① 无内容 = <b>只有标记、不给文字</b>（「正在准备」只会被读一次就被真状态替换）；② 生成中 = 标记 + 「生成中 · 2.3s」；③ 跑工具 / 思考 = 标记 + 等宽或斜体预览行（现状文案不变）。
+    标记 14dp（不是 12dp：横梁在 12dp 下只有 3.3dp，真机上偏糊），左边缘与正文左缘对齐，行高不变、文字换阶段时标记不跳位。
+    完成时标记 190ms 淡出，与气泡投递三态的收尾时长一致。</div>
+  </div>
+  <div class="cell stage dark">
+    <div class="phone">
+      <div class="bubble">帮我看下限流该放在哪一层</div>
+      <div class="arow"><span class="mark s14 sweepm"><i></i></span><span>正在运行 Bash…</span></div>
+      <div class="ib">发消息…</div>
+    </div>
+    <div class="cap"><b>深色 · 跑工具态</b>文字保持现状的等宽体与 <code>onSurfaceVariant</code>，只把点换成标记。</div>
+  </div>
+</div>
+
+<h3>5.4 行内与按钮</h3>
+<div class="row">
+  <div class="cell stage light" style="width:300px">
+    <div style="display:flex;align-items:center;gap:14px;height:44px">
+      <span class="m3 sm"></span><span style="font-size:12px;color:var(--sec)">现状 20dp 转盘</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;height:44px">
+      <span class="mark s20 sweepm"><i></i></span><span style="font-size:12px;color:var(--sec)">方案 20dp 标记</span>
+    </div>
+    <div class="cap"><b>不确定的行内等待</b>模型列表刷新、人格加载、切换身份、附件上传、图片加载、连接恢复横幅：全部换成标记（14–24dp，跟随原尺寸）。
+    <b>保留转盘只有三种</b>（决策 2026-09-04）：按钮 / FAB 内部；画在照片或头像上；颜色承载状态语义的指示器（会话行运行态走 <code>StatusColors</code>）。前两种底色不可预知，第三种换成品牌色会把两套色彩系统搅在一起。</div>
+  </div>
+  <div class="cell stage light" style="width:300px">
+    <div style="height:44px;display:flex;align-items:center;gap:10px">
+      <div style="flex:1;height:4px;border-radius:2px;background:var(--conth);overflow:hidden">
+        <div style="width:62%;height:100%;background:var(--p)"></div>
+      </div><span style="font-size:11px;color:var(--sec)">62%</span>
+    </div>
+    <div class="cap"><b>确定进度</b>下载 / 检查更新这类卡内进度继续用单色 M3 进度条（有百分比是确定态，没有是不确定态）。
+    标记只替换<b>转盘形态</b>，进度条是另一个家族。早期草案想让它走三色渐变，砍掉了 —— 多一条例外就多一处会漂移的边界，多彩只留在启动门。</div>
+  </div>
+  <div class="cell stage light" style="width:300px">
+    <div style="height:44px;display:flex;align-items:center;gap:12px">
+      <span style="width:34px;height:34px;border-radius:17px;background:var(--p);position:relative;display:inline-block">
+        <span style="position:absolute;inset:5px;border-radius:50%;border:2px solid #fff;opacity:.75"></span>
+      </span><span style="font-size:12px;color:var(--sec)">发送中（已定，不改）</span>
+    </div>
+    <div class="cap"><b>已定的不动</b>用户气泡投递三态的 12dp 呼吸环（1200ms、延迟 250ms）与启动门的三色进度条都是既有决策，本轮只做<b>周期与延迟门对齐</b>，形态不动。</div>
+  </div>
+</div>
+
+<h2>6. 汇总表</h2>
+<table>
+<tr><th>场景</th><th>形态</th><th>尺寸</th><th>周期</th><th>延迟门</th><th>色</th></tr>
+<tr><td>列表空白首载</td><td>骨架行 + 整页斜向流光</td><td>照真实行</td><td>1200ms</td><td>250ms</td><td>单色</td></tr>
+<tr><td>非列表页空白首载</td><td>品牌标记（方向 1）</td><td>32dp</td><td>1200ms</td><td>250ms</td><td>单色</td></tr>
+<tr><td>已有内容刷新 / 加载更多</td><td>顶部细线</td><td>2dp 全宽</td><td>1200ms</td><td>250ms</td><td>单色</td></tr>
+<tr><td>聊天生成中 / 思考 / 跑工具</td><td>标记 + 状态文字</td><td>14dp</td><td>1200ms</td><td>250ms</td><td>单色</td></tr>
+<tr><td>行内等待（刷新 / 切换 / 上传 / 图片 / 横幅）</td><td>标记</td><td>14–24dp</td><td>1200ms</td><td>250ms</td><td>单色</td></tr>
+<tr><td>按钮内 / 照片上 / 状态色指示器</td><td>M3 转盘（唯一保留）</td><td>原尺寸</td><td>—</td><td>250ms</td><td>随容器</td></tr>
+<tr><td>下载 / 检查更新（卡内进度）</td><td>M3 进度条</td><td>全宽</td><td>—</td><td>立即</td><td>单色</td></tr>
+<tr><td>启动门</td><td>多彩图标 + 三色进度条（已定）</td><td>144dp</td><td>1200ms</td><td>700ms</td><td><b>多彩</b></td></tr>
+<tr><td>发送中气泡</td><td>呼吸环（已定）</td><td>12dp</td><td>1200ms</td><td>250ms</td><td>单色</td></tr>
+</table>
+
+<h2>7. 决策与落地</h2>
+<p><b>三个问题的结论（2026-09-04）：</b></p>
+<ul>
+  <li><b>① 标记方向 = 折面轮光。</b>连续、可缩放，且是图标自己的明暗逻辑；横梁中继留作叙事备选，四折面轮转否决（离散四拍与全 App 的连续感不是一路）。</li>
+  <li><b>② 三点跳动删除。</b>它和状态行本来就是同一个槽位的 if/else（外层 48dp 页脚正是为防尾跳而存在），合并零风险。首个 token 之前只有标记、不给文字。状态文字不再跟着呼吸变透明度 —— 一次只有一个东西在动。</li>
+  <li><b>③ 骨架只做一个组件、只覆盖四处。</b>会话列表有缓存（<code>cachedAllProfiles</code>），热启动看不到加载态；真正的空白等待是冷启动首载、以及每次启动后第一次点开「项目」/「已归档」——三者行形状相同，加搜索共用一个 <code>SkeletonRows</code>。其余页面行形状不稳定，继续用 32dp 标记：猜错的骨架比转盘更差。</li>
+</ul>
+<p><b>已落地（分支 <code>claude/loading-motion</code>，未合并）：</b></p>
+<ul>
+  <li>新增 <code>ui/components/BrandLoader.kt</code>：<code>HermesMark</code> / <code>SkeletonRows</code> / <code>TopProgressLine</code> / <code>DelayedReveal</code> / <code>reduceMotion()</code>。</li>
+  <li><code>ui/theme/Motion.kt</code> 新增 <code>LoopPeriod = 1200</code>、<code>RevealDelay = 250</code>、<code>RevealFade = 200</code>；聊天历史骨架原来的 1350ms 并入。</li>
+  <li><code>ScreenStates.kt</code>：<code>LoadingState</code> 换标记（12 个调用点跟随）、新增 <code>ListLoadingState</code>；会话/项目/已归档三处首载改骨架，两处 <code>LinearProgressIndicator</code> 改顶部细线。</li>
+  <li><code>ChatComponents.kt</code>：<code>TypingIndicator</code> 删除，<code>RunningStatusLine</code> 承担三态。</li>
+  <li><code>DESIGN.md §5.6</code> 扩写成三条规则 + 场景表；组件展廊补五个规格件（含关闭动画的静态态）。</li>
+  <li>测试：<code>BrandLoaderTest</code>、<code>RunningRowTest</code>，截图 <code>status-preparing / loading-mark / loading-skeleton(-dark)</code>，并重录三张 <code>status-*</code>。</li>
+</ul>
+<p class="sub" style="margin-top:18px">— 已实现于 <code>claude/loading-motion</code>，未合并。动画请在浏览器里看；PNG 只是留档用的一帧。</p>
+</body></html>

@@ -50,9 +50,7 @@ fun ModelsScreen(
                     // states, so the control is always reachable.
                     if (state.refreshing) {
                         Box(Modifier.size(48.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                            androidx.compose.material3.CircularProgressIndicator(
-                                Modifier.size(20.dp), strokeWidth = 2.dp,
-                            )
+                            com.hermes.client.ui.components.HermesMark(size = 20.dp)
                         }
                     } else {
                         IconButton(onClick = vm::load) {

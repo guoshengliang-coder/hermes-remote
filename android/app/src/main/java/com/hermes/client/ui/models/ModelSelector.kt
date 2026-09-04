@@ -24,7 +24,6 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -260,7 +259,7 @@ fun ModelSelectorContent(
             ) {
                 when {
                     listLoading -> {
-                        CircularProgressIndicator()
+                        com.hermes.client.ui.components.HermesMark(size = 32.dp)
                         Text(
                             localized(language, "正在加载模型列表…", "Loading models…"),
                             style = MaterialTheme.typography.bodyMedium,
@@ -410,9 +409,9 @@ private fun ReasoningRows(effort: String?, pending: Boolean, onSelect: (String) 
                     modifier = Modifier.padding(start = 8.dp),
                 )
                 if (pending) {
-                    CircularProgressIndicator(
-                        Modifier.padding(start = 8.dp).size(14.dp),
-                        strokeWidth = 2.dp,
+                    com.hermes.client.ui.components.HermesMark(
+                        size = 14.dp,
+                        modifier = Modifier.padding(start = 8.dp),
                     )
                 }
                 Spacer(Modifier.weight(1f))
@@ -596,7 +595,7 @@ private fun ModelRowItem(
             )
         }
         if (isPending) {
-            CircularProgressIndicator(Modifier.padding(horizontal = 14.dp).size(20.dp), strokeWidth = 2.5.dp)
+            com.hermes.client.ui.components.HermesMark(size = 20.dp, modifier = Modifier.padding(horizontal = 14.dp))
         } else {
             IconButton(onClick = { onToggleFavorite(row.provider, row.model) }, enabled = enabled) {
                 Icon(
@@ -656,7 +655,7 @@ fun ModelSelectorSheet(
                     Modifier.size(44.dp).align(Alignment.CenterEnd),
                     contentAlignment = Alignment.Center,
                 ) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    com.hermes.client.ui.components.HermesMark(size = 20.dp)
                 }
             } else {
                 IconButton(onClick = onRefresh, modifier = Modifier.align(Alignment.CenterEnd)) {
