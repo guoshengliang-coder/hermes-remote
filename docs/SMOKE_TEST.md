@@ -442,9 +442,18 @@ Gradle work — see the header of `scripts/dev/emulator.sh`):
 # logs: $TMPDIR/hermes-dev-stack/{mock,gateway,connector}.log
 ```
 
-The gateway log is the decisive evidence: a close with code `1000 / client closing` is the client
-deciding to disconnect, anything else is the link dying. Client-side, enable diagnostic logging and
-read the `ws` and `service` channels.
+The gateway itself logs only startup and shutdown, so its log proves nothing about a socket. The
+decisive evidence is the app's own diagnostic log, which mirrors to logcat once 设置 → 诊断 →
+诊断日志 is on:
+
+```bash
+adb logcat -s HermesDebug | grep -E "\[(ws|service|lifecycle)\]"
+```
+
+`socket closed (gen=N): client closing` is the client deciding to disconnect; `opening socket` marks
+a reconnect. A window containing neither means the connection was never dropped — which is the
+distinction that matters here, because the R3 banner grace deliberately hides a fast reconnect and
+would otherwise make a dropped socket look like a socket that survived.
 
 ### Emulator cases
 
@@ -484,6 +493,21 @@ read the `ws` and `service` channels.
    reconcile.
 10. **Notification settings copy.** Turn 启用通知 off: the explanation about the silent 后台保持连接
     card appears under the switch and disappears when the switch is back on.
+
+### Emulator pass, 2026-09-04 (branch claude/background-connection)
+
+Cases 1–5, 9 and 10 were run on Pixel_9_API_36_1 against the local stack and passed. Two findings
+came out of the pass rather than out of review, and both are fixed on the branch:
+
+- The 「连接已恢复」 strip still appeared after a *deliberate* idle disconnect. The outage had burned
+  its grace while the app was backgrounded, so the first frame back was already "interrupted". The
+  grace now only runs while the chat is on screen (see docs/DESIGN.md, connection visual grading).
+- With notifications off the 后台监控方式 group was greyed out, which after R1 left those users no
+  way to opt out of the keep-alive at all — 省电 is now the only control that does that. The group
+  is reachable regardless of the notification switch.
+
+Ports: the stack was run on 8788 rather than the script's 8787, which was held by an unrelated
+project. Note that `dev-stack.sh stop` kills whatever holds its ports.
 
 ### Device cases (still unverified — no real device on the dev host)
 

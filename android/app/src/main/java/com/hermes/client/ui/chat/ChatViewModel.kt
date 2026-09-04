@@ -182,7 +182,13 @@ class ChatViewModel @Inject constructor(
      */
     val connectionBanner: StateFlow<ConnectionState?> = chat.connectionState
         .connectionBanner()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+        // WhileSubscribed, not Eagerly, and the difference is the whole point: the screen stops
+        // collecting at ON_STOP, so the grace only ever runs while the chat is actually on screen.
+        // Shared eagerly, an outage that began in the background — the socket is closed on purpose
+        // once a backgrounded app goes idle — burned its grace where nobody could see it, and the
+        // first frame back was already "interrupted", which then announced a recovery for a
+        // disconnection the user was never shown. Time the user could not see is not disruption.
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 0), null)
 
     // I1: expose 401 unauthorized so the nav layer can route back to Setup
     private val _unauthorized = MutableStateFlow(false)

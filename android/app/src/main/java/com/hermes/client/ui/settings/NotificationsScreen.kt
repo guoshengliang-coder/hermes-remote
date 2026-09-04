@@ -131,6 +131,19 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
+            // Reachable even with notifications off. A running task now keeps its connection
+            // regardless of the notification switch, so 省电 is the only way to opt out of that;
+            // greying the group out with the switch left those users no control at all.
+            Text(
+                localized(
+                    language,
+                    "也决定任务运行时是否保持连接，关闭通知后同样有效。",
+                    "Also decides whether a running task keeps its connection, including when notifications are off.",
+                ),
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             MonitoringStrategyRow(
                 title = localized(language, "智能（推荐）", "Smart (recommended)"),
                 subtitle = localized(
@@ -139,7 +152,7 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
                     "Real-time in foreground, frequent while a phone-started task runs, and low-frequency system checks when idle.",
                 ),
                 selected = strategy == NotificationMonitoringStrategy.ADAPTIVE,
-                enabled = prefs.enabled,
+                enabled = true,
             ) { vm.setStrategy(NotificationMonitoringStrategy.ADAPTIVE) }
             MonitoringStrategyRow(
                 title = localized(language, "实时", "Real-time"),
@@ -149,17 +162,18 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
                     "Keeps a background connection for the fastest alerts, with higher battery use and an ongoing notification.",
                 ),
                 selected = strategy == NotificationMonitoringStrategy.REALTIME,
-                enabled = prefs.enabled,
+                enabled = true,
             ) { vm.setStrategy(NotificationMonitoringStrategy.REALTIME) }
             MonitoringStrategyRow(
                 title = localized(language, "省电", "Power saving"),
                 subtitle = localized(
                     language,
-                    "后台不保持长连接，由系统定期检查，提醒可能延迟约 15 分钟。",
-                    "No persistent background connection. System checks may delay alerts by about 15 minutes.",
+                    "后台不保持长连接（任务运行时也不保持），由系统定期检查，提醒可能延迟约 15 分钟。",
+                    "No persistent background connection, not even while a task is running. " +
+                        "System checks may delay alerts by about 15 minutes.",
                 ),
                 selected = strategy == NotificationMonitoringStrategy.POWER_SAVING,
-                enabled = prefs.enabled,
+                enabled = true,
             ) { vm.setStrategy(NotificationMonitoringStrategy.POWER_SAVING) }
             HorizontalDivider()
             ToggleRow(
