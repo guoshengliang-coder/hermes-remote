@@ -41,6 +41,4 @@ jobs:
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install --yes nginx openssl postgresql-client
       - name: Build and exercise the R3 to R4 round trip
-        env:
-          HERMES_R5D_ONLY: ${{ contains(github.ref, 'codex/cloud-gateway-r5d-managed-baseline') && '1' || '0' }}
         run: ./scripts/test-gateway-staging-bootstrap.sh
