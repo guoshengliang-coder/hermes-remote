@@ -5,13 +5,13 @@ import path from "node:path";
 import { executeDeployment } from "./deploy-command.mjs";
 import { OpsError } from "./errors.mjs";
 import { loadProductionEvidence } from "./production-config.mjs";
-import { atomicWrite, ensureManagedDirectory } from "./system.mjs";
+import { atomicWrite, createCommandRunner, ensureManagedDirectory } from "./system.mjs";
 
 const MAXIMUM_EVIDENCE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 export async function executeManagedBaseline(config, targetManifest, options = {}) {
   const now = options.now ?? (() => new Date());
-  const runner = options.runner;
+  const runner = options.runner ?? createCommandRunner();
   const runId = options.runId ?? randomUUID();
   const ownership = options.ownership ?? {
     host: { uid: 0, gid: 0 },
@@ -21,6 +21,7 @@ export async function executeManagedBaseline(config, targetManifest, options = {
   const sourceManifest = await verifyManagedBaselineAdmission(config, targetManifest, {
     ...options,
     now,
+    runner,
   });
   const seed = options.seedLegacyBaseline ?? seedLegacyBaseline;
   await seed(config, sourceManifest, { ownership });

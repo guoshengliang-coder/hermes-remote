@@ -83,6 +83,28 @@ test("R5-D admission binds the exact host, legacy hashes, fresh off-host evidenc
   }), isCode("HR-OPS-014"));
 });
 
+test("R5-D production execution creates its command runner before admission", async (t) => {
+  const fixture = await createFixture(t);
+  await writeJson(fixture.configPath, {
+    ...fixture.rawConfig,
+    legacySource: {
+      ...fixture.rawConfig.legacySource,
+      serviceName: "hermes-r5d-test-service-does-not-exist",
+    },
+  });
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  await assert.rejects(() => executeManagedBaseline(config, fixture.targetManifest, {
+    confirmation: "production:prod-host",
+    platform: "linux",
+    architecture: "x64",
+    hostname: "prod-host",
+    getUid: () => 0,
+    candidateSmoke: async () => {},
+    publicSmoke: async () => {},
+    legacySmoke: async () => {},
+  }), (error) => error?.technicalCause === "managed_baseline_legacy_service_inactive");
+});
+
 test("R5-D seeds an immutable legacy rollback descriptor and delegates only through the production capability", async (t) => {
   const fixture = await createFixture(t);
   const config = await loadManagedBaselineConfig(fixture.configPath);
