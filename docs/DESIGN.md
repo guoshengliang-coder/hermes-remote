@@ -321,7 +321,7 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
   - **任务清单**用 M3 复选框。给 `Markdown()` 传自定义 `components` 会覆盖掉 m3 默认注入的
     `checkbox`，漏传时 `- [ ]` 会渲染成字面文本 `[ ]`，必须显式带上。
   - **表格**正文 15sp/23。
-  - **链接点击**（`ChatLinks.kt`）：正文里的地址是模型输出，不可信。渲染器在构建链接注解时就
+  - **链接点击**（`ui/components/AppLinks.kt`，全 app 共用）：正文里的地址是模型输出，不可信。渲染器在构建链接注解时就
     捕获 `LocalUriHandler`，所以受控 handler 必须包在 `Markdown()` 外层，而不是点击处。
     只放行 `http/https/mailto/tel`（`intent:` 能指定任意组件、`file:` 能指向本地存储），
     无 scheme 的 `www.` 自动链接补 `https://`，其余拒绝 → `HR-LINK-002`。系统无法打开时

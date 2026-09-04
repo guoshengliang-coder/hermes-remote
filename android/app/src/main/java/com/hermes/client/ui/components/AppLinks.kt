@@ -1,4 +1,4 @@
-package com.hermes.client.ui.chat
+package com.hermes.client.ui.components
 
 import android.content.Context
 import android.content.Intent
@@ -15,9 +15,9 @@ import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localizedMessage
 
 /**
- * Schemes an answer is allowed to hand to the system. Answers are model output, so the target is
- * not trusted: `intent:` can address an arbitrary component, and `file:` can point at local
- * storage. Everything outside this list is refused before it reaches `startActivity`.
+ * Schemes app content is allowed to hand to the system. The main caller renders assistant answers,
+ * i.e. model output, so the target is not trusted: `intent:` can address an arbitrary component,
+ * and `file:` can point at local storage. Everything else is refused before `startActivity`.
  */
 private val OPENABLE_LINK_SCHEMES = setOf("http", "https", "mailto", "tel")
 
@@ -30,7 +30,7 @@ private val URI_SCHEME = Regex("^([a-zA-Z][a-zA-Z0-9+.\\-]*):")
  * open that, so it gets the https prefix every other client applies. Anything else without a
  * scheme is relative or anchor-only and has no meaning outside a document.
  */
-internal fun openableChatLink(raw: String): String? {
+internal fun openableAppLink(raw: String): String? {
     val trimmed = raw.trim()
     if (trimmed.isEmpty()) return null
     val scheme = URI_SCHEME.find(trimmed)?.groupValues?.get(1)?.lowercase()
@@ -42,22 +42,23 @@ internal fun openableChatLink(raw: String): String? {
 }
 
 /**
- * A [UriHandler] for links inside message content.
+ * A [UriHandler] for every link the app opens out of its own content.
  *
  * Compose's default Android handler rethrows `ActivityNotFoundException` as
  * `IllegalArgumentException`, i.e. a device with no browser crashes the app on a tap. It also
  * opens whatever scheme it is given. This one refuses non-web targets (`HR-LINK-002`) and turns a
- * failed launch into a message plus the link on the clipboard (`HR-LINK-001`).
+ * failed launch into a message plus the link on the clipboard (`HR-LINK-001`) — never a silent
+ * no-op, which is what a bare `runCatching {}` around `startActivity` leaves behind.
  */
 @Composable
-internal fun rememberChatUriHandler(): UriHandler {
+internal fun rememberSafeUriHandler(): UriHandler {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val language = LocalAppLanguage.current
     return remember(context, clipboard, language) {
         object : UriHandler {
             override fun openUri(uri: String) {
-                val target = openableChatLink(uri)
+                val target = openableAppLink(uri)
                 val failure = when {
                     target == null -> AppError(AppErrorCode.LINK_NOT_OPENABLE, retryable = false, technicalCause = uri)
                     else -> runCatching {

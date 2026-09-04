@@ -155,6 +155,7 @@ import com.hermes.client.domain.ChatFile
 import com.hermes.client.domain.FileTransferState
 import com.hermes.client.ui.theme.LocalToolCallTechnical
 import com.hermes.client.ui.components.ExternalLinkIcon
+import com.hermes.client.ui.components.rememberSafeUriHandler
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.theme.Motion
@@ -2024,7 +2025,7 @@ private fun AssistantMarkdownBlock(
     }
     // The renderer captures LocalUriHandler when it builds the link annotations, so the guarded
     // handler has to be in scope around Markdown() rather than at the tap site.
-    CompositionLocalProvider(LocalUriHandler provides rememberChatUriHandler()) {
+    CompositionLocalProvider(LocalUriHandler provides rememberSafeUriHandler()) {
     Markdown(
         content = content,
         annotator = annotator,
