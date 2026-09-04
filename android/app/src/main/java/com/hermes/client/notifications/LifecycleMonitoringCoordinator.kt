@@ -15,6 +15,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -22,7 +23,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -67,50 +67,68 @@ class LifecycleMonitoringCoordinator @Inject constructor(
             combine(
                 settings.prefs,
                 foreground,
-                runtimes.runtimes.map { map ->
-                    map.values.any { it.startedLocally && it.hasActiveWork }
+                // Keep-alive covers runs this phone is responsible for: ones it started, and
+                // ones whose chat it currently has open (a composed chat stays "visible" across an
+                // app switch). A purely remote run nobody is watching here is left to the inbox.
+                runtimes.runtimes.combine(runtimes.visibleSessions) { map, visible ->
+                    map.values.any { (it.startedLocally || it.key in visible) && it.hasActiveWork }
                 }.distinctUntilChanged(),
                 strategyStore.strategy,
-            ) { prefs, appInForeground, activeLocalRun, strategy ->
+            ) { prefs, appInForeground, trackedActiveRun, strategy ->
                 MonitoringDecision(
-                    lifecycleMonitoringMode(prefs.enabled, appInForeground, activeLocalRun, strategy),
+                    lifecycleMonitoringMode(prefs.enabled, appInForeground, trackedActiveRun, strategy),
                     prefs,
                     appInForeground,
                 )
             }.distinctUntilChanged().collectLatest { decision ->
-                when (decision.mode) {
-                    LifecycleMonitoringMode.DISABLED -> {
-                        GatewayConnectionService.stop(context)
-                        LifecycleEventJobScheduler.cancel(context)
-                        // Notifications being disabled must not make a brief app switch feel like
-                        // a broken connection. collectLatest cancels this grace period immediately
-                        // if the app returns to the foreground.
-                        delay(BACKGROUND_SOCKET_GRACE_MS)
-                        gatewayClient.close()
-                    }
-                    LifecycleMonitoringMode.FOREGROUND -> {
-                        // IDLE_BACKGROUND deliberately closes the socket for battery life. A
-                        // retained Activity/ViewModel is not recreated when the user comes back,
-                        // so foreground ownership must explicitly restore the singleton client.
-                        // connect() is idempotent and will not duplicate an already-live socket.
-                        if (credentials.load() != null) gatewayClient.connect()
-                        GatewayConnectionService.stop(context)
-                        LifecycleEventJobScheduler.cancel(context)
-                        pollUntilModeChanges(decision.prefs, FOREGROUND_POLL_MS, appInForeground = true)
-                    }
-                    LifecycleMonitoringMode.ACTIVE_BACKGROUND -> {
-                        LifecycleEventJobScheduler.cancel(context)
-                        GatewayConnectionService.start(context)
-                    }
-                    LifecycleMonitoringMode.IDLE_BACKGROUND -> {
-                        GatewayConnectionService.stop(context)
-                        LifecycleEventJobScheduler.schedule(context)
-                        // Keep a short lease for ordinary app switching. If foreground/active work
-                        // arrives during the delay, collectLatest cancels before close().
-                        delay(BACKGROUND_SOCKET_GRACE_MS)
-                        gatewayClient.close()
-                    }
+                // One failed step must never take the monitoring loop down with it. Android can
+                // refuse a background foreground-service start (Android 12+), the JobScheduler and
+                // the encrypted credential store can both throw, and this collector is the only
+                // thing that restores the socket when the app comes back — a crash here would
+                // silently disable background connectivity for the rest of the process.
+                try {
+                    apply(decision)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    DebugLog.log("lifecycle", "monitoring step ${decision.mode} failed: ${error.message}")
                 }
+            }
+        }
+    }
+
+    private suspend fun apply(decision: MonitoringDecision) {
+        when (decision.mode) {
+            LifecycleMonitoringMode.DISABLED -> {
+                GatewayConnectionService.stop(context)
+                LifecycleEventJobScheduler.cancel(context)
+                // Notifications being disabled must not make a brief app switch feel like
+                // a broken connection. collectLatest cancels this grace period immediately
+                // if the app returns to the foreground.
+                delay(BACKGROUND_SOCKET_GRACE_MS)
+                gatewayClient.close()
+            }
+            LifecycleMonitoringMode.FOREGROUND -> {
+                // IDLE_BACKGROUND deliberately closes the socket for battery life. A
+                // retained Activity/ViewModel is not recreated when the user comes back,
+                // so foreground ownership must explicitly restore the singleton client.
+                // connect() is idempotent and will not duplicate an already-live socket.
+                if (credentials.load() != null) gatewayClient.connect()
+                GatewayConnectionService.stop(context)
+                LifecycleEventJobScheduler.cancel(context)
+                pollUntilModeChanges(decision.prefs, FOREGROUND_POLL_MS, appInForeground = true)
+            }
+            LifecycleMonitoringMode.ACTIVE_BACKGROUND -> {
+                LifecycleEventJobScheduler.cancel(context)
+                GatewayConnectionService.start(context)
+            }
+            LifecycleMonitoringMode.IDLE_BACKGROUND -> {
+                GatewayConnectionService.stop(context)
+                LifecycleEventJobScheduler.schedule(context)
+                // Keep a short lease for ordinary app switching. If foreground/active work
+                // arrives during the delay, collectLatest cancels before close().
+                delay(BACKGROUND_SOCKET_GRACE_MS)
+                gatewayClient.close()
             }
         }
     }

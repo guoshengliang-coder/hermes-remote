@@ -421,6 +421,55 @@ class SessionRuntimeStoreTest {
         assertTrue(store.runtimes.value.size <= 21)
     }
 
+    /**
+     * Regression for problem B of the background-connection review. `message.complete` used to
+     * clear phone ownership, so a run that finished its message while a background process kept
+     * working fell out of the keep-alive policy and had its socket closed 45s later — mid-run.
+     */
+    @Test fun a_completed_message_keeps_phone_ownership_while_a_background_process_runs() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("s1", "personal")
+        fixture.store.beginPrompt(key, "起一个长任务")
+        fixture.store.updateChat(key) { state ->
+            state.copy(
+                backgroundProcesses = listOf(
+                    com.hermes.client.data.repository.BackgroundProcess(
+                        id = "p1",
+                        command = "npm run dev",
+                        running = true,
+                    ),
+                ),
+            )
+        }
+
+        fixture.events.emit(event("message.complete", "s1"))
+        advanceUntilIdle()
+
+        val runtime = fixture.store.runtimes.value.getValue(key)
+        assertTrue("background work must keep the session phone-owned", runtime.startedLocally)
+        assertTrue(runtime.hasActiveWork)
+    }
+
+    /** The authoritative "no longer running" snapshot is still what releases phone ownership. */
+    @Test fun an_authoritative_not_running_snapshot_releases_phone_ownership() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("s1", "personal")
+        fixture.store.beginPrompt(key, "起一个长任务")
+
+        fixture.events.emit(
+            ServerEvent(
+                "session.info",
+                "s1",
+                buildJsonObject { put("session_id", "s1"); put("running", false) },
+            ),
+        )
+        advanceUntilIdle()
+
+        val runtime = fixture.store.runtimes.value.getValue(key)
+        assertFalse(runtime.startedLocally)
+        assertFalse(runtime.hasActiveWork)
+    }
+
     @Test fun observed_external_run_updates_list_state_without_becoming_phone_owned() = runTest {
         val (store, _) = fixture()
         val key = SessionRuntimeKey("personal", "external")

@@ -814,8 +814,14 @@ class SessionRuntimeStore(
                     else -> runtime.toolName
                 },
                 lastEventAt = now,
+                // Sticky: only an authoritative "this session is no longer running" clears the
+                // flag. A run can emit message.complete (or a recoverable error) and keep working
+                // — background processes still running, another message to follow — and dropping
+                // the flag there used to hand the session back to the idle-background policy,
+                // which closed the socket mid-run. Terminal transitions the app performs itself
+                // (finishLocal / markFailed / markInterrupted) and observed run.completed /
+                // run.interrupted still clear it.
                 startedLocally = when (event.type) {
-                    "message.complete", "error" -> false
                     "session.info" -> if (event.bool("running") == false) false else runtime.startedLocally
                     else -> runtime.startedLocally
                 },

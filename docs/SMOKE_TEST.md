@@ -426,3 +426,51 @@ sparse real-world data, a genuinely offline Mac, or a stalled tunnel.
    chart. This is upstream behaviour, not a client bug; the footnote exists to state it.
 7. Both themes: the error state's code line and the empty state's icon must be legible in dark mode
    (the error colour family is now explicit — see `ErrorColorsTest`).
+
+## Background connection smoke test (2026-09 branch claude/background-connection, R1)
+
+R1 changes when the app is allowed to keep its socket while backgrounded. Everything below is
+reproducible on the emulator against the local dev stack — no production access and no real device
+are needed for cases 1–5.
+
+Environment (build and boot separately; the emulator on the dev host starves under concurrent
+Gradle work — see the header of `scripts/dev/emulator.sh`):
+
+```bash
+./scripts/dev/emulator.sh start Pixel_9_API_36_1
+./scripts/dev/dev-stack.sh start
+# logs: $TMPDIR/hermes-dev-stack/{mock,gateway,connector}.log
+```
+
+The gateway log is the decisive evidence: a close with code `1000 / client closing` is the client
+deciding to disconnect, anything else is the link dying. Client-side, enable diagnostic logging and
+read the `ws` and `service` channels.
+
+### Emulator cases
+
+1. **The reported bug.** Turn every notification switch off. Send a prompt, and while the answer is
+   still streaming switch to the launcher for ~90 seconds (longer than the 45s grace), then return.
+   Expected: no reconnect banner, the stream continues, and the gateway log shows no close. Before
+   R1 this closed the socket at 45s and the session came back as 正在恢复连接….
+2. **Ownership survives an intermediate completion.** With notifications still off, run a prompt
+   that leaves a background process running, wait for the assistant message to complete, then
+   background the app for ~90s. Expected: still connected — `message.complete` no longer releases
+   phone ownership while work continues.
+3. **Idle still disconnects.** Notifications off, nothing running: background the app for ~90s.
+   Expected: the socket closes after the grace period (`1000 / client closing` in the gateway log)
+   and no foreground-service card appears. R1 must not turn into "always connected".
+4. **Power saving still wins.** Set 监控策略 to 省电, start a run, background the app. Expected: the
+   socket closes after the grace period — an explicit instruction outranks the run.
+5. **The service card.** With notifications off and a run in flight, the MIN `service` card appears
+   while backgrounded and disappears when the run ends (docs/DESIGN.md §5.10). Confirm it is silent
+   and cannot be dismissed while the run is live.
+
+### Device cases (still unverified — no real device on the dev host)
+
+6. **Screen-off survival.** Start a run, lock the phone for 5–10 minutes, unlock. Record whether the
+   socket survived and, if not, the close code and the elapsed time. This is the M1 item: the
+   emulator reaches the gateway over `adb reverse` on loopback, which never drops and never passes
+   through the edge nginx `proxy_read_timeout 75s`, so it cannot answer this question. The result
+   decides whether R2's 45s background heartbeat needs adjusting.
+7. **Vendor battery management.** On a Chinese OEM ROM, confirm the foreground service is not killed
+   during a run, and whether the app needs to be added to the battery whitelist.
