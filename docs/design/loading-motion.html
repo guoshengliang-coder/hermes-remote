@@ -31,12 +31,12 @@ th{background:#F4F6FA;font-weight:600;font-size:11.5px;color:#43474E}
 tr:last-child td{border-bottom:0}
 
 /* ---------- themes ---------- */
-.light{--bg:#F7F9FD;--surf:#FFFFFF;--fg:#1A1C20;--sec:#74777F;--cont:#EBEFF6;--conth:#E5EAF2;
-       --hair:#EBEDF2;--p:#0B5FD0;--pFull:rgba(11,95,208,1);--pDim:rgba(11,95,208,.22);
-       --sweep:rgba(255,255,255,.85);--bub:#E7ECF6}
+.light{--bg:#F7F9FD;--surf:#FFFFFF;--fg:#1A1C20;--sec:#74777F;--cont:#E3E7EE;--conth:#E5EAF2;
+       --hair:#EBEDF2;--p:#0B5FD0;--pFull:rgba(11,95,208,1);--pDim:rgba(11,95,208,.30);
+       --sweep:rgba(26,28,32,.085);--bub:#E7ECF6}
 .dark{--bg:#0D141B;--surf:#121921;--fg:#E1E3E9;--sec:#9AA0A8;--cont:#1E252E;--conth:#283039;
-      --hair:#2B323A;--p:#A9C7FF;--pFull:rgba(169,199,255,1);--pDim:rgba(169,199,255,.24);
-      --sweep:rgba(255,255,255,.10);--bub:#273039}
+      --hair:#2B323A;--p:#A9C7FF;--pFull:rgba(169,199,255,1);--pDim:rgba(169,199,255,.30);
+      --sweep:rgba(225,227,233,.085);--bub:#273039}
 .stage{background:var(--bg);color:var(--fg);border-radius:14px;padding:18px;box-shadow:0 0 0 1px rgba(0,0,0,.06)}
 .dark .cap{color:#9AA0A8}.dark .cap b{color:#E1E3E9}
 
@@ -136,7 +136,7 @@ tr:last-child td{border-bottom:0}
 
 <h1>Loading 动效体系 · 从启动图标衍生</h1>
 <p class="sub">目标：把全 App 的"正在加载"从 Material 默认转盘和无品牌的蓝点，统一成一套<b>可缩放、可解释、由启动图标推导</b>的动效。
-本文是设计稿，<b>尚未实现</b>；方向选定后再落 <code>DESIGN.md §5.6</code> 与代码。动画在浏览器里实时播放，PNG 截图只能看到某一帧。</p>
+方向已定（折面轮光 + 删三点 + 只做一个骨架组件），已落地在分支 <code>claude/loading-motion</code>，<b>未合并</b>；规则同步进 <code>DESIGN.md §5.6</code>。动画在浏览器里实时播放，PNG 截图只能看到某一帧。</p>
 
 <h2>1. 图标解构</h2>
 <div class="row">
@@ -227,7 +227,7 @@ tr:last-child td{border-bottom:0}
       <span class="mark s20 sweepm"><i></i></span><span class="mark s14 sweepm"><i></i></span><span class="mark s12 sweepm"><i></i></span>
     </div>
     <div class="cap"><b>方向 1 · 折面轮光<span class="tag rec">建议</span></b>
-    锥形渐变的亮瓣绕 C 顺时针转，1200ms 匀速，形状不动。<br>
+    锥形渐变的亮瓣绕 C 顺时针转，1200ms 匀速，形状不动；暗部保 30%，任何相位下 H 都读得出来。<br>
     <b style="display:inline;font-weight:600">优</b> 连续、无机械感；12dp 下仍读得出"H 在转光"；就是图标自己的明暗逻辑。<br>
     <b style="display:inline;font-weight:600">劣</b> 需要 sweepGradient + clipPath，比转盘贵一点。</div>
   </div>
@@ -296,7 +296,7 @@ tr:last-child td{border-bottom:0}
         <div class="lrow"><div class="sk" style="width:66%;height:15px"></div><div class="sk" style="width:30%;height:11px;margin-top:7px"></div></div>
       </div>
     </div>
-    <div class="cap"><b>方案 · 骨架行 + 品牌流光</b>骨架块 = <code>surfaceContainer</code>、圆角 7dp，尺寸照真实行（标题 15sp 行、副行 11.5sp）；
+    <div class="cap"><b>方案 · 骨架行 + 品牌流光</b>骨架块底色 <code>surfaceVariant @50%</code>、高光 <code>onSurface @8.5%</code>、圆角 7dp，尺寸照真实行；
     两个分组头也画。流光是<b>整页一条</b>斜向高光，1200ms 匀速，与启动进度条同一手法（不是每块各闪）。
     5 行封顶，超出视口不再画。</div>
   </div>
@@ -313,7 +313,8 @@ tr:last-child td{border-bottom:0}
         <div class="lrow"><div class="sk" style="width:55%;height:15px"></div><div class="sk" style="width:40%;height:11px;margin-top:7px"></div></div>
       </div>
     </div>
-    <div class="cap"><b>深色骨架</b>块用 <code>surfaceContainer #1E252E</code>，流光只有白 10% —— 深色下扫光必须比浅色弱一档，否则像划痕。</div>
+    <div class="cap"><b>深色骨架</b>同一套 token 不做深浅分支：高光是 <code>onSurface @8.5%</code>，浅色下是一道暗光、深色下自然变成近白弱光。
+    这套底色/高光取自已经在跑的聊天历史骨架，本轮把它的 1350ms 也并进 1200ms —— 全 App 只有一种骨架语言。</div>
   </div>
 </div>
 
@@ -372,7 +373,7 @@ tr:last-child td{border-bottom:0}
       <div class="ib">发消息…</div>
     </div>
     <div class="cap"><b>方案 · 14dp 标记 + 状态文字</b>一个对象贯穿三态：
-    ① 无内容 = 标记 + 「正在准备」（≥250ms 才出现）；② 生成中 = 标记 + 「生成中 · 2.3s」；③ 跑工具 / 思考 = 标记 + 等宽或斜体预览行（现状文案不变）。
+    ① 无内容 = <b>只有标记、不给文字</b>（「正在准备」只会被读一次就被真状态替换）；② 生成中 = 标记 + 「生成中 · 2.3s」；③ 跑工具 / 思考 = 标记 + 等宽或斜体预览行（现状文案不变）。
     标记 14dp（不是 12dp：横梁在 12dp 下只有 3.3dp，真机上偏糊），左边缘与正文左缘对齐，行高不变、文字换阶段时标记不跳位。
     完成时标记 190ms 淡出，与气泡投递三态的收尾时长一致。</div>
   </div>
@@ -431,22 +432,21 @@ tr:last-child td{border-bottom:0}
 <tr><td>发送中气泡</td><td>呼吸环（已定）</td><td>12dp</td><td>1200ms</td><td>250ms</td><td>单色</td></tr>
 </table>
 
-<h2>7. 待决与落地清单</h2>
-<p><b>需要你拍的三件事：</b></p>
+<h2>7. 决策与落地</h2>
+<p><b>三个问题的结论（2026-09-04）：</b></p>
 <ul>
-  <li><b>① 标记方向</b>：方向 1 折面轮光（建议）/ 2 横梁中继 / 3 四折面轮转。</li>
-  <li><b>② 聊天页要不要真的删掉三点跳动</b>：删了之后"还没开始出内容"和"正在出内容"就只由文字区分。</li>
-  <li><b>③ 骨架行 vs 标记</b>：列表页是否值得多写一个骨架组件（换来的是布局不跳、观感更快），还是三种场景统一用标记省事。</li>
+  <li><b>① 标记方向 = 折面轮光。</b>连续、可缩放，且是图标自己的明暗逻辑；横梁中继留作叙事备选，四折面轮转否决（离散四拍与全 App 的连续感不是一路）。</li>
+  <li><b>② 三点跳动删除。</b>它和状态行本来就是同一个槽位的 if/else（外层 48dp 页脚正是为防尾跳而存在），合并零风险。首个 token 之前只有标记、不给文字。状态文字不再跟着呼吸变透明度 —— 一次只有一个东西在动。</li>
+  <li><b>③ 骨架只做一个组件、只覆盖四处。</b>会话列表有缓存（<code>cachedAllProfiles</code>），热启动看不到加载态；真正的空白等待是冷启动首载、以及每次启动后第一次点开「项目」/「已归档」——三者行形状相同，加搜索共用一个 <code>SkeletonRows</code>。其余页面行形状不稳定，继续用 32dp 标记：猜错的骨架比转盘更差。</li>
 </ul>
-<p><b>方向定了之后的改动面（尚未动手）：</b></p>
+<p><b>已落地（分支 <code>claude/loading-motion</code>，未合并）：</b></p>
 <ul>
-  <li>新增 <code>ui/components/BrandLoader.kt</code>：<code>HermesLoader(size)</code>（clipPath H + sweepGradient，rotate 画布）、
-      <code>HermesLoaderInline()</code>、<code>SkeletonRows(n)</code>、<code>TopProgressLine()</code>；标记路径与 <code>ic_stat_hermes</code> 共用同一份 24 网格几何。</li>
-  <li><code>ui/theme/Motion.kt</code> 加三个 token：<code>LoopPeriod = 1200</code>、<code>RevealDelay = 250</code>、<code>RevealFade = 200</code>；现有 900ms 呼吸改成 1200ms 对齐。</li>
-  <li><code>components/ScreenStates.kt</code> 的 <code>LoadingState</code> 换实现（12 个调用点自动跟随）；<code>SessionsScreen</code> 的三处空白首载改骨架。</li>
-  <li><code>chat/ChatComponents.kt</code>：<code>TypingIndicator</code> 与 <code>RunningStatusRow</code> 合并成一个 <code>RunningRow(status?)</code>。</li>
-  <li><code>DESIGN.md §5.6</code> 从"节制使用"扩写成本文的三条规则 + 汇总表；组件展廊补五个规格件（含 <code>reduce-motion</code> 静态态）。</li>
-  <li>测试：延迟门（250ms 前不渲染加载物）、<code>reduce-motion</code> 静态、骨架行数封顶、聊天三态只有一个指示物；截图 golden 各一张浅深。</li>
+  <li>新增 <code>ui/components/BrandLoader.kt</code>：<code>HermesMark</code> / <code>SkeletonRows</code> / <code>TopProgressLine</code> / <code>DelayedReveal</code> / <code>reduceMotion()</code>。</li>
+  <li><code>ui/theme/Motion.kt</code> 新增 <code>LoopPeriod = 1200</code>、<code>RevealDelay = 250</code>、<code>RevealFade = 200</code>；聊天历史骨架原来的 1350ms 并入。</li>
+  <li><code>ScreenStates.kt</code>：<code>LoadingState</code> 换标记（12 个调用点跟随）、新增 <code>ListLoadingState</code>；会话/项目/已归档三处首载改骨架，两处 <code>LinearProgressIndicator</code> 改顶部细线。</li>
+  <li><code>ChatComponents.kt</code>：<code>TypingIndicator</code> 删除，<code>RunningStatusLine</code> 承担三态。</li>
+  <li><code>DESIGN.md §5.6</code> 扩写成三条规则 + 场景表；组件展廊补五个规格件（含关闭动画的静态态）。</li>
+  <li>测试：<code>BrandLoaderTest</code>、<code>RunningRowTest</code>，截图 <code>status-preparing / loading-mark / loading-skeleton(-dark)</code>，并重录三张 <code>status-*</code>。</li>
 </ul>
-<p class="sub" style="margin-top:18px">— 设计稿，未实现。动画请在浏览器里看；PNG 只是留档用的一帧。</p>
+<p class="sub" style="margin-top:18px">— 已实现于 <code>claude/loading-motion</code>，未合并。动画请在浏览器里看；PNG 只是留档用的一帧。</p>
 </body></html>
