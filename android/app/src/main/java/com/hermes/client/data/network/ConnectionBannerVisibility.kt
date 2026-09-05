@@ -1,5 +1,6 @@
 package com.hermes.client.data.network
 
+import com.hermes.client.data.diagnostics.DebugLog
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -7,6 +8,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.scan
 
 /**
@@ -56,3 +58,11 @@ fun Flow<ConnectionState>.connectionBanner(
         }
     }
     .distinctUntilChanged()
+    .onEach { banner ->
+        // Whether the grace swallowed an outage or none happened is invisible from the outside,
+        // and those two look identical in a bug report ("it reconnected but said nothing").
+        DebugLog.log(
+            "banner",
+            if (banner == null) "hidden" else "showing ${banner::class.simpleName}",
+        )
+    }

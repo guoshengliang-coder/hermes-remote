@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.GatewayConfig
 import com.hermes.client.data.auth.normalizeGatewayBaseUrl
+import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.ConnectivityChecker
 import com.hermes.client.data.network.GatewayProbeResult
@@ -109,6 +110,18 @@ class StartupViewModel @Inject constructor(
     @Volatile private var appForeground = false
 
     init {
+        // The gate covers the whole app, so when it appears — and how far it got before giving up
+        // — is the first thing anyone diagnosing a "the app showed an error on startup" report
+        // needs. Nothing else records it: the failure code alone cannot say which reason opened
+        // the gate or which phase it died in.
+        //
+        // Collecting the StateFlow conflates phases that pass before this collector resumes, which
+        // is the right trade rather than a gap: a phase worth seeing is one the attempt sat in, and
+        // that one is never superseded in time to be dropped. The alternative — logging at every
+        // assignment — would scatter the same statement across a dozen sites.
+        viewModelScope.launch {
+            _state.collect { current -> DebugLog.log("startup", describe(current)) }
+        }
         // Automatic backoff may recover after the 15-second UI timeout. If that happens while the
         // failure actions are visible, dismiss the gate without requiring an unnecessary tap.
         viewModelScope.launch {
@@ -130,6 +143,14 @@ class StartupViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun describe(state: StartupUiState): String = when (state) {
+        StartupUiState.Hidden -> "hidden"
+        is StartupUiState.Loading -> "${state.reason} · ${state.phase}"
+        is StartupUiState.Failed -> "${state.reason} · FAILED ${state.failure} (${state.failure.code})"
+        is StartupUiState.RepairRequired ->
+            "${state.reason} · REPAIR ${state.failure} (${state.failure.code})"
     }
 
     /** Called once from Activity.onCreate. Configuration changes are not process-cold starts. */

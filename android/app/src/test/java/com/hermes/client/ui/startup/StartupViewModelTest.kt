@@ -2,6 +2,7 @@ package com.hermes.client.ui.startup
 
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.ConnectivityChecker
 import com.hermes.client.data.network.GatewayProbeResult
@@ -126,6 +127,30 @@ class StartupViewModelTest {
         assertEquals(StartupReason.COLD_START, failed.reason)
         assertEquals(StartupFailure.INITIAL_DATA_FAILED, failed.failure)
         assertEquals("HR-RPC-001", failed.failure.code)
+    }
+
+    /**
+     * The gate covers the whole app, and a report of "it showed an error on startup" arrives as a
+     * screenshot of one failure code. The code alone cannot say which reason opened the gate or
+     * how far it got, so the trail has to be in the log.
+     */
+    @Test fun theStartupGateRecordsItsReasonPhaseAndOutcome() = runTest {
+        DebugLog.setEnabled(true)
+        DebugLog.clear()
+        coEvery { sessions.listAllProfiles() } throws RuntimeException("sessions unavailable")
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        connection.value = ConnectionState.Connected
+        runCurrent()
+
+        // Phases that pass instantly are conflated away by the StateFlow; the reason the gate
+        // opened and the outcome it reached are what the trail has to carry.
+        val trail = DebugLog.entries.value.filter { it.category == "startup" }.map { it.message }
+        assertTrue(trail.toString(), trail.any { it.contains("COLD_START") })
+        assertTrue(trail.toString(), trail.any { it.contains("FAILED") && it.contains("HR-RPC-001") })
+        DebugLog.setEnabled(false)
     }
 
     @Test fun retryAfterInitialSessionFailureRepeatsColdPreloadWithoutReconnectingHealthySocket() = runTest {
