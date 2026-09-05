@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hermes-go.invalid/schemas/postgresql-provision-config-v1.json",
+  "title": "Hermes GO production PostgreSQL initialization configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "environment", "operator", "hostname", "serviceName", "databaseName", "roleName", "passwordFile", "databaseUrlFile", "postgresqlMajorVersion", "postgresqlPort"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "environment": { "const": "production" },
+    "operator": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+    "hostname": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$" },
+    "serviceName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9@.-]{0,62}$" },
+    "databaseName": { "$ref": "#/$defs/sqlName" },
+    "roleName": { "$ref": "#/$defs/sqlName" },
+    "passwordFile": { "$ref": "#/$defs/absolutePath" },
+    "databaseUrlFile": { "$ref": "#/$defs/absolutePath" },
+    "postgresqlMajorVersion": { "const": 18 },
+    "postgresqlPort": { "const": 5432 }
+  },
+  "$defs": {
+    "sqlName": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+    "absolutePath": { "type": "string", "pattern": "^/(?!/)[^\\u0000-\\u001f\\u007f]+$" }
+  }
+}

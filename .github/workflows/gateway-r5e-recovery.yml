@@ -14,6 +14,7 @@ on:
       - "scripts/package-gateway-bundle.sh"
       - "scripts/package-gateway-image.sh"
       - "scripts/postgresql-recovery.mjs"
+      - "scripts/postgresql-provision.mjs"
       - "scripts/test/postgresql-recovery-e2e.mjs"
       - "scripts/write-gateway-bundle-manifest.mjs"
   workflow_dispatch:

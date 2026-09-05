@@ -97,6 +97,13 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "inspect_managed_baseline_stage_and_retry",
   }),
+  databaseProvision: Object.freeze({
+    code: "HR-OPS-015",
+    summaryZh: "PostgreSQL 生产数据库初始化未完成，账号功能保持关闭。请检查初始化阶段后重试。",
+    summaryEn: "Production PostgreSQL initialization did not complete; account features remain disabled. Inspect the initialization stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_database_provision_stage_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;

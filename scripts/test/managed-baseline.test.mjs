@@ -222,6 +222,11 @@ test("R5-D operator bundle manifest binds one safe archive to the exact source c
   await assert.rejects(() => loadProductionBaselineBundleManifest(manifestPath), isCode("HR-OPS-014"));
 });
 
+test("the immutable operator bundle carries the R5-E2 production entrypoint", async () => {
+  const packager = await readFile("scripts/package-production-baseline-bundle.mjs", "utf8");
+  assert.match(packager, /"scripts\/postgresql-provision\.mjs"/);
+});
+
 async function createFixture(t) {
   const base = await realpath(await mkdtemp(path.join(tmpdir(), "managed-baseline-test-")));
   t.after(() => rm(base, { recursive: true, force: true }));

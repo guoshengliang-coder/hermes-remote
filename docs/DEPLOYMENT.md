@@ -181,6 +181,13 @@ restart, and account-feature enablement each require production authorization an
 point. R4-F prepares schema while both account flags remain `0`; it does not authorize Google login or
 make PostgreSQL authoritative for existing Token clients.
 
+The R5-E1 read-only check passed on 2026-09-05. Role/database creation must use the strict
+`scripts/postgresql-provision.mjs` entrypoint and `ops/postgresql.provision.example.json`; do not paste SQL or a
+password into an interactive shell. The entrypoint accepts only an entirely absent role/database/URL state,
+requires PostgreSQL 18 on loopback with statement/audit logging unable to capture the credential, verifies the
+least-privilege result, and removes objects created by a failed attempt. It does not migrate schema or alter the
+Gateway. Source availability still does not authorize running it in production.
+
 A same-host database is also a same-host failure domain. Before production migration, create an
 encrypted logical backup, copy it off the HK host, restore it into a separate disposable database, and
 run schema plus account smoke checks against the restored copy. Daily backup retention, failure alerts,

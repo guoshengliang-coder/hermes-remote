@@ -164,6 +164,8 @@ test('R5-E recovery uses only disposable PostgreSQL 18 and a manifest-bound immu
   assert.match(harness, /capturePostgresqlBackup/);
   assert.match(harness, /verifyPostgresqlRestore/);
   assert.match(harness, /publishPostgresqlBackupStatus/);
+  assert.match(harness, /provisionPostgresql/);
+  assert.match(harness, /databaseProvisioned: true/);
   assert.match(harness, /account_smoke_transaction_not_rolled_back/);
 });
 

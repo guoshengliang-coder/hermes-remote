@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "environment": "production",
+  "operator": "replace-with-operator",
+  "hostname": "replace-with-production-hostname",
+  "serviceName": "postgresql@18-main",
+  "databaseName": "hermes_go_account",
+  "roleName": "hermes_go_gateway",
+  "passwordFile": "/secure-input/hermes-go/account-database-password",
+  "databaseUrlFile": "/secure-input/hermes-go/account-database-url",
+  "postgresqlMajorVersion": 18,
+  "postgresqlPort": 5432
+}
