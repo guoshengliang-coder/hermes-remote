@@ -191,6 +191,11 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.92 ships no app-visible change: the APK is functionally identical to 0.1.91.
+  The only commit behind it fixes `scripts/dev/dev-stack.sh`, a developer-machine tool that is
+  not part of the package — it used to free its ports by killing whatever held them, which on
+  2026-09-04 would have taken down an unrelated project's dev server listening on 8787. It now
+  tracks the PIDs it starts and refuses to start when a port belongs to someone else.
 - Version 0.1.91 keeps a running task connected while you switch away, and stops reporting outages
   the task never noticed. Backgrounding the app mid-run used to drop the socket 45 seconds later
   and greet you with "reconnecting" on your return: the notification switch was evaluated before
