@@ -88,4 +88,8 @@ test("Gateway candidate smoke can split public and private verification routes s
   assert.match(verifier, /const relayHealth = await fetchJson\(relayHealthPath\)/);
   assert.equal(verifier.includes('required("INTERNAL_GATEWAY_URL")'), false);
   assert.equal(verifier.includes('required("RELAY_HEALTH_PATH")'), false);
+  assert.match(verifier, /waitForGatewayForwarding/);
+  assert.match(verifier, /runGatewaySmokeCheck\("release_identity"/);
+  assert.match(verifier, /runGatewaySmokeCheck\("websocket_forward"/);
+  assert.match(verifier, /statusMode === "live"/);
 });

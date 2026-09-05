@@ -224,7 +224,7 @@ for the dependency-free code snapshot, status-writer contract, validation sequen
 boundary. The dedicated entrypoint must be used by systemd; `scripts/hermesctl.mjs` remains available for
 interactive compatibility but loads unrelated deployment modules and is not the production timer entrypoint.
 
-## Production managed baseline (R5-D; production not executed)
+## Production managed baseline (R5-D; adoption pending)
 
 R5-D keeps the ordinary `hermesctl deploy/rollback` commands staging-only. Its dedicated
 `scripts/production-baseline.mjs` entrypoint accepts only a strict production configuration, an exact
@@ -239,9 +239,25 @@ and private temporary directory on success or failure. Never copy Mac Hermes cre
 never replace the bundled smoke runtime with an ad-hoc script. Schema version 1 remains readable solely to audit
 artifacts produced before this boundary was closed.
 
+The operator packager must also start the staged candidate verifier before creating the archive, proving that
+its local module closure is present. The disposable R5-D workflow must package, verify, extract, and execute that
+exact operator archive instead of calling the checkout entrypoint. After Connector attachment, the verifier gives
+transient connection and 5xx forwarding responses a bounded 20-attempt readiness window; authentication,
+response-contract, identity, and capability failures remain immediate. Deployment captures only the verifier's
+allowlisted `HR-RELEASE-003`
+`smoke_check` value. Unstructured stderr is never copied into the production diagnostic. Private candidate smoke
+uses the exact disposable mock-Hermes response contract, while post-switch public smoke accepts a nonempty JSON
+status and error-free `session.create` object from the real Mac Hermes path instead of requiring mock-only fields.
+
 Do not generate the production Nginx file from the staging template. Start from the actual production site
 file, preserve every unrelated route, replace only the Gateway upstream, review the complete diff, and pin its
 SHA-256 in the private configuration. The switch installs that exact file and restores the original bytes if
 validation, reload, state handoff, observation, or smoke fails. See `CLOUD_GATEWAY_R5_MANAGED_BASELINE.md` for
 the config, topology, disposable test, maintenance-window checklist, and recovery boundary. Source review or a
 successful disposable workflow does not authorize running this command on the HK host.
+
+The first two authorized production attempts did not complete adoption. The first stopped before candidate start
+on Docker 29/containerd image-ID representation. The second loaded the corrected image and started blue, then
+stopped before route switch when the packaged smoke verifier could not load an omitted local dependency. Both
+attempts left the legacy Gateway and public routes healthy. A `candidate_started` journal may resume only the exact
+same plan and artifact after the R5-D6 gates pass; a different plan remains fail-closed.

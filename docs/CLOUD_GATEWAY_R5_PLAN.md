@@ -136,3 +136,13 @@ manifest 只记录经典 config digest，因此在 `artifact_image_inspect` fail
 schema v3 同时绑定 archive 内的 config/OCI 两个 digest，运行时仍只接受精确清单值；同时只允许有失败
 审计、停在 `checkpoint_created`、候选未启动/未监听且 release/Nginx/upstream 检查点未漂移的 journal
 原子归档后续跑。该修复本地与一次性测试完成前不得再次生产接管。
+
+使用合并提交 `25345666167a` 的第二次正式接管成功加载 Docker 29/containerd 镜像并启动 blue 候选，但
+完整 smoke 在切流前返回 `gateway_smoke_failed=1`。入口停止并删除候选，旧 Gateway 保持 active/enabled，
+8444、5432 仍只监听 loopback，Nginx/current/upstream 均与检查点一致；随后公网 Token、REST、WebSocket
+与 APK 发布 health 复核通过。复盘确认运维 bundle 漏装候选验证器依赖的
+`scripts/lib/release-errors.mjs`，而一次性演练从 Git checkout 运行，未覆盖解压 bundle 自包含性；被忽略的
+子进程 stderr 又把模块加载错误压缩成无细节退出码。R5-D6 将 release error 与就绪 helper 一并纳入 bundle，
+在打包时从 staging root 实际启动验证器，加入 Connector 挂接后的有界 REST 转发就绪等待，并只上送稳定、
+脱敏的 allowlist smoke 子阶段。生产 journal 保持 `candidate_started`，只允许同一计划重做候选验证；
+R5-D6 合并、最新 main OCI 制品和一次性演练全部通过前不得再次生产接管。

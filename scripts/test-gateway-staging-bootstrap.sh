@@ -343,6 +343,30 @@ if [ "${HERMES_R5D_ONLY:-0}" = 1 ]; then
   managed_install_root=/opt/hermes-go-r5d-ephemeral
   managed_config_root=/etc/hermes-go-r5d-ephemeral
   managed_state_root=/var/lib/hermes-go-r5d-ephemeral
+  r5d_ops_bundle_dir="$run_dir/r5d-ops-bundle"
+  r5d_ops_root="$run_dir/r5d-ops-runtime"
+  mkdir -m 0700 "$r5d_ops_bundle_dir" "$r5d_ops_root"
+  if ! r5d_ops_bundle_output=$(node scripts/package-production-baseline-bundle.mjs "$r5d_ops_bundle_dir"); then
+    report_failure prerequisite "production_baseline_bundle_package_failed"
+    exit 1
+  fi
+  printf '%s\n' "$r5d_ops_bundle_output"
+  r5d_ops_manifest_path=$(printf '%s\n' "$r5d_ops_bundle_output" | sed -n 's/^MANIFEST=//p')
+  r5d_ops_archive_path=$(printf '%s\n' "$r5d_ops_bundle_output" | sed -n 's/^ARCHIVE=//p')
+  r5d_ops_source_commit=$(printf '%s\n' "$r5d_ops_bundle_output" | sed -n 's/^SOURCE_COMMIT=//p')
+  if [ -z "$r5d_ops_manifest_path" ] || [ -z "$r5d_ops_archive_path" ] \
+      || [ "$r5d_ops_source_commit" != "$database_source_commit" ]; then
+    report_failure candidate "production_baseline_bundle_identity_invalid"
+    exit 1
+  fi
+  node scripts/verify-production-baseline-bundle.mjs "$r5d_ops_manifest_path"
+  tar -xzf "$r5d_ops_archive_path" -C "$r5d_ops_root"
+  node "$r5d_ops_root/scripts/verify-production-baseline-bundle.mjs" "$r5d_ops_manifest_path"
+  r5d_ops_entrypoint="$r5d_ops_root/scripts/production-baseline.mjs"
+  if [ ! -f "$r5d_ops_entrypoint" ]; then
+    report_failure candidate "production_baseline_bundle_entrypoint_missing"
+    exit 1
+  fi
   r3_archive_path=$(node --input-type=module -e '
     import { readFileSync } from "node:fs";
     import path from "node:path";
@@ -450,7 +474,7 @@ EOF
     "HERMES_BASIC_AUTH_PASSWORD=secret" \
     "FILES_ROOT=$run_dir/runtime/candidate" \
     "UPLOAD_ROOT=$run_dir/runtime/candidate/uploads" \
-    node scripts/production-baseline.mjs \
+    node "$r5d_ops_entrypoint" \
       --config "$production_config_path" \
       --confirm "production:${production_hostname}"
 

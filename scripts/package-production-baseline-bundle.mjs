@@ -55,6 +55,7 @@ try {
   ].join(" ")], {
     cwd: temporaryRoot,
   });
+  verifyStagedSmokeEntrypoint(temporaryRoot);
 
   const sourceShort = sourceCommit.slice(0, 12);
   const archiveFile = `Hermes-R5D-Ops-${sourceShort}.tar.gz`;
@@ -128,7 +129,7 @@ function assertCleanSource() {
 }
 
 async function stageRuntime(root) {
-  for (const directory of ["scripts", "ops/lib", "connector/dist", "protocol/dist", "gateway", "release-server"]) {
+  for (const directory of ["scripts/lib", "ops/lib", "connector/dist", "protocol/dist", "gateway", "release-server"]) {
     await mkdir(path.join(root, directory), { recursive: true, mode: 0o755 });
   }
   for (const file of ["package.json", "package-lock.json", "connector/package.json", "protocol/package.json",
@@ -142,12 +143,36 @@ async function stageRuntime(root) {
     "scripts/verify-production-baseline-bundle.mjs",
     "scripts/verify-gateway-image-candidate.mjs",
     "scripts/smoke-compat-client.mjs",
+    "scripts/lib/release-errors.mjs",
+    "scripts/lib/gateway-candidate-smoke.mjs",
   ]) await copyFile(file, root);
   const connectorFiles = (await readdir(path.join(repoRoot, "connector/dist")))
     .filter((name) => name.endsWith(".js") && !name.endsWith(".test.js"))
     .sort();
   for (const name of connectorFiles) await copyFile(path.join("connector/dist", name), root);
   await copyFile("protocol/dist/index.js", root);
+}
+
+function verifyStagedSmokeEntrypoint(root) {
+  const result = spawnSync(process.execPath, ["scripts/verify-gateway-image-candidate.mjs"], {
+    cwd: root,
+    encoding: "utf8",
+    env: {},
+    maxBuffer: 64 * 1024,
+    timeout: 10_000,
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let diagnostic;
+  try {
+    diagnostic = JSON.parse(String(result.stderr ?? "").trim());
+  } catch {}
+  if (result.error || result.status !== 1
+      || diagnostic?.code !== "HR-RELEASE-003"
+      || diagnostic?.stage !== "gateway_oci_smoke"
+      || diagnostic?.technicalCause !== "smoke_check=configuration") {
+    fail("production_baseline_bundle_smoke_entrypoint_invalid");
+  }
 }
 
 async function copyFile(relative, root) {

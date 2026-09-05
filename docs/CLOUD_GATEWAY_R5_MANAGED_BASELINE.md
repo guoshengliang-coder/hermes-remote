@@ -59,10 +59,24 @@ archive 内严格验证 Docker manifest、OCI index、OCI manifest、config dige
 运行时只接受这两个已签入值之一，并把目标主机实际识别的那个不可变 ID 写入 systemd unit。这样兼容
 Docker 29 默认 containerd image store，但不会把校验放宽为接受任意 `docker load` 结果。
 
+R5-D6 要求运维 bundle 自包含候选 smoke 的完整模块闭包。打包器会在临时 staging root 内实际启动
+`scripts/verify-gateway-image-candidate.mjs`，并只接受它返回预期的结构化“缺少运行参数”诊断；缺少任一
+运行时 import、错误入口无法启动或输出不是受控 JSON，都会在生成 archive 前 fail-closed。候选 Connector
+挂接后，验证器对暂时不可达或 5xx 的 Hermes REST 转发执行最多 20 次、每次间隔 250 ms 的有界就绪等待；
+401/403、成功响应合同漂移、镜像身份或能力漂移仍立即失败。父进程只从 stderr 接受
+`HR-RELEASE-003` 加 `smoke_check=<allowlisted-stage>`，不会把任意子进程输出、Secret 或路径复制进
+`HR-OPS-014` 技术诊断。私有候选验证显式使用 `mock` 模式并要求一次性 Hermes 的精确响应；切流后的
+公网验证显式使用 `live` 模式，要求真实 Hermes 返回非空 JSON 对象且 WebSocket `session.create` 无错误，
+不再把 mock 专属的 `{status, version}` 或 `{ok: true}` 形状错误套到真实 Mac Connector。
+一次性 R5-D 工作流还必须现场生成、校验并解压运维 bundle，再从该解压目录执行正式入口；不得用 checkout
+入口代替制品演练。
+
 若一次生产接管在 `checkpoint_created` 后、候选启动和切流前失败，下一份同源受管基线可以安全续跑：旧
 journal 必须有匹配 `runId` 的失败审计，source、活动/候选槽和当前 release/Nginx/upstream 检查点必须与
 现状完全一致，候选 unit 必须 inactive 且端口空闲。满足全部条件后，旧 journal 原子归档为
 `deploy-state.failed.<runId>.json`，再创建新计划；任何缺项或更晚阶段一律保持冲突并 fail-closed。
+同一份计划停在 `candidate_started` 时允许使用完全相同的配置和制品安全续跑：入口重新取得锁、重装同一
+不可变候选、重做完整私有 smoke 后才可前进；不同计划仍不得替换或归档这个较晚阶段的 journal。
 
 生产入口在任何接管动作前创建权限隔离的临时目录，随机生成一次性 Basic Auth 与 Cookie，只在随机
 `127.0.0.1` 端口启动模拟 Hermes，并把白名单环境交给测试 Connector。Mac 的 Hermes 地址、用户名、
@@ -75,7 +89,9 @@ smoke 子进程并删除临时目录；该 runtime 只验证候选 Gateway 的 C
 单元和故障注入覆盖严格 parser、错误确认值、主机不匹配、旧 identity 漂移、证据绑定、账号/数据库
 关闭、受管描述符幂等、production capability 隔离、loopback-only smoke 认证与 WebSocket、失败后的
 目录/监听/子进程清理，以及公开 smoke 失败后专用 legacy smoke、旧 unit、原 Nginx、release links 和
-最新 lifecycle 状态的恢复。
+最新 lifecycle 状态的恢复。R5-D6 另外覆盖解压运维 bundle 的 smoke 依赖闭包、暂时性 5xx/连接错误的
+有界重试、认证与响应合同的立即失败、allowlist-only 诊断，以及 `candidate_started` 同计划续跑和异计划
+拒绝。
 
 手动 workflow `Gateway R5-D Managed Baseline` 在一次性 Ubuntu 24.04 runner 内建立 R3 legacy 服务、
 本地 CA、Nginx、真实 Connector 与两个隔离槽，生成仅供本次 runner 使用的恢复证据，然后用 R4 0.3.0
@@ -92,8 +108,8 @@ smoke 子进程并删除临时目录；该 runtime 只验证候选 Gateway 的 C
 2. R5-B 加密恢复证据仍在 30 天内，旧 identity 文件没有变化；
 3. 候选 Nginx 完整配置的 diff 和 SHA-256，确认没有删除发布服务或其他既有路由；
 4. blue/green 端口空闲、旧 8444 与 PostgreSQL 5432 仍只监听 loopback；
-5. schema v2 运维 bundle 的内置 loopback smoke runtime 与 Connector 入口验证通过，维护窗内允许短暂
-   停止旧 Gateway 与重载 Nginx；不得向香港主机复制 Mac Hermes 凭据；
+5. schema v2 运维 bundle 的内置 loopback smoke runtime、Connector 与候选验证器依赖闭包均通过解压后
+   启动检查，维护窗内允许短暂停止旧 Gateway 与重载 Nginx；不得向香港主机复制 Mac Hermes 凭据；
 6. 明确的失败判定：任何私有/公开 smoke、状态交接、`nginx -t`、reload 或观察失败都立即恢复旧服务；
 7. 项目所有者明确授权本次 R5-D 生产接管后，才运行：
 
