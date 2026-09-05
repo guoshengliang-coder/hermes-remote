@@ -1660,8 +1660,9 @@ private fun ChatFileList(
     files: List<ChatFile>,
     onOpen: (ChatFile) -> Unit,
     onShare: (ChatFile) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         files.forEach { file ->
             Surface(
                 shape = RoundedCornerShape(14.dp),
@@ -1846,10 +1847,6 @@ internal fun AssistantTurn(
                 ChatImageGrid(msg.images, onImageSave, onImageSaveAs, onImageShare, savingImageId)
                 if (renderedText.isNotBlank() || msg.files.isNotEmpty()) Spacer(Modifier.height(8.dp))
             }
-            if (msg.files.isNotEmpty()) {
-                ChatFileList(msg.files, onFileOpen, onFileShare)
-                if (renderedText.isNotBlank()) Spacer(Modifier.height(8.dp))
-            }
             if (renderedText.isNotBlank()) {
                 if (msg.isError) {
                     Surface(
@@ -1879,6 +1876,13 @@ internal fun AssistantTurn(
                         }
                     }
                 }
+            }
+            // Attachments sit BELOW the prose (docs/DESIGN.md §5.4, decision 2026-09-05): an assistant
+            // file is the artifact the prose just delivered, and a long report scrolls the card out of
+            // view when it renders on top — users read to the end and conclude nothing was delivered.
+            if (msg.files.isNotEmpty()) {
+                if (renderedText.isNotBlank() || msg.images.isNotEmpty()) Spacer(Modifier.height(8.dp))
+                ChatFileList(msg.files, onFileOpen, onFileShare, Modifier.testTag("chat-files-${msg.id}"))
             }
             val showCompletedActions = showActions && !msg.isStreaming && msg.text.isNotBlank() && !msg.isError
             if (msg.isStreaming || showCompletedActions) Box(Modifier.fillMaxWidth().height(48.dp)) {
