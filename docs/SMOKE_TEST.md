@@ -567,7 +567,7 @@ when the phone is asleep — the fix only guarantees that what is shown is true 
    chat and reopen it: the timeline is folded to「N 次工具调用 · 耗时」; tap to unfold; every row
    now carries the real target name (`mcp__…`, not `tool_call`), its output and exit code —
    identical to what streamed live.
-7. **Refresh as a truth check (0.1.95).** With a run that finished while the phone slept (case 1),
+7. **Refresh as a truth check (0.1.96).** With a run that finished while the phone slept (case 1),
    press the chat refresh button *before* the list row updates on its own. Expected: within about a
    second the bubble closes and the toast says「已同步 · 运行已结束」; the composer offers 发送. On a
    run that is genuinely still going, the toast says「已同步 · 仍在运行 · 已运行 N 分钟」 and nothing
