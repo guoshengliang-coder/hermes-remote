@@ -245,6 +245,106 @@ export async function archiveCommittedDeploymentJournal(filePath, historyRoot, e
   }
 }
 
+export async function archiveSupersededPreSwitchDeploymentJournal(
+  filePath,
+  historyRoot,
+  auditPath,
+  expected,
+  currentCheckpoint,
+  owner,
+) {
+  let existing;
+  let originalInfo;
+  try {
+    originalInfo = await lstat(filePath);
+    existing = await readDeploymentJournal(filePath);
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+
+  if (sameDeploymentPlan(existing, expected)) return null;
+  if (existing.stage !== "checkpoint_created"
+      || existing.operation !== "deploy"
+      || existing.activeSlot !== null
+      || existing.candidateSlot !== expected.candidateSlot
+      || JSON.stringify(existing.source) !== JSON.stringify(expected.source)
+      || JSON.stringify(existing.checkpoint) !== JSON.stringify(currentCheckpoint)) {
+    fail("deployment_journal_conflict", "deploy_journal_resume");
+  }
+  if (!await auditRecordsFailure(auditPath, existing.runId)) {
+    fail("deployment_journal_failure_not_recorded", "deploy_journal_resume");
+  }
+
+  const archivePath = path.join(historyRoot, `deploy-state.failed.${existing.runId}.json`);
+  try {
+    let archiveMissing = false;
+    try {
+      const archived = await readDeploymentJournal(archivePath);
+      if (JSON.stringify(archived) !== JSON.stringify(existing)) {
+        fail("failed_journal_archive_conflict", "deploy_journal_archive");
+      }
+    } catch (error) {
+      if (error?.code === "ENOENT") archiveMissing = true;
+      else throw error;
+    }
+    if (archiveMissing) {
+      await atomicWrite(archivePath, `${JSON.stringify(existing, null, 2)}\n`, 0o600, owner);
+    }
+    const archived = await readDeploymentJournal(archivePath);
+    if (JSON.stringify(archived) !== JSON.stringify(existing)) {
+      fail("failed_journal_archive_mismatch", "deploy_journal_archive");
+    }
+    const currentInfo = await lstat(filePath);
+    if (currentInfo.dev !== originalInfo.dev || currentInfo.ino !== originalInfo.ino) {
+      fail("deployment_journal_changed", "deploy_journal_archive");
+    }
+    await unlink(filePath);
+    return { journal: existing, archivePath };
+  } catch (error) {
+    if (error instanceof OpsError) throw error;
+    fail(error instanceof Error ? error.message : error, "deploy_journal_archive");
+  }
+}
+
+function sameDeploymentPlan(existing, expected) {
+  return existing.planDigest === expected.planDigest
+    && existing.operation === expected.operation
+    && JSON.stringify(existing.source) === JSON.stringify(expected.source)
+    && JSON.stringify(existing.target) === JSON.stringify(expected.target)
+    && existing.activeSlot === expected.activeSlot
+    && existing.candidateSlot === expected.candidateSlot;
+}
+
+async function auditRecordsFailure(filePath, runId) {
+  let info;
+  let content;
+  try {
+    info = await lstat(filePath);
+    if (info.isSymbolicLink() || !info.isFile() || (info.mode & 0o077) !== 0
+        || info.size < 2 || info.size > 1024 * 1024) return false;
+    content = await readFile(filePath, "utf8");
+  } catch {
+    return false;
+  }
+  const records = [];
+  for (const line of content.split(/\r?\n/).filter(Boolean)) {
+    try {
+      const record = JSON.parse(line);
+      if (record?.runId === runId) records.push(record);
+    } catch {
+      return false;
+    }
+  }
+  const record = records.at(-1);
+  return record?.operation === "deploy"
+    && record.stage === "failed"
+    && record.result === "failed"
+    && /^HR-OPS-[0-9]{3}$/.test(record.errorCode)
+    && typeof record.finishedAt === "string"
+    && Number.isFinite(Date.parse(record.finishedAt));
+}
+
 export async function acquireDeploymentLock(filePath, runId, {
   pid = process.pid,
   hostname = systemHostname(),
@@ -346,7 +446,7 @@ function validateIdentity(value, label) {
   token(value.serverVersion, /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/, `${label}_version`);
   token(value.sourceCommit, /^[0-9a-f]{40}$/, `${label}_commit`);
   token(value.imageId, /^sha256:[0-9a-f]{64}$/, `${label}_image`);
-  if (![1, 2].includes(value.manifestSchemaVersion)) fail(`${label}_manifest_schema_invalid`, "deploy_journal_validate");
+  if (![1, 2, 3].includes(value.manifestSchemaVersion)) fail(`${label}_manifest_schema_invalid`, "deploy_journal_validate");
   if (!(value.databaseSchemaVersion === null || (Number.isSafeInteger(value.databaseSchemaVersion) && value.databaseSchemaVersion > 0))) {
     fail(`${label}_database_schema_invalid`, "deploy_journal_validate");
   }

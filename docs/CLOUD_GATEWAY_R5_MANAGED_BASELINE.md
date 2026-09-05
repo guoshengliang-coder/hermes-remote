@@ -53,6 +53,17 @@ R5-D4 将独立校验入口 `scripts/verify-production-baseline-bundle.mjs` 一�
 `scripts/verify-production-baseline-bundle.mjs`，且运维 bundle、Gateway bundle 和当前 `main` 必须是同一
 个完整提交。不能在生产主机临时安装 npm、复用旧 Connector 或从另一个提交拼接脚本。
 
+R5-D5 将 Gateway bundle manifest 提升为 schema v3；运维 manifest 仍保持 schema v2。Gateway manifest
+同时绑定经典 Docker 的 config image ID 和 OCI index 中的 manifest descriptor ID。打包器从同一个已哈希
+archive 内严格验证 Docker manifest、OCI index、OCI manifest、config digest 和 linux/amd64 平台关系，
+运行时只接受这两个已签入值之一，并把目标主机实际识别的那个不可变 ID 写入 systemd unit。这样兼容
+Docker 29 默认 containerd image store，但不会把校验放宽为接受任意 `docker load` 结果。
+
+若一次生产接管在 `checkpoint_created` 后、候选启动和切流前失败，下一份同源受管基线可以安全续跑：旧
+journal 必须有匹配 `runId` 的失败审计，source、活动/候选槽和当前 release/Nginx/upstream 检查点必须与
+现状完全一致，候选 unit 必须 inactive 且端口空闲。满足全部条件后，旧 journal 原子归档为
+`deploy-state.failed.<runId>.json`，再创建新计划；任何缺项或更晚阶段一律保持冲突并 fail-closed。
+
 生产入口在任何接管动作前创建权限隔离的临时目录，随机生成一次性 Basic Auth 与 Cookie，只在随机
 `127.0.0.1` 端口启动模拟 Hermes，并把白名单环境交给测试 Connector。Mac 的 Hermes 地址、用户名、
 密码、Cookie 和 WS ticket 不会进入香港主机。成功、失败和正常进程退出都会关闭监听、终止仍存活的
@@ -77,7 +88,7 @@ smoke 子进程并删除临时目录；该 runtime 只验证候选 Gateway 的 C
 生产运行前必须重新完成并人工复核：
 
 1. 从匹配 `main` 成功构建下载目标 Gateway 与运维两个 bundle；两者 archive、manifest、commit 与
-   image ID/入口完全一致；
+   config/OCI 双 image ID 和入口完全一致；
 2. R5-B 加密恢复证据仍在 30 天内，旧 identity 文件没有变化；
 3. 候选 Nginx 完整配置的 diff 和 SHA-256，确认没有删除发布服务或其他既有路由；
 4. blue/green 端口空闲、旧 8444 与 PostgreSQL 5432 仍只监听 loopback；

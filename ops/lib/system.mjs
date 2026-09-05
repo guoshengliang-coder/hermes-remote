@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, open, readFile, readlink, rename, symlink, unlink } from "node:fs/promises";
 import path from "node:path";
+import { runtimeImageIds } from "./config.mjs";
 import { OpsError } from "./errors.mjs";
 
 export function createCommandRunner({ timeoutMs = 15_000 } = {}) {
@@ -50,7 +51,10 @@ export function renderGatewayEnvironment(config) {
   ].join("\n");
 }
 
-export function renderSystemdUnit(config, manifest) {
+export function renderSystemdUnit(config, manifest, runtimeImageId = manifest.imageId) {
+  if (!runtimeImageIds(manifest).includes(runtimeImageId)) {
+    throw new OpsError("artifact", "runtime_image_identity_mismatch", "configuration_install");
+  }
   const { configRoot, stateRoot } = config.paths;
   const service = config.service;
   return `[Unit]
@@ -62,7 +66,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStartPre=-/usr/bin/docker rm --force ${service.containerName}
-ExecStart=/usr/bin/docker run --name ${service.containerName} --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000 --cap-drop=ALL --security-opt=no-new-privileges --memory=256m --cpus=1 --pids-limit=128 --publish 127.0.0.1:${service.gatewayPort}:8787 --env-file ${configRoot}/gateway.env --mount type=bind,src=${configRoot}/secrets,dst=/run/hermes-go/secrets,readonly --mount type=bind,src=${stateRoot}/gateway,dst=/var/lib/hermes-go --log-driver=local --log-opt max-size=10m --log-opt max-file=3 ${manifest.imageId}
+ExecStart=/usr/bin/docker run --name ${service.containerName} --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000 --cap-drop=ALL --security-opt=no-new-privileges --memory=256m --cpus=1 --pids-limit=128 --publish 127.0.0.1:${service.gatewayPort}:8787 --env-file ${configRoot}/gateway.env --mount type=bind,src=${configRoot}/secrets,dst=/run/hermes-go/secrets,readonly --mount type=bind,src=${stateRoot}/gateway,dst=/var/lib/hermes-go --log-driver=local --log-opt max-size=10m --log-opt max-file=3 ${runtimeImageId}
 ExecStop=/usr/bin/docker stop --time 20 ${service.containerName}
 Restart=always
 RestartSec=3

@@ -20,6 +20,7 @@ import {
   loadDeployConfig,
   loadOpsConfig,
   manifestIdentity,
+  runtimeImageIds,
 } from "../../ops/lib/config.mjs";
 import {
   createOpsError,
@@ -34,6 +35,7 @@ import {
   bootstrapStaging,
   createDoctorBundle,
   getStatus,
+  inspectLoadedImage,
   preflight,
 } from "../../ops/lib/hermesctl.mjs";
 import {
@@ -117,7 +119,7 @@ test("R4 deploy config strictly isolates two staging slots", async (t) => {
   await assert.rejects(() => loadDeployConfig(configPath), isOpsCode("HR-OPS-001"));
 });
 
-test("bundle manifest v2 embeds a strict release contract while v1 remains readable", async (t) => {
+test("bundle manifest v3 binds both Docker identities while v1 and v2 remain readable", async (t) => {
   const fixture = await createFixture(t);
   const legacy = await loadBundleManifest(fixture.manifestPath);
   assert.equal(legacy.schemaVersion, 1);
@@ -137,6 +139,20 @@ test("bundle manifest v2 embeds a strict release contract while v1 remains reada
     JSON.stringify(manifestIdentity({ ...manifestV2, releaseContract: reorderedContract })),
   );
 
+  const manifestV3 = {
+    ...manifestV2,
+    schemaVersion: 3,
+    containerdImageId: `sha256:${"c".repeat(64)}`,
+  };
+  await writeJson(fixture.manifestPath, manifestV3);
+  const parsedV3 = await loadBundleManifest(fixture.manifestPath);
+  assert.deepEqual(runtimeImageIds(parsedV3), [manifestV3.imageId, manifestV3.containerdImageId]);
+  assert.equal(manifestIdentity(parsedV3).containerdImageId, manifestV3.containerdImageId);
+  const missingContainerdId = { ...manifestV3 };
+  delete missingContainerdId.containerdImageId;
+  await writeJson(fixture.manifestPath, missingContainerdId);
+  await assert.rejects(() => loadBundleManifest(fixture.manifestPath), isOpsCode("HR-OPS-002"));
+
   await writeJson(fixture.manifestPath, {
     ...manifestV2,
     releaseContract: { ...manifestV2.releaseContract, unexpected: true },
@@ -148,12 +164,18 @@ test("release transition matrix rejects unsafe deploy and rollback paths", () =>
   const legacy = releaseManifest("0.2.0", 1);
   const r4 = releaseManifest("0.3.0", 2);
   const next = releaseManifest("0.4.0", 2, { manifestVersion: 2 });
+  const containerdNext = {
+    ...releaseManifest("0.5.0", 2, { manifestVersion: 2 }),
+    schemaVersion: 3,
+    containerdImageId: `sha256:${"e".repeat(64)}`,
+  };
 
   const deploy = assessReleaseTransition(legacy, r4, { operation: "deploy" });
   assert.equal(deploy.compatible, true);
   assert.equal(deploy.source.serverVersion, "0.2.0");
   assert.equal(compareVersions("0.10.0", "0.9.9"), 1);
   assert.equal(compareVersions("1.0.0", "1.0.0"), 0);
+  assert.equal(assessReleaseTransition(r4, containerdNext, { operation: "deploy" }).compatible, true);
 
   assert.throws(
     () => assessReleaseTransition(legacy, releaseManifest("0.3.0", 2, { minimumSourceVersion: "0.2.1" }), { operation: "deploy" }),
@@ -479,7 +501,8 @@ test("Gateway bundle packaging and hermesctl CLI remain wired to clean immutable
   assert.equal(/docker\s+(?:push|login)/.test(packageScript), false);
 
   const manifestWriter = await readFile("scripts/write-gateway-bundle-manifest.mjs", "utf8");
-  assert.match(manifestWriter, /schemaVersion: 2/);
+  assert.match(manifestWriter, /schemaVersion: 3/);
+  assert.match(manifestWriter, /containerdImageId/);
   assert.match(manifestWriter, /releaseContract/);
 
   const cli = await readFile("scripts/hermesctl.mjs", "utf8");
@@ -487,6 +510,30 @@ test("Gateway bundle packaging and hermesctl CLI remain wired to clean immutable
     assert.equal(cli.includes(`\"${command}\"`), true);
   }
   assert.match(cli, /confirmation: args\.confirm/);
+});
+
+test("Docker classic and Docker 29 containerd image IDs are both exact manifest-bound identities", async () => {
+  const config = await loadOpsConfig("ops/staging.example.json");
+  const manifest = {
+    schemaVersion: 3,
+    imageReference: "hermes-remote-gateway:0.4.0-abcdef123456",
+    imageId: `sha256:${"a".repeat(64)}`,
+    containerdImageId: `sha256:${"b".repeat(64)}`,
+  };
+  for (const runtimeImageId of [manifest.imageId, manifest.containerdImageId]) {
+    const image = inspectLoadedImage({
+      run: () => ({ status: 0, stdout: `${runtimeImageId}|amd64\n`, stderr: "" }),
+    }, manifest);
+    assert.equal(image.imageId, runtimeImageId);
+    assert.match(renderSystemdUnit(config, manifest, runtimeImageId), new RegExp(runtimeImageId));
+  }
+  assert.throws(() => inspectLoadedImage({
+    run: () => ({ status: 0, stdout: `sha256:${"c".repeat(64)}|amd64\n`, stderr: "" }),
+  }, manifest), isOpsCode("HR-OPS-002"));
+  assert.throws(
+    () => renderSystemdUnit(config, manifest, `sha256:${"c".repeat(64)}`),
+    isOpsCode("HR-OPS-002"),
+  );
 });
 
 test("R4 command orchestration resolves the managed R3 source before prepare and switch", async (t) => {

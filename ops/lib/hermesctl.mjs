@@ -5,6 +5,8 @@ import path from "node:path";
 import {
   assertRegularFile,
   deploymentDigest,
+  manifestIdentity,
+  runtimeImageIds,
   sha256File,
 } from "./config.mjs";
 import { createOpsError, OpsError, redactOpsValue } from "./errors.mjs";
@@ -96,7 +98,7 @@ export async function preflight(config, manifest, options = {}) {
   );
   await inspectOptionalManagedFile(
     path.join(config.paths.systemdUnitDirectory, `${config.service.name}.service`),
-    renderSystemdUnit(config, manifest),
+    renderSystemdUnit(config, manifest, image.loaded ? image.imageId : manifest.imageId),
   );
   await inspectOptionalManagedFile(config.nginx.configFile, renderNginxConfig(config));
   const serviceUnit = `${config.service.name}.service`;
@@ -176,7 +178,7 @@ export async function bootstrapStaging(config, manifest, options = {}) {
       });
       if (loaded.status !== 0) throw new OpsError("artifact", "bundle_image_load_failed", "artifact_image_load");
     }
-    verifyLoadedImage(runner, manifest);
+    const runtimeImage = verifyLoadedImage(runner, manifest);
     await updateJournal(paths.journal, journal, stage, now, ownership.host);
 
     stage = "filesystem_ready";
@@ -184,7 +186,7 @@ export async function bootstrapStaging(config, manifest, options = {}) {
     await updateJournal(paths.journal, journal, stage, now, ownership.host);
 
     stage = "configuration_installed";
-    await installConfiguration(config, manifest, paths, ownership);
+    await installConfiguration(config, manifest, paths, ownership, runtimeImage.imageId);
     await updateJournal(paths.journal, journal, stage, now, ownership.host);
 
     stage = "services_started";
@@ -269,7 +271,7 @@ export async function getStatus(config, manifest, options = {}) {
     : ["absent", ""];
   const health = await probeGateway(fetchImpl, config.service.gatewayPort, "/healthz", "alive");
   const readiness = await probeGateway(fetchImpl, config.service.gatewayPort, "/readyz", "ready");
-  const imageMatches = containerImage === manifest.imageId;
+  const imageMatches = runtimeImageIds(manifest).includes(containerImage);
   const ok = serviceActive && nginxActive && nginxValid && containerState === "running" && imageMatches && health.ok && readiness.ok;
 
   return {
@@ -374,7 +376,7 @@ export function inspectLoadedImage(runner, manifest) {
   );
   if (result.status !== 0) return { loaded: false };
   const [imageId, architecture] = result.stdout.trim().split("|");
-  if (imageId !== manifest.imageId || architecture !== "amd64") {
+  if (!runtimeImageIds(manifest).includes(imageId) || architecture !== "amd64") {
     throw new OpsError("artifact", "loaded_image_identity_mismatch", "artifact_image_inspect");
   }
   return { loaded: true, imageId, architecture };
@@ -421,7 +423,7 @@ export async function verifyArchiveAtUse(manifest) {
   }
 }
 
-async function installConfiguration(config, manifest, paths, ownership) {
+async function installConfiguration(config, manifest, paths, ownership, runtimeImageId) {
   const material = await inspectInputMaterial(config);
   await atomicWrite(paths.appToken, `${material.app}\n`, 0o440, ownership.secret);
   await atomicWrite(paths.connectorToken, `${material.connector}\n`, 0o440, ownership.secret);
@@ -429,7 +431,7 @@ async function installConfiguration(config, manifest, paths, ownership) {
   await atomicWrite(paths.certificate, await readFile(config.nginx.certificateSource), 0o644, ownership.host);
   await atomicWrite(paths.privateKey, await readFile(config.nginx.privateKeySource), 0o600, ownership.host);
   await atomicWrite(paths.environment, renderGatewayEnvironment(config), 0o600, ownership.host);
-  await atomicWrite(paths.unit, renderSystemdUnit(config, manifest), 0o644, ownership.host);
+  await atomicWrite(paths.unit, renderSystemdUnit(config, manifest, runtimeImageId), 0o644, ownership.host);
   await atomicWrite(config.nginx.configFile, renderNginxConfig(config), 0o644, ownership.host);
 }
 
@@ -754,8 +756,7 @@ function validateDoctorOutput(outputPath) {
 }
 
 function stripArchivePath(manifest) {
-  const { archivePath: _archivePath, ...safe } = manifest;
-  return safe;
+  return manifestIdentity(manifest);
 }
 
 function stripInternalJournal(journal) {

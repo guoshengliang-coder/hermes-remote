@@ -97,6 +97,36 @@ test("Cloud Ops runs the versioned migration from the target image without expos
   assert.equal(args.includes("host"), true);
 });
 
+test("Cloud Ops migration pins the manifest-bound Docker 29 containerd image ID", () => {
+  const config = databaseDeployConfig();
+  const manifest = {
+    ...databaseManifest(),
+    schemaVersion: 3,
+    containerdImageId: `sha256:${"e".repeat(64)}`,
+  };
+  const runner = {
+    run: (_command, args) => ({
+      status: 0,
+      stdout: `DATABASE_MIGRATION_OK ${JSON.stringify({
+        schemaVersion: 7,
+        postgresqlMajor: 18,
+        appliedMigrations: [],
+      })}\n`,
+      stderr: "",
+      args,
+    }),
+  };
+  const result = verifyDatabaseMigration(config, manifest, runner, manifest.containerdImageId);
+  const args = migrationArguments(config, manifest, manifest.containerdImageId);
+  assert.equal(result.required, true);
+  assert.equal(args.includes(manifest.containerdImageId), true);
+  assert.equal(args.includes(manifest.imageId), false);
+  assert.throws(
+    () => migrationArguments(config, manifest, `sha256:${"f".repeat(64)}`),
+    (error) => error instanceof OpsError && createOpsError(error.kind, error.technicalCause, error.stage).code === "HR-OPS-009",
+  );
+});
+
 test("Cloud Ops maps migration failures to a redacted stable error", () => {
   const secret = "postgresql://user:do-not-leak@127.0.0.1/hermes";
   const runner = {

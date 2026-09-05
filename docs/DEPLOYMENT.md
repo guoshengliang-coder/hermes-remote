@@ -127,6 +127,11 @@ and use the Gateway manifest as `targetArtifactManifest`; never substitute a han
 bundles from different commits. Verify the operator archive with
 `scripts/verify-production-baseline-bundle.mjs` before and after transfer.
 
+Gateway bundle manifest schema 3 records both the classic Docker config image ID and the OCI manifest
+descriptor ID. The packager proves that both IDs are linked inside the same SHA-256-bound archive. Docker 29's
+default containerd image store may report the OCI descriptor ID while classic storage reports the config ID;
+Cloud Ops accepts only those two manifest-bound values and pins the value actually loaded on the target host.
+
 The command aggregates every gate instead of stopping at the first missing prerequisite. It checks the exact
 Linux/amd64 host identity, minimum free disk and available memory, immutable target bundle, exact hashes of the
 currently running legacy Gateway, Nginx/public health, loopback-only legacy and PostgreSQL listeners, Docker,

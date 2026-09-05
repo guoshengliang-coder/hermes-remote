@@ -128,3 +128,11 @@ loopback 监听、Docker/PG18 与公开服务健康；同时发现实际 Nginx b
 携带文档规定的传输后独立校验入口。两项均保持 fail-closed，旧 Gateway、Nginx 与流量未改变。R5-D4
 把 `scripts/verify-production-baseline-bundle.mjs` 纳入运维 bundle，并要求从最新 `main` 重新生成和保留
 同提交制品；R5-D2 必须使用新制品重新准备，旧 `cbe1285c1028` 输入不得用于接管。
+
+首次正式接管使用 `7b5eb9bf1c38` 制品时，入口在切流前识别出两项兼容缺口并保持旧生产可用：最初的
+内部状态 Token 使用了不被严格白名单接受的字符；修正为独立的 64 位十六进制 Token 后，Docker 29 默认
+containerd image store 把已验证 OCI manifest descriptor digest 作为运行时镜像 ID，而 schema v2 Gateway
+manifest 只记录经典 config digest，因此在 `artifact_image_inspect` fail-closed。R5-D5 用 Gateway manifest
+schema v3 同时绑定 archive 内的 config/OCI 两个 digest，运行时仍只接受精确清单值；同时只允许有失败
+审计、停在 `checkpoint_created`、候选未启动/未监听且 release/Nginx/upstream 检查点未漂移的 journal
+原子归档后续跑。该修复本地与一次性测试完成前不得再次生产接管。

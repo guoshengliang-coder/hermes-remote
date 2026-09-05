@@ -6,6 +6,7 @@ import {
   acquireDeploymentLock,
   advanceDeploymentJournal,
   archiveCommittedDeploymentJournal,
+  archiveSupersededPreSwitchDeploymentJournal,
   createDeploymentJournal,
   DEPLOYMENT_STAGES,
   deploymentPlanDigest,
@@ -85,6 +86,9 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
     }
     const material = await inspectInputMaterial(config);
     candidateInitiallyActive = await assertCandidatePortAvailable(config, candidateSlot, runner);
+    if (options.authorization === "production-managed-baseline" && candidateInitiallyActive) {
+      fail("managed_baseline_candidate_must_be_inactive", "candidate_port");
+    }
     await prepareLockDirectories(config, paths, ownership);
     lock = await acquireDeploymentLock(paths.lock, runId);
     await prepareDeploymentDirectories(config, paths, candidateSlot, ownership);
@@ -111,21 +115,30 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
       target,
       now: now(),
     });
+    const liveCheckpoint = {
+      currentReleaseTarget: await readReleaseLink(config.paths.installRoot, "current", true),
+      previousReleaseTarget: await readReleaseLink(config.paths.installRoot, "previous", false),
+      nginxConfigSha256: await optionalRegularFileSha256(config.nginx.configFile),
+      upstreamSha256: await optionalRegularFileSha256(config.nginx.upstreamConfigFile),
+    };
+    if (options.authorization === "production-managed-baseline") {
+      await archiveSupersededPreSwitchDeploymentJournal(
+        paths.journal,
+        paths.historyRoot,
+        paths.audit,
+        expectedJournal,
+        liveCheckpoint,
+        ownership.host,
+      );
+    }
     journal = await readOrCreateDeploymentJournal(paths.journal, expectedJournal, ownership.host);
     candidateStartAttempted = candidateInitiallyActive;
     journal = await persistStage(paths.journal, journal, "artifact_verified", now, ownership.host);
     journal = await persistStage(paths.journal, journal, "lock_acquired", now, ownership.host);
 
     if (!reached(journal, "checkpoint_created")) {
-      const currentReleaseTarget = await readReleaseLink(config.paths.installRoot, "current", true);
-      verifyCurrentIdentity(currentReleaseTarget, sourceManifest);
-      const checkpoint = {
-        currentReleaseTarget,
-        previousReleaseTarget: await readReleaseLink(config.paths.installRoot, "previous", false),
-        nginxConfigSha256: await optionalRegularFileSha256(config.nginx.configFile),
-        upstreamSha256: await optionalRegularFileSha256(config.nginx.upstreamConfigFile),
-      };
-      journal = advanceDeploymentJournal(journal, "checkpoint_created", now(), { checkpoint });
+      verifyCurrentIdentity(liveCheckpoint.currentReleaseTarget, sourceManifest);
+      journal = advanceDeploymentJournal(journal, "checkpoint_created", now(), { checkpoint: liveCheckpoint });
       await writeDeploymentJournal(paths.journal, journal, ownership.host);
     }
     if (!inspectLoadedImage(runner, targetManifest).loaded) {
@@ -136,11 +149,19 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
       });
       if (loaded.status !== 0) fail("bundle_image_load_failed", "candidate_image_load");
     }
-    verifyLoadedImage(runner, targetManifest);
-    verifyDatabaseMigration(config, targetManifest, runner);
+    const runtimeImage = verifyLoadedImage(runner, targetManifest);
+    verifyDatabaseMigration(config, targetManifest, runner, runtimeImage.imageId);
     journal = await persistStage(paths.journal, journal, "migration_verified", now, ownership.host);
 
-    await installCandidateFiles(config, targetManifest, candidateSlot, paths, material, ownership);
+    await installCandidateFiles(
+      config,
+      targetManifest,
+      candidateSlot,
+      paths,
+      material,
+      ownership,
+      runtimeImage.imageId,
+    );
 
     if (reached(journal, "route_switched")) fail("candidate_phase_already_complete", "candidate_resume");
     candidateStartAttempted = true;
@@ -229,7 +250,7 @@ async function prepareLockDirectories(config, paths, ownership) {
   await ensureManagedDirectory(paths.historyRoot, 0o700, ownership.host);
 }
 
-async function installCandidateFiles(config, manifest, slot, paths, material, ownership) {
+async function installCandidateFiles(config, manifest, slot, paths, material, ownership, runtimeImageId) {
   await installImmutableFile(paths.releaseManifest, `${JSON.stringify(stripArchivePath(manifest), null, 2)}\n`, 0o644, ownership.host);
   await installImmutableFile(paths.appToken, `${material.app}\n`, 0o440, ownership.secret);
   await installImmutableFile(paths.connectorToken, `${material.connector}\n`, 0o440, ownership.secret);
@@ -237,7 +258,7 @@ async function installCandidateFiles(config, manifest, slot, paths, material, ow
   await installImmutableFile(paths.certificate, material.certificate, 0o644, ownership.host);
   await installImmutableFile(paths.privateKey, material.privateKey, 0o600, ownership.host);
   await atomicWrite(paths.environment, renderDeployGatewayEnvironment(config, slot), 0o600, ownership.host);
-  await atomicWrite(paths.unit, renderDeploySystemdUnit(config, manifest, slot), 0o644, ownership.host);
+  await atomicWrite(paths.unit, renderDeploySystemdUnit(config, manifest, slot, runtimeImageId), 0o644, ownership.host);
 }
 
 async function installImmutableFile(filePath, content, mode, owner) {
@@ -369,6 +390,7 @@ function deploymentPaths(config, manifest, slot) {
     privateKey: path.join(config.paths.configRoot, "tls", "privkey.pem"),
     journal: path.join(opsRoot, "deploy-state.json"),
     lock: path.join(opsRoot, "deploy.lock"),
+    audit: path.join(opsRoot, "operations.jsonl"),
     opsRoot,
     historyRoot: path.join(opsRoot, "history"),
   };

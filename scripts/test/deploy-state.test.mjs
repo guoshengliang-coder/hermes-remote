@@ -8,6 +8,7 @@ import { loadBundleManifest, loadDeployConfig } from "../../ops/lib/config.mjs";
 import {
   advanceDeploymentJournal,
   acquireDeploymentLock,
+  archiveSupersededPreSwitchDeploymentJournal,
   createDeploymentJournal,
   DEPLOYMENT_STAGES,
   deploymentPlanDigest,
@@ -133,6 +134,140 @@ test("deployment journal permits only ordered, durable state transitions", async
   const tampered = { ...journal, unexpected: true };
   await writeFile(journalPath, `${JSON.stringify(tampered)}\n`, { mode: 0o600 });
   await assert.rejects(() => readDeploymentJournal(journalPath), isOpsCode("HR-OPS-007"));
+});
+
+test("a recorded pre-switch production failure is archived before a new managed-baseline plan", async (t) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-failed-baseline-")));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const historyRoot = path.join(root, "history");
+  await mkdir(historyRoot, { recursive: true, mode: 0o700 });
+  const journalPath = path.join(root, "deploy-state.json");
+  const auditPath = path.join(root, "operations.jsonl");
+  const source = sourceIdentity();
+  const oldTarget = targetIdentity();
+  const checkpoint = {
+    currentReleaseTarget: "releases/0.2.0-aaaaaaaaaaaa",
+    previousReleaseTarget: null,
+    nginxConfigSha256: "e".repeat(64),
+    upstreamSha256: null,
+  };
+  let existing = createDeploymentJournal({
+    operation: "deploy",
+    planDigest: "1".repeat(64),
+    runId: "failed-before-switch",
+    activeSlot: null,
+    candidateSlot: "blue",
+    source,
+    target: oldTarget,
+    now: new Date("2026-09-05T04:48:03.000Z"),
+  });
+  for (const stage of ["artifact_verified", "lock_acquired"]) {
+    existing = advanceDeploymentJournal(existing, stage, new Date("2026-09-05T04:48:04.000Z"));
+  }
+  existing = advanceDeploymentJournal(existing, "checkpoint_created", new Date("2026-09-05T04:48:05.000Z"), { checkpoint });
+  await writeDeploymentJournal(journalPath, existing, currentOwnership().host);
+  await writeFile(auditPath, `${JSON.stringify({
+    runId: existing.runId,
+    operation: "deploy",
+    stage: "failed",
+    result: "failed",
+    errorCode: "HR-OPS-002",
+    finishedAt: "2026-09-05T04:48:09.000Z",
+  })}\n`, { mode: 0o600 });
+  await chmod(auditPath, 0o600);
+
+  const expected = createDeploymentJournal({
+    operation: "deploy",
+    planDigest: "2".repeat(64),
+    runId: "replacement-plan",
+    activeSlot: null,
+    candidateSlot: "blue",
+    source,
+    target: { ...oldTarget, sourceCommit: "f".repeat(40), imageId: `sha256:${"9".repeat(64)}` },
+    now: new Date("2026-09-05T05:00:00.000Z"),
+  });
+  const archived = await archiveSupersededPreSwitchDeploymentJournal(
+    journalPath,
+    historyRoot,
+    auditPath,
+    expected,
+    checkpoint,
+    currentOwnership().host,
+  );
+  assert.equal(archived.journal.runId, existing.runId);
+  assert.deepEqual(await readDeploymentJournal(archived.archivePath), existing);
+  await assert.rejects(() => lstat(journalPath), (error) => error?.code === "ENOENT");
+  assert.equal((await readOrCreateDeploymentJournal(journalPath, expected, currentOwnership().host)).runId, expected.runId);
+});
+
+test("failed-journal replacement rejects missing failure evidence and any post-checkpoint state", async (t) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-failed-baseline-reject-")));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const historyRoot = path.join(root, "history");
+  await mkdir(historyRoot, { recursive: true, mode: 0o700 });
+  const journalPath = path.join(root, "deploy-state.json");
+  const auditPath = path.join(root, "operations.jsonl");
+  const checkpoint = {
+    currentReleaseTarget: "releases/0.2.0-aaaaaaaaaaaa",
+    previousReleaseTarget: null,
+    nginxConfigSha256: "e".repeat(64),
+    upstreamSha256: null,
+  };
+  let existing = createDeploymentJournal({
+    operation: "deploy",
+    planDigest: "3".repeat(64),
+    runId: "unrecorded-failure",
+    activeSlot: null,
+    candidateSlot: "blue",
+    source: sourceIdentity(),
+    target: targetIdentity(),
+    now: new Date("2026-09-05T04:48:03.000Z"),
+  });
+  for (const stage of ["artifact_verified", "lock_acquired"]) {
+    existing = advanceDeploymentJournal(existing, stage, new Date("2026-09-05T04:48:04.000Z"));
+  }
+  existing = advanceDeploymentJournal(existing, "checkpoint_created", new Date("2026-09-05T04:48:05.000Z"), { checkpoint });
+  await writeDeploymentJournal(journalPath, existing, currentOwnership().host);
+  const expected = createDeploymentJournal({
+    operation: "deploy",
+    planDigest: "4".repeat(64),
+    runId: "new-plan",
+    activeSlot: null,
+    candidateSlot: "blue",
+    source: sourceIdentity(),
+    target: { ...targetIdentity(), sourceCommit: "f".repeat(40) },
+    now: new Date("2026-09-05T05:00:00.000Z"),
+  });
+  await assert.rejects(() => archiveSupersededPreSwitchDeploymentJournal(
+    journalPath,
+    historyRoot,
+    auditPath,
+    expected,
+    checkpoint,
+    currentOwnership().host,
+  ), isOpsCode("HR-OPS-007"));
+  assert.equal((await readDeploymentJournal(journalPath)).runId, existing.runId);
+
+  existing = advanceDeploymentJournal(existing, "migration_verified", new Date("2026-09-05T04:48:06.000Z"));
+  await writeDeploymentJournal(journalPath, existing, currentOwnership().host);
+  await writeFile(auditPath, `${JSON.stringify({
+    runId: existing.runId,
+    operation: "deploy",
+    stage: "failed",
+    result: "failed",
+    errorCode: "HR-OPS-002",
+    finishedAt: "2026-09-05T04:48:09.000Z",
+  })}\n`, { mode: 0o600 });
+  await chmod(auditPath, 0o600);
+  await assert.rejects(() => archiveSupersededPreSwitchDeploymentJournal(
+    journalPath,
+    historyRoot,
+    auditPath,
+    expected,
+    checkpoint,
+    currentOwnership().host,
+  ), isOpsCode("HR-OPS-007"));
+  assert.equal((await readDeploymentJournal(journalPath)).stage, "migration_verified");
 });
 
 test("deployment lock is exclusive, stale-owner aware, and ownership fenced", async (t) => {
