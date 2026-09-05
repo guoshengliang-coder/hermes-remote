@@ -156,6 +156,8 @@ class SessionRuntimeStore(
     private val readStore: SessionReadStore? = null,
     private val sessionRepository: SessionRepository? = null,
     private val mediaRepository: ChatMediaRepository? = null,
+    /** Wall clock, injectable so staleness and expiry can be driven by a test. */
+    private val clock: () -> Long = { System.currentTimeMillis() },
 ) {
     private val _runtimes = MutableStateFlow<Map<SessionRuntimeKey, SessionRuntime>>(emptyMap())
     val runtimes: StateFlow<Map<SessionRuntimeKey, SessionRuntime>> = _runtimes.asStateFlow()
@@ -163,6 +165,15 @@ class SessionRuntimeStore(
     val unreadTokens: StateFlow<Set<String>> = _unreadTokens.asStateFlow()
 
     private val aliases = ConcurrentHashMap<String, SessionRuntimeKey>()
+    /**
+     * Events that arrived for a session id nothing is aliased to yet — a run started on the Mac,
+     * a scheduled run, a handle the phone has not resumed. They used to be dropped on the floor
+     * (observed as `unmatched reasoning.delta … awaiting history reconciliation`); a dropped
+     * message.complete then left the turn open until the lifecycle inbox caught up minutes
+     * later. Held briefly and replayed in order the moment an alias for that id appears.
+     */
+    private val pendingEvents = ConcurrentHashMap<String, ArrayDeque<Pair<Long, ServerEvent>>>()
+    private val replaying = ThreadLocal<Boolean>()
     private val processPollJobs = ConcurrentHashMap<SessionRuntimeKey, Job>()
     private val processPollGraceRemaining = ConcurrentHashMap<SessionRuntimeKey, Int>()
     private val historyReconcileJobs = ConcurrentHashMap<SessionRuntimeKey, Job>()
@@ -256,6 +267,7 @@ class SessionRuntimeStore(
         val retained = _runtimes.value.keys
         aliases.entries.filter { it.value !in retained }.forEach { aliases.remove(it.key, it.value) }
         if (lastActiveKey !in retained) lastActiveKey = null
+        replayPending(sessionId)
         return key
     }
 
@@ -282,6 +294,8 @@ class SessionRuntimeStore(
             map + (key to current.copy(liveHandle = handle ?: current.liveHandle))
         }
         if (!handle.isNullOrBlank()) scheduleProcessPolling(key, PROCESS_DISCOVERY_GRACE_POLLS)
+        replayPending(key.sessionId)
+        if (!handle.isNullOrBlank()) replayPending(handle)
     }
 
     /**
@@ -673,6 +687,9 @@ class SessionRuntimeStore(
         // handle and its durable database key. Preserve both aliases so a later WebSocket
         // completion/progress notification always opens the stored conversation.
         event.runtimeSessionId.takeIf { it.isNotBlank() }?.let { aliases[it] = key }
+        aliases[event.storedSessionId] = key
+        event.runtimeSessionId.takeIf { it.isNotBlank() }?.let(::replayPending)
+        replayPending(event.storedSessionId)
         val now = System.currentTimeMillis()
         val occurred = parseOccurredAt(event.occurredAt) ?: now
         val title = event.title?.trim()?.takeIf { it.isNotBlank() }
@@ -799,7 +816,12 @@ class SessionRuntimeStore(
             if (event.type == "message.start" || event.type == "session.info") {
                 return register(id, profiles.active.value)
             }
-            DebugLog.log("event", "unmatched ${event.type} session=$id; awaiting history reconciliation")
+            if (replaying.get() == true) {
+                DebugLog.log("event", "dropped ${event.type} session=$id: still unmatched after replay")
+            } else {
+                bufferUnmatched(id, event)
+                DebugLog.log("event", "buffered ${event.type} session=$id until its session is known")
+            }
             return null
         }
         val active = _runtimes.value.values.filter { it.phase.isActive }
@@ -810,6 +832,39 @@ class SessionRuntimeStore(
             DebugLog.log("event", "unmatched ${event.type} without session id")
         }
         return null
+    }
+
+    private fun bufferUnmatched(id: String, event: ServerEvent) {
+        val now = clock()
+        val queue = pendingEvents.getOrPut(id) { ArrayDeque() }
+        synchronized(queue) {
+            while (queue.isNotEmpty() && now - queue.first().first > PENDING_EVENT_TTL_MS) queue.removeFirst()
+            if (queue.size >= PENDING_EVENT_CAP) queue.removeFirst()
+            queue.addLast(now to event)
+        }
+    }
+
+    /** Apply, in arrival order, whatever was held for [id]; anything older than the TTL is gone. */
+    private fun replayPending(id: String) {
+        val queue = pendingEvents.remove(id) ?: return
+        val now = clock()
+        val due = synchronized(queue) { queue.filter { now - it.first <= PENDING_EVENT_TTL_MS }.map { it.second } }
+        if (due.isEmpty()) return
+        DebugLog.log("event", "replaying ${due.size} buffered event(s) for session=$id")
+        replaying.set(true)
+        try {
+            due.forEach { event ->
+                try {
+                    applyEvent(event)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    DebugLog.log("event", "replay failed ${event.type} session=$id: ${error.message}")
+                }
+            }
+        } finally {
+            replaying.set(false)
+        }
     }
 
     private fun applyEvent(event: ServerEvent) {
@@ -1132,5 +1187,8 @@ class SessionRuntimeStore(
         val FOREGROUND_RECOVERY_DELAYS_MS = longArrayOf(0L, 250L, 750L, 1_500L)
         /** Keep recent idle histories warm without retaining every session opened in this process. */
         const val MAX_CACHED_IDLE_RUNTIMES = 20
+        /** How long an event for a not-yet-aliased session waits for its alias before it is dropped. */
+        const val PENDING_EVENT_TTL_MS = 60_000L
+        const val PENDING_EVENT_CAP = 200
     }
 }
