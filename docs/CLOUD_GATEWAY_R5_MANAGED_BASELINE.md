@@ -49,7 +49,7 @@ TLS 私钥、生产配置、恢复证据、主机地址或 Mac Hermes 凭据。
 运维 manifest 用 archive SHA-256 绑定完整内容。R5-D3 的 schema v2 将入口固定为
 `scripts/production-baseline.mjs`、测试 Connector 固定为 `connector/dist/index.js`，并将内置 smoke runtime
 固定为 `ops/lib/production-smoke-runtime.mjs`；schema v1 只为旧审计制品保持可读，不能用于新的生产接管。
-上传前后都必须运行
+R5-D4 将独立校验入口 `scripts/verify-production-baseline-bundle.mjs` 一并放入运维 bundle。上传前后都必须运行
 `scripts/verify-production-baseline-bundle.mjs`，且运维 bundle、Gateway bundle 和当前 `main` 必须是同一
 个完整提交。不能在生产主机临时安装 npm、复用旧 Connector 或从另一个提交拼接脚本。
 
