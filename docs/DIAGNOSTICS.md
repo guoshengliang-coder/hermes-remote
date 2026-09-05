@@ -58,7 +58,28 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 ssh kkk@mrlgs.net
 ```
 
-**网关自己的 journal 只有起停行，没有事件日志**（截至 0.1.97；结构化日志在计划中）。真相在两处：
+网关（自"structured JSON logging"这次改动部署后）写结构化 JSON 行（`GATEWAY_LOG_LEVEL`，默认 info）。
+**先看它**，答不上再看 2a/2b：
+
+```bash
+sudo journalctl -u hermes-remote-gateway --since "2026-09-05 10:20" -o cat | grep <会话id>
+```
+
+| kind | 回答什么 |
+|---|---|
+| `app.tunnel.open` / `app.tunnel.close` | 手机 socket 何时开、何时关、关时连接器是否在线、双向各跑了多少帧——"终止事件发出时有没有人在听"就看这两行 |
+| `lifecycle.received`（`lagMs`） | 连接器→网关的延迟（实测恒 ≤1s） |
+| `lifecycle.served` / `lifecycle.acked` | 手机何时来取、取到了哪几条、何时确认——`received` 到 `served` 的间隔就是手机没来取的时间 |
+| `http.tunnel` | 每次 REST 隧道：路径、状态、耗时；同一秒多次 `/messages` = 对账阶梯 |
+| `connector.online` / `connector.offline` | Mac 侧连接器上下线 |
+
+连接器侧（Mac，`~/Library/Application Support/Hermes Remote/connector.log`，`CONNECTOR_LOG_LEVEL`）
+是**唯一能看到 Hermes 事件类型**的地方：`tunnel.frame` 在每个终止事件（`message.complete` /
+`session.info` / `error` / `approval.request` / `clarify.request`）经过时记一行，带它走的 tunnel id；
+`tunnel.close` 带 `lastTerminal`。"运行 10:31:08 结束、承载它的 tunnel 10:31:02 已关"这句话，
+从这两行直接读出。
+
+部署此版本之前的时间段仍然只有起停行，退回 2a/2b：
 
 ### 2a · inbox 记录：服务端延迟 vs 手机没来取
 
