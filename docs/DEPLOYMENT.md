@@ -74,6 +74,14 @@ tail -n 100 "$HOME/Library/Application Support/Hermes Remote/connector.error.log
 
 The Android app needs only the public Gateway URL and the app token. It must never receive the Connector token or local Hermes password.
 
+Connector deployment record: 2026-09-05, Connector **0.1.2** (structured logging, `main` `7e8e6f2`) went live on
+the Mac mini by replacing `connector/dist` with the build from that commit and `launchctl kickstart -k`; the
+previous dist is kept as `connector/dist.bak-20260905-structured-logs`. Reconnected within a second; `relay-health`
+reported the connector online. The Gateway on the HK host still runs **0.4.0** (`releases/0.4.0-833859aa9afe`):
+the 0.4.1 bundle is built by the `Gateway OCI` gate for `7e8e6f2`, but `hermesctl deploy` remains staging-only and the
+R5-D entrypoint is a one-time takeover, so promoting 0.4.1 needs a production deploy path (an ops round) before the
+Gateway's structured log lines appear in production.
+
 The separately managed HTTPS Android release repository is documented in `APP_UPDATE.md`. Installing
 or restarting it is an explicit deployment operation and must not be inferred from an app/source change.
 Its environment file must be installed from `deploy/hermes-release-server.environment.template` at
