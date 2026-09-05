@@ -121,7 +121,7 @@ function dependencyCheck(runner) {
 
 function targetArtifactCheck(config, manifest) {
   const release = manifest.releaseContract;
-  const ok = manifest.schemaVersion === 2
+  const ok = [2, 3].includes(manifest.schemaVersion)
     && release?.manifestVersion >= 2
     && release?.rollbackSupported === true
     && release?.maintenanceRequired === true

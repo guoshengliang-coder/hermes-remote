@@ -250,10 +250,11 @@ async function createFixture(t) {
     verifiedChecks: ["archive_hash", "files_restored", "service_start"],
   });
   const targetManifest = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     serverVersion: "0.4.0",
     sourceCommit: "c".repeat(40),
     imageId: `sha256:${"d".repeat(64)}`,
+    containerdImageId: `sha256:${"e".repeat(64)}`,
     releaseContract: {
       manifestVersion: 2,
       minimumSourceVersion: "0.2.0",

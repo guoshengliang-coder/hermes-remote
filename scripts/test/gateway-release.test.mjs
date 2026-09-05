@@ -70,6 +70,14 @@ test("Gateway image build context is allowlisted and release packaging fails clo
     assert.equal(imageTest.includes(required), true, `${required} missing from Gateway OCI smoke gate`);
   }
   assert.equal(/docker\s+(?:push|login)/.test(imageTest), false);
+
+  const bundleScript = await readFile("scripts/package-gateway-bundle.sh", "utf8");
+  assert.match(bundleScript, /inspect-gateway-archive-identity\.mjs/);
+  assert.match(bundleScript, /CONTAINERD_IMAGE_ID=/);
+
+  const manifestWriter = await readFile("scripts/write-gateway-bundle-manifest.mjs", "utf8");
+  assert.match(manifestWriter, /schemaVersion: 3/);
+  assert.match(manifestWriter, /containerdImageId/);
 });
 
 test("Gateway candidate smoke can split public and private verification routes safely", async () => {

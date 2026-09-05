@@ -83,7 +83,7 @@ export async function verifyManagedBaselineAdmission(config, targetManifest, opt
       fail("managed_baseline_account_and_database_must_stay_disabled");
     }
     const release = targetManifest.releaseContract;
-    if (targetManifest.schemaVersion !== 2
+    if (![2, 3].includes(targetManifest.schemaVersion)
         || release?.maintenanceRequired !== true
         || release?.rollbackSupported !== true
         || release.minimumSourceVersion !== config.legacySource.compatibilityVersion) {

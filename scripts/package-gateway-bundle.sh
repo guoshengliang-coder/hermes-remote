@@ -88,7 +88,7 @@ case "$output_dir" in
     ;;
 esac
 
-for command_name in docker git node; do
+for command_name in docker git node tar; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     report_failure prerequisite "missing_command=$command_name"
     exit 1
@@ -139,6 +139,14 @@ chmod 0644 "$archive_tmp"
 mv -- "$archive_tmp" "$archive_path"
 created_archive=1
 
+if ! containerd_image_id=$(node scripts/inspect-gateway-archive-identity.mjs \
+  "$archive_path" \
+  "$image_reference" \
+  "$image_id"); then
+  report_failure candidate "bundle_archive_identity_invalid"
+  exit 1
+fi
+
 if command -v sha256sum >/dev/null 2>&1; then
   archive_sha256=$(sha256sum "$archive_path" | awk '{print $1}')
 else
@@ -155,6 +163,7 @@ if ! node scripts/write-gateway-bundle-manifest.mjs \
     "$archive_sha256" \
     "$image_reference" \
     "$image_id" \
+    "$containerd_image_id" \
     "$architecture" \
     "$server_version" \
     "$source_commit" \
@@ -170,6 +179,7 @@ echo "SERVER_VERSION=$server_version"
 echo "SOURCE_COMMIT=$source_commit"
 echo "ARTIFACT_IMAGE=$image_reference"
 echo "IMAGE_ID=$image_id"
+echo "CONTAINERD_IMAGE_ID=$containerd_image_id"
 echo "ARCHIVE=$archive_path"
 echo "ARCHIVE_SHA256=$archive_sha256"
 echo "MANIFEST=$manifest_path"

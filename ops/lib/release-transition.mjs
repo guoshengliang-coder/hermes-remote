@@ -10,8 +10,8 @@ export function assessReleaseTransition(current, target, {
     if (!OPERATIONS.has(operation)) incompatible("operation_invalid");
     assertManifest(current, "current");
     assertManifest(target, "target");
-    if (operation === "deploy" && target.schemaVersion !== 2) incompatible("target_release_contract_required");
-    if (operation === "rollback" && current.schemaVersion !== 2) incompatible("current_release_contract_required");
+    if (operation === "deploy" && target.schemaVersion < 2) incompatible("target_release_contract_required");
+    if (operation === "rollback" && current.schemaVersion < 2) incompatible("current_release_contract_required");
 
     const direction = compareVersions(target.serverVersion, current.serverVersion);
     if (operation === "deploy" && direction <= 0) incompatible("deploy_target_must_be_newer");
@@ -31,7 +31,7 @@ export function assessReleaseTransition(current, target, {
       incompatible("legacy_rollback_target_not_baseline");
     }
 
-    if (current.schemaVersion === 2 && target.schemaVersion === 2) {
+    if (current.schemaVersion >= 2 && target.schemaVersion >= 2) {
       for (const protocol of ["legacy", "accountConnector"]) {
         if (current.releaseContract.protocolVersions[protocol] !== target.releaseContract.protocolVersions[protocol]) {
           incompatible(`protocol_${protocol}_incompatible`);
@@ -40,7 +40,7 @@ export function assessReleaseTransition(current, target, {
     }
 
     if (databaseEnabled) {
-      if (current.schemaVersion !== 2 || target.schemaVersion !== 2) {
+      if (current.schemaVersion < 2 || target.schemaVersion < 2) {
         incompatible("database_contract_required");
       }
       if (target.releaseContract.manifestVersion < 2) {
@@ -78,8 +78,8 @@ export function compareVersions(left, right) {
 function assertManifest(manifest, label) {
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) incompatible(`${label}_manifest_invalid`);
   parseVersion(manifest.serverVersion, `${label}_version`);
-  if (![1, 2].includes(manifest.schemaVersion)) incompatible(`${label}_manifest_schema_invalid`);
-  if (manifest.schemaVersion === 2 && !manifest.releaseContract) incompatible(`${label}_release_contract_missing`);
+  if (![1, 2, 3].includes(manifest.schemaVersion)) incompatible(`${label}_manifest_schema_invalid`);
+  if (manifest.schemaVersion >= 2 && !manifest.releaseContract) incompatible(`${label}_release_contract_missing`);
 }
 
 function releaseIdentity(manifest) {
