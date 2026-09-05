@@ -53,7 +53,7 @@ private val LOCAL_MARKDOWN_IMAGE = Regex(
     "!\\[([^]\\r\\n]*)]\\(\\s*(<?(?:file://)?/[^)\\r\\n>]*?\\.(?:png|jpe?g|gif|webp)>?)(?:\\s+[\"'][^)\\r\\n]*[\"'])?\\s*\\)",
     RegexOption.IGNORE_CASE,
 )
-private val MEDIA_DELIVERY_EXTENSIONS = listOf(
+internal val MEDIA_DELIVERY_EXTENSIONS = listOf(
     // Keep this aligned with Hermes gateway.platforms.base.MEDIA_DELIVERY_EXTS. Android previews
     // the four formats supported by ChatImage; every other format remains downloadable.
     "png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "svg",

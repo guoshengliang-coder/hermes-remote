@@ -51,8 +51,13 @@ branch; and the separation of the merge, version and publish gates. Read it befo
 - `release-server/`: the service backing the public Android release index.
 - `deploy/`: deployment and service templates; never store live credentials here.
 - `docs/`: architecture, environment shape, deployment record, smoke-test instructions, the
-  cross-subproject integration rules (`docs/INTEGRATION.md`), and the Android UI design contract
-  (`docs/DESIGN.md`).
+  cross-subproject integration rules (`docs/INTEGRATION.md`), the Android UI design contract
+  (`docs/DESIGN.md`), and the upstream Hermes contract inventory (`docs/HERMES_CONTRACT.md`).
+
+`docs/HERMES_CONTRACT.md` inventories what this repository consumes from **upstream Hermes** — wire
+field names, RPC methods, text grammars, and one hand-copied constant — none of which we own or can
+version-negotiate. Read it and run its upgrade checklist before adopting a new Hermes, and verify
+claims against the Hermes source rather than against project notes.
 
 Changes to the shared protocol must update its tests and every affected consumer. Preserve the core
 security boundary: the Mac opens the outbound connection, the Mac Hermes credential stays on the Mac,
