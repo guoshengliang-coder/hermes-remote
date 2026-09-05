@@ -93,24 +93,24 @@ class HermesRestApi(
             call.execute()
         } catch (error: Throwable) {
             val elapsed = System.currentTimeMillis() - startedAt
-            com.hermes.client.data.diagnostics.DebugLog.log(
-                "rest", "GET $path ✗ ${error.javaClass.simpleName}: ${error.message} (${elapsed}ms)",
-            )
+            com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                "GET $path ✗ ${error.javaClass.simpleName}: ${error.message} (${elapsed}ms)"
+            }
             throw error
         }
         response.use { resp ->
             val elapsed = System.currentTimeMillis() - startedAt
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
-                com.hermes.client.data.diagnostics.DebugLog.log(
-                    "rest", "GET $path ← ${resp.code} (${elapsed}ms) ${body.take(200)}",
-                )
+                com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                    "GET $path ← ${resp.code} (${elapsed}ms) ${body.take(200)}"
+                }
                 throw HermesApiException(resp.code, body.ifBlank { "HTTP ${resp.code}" })
             }
             if (!isQuietPath(path) || elapsed >= SLOW_REQUEST_MS) {
-                com.hermes.client.data.diagnostics.DebugLog.log(
-                    "rest", "GET $path ← ${resp.code} (${elapsed}ms)",
-                )
+                com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                    "GET $path ← ${resp.code} (${elapsed}ms)"
+                }
             }
             json.decodeFromString<T>(body)
         }

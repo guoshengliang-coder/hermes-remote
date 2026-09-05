@@ -139,6 +139,16 @@ object DebugLog {
         tokenToRedact = token?.takeIf { it.isNotBlank() }
     }
 
+    /**
+     * Lazy form for anything on a hot path: the message is neither built nor allocated unless
+     * logging is on. Use it for per-event or per-update lines; the eager overload is fine for
+     * lines that fire a few times per run.
+     */
+    inline fun log(category: String, message: () -> String) {
+        if (!isEnabled()) return
+        log(category, message())
+    }
+
     fun log(category: String, message: String) {
         if (!enabled) return
         val safe = redact(message)
@@ -160,18 +170,17 @@ object DebugLog {
         store?.let { target -> ioExecutor.execute { target.clear() } }
     }
 
-    /** Plain-text dump for the Share sheet, oldest first. */
-    fun export(): String {
-        val snapshot = synchronized(lock) { buffer.toList() }
-        if (snapshot.isEmpty()) return "(no diagnostic entries)"
-        return buildString {
-            append("Hermes diagnostic log — ${snapshot.size} entries\n")
-            snapshot.forEach { e ->
-                val origin = if (e.fromPreviousRun) " (previous run)" else ""
-                append("${exportFmt.format(Instant.ofEpochMilli(e.timeMillis))} [${e.category}]$origin ${e.message}\n")
-            }
-        }
-    }
+    /**
+     * Plain-text dump for the Share sheet, oldest first. With [sessionId] only the lines that name
+     * that session (`s=<id>` / `session=<id>`) are included, so a user can hand over exactly the
+     * conversation that misbehaved instead of everything the app did that week.
+     */
+    fun export(sessionId: String? = null): String =
+        render(
+            synchronized(lock) { buffer.toList() }.forSession(sessionId),
+            sessionId,
+            showOrigin = true,
+        )
 
     /**
      * Full history for the Share sheet, oldest first: the rolling file rather than the in-memory
@@ -182,19 +191,15 @@ object DebugLog {
      * [export] stays in-memory and is what the crash reporter uses: that path runs on a dying
      * process where waiting on the I/O executor could hang.
      */
-    fun exportFull(): String {
+    fun exportFull(sessionId: String? = null): String {
         awaitPendingWrites()
         val fromDisk = store
             ?.let { runCatching { it.readAll() }.getOrDefault(emptyList()) }
             .orEmpty()
-        val snapshot = fromDisk.ifEmpty { synchronized(lock) { buffer.toList() } }
-        if (snapshot.isEmpty()) return "(no diagnostic entries)"
-        return buildString {
-            append("Hermes diagnostic log — ${snapshot.size} entries\n")
-            snapshot.forEach { e ->
-                append("${exportFmt.format(Instant.ofEpochMilli(e.timeMillis))} [${e.category}] ${e.message}\n")
-            }
-        }
+        // Everything on disk was written by some run of this process, and the session header marks
+        // where each run began, so a per-entry "previous run" tag would label the whole file.
+        val all = fromDisk.ifEmpty { synchronized(lock) { buffer.toList() } }
+        return render(all.forSession(sessionId), sessionId, showOrigin = fromDisk.isEmpty())
     }
 
     /**
@@ -208,6 +213,46 @@ object DebugLog {
         val submitted = runCatching { ioExecutor.execute { done.countDown() } }.isSuccess
         if (!submitted) return
         runCatching { done.await(timeoutMs, TimeUnit.MILLISECONDS) }
+    }
+
+    private fun render(snapshot: List<LogEntry>, sessionId: String?, showOrigin: Boolean): String {
+        if (snapshot.isEmpty()) return "(no diagnostic entries)"
+        return buildString {
+            append("Hermes diagnostic log — ${snapshot.size} entries")
+            if (sessionId != null) append(" — session $sessionId")
+            append("\n")
+            snapshot.forEach { e ->
+                val origin = if (showOrigin && e.fromPreviousRun) " (previous run)" else ""
+                append("${exportFmt.format(Instant.ofEpochMilli(e.timeMillis))} [${e.category}]$origin ${e.message}\n")
+            }
+        }
+    }
+
+    /**
+     * Narrows to one conversation, keeping every line that names no conversation at all.
+     *
+     * Those lines are the process-wide facts — the session header, connectivity, gateway health,
+     * the startup gate, the banner — and they are what a session's own lines have to be read
+     * against. Filtering them out would remove exactly the context that explains why the session
+     * behaved the way it did, which is the opposite of what picking a session is for.
+     */
+    private fun List<LogEntry>.forSession(sessionId: String?): List<LogEntry> =
+        if (sessionId == null) this
+        else filter { mentionsSession(it.message, sessionId) || !namesAnySession(it.message) }
+
+    private val sessionRef = Regex("(?:\\bs|\\bsession)=([A-Za-z0-9_\\-]{6,})")
+
+    fun mentionsSession(message: String, sessionId: String): Boolean =
+        sessionRef.findAll(message).any { it.groupValues[1] == sessionId }
+
+    /** True when the line is scoped to some conversation rather than to the process as a whole. */
+    fun namesAnySession(message: String): Boolean = sessionRef.containsMatchIn(message)
+
+    /** Distinct session ids named by [entries], most recently mentioned first. */
+    fun sessionIdsIn(entries: List<LogEntry>): List<String> {
+        val seen = LinkedHashSet<String>()
+        entries.asReversed().forEach { e -> sessionRef.findAll(e.message).forEach { seen += it.groupValues[1] } }
+        return seen.toList()
     }
 
     /** [export] when anything was captured, else null — a crash report omits an empty section. */

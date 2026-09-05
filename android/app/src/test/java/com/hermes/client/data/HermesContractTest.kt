@@ -46,6 +46,12 @@ class HermesContractTest {
         listOf("tui", "cli", "desktop", "hermes-dispatch").forEach {
             assertTrue("$it must remain visible", it !in SessionRepository.EXCLUDED_SOURCES)
         }
+        // This app now labels its own sessions. Colliding with an excluded value would make the
+        // phone hide every session it created.
+        assertTrue(
+            "the app's own source must never be excluded",
+            "hermes_remote" !in SessionRepository.EXCLUDED_SOURCES,
+        )
     }
 
     /**

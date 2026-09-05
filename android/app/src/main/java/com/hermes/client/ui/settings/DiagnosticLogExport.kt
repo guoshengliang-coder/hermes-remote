@@ -23,9 +23,14 @@ import kotlinx.coroutines.withContext
  */
 object DiagnosticLogExport {
 
-    suspend fun share(context: Context, chooserTitle: String, subject: String) {
+    suspend fun share(
+        context: Context,
+        chooserTitle: String,
+        subject: String,
+        sessionId: String? = null,
+    ) {
         val uri = withContext(Dispatchers.IO) {
-            val text = DebugLog.exportFull()
+            val text = DebugLog.exportFull(sessionId)
             val dir = File(context.cacheDir, EXPORT_DIR).apply { mkdirs() }
             // Only the newest export is ever useful, and these are large; keep exactly one.
             runCatching { dir.listFiles()?.forEach { it.delete() } }

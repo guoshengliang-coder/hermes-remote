@@ -7,6 +7,7 @@ import com.hermes.client.data.repository.SettingsStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -31,9 +32,19 @@ class DiagnosticsViewModel @Inject constructor(
 
     fun clear() = DebugLog.clear()
 
+    /** Session ids the current entries mention, most recent first — the filter chips. */
+    val sessionIds: StateFlow<List<String>> = DebugLog.entries
+        .map(DebugLog::sessionIdsIn)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** Drops a user-placed marker so the shared log says where to start reading. */
     fun mark(note: String) = DebugLog.mark(note)
 
-    suspend fun share(context: android.content.Context, chooserTitle: String, subject: String) =
-        DiagnosticLogExport.share(context, chooserTitle, subject)
+    /** Shares the whole rolling file, narrowed to one conversation when a chip is selected. */
+    suspend fun share(
+        context: android.content.Context,
+        chooserTitle: String,
+        subject: String,
+        sessionId: String?,
+    ) = DiagnosticLogExport.share(context, chooserTitle, subject, sessionId)
 }

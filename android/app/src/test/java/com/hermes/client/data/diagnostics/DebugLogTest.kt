@@ -141,6 +141,42 @@ class DebugLogTest {
         assertTrue(full.contains("entry-${overflow - 1}"))
     }
 
+    /**
+     * The two halves of this feature arrived from different branches: filtering by session, and
+     * exporting the whole file rather than the 500-entry ring. Combined, filtering must reach the
+     * file — a filter that only narrows what is already in memory keeps the eight-minute window
+     * that made sharing useless.
+     */
+    @Test fun exportFull_filters_the_file_by_session() {
+        DebugLog.init(logDir(), direct)
+        repeat(DebugLog.MAX_ENTRIES + 60) { DebugLog.log("ws", "event s=session-alpha n=$it") }
+        DebugLog.log("ws", "event s=session-beta only")
+
+        val alpha = DebugLog.exportFull("session-alpha")
+        assertTrue(alpha.contains("s=session-alpha n=0"))
+        assertFalse(alpha.contains("session-beta"))
+    }
+
+    /**
+     * Picking a session must not throw away the process-wide lines. The session header, the
+     * connectivity and gateway-health lines, the startup gate and the banner name no conversation
+     * — and they are the context a session's own lines have to be read against.
+     */
+    @Test fun filtering_by_session_keeps_lines_that_name_no_session() {
+        DebugLog.clear()
+        DebugLog.log("session", "diagnostic logging on · v0.0.0 (0)")
+        DebugLog.log("net", "connectivity check says offline · no VALIDATED capability")
+        DebugLog.log("ws", "event s=session-alpha started")
+        DebugLog.log("ws", "event s=session-beta started")
+
+        val alpha = DebugLog.export("session-alpha")
+
+        assertTrue(alpha, alpha.contains("diagnostic logging on"))
+        assertTrue(alpha, alpha.contains("no VALIDATED capability"))
+        assertTrue(alpha, alpha.contains("s=session-alpha"))
+        assertFalse(alpha, alpha.contains("session-beta"))
+    }
+
     @Test fun exportFull_falls_back_to_memory_when_no_file_is_attached() {
         DebugLog.detachStore()
         DebugLog.log("ws", "memory-only")

@@ -10,9 +10,12 @@ on:
       - "package-lock.json"
       - "package.json"
       - "protocol/**"
+      - "scripts/inspect-gateway-archive-identity.mjs"
+      - "scripts/package-gateway-bundle.sh"
       - "scripts/package-gateway-image.sh"
       - "scripts/postgresql-recovery.mjs"
       - "scripts/test/postgresql-recovery-e2e.mjs"
+      - "scripts/write-gateway-bundle-manifest.mjs"
   workflow_dispatch:
 
 permissions:
@@ -64,18 +67,16 @@ jobs:
           npm ci --ignore-scripts
           npm run build
       - id: image
-        name: Build immutable Gateway image
+        name: Build manifest-bound immutable Gateway image
         run: |
-          output=$(./scripts/package-gateway-image.sh)
+          output=$(./scripts/package-gateway-bundle.sh outputs/r5e-gateway)
           printf '%s\n' "$output"
-          printf 'name=%s\n' "$(printf '%s\n' "$output" | sed -n 's/^ARTIFACT_IMAGE=//p')" >> "$GITHUB_OUTPUT"
-          printf 'id=%s\n' "$(printf '%s\n' "$output" | sed -n 's/^IMAGE_ID=//p')" >> "$GITHUB_OUTPUT"
+          printf 'manifest=%s\n' "$(printf '%s\n' "$output" | sed -n 's/^MANIFEST=//p')" >> "$GITHUB_OUTPUT"
       - name: Exercise encrypted backup and restored account path
         env:
           R5E_SOURCE_DATABASE_URL: postgresql://hermes_r5e:ephemeral-only-password@127.0.0.1:5432/hermes_r5e_source
           R5E_RESTORE_DATABASE_URL: postgresql://hermes_r5e:ephemeral-only-password@127.0.0.1:5433/hermes_r5e_restore
           R5E_SOURCE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
           R5E_RESTORE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres_restore.id }}
-          R5E_TARGET_IMAGE: ${{ steps.image.outputs.name }}
-          R5E_TARGET_IMAGE_ID: ${{ steps.image.outputs.id }}
+          R5E_TARGET_MANIFEST: ${{ steps.image.outputs.manifest }}
         run: node scripts/test/postgresql-recovery-e2e.mjs
