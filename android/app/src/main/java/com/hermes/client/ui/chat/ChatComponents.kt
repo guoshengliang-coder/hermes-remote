@@ -1835,7 +1835,11 @@ internal fun AssistantTurn(
             remember(msg.tools) { groupToolsForDisplay(msg.tools) }.forEach { group ->
                 when (group) {
                     is ToolDisplayGroup.Single -> SemanticToolCard(group.tool)
-                    is ToolDisplayGroup.Timeline -> ToolTimelineCard(group.tools)
+                    is ToolDisplayGroup.Timeline -> ToolTimelineCard(
+                        group.tools,
+                        completed = !msg.isStreaming,
+                        stateKey = "${msg.id}:${group.tools.first().id}",
+                    )
                 }
             }
             if (msg.images.isNotEmpty()) {

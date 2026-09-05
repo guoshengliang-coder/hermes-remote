@@ -42,6 +42,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.testTag
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -675,8 +676,20 @@ private fun TodoStateBox(status: String) {
  * its output inline behind the hierarchy rail.
  */
 @Composable
-internal fun ToolTimelineCard(tools: List<ToolCall>) {
+internal fun ToolTimelineCard(
+    tools: List<ToolCall>,
+    // docs/DESIGN.md §5.4: a completed turn's timeline folds behind a one-line summary. The
+    // fold is decided once, when the card first enters the composition: a card watched to
+    // completion stays open (folding it at that instant would jump the bottom-pinned viewport);
+    // a card first seen already complete starts folded.
+    completed: Boolean = false,
+    stateKey: String = tools.firstOrNull()?.id.orEmpty(),
+) {
     val language = LocalAppLanguage.current
+    var cardExpanded by rememberSaveable("timeline-card-$stateKey") { mutableStateOf(!completed) }
+    val searchable = remember(tools) { tools.joinToString("\n") { it.name + " " + it.output } }
+    val autoExpand = shouldAutoExpand(LocalChatSearch.current, LocalTurnIsCurrentHit.current, SearchSource.TOOL, searchable)
+    androidx.compose.runtime.LaunchedEffect(autoExpand) { if (autoExpand) cardExpanded = true }
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(16.dp),
@@ -687,7 +700,38 @@ internal fun ToolTimelineCard(tools: List<ToolCall>) {
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
     ) {
         Column(Modifier.padding(horizontal = 13.dp, vertical = 7.dp)) {
-            tools.forEach { tool ->
+            if (completed) {
+                val failed = tools.count { (it.exitCode ?: 0) != 0 }
+                val totalMs = tools.mapNotNull { it.durationMs }.takeIf { it.isNotEmpty() }?.sum()
+                val summary = buildString {
+                    append(localized(language, "${tools.size} 次工具调用", "${tools.size} tool calls"))
+                    totalMs?.let { append(" · ").append(formatToolDuration(it)) }
+                    if (failed > 0) append(" · ").append(localized(language, "$failed 次失败", "$failed failed"))
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickableNoIndication { cardExpanded = !cardExpanded }
+                        .padding(vertical = 5.dp)
+                        .testTag("tool-timeline-summary"),
+                ) {
+                    Text(
+                        summary,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                        color = if (failed > 0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Icon(
+                        if (cardExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                        contentDescription = if (cardExpanded) localized(language, "收起工具时间线", "Collapse tool timeline")
+                        else localized(language, "展开工具时间线", "Expand tool timeline"),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (!completed || cardExpanded) tools.forEach { tool ->
                 var expanded by rememberSaveable("timeline-${tool.id}") { mutableStateOf(false) }
                 val running = tool.status == ToolStatus.RUNNING
                 val failed = !running && (tool.exitCode ?: 0) != 0
