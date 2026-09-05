@@ -9,6 +9,7 @@ import { CommandBroker } from "./command-broker.js";
 import { loadGatewayConfig } from "./config.js";
 import { InMemoryConnectorRegistry } from "./connector-registry.js";
 import { GatewayHttpRouter } from "./gateway-http-router.js";
+import { createGatewayLogger } from "./gateway-log.js";
 import type { GatewayPeer } from "./gateway-peer.js";
 import { GatewayPeerCoordinator } from "./gateway-peer-coordinator.js";
 import { GatewayServer } from "./gateway-server.js";
@@ -49,8 +50,10 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     maxSocketBufferedBytes,
     lifecycleEventStoreFile,
     maxLifecycleEvents,
+    logLevel,
   } = loadGatewayConfig(environment);
-  const lifecycleEvents = new LifecycleEventStore(lifecycleEventStoreFile, maxLifecycleEvents);
+  const log = createGatewayLogger(logLevel);
+  const lifecycleEvents = new LifecycleEventStore(lifecycleEventStoreFile, maxLifecycleEvents, log);
   const accountRuntime = createAccountRuntime(environment, release);
   const connectorRegistry = new InMemoryConnectorRegistry<GatewayPeer>();
   const accountConnectorAdmission = new AccountConnectorAdmission(
@@ -68,18 +71,21 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     maxPendingRequests,
     requestTimeoutMs,
     send,
+    log,
   );
   const webSocketTunnels = new WebSocketTunnelBroker<GatewayPeer>(
     maxWebSocketTunnels,
     maxSocketBufferedBytes,
     send,
     (routingKey) => connectorRegistry.getByRoutingKey(routingKey),
+    log,
   );
   const lifecycleMessages = new LifecycleMessageHandler(
     lifecycleEvents,
     accountRuntime.gatewayControl,
     send,
     reportFailure,
+    log,
   );
   const peers = new GatewayPeerCoordinator(
     connectorRegistry,
@@ -88,6 +94,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     webSocketTunnels,
     lifecycleMessages,
     send,
+    log,
   );
   const appWebSocketAuthorizer = new AppWebSocketAuthorizer({
     accountControl: accountRuntime.gatewayControl,
@@ -217,6 +224,6 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
   }
 
   function reportFailure(message: string, error: unknown): void {
-    console.error(message, error instanceof Error ? error.message : String(error));
+    log.error("failure", { message, error: error instanceof Error ? error.message : String(error) });
   }
 }

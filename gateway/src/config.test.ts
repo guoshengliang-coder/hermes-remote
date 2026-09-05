@@ -18,6 +18,7 @@ test("Gateway config retains the legacy defaults", () => {
   assert.equal(config.maxBodyBytes, 10 * 1024 * 1024);
   assert.equal(config.requestTimeoutMs, 60_000);
   assert.equal(config.maxPendingRequests, 128);
+  assert.equal(config.logLevel, "info");
   assert.equal(config.maxWebSocketTunnels, 32);
   assert.equal(config.maxControlConnections, 32);
   assert.equal(config.maxUnauthenticatedAccountConnectors, 16);
@@ -79,4 +80,10 @@ test("Gateway config schema identifies the complete R2 environment contract", as
   ]) {
     assert.equal(name in schema.properties, true, `${name} is absent from config schema`);
   }
+});
+
+test("GATEWAY_LOG_LEVEL is validated", () => {
+  const base = { APP_TOKEN: "app-token-value", CONNECTOR_TOKEN: "connector-token-value" };
+  assert.equal(loadGatewayConfig({ ...base, GATEWAY_LOG_LEVEL: "debug" }).logLevel, "debug");
+  assert.throws(() => loadGatewayConfig({ ...base, GATEWAY_LOG_LEVEL: "loud" }), /GATEWAY_LOG_LEVEL/);
 });
