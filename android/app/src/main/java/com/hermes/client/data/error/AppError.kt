@@ -26,6 +26,14 @@ enum class AppErrorCode(val value: String) {
     UPDATE_SUPERSEDED("HR-UPDATE-009"),
     FILE_READ_FAILED("HR-FILE-001"),
     TRANSCRIPT_FILE_FAILED("HR-FILE-002"),
+    // Downloading a Hermes-delivered artifact. Split by cause: a 403/413/missing file is not worth
+    // retrying, and "no app can open this type" is not a transfer failure at all — collapsing them
+    // into one message left both the user and the agent unable to tell which had happened.
+    ARTIFACT_FORBIDDEN("HR-FILE-003"),
+    ARTIFACT_TOO_LARGE("HR-FILE-004"),
+    ARTIFACT_MISSING("HR-FILE-005"),
+    ARTIFACT_DOWNLOAD_FAILED("HR-FILE-006"),
+    ATTACHMENT_NO_VIEWER("HR-FILE-007"),
     AVATAR_PHOTO_FAILED("HR-MEDIA-002"),
     TRANSCRIPT_IMAGE_FAILED("HR-MEDIA-003"),
     PROFILE_IDENTITY_SAVE_FAILED("HR-STORE-001"),

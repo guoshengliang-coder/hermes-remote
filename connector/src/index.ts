@@ -21,6 +21,7 @@ import {
   type ObserverSocket,
 } from "./session-observer-runner.js";
 import { ObserverStateStore } from "./session-observer.js";
+import { describeRejectedPath } from "./file-log.js";
 
 // Launchd captures stdout/stderr without timestamps, which made the 2026-09-01
 // reconnect-churn investigation impossible to correlate with server-side events.
@@ -274,6 +275,12 @@ function rejectResponseChunkWaiters(error: Error): void {
 async function handleFileRequest(socket: WebSocket, request: TunnelHttpRequest): Promise<void> {
   let streamStarted = false;
   const fail = (status: number, error: string, extraHeaders: Record<string, string> = {}): void => {
+    // Log every rejection. Without this a refused download left no trace on either side: the phone
+    // showed one generic message and connector.log said nothing, so diagnosing a 2026-09-05 failure
+    // meant reading FILES_ROOT by hand. Never log the requested path — it would put the Mac's
+    // directory layout in a file shipped with diagnostics; the extension and length are enough to
+    // tell a whitelist problem from a traversal one.
+    console.warn(`File request rejected status=${status} reason=${error} ${describeRejectedPath(request.path, rawQueryParameter)}`);
     sendFileError(socket, request.id, status, error, extraHeaders);
   };
   let url: URL;
