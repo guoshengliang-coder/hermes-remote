@@ -590,9 +590,17 @@ class SessionRuntimeStore(
      * queue one refresh after completion instead of overwriting unpersisted deltas.
      */
     fun acceptManualHistory(key: SessionRuntimeKey, messages: List<ChatMessage>): ManualHistoryResult {
-        val previous = _runtimes.value[key]?.chat?.messages
+        val before = _runtimes.value[key] ?: return ManualHistoryResult.BUSY
+        val previous = before.chat.messages
+        // A run in progress no longer defers the refresh: "something looks wrong" is exactly the
+        // moment the user must not be told to wait for a completion the phone may never hear
+        // (HG-8). The transcript is refreshed the way a reconnect reconcile is — accepted only
+        // when REST covers every locally observed turn — and the phase is left to the events.
+        val active = before.phase.isActive || before.chat.isGenerating
+        if (active && !messages.covers(expectationFor(before).copy(lastAssistantText = ""))) {
+            return ManualHistoryResult.BUSY
+        }
         updateRuntime(key) { runtime ->
-            if (runtime.chat.isGenerating || runtime.phase.isActive) return@updateRuntime runtime
             runtime.copy(
                 chat = runtime.chat.copy(
                     messages = com.hermes.client.ui.chat.inheritStreamFields(
@@ -609,14 +617,12 @@ class SessionRuntimeStore(
                 ),
             )
         }
-        val committedRuntime = _runtimes.value[key] ?: return ManualHistoryResult.BUSY
-        if (committedRuntime.chat.isGenerating || committedRuntime.phase.isActive) {
-            return ManualHistoryResult.BUSY
-        }
-        val committed = committedRuntime.chat.messages
-        val accepted = committed.size == messages.size && committed.zip(messages).all { (a, b) ->
-            a.copy(timestamp = null, id = "") == b.copy(timestamp = null, id = "")
-        }
+        val committed = _runtimes.value[key]?.chat?.messages ?: return ManualHistoryResult.BUSY
+        // Inherited stream fields (reasoning, tool results, the live tail) legitimately differ
+        // from the raw REST rows; compare with them normalized out, as the reconcile does.
+        fun ChatMessage.comparable() = copy(timestamp = null, id = "", thinking = "", tools = emptyList(), isStreaming = false)
+        val accepted = committed.size == messages.size &&
+            committed.zip(messages).all { (a, b) -> a.comparable() == b.comparable() }
         if (!accepted) return ManualHistoryResult.BUSY
         return if (previous == committed) ManualHistoryResult.UNCHANGED else ManualHistoryResult.CHANGED
     }

@@ -11,6 +11,7 @@ import com.hermes.client.data.network.str
 import com.hermes.client.data.progress.SessionRuntimeKey
 import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.progress.ManualHistoryResult
+import com.hermes.client.data.progress.isActive
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ChatMediaRepository
 import com.hermes.client.data.repository.ChatFileRepository
@@ -40,6 +41,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
@@ -71,9 +73,16 @@ class ChatViewModel @Inject constructor(
     private val projectPrefs: com.hermes.client.data.repository.ProjectPrefsStore,
 ) : ViewModel() {
 
-    enum class ConversationRefreshEvent { QUEUED, SUCCEEDED_CHANGED, SUCCEEDED_UNCHANGED, FAILED }
+    /**
+     * RUN_ENDED: the store believed the run active, Hermes said it is not — the stale state was
+     * corrected (the HG-8 exit). STILL_RUNNING: Hermes confirmed the run is live; the elapsed time
+     * is in [lastConfirmedRunElapsedMs]. The other three are the idle-transcript outcomes.
+     */
+    enum class ConversationRefreshEvent { SUCCEEDED_CHANGED, SUCCEEDED_UNCHANGED, FAILED, RUN_ENDED, STILL_RUNNING }
 
     private companion object {
+        /** How long a manual refresh waits for Hermes' session.info after probing an active run. */
+        const val MANUAL_REFRESH_PROBE_SETTLE_MS = 1_500L
         const val LIVE_HANDLE_TIMEOUT_MS = 25_000L
         const val STALE_SESSION_CODE = 4001
     }
@@ -85,6 +94,9 @@ class ChatViewModel @Inject constructor(
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
     private val _refreshEvents = MutableSharedFlow<ConversationRefreshEvent>(extraBufferCapacity = 4)
     val refreshEvents: SharedFlow<ConversationRefreshEvent> = _refreshEvents
+    private val _lastConfirmedRunElapsedMs = MutableStateFlow<Long?>(null)
+    /** Set right before a STILL_RUNNING refresh event: how long the confirmed run has been going. */
+    val lastConfirmedRunElapsedMs: StateFlow<Long?> = _lastConfirmedRunElapsedMs.asStateFlow()
 
     private val _sessionTitle = MutableStateFlow("新会话")
     val sessionTitle: StateFlow<String> = _sessionTitle.asStateFlow()
@@ -343,14 +355,6 @@ class ChatViewModel @Inject constructor(
         // A manual refresh requested mid-stream waits for the authoritative reply to finish. This
         // collector owns that one deferred request so repeated taps cannot start competing REST
         // swaps or overwrite deltas that have not reached history yet.
-        viewModelScope.launch {
-            _state.map { it.isGenerating }.distinctUntilChanged().collect { generating ->
-                if (!generating && manualRefreshQueued) {
-                    manualRefreshQueued = false
-                    startManualRefresh()
-                }
-            }
-        }
     }
 
     private val _modelSheet = MutableStateFlow(ModelSheetUi())
@@ -377,7 +381,6 @@ class ChatViewModel @Inject constructor(
     private var resumeJob: Job? = null
     private var sendJob: Job? = null
     private var refreshJob: Job? = null
-    private var manualRefreshQueued = false
     private var runtimeKey: SessionRuntimeKey? = null
     private var currentProfile: String? = null
     private var liveHandleGate = CompletableDeferred<String>()
@@ -418,7 +421,6 @@ class ChatViewModel @Inject constructor(
         }
         refreshJob?.cancel()
         _refreshing.value = false
-        manualRefreshQueued = false
         sendJob?.cancel()
         resumeJob?.cancel()
         liveHandleGate.completeExceptionally(CancellationException("session changed"))
@@ -612,15 +614,13 @@ class ChatViewModel @Inject constructor(
     }
 
     /** Force-sync only the current conversation without reopening its runtime or clearing UI. */
+    /**
+     * The user's "something looks wrong" button. It never queues behind a run the store believes
+     * active: that belief is exactly what may be stale. It asks Hermes first, then refreshes the
+     * transcript, then says which of the two things it found.
+     */
     fun refreshCurrentConversation() {
         if (_refreshing.value) return
-        if (_state.value.isGenerating) {
-            if (!manualRefreshQueued) {
-                manualRefreshQueued = true
-                _refreshEvents.tryEmit(ConversationRefreshEvent.QUEUED)
-            }
-            return
-        }
         startManualRefresh()
     }
 
@@ -636,22 +636,25 @@ class ChatViewModel @Inject constructor(
         refreshJob = viewModelScope.launch {
             _refreshing.value = true
             try {
+                val wasActive = runtimeStore.runtimes.value[key]?.let { it.phase.isActive || it.chat.isGenerating } == true
+                if (wasActive) {
+                    runtimeStore.probe(key, force = true)
+                    // Hermes answers session.resume with session.info{running}; give it a beat to
+                    // land so the outcome reported below is the confirmed one, not the stale one.
+                    withTimeoutOrNull(MANUAL_REFRESH_PROBE_SETTLE_MS) {
+                        runtimeStore.runtimes.map { it[key]?.let { r -> r.phase.isActive || r.chat.isGenerating } }
+                            .first { it != true }
+                    }
+                }
                 val rawHistory = sessions.history(id, profile)
                 val organizedHistory = withContext(defaultDispatcher) {
                     rawHistory.map { it.organizedForDisplay() }
                 }
                 // Navigation may have moved to another session while the request was in flight.
                 if (runtimeKey != key || storedSessionId != id) return@launch
-                val result = if (_state.value.isGenerating) {
-                    ManualHistoryResult.BUSY
-                } else {
-                    runtimeStore.acceptManualHistory(key, organizedHistory)
-                }
-                if (result == ManualHistoryResult.BUSY) {
-                    manualRefreshQueued = true
-                    _refreshEvents.emit(ConversationRefreshEvent.QUEUED)
-                    return@launch
-                }
+                val result = runtimeStore.acceptManualHistory(key, organizedHistory)
+                val after = runtimeStore.runtimes.value[key]
+                val stillActive = after?.let { it.phase.isActive || it.chat.isGenerating } == true
                 runtimeStore.markRead(key)
                 // Publish the committed runtime before the success event. The normal runtime
                 // collector will observe the same value, but relying on collector scheduling here
@@ -660,10 +663,14 @@ class ChatViewModel @Inject constructor(
                 // Stable-id rows update in place. Only changed geometry needs a viewport restore;
                 // byte-for-byte identical history must not remount/reparse the transcript.
                 _refreshEvents.emit(
-                    if (result == ManualHistoryResult.CHANGED) {
-                        ConversationRefreshEvent.SUCCEEDED_CHANGED
-                    } else {
-                        ConversationRefreshEvent.SUCCEEDED_UNCHANGED
+                    when {
+                        wasActive && !stillActive -> ConversationRefreshEvent.RUN_ENDED
+                        stillActive -> {
+                            _lastConfirmedRunElapsedMs.value = after?.runStartedAt?.let { System.currentTimeMillis() - it }
+                            ConversationRefreshEvent.STILL_RUNNING
+                        }
+                        result == ManualHistoryResult.CHANGED -> ConversationRefreshEvent.SUCCEEDED_CHANGED
+                        else -> ConversationRefreshEvent.SUCCEEDED_UNCHANGED
                     },
                 )
                 launch {

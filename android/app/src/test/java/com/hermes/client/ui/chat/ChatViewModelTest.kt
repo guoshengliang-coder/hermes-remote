@@ -251,6 +251,52 @@ class ChatViewModelTest {
         coVerify(exactly = 2) { sessionRepo.history("s1", null) }
     }
 
+    @Test fun manualRefreshDuringARunAsksHermesAndReportsItStillRunning() = runTest {
+        coEvery { sessionRepo.history("s1", null) } returns listOf(ChatMessage("u", Role.USER, "跑起来"))
+        connectionStateFlow.value = ConnectionState.Connected
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        events.emit(ServerEvent("message.start", "s1", buildJsonObject { put("session_id", "s1"); put("message_id", "agent") }))
+        events.emit(ServerEvent("message.delta", "s1", buildJsonObject { put("session_id", "s1"); put("text", "部分") }))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.isGenerating)
+
+        vm.refreshEvents.test {
+            vm.refreshCurrentConversation()
+            advanceUntilIdle()
+            assertEquals(ChatViewModel.ConversationRefreshEvent.STILL_RUNNING, awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+        // open() resumed once; the refresh probed once more instead of queueing behind the run.
+        coVerify(exactly = 2) { chatRepo.resume("s1", null) }
+        assertTrue(vm.state.value.isGenerating)
+    }
+
+    @Test fun manualRefreshDuringAStaleRunLearnsItEndedAndSaysSo() = runTest {
+        coEvery { sessionRepo.history("s1", null) } returns listOf(
+            ChatMessage("u", Role.USER, "跑起来"), ChatMessage("a", Role.ASSISTANT, "完成内容"),
+        )
+        connectionStateFlow.value = ConnectionState.Connected
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        events.emit(ServerEvent("message.start", "s1", buildJsonObject { put("session_id", "s1"); put("message_id", "agent") }))
+        advanceUntilIdle()
+
+        vm.refreshEvents.test {
+            vm.refreshCurrentConversation()
+            runCurrent()
+            // What Hermes answers the probe with when the run finished while the phone slept.
+            events.emit(ServerEvent("session.info", "s1", buildJsonObject { put("session_id", "s1"); put("running", false) }))
+            advanceUntilIdle()
+            assertEquals(ChatViewModel.ConversationRefreshEvent.RUN_ENDED, awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+        assertFalse(vm.state.value.isGenerating)
+        assertEquals("完成内容", vm.state.value.messages.last().text)
+    }
+
     @Test fun identicalManualRefreshDoesNotRequestTranscriptRelayout() = runTest {
         val history = listOf(ChatMessage("server", Role.ASSISTANT, "same answer"))
         coEvery { sessionRepo.history("s1", null) } returnsMany listOf(history, history)
