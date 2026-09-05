@@ -6,6 +6,7 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 import {
+  gatewaySmokeRoutePolicy,
   GatewayCandidateSmokeError,
   waitForGatewayForwarding,
 } from "../lib/gateway-candidate-smoke.mjs";
@@ -98,6 +99,22 @@ test("public forwarding readiness accepts a nonempty live Hermes status contract
   );
 });
 
+test("public smoke omits private-only health, readiness, capabilities, and release identity", () => {
+  assert.deepEqual(gatewaySmokeRoutePolicy("public"), {
+    routeMode: "public",
+    verifyPrivateSurface: false,
+  });
+  assert.deepEqual(gatewaySmokeRoutePolicy("private"), {
+    routeMode: "private",
+    verifyPrivateSurface: true,
+  });
+  assert.throws(
+    () => gatewaySmokeRoutePolicy("unsupported"),
+    (error) => error instanceof GatewayCandidateSmokeError
+      && error.message === "smoke_check=configuration",
+  );
+});
+
 test("candidate forwarding readiness has a bounded stable timeout", async () => {
   let calls = 0;
   await assert.rejects(
@@ -178,6 +195,7 @@ test("deployment smoke surfaces only allowlisted structured verifier diagnostics
   );
   assert.deepEqual(stdio, ["ignore", "ignore", "pipe"]);
   assert.equal(verifierEnvironment.HERMES_STATUS_MODE, "live");
+  assert.equal(verifierEnvironment.GATEWAY_SMOKE_ROUTE, "public");
 });
 
 test("unstructured verifier output is never copied into deployment diagnostics", () => {

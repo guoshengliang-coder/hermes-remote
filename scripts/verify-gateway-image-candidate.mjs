@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { WebSocket } from "ws";
 import {
+  gatewaySmokeRoutePolicy,
   GatewayCandidateSmokeError,
   runGatewaySmokeCheck,
   waitForGatewayForwarding,
@@ -16,6 +17,7 @@ let expectedCommit;
 let expectedVersion;
 let expectedDeviceId;
 let statusMode;
+let routePolicy;
 
 try {
   baseUrl = required("PUBLIC_GATEWAY_URL").replace(/\/$/, "");
@@ -30,6 +32,7 @@ try {
   if (!new Set(["mock", "live"]).has(statusMode)) {
     throw new GatewayCandidateSmokeError("configuration");
   }
+  routePolicy = gatewaySmokeRoutePolicy(process.env.GATEWAY_SMOKE_ROUTE || "private");
   await verify();
   console.log(`GATEWAY_OCI_SMOKE_OK version=${expectedVersion} commit=${expectedCommit}`);
 } catch (error) {
@@ -41,39 +44,41 @@ try {
 }
 
 async function verify() {
-  await runGatewaySmokeCheck("liveness", async () => {
-    assert.deepEqual(await fetchJson("/healthz"), { status: "alive" });
-  });
-  await runGatewaySmokeCheck("readiness", async () => {
-    assert.deepEqual(await fetchJson("/readyz"), {
-      status: "ready",
-      checks: {
-        config: "ok",
-        database: "disabled",
-        migrations: "not_required",
-        postgresql: "not_required",
-      },
+  if (routePolicy.verifyPrivateSurface) {
+    await runGatewaySmokeCheck("liveness", async () => {
+      assert.deepEqual(await fetchJson("/healthz"), { status: "alive" });
     });
-  });
-
-  await runGatewaySmokeCheck("capabilities", async () => {
-    const capabilities = await fetchJson("/v2/capabilities");
-    assert.equal(capabilities.accountAuth?.enabled, false);
-    assert.equal(capabilities.binding?.enabled, false);
-    assert.equal(capabilities.legacy?.appTokenAccepted, true);
-    assert.equal(capabilities.legacy?.connectorTokenAccepted, true);
-    assert.equal(capabilities.server?.version, expectedVersion);
-  });
-
-  await runGatewaySmokeCheck("release_identity", async () => {
-    const version = await fetchJsonFrom(internalBaseUrl, "/internal/version", {
-      headers: { authorization: `Bearer ${internalStatusToken}` },
+    await runGatewaySmokeCheck("readiness", async () => {
+      assert.deepEqual(await fetchJson("/readyz"), {
+        status: "ready",
+        checks: {
+          config: "ok",
+          database: "disabled",
+          migrations: "not_required",
+          postgresql: "not_required",
+        },
+      });
     });
-    assert.equal(version.serverVersion, expectedVersion);
-    assert.equal(version.sourceCommit, expectedCommit);
-    assert.equal(version.sourceDirty, false);
-    assert.ok(Number.isSafeInteger(version.artifactFileCount) && version.artifactFileCount > 0);
-  });
+
+    await runGatewaySmokeCheck("capabilities", async () => {
+      const capabilities = await fetchJson("/v2/capabilities");
+      assert.equal(capabilities.accountAuth?.enabled, false);
+      assert.equal(capabilities.binding?.enabled, false);
+      assert.equal(capabilities.legacy?.appTokenAccepted, true);
+      assert.equal(capabilities.legacy?.connectorTokenAccepted, true);
+      assert.equal(capabilities.server?.version, expectedVersion);
+    });
+
+    await runGatewaySmokeCheck("release_identity", async () => {
+      const version = await fetchJsonFrom(internalBaseUrl, "/internal/version", {
+        headers: { authorization: `Bearer ${internalStatusToken}` },
+      });
+      assert.equal(version.serverVersion, expectedVersion);
+      assert.equal(version.sourceCommit, expectedCommit);
+      assert.equal(version.sourceDirty, false);
+      assert.ok(Number.isSafeInteger(version.artifactFileCount) && version.artifactFileCount > 0);
+    });
+  }
 
   await runGatewaySmokeCheck("connector_identity", async () => {
     const relayHealth = await fetchJson(relayHealthPath);

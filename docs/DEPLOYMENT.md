@@ -261,3 +261,11 @@ on Docker 29/containerd image-ID representation. The second loaded the corrected
 stopped before route switch when the packaged smoke verifier could not load an omitted local dependency. Both
 attempts left the legacy Gateway and public routes healthy. A `candidate_started` journal may resume only the exact
 same plan and artifact after the R5-D6 gates pass; a different plan remains fail-closed.
+
+The third attempt passed the private blue-slot image, readiness, Connector, REST, and WebSocket checks. After the
+route switch, its public smoke incorrectly requested the loopback-only `/healthz` endpoint and received HTTP 404.
+Automatic recovery restored the legacy service, exact Nginx bytes, release links, lifecycle state, and public
+REST/WebSocket paths before returning `HR-OPS-014` at `switch_recovered`. R5-D7 makes the route scope explicit:
+private smoke retains `/healthz`, `/readyz`, capabilities, and protected release identity checks; public smoke uses
+only `/relay-health`, authentication rejection, authenticated `/api/status`, and `/api/ws`, matching the production
+Nginx contract. Production retry remains blocked until the R5-D7 gates and exact-artifact exercise pass.

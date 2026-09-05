@@ -128,6 +128,7 @@ test('R5-D managed baseline runs only on a disposable secretless host', async ()
   assert.equal(/secrets\.|docker\s+(?:push|login)|packages: write|ssh\b|mrlgs\.net|47\.239\./.test(workflow), false);
   const harness = await readRoot('scripts/test-gateway-staging-bootstrap.sh');
   assert.match(harness, /GATEWAY_R5D_MANAGED_BASELINE_OK/);
+  assert.equal((harness.match(/GATEWAY_SMOKE_ROUTE=public/g) || []).length, 5);
   assert.match(harness, /package-production-baseline-bundle\.mjs/);
   assert.match(harness, /r5d_ops_root\/scripts\/verify-production-baseline-bundle\.mjs/);
   assert.match(harness, /node "\$r5d_ops_entrypoint"/);
