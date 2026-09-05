@@ -140,6 +140,7 @@ async function stageRuntime(root) {
   for (const name of opsFiles) await copyFile(path.join("ops/lib", name), root);
   for (const file of [
     "scripts/production-baseline.mjs",
+    "scripts/postgresql-provision.mjs",
     "scripts/verify-production-baseline-bundle.mjs",
     "scripts/verify-gateway-image-candidate.mjs",
     "scripts/smoke-compat-client.mjs",

@@ -9,6 +9,38 @@ Gateway 不可变镜像执行账号关系 smoke。四项证据全部通过后才
 状态安装、timer 启用与 Gateway 切换分别属于生产动作；执行前须按 R5 顺序单独确认。当前工具也不会创建
 数据库、账号或恢复目标，不会启动/停止 PostgreSQL，不会修改 Gateway、Nginx 或公开路由。
 
+## R5-E1 生产只读预检结果
+
+2026-09-05 的授权只读检查确认 PostgreSQL 18.6 active/enabled、零重启并仅监听
+`127.0.0.1:5432`；HBA 无解析错误，生产实例尚无 Hermes 命名的数据库或角色。根盘约 22% 已用、
+可用内存约 5.4 GiB、内存压力为零。运行中的 Gateway 仍为 `833859aa9afe`，Docker 29/containerd
+运行身份与 schema v3 manifest 完全匹配，容器健康、只读且零重启，账号认证与绑定标志保持 `0`。
+数据库 URL、恢复证书、备份、异机证据和监控状态路径均尚未创建。本次没有写文件、安装、数据库连接以外
+的变更、重启或切流。
+
+## R5-E2 数据库首次初始化
+
+`scripts/postgresql-provision.mjs` 是角色/空数据库创建的唯一生产入口，配置示例为
+`ops/postgresql.provision.example.json`；入口随同源提交的受哈希保护运维 bundle 交付，不得单独复制脚本。
+它要求 root、Linux、精确主机确认、active PostgreSQL 18、
+loopback-only 监听、关闭普通 SQL statement logging 且未加载 pgAudit。数据库名与角色名只能使用严格的
+小写 SQL 标识符；密码只从既有 `0600` 文件读取，含密码 SQL 的会话把错误语句记录阈值提升到 PANIC，
+连接 URL 以 `0600` 原子文件安装且不出现在输出、参数或错误中。
+
+入口只接受全新状态：数据库、角色、URL 任一已存在即失败关闭，避免猜测接管未知对象。创建后验证数据库
+owner 与角色的 NOSUPERUSER/NOCREATEDB/NOCREATEROLE/NOREPLICATION/NOBYPASSRLS；数据库创建、验证或
+URL 安装失败会按相反顺序删除本次新建数据库和角色。运行命令仍属于生产写入，必须在一次性 PostgreSQL 18
+演练、PR 门禁和单独授权后执行：
+
+```bash
+sudo node scripts/postgresql-provision.mjs \
+  --config /secure-input/hermes-go/postgresql-provision.json \
+  --confirm production:<hostname>
+```
+
+R5-E2 只创建空数据库和最小权限角色，不迁移 schema、不修改 Gateway 配置或账号开关、不备份、不重启、
+不切流。schema 7 迁移继续使用目标不可变 Gateway 镜像并作为下一项独立生产门禁。
+
 ## 安全与身份边界
 
 - 恢复私钥只保存在异机 `0600` 文件中，绝不复制到香港主机；生产主机只接收公开证书。
@@ -88,6 +120,6 @@ R5-A 只读审计；只有恢复证据新鲜且所有门禁通过，才可讨论
 本代码阶段没有创建生产数据库/账号、没有迁移或读取生产数据、没有生成生产备份、没有传输运维文件、没有
 安装状态、没有部署代码，也没有重启或切换任何服务。
 
-截至 R5-D8，生产 Gateway 已受管运行于 `833859aa9afe`，但生产 PostgreSQL 仍为空且账号/数据库功能关闭。
-R5-E 下一生产步骤仍是只读预检，随后才可分别授权数据库/角色创建、schema 迁移、加密捕获、异机恢复和
+截至 R5-E1，生产 Gateway 已受管运行于 `833859aa9afe`，但生产 PostgreSQL 仍为空且账号/数据库功能关闭。
+R5-E 下一生产步骤是经完整门禁后的 R5-E2 数据库/角色初始化，随后才可分别授权 schema 迁移、加密捕获、异机恢复和
 状态激活；本次 manifest 身份修复不扩大这些权限。

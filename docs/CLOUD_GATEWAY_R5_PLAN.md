@@ -169,3 +169,8 @@ R5-D7 合并提交 `833859aa9afe55f09d2fe8663ab0fd1528447ba4` 的 PR、CI、SAST
 保留 `0.2.0-54f7aed61172`。私有版本/就绪、公开 Connector、认证 REST/WebSocket、错误 Token、发布服务、
 镜像身份与 Nginx 均复核通过，容器无重启或告警。PostgreSQL 仍只监听 loopback，数据库与两个账号标志
 保持关闭，R5-C4 timer 未启用。R5-D 至此完成，R5-E/F 仍保持独立生产授权边界。
+
+2026-09-05 的 R5-E1 授权只读预检确认 PostgreSQL 18.6、loopback 监听、资源、HBA、Gateway
+`833859aa9afe` manifest/containerd 身份与关闭的账号标志均符合预期，生产仍无 Hermes 数据库、角色、
+连接 URL、恢复证书或备份状态。R5-E2 因而新增严格的首次数据库初始化入口：只接收全新状态、从 `0600`
+文件读取凭据、避免 SQL 日志捕获、验证最小权限并在失败时清理本次对象。合并和一次性门禁完成前不得运行生产初始化。

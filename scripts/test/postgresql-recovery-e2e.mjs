@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import {
-  chmod, copyFile, lstat, mkdir, mkdtemp, readdir, realpath, rm, writeFile,
+  chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -15,6 +15,7 @@ import {
 import { loadProductionEvidence } from "../../ops/lib/production-config.mjs";
 import { loadPostgresqlBackupStatus } from "../../ops/lib/production-monitor-config.mjs";
 import { createCommandRunner } from "../../ops/lib/system.mjs";
+import { provisionPostgresql } from "../../ops/lib/postgresql-provision.mjs";
 
 const execFileAsync = promisify(execFile);
 const requiredEnvironment = [
@@ -46,6 +47,32 @@ try {
 
   const sourceUrl = process.env.R5E_SOURCE_DATABASE_URL;
   const restoreUrl = process.env.R5E_RESTORE_DATABASE_URL;
+  const provisionRoot = path.join(base, "provision-input");
+  await mkdir(provisionRoot, { mode: 0o700 });
+  const provisionPassword = "ephemeral-r5e2-password-0123456789";
+  const provisionPasswordFile = path.join(provisionRoot, "password");
+  const provisionUrlFile = path.join(provisionRoot, "database-url");
+  await privateFile(provisionPasswordFile, `${provisionPassword}\n`);
+  const provisionConfig = {
+    schemaVersion: 1, environment: "production", operator: "github-actions",
+    hostname: "github-r5e-source", serviceName: "postgresql@18-main",
+    databaseName: "hermes_r5e_provision", roleName: "hermes_r5e_gateway",
+    passwordFile: provisionPasswordFile, databaseUrlFile: provisionUrlFile, postgresqlMajorVersion: 18, postgresqlPort: 5432,
+  };
+  const provisionAdmin = await disposableProvisionAdmin(sourceUrl);
+  try {
+    await provisionPostgresql(provisionConfig, {
+      confirmation: "production:github-r5e-source", hostname: "github-r5e-source",
+      platform: "linux", getUid: () => 0, admin: provisionAdmin,
+    });
+    const provisionPool = new Pool({ connectionString: (await readFile(provisionUrlFile, "utf8")).trim(), max: 1 });
+    await provisionPool.query("SELECT 1");
+    await provisionPool.end();
+  } finally {
+    await provisionAdmin.dropDatabase(provisionConfig.databaseName).catch(() => {});
+    await provisionAdmin.dropRole(provisionConfig.roleName).catch(() => {});
+    await provisionAdmin.close();
+  }
   await migrateAccountDatabase({
     env: {
       ACCOUNT_DATABASE_URL: sourceUrl,
@@ -196,10 +223,36 @@ try {
     encryptedBytes: captured.archiveBytes,
     verifiedChecks: restored.verifiedChecks,
     accountRowsRestored: accountCount.rows[0].count,
+    databaseProvisioned: true,
     targetRelease: restored.targetRelease,
   })}\n`);
 } finally {
   await rm(base, { recursive: true, force: true });
+}
+
+async function disposableProvisionAdmin(sourceUrl) {
+  const adminUrl = new URL(sourceUrl);
+  adminUrl.pathname = "/postgres";
+  const pool = new Pool({ connectionString: adminUrl.toString(), max: 1 });
+  return {
+    async inspect(config) {
+      const database = await pool.query("SELECT count(*)::int AS count FROM pg_database WHERE datname=$1", [config.databaseName]);
+      const role = await pool.query("SELECT count(*)::int AS count FROM pg_roles WHERE rolname=$1", [config.roleName]);
+      return { serviceActive: true, postgresqlMajor: 18, postgresqlPort: 5432, loopbackOnly: true, statementLoggingDisabled: true, auditLoggingDisabled: true, databaseExists: database.rows[0].count !== 0, roleExists: role.rows[0].count !== 0 };
+    },
+    async createRole(role, password) {
+      await pool.query("SET log_min_error_statement = 'panic'");
+      await pool.query(`CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD '${password.replaceAll("'", "''")}'`);
+    },
+    async createDatabase(database, role) { await pool.query(`CREATE DATABASE ${database} OWNER ${role}`); },
+    async verify(config) {
+      const result = await pool.query("SELECT d.datdba=r.oid AS owned, r.rolcanlogin AND NOT r.rolinherit AND NOT r.rolsuper AND NOT r.rolcreatedb AND NOT r.rolcreaterole AND NOT r.rolreplication AND NOT r.rolbypassrls AS least FROM pg_database d JOIN pg_roles r ON r.rolname=$1 WHERE d.datname=$2", [config.roleName, config.databaseName]);
+      return { databaseOwnedByRole: result.rows[0]?.owned === true, leastPrivilegeRole: result.rows[0]?.least === true };
+    },
+    async dropDatabase(database) { await pool.query(`DROP DATABASE IF EXISTS ${database}`); },
+    async dropRole(role) { await pool.query(`DROP ROLE IF EXISTS ${role}`); },
+    async close() { await pool.end(); },
+  };
 }
 
 async function privateFile(filePath, content) {
