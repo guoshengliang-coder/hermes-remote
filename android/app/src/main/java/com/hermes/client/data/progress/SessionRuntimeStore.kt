@@ -158,6 +158,11 @@ class SessionRuntimeStore(
     private val mediaRepository: ChatMediaRepository? = null,
     /** Wall clock, injectable so staleness and expiry can be driven by a test. */
     private val clock: () -> Long = { System.currentTimeMillis() },
+    /**
+     * Whether the foreground watchdog runs. Off by default so a test's advanceUntilIdle never
+     * chases a rescheduling timer; production turns it on (AppModule).
+     */
+    private val watchdogEnabled: Boolean = false,
 ) {
     private val _runtimes = MutableStateFlow<Map<SessionRuntimeKey, SessionRuntime>>(emptyMap())
     val runtimes: StateFlow<Map<SessionRuntimeKey, SessionRuntime>> = _runtimes.asStateFlow()
@@ -186,6 +191,10 @@ class SessionRuntimeStore(
     // A composed chat screen stays "visible" while the phone is locked; only a visible chat in a
     // foreground app is actually being read. Completion folds use this to decide read vs unread.
     @Volatile private var appInForeground = false
+    @Volatile private var connected = false
+    private val lastProbeAt = ConcurrentHashMap<SessionRuntimeKey, Long>()
+    private val probeFailures = ConcurrentHashMap<SessionRuntimeKey, Int>()
+    @Volatile private var watchdogJob: Job? = null
 
     init {
         readStore?.let { store ->
@@ -212,6 +221,7 @@ class SessionRuntimeStore(
         appScope.launch {
             var previous: ConnectionState? = null
             chatRepository.connectionState.collect { current ->
+                connected = current is ConnectionState.Connected
                 if (current is ConnectionState.Reconnecting || current is ConnectionState.Error ||
                     current is ConnectionState.Disconnected
                 ) {
@@ -325,6 +335,91 @@ class SessionRuntimeStore(
         appInForeground = foreground
         if (foreground) visible.toList().forEach { key ->
             if (_runtimes.value[key]?.phase?.isTerminalVerdict == true) markRead(key)
+        }
+        // Waking up is the one moment Doze cannot have hidden: whatever finished while the phone
+        // slept is asked about now instead of whenever the inbox next gets polled.
+        if (foreground) {
+            probeActiveRuntimes(reason = "foreground", staleOnly = false)
+            scheduleWatchdog()
+        }
+    }
+
+    enum class ProbeResult { PROBED, RATE_LIMITED, OFFLINE, FAILED, GAVE_UP, IDLE }
+
+    /**
+     * Ask Hermes whether a run the store still believes is active really is. A successful
+     * `session.resume` makes Hermes emit `session.info{running}`, which the normal event fold
+     * settles: `running:false` retires the phase and (via normalization) closes the bubble. The
+     * store never invents a terminal state from a transport error — only a run that has been
+     * silent past [ACTIVE_RUN_HARD_CAP_MS] and failed to answer twice is marked interrupted, so
+     * a row cannot spin forever after the Mac disappears.
+     */
+    suspend fun probe(key: SessionRuntimeKey, force: Boolean = false): ProbeResult {
+        val runtime = _runtimes.value[key] ?: return ProbeResult.IDLE
+        if (!runtime.phase.isActive || runtime.phase == SessionRunPhase.RECONNECTING) return ProbeResult.IDLE
+        if (!connected) return ProbeResult.OFFLINE
+        val now = clock()
+        if (!force && now - (lastProbeAt[key] ?: 0L) < PROBE_MIN_INTERVAL_MS) return ProbeResult.RATE_LIMITED
+        lastProbeAt[key] = now
+        return runCatching { chatRepository.resume(key.sessionId, key.profile) }
+            .fold(
+                onSuccess = { handle ->
+                    probeFailures.remove(key)
+                    bindLiveHandle(key, handle)
+                    ProbeResult.PROBED
+                },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    val failures = probeFailures.merge(key, 1, Int::plus) ?: 1
+                    DebugLog.log("session", "probe ${key.sessionId} failed ($failures): ${error.message}")
+                    val silentFor = now - runtime.lastEventAt
+                    if (failures >= PROBE_FAILURES_BEFORE_GIVING_UP && silentFor > ACTIVE_RUN_HARD_CAP_MS) {
+                        DebugLog.log("session", "probe ${key.sessionId}: silent ${silentFor / 60_000} min and unreachable, marking interrupted")
+                        markUnconfirmed(key)
+                        probeFailures.remove(key)
+                        ProbeResult.GAVE_UP
+                    } else ProbeResult.FAILED
+                },
+            )
+    }
+
+    /** Probe every active runtime; [staleOnly] restricts it to runs silent past [STALE_RUN_MS]. */
+    fun probeActiveRuntimes(reason: String, staleOnly: Boolean) {
+        val now = clock()
+        val candidates = _runtimes.value.values.filter { runtime ->
+            runtime.phase.isActive && runtime.phase != SessionRunPhase.RECONNECTING &&
+                (!staleOnly || now - runtime.lastEventAt > STALE_RUN_MS)
+        }
+        if (candidates.isEmpty()) return
+        DebugLog.log("session", "probing ${candidates.size} active run(s): $reason")
+        candidates.forEach { runtime -> appScope.launch { probe(runtime.key) } }
+    }
+
+    private fun scheduleWatchdog() {
+        if (!watchdogEnabled || !appInForeground) return
+        if (watchdogJob?.isActive == true) return
+        watchdogJob = appScope.launch {
+            delay(WATCHDOG_TICK_MS)
+            watchdogJob = null
+            if (!appInForeground) return@launch
+            probeActiveRuntimes(reason = "watchdog", staleOnly = true)
+            if (_runtimes.value.values.any { it.phase.isActive }) scheduleWatchdog()
+        }
+    }
+
+    /** A run silent past the hard cap whose Mac no longer answers: the outcome is unconfirmed. */
+    private fun markUnconfirmed(key: SessionRuntimeKey) {
+        val now = clock()
+        updateRuntime(key) { runtime ->
+            runtime.copy(
+                chat = runtime.chat.markInterrupted(),
+                phase = if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.INTERRUPTED,
+                toolName = null,
+                lastEventAt = now,
+                startedLocally = false,
+                lastTerminalAt = now,
+                occurredAt = now,
+            )
         }
     }
 
@@ -806,6 +901,7 @@ class SessionRuntimeStore(
         _runtimes.update { map ->
             map + (key to transform(map[key] ?: SessionRuntime(key)).normalized())
         }
+        if (_runtimes.value[key]?.phase?.isActive == true) scheduleWatchdog()
     }
 
     private fun resolve(event: ServerEvent): SessionRuntimeKey? {
@@ -1190,5 +1286,13 @@ class SessionRuntimeStore(
         /** How long an event for a not-yet-aliased session waits for its alias before it is dropped. */
         const val PENDING_EVENT_TTL_MS = 60_000L
         const val PENDING_EVENT_CAP = 200
+        /** A foreground run this long without any event is asked about by the watchdog. */
+        const val STALE_RUN_MS = 3 * 60_000L
+        const val WATCHDOG_TICK_MS = 60_000L
+        /** One probe per run per minute, however many triggers fire. */
+        const val PROBE_MIN_INTERVAL_MS = 60_000L
+        /** Silent this long AND unreachable twice: the outcome is unconfirmed, the row stops spinning. */
+        const val ACTIVE_RUN_HARD_CAP_MS = 30 * 60_000L
+        const val PROBE_FAILURES_BEFORE_GIVING_UP = 2
     }
 }

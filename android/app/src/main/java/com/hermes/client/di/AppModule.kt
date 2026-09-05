@@ -197,6 +197,7 @@ object AppModule {
             readStore,
             sessions,
             media,
+            watchdogEnabled = true,
         )
 
     @Provides
