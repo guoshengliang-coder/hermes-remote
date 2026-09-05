@@ -229,6 +229,12 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.98 identifies this app to Hermes as its own client (`source=hermes_remote`) on
+  session create and resume, so the agent stops receiving the terminal capability block that
+  told it attachments were impossible here; the matching text lives in the Mac's
+  `platform_hints` config (docs/HERMES_CONTRACT.md). It also documents the artifact-download
+  error codes (HR-FILE-003..007) and the Connector's refusal logging, which shipped in 0.1.97
+  without a release note.
 - Version 0.1.95 moves an assistant reply's file attachment below the reply text, so a long
   report no longer scrolls its download card out of view, and records attachments in both the
   Markdown and long-image transcript exports, which previously dropped them entirely.
@@ -588,7 +594,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.97-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.98-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
