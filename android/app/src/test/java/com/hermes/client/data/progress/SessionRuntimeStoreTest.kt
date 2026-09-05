@@ -396,6 +396,29 @@ class SessionRuntimeStoreTest {
         assertEquals("手机已经收到的完整答案", store.runtimes.value.getValue(key).chat.messages.last().text)
     }
 
+    /**
+     * Regression for HG-1. `session.resume` returns no live handle for a session that already
+     * finished — which is the ordinary case when a run completes while the app is away. Treating
+     * that as a failed recovery made the startup gate cover the whole app with "couldn't load the
+     * first screen", over a transcript that had just been accepted correctly.
+     */
+    @Test fun foreground_recovery_succeeds_for_a_session_that_already_finished() = runTest {
+        val sessions = mockk<com.hermes.client.data.repository.SessionRepository>()
+        val user = ChatMessage("persisted-user", Role.USER, "开始")
+        val answer = ChatMessage("persisted-answer", Role.ASSISTANT, "完成内容")
+        coEvery { sessions.history("s1", "personal") } returns listOf(user, answer)
+        val fixture = fixture(sessions)
+        val key = fixture.store.register("s1", "personal")
+        // A relaxed ChatRepository returns no handle from resume(), which is exactly what an
+        // idle session hands back.
+        coEvery { fixture.chat.resume("s1", "personal") } returns null
+
+        val recovered = fixture.store.recoverVisibleSession(key)
+
+        assertTrue("an idle session is recovered, not failed", recovered)
+        assertEquals("完成内容", fixture.store.runtimes.value.getValue(key).chat.messages.last().text)
+    }
+
     @Test fun foregroundRecoveryWaitsForCompleteHistoryBeforeReportingReady() = runTest {
         val sessions = mockk<com.hermes.client.data.repository.SessionRepository>()
         val user = ChatMessage("persisted-user", Role.USER, "开始")

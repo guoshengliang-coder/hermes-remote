@@ -298,7 +298,7 @@ class StartupViewModel @Inject constructor(
                     }
                     is GatewayProbeResult.ServerFailure -> {
                         minimumDisplay?.cancel()
-                        _state.value = StartupUiState.Failed(
+                        fail(
                             reason,
                             if (probe.errorCode == "device_offline") {
                                 StartupFailure.CONNECTOR_OFFLINE
@@ -310,7 +310,7 @@ class StartupViewModel @Inject constructor(
                     }
                     is GatewayProbeResult.Unreachable -> {
                         minimumDisplay?.cancel()
-                        _state.value = StartupUiState.Failed(
+                        fail(
                             reason,
                             if (connectivitySaysOffline) StartupFailure.DEVICE_OFFLINE
                             else StartupFailure.CONNECTION_FAILED,
@@ -360,16 +360,16 @@ class StartupViewModel @Inject constructor(
                     }
                     if (!initialized) {
                         minimumDisplay?.cancel()
-                        _state.value = StartupUiState.Failed(
-                            reason,
-                            StartupFailure.INITIAL_DATA_FAILED,
-                        )
+                        fail(reason, StartupFailure.INITIAL_DATA_FAILED)
                         return@coroutineScope
                     }
                     _state.value = StartupUiState.Loading(reason, StartupPhase.READY)
-                    val completionAnimation = async { delay(SUCCESS_COMPLETION_MS) }
+                    // Only the cold start earns the completion flourish. Holding a hot start's
+                    // overlay half a second past the moment it is ready is the "it flashed the
+                    // splash screen for no reason" complaint, on a screen that was already usable.
+                    val completionAnimation = minimumDisplay?.let { async { delay(SUCCESS_COMPLETION_MS) } }
                     minimumDisplay?.await()
-                    completionAnimation.await()
+                    completionAnimation?.await()
                     _state.value = StartupUiState.Hidden
                     if (repairReason != null) {
                         repairReason = null
@@ -377,13 +377,33 @@ class StartupViewModel @Inject constructor(
                     }
                 } else {
                     minimumDisplay?.cancel()
-                    _state.value = StartupUiState.Failed(
-                        reason,
-                        StartupFailure.CONNECTION_FAILED,
-                    )
+                    fail(reason, StartupFailure.CONNECTION_FAILED)
                 }
             }
         }
+    }
+
+    /**
+     * Terminal failure, blocking only when there is nothing behind the gate to fall back to.
+     *
+     * On a cold start the overlay is the whole screen and a full-stop error is the only honest
+     * thing to show. On a hot start the app is already rendered and the user was looking at it a
+     * second ago, so covering it for a failure that heals itself trades a working screen for a
+     * dead one. Those failures go back to the surfaces that own them — the health strip for
+     * reachability, the chat banner for the socket, the screen's own refresh for data — all of
+     * which report without taking the app away.
+     *
+     * Configuration and authentication faults do not come through here: they route to
+     * [requireConfigurationRepair], and they still take over on a hot start because the app
+     * genuinely cannot work until the user fixes them.
+     */
+    private fun fail(reason: StartupReason, failure: StartupFailure) {
+        if (reason == StartupReason.CONNECTION_RECOVERY) {
+            DebugLog.log("startup", "hot start ${failure.code} — leaving the app visible")
+            _state.value = StartupUiState.Hidden
+            return
+        }
+        _state.value = StartupUiState.Failed(reason, failure)
     }
 
     private fun loadConfiguration(reason: StartupReason): GatewayConfig? = try {

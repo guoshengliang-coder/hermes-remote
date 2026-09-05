@@ -207,10 +207,44 @@ class StartupViewModelTest {
         assertEquals(StartupPhase.INITIAL_DATA, (vm.state.value as StartupUiState.Loading).phase)
         destinationRecovery.complete(true)
         runCurrent()
-        assertEquals(StartupPhase.READY, (vm.state.value as StartupUiState.Loading).phase)
-        advanceTimeBy(StartupViewModel.SUCCESS_COMPLETION_MS)
-        runCurrent()
+        // A hot start no longer holds the overlay for the completion flourish. The screen behind
+        // it was already usable, so half a second of splash on the way out is a flash, not polish.
         assertEquals(StartupUiState.Hidden, vm.state.value)
+    }
+
+    /**
+     * Regression for HG-1. On a hot start the app is already rendered, so a failure that heals
+     * itself must not replace a working screen with a full-stop error — it goes back to the
+     * surfaces that own it. The same failure on a cold start still blocks, because there is
+     * nothing behind the gate to fall back to.
+     */
+    @Test fun aRetryableFailureOnAHotStartLeavesTheAppVisible() = runTest {
+        coEvery { foregroundRecovery.recoverActive() } returns false
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = false)
+        vm.onForeground()
+        advanceTimeBy(StartupViewModel.HOT_START_DEBOUNCE_MS)
+        runCurrent()
+        connection.value = ConnectionState.Connected
+        runCurrent()
+
+        assertEquals(StartupUiState.Hidden, vm.state.value)
+    }
+
+    @Test fun theSameFailureOnAColdStartStillBlocks() = runTest {
+        coEvery { sessions.listAllProfiles() } throws RuntimeException("sessions unavailable")
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        connection.value = ConnectionState.Connected
+        runCurrent()
+
+        assertEquals(
+            StartupFailure.INITIAL_DATA_FAILED,
+            (vm.state.value as StartupUiState.Failed).failure,
+        )
     }
 
     @Test fun briefForegroundDisconnectRecoversInsideDebounceWithoutShowingGate() = runTest {
