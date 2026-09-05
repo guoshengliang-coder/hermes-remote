@@ -206,6 +206,12 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   Reconstructed from the 2026-09-05 incident behind HG-6/7/8; nothing about the transport
   changes, so a completion still arrives late while the phone sleeps — it is just shown
   truthfully once it does.
+- Version 0.1.94 makes a turn rebuilt from history look exactly like the turn that streamed:
+  dynamic MCP calls are labelled by their real target instead of the `tool_call` wrapper, and the
+  persisted tool-result rows are joined back onto their cards so every row carries its output,
+  exit code and duration. A completed turn's timeline now folds behind a one-line summary
+  (calls · duration · failures); a timeline watched to completion stays open, one first seen
+  complete starts folded (docs/DESIGN.md §5.4, decision 2026-09-05).
 - Version 0.1.91 keeps a running task connected while you switch away, and stops reporting outages
   the task never noticed. Backgrounding the app mid-run used to drop the socket 45 seconds later
   and greet you with "reconnecting" on your return: the notification switch was evaluated before
@@ -562,7 +568,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.93-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.94-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
