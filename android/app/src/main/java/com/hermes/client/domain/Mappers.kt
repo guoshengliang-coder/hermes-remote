@@ -6,6 +6,7 @@ import com.hermes.client.data.network.ProjectNodeDto
 import com.hermes.client.data.network.ProjectTreeDto
 import com.hermes.client.data.network.RepoDto
 import com.hermes.client.data.network.SessionDto
+import com.hermes.client.ui.chat.normalizeDisplayPayload
 import com.hermes.client.ui.chat.parseToolPayloadMeta
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -494,7 +495,11 @@ internal fun parseIsoTimestampMillis(raw: String): Long? = runCatching {
     java.time.LocalDateTime.parse(raw).atZone(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
 }.getOrNull()
 
-fun MessageDto.toDomain(): ChatMessage {
+/**
+ * [toolResults] maps a tool_call_id to the role="tool" row that answered it, so a persisted call
+ * comes back with the same output, exit code and duration the live tool.complete event carried.
+ */
+fun MessageDto.toDomain(toolResults: Map<String, MessageDto> = emptyMap()): ChatMessage {
     val parsed = parseMessageContent(content.orEmpty())
     return ChatMessage(
         id = id?.toString() ?: "m-${hashCode()}",
@@ -513,7 +518,7 @@ fun MessageDto.toDomain(): ChatMessage {
         thinking = if (role.equals("assistant", ignoreCase = true)) {
             reasoningContent?.takeIf { it.isNotBlank() } ?: reasoning?.takeIf { it.isNotBlank() } ?: ""
         } else "",
-        tools = if (role.equals("assistant", ignoreCase = true)) historyToolCalls() else emptyList(),
+        tools = if (role.equals("assistant", ignoreCase = true)) historyToolCalls(toolResults) else emptyList(),
         displayKind = displayKind?.ifBlank { null },
         displayTaskCount = displayMetadata?.intOrNull("task_count"),
         displayFailedCount = displayMetadata?.intOrNull("failed_count"),
@@ -521,11 +526,12 @@ fun MessageDto.toDomain(): ChatMessage {
 }
 
 /**
- * REST cannot say how each call ended — the tool-result rows are filtered out of history — so a
- * persisted call maps to a completed card without output. A live tool.complete for the same id
- * still carries the full result, and reconciliation keeps it (see inheritStreamFields).
+ * Rebuilds the turn's tool cards from the persisted call list, joined with the role="tool" result
+ * rows by tool_call_id. The result row's content is the same payload a live tool.complete event
+ * carries, so it goes through the same normalization and metadata parsing as the live path
+ * (ChatUiState.reduce); a call whose result row is missing still maps to a completed card.
  */
-private fun MessageDto.historyToolCalls(): List<ToolCall> {
+private fun MessageDto.historyToolCalls(toolResults: Map<String, MessageDto>): List<ToolCall> {
     val array: JsonArray = when (val raw: JsonElement? = toolCalls) {
         is JsonArray -> raw
         is JsonPrimitive -> raw.contentOrNull
@@ -540,11 +546,17 @@ private fun MessageDto.historyToolCalls(): List<ToolCall> {
         val id = (call["id"] as? JsonPrimitive)?.contentOrNull?.ifBlank { null } ?: "h-tool-$index"
         val arguments = (function["arguments"] as? JsonPrimitive)?.contentOrNull
         val argumentsObject = arguments?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() } as? JsonObject
+        val rawResult = toolResults[id]?.content?.takeIf { it.isNotBlank() }
+        val resultMeta = rawResult?.let(::parseToolPayloadMeta)
         ToolCall(
             id = id,
             name = historyToolLabel(wrapperName, argumentsObject),
             status = ToolStatus.DONE,
-            command = arguments?.let { parseToolPayloadMeta(it) }?.command,
+            output = rawResult?.let(::normalizeDisplayPayload).orEmpty(),
+            command = resultMeta?.command ?: arguments?.let { parseToolPayloadMeta(it) }?.command,
+            exitCode = resultMeta?.exitCode,
+            durationMs = resultMeta?.durationMs,
+            todos = resultMeta?.todos.orEmpty(),
         )
     }
 }

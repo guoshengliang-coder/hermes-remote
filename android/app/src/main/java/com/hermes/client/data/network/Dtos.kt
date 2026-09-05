@@ -60,6 +60,9 @@ import kotlinx.serialization.Serializable
     // The assistant turn's tool calls in OpenAI shape ({id, function: {name, arguments}}). Hermes
     // returns a parsed array; kept as a JsonElement so a stringified array still maps.
     @SerialName("tool_calls") val toolCalls: kotlinx.serialization.json.JsonElement? = null,
+    // On a role="tool" result row: which call this answers, and the tool that produced it.
+    @SerialName("tool_call_id") val toolCallId: String? = null,
+    @SerialName("tool_name") val toolName: String? = null,
 )
 @Serializable data class MessagesDto(val messages: List<MessageDto> = emptyList())
 

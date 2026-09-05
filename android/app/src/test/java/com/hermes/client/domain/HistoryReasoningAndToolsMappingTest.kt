@@ -53,6 +53,37 @@ class HistoryReasoningAndToolsMappingTest {
         assertTrue(messages[2].tools.isEmpty())
     }
 
+    @Test fun toolResultRowsJoinBackOntoTheirCallsLikeALiveToolComplete() {
+        val payload = """
+            {"messages":[
+              {"id":1,"role":"assistant","content":"","tool_calls":[
+                {"id":"call_a","type":"function","function":{"name":"terminal","arguments":"{\"command\":\"date\"}"}},
+                {"id":"call_b","type":"function","function":{"name":"tool_call","arguments":"{\"name\":\"mcp__bi_query__query_data\"}"}},
+                {"id":"call_c","type":"function","function":{"name":"skill_view","arguments":"{\"name\":\"bi\"}"}}
+              ]},
+              {"id":2,"role":"tool","tool_call_id":"call_a","tool_name":"terminal","content":"{\"output\": \"2026-09-05 Saturday CST\", \"exit_code\": 0, \"error\": null}"},
+              {"id":3,"role":"tool","tool_call_id":"call_b","tool_name":"tool_call","content":"{\"output\": \"rows: 42\", \"exit_code\": 1, \"error\": null}"}
+            ]}
+        """.trimIndent()
+        val dtos = json.decodeFromString(MessagesDto.serializer(), payload).messages
+        val results = dtos.filter { it.role == "tool" }.associateBy { it.toolCallId!! }
+        val turn = dtos.first { it.role == "assistant" }.toDomain(results)
+
+        val (date, query, skill) = turn.tools
+        assertEquals("date", date.command)
+        assertEquals(0, date.exitCode)
+        assertTrue(date.output.contains("2026-09-05 Saturday CST"))
+
+        assertEquals("mcp__bi_query__query_data", query.name)
+        assertEquals(1, query.exitCode)
+        assertTrue(query.output.contains("rows: 42"))
+
+        // No result row: still a completed card, just without an outcome.
+        assertEquals("skill_view", skill.name)
+        assertEquals("", skill.output)
+        assertEquals(null, skill.exitCode)
+    }
+
     @Test fun reasoningContentIsPreferredAndReasoningIsTheFallback() {
         val only = """{"messages":[{"role":"assistant","content":"x","reasoning":"fallback"},
                                     {"role":"assistant","content":"y","reasoning":"a","reasoning_content":"b"}]}"""
