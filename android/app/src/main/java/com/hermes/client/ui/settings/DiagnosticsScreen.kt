@@ -23,12 +23,14 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import com.hermes.client.data.diagnostics.DebugLog
 import java.time.Instant
 import java.time.ZoneId
@@ -45,6 +47,7 @@ fun DiagnosticsScreen(
     val enabled by vm.enabled.collectAsStateWithLifecycle()
     val entries by vm.entries.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -58,6 +61,7 @@ fun DiagnosticsScreen(
         Column(Modifier.padding(padding).fillMaxSize()) {
             val shareSubject = l10n("Hermes GO 诊断日志", "Hermes GO diagnostic log")
             val shareTitle = l10n("分享诊断日志", "Share diagnostic log")
+            val markNote = l10n("问题就发生在这里", "the problem happened here")
             ListItem(
                 headlineContent = { Text(l10n("诊断日志", "Diagnostic logging")) },
                 supportingContent = {
@@ -79,16 +83,15 @@ fun DiagnosticsScreen(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // Shares the file, not EXTRA_TEXT: the full history is far too large for an
+                // Intent extra, and reading it off disk must not happen on the main thread.
                 Button(
-                    onClick = {
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, shareSubject)
-                            putExtra(Intent.EXTRA_TEXT, vm.export())
-                        }
-                        context.startActivity(Intent.createChooser(send, shareTitle))
-                    },
+                    onClick = { scope.launch { vm.share(context, shareTitle, shareSubject) } },
                 ) { Text(l10n("分享", "Share")) }
+                OutlinedButton(
+                    enabled = enabled,
+                    onClick = { vm.mark(markNote) },
+                ) { Text(l10n("标记现场", "Mark")) }
                 OutlinedButton(onClick = { vm.clear() }) { Text(l10n("清除", "Clear")) }
             }
             HorizontalDivider()

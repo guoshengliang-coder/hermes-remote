@@ -41,6 +41,8 @@ class HermesRestApi(
 ) {
     private companion object {
         const val REST_TIMEOUT_SECONDS = 20L
+        /** A quiet poll is only worth a line once it stops being quick. */
+        const val SLOW_REQUEST_MS = 1_000L
         const val CONNECTION_TEST_TIMEOUT_SECONDS = 12L
     }
 
@@ -59,27 +61,57 @@ class HermesRestApi(
         return b
     }
 
+    /** High-frequency polls whose successful, fast outcome carries no information. */
+    private fun isQuietPath(path: String): Boolean = path.startsWith("/api/mobile/events")
+
     /** The shared client has no read timeout for WebSockets; every REST call gets a deadline. */
     private fun restCall(request: Request): Call = okHttp.newCall(request).apply {
         timeout().timeout(REST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
     }
 
+    /**
+     * One log line per call instead of two, and none at all for a quiet poll.
+     *
+     * The inbox poll runs every two seconds while the app is foregrounded, so the old
+     * request-then-response pair was writing roughly a line a second of "nothing happened" — which
+     * pushed a 500-entry buffer out in about eight minutes and made the shared log cover less time
+     * than it takes a user to reach Settings after hitting a bug. A poll that returns quickly and
+     * successfully says nothing the lifecycle channel does not already say when it dispatches what
+     * the poll found, so it is dropped; a slow or failing one is still recorded.
+     *
+     * Transport failures are now logged too. Previously a timed-out call left only the opening
+     * line and no outcome at all, which reads exactly like a request that never returned.
+     */
     private suspend inline fun <reified T> get(path: String): T = withContext(Dispatchers.IO) {
-        com.hermes.client.data.diagnostics.DebugLog.log("rest", "GET $path")
         val call = restCall(builder(path).get().build())
         // The shared client deliberately has no read timeout because WebSockets are long-lived.
         // A per-call deadline is essential for REST, otherwise a stalled Relay/Connector request
         // leaves a Compose loading screen spinning forever.
         call.timeout().timeout(REST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        call.execute().use { resp ->
+        val startedAt = System.currentTimeMillis()
+        val response = try {
+            call.execute()
+        } catch (error: Throwable) {
+            val elapsed = System.currentTimeMillis() - startedAt
+            com.hermes.client.data.diagnostics.DebugLog.log(
+                "rest", "GET $path ✗ ${error.javaClass.simpleName}: ${error.message} (${elapsed}ms)",
+            )
+            throw error
+        }
+        response.use { resp ->
+            val elapsed = System.currentTimeMillis() - startedAt
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
                 com.hermes.client.data.diagnostics.DebugLog.log(
-                    "rest", "GET $path ← ${resp.code} ${body.take(200)}",
+                    "rest", "GET $path ← ${resp.code} (${elapsed}ms) ${body.take(200)}",
                 )
                 throw HermesApiException(resp.code, body.ifBlank { "HTTP ${resp.code}" })
             }
-            com.hermes.client.data.diagnostics.DebugLog.log("rest", "GET $path ← ${resp.code}")
+            if (!isQuietPath(path) || elapsed >= SLOW_REQUEST_MS) {
+                com.hermes.client.data.diagnostics.DebugLog.log(
+                    "rest", "GET $path ← ${resp.code} (${elapsed}ms)",
+                )
+            }
             json.decodeFromString<T>(body)
         }
     }

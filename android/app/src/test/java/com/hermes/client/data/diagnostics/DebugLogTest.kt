@@ -121,6 +121,73 @@ class DebugLogTest {
         assertFalse("live entries must not be flagged", entries.last().fromPreviousRun)
     }
 
+    /**
+     * The share sheet used to dump the ring buffer, so it could never carry more than
+     * [DebugLog.MAX_ENTRIES] — a few minutes during an active session, routinely less than the gap
+     * between hitting a bug and reaching Settings. The file already held far more; only the export
+     * threw it away.
+     */
+    @Test fun exportFull_reaches_past_the_ring_buffer_into_the_file() {
+        DebugLog.init(logDir(), direct)
+        val overflow = DebugLog.MAX_ENTRIES + 120
+        repeat(overflow) { DebugLog.log("ws", "entry-$it") }
+
+        // The in-app list stays bounded on purpose; only the export changes.
+        assertEquals(DebugLog.MAX_ENTRIES, DebugLog.entries.value.size)
+        assertFalse(DebugLog.export().contains("entry-0 "))
+
+        val full = DebugLog.exportFull()
+        assertTrue(full.contains("entry-0"))
+        assertTrue(full.contains("entry-${overflow - 1}"))
+    }
+
+    @Test fun exportFull_falls_back_to_memory_when_no_file_is_attached() {
+        DebugLog.detachStore()
+        DebugLog.log("ws", "memory-only")
+
+        assertTrue(DebugLog.exportFull().contains("memory-only"))
+    }
+
+    /**
+     * Once the export reads the file back as one stream, the per-entry "previous run" flag can no
+     * longer show where a process restarted — the header does that job instead, and carries the
+     * build and device that a screenshot never does.
+     */
+    @Test fun enabling_writes_a_session_header() {
+        DebugLog.setEnabled(false)
+        DebugLog.clear()
+        DebugLog.setEnabled(true)
+
+        val header = DebugLog.entries.value.single()
+        assertEquals("session", header.category)
+        assertTrue(header.message.startsWith("diagnostic logging on"))
+    }
+
+    @Test fun re_enabling_starts_a_new_session_header_but_staying_on_does_not() {
+        DebugLog.setEnabled(false)
+        DebugLog.clear()
+        DebugLog.setEnabled(true)
+        DebugLog.setEnabled(true)
+        assertEquals(1, DebugLog.entries.value.count { it.category == "session" })
+
+        DebugLog.setEnabled(false)
+        DebugLog.setEnabled(true)
+        assertEquals(2, DebugLog.entries.value.count { it.category == "session" })
+    }
+
+    @Test fun a_user_marker_is_recorded_only_while_logging_is_on() {
+        DebugLog.clear()
+        DebugLog.mark("here")
+        assertEquals(1, DebugLog.entries.value.size)
+        assertEquals("mark", DebugLog.entries.value.single().category)
+        assertTrue(DebugLog.entries.value.single().message.contains("here"))
+
+        DebugLog.setEnabled(false)
+        DebugLog.clear()
+        DebugLog.mark("ignored")
+        assertTrue(DebugLog.entries.value.isEmpty())
+    }
+
     @Test fun disabled_logging_writes_nothing_to_disk() {
         DebugLog.init(logDir(), direct)
         DebugLog.setEnabled(false)

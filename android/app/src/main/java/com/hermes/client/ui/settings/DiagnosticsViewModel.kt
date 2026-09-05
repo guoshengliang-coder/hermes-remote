@@ -31,5 +31,9 @@ class DiagnosticsViewModel @Inject constructor(
 
     fun clear() = DebugLog.clear()
 
-    fun export(): String = DebugLog.export()
+    /** Drops a user-placed marker so the shared log says where to start reading. */
+    fun mark(note: String) = DebugLog.mark(note)
+
+    suspend fun share(context: android.content.Context, chooserTitle: String, subject: String) =
+        DiagnosticLogExport.share(context, chooserTitle, subject)
 }
