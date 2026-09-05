@@ -527,8 +527,25 @@ fun ChatScreen(
                     context.startActivity(
                         if (share) android.content.Intent.createChooser(intent, file.name) else intent,
                     )
-                }.onFailure { showAttachmentError(null) }
-            }.onFailure { showAttachmentError(null) }
+                }.onFailure {
+                    // The download already succeeded — the phone simply has no handler for this
+                    // MIME type. Reporting it as a transfer failure sent a 2026-09-05 investigation
+                    // after the wrong layer entirely.
+                    showAttachmentError(
+                        com.hermes.client.data.error.AppError(
+                            com.hermes.client.data.error.AppErrorCode.ATTACHMENT_NO_VIEWER,
+                            retryable = false,
+                            technicalCause = it.message,
+                            stage = if (share) "attachment_share" else "attachment_open",
+                        ).localizedMessage(language),
+                    )
+                }
+            }.onFailure { error ->
+                showAttachmentError(
+                    com.hermes.client.data.error.artifactDownloadError(error)
+                        .localizedMessage(language),
+                )
+            }
         }
     }
 

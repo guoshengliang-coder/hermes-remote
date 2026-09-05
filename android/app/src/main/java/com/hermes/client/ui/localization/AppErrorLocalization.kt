@@ -54,6 +54,32 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "无法读取所选文件，请重新选择。", "Couldn't read the selected file. Choose it again.")
         AppErrorCode.TRANSCRIPT_FILE_FAILED ->
             localized(language, "无法生成对话文件，请重试。", "Couldn't create the transcript file. Retry.")
+        AppErrorCode.ARTIFACT_FORBIDDEN ->
+            localized(
+                language,
+                "这个文件不在 Mac 允许访问的目录内，无法下载。请让 Hermes 把它放到允许的目录。",
+                "The file sits outside the folder the Mac allows, so it can't be downloaded. Ask Hermes to place it inside that folder.",
+            )
+        AppErrorCode.ARTIFACT_TOO_LARGE ->
+            localized(
+                language,
+                "文件超过传输上限，无法下载。请让 Hermes 压缩或拆分后再发。",
+                "The file exceeds the transfer limit. Ask Hermes to compress or split it.",
+            )
+        AppErrorCode.ARTIFACT_MISSING ->
+            localized(
+                language,
+                "这个文件在 Mac 上已不存在，请让 Hermes 重新生成。",
+                "The file is no longer on the Mac. Ask Hermes to produce it again.",
+            )
+        AppErrorCode.ARTIFACT_DOWNLOAD_FAILED ->
+            localized(language, "文件下载失败，请重试。", "The download failed. Retry.")
+        AppErrorCode.ATTACHMENT_NO_VIEWER ->
+            localized(
+                language,
+                "手机上没有能打开这种文件的应用。文件已下载，请改用「分享」保存到其他应用。",
+                "No app on this phone can open this file type. It downloaded fine — use Share to save it elsewhere.",
+            )
         AppErrorCode.TRANSCRIPT_IMAGE_FAILED ->
             localized(language, "无法生成对话长图，请重试或改用 Markdown 文件。", "Couldn't render the transcript image. Retry, or share it as a Markdown file.")
         AppErrorCode.AVATAR_PHOTO_FAILED ->

@@ -192,6 +192,11 @@ expanded without changing the underlying meaning.
 | `HR-OPS-014` | Production managed-baseline admission, legacy identity binding, candidate adoption, route switch, or automatic legacy recovery did not complete | 生产 Gateway 受管基线接管未完成，已阻止切换或尝试恢复旧服务。请检查接管阶段后重试。 | The managed production Gateway baseline was not established. The switch was blocked or legacy recovery was attempted. Inspect the adoption stage and retry. | Yes (inspect the adoption journal and verified legacy rollback point before retrying) |
 | `HR-FILE-001` | A selected attachment could not be read | 无法读取所选文件，请重新选择。 | Couldn't read the selected file. Choose it again. | Yes |
 | `HR-FILE-002` | An exported transcript file could not be written or shared | 无法生成对话文件，请重试。 | Couldn't create the transcript file. Retry. | Yes |
+| `HR-FILE-003` | A Hermes-delivered artifact resolved outside `FILES_ROOT`, or the Mac refused to open it (Connector 403) | 这个文件不在 Mac 允许访问的目录内，无法下载。请让 Hermes 把它放到允许的目录。 | The file sits outside the folder the Mac allows, so it can't be downloaded. Ask Hermes to place it inside that folder. | No (move the file, or widen `FILES_ROOT`) |
+| `HR-FILE-004` | A Hermes-delivered artifact exceeds `MAX_FILE_BYTES` (Connector 413) | 文件超过传输上限，无法下载。请让 Hermes 压缩或拆分后再发。 | The file exceeds the transfer limit. Ask Hermes to compress or split it. | No (compress or split the artifact) |
+| `HR-FILE-005` | A Hermes-delivered artifact is gone or is not a regular file (Connector 404 / `invalid_file` / `invalid_path`) | 这个文件在 Mac 上已不存在，请让 Hermes 重新生成。 | The file is no longer on the Mac. Ask Hermes to produce it again. | No (ask Hermes to regenerate it) |
+| `HR-FILE-006` | Artifact transfer failed for any other reason (network, timeout, unexpected status) | 文件下载失败，请重试。 | The download failed. Retry. | Yes |
+| `HR-FILE-007` | The artifact downloaded, but no installed app can open its MIME type | 手机上没有能打开这种文件的应用。文件已下载，请改用「分享」保存到其他应用。 | No app on this phone can open this file type. It downloaded fine — use Share to save it elsewhere. | No (use Share to hand the file to another app) |
 | `HR-MEDIA-001` | Image save, preparation, or share operation failed | 图片操作失败，请重试。 | The image operation failed. Retry. | Yes |
 | `HR-MEDIA-003` | The transcript image could not be rendered or shared | 无法生成对话长图，请重试或改用 Markdown 文件。 | Couldn't render the transcript image. Retry, or share it as a Markdown file. | Yes |
 | `HR-MEDIA-002` | A picked avatar photo could not be decoded, cropped, or encoded (ImageDecoder/BitmapFactory failure, unreadable URI, empty image) | 无法读取所选照片，请换一张再试。 | Couldn't read the selected photo. Try a different one. | Yes |
@@ -213,6 +218,20 @@ expanded without changing the underlying meaning.
 | `HR-LINK-002` | A link in app content is not an openable web address: its scheme is outside the http/https/mailto/tel allowlist, or it has no scheme at all (a relative or anchor-only target). Refused before reaching the system, so a crafted `intent:`/`file:` target cannot launch anything | 这个链接无法打开。 | This link can't be opened. | No |
 | `HR-SEARCH-001` | Gateway message search (`/api/sessions/search`) failed: transport error, non-2xx response, or unparseable body. The title matches on the search screen stay; only the message section shows the error with Retry | 消息搜索失败，请重试。 | Message search failed. Retry. | Yes |
 | `HR-UNKNOWN-001` | Unmapped boundary failure | 出现未知错误，请复制诊断信息协助定位。 | An unknown error occurred. Copy diagnostics to help investigate. | Depends |
+
+
+### Artifact download failures (decision 2026-09-05)
+
+`HR-FILE-001` means an *outgoing* attachment the user picked could not be read. It must not be
+reused for an *incoming* artifact Hermes delivered — that reversed the direction of the reported
+problem. Downloads now map onto `HR-FILE-003`–`HR-FILE-007` at the boundary
+(`data/error/ArtifactErrors.kt`), which keeps a permission problem distinguishable from a transfer
+problem and from "this phone has no viewer".
+
+The Connector logs every rejected `GET /api/files` with its status and reason. It deliberately logs
+only the requested path's extension and length: a refused download previously left no trace on
+either side, so diagnosing one meant reading `FILES_ROOT` by hand, while logging the path itself
+would put the Mac's directory layout into shipped diagnostics.
 
 ## Implementation and review checklist
 
