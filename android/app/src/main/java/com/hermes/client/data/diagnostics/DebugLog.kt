@@ -99,6 +99,16 @@ object DebugLog {
         tokenToRedact = token?.takeIf { it.isNotBlank() }
     }
 
+    /**
+     * Lazy form for anything on a hot path: the message is neither built nor allocated unless
+     * logging is on. Use it for per-event or per-update lines; the eager overload is fine for
+     * lines that fire a few times per run.
+     */
+    inline fun log(category: String, message: () -> String) {
+        if (!isEnabled()) return
+        log(category, message())
+    }
+
     fun log(category: String, message: String) {
         if (!enabled) return
         val safe = redact(message)
