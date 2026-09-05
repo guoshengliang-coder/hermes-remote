@@ -32,12 +32,48 @@ class GatewayHealthMonitorTest {
         assertTrue(h.running)
     }
 
-    @Test fun probe_reports_device_offline_without_calling_api() = runTest {
+    /**
+     * Replaces `probe_reports_device_offline_without_calling_api`, which pinned the short-circuit
+     * this fixes: the old code trusted one capability read and never asked the network. It still
+     * reports DeviceOffline — the connectivity read chooses the wording — but only once the probe
+     * has agreed.
+     */
+    @Test fun device_offline_is_reported_only_after_the_probe_also_fails() = runTest {
+        coEvery { api.gatewayStatus() } throws java.io.IOException("no route to host")
         val conn = FakeConnectivity(online = false)
         val m = GatewayHealthMonitor(api, conn, MutableStateFlow(ConnectionState.Connected), backgroundScope)
+
         m.probe()
+
         assertEquals(GatewayHealth.DeviceOffline, m.health.value)
-        io.mockk.coVerify(exactly = 0) { api.gatewayStatus() }
+        io.mockk.coVerify(atLeast = 1) { api.gatewayStatus() }
+    }
+
+    /**
+     * Regression for HG-10. NET_CAPABILITY_VALIDATED reports whether Android's captive-portal
+     * probe reached its endpoint, not whether the network carries traffic, and it goes missing on
+     * working connections — a VPN in the path, a dual-SIM handover, an unreachable validation
+     * endpoint. Reporting "your device has no network" while the gateway answers normally is the
+     * user-visible bug.
+     */
+    @Test fun a_reachable_gateway_outranks_a_connectivity_check_that_says_offline() = runTest {
+        coEvery { api.gatewayStatus() } returns ok()
+        val conn = FakeConnectivity(online = false)
+        val m = GatewayHealthMonitor(api, conn, MutableStateFlow(ConnectionState.Connected), backgroundScope)
+
+        m.probe()
+
+        assertTrue(m.health.value.toString(), m.health.value is GatewayHealth.Healthy)
+    }
+
+    @Test fun an_unreachable_gateway_on_a_healthy_network_is_not_blamed_on_the_device() = runTest {
+        coEvery { api.gatewayStatus() } throws java.io.IOException("connection refused")
+        val conn = FakeConnectivity(online = true)
+        val m = GatewayHealthMonitor(api, conn, MutableStateFlow(ConnectionState.Connected), backgroundScope)
+
+        m.probe()
+
+        assertTrue(m.health.value.toString(), m.health.value is GatewayHealth.GatewayUnreachable)
     }
 
     @Test fun probe_reports_gateway_unreachable_when_both_attempts_fail() = runTest {

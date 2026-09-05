@@ -37,5 +37,14 @@ class DiagnosticsViewModel @Inject constructor(
         .map(DebugLog::sessionIdsIn)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    fun export(sessionId: String? = null): String = DebugLog.export(sessionId)
+    /** Drops a user-placed marker so the shared log says where to start reading. */
+    fun mark(note: String) = DebugLog.mark(note)
+
+    /** Shares the whole rolling file, narrowed to one conversation when a chip is selected. */
+    suspend fun share(
+        context: android.content.Context,
+        chooserTitle: String,
+        subject: String,
+        sessionId: String?,
+    ) = DiagnosticLogExport.share(context, chooserTitle, subject, sessionId)
 }

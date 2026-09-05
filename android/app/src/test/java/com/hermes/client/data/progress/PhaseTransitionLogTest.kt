@@ -109,6 +109,9 @@ class PhaseTransitionLogTest {
         assertEquals(0, built)
         assertTrue(DebugLog.entries.value.isEmpty())
         DebugLog.setEnabled(true)
+        // Enabling now writes a session header (build, pid, device); this test is about the lazy
+        // overload, so drop it rather than assert around it.
+        DebugLog.clear()
         DebugLog.log("phase") { built++; "once" }
         assertEquals(1, built)
         assertEquals("once", DebugLog.entries.value.single().message)

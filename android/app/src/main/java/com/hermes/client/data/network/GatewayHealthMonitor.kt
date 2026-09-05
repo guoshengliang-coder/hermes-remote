@@ -2,6 +2,7 @@ package com.hermes.client.data.network
 
 import android.content.Context
 import android.net.ConnectivityManager
+import com.hermes.client.data.diagnostics.DebugLog
 import android.net.NetworkCapabilities
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -22,14 +23,67 @@ interface ConnectivityChecker {
 }
 
 class AndroidConnectivityChecker(private val context: Context) : ConnectivityChecker {
+    // Only transitions are logged. A negative reading that persists says the same thing every
+    // 30 seconds, and the interesting moments are when it starts and when it stops.
+    @Volatile private var lastNegativeNote: String? = null
+
     override fun isOnline(): Boolean {
         // If we can't read connectivity, assume online rather than false-flag DeviceOffline —
         // the /api/status probe is then the source of truth.
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
-        val net = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(net) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return online()
+        val net = cm.activeNetwork ?: return offline("no active network")
+        val caps = cm.getNetworkCapabilities(net) ?: return offline("no capabilities for active network")
+        // Deliberately not requiring NET_CAPABILITY_VALIDATED. That flag reports whether
+        // Android's own captive-portal probe reached its validation endpoint, which is a different
+        // question from whether this network carries traffic, and it goes missing for whole classes
+        // of otherwise working connections — a VPN in the path, a dual-SIM handover, or simply a
+        // validation endpoint that is unreachable from where the device sits. The captive-portal
+        // case VALIDATED was guarding is now caught where it actually shows up: the /api/status
+        // probe below, which a portal fails.
+        if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+            return offline("no INTERNET capability · ${describe(caps)}")
+        }
+        return online()
+    }
+
+    private fun online(): Boolean {
+        lastNegativeNote?.let {
+            lastNegativeNote = null
+            DebugLog.log("net", "connectivity check recovered (was: $it)")
+        }
+        return true
+    }
+
+    /**
+     * Records why the device was judged offline. Without this the only evidence is a user
+     * screenshot of the offline strip, which cannot say which capability was missing — and
+     * VALIDATED in particular reflects whether Android's own captive-portal probe succeeded,
+     * not whether the network carries traffic.
+     */
+    private fun offline(reason: String): Boolean {
+        if (lastNegativeNote != reason) {
+            lastNegativeNote = reason
+            DebugLog.log("net", "connectivity check says offline · $reason")
+        }
+        return false
+    }
+
+    private fun describe(caps: NetworkCapabilities): String {
+        val transports = buildList {
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) add("wifi")
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) add("cellular")
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) add("vpn")
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) add("ethernet")
+        }.ifEmpty { listOf("other") }
+        val flags = buildList {
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) add("INTERNET")
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) add("VALIDATED")
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)) add("NOT_METERED")
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) add("NOT_VPN")
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)) add("CAPTIVE_PORTAL")
+        }.ifEmpty { listOf("none") }
+        return "transports=${transports.joinToString("+")} caps=${flags.joinToString("+")}"
     }
 }
 
@@ -65,16 +119,47 @@ class GatewayHealthMonitor(
     suspend fun probe() {
         if (!probeGuard.tryLock()) return
         try {
-            _health.value = evaluate()
+            val next = evaluate()
+            // Only transitions: the probe runs every 30s in the foreground and the answer is
+            // usually the same one as last time.
+            if (next != _health.value) {
+                DebugLog.log("health", "${describe(_health.value)} → ${describe(next)}")
+            }
+            _health.value = next
         } finally {
             probeGuard.unlock()
         }
     }
 
+    private fun describe(health: GatewayHealth): String = when (health) {
+        is GatewayHealth.Healthy -> "healthy(${health.latencyMs}ms, running=${health.running})"
+        is GatewayHealth.GatewayUnreachable -> "unreachable(${health.detail})"
+        GatewayHealth.DeviceOffline -> "device-offline"
+        GatewayHealth.Unknown -> "unknown"
+    }
+
+    /**
+     * The probe is the source of truth; the connectivity read is a hint about how to describe a
+     * failure, not a reason to skip asking.
+     *
+     * Returning DeviceOffline on the capability read alone meant one unlucky sample — the flag can
+     * drop for a moment during a network handover, and stay dropped on networks whose validation
+     * never completes — put a "your device has no network" strip in front of a user whose traffic
+     * was flowing the whole time. It also skipped the one retry the comment below promises, so the
+     * debounce protected the gateway probe and nothing else.
+     *
+     * This costs almost nothing when the device really is offline: the probe then fails on DNS or
+     * connect within milliseconds rather than running out the 5s timeout, which only bites when
+     * there is a network and the server is slow — a case that should never read as "device
+     * offline" anyway.
+     */
     private suspend fun evaluate(): GatewayHealth {
-        if (!connectivity.isOnline()) return GatewayHealth.DeviceOffline
-        // First attempt; on a retryable failure (null) try once more before declaring the gateway down.
-        return attemptStatus() ?: attemptStatus() ?: GatewayHealth.GatewayUnreachable("unreachable")
+        val connectivitySaysOffline = !connectivity.isOnline()
+        // First attempt; on a retryable failure (null) try once more before declaring it down.
+        val status = attemptStatus() ?: attemptStatus()
+        return status
+            ?: if (connectivitySaysOffline) GatewayHealth.DeviceOffline
+            else GatewayHealth.GatewayUnreachable("unreachable")
     }
 
     /** Terminal state on a definitive answer (healthy / unauthorized), or null for a retryable failure. */

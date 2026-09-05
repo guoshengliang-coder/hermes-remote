@@ -16,6 +16,14 @@
 //   - gateway-oci.yml 原本只在改动 gateway/connector/protocol 等特定路径时
 //     才触发；这里没有做路径过滤，每次构建都跑。该 stage 本身很快，
 //     换来配置更简单，计算成本可接受。
+//
+// 资源约束（2026-09-05 事故后加）：构建机 .137 同时跑着一个 gateway，那次
+// Jenkins 把 4 核压到 load 57，gateway 完全无响应、SSH 握手都失败。现在
+// 构建机上建了 ci.slice（CPUQuota=200%、MemoryMax=4.5G）作为内核级总预算，
+// jenkins.service 归属其下。但 docker 容器默认跑在 /system.slice/docker-*.scope，
+// 与 jenkins.service 平级，不受该配额约束 —— 所以下面每个 docker run 都必须
+// 显式带 --cgroup-parent=ci.slice，否则容器会绕过总预算。--cpus/--memory 是
+// 容器自身的二级上限，防止单个容器吃光整份 CI 预算。
 
 pipeline {
   agent none
@@ -56,6 +64,7 @@ pipeline {
               docker rm -f "$PG" >/dev/null 2>&1 || true
 
               docker run -d --name "$PG" \
+                --cgroup-parent=ci.slice --cpus=1 --memory=512m \
                 -e POSTGRES_DB=hermes_test \
                 -e POSTGRES_USER=hermes_test \
                 -e POSTGRES_PASSWORD=hermes_test_password \
@@ -107,6 +116,7 @@ pipeline {
             sh '''
               set -eu
               docker run --rm -v "$PWD:/repo" -w /repo \
+                --cgroup-parent=ci.slice --cpus=1 --memory=1g \
                 zricethezav/gitleaks:latest \
                 detect --source=/repo --redact --no-banner --exit-code 1
             '''
@@ -139,6 +149,7 @@ pipeline {
             sh '''
               set -eu
               docker run --rm -v "$PWD:/repo" -w /repo \
+                --cgroup-parent=ci.slice --cpus=1 --memory=2g \
                 --security-opt=no-new-privileges \
                 -e SEMGREP_SEND_METRICS=off \
                 --entrypoint semgrep \

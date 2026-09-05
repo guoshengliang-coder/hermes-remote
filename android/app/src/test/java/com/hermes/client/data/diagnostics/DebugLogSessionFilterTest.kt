@@ -32,7 +32,11 @@ class DebugLogSessionFilterTest {
         assertTrue(text.contains("cause=prompt"))
         assertTrue(text.contains("rejected: assistantTurns 0<1"))
         assertFalse(text.contains("bbb222"))
-        assertFalse(text.contains("opening socket"))
+        // Lines that name no session are process-wide context — the session header, connectivity,
+        // gateway health, the startup gate, the socket — and a session's own lines only make sense
+        // read against them. This assertion originally dropped them; keeping them is the owner's
+        // call (2026-09-05), taken when this filter met the file-backed export.
+        assertTrue(text.contains("opening socket"))
         assertEquals(2, text.lines().count { it.contains("aaa111") && !it.startsWith("Hermes diagnostic log") })
     }
 

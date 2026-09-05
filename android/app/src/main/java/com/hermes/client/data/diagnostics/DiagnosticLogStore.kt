@@ -40,11 +40,14 @@ internal class DiagnosticLogStore(
         }
     }
 
+    /** Everything still on disk, oldest first. Unparsable lines are skipped. */
+    fun readAll(): List<DebugLog.LogEntry> =
+        (readLines(previous) + readLines(current)).mapNotNull { decode(it) }
+
     /** Up to [limit] entries from previous runs, oldest first. Unparsable lines are skipped. */
     fun readRecent(limit: Int): List<DebugLog.LogEntry> {
         if (limit <= 0) return emptyList()
-        val lines = readLines(previous) + readLines(current)
-        val entries = lines.mapNotNull { decode(it) }
+        val entries = readAll()
         return if (entries.size <= limit) entries else entries.subList(entries.size - limit, entries.size)
     }
 

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.GatewayConfig
 import com.hermes.client.data.auth.normalizeGatewayBaseUrl
+import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.ConnectivityChecker
 import com.hermes.client.data.network.GatewayProbeResult
@@ -109,6 +110,18 @@ class StartupViewModel @Inject constructor(
     @Volatile private var appForeground = false
 
     init {
+        // The gate covers the whole app, so when it appears — and how far it got before giving up
+        // — is the first thing anyone diagnosing a "the app showed an error on startup" report
+        // needs. Nothing else records it: the failure code alone cannot say which reason opened
+        // the gate or which phase it died in.
+        //
+        // Collecting the StateFlow conflates phases that pass before this collector resumes, which
+        // is the right trade rather than a gap: a phase worth seeing is one the attempt sat in, and
+        // that one is never superseded in time to be dropped. The alternative — logging at every
+        // assignment — would scatter the same statement across a dozen sites.
+        viewModelScope.launch {
+            _state.collect { current -> DebugLog.log("startup", describe(current)) }
+        }
         // Automatic backoff may recover after the 15-second UI timeout. If that happens while the
         // failure actions are visible, dismiss the gate without requiring an unnecessary tap.
         viewModelScope.launch {
@@ -130,6 +143,14 @@ class StartupViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun describe(state: StartupUiState): String = when (state) {
+        StartupUiState.Hidden -> "hidden"
+        is StartupUiState.Loading -> "${state.reason} · ${state.phase}"
+        is StartupUiState.Failed -> "${state.reason} · FAILED ${state.failure} (${state.failure.code})"
+        is StartupUiState.RepairRequired ->
+            "${state.reason} · REPAIR ${state.failure} (${state.failure.code})"
     }
 
     /** Called once from Activity.onCreate. Configuration changes are not process-cold starts. */
@@ -255,14 +276,12 @@ class StartupViewModel @Inject constructor(
                 }
 
                 _state.value = StartupUiState.Loading(reason, StartupPhase.NETWORK)
-                if (!connectivity.isOnline()) {
-                    minimumDisplay?.cancel()
-                    _state.value = StartupUiState.Failed(
-                        reason,
-                        StartupFailure.DEVICE_OFFLINE,
-                    )
-                    return@coroutineScope
-                }
+                // Read connectivity, but do not decide on it. The probe that follows is a better
+                // answer to the same question and is one step away; short-circuiting here on a
+                // single capability read put a full-screen "your device has no network" in front
+                // of users whose traffic was flowing. It still chooses between the two codes
+                // below, so "check your network" and "can't reach the Relay" stay distinct.
+                val connectivitySaysOffline = !connectivity.isOnline()
 
                 _state.value = StartupUiState.Loading(reason, StartupPhase.AUTHENTICATION)
                 when (val probe = rest.probeStatusFor(config.baseUrl, config.token)) {
@@ -279,7 +298,7 @@ class StartupViewModel @Inject constructor(
                     }
                     is GatewayProbeResult.ServerFailure -> {
                         minimumDisplay?.cancel()
-                        _state.value = StartupUiState.Failed(
+                        fail(
                             reason,
                             if (probe.errorCode == "device_offline") {
                                 StartupFailure.CONNECTOR_OFFLINE
@@ -291,7 +310,11 @@ class StartupViewModel @Inject constructor(
                     }
                     is GatewayProbeResult.Unreachable -> {
                         minimumDisplay?.cancel()
-                        _state.value = StartupUiState.Failed(reason, StartupFailure.CONNECTION_FAILED)
+                        fail(
+                            reason,
+                            if (connectivitySaysOffline) StartupFailure.DEVICE_OFFLINE
+                            else StartupFailure.CONNECTION_FAILED,
+                        )
                         return@coroutineScope
                     }
                 }
@@ -337,16 +360,16 @@ class StartupViewModel @Inject constructor(
                     }
                     if (!initialized) {
                         minimumDisplay?.cancel()
-                        _state.value = StartupUiState.Failed(
-                            reason,
-                            StartupFailure.INITIAL_DATA_FAILED,
-                        )
+                        fail(reason, StartupFailure.INITIAL_DATA_FAILED)
                         return@coroutineScope
                     }
                     _state.value = StartupUiState.Loading(reason, StartupPhase.READY)
-                    val completionAnimation = async { delay(SUCCESS_COMPLETION_MS) }
+                    // Only the cold start earns the completion flourish. Holding a hot start's
+                    // overlay half a second past the moment it is ready is the "it flashed the
+                    // splash screen for no reason" complaint, on a screen that was already usable.
+                    val completionAnimation = minimumDisplay?.let { async { delay(SUCCESS_COMPLETION_MS) } }
                     minimumDisplay?.await()
-                    completionAnimation.await()
+                    completionAnimation?.await()
                     _state.value = StartupUiState.Hidden
                     if (repairReason != null) {
                         repairReason = null
@@ -354,13 +377,33 @@ class StartupViewModel @Inject constructor(
                     }
                 } else {
                     minimumDisplay?.cancel()
-                    _state.value = StartupUiState.Failed(
-                        reason,
-                        StartupFailure.CONNECTION_FAILED,
-                    )
+                    fail(reason, StartupFailure.CONNECTION_FAILED)
                 }
             }
         }
+    }
+
+    /**
+     * Terminal failure, blocking only when there is nothing behind the gate to fall back to.
+     *
+     * On a cold start the overlay is the whole screen and a full-stop error is the only honest
+     * thing to show. On a hot start the app is already rendered and the user was looking at it a
+     * second ago, so covering it for a failure that heals itself trades a working screen for a
+     * dead one. Those failures go back to the surfaces that own them — the health strip for
+     * reachability, the chat banner for the socket, the screen's own refresh for data — all of
+     * which report without taking the app away.
+     *
+     * Configuration and authentication faults do not come through here: they route to
+     * [requireConfigurationRepair], and they still take over on a hot start because the app
+     * genuinely cannot work until the user fixes them.
+     */
+    private fun fail(reason: StartupReason, failure: StartupFailure) {
+        if (reason == StartupReason.CONNECTION_RECOVERY) {
+            DebugLog.log("startup", "hot start ${failure.code} — leaving the app visible")
+            _state.value = StartupUiState.Hidden
+            return
+        }
+        _state.value = StartupUiState.Failed(reason, failure)
     }
 
     private fun loadConfiguration(reason: StartupReason): GatewayConfig? = try {

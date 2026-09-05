@@ -2,6 +2,7 @@ package com.hermes.client.ui.startup
 
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.ConnectivityChecker
 import com.hermes.client.data.network.GatewayProbeResult
@@ -128,6 +129,30 @@ class StartupViewModelTest {
         assertEquals("HR-RPC-001", failed.failure.code)
     }
 
+    /**
+     * The gate covers the whole app, and a report of "it showed an error on startup" arrives as a
+     * screenshot of one failure code. The code alone cannot say which reason opened the gate or
+     * how far it got, so the trail has to be in the log.
+     */
+    @Test fun theStartupGateRecordsItsReasonPhaseAndOutcome() = runTest {
+        DebugLog.setEnabled(true)
+        DebugLog.clear()
+        coEvery { sessions.listAllProfiles() } throws RuntimeException("sessions unavailable")
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        connection.value = ConnectionState.Connected
+        runCurrent()
+
+        // Phases that pass instantly are conflated away by the StateFlow; the reason the gate
+        // opened and the outcome it reached are what the trail has to carry.
+        val trail = DebugLog.entries.value.filter { it.category == "startup" }.map { it.message }
+        assertTrue(trail.toString(), trail.any { it.contains("COLD_START") })
+        assertTrue(trail.toString(), trail.any { it.contains("FAILED") && it.contains("HR-RPC-001") })
+        DebugLog.setEnabled(false)
+    }
+
     @Test fun retryAfterInitialSessionFailureRepeatsColdPreloadWithoutReconnectingHealthySocket() = runTest {
         connection.value = ConnectionState.Connected
         coEvery { sessions.listAllProfiles() } throws RuntimeException("first failure") andThen emptyList()
@@ -182,10 +207,44 @@ class StartupViewModelTest {
         assertEquals(StartupPhase.INITIAL_DATA, (vm.state.value as StartupUiState.Loading).phase)
         destinationRecovery.complete(true)
         runCurrent()
-        assertEquals(StartupPhase.READY, (vm.state.value as StartupUiState.Loading).phase)
-        advanceTimeBy(StartupViewModel.SUCCESS_COMPLETION_MS)
-        runCurrent()
+        // A hot start no longer holds the overlay for the completion flourish. The screen behind
+        // it was already usable, so half a second of splash on the way out is a flash, not polish.
         assertEquals(StartupUiState.Hidden, vm.state.value)
+    }
+
+    /**
+     * Regression for HG-1. On a hot start the app is already rendered, so a failure that heals
+     * itself must not replace a working screen with a full-stop error — it goes back to the
+     * surfaces that own it. The same failure on a cold start still blocks, because there is
+     * nothing behind the gate to fall back to.
+     */
+    @Test fun aRetryableFailureOnAHotStartLeavesTheAppVisible() = runTest {
+        coEvery { foregroundRecovery.recoverActive() } returns false
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = false)
+        vm.onForeground()
+        advanceTimeBy(StartupViewModel.HOT_START_DEBOUNCE_MS)
+        runCurrent()
+        connection.value = ConnectionState.Connected
+        runCurrent()
+
+        assertEquals(StartupUiState.Hidden, vm.state.value)
+    }
+
+    @Test fun theSameFailureOnAColdStartStillBlocks() = runTest {
+        coEvery { sessions.listAllProfiles() } throws RuntimeException("sessions unavailable")
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        connection.value = ConnectionState.Connected
+        runCurrent()
+
+        assertEquals(
+            StartupFailure.INITIAL_DATA_FAILED,
+            (vm.state.value as StartupUiState.Failed).failure,
+        )
     }
 
     @Test fun briefForegroundDisconnectRecoversInsideDebounceWithoutShowingGate() = runTest {
@@ -251,8 +310,14 @@ class StartupViewModelTest {
         assertEquals(1L, vm.repairCompletion.value)
     }
 
+    /**
+     * A device that really has no network fails the probe too, so the wording it earns is
+     * unchanged. What changed is that the connectivity read no longer decides on its own.
+     */
     @Test fun offlineStartupShowsRegisteredRetryableError() = runTest {
         every { connectivity.isOnline() } returns false
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
+            GatewayProbeResult.Unreachable("no route to host")
         val vm = vm()
 
         vm.onActivityCreated(processColdStart = true)
@@ -261,6 +326,41 @@ class StartupViewModelTest {
         val failed = vm.state.value as StartupUiState.Failed
         assertEquals(StartupFailure.DEVICE_OFFLINE, failed.failure)
         verify(exactly = 0) { chat.connect() }
+    }
+
+    /**
+     * Regression for the HG-10 → HG-1 path: a capability read that says offline while the gateway
+     * answers normally used to put a full-screen HR-CONN-001 in front of a perfectly healthy
+     * start. The probe is one step away and is the better answer to the same question.
+     */
+    @Test fun aReachableGatewayOutranksAConnectivityCheckThatSaysOffline() = runTest {
+        every { connectivity.isOnline() } returns false
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        connection.value = ConnectionState.Connected
+        runCurrent()
+        advanceTimeBy(2_000)
+        runCurrent()
+
+        assertTrue(vm.state.value.toString(), vm.state.value !is StartupUiState.Failed)
+    }
+
+    /** A working network that cannot reach the Relay is the Relay's fault, not the device's. */
+    @Test fun anUnreachableGatewayOnAHealthyNetworkKeepsTheRelayCode() = runTest {
+        every { connectivity.isOnline() } returns true
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
+            GatewayProbeResult.Unreachable("connection refused")
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+
+        assertEquals(
+            StartupFailure.CONNECTION_FAILED,
+            (vm.state.value as StartupUiState.Failed).failure,
+        )
     }
 
     @Test fun gatewayReadyTimeoutOffersRecoveryInsteadOfBlockingForever() = runTest {

@@ -119,7 +119,7 @@ expanded without changing the underlying meaning.
 
 | Code | Condition | Default Chinese explanation | Default English explanation | Retryable |
 |---|---|---|---|---|
-| `HR-CONN-001` | Device has no usable network | 当前网络不可用，请检查网络连接。 | No usable network is available. Check your connection. | Yes |
+| `HR-CONN-001` | Device has no usable network **and the gateway probe also failed** (a capability read alone never decides — see docs/DESIGN.md) | 当前网络不可用，请检查网络连接。 | No usable network is available. Check your connection. | Yes |
 | `HR-CONN-002` | WebSocket connection failed | 无法连接 Relay，将自动重试。 | Couldn't connect to the Relay. Retrying automatically. | Yes |
 | `HR-CONN-003` | `gateway.ready` handshake timed out | Relay 已连接，但会话握手超时。 | The Relay connected, but the session handshake timed out. | Yes |
 | `HR-CONN-004` | Connection was interrupted during an operation | 连接中断，正在恢复会话。 | The connection was interrupted. Restoring the conversation. | Yes |

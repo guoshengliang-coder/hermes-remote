@@ -62,11 +62,18 @@ Server events consumed: `message.start` / `message.delta` / `message.complete`,
 `tool.start` / `tool.complete`, `session.info` / `session.lifecycle`,
 `approval.request`, `clarify.request`.
 
-**`session.create` accepts a caller-supplied `source`.** Upstream's `_resolve_session_source`
-(`tui_gateway/server.py`) returns the explicit value unchanged and never rewrites it; only an empty
-value falls back to the environment-derived platform. The app currently sends only `profile` and
-`cwd`, so its sessions are recorded as `source=tui` — indistinguishable from a real terminal. See
-"Known hazards" below.
+**`session.create` and `session.resume` both accept a caller-supplied `source`.** Upstream's
+`_resolve_session_source` (`tui_gateway/server.py`) returns the explicit value unchanged and never
+rewrites it; only an empty value falls back to the environment-derived platform, which on this host
+is `tui`. Resume resolves the runtime source through the same `_new_runtime_ids(params)`, so passing
+it there gives sessions stored before this shipped the right platform too.
+
+This app sends **`source = "hermes_remote"`** on both calls (`ChatRepository.clientSource`). The
+capability text for that platform lives on the Mac in `~/.hermes/config.yaml` under
+`platform_hints.hermes_remote` — Hermes' own supported override (`agent/system_prompt.py`
+`_resolve_platform_hint`, covered by upstream `tests/agent/test_platform_hint_overrides.py`), so no
+Hermes source is patched and an upgrade cannot clobber it. An override for one platform provably
+does not affect another, so the laptop's `desktop` sessions are untouched.
 
 ### 4. Text grammars in message content
 
@@ -90,8 +97,11 @@ and aligning to it would silently drop `html` and `md` attachments.
 `cron`, `subagent`, `tool`, `dingtalk`, `feishu`, `telegram`, `discord`, `slack`, `mattermost`,
 `matrix`, `signal`, `whatsapp`, `bluebubbles`, `homeassistant`, `email`, `sms`, `webhook`,
 `api_server`, `weixin`, `wecom`, `qqbot`, `yuanbao` are hidden from the interactive list
-(`SessionRepository.EXCLUDED_SOURCES`). `tui`, `cli`, `desktop`, `hermes-dispatch` and any unknown
-value stay visible. A new upstream value is safe by default; a removed one is not.
+(`SessionRepository.EXCLUDED_SOURCES`). `tui`, `cli`, `desktop`, `hermes-dispatch`,
+**`hermes_remote`** (this app's own) and any unknown value stay visible. A new upstream value is
+safe by default; a removed one is not — and a future upstream value colliding with `hermes_remote`
+would make the phone hide every session it created, so `HermesContractTest` asserts it stays out of
+the excluded set.
 
 ## Upgrade checklist
 
@@ -105,16 +115,21 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
    `session.create`, `slash.exec`, `complete.path`.
 4. Confirm `PLATFORM_HINTS` (`agent/prompt_builder.py`) still describes the client surfaces the
    same way — it is what tells the model whether it can deliver attachments at all.
-5. Run the attachment and streaming smoke tests in `docs/SMOKE_TEST.md` against the upgraded Hermes.
-6. **Read the source, not the notes.** See below.
+5. Confirm the `platform_hints` config override still resolves: on the Mac, `_resolve_platform_hint`
+   must return the `hermes_remote` text and must leave the `desktop`/`tui` defaults untouched.
+   Without it this app's platform silently has no capability block at all.
+6. Run the attachment and streaming smoke tests in `docs/SMOKE_TEST.md` against the upgraded Hermes.
+7. **Read the source, not the notes.** See below.
 
 ## Known hazards
 
-- **Session source is not a client identity.** The phone's sessions are recorded as `source=tui`
-  with `origin_json` NULL, identical to a real terminal (verified 2026-09-05 in `state.db`). Do not
-  branch delivery behaviour on it, and do not conclude from `tui` that attachments are unavailable —
-  `MEDIA:` delivers a downloadable file card on exactly those sessions. Upstream's
-  `PLATFORM_HINTS["tui"]` block states the opposite; that statement is false for this client.
+- **`source=tui` is not evidence of a terminal.** Until 2026-09-05 this app sent no source, so its
+  sessions were recorded as `tui` with `origin_json` NULL — identical to a real terminal — and
+  upstream's `PLATFORM_HINTS["tui"]` block told the agent it had no attachment channel and that
+  `MEDIA:` tags were not intercepted. Both are false here, and the agent obeyed the prompt rather
+  than the reality: it withheld deliveries and printed local paths. Sessions stored before the
+  change keep `tui` in the database; only their runtime platform is corrected, by the `source` sent
+  on resume.
 - **Prose notes about upstream have been wrong twice.** During the 2026-09-05 investigation, a
   project reference claimed a `_TOOL_MEDIA_RE` patch that the source did not contain, and framed the
   two media regexes as a "drift" they are not. Both claims survived because nobody re-read upstream.

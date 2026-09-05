@@ -487,6 +487,12 @@ class SessionRuntimeStore(
         }
         if (!accepted) return false
 
+        // A live handle is what a *running* session hands back; a session that finished while the
+        // app was away has none, and asking for one is not a failure. Treating the missing handle
+        // as failure was HG-1: recovery reported false, the startup gate turned that into a
+        // full-screen "couldn't load", and the transcript accepted just above was already correct.
+        // History acceptance is the success criterion — the handle only decides whether there is
+        // a live stream left to re-attach to.
         val handle = try {
             chatRepository.resume(key.sessionId, key.profile)?.takeIf { it.isNotBlank() }
         } catch (cancelled: CancellationException) {
@@ -494,8 +500,8 @@ class SessionRuntimeStore(
         } catch (error: Exception) {
             DebugLog.log("session", "foreground resume ${key.sessionId} failed: ${error.message}")
             null
-        } ?: return false
-        bindLiveHandle(key, handle)
+        }
+        if (handle != null) bindLiveHandle(key, handle)
         markRead(key)
         val media = mediaRepository
         if (media != null) {

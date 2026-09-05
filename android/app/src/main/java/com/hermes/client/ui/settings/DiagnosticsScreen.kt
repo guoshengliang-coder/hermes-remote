@@ -1,7 +1,6 @@
 package com.hermes.client.ui.settings
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 
-import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import com.hermes.client.data.diagnostics.DebugLog
 import java.time.Instant
 import java.time.ZoneId
@@ -55,6 +56,7 @@ fun DiagnosticsScreen(
         if (id == null) entries else entries.filter { DebugLog.mentionsSession(it.message, id) }
     }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -68,6 +70,7 @@ fun DiagnosticsScreen(
         Column(Modifier.padding(padding).fillMaxSize()) {
             val shareSubject = l10n("Hermes GO 诊断日志", "Hermes GO diagnostic log")
             val shareTitle = l10n("分享诊断日志", "Share diagnostic log")
+            val markNote = l10n("问题就发生在这里", "the problem happened here")
             ListItem(
                 headlineContent = { Text(l10n("诊断日志", "Diagnostic logging")) },
                 supportingContent = {
@@ -89,16 +92,24 @@ fun DiagnosticsScreen(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // Shares the file, not EXTRA_TEXT: the full history is far too large for an
+                // Intent extra, and reading it off disk must not happen on the main thread.
                 Button(
                     onClick = {
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, selectedSession?.let { "$shareSubject · $it" } ?: shareSubject)
-                            putExtra(Intent.EXTRA_TEXT, vm.export(selectedSession))
+                        scope.launch {
+                            vm.share(
+                                context,
+                                shareTitle,
+                                selectedSession?.let { "$shareSubject · $it" } ?: shareSubject,
+                                selectedSession,
+                            )
                         }
-                        context.startActivity(Intent.createChooser(send, shareTitle))
                     },
                 ) { Text(l10n("分享", "Share")) }
+                OutlinedButton(
+                    enabled = enabled,
+                    onClick = { vm.mark(markNote) },
+                ) { Text(l10n("标记现场", "Mark")) }
                 OutlinedButton(onClick = { vm.clear() }) { Text(l10n("清除", "Clear")) }
             }
             if (sessionIds.isNotEmpty()) {

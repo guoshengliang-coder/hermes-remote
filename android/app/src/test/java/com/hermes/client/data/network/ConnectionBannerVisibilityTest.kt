@@ -1,5 +1,6 @@
 package com.hermes.client.data.network
 
+import com.hermes.client.data.diagnostics.DebugLog
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.toList
@@ -8,6 +9,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -73,6 +75,35 @@ class ConnectionBannerVisibilityTest {
         runCurrent()
 
         assertEquals(ConnectionState.Reconnecting, seen.last())
+    }
+
+    /**
+     * "It reconnected but never said anything" and "nothing ever went wrong" look identical from
+     * the outside, and the grace exists precisely to make the first one quiet. The log has to keep
+     * them apart or the suppression becomes unfalsifiable.
+     */
+    @Test fun theLogDistinguishesASuppressedOutageFromNoOutage() = runTest {
+        DebugLog.setEnabled(true)
+        DebugLog.clear()
+        val state = MutableStateFlow<ConnectionState>(ConnectionState.Connected)
+        collectBanner(state)
+
+        state.value = ConnectionState.Reconnecting
+        advanceTimeBy(1_000)
+        state.value = ConnectionState.Connected
+        advanceTimeBy(5_000)
+        runCurrent()
+
+        val banner = DebugLog.entries.value.filter { it.category == "banner" }.map { it.message }
+        assertEquals(listOf("hidden"), banner.distinct())
+
+        state.value = ConnectionState.Reconnecting
+        advanceTimeBy(5_000)
+        runCurrent()
+        assertTrue(
+            DebugLog.entries.value.any { it.category == "banner" && it.message.startsWith("showing") },
+        )
+        DebugLog.setEnabled(false)
     }
 
     @Test fun recoveryHidesTheBannerImmediately() = runTest {

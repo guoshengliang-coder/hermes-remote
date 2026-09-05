@@ -185,4 +185,36 @@ class ChatRepositoryTest {
         assertEquals(true, process.running)
         assertEquals("working", process.outputTail)
     }
+
+    // Hermes derives the agent's platform — and therefore its system-prompt capability block —
+    // from the session's `source`. Sending nothing let Hermes fall back to its environment guess,
+    // `tui`, whose prompt block claims there is no attachment channel and that MEDIA: tags are not
+    // intercepted. Both are false for this app, and the agent obeyed the prompt: it withheld file
+    // deliveries and printed local paths instead. The matching capability text lives in the Mac's
+    // config under platform_hints.hermes_remote (docs/HERMES_CONTRACT.md).
+    @Test fun createSession_identifies_this_client_to_hermes() = runTest {
+        val client = mockk<HermesGatewayClient>(relaxed = true)
+        coEvery { client.call(any(), any()) } returns buildJsonObject { put("session_id", "abc") }
+        val repo = ChatRepository(client)
+
+        repo.createSession()
+
+        coVerify {
+            client.call("session.create", match { it["source"]?.jsonPrimitive?.content == "hermes_remote" })
+        }
+    }
+
+    // Resume carries it too: upstream resolves the runtime source from the resume params, so a
+    // session stored before this shipped (source=tui) still gets this client's platform block.
+    @Test fun resumeSession_identifies_this_client_to_hermes() = runTest {
+        val client = mockk<HermesGatewayClient>(relaxed = true)
+        coEvery { client.call(any(), any()) } returns buildJsonObject { put("session_id", "live-1") }
+        val repo = ChatRepository(client)
+
+        repo.resume("stored-1", profile = "acme")
+
+        coVerify {
+            client.call("session.resume", match { it["source"]?.jsonPrimitive?.content == "hermes_remote" })
+        }
+    }
 }
