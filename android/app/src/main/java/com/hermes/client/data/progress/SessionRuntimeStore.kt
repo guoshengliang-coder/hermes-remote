@@ -92,9 +92,53 @@ data class SessionRuntime(
     val lastTerminalAt: Long = 0L,
     /** When the state now described by [phase] happened — event time, not sync time. */
     val occurredAt: Long = 0L,
+    /**
+     * The active phase this run was in when the socket dropped; restored once it is back. Only
+     * meaningful while [phase] is RECONNECTING and cleared by [normalized] otherwise.
+     */
+    val phaseBeforeReconnect: SessionRunPhase? = null,
 ) {
     val hasRunningProcesses: Boolean get() = chat.backgroundProcesses.any { it.running }
     val hasActiveWork: Boolean get() = phase.isActive || hasRunningProcesses
+}
+
+/**
+ * The store's invariant, applied to every committed runtime: [SessionRuntime.phase] is the single
+ * source of truth for "is this turn running". `isGenerating` is derived from it, and a phase that
+ * is not active leaves no assistant bubble streaming.
+ *
+ * Every session-level terminal writer (an observed `run.completed`, `session.info{running:false}`,
+ * finishLocal, markFailed) used to clear phase and isGenerating and forget the bubble, so a turn
+ * that had finished on the Mac kept rendering "生成中" with a live chronometer for as long as the
+ * process lived, and the unlocked composer let a second live bubble stack under it (HG-6, HG-7).
+ * Normalizing here instead of fixing each writer means a writer that forgets cannot desync the
+ * committed state.
+ */
+internal fun SessionRuntime.normalized(): SessionRuntime {
+    val active = phase.isActive
+    val messages = if (active) chat.messages else chat.messages.map { message ->
+        if (message.role == Role.ASSISTANT && message.isStreaming) {
+            message.copy(isStreaming = false).organizedForDisplay()
+        } else message
+    }
+    return copy(
+        chat = chat.copy(isGenerating = active, messages = messages),
+        phaseBeforeReconnect = if (phase == SessionRunPhase.RECONNECTING) phaseBeforeReconnect else null,
+    )
+}
+
+/**
+ * A reconnect used to collapse every active phase into THINKING, so a run that was waiting for the
+ * user came back as "思考中" and nobody was told they were being waited on (HG-8). Pending cards are
+ * authoritative for approval and clarification; WAITING_ATTENTION is known only to the observer,
+ * so it is remembered across the outage.
+ */
+internal fun SessionRuntime.restoredPhaseAfterReconnect(): SessionRunPhase = when {
+    chat.pendingApproval != null -> SessionRunPhase.WAITING_APPROVAL
+    chat.pendingClarify != null -> SessionRunPhase.WAITING_CLARIFICATION
+    else -> phaseBeforeReconnect
+        ?.takeIf { it.isActive && it != SessionRunPhase.RECONNECTING }
+        ?: SessionRunPhase.THINKING
 }
 
 /**
@@ -162,8 +206,12 @@ class SessionRuntimeStore(
                 ) {
                     _runtimes.update { map ->
                         map.mapValues { (_, runtime) ->
-                            if (runtime.phase.isActive) runtime.copy(phase = SessionRunPhase.RECONNECTING)
-                            else runtime
+                            if (runtime.phase.isActive && runtime.phase != SessionRunPhase.RECONNECTING) {
+                                runtime.copy(
+                                    phase = SessionRunPhase.RECONNECTING,
+                                    phaseBeforeReconnect = runtime.phase,
+                                ).normalized()
+                            } else runtime
                         }
                     }
                 }
@@ -359,7 +407,7 @@ class SessionRuntimeStore(
         _runtimes.update { map ->
             val current = map[key] ?: return@update map
             if (current.phase.isTerminalVerdict) {
-                map + (key to current.copy(phase = SessionRunPhase.IDLE))
+                map + (key to current.copy(phase = SessionRunPhase.IDLE).normalized())
             } else map
         }
         if (readStore != null) readPersistenceQueue.trySend(token to false)
@@ -674,7 +722,7 @@ class SessionRuntimeStore(
                     occurredAt = occurred,
                 )
                 "run.interrupted", "run.unknown" -> titled.copy(
-                    chat = runtime.chat.copy(isGenerating = false),
+                    chat = runtime.chat.markInterrupted(),
                     phase = if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.INTERRUPTED,
                     toolName = null,
                     lastEventAt = now,
@@ -731,7 +779,7 @@ class SessionRuntimeStore(
     ) {
         aliases[key.sessionId] = key
         _runtimes.update { map ->
-            map + (key to transform(map[key] ?: SessionRuntime(key)))
+            map + (key to transform(map[key] ?: SessionRuntime(key)).normalized())
         }
     }
 
@@ -1038,9 +1086,7 @@ class SessionRuntimeStore(
             runCatching { chatRepository.resume(runtime.key.sessionId, runtime.key.profile) }
                 .onSuccess { handle ->
                     bindLiveHandle(runtime.key, handle)
-                    updateRuntime(runtime.key) {
-                        it.copy(phase = if (it.chat.isGenerating) SessionRunPhase.THINKING else SessionRunPhase.IDLE)
-                    }
+                    updateRuntime(runtime.key) { it.copy(phase = it.restoredPhaseAfterReconnect()) }
                 }
                 .onFailure { error ->
                     // Resume can race a task completing while the socket was down. Do not invent
