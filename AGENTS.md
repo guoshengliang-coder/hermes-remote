@@ -63,8 +63,8 @@ Changes to the shared protocol must update its tests and every affected consumer
 security boundary: the Mac opens the outbound connection, the Mac Hermes credential stays on the Mac,
 and the Android app receives only the public Gateway URL and its dedicated app token.
 
-## Secrets and production safety
-
+## Secrets and production safety, and the read-only incident runbook for session-state problems
+  (`docs/DIAGNOSTICS.md`).
 - Never commit or print passwords, API keys, app tokens, connector tokens, cookies, private keys,
   keystores, or live `.env` contents.
 - `environment.md` is private local context. It is intentionally ignored by Git. Use it only when a
