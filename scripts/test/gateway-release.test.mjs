@@ -92,4 +92,6 @@ test("Gateway candidate smoke can split public and private verification routes s
   assert.match(verifier, /runGatewaySmokeCheck\("release_identity"/);
   assert.match(verifier, /runGatewaySmokeCheck\("websocket_forward"/);
   assert.match(verifier, /statusMode === "live"/);
+  assert.match(verifier, /gatewaySmokeRoutePolicy/);
+  assert.match(verifier, /if \(routePolicy\.verifyPrivateSurface\)/);
 });

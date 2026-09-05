@@ -146,3 +146,11 @@ schema v3 同时绑定 archive 内的 config/OCI 两个 digest，运行时仍只
 在打包时从 staging root 实际启动验证器，加入 Connector 挂接后的有界 REST 转发就绪等待，并只上送稳定、
 脱敏的 allowlist smoke 子阶段。生产 journal 保持 `candidate_started`，只允许同一计划重做候选验证；
 R5-D6 合并、最新 main OCI 制品和一次性演练全部通过前不得再次生产接管。
+
+使用 R5-D6 运维 bundle 续跑原 `25345666167a` 计划时，blue 私有候选和完整转发 smoke 已通过；Nginx
+完成切换后，公网验证却请求生产边缘未公开的 `/healthz`，收到 404 并触发
+`HR-RELEASE-003:smoke_check=liveness`。状态机在观察前恢复旧 Nginx、旧 Gateway、release links 和
+lifecycle 状态，归档 `route_switched` journal；随后确认旧 8444、PostgreSQL 5432 仍仅监听 loopback，
+blue/green 停止且禁用，公网 `/relay-health`、发布 `/health`、认证 REST 与 WebSocket 全部正常。R5-D7
+把私有镜像/就绪验证与公网路由验证拆开，并要求一次性演练显式覆盖生产公网接口集合；全部门禁通过前不再
+执行生产接管。
