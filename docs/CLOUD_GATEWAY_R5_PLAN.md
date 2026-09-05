@@ -122,3 +122,9 @@ loopback 监听、Docker/PG18 与公开服务健康；同时发现实际 Nginx b
 既有安全边界，因此在创建任何生产文件前 fail-closed。R5-D3 改为由生产入口自动建立随机
 `127.0.0.1` 端口、一次性凭据、白名单子进程环境和自动清理的模拟 Hermes runtime，并用 schema v2
 运维 manifest 固定该入口。R5-D2 必须等待 R5-D3 合并及 `main` 新制品全部门禁通过后重新开始。
+
+2026-09-05 重新执行 R5-D2 时，schema v2 制品、受保护输入、恢复证据、loopback runtime 与现网只读
+兼容检查均通过，但生产准备期间 `main` 前移到未触发 Gateway OCI 的新提交；同时确认运维 bundle 没有
+携带文档规定的传输后独立校验入口。两项均保持 fail-closed，旧 Gateway、Nginx 与流量未改变。R5-D4
+把 `scripts/verify-production-baseline-bundle.mjs` 纳入运维 bundle，并要求从最新 `main` 重新生成和保留
+同提交制品；R5-D2 必须使用新制品重新准备，旧 `cbe1285c1028` 输入不得用于接管。

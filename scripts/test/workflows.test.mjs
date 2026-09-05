@@ -134,6 +134,7 @@ test('R5-D managed baseline runs only on a disposable secretless host', async ()
   assert.match(entrypoint, /\.\.\/connector\/dist\/index\.js/);
   const packager = await readRoot('scripts/package-production-baseline-bundle.mjs');
   assert.match(packager, /\.\/ops\/lib\/production-smoke-runtime\.mjs/);
+  assert.match(packager, /"scripts\/verify-production-baseline-bundle\.mjs"/);
   const smokeRuntime = await readRoot('ops/lib/production-smoke-runtime.mjs');
   assert.match(smokeRuntime, /server\.listen\(0, "127\.0\.0\.1"\)/);
   assert.equal(/0\.0\.0\.0|HERMES_SESSION_TOKEN/.test(smokeRuntime), false);
