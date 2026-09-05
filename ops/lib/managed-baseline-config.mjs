@@ -140,7 +140,8 @@ export async function loadManagedBaselineConfig(filePath) {
         || !config.nginx.upstreamConfigFile.endsWith(".conf")) {
       fail("managed_baseline_nginx_files_invalid");
     }
-    if (!/^hermes-(?:go|remote)-/.test(path.basename(config.nginx.configFile))
+    const nginxConfigBasename = path.basename(config.nginx.configFile);
+    if (!(nginxConfigBasename === "hermes-edge.conf" || /^hermes-(?:go|remote)-/.test(nginxConfigBasename))
         || !path.basename(config.nginx.upstreamConfigFile).startsWith("hermes-go")) {
       fail("managed_baseline_nginx_basename_invalid");
     }

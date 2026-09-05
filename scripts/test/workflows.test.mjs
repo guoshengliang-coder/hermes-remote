@@ -41,10 +41,11 @@ test('ordinary CI, SAST, and the Gateway image gates stay unprivileged and never
   assert.match(gatewayOci, /runs-on: ubuntu-24\.04/);
   assert.match(gatewayOci, /run: \.\/scripts\/test-gateway-image\.sh/);
   assert.match(gatewayOci, /run: \.\/scripts\/package-gateway-bundle\.sh outputs\/gateway-bundle/);
+  assert.match(gatewayOci, /run: node scripts\/package-production-baseline-bundle\.mjs outputs\/production-baseline-bundle/);
   assert.match(gatewayOci, /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/);
   assert.match(gatewayOci, /uses: actions\/upload-artifact@[0-9a-f]{40} # v7\.0\.1/);
   assert.match(gatewayOci, /name: gateway-bundle-\$\{\{ github\.sha \}\}/);
-  assert.match(gatewayOci, /path: outputs\/gateway-bundle\//);
+  assert.match(gatewayOci, /path: \|[\s\S]*outputs\/gateway-bundle\/[\s\S]*outputs\/production-baseline-bundle\//);
   assert.match(gatewayOci, /if-no-files-found: error/);
   assert.match(gatewayOci, /retention-days: 7/);
   assert.match(gatewayOci, /permissions:\n  contents: read/);
@@ -128,6 +129,14 @@ test('R5-D managed baseline runs only on a disposable secretless host', async ()
   const harness = await readRoot('scripts/test-gateway-staging-bootstrap.sh');
   assert.match(harness, /GATEWAY_R5D_MANAGED_BASELINE_OK/);
   assert.match(harness, /scripts\/production-baseline\.mjs/);
+  const entrypoint = await readRoot('scripts/production-baseline.mjs');
+  assert.match(entrypoint, /withProductionSmokeRuntime/);
+  assert.match(entrypoint, /\.\.\/connector\/dist\/index\.js/);
+  const packager = await readRoot('scripts/package-production-baseline-bundle.mjs');
+  assert.match(packager, /\.\/ops\/lib\/production-smoke-runtime\.mjs/);
+  const smokeRuntime = await readRoot('ops/lib/production-smoke-runtime.mjs');
+  assert.match(smokeRuntime, /server\.listen\(0, "127\.0\.0\.1"\)/);
+  assert.equal(/0\.0\.0\.0|HERMES_SESSION_TOKEN/.test(smokeRuntime), false);
 });
 
 test('R5-E recovery uses only disposable PostgreSQL 18 and an immutable local image', async () => {

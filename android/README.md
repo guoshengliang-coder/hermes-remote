@@ -191,6 +191,20 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.91 keeps a running task connected while you switch away, and stops reporting outages
+  the task never noticed. Backgrounding the app mid-run used to drop the socket 45 seconds later
+  and greet you with "reconnecting" on your return: the notification switch was evaluated before
+  the active-run rule and defaults to off, an intermediate `message.complete` released the phone's
+  claim on a run whose background processes were still working, and a foreground-service start
+  refused by Android 12+ killed the whole monitoring loop. A run this phone owns — one it started,
+  or one whose chat is open — now holds the connection regardless of the notification switch, with
+  Power saving still able to opt out. When a run keeps the connection with notifications off, a
+  silent ongoing card says so, and Background monitoring stays reachable so that choice can be
+  reversed. The chat banner waits out a short grace before announcing anything, timed only while
+  the chat is on screen, so a brief switch away says nothing at all; an interruption that heals
+  itself is styled as progress rather than failure. Reconnecting no longer re-downloads the
+  transcript of an idle chat that merely happened to be open, and the WebSocket ping window widened
+  from 20s to 45s so a sleeping device stops killing its own healthy socket.
 - Version 0.1.90 rebuilds the usage page and gives the app one loading language. The usage figures
   used to contradict each other: the headline summed Hermes's main-agent rows while the model list
   underneath already included auxiliary calls, so the rows added up to more than the total. Both
@@ -533,7 +547,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.90-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.91-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

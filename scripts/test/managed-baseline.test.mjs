@@ -13,6 +13,10 @@ import {
   seedLegacyBaseline,
   verifyManagedBaselineAdmission,
 } from "../../ops/lib/managed-baseline.mjs";
+import {
+  createProductionBaselineBundleManifest,
+  loadProductionBaselineBundleManifest,
+} from "../../ops/lib/production-baseline-bundle.mjs";
 
 test("R5-D config is production-only, account-disabled, and topologically strict", async (t) => {
   const fixture = await createFixture(t);
@@ -27,6 +31,23 @@ test("R5-D config is production-only, account-disabled, and topologically strict
   assert.equal(parsed.managedBaseline, true);
   assert.equal(parsed.environment, "production");
   assert.equal(parsed.database, null);
+
+  await writeJson(fixture.configPath, {
+    ...fixture.rawConfig,
+    nginx: {
+      ...fixture.rawConfig.nginx,
+      configFile: path.join(fixture.base, "nginx", "hermes-edge.conf"),
+    },
+  });
+  assert.equal((await loadManagedBaselineConfig(fixture.configPath)).nginx.configFile.endsWith("hermes-edge.conf"), true);
+  await writeJson(fixture.configPath, {
+    ...fixture.rawConfig,
+    nginx: {
+      ...fixture.rawConfig.nginx,
+      configFile: path.join(fixture.base, "nginx", "unmanaged-edge.conf"),
+    },
+  });
+  await assert.rejects(() => loadManagedBaselineConfig(fixture.configPath), isCode("HR-OPS-001"));
 
   await writeJson(fixture.configPath, { ...fixture.rawConfig, environment: "staging" });
   await assert.rejects(() => loadManagedBaselineConfig(fixture.configPath), isCode("HR-OPS-001"));
@@ -154,6 +175,51 @@ test("R5-D error is bilingual, retryable, registered, and redacted", async () =>
   assert.equal(definition.retryable, true);
   assert.equal(definition.recoveryAction, "inspect_managed_baseline_stage_and_retry");
   assert.match(await readFile("docs/ERROR_HANDLING.md", "utf8"), /`HR-OPS-014`/);
+});
+
+test("R5-D operator bundle manifest binds one safe archive to the exact source commit", async (t) => {
+  const base = await realpath(await mkdtemp(path.join(tmpdir(), "managed-baseline-bundle-test-")));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const sourceCommit = "a".repeat(40);
+  const archiveFile = `Hermes-R5D-Ops-${sourceCommit.slice(0, 12)}.tar.gz`;
+  const archivePath = path.join(base, archiveFile);
+  const manifestPath = path.join(base, `Hermes-R5D-Ops-${sourceCommit.slice(0, 12)}.manifest.json`);
+  await writeFile(archivePath, "operator bundle\n", { mode: 0o644 });
+  const archiveSha256 = await sha256(archivePath);
+  const manifest = createProductionBaselineBundleManifest({
+    sourceCommit,
+    createdAt: "2026-09-04T12:00:00.000Z",
+    archiveFile,
+    archiveSha256,
+  });
+  await writeJson(manifestPath, manifest);
+  const parsed = await loadProductionBaselineBundleManifest(manifestPath);
+  assert.equal(parsed.schemaVersion, 2);
+  assert.equal(parsed.kind, "hermes-go-production-baseline-bundle-v2");
+  assert.equal(parsed.sourceCommit, sourceCommit);
+  assert.equal(parsed.entrypoint, "scripts/production-baseline.mjs");
+  assert.equal(parsed.connectorEntry, "connector/dist/index.js");
+  assert.equal(parsed.smokeRuntimeEntry, "ops/lib/production-smoke-runtime.mjs");
+
+  const legacyManifest = { ...manifest };
+  delete legacyManifest.smokeRuntimeEntry;
+  legacyManifest.schemaVersion = 1;
+  legacyManifest.kind = "hermes-go-production-baseline-bundle-v1";
+  await writeJson(manifestPath, legacyManifest);
+  await assert.rejects(() => loadProductionBaselineBundleManifest(manifestPath), isCode("HR-OPS-014"));
+  assert.equal((await loadProductionBaselineBundleManifest(manifestPath, { allowLegacySchema: true })).schemaVersion, 1);
+  await writeJson(manifestPath, manifest);
+  const incompleteManifest = { ...manifest };
+  delete incompleteManifest.smokeRuntimeEntry;
+  await writeJson(manifestPath, incompleteManifest);
+  await assert.rejects(() => loadProductionBaselineBundleManifest(manifestPath), isCode("HR-OPS-014"));
+  await writeJson(manifestPath, manifest);
+
+  await writeFile(archivePath, "tampered\n", { mode: 0o644 });
+  await assert.rejects(() => loadProductionBaselineBundleManifest(manifestPath), isCode("HR-OPS-014"));
+  await writeFile(archivePath, "operator bundle\n", { mode: 0o644 });
+  await writeJson(manifestPath, { ...manifest, unexpected: true });
+  await assert.rejects(() => loadProductionBaselineBundleManifest(manifestPath), isCode("HR-OPS-014"));
 });
 
 async function createFixture(t) {

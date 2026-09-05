@@ -119,11 +119,13 @@ node scripts/hermesctl.mjs production-audit \
   --confirm production:<configured-public-hostname>
 ```
 
-Every successful `Gateway OCI` push run on `main` retains its exact bundle as
-`gateway-bundle-<full-main-commit>` for seven days. Pull-request runs still build and verify the bundle but do
-not retain it. Download the artifact from the matching successful `main` run, preserve both the archive and
-manifest together, and use that manifest as `targetArtifactManifest`; never substitute a hand-written
-manifest or a bundle from another commit.
+Every successful `Gateway OCI` push run on `main` retains its exact artifact as
+`gateway-bundle-<full-main-commit>` for seven days. It contains the Gateway archive/manifest and the separately
+hashed R5-D operator archive/manifest. Pull-request runs still build and verify both bundles but do not retain
+them. Download the artifact from the matching successful `main` run, preserve every archive with its manifest,
+and use the Gateway manifest as `targetArtifactManifest`; never substitute a hand-written manifest or combine
+bundles from different commits. Verify the operator archive with
+`scripts/verify-production-baseline-bundle.mjs` before and after transfer.
 
 The command aggregates every gate instead of stopping at the first missing prerequisite. It checks the exact
 Linux/amd64 host identity, minimum free disk and available memory, immutable target bundle, exact hashes of the
@@ -224,6 +226,13 @@ R5-D keeps the ordinary `hermesctl deploy/rollback` commands staging-only. Its d
 `production:<hostname>` confirmation, the immutable target bundle, unchanged legacy identity files, and fresh
 R5-B off-host recovery evidence. It requires full candidate, public, and legacy compatibility smoke callbacks
 and fixes database/account features off for this transition.
+
+Use only an R5-D operator manifest with schema version 2 for a new production adoption. The entrypoint starts
+its own one-time Hermes smoke service on an operating-system-assigned `127.0.0.1` port, passes only an allowlisted
+environment with generated credentials to the bundled Connector, and removes its listener, child processes,
+and private temporary directory on success or failure. Never copy Mac Hermes credentials to the HK host and
+never replace the bundled smoke runtime with an ad-hoc script. Schema version 1 remains readable solely to audit
+artifacts produced before this boundary was closed.
 
 Do not generate the production Nginx file from the staging template. Start from the actual production site
 file, preserve every unrelated route, replace only the Gateway upstream, review the complete diff, and pin its

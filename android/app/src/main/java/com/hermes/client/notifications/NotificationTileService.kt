@@ -71,7 +71,7 @@ class NotificationTileService : TileService() {
                 if (lifecycleMonitoringMode(
                         notificationsEnabled = true,
                         appInForeground = false,
-                        hasLocallyStartedRun = hasActiveLocalRun,
+                        hasTrackedActiveRun = hasActiveLocalRun,
                         strategy = strategy,
                     ) == LifecycleMonitoringMode.ACTIVE_BACKGROUND
                 ) {

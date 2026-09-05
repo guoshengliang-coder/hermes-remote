@@ -233,6 +233,37 @@ class SessionRuntimeStoreTest {
     // rungs unconditionally, so an already-reconciled conversation was re-downloaded in full three
     // more times — per session, per reconnect. That is what made a half-megabyte transcript cost
     // megabytes of mobile traffic every time the socket blinked (measured 2026-09-03).
+    /**
+     * Reconnecting used to re-download the transcript of every chat that merely happened to be on
+     * screen. An idle chat has no gap to recover — nothing was streaming — and the foreground
+     * startup gate already refreshes the visible destination, so that fetch was pure duplication.
+     */
+    @Test fun reconnecting_only_re_reads_transcripts_that_had_work_in_flight() = runTest {
+        val sessions = mockk<com.hermes.client.data.repository.SessionRepository>()
+        coEvery { sessions.history(any(), any()) } returns listOf(
+            ChatMessage("u", Role.USER, "开始"),
+            ChatMessage("a", Role.ASSISTANT, "回答"),
+        )
+        val fixture = fixture(sessions)
+
+        val watching = fixture.store.register("idle-but-open", "personal")
+        fixture.store.setVisible(watching, true)
+
+        val busy = fixture.store.register("still-running", "personal")
+        fixture.store.beginPrompt(busy, "跑起来")
+        fixture.events.emit(event("message.start", "still-running"))
+        fixture.events.emit(event("message.delta", "still-running", "半截"))
+        runCurrent()
+
+        fixture.connection.value = ConnectionState.Reconnecting
+        runCurrent()
+        fixture.connection.value = ConnectionState.Connected
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { sessions.history("idle-but-open", "personal") }
+        coVerify(atLeast = 1) { sessions.history("still-running", "personal") }
+    }
+
     @Test fun reconciliation_stops_downloading_once_a_snapshot_is_accepted() = runTest {
         val sessions = mockk<com.hermes.client.data.repository.SessionRepository>()
         val user = ChatMessage("persisted-user", Role.USER, "开始")
@@ -419,6 +450,55 @@ class SessionRuntimeStoreTest {
         assertTrue(active in store.runtimes.value)
         assertEquals(SessionRunPhase.SUBMITTING, store.runtimes.value.getValue(active).phase)
         assertTrue(store.runtimes.value.size <= 21)
+    }
+
+    /**
+     * Regression for problem B of the background-connection review. `message.complete` used to
+     * clear phone ownership, so a run that finished its message while a background process kept
+     * working fell out of the keep-alive policy and had its socket closed 45s later — mid-run.
+     */
+    @Test fun a_completed_message_keeps_phone_ownership_while_a_background_process_runs() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("s1", "personal")
+        fixture.store.beginPrompt(key, "起一个长任务")
+        fixture.store.updateChat(key) { state ->
+            state.copy(
+                backgroundProcesses = listOf(
+                    com.hermes.client.data.repository.BackgroundProcess(
+                        id = "p1",
+                        command = "npm run dev",
+                        running = true,
+                    ),
+                ),
+            )
+        }
+
+        fixture.events.emit(event("message.complete", "s1"))
+        advanceUntilIdle()
+
+        val runtime = fixture.store.runtimes.value.getValue(key)
+        assertTrue("background work must keep the session phone-owned", runtime.startedLocally)
+        assertTrue(runtime.hasActiveWork)
+    }
+
+    /** The authoritative "no longer running" snapshot is still what releases phone ownership. */
+    @Test fun an_authoritative_not_running_snapshot_releases_phone_ownership() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("s1", "personal")
+        fixture.store.beginPrompt(key, "起一个长任务")
+
+        fixture.events.emit(
+            ServerEvent(
+                "session.info",
+                "s1",
+                buildJsonObject { put("session_id", "s1"); put("running", false) },
+            ),
+        )
+        advanceUntilIdle()
+
+        val runtime = fixture.store.runtimes.value.getValue(key)
+        assertFalse(runtime.startedLocally)
+        assertFalse(runtime.hasActiveWork)
     }
 
     @Test fun observed_external_run_updates_list_state_without_becoming_phone_owned() = runTest {

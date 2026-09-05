@@ -169,10 +169,14 @@ class SessionRuntimeStore(
                 }
                 if (current is ConnectionState.Connected && previous != null && previous !is ConnectionState.Connected) {
                     resumeRunningSessions()
-                    // WebSocket notifications are not replayed across a disconnect. Re-read every
-                    // active/visible transcript so any events produced in the gap are recovered.
+                    // WebSocket notifications are not replayed across a disconnect, so a run
+                    // that was streaming has to be re-read to recover the gap. An idle chat that
+                    // merely happens to be on screen has no gap to recover: nothing was streaming,
+                    // and the foreground startup gate already refreshes the visible destination
+                    // (ForegroundRecoveryCoordinator) when the app comes back. Pulling its whole
+                    // transcript here too was the common case of the reconnect fetch storm.
                     _runtimes.value.values
-                        .filter { it.phase.isActive || it.key in visible || it.chat.isGenerating }
+                        .filter { it.phase.isActive || it.chat.isGenerating }
                         .forEach { runtime ->
                             val expectation = expectationFor(runtime).let { expected ->
                                 // A stream interrupted mid-answer may not be a literal prefix of
@@ -814,8 +818,14 @@ class SessionRuntimeStore(
                     else -> runtime.toolName
                 },
                 lastEventAt = now,
+                // Sticky: only an authoritative "this session is no longer running" clears the
+                // flag. A run can emit message.complete (or a recoverable error) and keep working
+                // — background processes still running, another message to follow — and dropping
+                // the flag there used to hand the session back to the idle-background policy,
+                // which closed the socket mid-run. Terminal transitions the app performs itself
+                // (finishLocal / markFailed / markInterrupted) and observed run.completed /
+                // run.interrupted still clear it.
                 startedLocally = when (event.type) {
-                    "message.complete", "error" -> false
                     "session.info" -> if (event.bool("running") == false) false else runtime.startedLocally
                     else -> runtime.startedLocally
                 },

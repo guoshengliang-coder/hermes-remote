@@ -106,12 +106,43 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
                 localized(language, "任务完成、需要处理或出现重要状态时提醒。", "Notify when tasks finish, need attention, or reach an important state."),
                 prefs.enabled,
             ) { on -> if (on) enable() else vm.setEnabled(false) }
+            // Turning notifications off no longer disconnects a run in flight (docs/DESIGN.md
+            // §5.10), so say what the user will still see — an unannounced ongoing card would
+            // read as the switch not working.
+            if (!prefs.enabled) {
+                Text(
+                    localized(
+                        language,
+                        "关闭后仍会在任务运行期间显示一张静默的「后台保持连接」卡片，任务结束即消失——" +
+                            "手机需要它才能跟完这次运行。选择「省电」可以连这个也一起停掉。",
+                        "Even when this is off, a silent \"Connected in the background\" card appears " +
+                            "while a run is in flight and disappears when it ends — the phone needs it to " +
+                            "follow the run through. Choose Power saving to stop that too.",
+                    ),
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             HorizontalDivider()
             Text(
                 localized(language, "后台监控方式", "Background monitoring"),
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
+            )
+            // Reachable even with notifications off. A running task now keeps its connection
+            // regardless of the notification switch, so 省电 is the only way to opt out of that;
+            // greying the group out with the switch left those users no control at all.
+            Text(
+                localized(
+                    language,
+                    "也决定任务运行时是否保持连接，关闭通知后同样有效。",
+                    "Also decides whether a running task keeps its connection, including when notifications are off.",
+                ),
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             MonitoringStrategyRow(
                 title = localized(language, "智能（推荐）", "Smart (recommended)"),
@@ -121,7 +152,7 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
                     "Real-time in foreground, frequent while a phone-started task runs, and low-frequency system checks when idle.",
                 ),
                 selected = strategy == NotificationMonitoringStrategy.ADAPTIVE,
-                enabled = prefs.enabled,
+                enabled = true,
             ) { vm.setStrategy(NotificationMonitoringStrategy.ADAPTIVE) }
             MonitoringStrategyRow(
                 title = localized(language, "实时", "Real-time"),
@@ -131,17 +162,18 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
                     "Keeps a background connection for the fastest alerts, with higher battery use and an ongoing notification.",
                 ),
                 selected = strategy == NotificationMonitoringStrategy.REALTIME,
-                enabled = prefs.enabled,
+                enabled = true,
             ) { vm.setStrategy(NotificationMonitoringStrategy.REALTIME) }
             MonitoringStrategyRow(
                 title = localized(language, "省电", "Power saving"),
                 subtitle = localized(
                     language,
-                    "后台不保持长连接，由系统定期检查，提醒可能延迟约 15 分钟。",
-                    "No persistent background connection. System checks may delay alerts by about 15 minutes.",
+                    "后台不保持长连接（任务运行时也不保持），由系统定期检查，提醒可能延迟约 15 分钟。",
+                    "No persistent background connection, not even while a task is running. " +
+                        "System checks may delay alerts by about 15 minutes.",
                 ),
                 selected = strategy == NotificationMonitoringStrategy.POWER_SAVING,
-                enabled = prefs.enabled,
+                enabled = true,
             ) { vm.setStrategy(NotificationMonitoringStrategy.POWER_SAVING) }
             HorizontalDivider()
             ToggleRow(

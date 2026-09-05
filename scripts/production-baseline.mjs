@@ -1,18 +1,28 @@
 #!/usr/bin/env node
+import { fileURLToPath } from "node:url";
 import { loadBundleManifest } from "../ops/lib/config.mjs";
 import { createProductionBaselineSmokeCallbacks } from "../ops/lib/deploy-smoke.mjs";
 import { errorPayload, OpsError } from "../ops/lib/errors.mjs";
 import { loadManagedBaselineConfig } from "../ops/lib/managed-baseline-config.mjs";
 import { executeManagedBaseline } from "../ops/lib/managed-baseline.mjs";
+import { withProductionSmokeRuntime } from "../ops/lib/production-smoke-runtime.mjs";
 
 try {
   const args = parseArguments(process.argv.slice(2));
   const config = await loadManagedBaselineConfig(args.config);
   const manifest = await loadBundleManifest(config.targetArtifactManifest);
-  const smoke = await createProductionBaselineSmokeCallbacks(config);
-  const result = await executeManagedBaseline(config, manifest, {
-    confirmation: args.confirm,
-    ...smoke,
+  const connectorEntry = fileURLToPath(new URL("../connector/dist/index.js", import.meta.url));
+  const result = await withProductionSmokeRuntime(async (runtime) => {
+    const smoke = await createProductionBaselineSmokeCallbacks(config, {
+      env: runtime.environment,
+      spawnImpl: runtime.spawn,
+    });
+    return executeManagedBaseline(config, manifest, {
+      confirmation: args.confirm,
+      ...smoke,
+    });
+  }, {
+    connectorEntry,
   });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 } catch (error) {
