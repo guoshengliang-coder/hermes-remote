@@ -67,7 +67,9 @@ internal fun OffscreenTranscriptExporter(
     val context = LocalContext.current
     val language = LocalAppLanguage.current
     val layer = rememberGraphicsLayer()
-    val body = remember(messages) { messages.filter { it.text.isNotBlank() || it.images.isNotEmpty() } }
+    val body = remember(messages) {
+        messages.filter { it.text.isNotBlank() || it.images.isNotEmpty() || it.files.isNotEmpty() }
+    }
     val heading = title?.trim()?.ifBlank { null } ?: localized(language, "对话记录", "Chat transcript")
     val stamp = remember(exportedAtMillis) {
         SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(exportedAtMillis))
@@ -186,6 +188,16 @@ private fun TranscriptTurn(message: ChatMessage) {
             }
         }
         message.images.forEach { image -> TranscriptImage(image) }
+        // Attachments are recorded as text so a delivered file still shows in the export
+        // (docs/DESIGN.md §5.13). Never downloads — sharing must not block on the network.
+        attachmentLines(message, language).forEach { line ->
+            Text(
+                line,
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 22.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
     }
 }
 
