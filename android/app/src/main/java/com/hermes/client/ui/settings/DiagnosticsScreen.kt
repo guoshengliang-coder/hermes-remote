@@ -61,7 +61,7 @@ fun DiagnosticsScreen(
             ListItem(
                 headlineContent = { Text(l10n("诊断日志", "Diagnostic logging")) },
                 supportingContent = {
-                    Text(l10n("记录网络与会话活动，用于排查\u201c找不到消息\u201d这类错误。默认关闭；会话令牌不会被记录。", "Records network and session activity to diagnose errors like \"message not found\". Off by default; the session token is never logged."))
+                    Text(l10n("记录网络与会话活动，用于排查\u201c找不到消息\u201d这类错误。默认关闭；会话令牌不会被记录。记录存在应用私有目录，最多保留 7 天，重启后仍可查看上次运行的记录。", "Records network and session activity to diagnose errors like \"message not found\". Off by default; the session token is never logged. Entries are kept in the app's private storage for up to 7 days, so the previous run is still readable after a restart."))
                 },
                 trailingContent = {
                     Switch(checked = enabled, onCheckedChange = { vm.setEnabled(it) })
@@ -118,10 +118,14 @@ private val timeFmt =
 @Composable
 private fun LogRow(e: DebugLog.LogEntry) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        // Restored entries carry the same clock as live ones, so the run they came from has to be
+        // said outright — a timestamp from an hour ago is otherwise indistinguishable.
+        val origin = if (e.fromPreviousRun) l10n("  · 上次运行", "  · previous run") else ""
         Text(
-            "${timeFmt.format(Instant.ofEpochMilli(e.timeMillis))}  ${e.category}",
+            "${timeFmt.format(Instant.ofEpochMilli(e.timeMillis))}  ${e.category}$origin",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary,
+            color = if (e.fromPreviousRun) MaterialTheme.colorScheme.onSurfaceVariant
+            else MaterialTheme.colorScheme.primary,
         )
         Text(
             e.message,
