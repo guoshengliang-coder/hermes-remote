@@ -7,6 +7,7 @@ import com.hermes.client.data.repository.SettingsStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -31,5 +32,10 @@ class DiagnosticsViewModel @Inject constructor(
 
     fun clear() = DebugLog.clear()
 
-    fun export(): String = DebugLog.export()
+    /** Session ids the current entries mention, most recent first — the filter chips. */
+    val sessionIds: StateFlow<List<String>> = DebugLog.entries
+        .map(DebugLog::sessionIdsIn)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun export(sessionId: String? = null): String = DebugLog.export(sessionId)
 }
