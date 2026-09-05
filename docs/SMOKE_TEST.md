@@ -567,3 +567,10 @@ when the phone is asleep — the fix only guarantees that what is shown is true 
    chat and reopen it: the timeline is folded to「N 次工具调用 · 耗时」; tap to unfold; every row
    now carries the real target name (`mcp__…`, not `tool_call`), its output and exit code —
    identical to what streamed live.
+7. **Refresh as a truth check (0.1.96).** With a run that finished while the phone slept (case 1),
+   press the chat refresh button *before* the list row updates on its own. Expected: within about a
+   second the bubble closes and the toast says「已同步 · 运行已结束」; the composer offers 发送. On a
+   run that is genuinely still going, the toast says「已同步 · 仍在运行 · 已运行 N 分钟」 and nothing
+   is queued. On the list, pull to refresh while a row says 思考中: the row corrects itself without
+   opening the chat. Stop the Mac's Hermes entirely, wait 30 minutes with a run showing 思考中, bring
+   the app to the foreground twice a minute apart: the row turns 已中断 instead of spinning forever.

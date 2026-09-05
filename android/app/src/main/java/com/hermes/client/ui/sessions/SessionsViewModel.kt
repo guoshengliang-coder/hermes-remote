@@ -274,6 +274,8 @@ class SessionsViewModel @Inject constructor(
     private var eventRefreshJob: Job? = null
 
     fun refresh() {
+        // A row saying 思考中 is the store's belief, not the server's; a user-driven refresh asks.
+        runtimeStore.probeActiveRuntimes(reason = "list-refresh", staleOnly = false)
         refreshVersion++
         if (refreshJob?.isActive == true) return
         refreshJob = viewModelScope.launch {

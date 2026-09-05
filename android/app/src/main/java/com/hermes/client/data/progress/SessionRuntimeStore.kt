@@ -156,6 +156,13 @@ class SessionRuntimeStore(
     private val readStore: SessionReadStore? = null,
     private val sessionRepository: SessionRepository? = null,
     private val mediaRepository: ChatMediaRepository? = null,
+    /** Wall clock, injectable so staleness and expiry can be driven by a test. */
+    private val clock: () -> Long = { System.currentTimeMillis() },
+    /**
+     * Whether the foreground watchdog runs. Off by default so a test's advanceUntilIdle never
+     * chases a rescheduling timer; production turns it on (AppModule).
+     */
+    private val watchdogEnabled: Boolean = false,
 ) {
     private val _runtimes = MutableStateFlow<Map<SessionRuntimeKey, SessionRuntime>>(emptyMap())
     val runtimes: StateFlow<Map<SessionRuntimeKey, SessionRuntime>> = _runtimes.asStateFlow()
@@ -163,6 +170,15 @@ class SessionRuntimeStore(
     val unreadTokens: StateFlow<Set<String>> = _unreadTokens.asStateFlow()
 
     private val aliases = ConcurrentHashMap<String, SessionRuntimeKey>()
+    /**
+     * Events that arrived for a session id nothing is aliased to yet — a run started on the Mac,
+     * a scheduled run, a handle the phone has not resumed. They used to be dropped on the floor
+     * (observed as `unmatched reasoning.delta … awaiting history reconciliation`); a dropped
+     * message.complete then left the turn open until the lifecycle inbox caught up minutes
+     * later. Held briefly and replayed in order the moment an alias for that id appears.
+     */
+    private val pendingEvents = ConcurrentHashMap<String, ArrayDeque<Pair<Long, ServerEvent>>>()
+    private val replaying = ThreadLocal<Boolean>()
     private val processPollJobs = ConcurrentHashMap<SessionRuntimeKey, Job>()
     private val processPollGraceRemaining = ConcurrentHashMap<SessionRuntimeKey, Int>()
     private val historyReconcileJobs = ConcurrentHashMap<SessionRuntimeKey, Job>()
@@ -175,6 +191,10 @@ class SessionRuntimeStore(
     // A composed chat screen stays "visible" while the phone is locked; only a visible chat in a
     // foreground app is actually being read. Completion folds use this to decide read vs unread.
     @Volatile private var appInForeground = false
+    @Volatile private var connected = false
+    private val lastProbeAt = ConcurrentHashMap<SessionRuntimeKey, Long>()
+    private val probeFailures = ConcurrentHashMap<SessionRuntimeKey, Int>()
+    @Volatile private var watchdogJob: Job? = null
 
     init {
         readStore?.let { store ->
@@ -201,6 +221,7 @@ class SessionRuntimeStore(
         appScope.launch {
             var previous: ConnectionState? = null
             chatRepository.connectionState.collect { current ->
+                connected = current is ConnectionState.Connected
                 if (current is ConnectionState.Reconnecting || current is ConnectionState.Error ||
                     current is ConnectionState.Disconnected
                 ) {
@@ -256,6 +277,7 @@ class SessionRuntimeStore(
         val retained = _runtimes.value.keys
         aliases.entries.filter { it.value !in retained }.forEach { aliases.remove(it.key, it.value) }
         if (lastActiveKey !in retained) lastActiveKey = null
+        replayPending(sessionId)
         return key
     }
 
@@ -282,6 +304,8 @@ class SessionRuntimeStore(
             map + (key to current.copy(liveHandle = handle ?: current.liveHandle))
         }
         if (!handle.isNullOrBlank()) scheduleProcessPolling(key, PROCESS_DISCOVERY_GRACE_POLLS)
+        replayPending(key.sessionId)
+        if (!handle.isNullOrBlank()) replayPending(handle)
     }
 
     /**
@@ -311,6 +335,91 @@ class SessionRuntimeStore(
         appInForeground = foreground
         if (foreground) visible.toList().forEach { key ->
             if (_runtimes.value[key]?.phase?.isTerminalVerdict == true) markRead(key)
+        }
+        // Waking up is the one moment Doze cannot have hidden: whatever finished while the phone
+        // slept is asked about now instead of whenever the inbox next gets polled.
+        if (foreground) {
+            probeActiveRuntimes(reason = "foreground", staleOnly = false)
+            scheduleWatchdog()
+        }
+    }
+
+    enum class ProbeResult { PROBED, RATE_LIMITED, OFFLINE, FAILED, GAVE_UP, IDLE }
+
+    /**
+     * Ask Hermes whether a run the store still believes is active really is. A successful
+     * `session.resume` makes Hermes emit `session.info{running}`, which the normal event fold
+     * settles: `running:false` retires the phase and (via normalization) closes the bubble. The
+     * store never invents a terminal state from a transport error — only a run that has been
+     * silent past [ACTIVE_RUN_HARD_CAP_MS] and failed to answer twice is marked interrupted, so
+     * a row cannot spin forever after the Mac disappears.
+     */
+    suspend fun probe(key: SessionRuntimeKey, force: Boolean = false): ProbeResult {
+        val runtime = _runtimes.value[key] ?: return ProbeResult.IDLE
+        if (!runtime.phase.isActive || runtime.phase == SessionRunPhase.RECONNECTING) return ProbeResult.IDLE
+        if (!connected) return ProbeResult.OFFLINE
+        val now = clock()
+        if (!force && now - (lastProbeAt[key] ?: 0L) < PROBE_MIN_INTERVAL_MS) return ProbeResult.RATE_LIMITED
+        lastProbeAt[key] = now
+        return runCatching { chatRepository.resume(key.sessionId, key.profile) }
+            .fold(
+                onSuccess = { handle ->
+                    probeFailures.remove(key)
+                    bindLiveHandle(key, handle)
+                    ProbeResult.PROBED
+                },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    val failures = probeFailures.merge(key, 1, Int::plus) ?: 1
+                    DebugLog.log("session", "probe ${key.sessionId} failed ($failures): ${error.message}")
+                    val silentFor = now - runtime.lastEventAt
+                    if (failures >= PROBE_FAILURES_BEFORE_GIVING_UP && silentFor > ACTIVE_RUN_HARD_CAP_MS) {
+                        DebugLog.log("session", "probe ${key.sessionId}: silent ${silentFor / 60_000} min and unreachable, marking interrupted")
+                        markUnconfirmed(key)
+                        probeFailures.remove(key)
+                        ProbeResult.GAVE_UP
+                    } else ProbeResult.FAILED
+                },
+            )
+    }
+
+    /** Probe every active runtime; [staleOnly] restricts it to runs silent past [STALE_RUN_MS]. */
+    fun probeActiveRuntimes(reason: String, staleOnly: Boolean) {
+        val now = clock()
+        val candidates = _runtimes.value.values.filter { runtime ->
+            runtime.phase.isActive && runtime.phase != SessionRunPhase.RECONNECTING &&
+                (!staleOnly || now - runtime.lastEventAt > STALE_RUN_MS)
+        }
+        if (candidates.isEmpty()) return
+        DebugLog.log("session", "probing ${candidates.size} active run(s): $reason")
+        candidates.forEach { runtime -> appScope.launch { probe(runtime.key) } }
+    }
+
+    private fun scheduleWatchdog() {
+        if (!watchdogEnabled || !appInForeground) return
+        if (watchdogJob?.isActive == true) return
+        watchdogJob = appScope.launch {
+            delay(WATCHDOG_TICK_MS)
+            watchdogJob = null
+            if (!appInForeground) return@launch
+            probeActiveRuntimes(reason = "watchdog", staleOnly = true)
+            if (_runtimes.value.values.any { it.phase.isActive }) scheduleWatchdog()
+        }
+    }
+
+    /** A run silent past the hard cap whose Mac no longer answers: the outcome is unconfirmed. */
+    private fun markUnconfirmed(key: SessionRuntimeKey) {
+        val now = clock()
+        updateRuntime(key) { runtime ->
+            runtime.copy(
+                chat = runtime.chat.markInterrupted(),
+                phase = if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.INTERRUPTED,
+                toolName = null,
+                lastEventAt = now,
+                startedLocally = false,
+                lastTerminalAt = now,
+                occurredAt = now,
+            )
         }
     }
 
@@ -481,9 +590,17 @@ class SessionRuntimeStore(
      * queue one refresh after completion instead of overwriting unpersisted deltas.
      */
     fun acceptManualHistory(key: SessionRuntimeKey, messages: List<ChatMessage>): ManualHistoryResult {
-        val previous = _runtimes.value[key]?.chat?.messages
+        val before = _runtimes.value[key] ?: return ManualHistoryResult.BUSY
+        val previous = before.chat.messages
+        // A run in progress no longer defers the refresh: "something looks wrong" is exactly the
+        // moment the user must not be told to wait for a completion the phone may never hear
+        // (HG-8). The transcript is refreshed the way a reconnect reconcile is — accepted only
+        // when REST covers every locally observed turn — and the phase is left to the events.
+        val active = before.phase.isActive || before.chat.isGenerating
+        if (active && !messages.covers(expectationFor(before).copy(lastAssistantText = ""))) {
+            return ManualHistoryResult.BUSY
+        }
         updateRuntime(key) { runtime ->
-            if (runtime.chat.isGenerating || runtime.phase.isActive) return@updateRuntime runtime
             runtime.copy(
                 chat = runtime.chat.copy(
                     messages = com.hermes.client.ui.chat.inheritStreamFields(
@@ -500,14 +617,12 @@ class SessionRuntimeStore(
                 ),
             )
         }
-        val committedRuntime = _runtimes.value[key] ?: return ManualHistoryResult.BUSY
-        if (committedRuntime.chat.isGenerating || committedRuntime.phase.isActive) {
-            return ManualHistoryResult.BUSY
-        }
-        val committed = committedRuntime.chat.messages
-        val accepted = committed.size == messages.size && committed.zip(messages).all { (a, b) ->
-            a.copy(timestamp = null, id = "") == b.copy(timestamp = null, id = "")
-        }
+        val committed = _runtimes.value[key]?.chat?.messages ?: return ManualHistoryResult.BUSY
+        // Inherited stream fields (reasoning, tool results, the live tail) legitimately differ
+        // from the raw REST rows; compare with them normalized out, as the reconcile does.
+        fun ChatMessage.comparable() = copy(timestamp = null, id = "", thinking = "", tools = emptyList(), isStreaming = false)
+        val accepted = committed.size == messages.size &&
+            committed.zip(messages).all { (a, b) -> a.comparable() == b.comparable() }
         if (!accepted) return ManualHistoryResult.BUSY
         return if (previous == committed) ManualHistoryResult.UNCHANGED else ManualHistoryResult.CHANGED
     }
@@ -673,6 +788,9 @@ class SessionRuntimeStore(
         // handle and its durable database key. Preserve both aliases so a later WebSocket
         // completion/progress notification always opens the stored conversation.
         event.runtimeSessionId.takeIf { it.isNotBlank() }?.let { aliases[it] = key }
+        aliases[event.storedSessionId] = key
+        event.runtimeSessionId.takeIf { it.isNotBlank() }?.let(::replayPending)
+        replayPending(event.storedSessionId)
         val now = System.currentTimeMillis()
         val occurred = parseOccurredAt(event.occurredAt) ?: now
         val title = event.title?.trim()?.takeIf { it.isNotBlank() }
@@ -789,6 +907,7 @@ class SessionRuntimeStore(
         _runtimes.update { map ->
             map + (key to transform(map[key] ?: SessionRuntime(key)).normalized())
         }
+        if (_runtimes.value[key]?.phase?.isActive == true) scheduleWatchdog()
     }
 
     private fun resolve(event: ServerEvent): SessionRuntimeKey? {
@@ -799,7 +918,12 @@ class SessionRuntimeStore(
             if (event.type == "message.start" || event.type == "session.info") {
                 return register(id, profiles.active.value)
             }
-            DebugLog.log("event", "unmatched ${event.type} session=$id; awaiting history reconciliation")
+            if (replaying.get() == true) {
+                DebugLog.log("event", "dropped ${event.type} session=$id: still unmatched after replay")
+            } else {
+                bufferUnmatched(id, event)
+                DebugLog.log("event", "buffered ${event.type} session=$id until its session is known")
+            }
             return null
         }
         val active = _runtimes.value.values.filter { it.phase.isActive }
@@ -810,6 +934,39 @@ class SessionRuntimeStore(
             DebugLog.log("event", "unmatched ${event.type} without session id")
         }
         return null
+    }
+
+    private fun bufferUnmatched(id: String, event: ServerEvent) {
+        val now = clock()
+        val queue = pendingEvents.getOrPut(id) { ArrayDeque() }
+        synchronized(queue) {
+            while (queue.isNotEmpty() && now - queue.first().first > PENDING_EVENT_TTL_MS) queue.removeFirst()
+            if (queue.size >= PENDING_EVENT_CAP) queue.removeFirst()
+            queue.addLast(now to event)
+        }
+    }
+
+    /** Apply, in arrival order, whatever was held for [id]; anything older than the TTL is gone. */
+    private fun replayPending(id: String) {
+        val queue = pendingEvents.remove(id) ?: return
+        val now = clock()
+        val due = synchronized(queue) { queue.filter { now - it.first <= PENDING_EVENT_TTL_MS }.map { it.second } }
+        if (due.isEmpty()) return
+        DebugLog.log("event", "replaying ${due.size} buffered event(s) for session=$id")
+        replaying.set(true)
+        try {
+            due.forEach { event ->
+                try {
+                    applyEvent(event)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    DebugLog.log("event", "replay failed ${event.type} session=$id: ${error.message}")
+                }
+            }
+        } finally {
+            replaying.set(false)
+        }
     }
 
     private fun applyEvent(event: ServerEvent) {
@@ -1132,5 +1289,16 @@ class SessionRuntimeStore(
         val FOREGROUND_RECOVERY_DELAYS_MS = longArrayOf(0L, 250L, 750L, 1_500L)
         /** Keep recent idle histories warm without retaining every session opened in this process. */
         const val MAX_CACHED_IDLE_RUNTIMES = 20
+        /** How long an event for a not-yet-aliased session waits for its alias before it is dropped. */
+        const val PENDING_EVENT_TTL_MS = 60_000L
+        const val PENDING_EVENT_CAP = 200
+        /** A foreground run this long without any event is asked about by the watchdog. */
+        const val STALE_RUN_MS = 3 * 60_000L
+        const val WATCHDOG_TICK_MS = 60_000L
+        /** One probe per run per minute, however many triggers fire. */
+        const val PROBE_MIN_INTERVAL_MS = 60_000L
+        /** Silent this long AND unreachable twice: the outcome is unconfirmed, the row stops spinning. */
+        const val ACTIVE_RUN_HARD_CAP_MS = 30 * 60_000L
+        const val PROBE_FAILURES_BEFORE_GIVING_UP = 2
     }
 }

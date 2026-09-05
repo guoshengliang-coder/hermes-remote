@@ -212,6 +212,15 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   exit code and duration. A completed turn's timeline now folds behind a one-line summary
   (calls · duration · failures); a timeline watched to completion stays open, one first seen
   complete starts folded (docs/DESIGN.md §5.4, decision 2026-09-05).
+- Version 0.1.96 closes the two ways a run's state could still go wrong after 0.1.93. Events for
+  a session id the app has not aliased yet (a run started on the Mac, a scheduled run, a handle
+  not yet resumed) are held for a minute and replayed the moment the alias appears instead of
+  being dropped — so a completion that arrives under an unknown id closes the turn at once. A run
+  the app believes active is asked about: on waking up, every three minutes of silence in the
+  foreground, and whenever the user refreshes; Hermes' session.info settles it. A transport error
+  never invents an outcome; only thirty silent minutes plus two failed probes mark a run
+  interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
+  queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
 - Version 0.1.95 moves an assistant reply's file attachment below the reply text, so a long
   report no longer scrolls its download card out of view, and records attachments in both the
   Markdown and long-image transcript exports, which previously dropped them entirely.
@@ -571,7 +580,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.95-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.96-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

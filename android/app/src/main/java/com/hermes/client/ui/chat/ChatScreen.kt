@@ -243,11 +243,27 @@ fun ChatScreen(
     LaunchedEffect(vm, language) {
         vm.refreshEvents.collect { event ->
             when (event) {
-                ChatViewModel.ConversationRefreshEvent.QUEUED -> android.widget.Toast.makeText(
-                    context,
-                    localized(language, "当前回复完成后将自动刷新", "The conversation will refresh after this reply"),
-                    android.widget.Toast.LENGTH_SHORT,
-                ).show()
+                ChatViewModel.ConversationRefreshEvent.RUN_ENDED -> {
+                    androidx.compose.runtime.withFrameNanos { }
+                    viewportController.requestHeldRestore()
+                    android.widget.Toast.makeText(
+                        context,
+                        localized(language, "已同步 · 运行已结束", "Synced · the run had finished"),
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                ChatViewModel.ConversationRefreshEvent.STILL_RUNNING -> {
+                    viewportController.releaseHeldAnchor()
+                    val elapsed = vm.lastConfirmedRunElapsedMs.value?.let { ms ->
+                        " · " + localized(language, "已运行 ", "running for ") +
+                            formatElapsedTime(ms, zh = language == com.hermes.client.ui.localization.AppLanguage.ZH)
+                    }.orEmpty()
+                    android.widget.Toast.makeText(
+                        context,
+                        localized(language, "已同步 · 仍在运行", "Synced · still running") + elapsed,
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
                 ChatViewModel.ConversationRefreshEvent.SUCCEEDED_CHANGED -> {
                     // Let the stable-id message updates reach layout before the restore
                     // transaction samples row/block geometry.
