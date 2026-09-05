@@ -276,14 +276,12 @@ class StartupViewModel @Inject constructor(
                 }
 
                 _state.value = StartupUiState.Loading(reason, StartupPhase.NETWORK)
-                if (!connectivity.isOnline()) {
-                    minimumDisplay?.cancel()
-                    _state.value = StartupUiState.Failed(
-                        reason,
-                        StartupFailure.DEVICE_OFFLINE,
-                    )
-                    return@coroutineScope
-                }
+                // Read connectivity, but do not decide on it. The probe that follows is a better
+                // answer to the same question and is one step away; short-circuiting here on a
+                // single capability read put a full-screen "your device has no network" in front
+                // of users whose traffic was flowing. It still chooses between the two codes
+                // below, so "check your network" and "can't reach the Relay" stay distinct.
+                val connectivitySaysOffline = !connectivity.isOnline()
 
                 _state.value = StartupUiState.Loading(reason, StartupPhase.AUTHENTICATION)
                 when (val probe = rest.probeStatusFor(config.baseUrl, config.token)) {
@@ -312,7 +310,11 @@ class StartupViewModel @Inject constructor(
                     }
                     is GatewayProbeResult.Unreachable -> {
                         minimumDisplay?.cancel()
-                        _state.value = StartupUiState.Failed(reason, StartupFailure.CONNECTION_FAILED)
+                        _state.value = StartupUiState.Failed(
+                            reason,
+                            if (connectivitySaysOffline) StartupFailure.DEVICE_OFFLINE
+                            else StartupFailure.CONNECTION_FAILED,
+                        )
                         return@coroutineScope
                     }
                 }

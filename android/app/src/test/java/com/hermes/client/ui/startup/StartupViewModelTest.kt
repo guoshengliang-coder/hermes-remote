@@ -276,8 +276,14 @@ class StartupViewModelTest {
         assertEquals(1L, vm.repairCompletion.value)
     }
 
+    /**
+     * A device that really has no network fails the probe too, so the wording it earns is
+     * unchanged. What changed is that the connectivity read no longer decides on its own.
+     */
     @Test fun offlineStartupShowsRegisteredRetryableError() = runTest {
         every { connectivity.isOnline() } returns false
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
+            GatewayProbeResult.Unreachable("no route to host")
         val vm = vm()
 
         vm.onActivityCreated(processColdStart = true)
@@ -286,6 +292,41 @@ class StartupViewModelTest {
         val failed = vm.state.value as StartupUiState.Failed
         assertEquals(StartupFailure.DEVICE_OFFLINE, failed.failure)
         verify(exactly = 0) { chat.connect() }
+    }
+
+    /**
+     * Regression for the HG-10 → HG-1 path: a capability read that says offline while the gateway
+     * answers normally used to put a full-screen HR-CONN-001 in front of a perfectly healthy
+     * start. The probe is one step away and is the better answer to the same question.
+     */
+    @Test fun aReachableGatewayOutranksAConnectivityCheckThatSaysOffline() = runTest {
+        every { connectivity.isOnline() } returns false
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        connection.value = ConnectionState.Connected
+        runCurrent()
+        advanceTimeBy(2_000)
+        runCurrent()
+
+        assertTrue(vm.state.value.toString(), vm.state.value !is StartupUiState.Failed)
+    }
+
+    /** A working network that cannot reach the Relay is the Relay's fault, not the device's. */
+    @Test fun anUnreachableGatewayOnAHealthyNetworkKeepsTheRelayCode() = runTest {
+        every { connectivity.isOnline() } returns true
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
+            GatewayProbeResult.Unreachable("connection refused")
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+
+        assertEquals(
+            StartupFailure.CONNECTION_FAILED,
+            (vm.state.value as StartupUiState.Failed).failure,
+        )
     }
 
     @Test fun gatewayReadyTimeoutOffersRecoveryInsteadOfBlockingForever() = runTest {
