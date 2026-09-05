@@ -99,6 +99,16 @@ object DebugLog {
         tokenToRedact = token?.takeIf { it.isNotBlank() }
     }
 
+    /**
+     * Lazy form for anything on a hot path: the message is neither built nor allocated unless
+     * logging is on. Use it for per-event or per-update lines; the eager overload is fine for
+     * lines that fire a few times per run.
+     */
+    inline fun log(category: String, message: () -> String) {
+        if (!isEnabled()) return
+        log(category, message())
+    }
+
     fun log(category: String, message: String) {
         if (!enabled) return
         val safe = redact(message)
@@ -120,17 +130,36 @@ object DebugLog {
         store?.let { target -> ioExecutor.execute { target.clear() } }
     }
 
-    /** Plain-text dump for the Share sheet, oldest first. */
-    fun export(): String {
-        val snapshot = synchronized(lock) { buffer.toList() }
+    /**
+     * Plain-text dump for the Share sheet, oldest first. With [sessionId] only the lines that name
+     * that session (`s=<id>` / `session=<id>`) are included, so a user can hand over exactly the
+     * conversation that misbehaved instead of everything the app did that week.
+     */
+    fun export(sessionId: String? = null): String {
+        val all = synchronized(lock) { buffer.toList() }
+        val snapshot = if (sessionId == null) all else all.filter { mentionsSession(it.message, sessionId) }
         if (snapshot.isEmpty()) return "(no diagnostic entries)"
         return buildString {
-            append("Hermes diagnostic log — ${snapshot.size} entries\n")
+            append("Hermes diagnostic log — ${snapshot.size} entries")
+            if (sessionId != null) append(" — session $sessionId")
+            append("\n")
             snapshot.forEach { e ->
                 val origin = if (e.fromPreviousRun) " (previous run)" else ""
                 append("${exportFmt.format(Instant.ofEpochMilli(e.timeMillis))} [${e.category}]$origin ${e.message}\n")
             }
         }
+    }
+
+    private val sessionRef = Regex("(?:\\bs|\\bsession)=([A-Za-z0-9_\\-]{6,})")
+
+    fun mentionsSession(message: String, sessionId: String): Boolean =
+        sessionRef.findAll(message).any { it.groupValues[1] == sessionId }
+
+    /** Distinct session ids named by [entries], most recently mentioned first. */
+    fun sessionIdsIn(entries: List<LogEntry>): List<String> {
+        val seen = LinkedHashSet<String>()
+        entries.asReversed().forEach { e -> sessionRef.findAll(e.message).forEach { seen += it.groupValues[1] } }
+        return seen.toList()
     }
 
     /** [export] when anything was captured, else null — a crash report omits an empty section. */

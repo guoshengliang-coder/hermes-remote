@@ -212,6 +212,14 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   exit code and duration. A completed turn's timeline now folds behind a one-line summary
   (calls · duration · failures); a timeline watched to completion stays open, one first seen
   complete starts folded (docs/DESIGN.md §5.4, decision 2026-09-05).
+- Version 0.1.97 gives the diagnostic log what the 2026-09-05 investigation lacked. Under the
+  existing diagnostics switch (off by default, zero cost while off — hot-path lines are now lazy
+  and never build their string) the session store writes one `[phase]` line per visible state
+  change with its cause, a refused history reconcile names the coverage gap, and an observed
+  lifecycle event records how late it reached the phone. The diagnostics page gains a chip per
+  session the log mentions; the list and the Share button follow it, so a report carries exactly
+  the conversation that misbehaved. `docs/DIAGNOSTICS.md` is the read-only runbook that turns the
+  HG-6/7/8 reconstruction into a ten-minute procedure.
 - Version 0.1.96 closes the two ways a run's state could still go wrong after 0.1.93. Events for
   a session id the app has not aliased yet (a run started on the Mac, a scheduled run, a handle
   not yet resumed) are held for a minute and replayed the moment the alias appears instead of
@@ -580,7 +588,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.96-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.97-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
