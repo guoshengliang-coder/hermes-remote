@@ -362,6 +362,47 @@ internal fun alignMessageIds(history: List<ChatMessage>, current: List<ChatMessa
     }
 }
 
+/**
+ * REST history models less than the live transcript: reasoning and tool results exist only as far
+ * as the gateway sends them, and the in-flight bubble's streaming state never does. A reconcile
+ * may correct and add, but must not delete what it does not model (HG-8, 2026-09-05). A blank
+ * field on the aligned REST row inherits the live row's value by id; a persisted tool call whose
+ * result REST cannot carry keeps the live result; and while the run is still active the tail
+ * assistant keeps the live streaming state so the running indicator survives the swap.
+ */
+internal fun inheritStreamFields(
+    history: List<ChatMessage>,
+    current: List<ChatMessage>,
+    runActive: Boolean,
+): List<ChatMessage> {
+    val liveById = current.associateBy { it.id }
+    val liveStreaming = runActive && current.any { it.role == Role.ASSISTANT && it.isStreaming }
+    val tailAssistant = history.indexOfLast { it.role == Role.ASSISTANT }
+    return history.mapIndexed { index, message ->
+        val live = liveById[message.id]?.takeIf { it.role == message.role }
+        val merged = if (live == null) message else message.copy(
+            thinking = message.thinking.ifBlank { live.thinking },
+            tools = when {
+                message.tools.isEmpty() -> live.tools
+                else -> {
+                    val liveTools = live.tools.associateBy { it.id }
+                    message.tools.map { tool ->
+                        val known = liveTools[tool.id]
+                        if (known == null || tool.output.isNotBlank()) tool else tool.copy(
+                            output = known.output,
+                            command = tool.command ?: known.command,
+                            exitCode = tool.exitCode ?: known.exitCode,
+                            durationMs = tool.durationMs ?: known.durationMs,
+                            todos = tool.todos.ifEmpty { known.todos },
+                        )
+                    }
+                }
+            },
+        )
+        if (liveStreaming && index == tailAssistant) merged.copy(isStreaming = true) else merged
+    }
+}
+
 /** Merge two already display-ready assistant records without re-running content sanitization. */
 internal fun mergeAssistantTurns(previous: ChatMessage, message: ChatMessage): ChatMessage {
     val toolsById = linkedMapOf<String, ToolCall>()

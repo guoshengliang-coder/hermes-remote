@@ -597,6 +597,7 @@ fun ChatMessageList(
     // would silently drop everything the user and agent said after it.
     val lastAssistantId = displayMessages.lastOrNull { it.role == Role.ASSISTANT }?.id
     val processesVisible = visibleProcesses.isNotEmpty()
+    val sessionRunIndicator = showsSessionRunIndicator(isGenerating, state.messages)
 
     // reverseLayout pins the viewport to the newest content natively: while the list rests at
     // (firstVisibleItemIndex = 0, offset = 0), a growing streaming turn stays glued to the bottom
@@ -1032,9 +1033,13 @@ fun ChatMessageList(
                             alignment = Alignment.BottomStart,
                         ),
                 ) {
-                    if (processesVisible) {
-                        Box(Modifier.padding(top = TURN_SPACING)) {
-                            BackgroundProcessesCard(visibleProcesses)
+                    if (processesVisible || sessionRunIndicator) {
+                        Column(Modifier.padding(top = TURN_SPACING)) {
+                            // The run is active but no bubble is streaming yet (docs/DESIGN.md §5.6):
+                            // the indicator belongs to the session's run, so it lives in this
+                            // permanent slot rather than in a bubble that may not exist.
+                            if (sessionRunIndicator) RunningStatusLine(sessionRunPlaceholder(sessionId))
+                            if (processesVisible) BackgroundProcessesCard(visibleProcesses)
                         }
                     } else {
                         Spacer(Modifier.height(1.dp))
@@ -2856,6 +2861,26 @@ private fun MessageActionSheet(actions: List<MessageAction>, onDismiss: () -> Un
         }
     }
 }
+
+/**
+ * Whether the transcript needs a session-level running indicator: the run is active but no
+ * assistant bubble carries the streaming state. Happens when the Relay observes `run.started`
+ * before `message.start` arrives, or when a history reconcile swapped the in-flight row out
+ * (HG-8, 2026-09-05). Pure so the rule is unit-testable.
+ */
+internal fun showsSessionRunIndicator(isGenerating: Boolean, messages: List<ChatMessage>): Boolean =
+    isGenerating && messages.none { it.role == Role.ASSISTANT && it.isStreaming }
+
+/**
+ * A content-less streaming record for [RunningStatusLine]: with no output there is no label and no
+ * elapsed suffix, so the mark stands alone exactly as it does before a real turn's first token.
+ */
+internal fun sessionRunPlaceholder(sessionId: String) = ChatMessage(
+    id = "run-indicator-$sessionId",
+    role = Role.ASSISTANT,
+    text = "",
+    isStreaming = true,
+)
 
 /**
  * The one thing on screen that says "your Mac is working". It stays put from the moment the turn

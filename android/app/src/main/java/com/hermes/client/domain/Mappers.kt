@@ -6,6 +6,13 @@ import com.hermes.client.data.network.ProjectNodeDto
 import com.hermes.client.data.network.ProjectTreeDto
 import com.hermes.client.data.network.RepoDto
 import com.hermes.client.data.network.SessionDto
+import com.hermes.client.ui.chat.parseToolPayloadMeta
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import java.net.URI
 
 fun SessionDto.toDomain() = Session(
@@ -500,10 +507,45 @@ fun MessageDto.toDomain(): ChatMessage {
         images = parsed.images,
         files = parsed.files,
         timestamp = createdAt?.let(::parseIsoTimestampMillis),
+        // Hermes persists reasoning and tool calls on every assistant row and the gateway passes
+        // them through; until 2026-09-05 the DTO simply did not model them, so every history
+        // load or reconcile came back without the reasoning card or tool timeline (HG-8).
+        thinking = if (role.equals("assistant", ignoreCase = true)) {
+            reasoningContent?.takeIf { it.isNotBlank() } ?: reasoning?.takeIf { it.isNotBlank() } ?: ""
+        } else "",
+        tools = if (role.equals("assistant", ignoreCase = true)) historyToolCalls() else emptyList(),
         displayKind = displayKind?.ifBlank { null },
         displayTaskCount = displayMetadata?.intOrNull("task_count"),
         displayFailedCount = displayMetadata?.intOrNull("failed_count"),
     )
+}
+
+/**
+ * REST cannot say how each call ended — the tool-result rows are filtered out of history — so a
+ * persisted call maps to a completed card without output. A live tool.complete for the same id
+ * still carries the full result, and reconciliation keeps it (see inheritStreamFields).
+ */
+private fun MessageDto.historyToolCalls(): List<ToolCall> {
+    val array: JsonArray = when (val raw: JsonElement? = toolCalls) {
+        is JsonArray -> raw
+        is JsonPrimitive -> raw.contentOrNull
+            ?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() } as? JsonArray
+        else -> null
+    } ?: return emptyList()
+    return array.mapIndexedNotNull { index, element ->
+        val call = element as? JsonObject ?: return@mapIndexedNotNull null
+        val function = call["function"] as? JsonObject
+        val name = (function?.get("name") as? JsonPrimitive)?.contentOrNull?.ifBlank { null }
+            ?: return@mapIndexedNotNull null
+        val id = (call["id"] as? JsonPrimitive)?.contentOrNull?.ifBlank { null } ?: "h-tool-$index"
+        val arguments = (function["arguments"] as? JsonPrimitive)?.contentOrNull
+        ToolCall(
+            id = id,
+            name = name,
+            status = ToolStatus.DONE,
+            command = arguments?.let { parseToolPayloadMeta(it) }?.command,
+        )
+    }
 }
 
 private fun kotlinx.serialization.json.JsonObject.intOrNull(key: String): Int? =

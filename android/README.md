@@ -196,6 +196,16 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   not part of the package — it used to free its ports by killing whatever held them, which on
   2026-09-04 would have taken down an unrelated project's dev server listening on 8787. It now
   tracks the PIDs it starts and refuses to start when a port belongs to someone else.
+- Version 0.1.93 makes the session phase the single truth for whether a turn is running. A run
+  that finished while the phone was asleep used to keep its bubble on 生成中 with a live timer,
+  unlock the composer under it (a second live bubble stacked on a follow-up), and a reconnect
+  rewrote 等待你处理 into 思考中. History reconciles now keep the reasoning card and tool
+  timeline instead of erasing them — `MessageDto` finally models the `reasoning` and
+  `tool_calls` fields the gateway had been relaying all along — and a run that is active before
+  its first token shows the running mark in the transcript's bottom slot instead of nothing.
+  Reconstructed from the 2026-09-05 incident behind HG-6/7/8; nothing about the transport
+  changes, so a completion still arrives late while the phone sleeps — it is just shown
+  truthfully once it does.
 - Version 0.1.91 keeps a running task connected while you switch away, and stops reporting outages
   the task never noticed. Backgrounding the app mid-run used to drop the socket 45 seconds later
   and greet you with "reconnecting" on your return: the notification switch was evaluated before
@@ -552,7 +562,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.92-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.93-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
