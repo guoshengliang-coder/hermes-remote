@@ -524,3 +524,40 @@ project. Note that `dev-stack.sh stop` kills whatever holds its ports.
    from firing. Ordinary use of the app is enough; no deployment is involved.
 13. **Vendor battery management.** On a Chinese OEM ROM, confirm the foreground service is not killed
    during a run, and whether the app needs to be added to the battery whitelist.
+
+## Session state consistency smoke test (2026-09 branch claude/session-state-desync-tests)
+
+HG-6, HG-7 and HG-8 were one incident on one conversation (2026-09-05, session
+`20260905_102612_6d5fd4`), reconstructed from the Mac mini `messages` table, the Gateway's
+`lifecycle-events.json` and the edge Nginx access log. The mechanism is fully covered by unit
+tests (`SessionStateDesyncRegressionTest`, `HistoryReasoningAndToolsMappingTest`,
+`SessionRunIndicatorTest`); the cases below exist because the trigger — the phone asleep when the
+run ends — is not something a JVM test can produce. Across 180 observed completions, 26% reached the
+phone more than 30s late, so ordinary use reproduces this several times a day.
+
+Diagnostic log as in the background-connection section (设置 → 诊断 → 诊断日志, then
+`adb logcat -s HermesDebug`). The gateway log proves nothing here either.
+
+### Device cases (need a real device — the emulator never sleeps)
+
+1. **Finished while asleep (HG-6).** Send a prompt that runs for 2–3 minutes, immediately switch
+   apps and lock the phone, return after the run has finished. Expected: the list row shows 已完成
+   (or nothing, once the chat has been opened); the answer bubble shows the action row, **not**
+   「生成中」 with a running timer; the composer offers 发送, not 停止. Before the fix the bubble kept
+   counting for as long as the process lived.
+2. **Follow-up after that (HG-7).** From case 1, send a follow-up. Expected: exactly one bubble is
+   live; the previous answer keeps its action row. Before the fix two 「生成中」 rows stacked.
+3. **Reasoning and tool cards survive (HG-8, second half).** Open a conversation whose last turn
+   used tools and reasoning, wait for the run to finish, background and return so a history
+   reconcile runs (watch for `history reconcile ... accepted=true` in the log). Expected: 查看思考过程
+   and the tool timeline are still there. Before the fix both vanished on the first reconcile.
+4. **Waiting is reported as waiting (HG-8, first half).** Trigger a clarify/approval while the
+   phone is on a flaky network (toggle airplane mode for ~10s and back). Expected: the list row
+   still says 等待你的确认 / 等待你的回答 / 等待你处理 after the reconnect, never 思考中.
+5. **Run active, no bubble yet.** Start a run from the Mac (or let a scheduled run start) and open
+   the chat before its first token. Expected: the mark renders alone in the bottom slot of the
+   transcript; the list row and the chat agree that something is running.
+
+Report each case with the diagnostic log window around the reconnect or the observed
+`run.completed`. Nothing in this branch changes the transport: a completion still arrives late
+when the phone is asleep — the fix only guarantees that what is shown is true once it arrives.
