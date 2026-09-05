@@ -561,3 +561,9 @@ Diagnostic log as in the background-connection section (设置 → 诊断 → �
 Report each case with the diagnostic log window around the reconnect or the observed
 `run.completed`. Nothing in this branch changes the transport: a completion still arrives late
 when the phone is asleep — the fix only guarantees that what is shown is true once it arrives.
+
+6. **Tool timeline after completion (0.1.94, docs/DESIGN.md §5.4).** Watch a tool-heavy run to
+   the end without leaving the chat: the timeline stays open and gains a summary row. Leave the
+   chat and reopen it: the timeline is folded to「N 次工具调用 · 耗时」; tap to unfold; every row
+   now carries the real target name (`mcp__…`, not `tool_call`), its output and exit code —
+   identical to what streamed live.

@@ -137,10 +137,17 @@ class SessionRepository(
     // Live tool activity still appears through tool.start/tool.complete as compact status cards.
     suspend fun history(sessionId: String, profile: String? = null): List<ChatMessage> =
         coalesced("$HISTORY_KEY_PREFIX${historyKey(sessionId, profile)}") {
-            val loaded = rest.messages(sessionId, profile)
+            val rows = rest.messages(sessionId, profile)
+            // Tool-result rows never become turns of their own, but they are the only place the
+            // persisted outcome of a call lives: join them back onto the assistant turn's cards
+            // by tool_call_id so a rebuilt timeline matches the one that streamed live.
+            val toolResults = rows
+                .filter { it.role.lowercase() in INTERNAL_TOOL_ROLES && !it.toolCallId.isNullOrBlank() }
+                .associateBy { it.toolCallId!! }
+            val loaded = rows
                 .filterNot { it.role.lowercase() in INTERNAL_TOOL_ROLES }
                 .mapIndexed { i, dto ->
-                    val m = dto.toDomain()
+                    val m = dto.toDomain(toolResults)
                     m.copy(id = "h-$i-${m.id}")
                 }
             synchronized(historyCache) { historyCache[historyKey(sessionId, profile)] = loaded }
