@@ -9,6 +9,7 @@ import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +18,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -25,7 +27,6 @@ import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -206,7 +207,6 @@ class SessionStateDesyncRegressionTest {
      * replaces the list wholesale silently deletes both. It may correct and add; it may not delete
      * what it does not model.
      */
-    @Ignore("HG-8 未修复：acceptReconciledHistory 全量替换，抹掉 REST 不建模的 thinking/tools。修复后删除此注解。")
     @Test fun historyReconciliationKeepsReasoningAndToolsRestDoesNotCarry() = runTest {
         val sessions = mockk<SessionRepository>()
         // What the Gateway actually returns: text only — no reasoning, no tool calls.
@@ -285,5 +285,59 @@ class SessionStateDesyncRegressionTest {
                 )
             }
         }
+    }
+
+    /**
+     * A reconnect mid-run re-reads history while the run is still active. The REST rows carry no
+     * streaming state, so the swap used to drop the running indicator off the tail bubble while the
+     * list row still said "思考中" — the blank chat under a spinning row (HG-8).
+     */
+    @Test fun reconcileDuringAnActiveRunKeepsTheTailBubbleStreaming() = runTest {
+        val sessions = mockk<SessionRepository>()
+        coEvery { sessions.history("s1", "personal") } returns listOf(
+            ChatMessage("h-0", Role.USER, "html我看不到，我远程访问你的"),
+            ChatMessage("h-1", Role.ASSISTANT, "权威的部分正文"),
+        )
+        val (store, events, connection) = fixture(sessions)
+        val key = store.register("s1", "personal")
+        store.beginPrompt(key, "html我看不到，我远程访问你的")
+        events.emit(event("message.start", "s1"))
+        events.emit(event("message.delta", "s1", "部分"))
+        advanceUntilIdle()
+
+        connection.value = ConnectionState.Disconnected
+        runCurrent()
+        connection.value = ConnectionState.Connected
+        advanceTimeBy(300L)
+        runCurrent()
+
+        val runtime = store.runtimes.value.getValue(key)
+        val tail = runtime.chat.messages.last { it.role == Role.ASSISTANT }
+        assertTrue("运行仍在进行", runtime.phase.isActive)
+        assertEquals("对账应接受权威正文", "权威的部分正文", tail.text)
+        assertTrue("对账期间运行未结束，尾部气泡必须仍在流式状态（HG-8）", tail.isStreaming)
+    }
+
+    /**
+     * Inheriting fields the REST row lacks must not make the reconcile look "unaccepted": that would
+     * walk every rung of the retry ladder and re-download the transcript each time.
+     */
+    @Test fun inheritedFieldsDoNotStopTheReconcileFromAccepting() = runTest {
+        val sessions = mockk<SessionRepository>()
+        coEvery { sessions.history("s1", "personal") } returns listOf(
+            ChatMessage("h-0", Role.USER, "昨天公司数据如何？"),
+            ChatMessage("h-1", Role.ASSISTANT, "完成内容"),
+        )
+        val (store, events) = fixture(sessions)
+        val key = store.register("s1", "personal")
+        store.beginPrompt(key, "昨天公司数据如何？")
+        events.emit(event("message.start", "s1"))
+        events.emit(event("reasoning.delta", "s1", "正在分析"))
+        events.emit(event("message.complete", "s1", "完成内容"))
+        advanceUntilIdle()
+
+        // One accepted pass must end the ladder; a rejected one would fetch on every rung.
+        coVerify(exactly = 1) { sessions.history("s1", "personal") }
+        assertEquals("正在分析", store.runtimes.value.getValue(key).chat.messages.last().thinking)
     }
 }

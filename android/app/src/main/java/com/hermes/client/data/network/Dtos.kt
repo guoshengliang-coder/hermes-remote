@@ -53,6 +53,13 @@ import kotlinx.serialization.Serializable
     // Optional: older gateways and plain user turns simply omit them.
     @SerialName("display_kind") val displayKind: String? = null,
     @SerialName("display_metadata") val displayMetadata: kotlinx.serialization.json.JsonObject? = null,
+    // Reasoning as Hermes persists it. Both columns carry the same text; reasoning_content is the
+    // one populated more often, so it is preferred. Absent on user turns and older gateways.
+    val reasoning: String? = null,
+    @SerialName("reasoning_content") val reasoningContent: String? = null,
+    // The assistant turn's tool calls in OpenAI shape ({id, function: {name, arguments}}). Hermes
+    // returns a parsed array; kept as a JsonElement so a stringified array still maps.
+    @SerialName("tool_calls") val toolCalls: kotlinx.serialization.json.JsonElement? = null,
 )
 @Serializable data class MessagesDto(val messages: List<MessageDto> = emptyList())
 

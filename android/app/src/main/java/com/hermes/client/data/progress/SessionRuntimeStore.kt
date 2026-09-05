@@ -460,7 +460,11 @@ class SessionRuntimeStore(
                     messages = if (keepLive) {
                         runtime.chat.messages
                     } else {
-                        com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages)
+                        com.hermes.client.ui.chat.inheritStreamFields(
+                            com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                            runtime.chat.messages,
+                            runActive = runtime.phase.isActive,
+                        )
                     },
                     historyLoading = false,
                     historyLoaded = true,
@@ -482,9 +486,13 @@ class SessionRuntimeStore(
             if (runtime.chat.isGenerating || runtime.phase.isActive) return@updateRuntime runtime
             runtime.copy(
                 chat = runtime.chat.copy(
-                    messages = com.hermes.client.ui.chat.inheritTimestamps(
-                        com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                    messages = com.hermes.client.ui.chat.inheritStreamFields(
+                        com.hermes.client.ui.chat.inheritTimestamps(
+                            com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                            runtime.chat.messages,
+                        ),
                         runtime.chat.messages,
+                        runActive = runtime.phase.isActive,
                     ),
                     historyLoading = false,
                     historyLoaded = true,
@@ -996,9 +1004,13 @@ class SessionRuntimeStore(
                 chat = runtime.chat.copy(
                     // Order matters: identity first (list keys/anchors survive the swap), then
                     // timestamps inherited onto the aligned list.
-                    messages = com.hermes.client.ui.chat.inheritTimestamps(
-                        com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                    messages = com.hermes.client.ui.chat.inheritStreamFields(
+                        com.hermes.client.ui.chat.inheritTimestamps(
+                            com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                            runtime.chat.messages,
+                        ),
                         runtime.chat.messages,
+                        runActive = runtime.phase.isActive,
                     ),
                     historyLoading = false,
                     historyLoaded = true,
@@ -1008,13 +1020,17 @@ class SessionRuntimeStore(
         }
         // StateFlow.update may retry its transform under contention, so keep the transform free of
         // side effects and derive acceptance from the committed snapshot afterward.
-        // Timestamp inheritance and id alignment both mutate the committed list relative to the
-        // raw REST result, so acceptance compares content with stamps AND ids normalized out.
+        // Timestamp inheritance, id alignment and stream-field inheritance all mutate the committed
+        // list relative to the raw REST result, so acceptance compares content with stamps, ids,
+        // reasoning, tools and streaming state normalized out. Comparing the inherited fields would
+        // never match, and a reconcile that never "accepts" re-downloads the whole transcript on
+        // every rung of the ladder (the 2026-09-03 fetch storm).
         val committed = _runtimes.value[key]?.chat?.messages ?: return false
+        fun ChatMessage.comparable() = copy(
+            timestamp = null, id = "", thinking = "", tools = emptyList(), isStreaming = false,
+        )
         return committed.size == messages.size &&
-            committed.zip(messages).all { (a, b) ->
-                a.copy(timestamp = null, id = "") == b.copy(timestamp = null, id = "")
-            }
+            committed.zip(messages).all { (a, b) -> a.comparable() == b.comparable() }
     }
 
     private fun List<ChatMessage>.covers(expectation: HistoryExpectation): Boolean {
