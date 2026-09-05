@@ -129,6 +129,21 @@ node scripts/production-baseline.mjs \
 失败入口统一向操作者返回 `HR-OPS-014`，内部 R4 阶段原因会经过凭据和用户路径脱敏后保留用于诊断。
 代码阶段没有连接香港服务器，没有部署、重启、切流或启用 timer。
 
+## 生产接管结果
+
+2026-09-05，R5-D7 PR #52、合并后 `main` 门禁、受保护制品校验和精确提交的一次性演练全部通过后，
+获授权的正式入口使用 Gateway/运维 bundle `833859aa9afe55f09d2fe8663ab0fd1528447ba4` 完成接管。
+run `5403064b-c220-42ab-91e0-d3b605e8c674` 返回 `stage: committed`，blue 槽成为活动服务，Nginx
+指向 `127.0.0.1:18787`；旧服务停止并禁用。受管链接为：
+
+- `current`: `releases/0.4.0-833859aa9afe`
+- `previous`: `releases/0.2.0-54f7aed61172`
+
+切换后重新验证了 manifest schema v3 的 containerd runtime ID、私有 release identity/readiness、公开
+`/relay-health`、认证 REST/WebSocket、错误 Token 拒绝、APK 发布 `/health` 与 Nginx 语法。Connector
+保持在线，blue 容器重启次数为 0 且无 warning 以上 journal。PostgreSQL 保持 loopback；数据库、账号认证、
+账号绑定和监控 timer 均未启用。本记录完成 R5-D，不代表 R5-E 数据库或 R5-F 账号模式授权。
+
 ## 2026-09-04 部署前只读预检
 
 经单独授权的白名单读取确认生产主机仍为 Linux x86_64，根盘约 100 GiB 且使用率 16%，可用内存约
