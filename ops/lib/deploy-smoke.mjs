@@ -6,6 +6,21 @@ import { OpsError } from "./errors.mjs";
 
 const verifierPath = fileURLToPath(new URL("../../scripts/verify-gateway-image-candidate.mjs", import.meta.url));
 const compatibilityVerifierPath = fileURLToPath(new URL("../../scripts/smoke-compat-client.mjs", import.meta.url));
+const gatewaySmokeDiagnostics = new Set([
+  "configuration",
+  "liveness",
+  "readiness",
+  "capabilities",
+  "release_identity",
+  "connector_identity",
+  "app_auth_rejection",
+  "rest_forward_auth",
+  "rest_forward_response",
+  "rest_forward_contract",
+  "rest_forward_ready_timeout",
+  "websocket_forward",
+  "unexpected",
+]);
 
 export async function createStagingSmokeCallbacks(config, options = {}) {
   const env = options.env ?? process.env;
@@ -122,15 +137,71 @@ async function runVerifier(request, internalGatewayUrl, { appToken, internalStat
         EXPECTED_SOURCE_COMMIT: request.expectedSourceCommit,
         EXPECTED_SERVER_VERSION: request.expectedServerVersion,
         EXPECTED_DEVICE_ID: request.expectedDeviceId,
+        HERMES_STATUS_MODE: request.publicRoute ? "live" : "mock",
       },
-      stdio: "ignore",
+      stdio: ["ignore", "ignore", "pipe"],
     });
-    child.once("error", () => reject(new OpsError("deployment", "gateway_smoke_process_failed", "deploy_smoke_execute")));
+    let stderr = "";
+    child.stderr?.setEncoding?.("utf8");
+    child.stderr?.on?.("data", (chunk) => {
+      stderr = `${stderr}${String(chunk)}`.slice(-16 * 1024);
+    });
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      if (error) reject(error);
+      else resolve();
+    };
+    child.once("error", () => finish(new OpsError(
+      "deployment",
+      "gateway_smoke_process_failed",
+      "deploy_smoke_execute",
+    )));
+    let exitResult;
+    const finishResult = (code, signal) => {
+      if (code === 0) finish();
+      else finish(new OpsError(
+        "deployment",
+        `gateway_smoke_failed=${safeExit(code, signal)};diagnostic=${parseGatewaySmokeDiagnostic(stderr)}`,
+        "deploy_smoke_execute",
+      ));
+    };
     child.once("exit", (code, signal) => {
-      if (code === 0) resolve();
-      else reject(new OpsError("deployment", `gateway_smoke_failed=${code ?? signal ?? "unknown"}`, "deploy_smoke_execute"));
+      exitResult = { code, signal };
+      if (!child.stderr || child.stderr.readableEnded) finishResult(code, signal);
+    });
+    child.once("close", (code, signal) => {
+      finishResult(code ?? exitResult?.code, signal ?? exitResult?.signal);
     });
   });
+}
+
+export function parseGatewaySmokeDiagnostic(value) {
+  const lines = String(value ?? "").slice(-16 * 1024).split(/\r?\n/).filter(Boolean).reverse();
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed?.code === "HR-RELEASE-003"
+          && parsed?.stage === "gateway_oci_smoke"
+          && isAllowedGatewaySmokeDiagnostic(parsed?.technicalCause)) {
+        return `${parsed.code}:${parsed.technicalCause}`;
+      }
+    } catch {}
+  }
+  return "unavailable";
+}
+
+function isAllowedGatewaySmokeDiagnostic(value) {
+  if (typeof value !== "string" || !value.startsWith("smoke_check=")) return false;
+  const check = value.slice("smoke_check=".length);
+  return gatewaySmokeDiagnostics.has(check)
+    || /^rest_forward_http_(?:unknown|[1-5][0-9]{2})$/.test(check);
+}
+
+function safeExit(code, signal) {
+  if (Number.isSafeInteger(code) && code >= 0 && code <= 255) return String(code);
+  return typeof signal === "string" && /^SIG[A-Z0-9]+$/.test(signal) ? signal : "unknown";
 }
 
 async function waitForConnector(gatewayUrl, fetchImpl, sleep, healthPath = "/health") {

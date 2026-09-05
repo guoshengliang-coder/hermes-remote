@@ -751,6 +751,7 @@ test("R4 CLI smoke fails closed before deployment when its isolated Connector en
     expectedServerVersion: "0.2.0",
   });
   assert.equal(verifierEnvironment.INTERNAL_GATEWAY_URL, `http://127.0.0.1:${config.legacySource.gatewayPort}`);
+  assert.equal(verifierEnvironment.HERMES_STATUS_MODE, "live");
 });
 
 test("ephemeral staging exercises R3/R4 rollback and PostgreSQL activation without production access", async () => {

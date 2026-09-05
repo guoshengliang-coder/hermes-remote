@@ -268,6 +268,18 @@ test("failed-journal replacement rejects missing failure evidence and any post-c
     currentOwnership().host,
   ), isOpsCode("HR-OPS-007"));
   assert.equal((await readDeploymentJournal(journalPath)).stage, "migration_verified");
+
+  existing = advanceDeploymentJournal(existing, "candidate_started", new Date("2026-09-05T04:48:07.000Z"));
+  await writeDeploymentJournal(journalPath, existing, currentOwnership().host);
+  await assert.rejects(() => archiveSupersededPreSwitchDeploymentJournal(
+    journalPath,
+    historyRoot,
+    auditPath,
+    expected,
+    checkpoint,
+    currentOwnership().host,
+  ), isOpsCode("HR-OPS-007"));
+  assert.equal((await readDeploymentJournal(journalPath)).stage, "candidate_started");
 });
 
 test("deployment lock is exclusive, stale-owner aware, and ownership fenced", async (t) => {
