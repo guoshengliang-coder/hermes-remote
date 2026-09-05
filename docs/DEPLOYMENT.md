@@ -166,7 +166,7 @@ configuration and state and creates a new encrypted output. It requires a separa
 after CI passes; do not infer that approval from a merge or from an R5-A audit. The full key-handling,
 invocation, rollback, and verification procedure is in `CLOUD_GATEWAY_R5_RECOVERY.md`.
 
-## PostgreSQL production gate (R5-E code ready; production not executed)
+## PostgreSQL production gate (R5-E manifest binding ready; production not executed)
 
 The existing HK host has enough nominal CPU and memory for the initial low-volume Gateway database,
 so a second server is not a prerequisite. PostgreSQL must remain a separate system service, listen only
@@ -224,7 +224,7 @@ for the dependency-free code snapshot, status-writer contract, validation sequen
 boundary. The dedicated entrypoint must be used by systemd; `scripts/hermesctl.mjs` remains available for
 interactive compatibility but loads unrelated deployment modules and is not the production timer entrypoint.
 
-## Production managed baseline (R5-D; adoption pending)
+## Production managed baseline (R5-D; adoption completed)
 
 R5-D keeps the ordinary `hermesctl deploy/rollback` commands staging-only. Its dedicated
 `scripts/production-baseline.mjs` entrypoint accepts only a strict production configuration, an exact
@@ -269,3 +269,11 @@ REST/WebSocket paths before returning `HR-OPS-014` at `switch_recovered`. R5-D7 
 private smoke retains `/healthz`, `/readyz`, capabilities, and protected release identity checks; public smoke uses
 only `/relay-health`, authentication rejection, authenticated `/api/status`, and `/api/ws`, matching the production
 Nginx contract. Production retry remains blocked until the R5-D7 gates and exact-artifact exercise pass.
+
+Those gates subsequently passed for `main` commit `833859aa9afe55f09d2fe8663ab0fd1528447ba4`. The authorized
+R5-D7 retry committed run `5403064b-c220-42ab-91e0-d3b605e8c674`: blue now serves Gateway 0.4.0 from the exact
+manifest-bound containerd image, Nginx targets `127.0.0.1:18787`, and the old Node service is stopped/disabled.
+`current` points to `releases/0.4.0-833859aa9afe`; `previous` retains `releases/0.2.0-54f7aed61172`. Private identity
+and readiness plus public Connector, REST, WebSocket, wrong-token, release-health and route-isolation checks passed
+after the switch. PostgreSQL remains loopback-only, database/account flags remain disabled, and the production
+monitor timer remains off. R5-D is complete; this does not authorize R5-E or R5-F.

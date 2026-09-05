@@ -52,7 +52,8 @@ branch; and the separation of the merge, version and publish gates. Read it befo
 - `deploy/`: deployment and service templates; never store live credentials here.
 - `docs/`: architecture, environment shape, deployment record, smoke-test instructions, the
   cross-subproject integration rules (`docs/INTEGRATION.md`), the Android UI design contract
-  (`docs/DESIGN.md`), and the upstream Hermes contract inventory (`docs/HERMES_CONTRACT.md`).
+  (`docs/DESIGN.md`), the upstream Hermes contract inventory (`docs/HERMES_CONTRACT.md`), and the
+  read-only incident runbook for session-state problems (`docs/DIAGNOSTICS.md`).
 
 `docs/HERMES_CONTRACT.md` inventories what this repository consumes from **upstream Hermes** — wire
 field names, RPC methods, text grammars, and one hand-copied constant — none of which we own or can
@@ -64,7 +65,6 @@ security boundary: the Mac opens the outbound connection, the Mac Hermes credent
 and the Android app receives only the public Gateway URL and its dedicated app token.
 
 ## Secrets and production safety
-
 - Never commit or print passwords, API keys, app tokens, connector tokens, cookies, private keys,
   keystores, or live `.env` contents.
 - `environment.md` is private local context. It is intentionally ignored by Git. Use it only when a
