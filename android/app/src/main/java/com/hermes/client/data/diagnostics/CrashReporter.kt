@@ -13,6 +13,9 @@ import java.time.Instant
  * + OS info) is written to a file; on the next launch [MainActivity] reads it and shows it on a
  * screen the user can share. This turns a silent "app keeps crashing" into a copyable trace without
  * needing adb/logcat. The token is redacted so a shared trace can't leak credentials.
+ *
+ * When the user had diagnostic logging on, the captured [DebugLog] entries are attached too: the
+ * stack trace says where the process died, the log says what led there.
  */
 object CrashReporter {
     private const val FILE = "last_crash.txt"
@@ -27,6 +30,15 @@ object CrashReporter {
             if (breadcrumbs.size >= MAX_BREADCRUMBS) breadcrumbs.removeFirst()
             breadcrumbs.addLast(entry)
         }
+    }
+
+    /** The trail as it stands, oldest first. */
+    internal fun snapshotBreadcrumbs(): List<String> =
+        synchronized(breadcrumbLock) { breadcrumbs.toList() }
+
+    /** Drops the trail. Used between tests; the running app keeps one trail for its lifetime. */
+    internal fun resetBreadcrumbs() {
+        synchronized(breadcrumbLock) { breadcrumbs.clear() }
     }
 
     fun install(app: Application) {
@@ -46,26 +58,53 @@ object CrashReporter {
                     }
                     "${pi.versionName} ($code)"
                 }.getOrDefault("?")
-                val report = buildString {
-                    appendLine("Hermes Beta — crash report")
-                    appendLine("app: ${app.packageName} $version")
-                    appendLine("android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
-                    appendLine("device: ${Build.MANUFACTURER} ${Build.MODEL}")
-                    appendLine("thread: ${thread.name}")
-                    appendLine()
-                    val trail = synchronized(breadcrumbLock) { breadcrumbs.toList() }
-                    if (trail.isNotEmpty()) {
-                        appendLine("breadcrumbs:")
-                        trail.forEach { appendLine(it) }
-                        appendLine()
-                    }
-                    append(trace)
-                }
+                val report = composeReport(
+                    app = "${app.packageName} $version",
+                    android = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+                    device = "${Build.MANUFACTURER} ${Build.MODEL}",
+                    thread = thread.name,
+                    breadcrumbs = snapshotBreadcrumbs(),
+                    diagnostics = runCatching { DebugLog.exportIfAny() }.getOrNull(),
+                    trace = trace,
+                )
                 app.openFileOutput(FILE, Context.MODE_PRIVATE).use { it.write(report.toByteArray()) }
             }
             // Let the platform still terminate the process (and run any prior handler).
             previous?.uncaughtException(thread, error)
         }
+    }
+
+    /**
+     * Assembles the shareable report. Split out from [install] so the layout — and the fact that
+     * empty sections are omitted rather than printed as headers with nothing under them — is
+     * testable without staging a real crash.
+     */
+    internal fun composeReport(
+        app: String,
+        android: String,
+        device: String,
+        thread: String,
+        breadcrumbs: List<String>,
+        diagnostics: String?,
+        trace: String,
+    ): String = buildString {
+        appendLine("Hermes GO — crash report")
+        appendLine("app: $app")
+        appendLine("android: $android")
+        appendLine("device: $device")
+        appendLine("thread: $thread")
+        appendLine()
+        if (breadcrumbs.isNotEmpty()) {
+            appendLine("breadcrumbs:")
+            breadcrumbs.forEach { appendLine(it) }
+            appendLine()
+        }
+        if (!diagnostics.isNullOrBlank()) {
+            appendLine("diagnostic log:")
+            appendLine(diagnostics.trimEnd())
+            appendLine()
+        }
+        append(trace)
     }
 
     /** The saved crash report, or null if there is none. */

@@ -32,6 +32,10 @@ class HermesApp : Application() {
         // Channels must exist even when Smart/Power-saving mode never starts the foreground
         // service; creating channels is local-only and does not open a network connection.
         notifier.ensureChannels()
+        // Attach the rolling diagnostic file before the toggle is restored, so entries captured
+        // during startup are mirrored, and so the previous run's entries — the ones a crash or a
+        // background kill would otherwise take with it — are read back into the buffer.
+        DebugLog.init(java.io.File(filesDir, "diagnostics"))
         // Restore the diagnostic-logging toggle at launch so capture is active before the
         // Diagnostics screen is ever opened (e.g. to catch a failure on the first session open).
         settingsStore.debugLogging
