@@ -535,17 +535,28 @@ private fun MessageDto.historyToolCalls(): List<ToolCall> {
     return array.mapIndexedNotNull { index, element ->
         val call = element as? JsonObject ?: return@mapIndexedNotNull null
         val function = call["function"] as? JsonObject
-        val name = (function?.get("name") as? JsonPrimitive)?.contentOrNull?.ifBlank { null }
+        val wrapperName = (function?.get("name") as? JsonPrimitive)?.contentOrNull?.ifBlank { null }
             ?: return@mapIndexedNotNull null
         val id = (call["id"] as? JsonPrimitive)?.contentOrNull?.ifBlank { null } ?: "h-tool-$index"
         val arguments = (function["arguments"] as? JsonPrimitive)?.contentOrNull
+        val argumentsObject = arguments?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() } as? JsonObject
         ToolCall(
             id = id,
-            name = name,
+            name = historyToolLabel(wrapperName, argumentsObject),
             status = ToolStatus.DONE,
             command = arguments?.let { parseToolPayloadMeta(it) }?.command,
         )
     }
+}
+
+/**
+ * Hermes invokes dynamic (MCP) tools through a `tool_call` wrapper whose real target sits in
+ * `arguments.name`. Live `tool.start` events already report that target, so the persisted record
+ * must resolve it too or a completed turn reads as a column of bare `tool_call` rows.
+ */
+internal fun historyToolLabel(wrapperName: String, arguments: JsonObject?): String {
+    if (wrapperName != "tool_call") return wrapperName
+    return (arguments?.get("name") as? JsonPrimitive)?.contentOrNull?.ifBlank { null } ?: wrapperName
 }
 
 private fun kotlinx.serialization.json.JsonObject.intOrNull(key: String): Int? =

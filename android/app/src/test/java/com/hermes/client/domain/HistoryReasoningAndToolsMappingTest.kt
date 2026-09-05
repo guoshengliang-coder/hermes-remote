@@ -24,7 +24,9 @@ class HistoryReasoningAndToolsMappingTest {
            "tool_calls":[
              {"id":"call_tqFV","call_id":"call_tqFV","type":"function",
               "function":{"name":"terminal","arguments":"{\"command\":\"date '+%Y-%m-%d'\",\"workdir\":\"/tmp\"}"}},
-             {"id":"call_ytKB","type":"function","function":{"name":"skill_view","arguments":"{\"name\":\"bi\"}"}}
+             {"id":"call_ytKB","type":"function","function":{"name":"skill_view","arguments":"{\"name\":\"bi\"}"}},
+             {"id":"call_ou4N","type":"function","function":{"name":"tool_call","arguments":"{\"name\":\"mcp__bi_query__query_data\",\"params\":{}}"}},
+             {"id":"call_desc","type":"function","function":{"name":"tool_describe","arguments":"{\"name\":\"mcp__bi_query__query_data\"}"}}
            ],"finish_reason":"tool_calls"},
           {"id":48401,"role":"assistant","content":"最终回答","reasoning_content":"**Summarizing**","tool_calls":null,"finish_reason":"stop"}
         ]}
@@ -37,8 +39,13 @@ class HistoryReasoningAndToolsMappingTest {
         assertTrue(messages[0].tools.isEmpty())
 
         assertEquals("**Planning BI integration**  现在先校准日期", messages[1].thinking)
-        assertEquals(listOf("terminal", "skill_view"), messages[1].tools.map { it.name })
-        assertEquals(listOf("call_tqFV", "call_ytKB"), messages[1].tools.map { it.id })
+        // A dynamic tool_call resolves to its real target, as the live tool.start event does;
+        // tool_describe keeps its own name — that is also what the live card shows.
+        assertEquals(
+            listOf("terminal", "skill_view", "mcp__bi_query__query_data", "tool_describe"),
+            messages[1].tools.map { it.name },
+        )
+        assertEquals(listOf("call_tqFV", "call_ytKB", "call_ou4N", "call_desc"), messages[1].tools.map { it.id })
         assertEquals("date '+%Y-%m-%d'", messages[1].tools[0].command)
         assertTrue(messages[1].tools.all { it.status == ToolStatus.DONE })
 
