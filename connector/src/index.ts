@@ -20,6 +20,7 @@ import {
   HermesSessionObserver,
   type ObserverSocket,
 } from "./session-observer-runner.js";
+import { createConnectorLogger, parseConnectorLogLevel, summarizeHermesFrame } from "./connector-log.js";
 import { ObserverStateStore } from "./session-observer.js";
 import { describeRejectedPath } from "./file-log.js";
 
@@ -65,8 +66,12 @@ const sessionObserverStateFile = resolve(
 const sessionObserverActivePollMs = positiveIntEnv("OBSERVER_ACTIVE_POLL_MS", 2_000);
 const sessionObserverIdlePollMs = positiveIntEnv("OBSERVER_IDLE_POLL_MS", 20_000);
 const sessionObserverRpcTimeoutMs = positiveIntEnv("OBSERVER_RPC_TIMEOUT_MS", 10_000);
+const log = createConnectorLogger(parseConnectorLogLevel(process.env.CONNECTOR_LOG_LEVEL));
 const localSockets = new Map<string, WebSocket>();
 const pendingSocketFrames = new Map<string, TunnelSocketFrame[]>();
+// Per app tunnel: when it opened and how many Hermes frames it carried, so a close line can say
+// whether the phone was still attached when a run's terminal event went by.
+const tunnelStats = new Map<string, { openedAt: number; framesToApp: number; framesFromApp: number; lastTerminal?: string }>();
 const responseChunkWaiters = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
 let retryMs = 1_000;
 let controlSocket: WebSocket | undefined;
@@ -140,10 +145,12 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
   switch (message.type) {
     case "hello_ack":
       console.log(`Connected to gateway as ${message.deviceId}`);
+      log.info("relay.connected", { device: message.deviceId, tunnels: localSockets.size });
       controlAuthenticated = true;
       lifecycleObserver?.relayConnected();
       return;
     case "session.lifecycle.ack":
+      log.info("lifecycle.acked", { eventId: message.eventId });
       lifecycleObserver?.acknowledge(message.eventId);
       return;
     case "command":
@@ -547,24 +554,54 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
     });
     localSockets.set(request.id, local);
     pendingSocketFrames.set(request.id, []);
+    tunnelStats.set(request.id, { openedAt: Date.now(), framesToApp: 0, framesFromApp: 0 });
+    log.info("tunnel.open", { tunnel: request.id, path: request.path, tunnels: localSockets.size });
 
     local.on("open", () => {
       const queued = pendingSocketFrames.get(request.id) ?? [];
       pendingSocketFrames.delete(request.id);
+      log.debug("tunnel.local_open", { tunnel: request.id, queued: queued.length });
       for (const frame of queued) sendLocalFrame(local, frame);
     });
     local.on("message", (data, isBinary) => {
+      const buffer = rawDataToBuffer(data);
+      const stats = tunnelStats.get(request.id);
+      if (stats) stats.framesToApp += 1;
+      if (!isBinary && log.enabled("info")) {
+        // Describe the frame by its Hermes event type; the payload itself is never logged. A
+        // terminal event is the line an incident reader needs: it says the run ended and which
+        // tunnel (i.e. which phone socket) it was handed to.
+        const summary = summarizeHermesFrame(buffer.toString("utf8"));
+        if (summary.terminal) {
+          if (stats) stats.lastTerminal = summary.type;
+          log.info("tunnel.frame", { tunnel: request.id, type: summary.type, sessionId: summary.sessionId, bytes: buffer.length });
+        } else if (summary.kind !== "other") {
+          log.debug("tunnel.frame", { tunnel: request.id, type: summary.type, sessionId: summary.sessionId, bytes: buffer.length });
+        }
+      }
       sendControl(socket, {
         type: "tunnel.ws.frame",
         version: PROTOCOL_VERSION,
         id: request.id,
-        dataBase64: rawDataToBuffer(data).toString("base64"),
+        dataBase64: buffer.toString("base64"),
         binary: isBinary,
       });
     });
     local.on("close", (code, reason) => {
       if (localSockets.get(request.id) === local) localSockets.delete(request.id);
       pendingSocketFrames.delete(request.id);
+      const stats = tunnelStats.get(request.id);
+      tunnelStats.delete(request.id);
+      log.info("tunnel.close", {
+        tunnel: request.id,
+        code,
+        reason: reason.toString(),
+        durationMs: stats ? Date.now() - stats.openedAt : undefined,
+        framesToApp: stats?.framesToApp,
+        framesFromApp: stats?.framesFromApp,
+        lastTerminal: stats?.lastTerminal,
+        tunnels: localSockets.size,
+      });
       sendControl(socket, {
         type: "tunnel.ws.close",
         version: PROTOCOL_VERSION,
@@ -575,8 +612,10 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
     });
     local.on("error", (error) => {
       console.error("Local Hermes WebSocket error", error.message);
+      log.error("tunnel.local_error", { tunnel: request.id, error: error.message });
     });
   } catch (error) {
+    log.error("tunnel.open_failed", { tunnel: request.id, error: safeError(error) });
     sendControl(socket, {
       type: "tunnel.ws.close",
       version: PROTOCOL_VERSION,
@@ -605,6 +644,8 @@ function forwardTunnelFrame(frame: TunnelSocketFrame): void {
 
 function sendLocalFrame(local: WebSocket, frame: TunnelSocketFrame): void {
   if (local.readyState !== WebSocket.OPEN) return;
+  const stats = tunnelStats.get(frame.id);
+  if (stats) stats.framesFromApp += 1;
   const data = Buffer.from(frame.dataBase64, "base64");
   if (local.bufferedAmount + data.length > maxLocalBufferedBytes) {
     local.close(1013, "backpressure limit reached");
@@ -617,6 +658,8 @@ function closeTunnelSocket(id: string, code?: number, reason?: string): void {
   pendingSocketFrames.delete(id);
   const local = localSockets.get(id);
   if (!local) return;
+  // The relay (i.e. the phone's socket) went away first; the local close handler logs the summary.
+  log.info("tunnel.close_by_relay", { tunnel: id, code, reason });
   localSockets.delete(id);
   if (local.readyState === WebSocket.OPEN || local.readyState === WebSocket.CONNECTING) {
     local.close(safeCloseCode(code), reason?.slice(0, 120));
@@ -826,7 +869,16 @@ if (sessionObserverEnabled) {
     }) as unknown as ObserverSocket,
     sendLifecycle: (event: SessionLifecycleEvent): boolean => {
       const socket = controlSocket;
-      return socket && controlAuthenticated ? sendControl(socket, event) : false;
+      const sent = socket && controlAuthenticated ? sendControl(socket, event) : false;
+      log.info("lifecycle.sent", {
+        eventId: event.eventId,
+        kind: event.event,
+        storedSessionId: event.storedSessionId,
+        runtimeSessionId: event.runtimeSessionId,
+        occurredAt: event.occurredAt,
+        sent,
+      });
+      return sent;
     },
     activePollMs: sessionObserverActivePollMs,
     idlePollMs: sessionObserverIdlePollMs,

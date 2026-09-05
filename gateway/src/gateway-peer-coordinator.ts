@@ -2,6 +2,7 @@ import { PROTOCOL_VERSION, type WireMessage } from "@hermes-remote/protocol";
 import type { WebSocket } from "ws";
 import type { CommandBroker } from "./command-broker.js";
 import type { ConnectorRegistry } from "./connector-registry.js";
+import { silentGatewayLogger, type GatewayLogger } from "./gateway-log.js";
 import type { GatewayPeer } from "./gateway-peer.js";
 import type { HttpTunnelBroker } from "./http-tunnel-broker.js";
 import type { LifecycleMessageHandler } from "./lifecycle-message-handler.js";
@@ -19,6 +20,7 @@ export class GatewayPeerCoordinator {
     private readonly webSocketTunnels: WebSocketTunnelBroker<GatewayPeer>,
     private readonly lifecycleMessages: LifecycleMessageHandler,
     private readonly send: SendWireMessage,
+    private readonly log: GatewayLogger = silentGatewayLogger,
   ) {}
 
   route(peer: GatewayPeer, message: WireMessage): void {
@@ -38,24 +40,27 @@ export class GatewayPeerCoordinator {
 
   registerLegacy(peer: GatewayPeer): void {
     if (peer.role === "connector") {
-      this.connectorRegistry.getLegacy(peer.deviceId)?.socket.close(
-        4409,
-        "replaced by a new connection",
-      );
+      const previous = this.connectorRegistry.getLegacy(peer.deviceId);
+      previous?.socket.close(4409, "replaced by a new connection");
       this.connectorRegistry.setLegacy(peer.deviceId, peer);
+      this.log.info("connector.online", { device: peer.deviceId, mode: "legacy", replaced: Boolean(previous) });
       this.broadcastStatus(peer.deviceId, true);
     } else {
       this.apps.add(peer);
+      this.log.debug("app.control.open", { device: peer.deviceId, apps: this.apps.size });
     }
   }
 
   unregisterLegacy(peer: GatewayPeer): void {
     if (peer.role === "connector"
         && this.connectorRegistry.deleteLegacyIfCurrent(peer.deviceId, peer)) {
+      this.log.info("connector.offline", { device: peer.deviceId, mode: "legacy" });
       this.broadcastStatus(peer.deviceId, false);
       this.failRouting(peer.routingKey);
     } else {
-      this.apps.delete(peer);
+      if (this.apps.delete(peer)) {
+        this.log.debug("app.control.close", { device: peer.deviceId, apps: this.apps.size });
+      }
     }
     this.commands.unregisterApp(peer);
   }
@@ -64,6 +69,12 @@ export class GatewayPeerCoordinator {
     const bindingId = peer.binding?.id;
     if (!bindingId) throw new Error("account Connector has no binding");
     const previous = this.connectorRegistry.replaceAccount(bindingId, peer);
+    this.log.info("connector.online", {
+      device: peer.deviceId,
+      mode: "account",
+      bindingId,
+      replaced: Boolean(previous && previous !== peer),
+    });
     if (previous && previous !== peer) {
       this.failRouting(previous.routingKey);
       previous.socket.close(4409, "replaced by a new connection");
@@ -73,6 +84,7 @@ export class GatewayPeerCoordinator {
   unregisterAccount(peer: GatewayPeer): boolean {
     const bindingId = peer.binding?.id;
     if (!bindingId || !this.connectorRegistry.deleteAccountIfCurrent(bindingId, peer)) return false;
+    this.log.info("connector.offline", { device: peer.deviceId, mode: "account", bindingId });
     this.failRouting(peer.routingKey);
     return true;
   }

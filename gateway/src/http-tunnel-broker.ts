@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { WebSocket } from "ws";
 import { PROTOCOL_VERSION, type WireMessage } from "@hermes-remote/protocol";
+import { silentGatewayLogger, type GatewayLogger } from "./gateway-log.js";
 import {
   readRequestBody,
   selectRequestHeaders,
@@ -21,6 +22,10 @@ interface PendingHttp {
   timer: NodeJS.Timeout;
   started: boolean;
   nextSequence: number;
+  startedAt: number;
+  method: string;
+  path: string;
+  device: string;
 }
 
 type SendWireMessage = (socket: WebSocket, message: WireMessage) => void;
@@ -33,6 +38,7 @@ export class HttpTunnelBroker {
     private readonly maxPendingRequests: number,
     private readonly requestTimeoutMs: number,
     private readonly send: SendWireMessage,
+    private readonly log: GatewayLogger = silentGatewayLogger,
   ) {}
 
   async forward(
@@ -62,6 +68,10 @@ export class HttpTunnelBroker {
       timer,
       started: false,
       nextSequence: 0,
+      startedAt: Date.now(),
+      method: request.method ?? "GET",
+      path: `${url.pathname}${url.search}`,
+      device: connector.deviceId,
     });
     request.on("aborted", () => this.clear(id));
     response.on("close", () => this.clear(id));
@@ -88,6 +98,7 @@ export class HttpTunnelBroker {
         return true;
       }
       const body = message.bodyBase64 ? Buffer.from(message.bodyBase64, "base64") : Buffer.alloc(0);
+      this.logOutcome(pending, "response", message.status, body.length);
       pending.response.writeHead(message.status, selectResponseHeaders(message.headers));
       pending.response.end(body);
       return true;
@@ -131,9 +142,11 @@ export class HttpTunnelBroker {
       if (!pending || pending.routingKey !== connector.routingKey) return true;
       this.clear(message.requestId);
       if (message.error) {
+        this.logOutcome(pending, `error:${message.error}`, pending.started ? undefined : 502);
         if (!pending.started) sendHttpError(pending.response, 502, message.error);
         else pending.response.destroy(new Error(message.error));
       } else {
+        this.logOutcome(pending, pending.started ? "streamed" : "empty", pending.started ? undefined : 204);
         if (!pending.started) pending.response.writeHead(204);
         pending.response.end();
       }
@@ -147,8 +160,21 @@ export class HttpTunnelBroker {
     for (const [id, pending] of this.pending) {
       if (pending.routingKey !== routingKey) continue;
       this.clear(id);
+      this.logOutcome(pending, "connector_disconnected", 502);
       sendHttpError(pending.response, 502, "connector_disconnected");
     }
+  }
+
+  private logOutcome(pending: PendingHttp, outcome: string, status?: number, bytes?: number): void {
+    this.log.info("http.tunnel", {
+      method: pending.method,
+      path: pending.path,
+      device: pending.device,
+      outcome,
+      status,
+      bytes,
+      durationMs: Date.now() - pending.startedAt,
+    });
   }
 
   private clear(id: string): void {
@@ -168,6 +194,7 @@ export class HttpTunnelBroker {
     if (!pending) return;
     this.pending.delete(id);
     clearTimeout(pending.timer);
+    this.logOutcome(pending, "connector_timeout", pending.response.headersSent ? undefined : 504);
     if (pending.response.headersSent) pending.response.destroy(new Error("connector_timeout"));
     else sendHttpError(pending.response, 504, "connector_timeout");
   }

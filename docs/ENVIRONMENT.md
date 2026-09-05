@@ -33,7 +33,11 @@ CONNECTOR_TOKEN_FILE=/etc/hermes-remote/secrets/connector-token
 INTERNAL_STATUS_TOKEN_FILE=/etc/hermes-remote/secrets/internal-status-token
 DEFAULT_DEVICE_ID=mac-mini
 LIFECYCLE_EVENT_STORE_FILE=/var/lib/hermes-remote/lifecycle-events.json
+# Optional; structured JSON log verbosity: off | error | info (default) | debug.
+GATEWAY_LOG_LEVEL=info
 ```
+
+The Connector accepts the same optional knob as `CONNECTOR_LOG_LEVEL` (default `info`).
 
 Account authentication is an independent, default-off control plane. I1 introduces the following
 configuration, but production must keep `ACCOUNT_AUTH_ENABLED=0` until the account database

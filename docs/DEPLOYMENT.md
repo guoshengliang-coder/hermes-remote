@@ -45,6 +45,25 @@ sudo systemctl status hermes-remote-gateway
 sudo journalctl -u hermes-remote-gateway -n 100 --no-pager
 ```
 
+The Gateway writes one JSON object per line (`{"ts","level","kind",...}`); `GATEWAY_LOG_LEVEL`
+selects `off` / `error` / `info` (default) / `debug`. The lines an incident needs, all at `info`:
+`app.tunnel.open` / `app.tunnel.close` (frame and byte counts both ways, whether the Connector was
+still online), `connector.online` / `connector.offline`, `lifecycle.received` (with `lagMs` behind
+the Mac's stamp), `lifecycle.served` / `lifecycle.acked`, and `http.tunnel` (method, path, status,
+duration). Credential-shaped fields are never written; relayed frames are counted, not quoted.
+
+```bash
+# everything about one conversation, in order
+sudo journalctl -u hermes-remote-gateway --since "2026-09-05 10:20" -o cat | grep 20260905_102612_6d5fd4
+# app sockets opening and closing, with what they carried
+sudo journalctl -u hermes-remote-gateway -o cat | grep -E '"kind":"app.tunnel.(open|close)"'
+```
+
+The Connector writes the same shape (`CONNECTOR_LOG_LEVEL`): `tunnel.open` / `tunnel.close` per app
+tunnel, `tunnel.frame` for every terminal Hermes event (`message.complete`, `error`, `session.info`,
+`approval.request`, `clarify.request`) naming the tunnel it went to, and `lifecycle.sent` /
+`lifecycle.acked` for the observer. See `docs/DIAGNOSTICS.md` for how to line them up.
+
 Connector status and logs on the Mac:
 
 ```bash
