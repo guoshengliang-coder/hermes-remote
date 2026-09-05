@@ -71,6 +71,13 @@ R5-D6 要求运维 bundle 自包含候选 smoke 的完整模块闭包。打包�
 一次性 R5-D 工作流还必须现场生成、校验并解压运维 bundle，再从该解压目录执行正式入口；不得用 checkout
 入口代替制品演练。
 
+R5-D7 将 smoke 接口面显式分为 `private` 与 `public`。私有候选必须继续验证 `/healthz`、`/readyz`、
+`/v2/capabilities`、受保护的 `/internal/version`、Connector 身份、认证 REST 与 WebSocket；切流后的公网
+验证只允许依赖生产 Nginx 已公开的 `/relay-health`、错误 App Token 拒绝、认证 `/api/status` 与
+`/api/ws`。公网验证不得请求只在 Gateway loopback 暴露的健康、能力或内部身份接口。一次性 R5-D 与普通
+staging round-trip 的所有公网验证必须显式传入 `GATEWAY_SMOKE_ROUTE=public`，防止测试环境的宽松 Nginx
+路由掩盖生产路径差异。
+
 若一次生产接管在 `checkpoint_created` 后、候选启动和切流前失败，下一份同源受管基线可以安全续跑：旧
 journal 必须有匹配 `runId` 的失败审计，source、活动/候选槽和当前 release/Nginx/upstream 检查点必须与
 现状完全一致，候选 unit 必须 inactive 且端口空闲。满足全部条件后，旧 journal 原子归档为
@@ -121,6 +128,21 @@ node scripts/production-baseline.mjs \
 
 失败入口统一向操作者返回 `HR-OPS-014`，内部 R4 阶段原因会经过凭据和用户路径脱敏后保留用于诊断。
 代码阶段没有连接香港服务器，没有部署、重启、切流或启用 timer。
+
+## 生产接管结果
+
+2026-09-05，R5-D7 PR #52、合并后 `main` 门禁、受保护制品校验和精确提交的一次性演练全部通过后，
+获授权的正式入口使用 Gateway/运维 bundle `833859aa9afe55f09d2fe8663ab0fd1528447ba4` 完成接管。
+run `5403064b-c220-42ab-91e0-d3b605e8c674` 返回 `stage: committed`，blue 槽成为活动服务，Nginx
+指向 `127.0.0.1:18787`；旧服务停止并禁用。受管链接为：
+
+- `current`: `releases/0.4.0-833859aa9afe`
+- `previous`: `releases/0.2.0-54f7aed61172`
+
+切换后重新验证了 manifest schema v3 的 containerd runtime ID、私有 release identity/readiness、公开
+`/relay-health`、认证 REST/WebSocket、错误 Token 拒绝、APK 发布 `/health` 与 Nginx 语法。Connector
+保持在线，blue 容器重启次数为 0 且无 warning 以上 journal。PostgreSQL 保持 loopback；数据库、账号认证、
+账号绑定和监控 timer 均未启用。本记录完成 R5-D，不代表 R5-E 数据库或 R5-F 账号模式授权。
 
 ## 2026-09-04 部署前只读预检
 

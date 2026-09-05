@@ -574,3 +574,41 @@ when the phone is asleep — the fix only guarantees that what is shown is true 
    is queued. On the list, pull to refresh while a row says 思考中: the row corrects itself without
    opening the chat. Stop the Mac's Hermes entirely, wait 30 minutes with a run showing 思考中, bring
    the app to the foreground twice a minute apart: the row turns 已中断 instead of spinning forever.
+
+
+## Diagnostic observability and HG-1 / HG-10 (2026-09 branch claude/diagnostic-observability)
+
+### Verified on the emulator, 2026-09-05
+
+Captured from `adb logcat -s HermesDebug` while the gateway was deliberately unreachable:
+
+```text
+[startup] CONNECTION_RECOVERY · CONFIGURATION → NETWORK → AUTHENTICATION
+[startup] hot start HR-CONN-002 — leaving the app visible
+[health]  unknown → unreachable(unreachable)
+[rest]    GET /api/mobile/events?after=0&limit=100 ← 502 (3096ms)
+```
+
+That covers: the startup trail carries reason, phases and outcome; a hot-start failure no longer
+blocks (the sessions list and health strip stayed visible, with no full-screen error); health
+resolves to *unreachable* rather than *device-offline* on a device whose network works; and a REST
+call is one line with a duration, with failures logged where they previously were not.
+
+### Still unverified — the emulator on the dev host degraded mid-pass
+
+System UI began ANR-ing repeatedly (the failure mode `scripts/dev/emulator.sh` documents), which
+blocked UI taps and prevented the WebSocket from establishing. These need another pass:
+
+1. **Share produces a file.** Settings → 诊断 → 分享 must hand the share sheet a
+   `hermes-diagnostic-*.txt` attachment, not a wall of pasted text, and the file must contain more
+   than 500 entries after a long session.
+2. **「标记现场」** inserts a visible divider, and the button is disabled while logging is off.
+3. **A quiet poll writes nothing.** With the gateway reachable, an idle foreground minute must
+   produce no `rest` line for `/api/mobile/events`. (Only the failing case was observable in the
+   pass above — failures are logged by design.)
+4. **HG-1 end to end.** Let a run finish while the app is backgrounded, then reopen that chat: the
+   transcript restores with no full-screen error. Unit-covered, not yet seen on a device.
+5. **HG-10 end to end.** Requires a network whose `NET_CAPABILITY_VALIDATED` is absent while
+   traffic flows — the emulator cannot produce it. On a real device, a `[net] connectivity check
+   says offline · …` line naming the missing capability, with the app still working, is the
+   confirmation that the diagnosis was right.

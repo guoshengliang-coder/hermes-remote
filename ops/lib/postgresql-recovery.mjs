@@ -4,7 +4,7 @@ import { chmod, chown, lstat, open, readFile, rename, rm, unlink, writeFile } fr
 import { hostname as systemHostname } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { sha256File } from "./config.mjs";
+import { loadBundleManifest, runtimeImageIds, sha256File } from "./config.mjs";
 import { OpsError } from "./errors.mjs";
 import { loadPostgresqlBackupManifest } from "./postgresql-recovery-config.mjs";
 import { loadProductionEvidence } from "./production-config.mjs";
@@ -97,6 +97,22 @@ export async function verifyPostgresqlRestore(config, options = {}) {
       || manifest.databaseSchemaVersion !== config.databaseSchemaVersion) {
     fail("postgresql_restore_subject_mismatch", "postgresql_restore_validate");
   }
+  let targetManifest;
+  try {
+    targetManifest = await loadBundleManifest(config.targetArtifactManifest);
+  } catch (error) {
+    fail(
+      `postgresql_restore_target_manifest_invalid ${error instanceof Error ? error.technicalCause ?? error.message : error}`,
+      "postgresql_restore_target_validate",
+    );
+  }
+  if (targetManifest.schemaVersion !== 3) {
+    fail("postgresql_restore_target_manifest_v3_required", "postgresql_restore_target_validate");
+  }
+  if (targetManifest.releaseContract.databaseSchemaVersion !== config.databaseSchemaVersion
+      || !targetManifest.releaseContract.supportedPostgresqlMajors.includes(config.postgresqlMajorVersion)) {
+    fail("postgresql_restore_target_contract_mismatch", "postgresql_restore_target_validate");
+  }
   await assertSecureInput(config.archiveFile, false, "postgresql_restore_archive_unsafe");
   await assertSecureInput(config.recipientCertificate, false, "postgresql_restore_certificate_unsafe");
   await assertSecureInput(config.recipientPrivateKey, true, "postgresql_restore_private_key_unsafe");
@@ -124,7 +140,7 @@ export async function verifyPostgresqlRestore(config, options = {}) {
     const facts = await inspect(databaseUrl);
     assertExpectedDatabase(facts, config, "postgresql_restore_schema_verify");
     const smoke = options.accountSmoke ?? runAccountSmoke;
-    await smoke(config, runner);
+    const smokeResult = await smoke(config, runner, targetManifest);
     const restoredAt = now().toISOString();
     const evidence = {
       schemaVersion: 1,
@@ -173,6 +189,11 @@ export async function verifyPostgresqlRestore(config, options = {}) {
       subject: evidence.subject,
       verifiedChecks: REQUIRED_CHECKS,
       offHostStorageId: config.offHostStorageId,
+      targetRelease: {
+        serverVersion: targetManifest.serverVersion,
+        sourceCommit: targetManifest.sourceCommit,
+        runtimeImageId: smokeResult?.runtimeImageId ?? null,
+      },
     };
   } catch (error) {
     await rm(config.evidenceFile, { force: true }).catch(() => {});
@@ -291,9 +312,15 @@ async function restoreEncryptedArchive(config, databaseUrl) {
   }
 }
 
-async function runAccountSmoke(config, runner) {
-  const inspected = runner.run("docker", ["image", "inspect", "--format", "{{.Id}}", config.targetImage], { allowFailure: true });
-  if (inspected.status !== 0 || inspected.stdout.trim() !== config.targetImageId) {
+async function runAccountSmoke(config, runner, targetManifest) {
+  const allowedImageIds = runtimeImageIds(targetManifest);
+  const inspected = runner.run(
+    "docker",
+    ["image", "inspect", "--format", "{{.Id}}", targetManifest.imageReference],
+    { allowFailure: true },
+  );
+  const runtimeImageId = inspected.stdout.trim();
+  if (inspected.status !== 0 || !allowedImageIds.includes(runtimeImageId)) {
     fail("postgresql_restore_target_image_identity_mismatch", "postgresql_restore_account_smoke");
   }
   const mountedUrl = "/run/secrets/hermes-go-restore-database-url";
@@ -307,12 +334,13 @@ async function runAccountSmoke(config, runner) {
     "--env", `ACCOUNT_DATABASE_URL_FILE=${mountedUrl}`,
     "--env", `ACCOUNT_DATABASE_SCHEMA_VERSION=${config.databaseSchemaVersion}`,
     "--env", `ACCOUNT_DATABASE_POSTGRESQL_MAJOR=${config.postgresqlMajorVersion}`,
-    config.targetImageId,
+    runtimeImageId,
     "node", "gateway/dist/ops/verify-account-restore.js",
   ], { allowFailure: true, timeout: 90_000 });
   if (result.status !== 0 || !result.stdout.startsWith("ACCOUNT_RESTORE_VERIFY_OK ")) {
     fail(`postgresql_restore_account_smoke_failed ${result.stderr}`, "postgresql_restore_account_smoke");
   }
+  return { runtimeImageId };
 }
 
 async function readDatabaseUrl(filePath, options = {}) {

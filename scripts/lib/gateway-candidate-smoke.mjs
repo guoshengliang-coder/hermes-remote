@@ -9,6 +9,16 @@ export class GatewayCandidateSmokeError extends Error {
   }
 }
 
+export function gatewaySmokeRoutePolicy(routeMode = "private") {
+  if (!new Set(["private", "public"]).has(routeMode)) {
+    throw new GatewayCandidateSmokeError("configuration");
+  }
+  return {
+    routeMode,
+    verifyPrivateSurface: routeMode === "private",
+  };
+}
+
 export async function runGatewaySmokeCheck(check, operation) {
   try {
     return await operation();

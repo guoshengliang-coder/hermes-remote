@@ -1,7 +1,6 @@
 package com.hermes.client.ui.settings
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 
-import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,12 +22,16 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import com.hermes.client.data.diagnostics.DebugLog
 import java.time.Instant
 import java.time.ZoneId
@@ -44,7 +47,16 @@ fun DiagnosticsScreen(
 ) {
     val enabled by vm.enabled.collectAsStateWithLifecycle()
     val entries by vm.entries.collectAsStateWithLifecycle()
+    val sessionIds by vm.sessionIds.collectAsStateWithLifecycle()
+    // docs/DESIGN.md §5.15: a chip per session the log mentions; the list and the Share button
+    // follow the selection, so a report can carry exactly the conversation that misbehaved.
+    var selectedSession by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    val shownEntries = remember(entries, selectedSession) {
+        val id = selectedSession
+        if (id == null) entries else entries.filter { DebugLog.mentionsSession(it.message, id) }
+    }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -58,6 +70,7 @@ fun DiagnosticsScreen(
         Column(Modifier.padding(padding).fillMaxSize()) {
             val shareSubject = l10n("Hermes GO 诊断日志", "Hermes GO diagnostic log")
             val shareTitle = l10n("分享诊断日志", "Share diagnostic log")
+            val markNote = l10n("问题就发生在这里", "the problem happened here")
             ListItem(
                 headlineContent = { Text(l10n("诊断日志", "Diagnostic logging")) },
                 supportingContent = {
@@ -79,21 +92,52 @@ fun DiagnosticsScreen(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // Shares the file, not EXTRA_TEXT: the full history is far too large for an
+                // Intent extra, and reading it off disk must not happen on the main thread.
                 Button(
                     onClick = {
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, shareSubject)
-                            putExtra(Intent.EXTRA_TEXT, vm.export())
+                        scope.launch {
+                            vm.share(
+                                context,
+                                shareTitle,
+                                selectedSession?.let { "$shareSubject · $it" } ?: shareSubject,
+                                selectedSession,
+                            )
                         }
-                        context.startActivity(Intent.createChooser(send, shareTitle))
                     },
                 ) { Text(l10n("分享", "Share")) }
+                OutlinedButton(
+                    enabled = enabled,
+                    onClick = { vm.mark(markNote) },
+                ) { Text(l10n("标记现场", "Mark")) }
                 OutlinedButton(onClick = { vm.clear() }) { Text(l10n("清除", "Clear")) }
+            }
+            if (sessionIds.isNotEmpty()) {
+                androidx.compose.foundation.lazy.LazyRow(
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                ) {
+                    item(key = "all") {
+                        androidx.compose.material3.FilterChip(
+                            selected = selectedSession == null,
+                            onClick = { selectedSession = null },
+                            label = { Text(l10n("全部", "All")) },
+                        )
+                    }
+                    items(sessionIds.size, key = { sessionIds[it] }) { index ->
+                        val id = sessionIds[index]
+                        androidx.compose.material3.FilterChip(
+                            selected = selectedSession == id,
+                            onClick = { selectedSession = if (selectedSession == id) null else id },
+                            label = { Text(id, maxLines = 1) },
+                        )
+                    }
+                }
             }
             HorizontalDivider()
 
-            if (entries.isEmpty()) {
+            if (shownEntries.isEmpty()) {
                 Text(
                     if (enabled) l10n("日志已开启。复现问题后，这里会显示记录。", "Logging is on. Reproduce the issue and entries will appear here.")
                     else l10n("先开启诊断日志，然后复现问题。", "Turn on Diagnostic logging, then reproduce the issue."),
@@ -103,7 +147,7 @@ fun DiagnosticsScreen(
                 )
             } else {
                 // Newest first for quick reading.
-                val reversed = entries.asReversed()
+                val reversed = shownEntries.asReversed()
                 LazyColumn(Modifier.fillMaxSize()) {
                     itemsIndexed(reversed, key = { i, _ -> "$i" }) { _, e -> LogRow(e) }
                 }

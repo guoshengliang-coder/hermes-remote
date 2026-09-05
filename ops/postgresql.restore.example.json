@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "environment": "isolated-restore",
   "operator": "replace-with-operator",
   "expectedSourceHostname": "replace-with-production-hostname",
@@ -9,8 +9,7 @@
   "recipientPrivateKey": "/private/recovery/hermes-go/postgresql-recipient-key.pem",
   "databaseUrlFile": "/private/recovery/hermes-go/restore-database-url",
   "imageDatabaseUrlFile": "/private/recovery/hermes-go/image-restore-database-url",
-  "targetImage": "hermes-go-gateway@sha256:replace-with-image-digest",
-  "targetImageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "targetArtifactManifest": "/private/recovery/hermes-go/Hermes-Gateway-0.4.0-aaaaaaaaaaaa-linux-amd64.manifest.json",
   "evidenceFile": "/private/recovery/hermes-go/postgresql-restore.evidence.json",
   "statusFile": "/private/recovery/hermes-go/postgresql-backup.status.json",
   "offHostStorageId": "mac-recovery-store",

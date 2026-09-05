@@ -58,6 +58,17 @@ class DiagnosticLogStoreTest {
         assertEquals(listOf("line 7", "line 8", "line 9"), restored.map { it.message })
     }
 
+    @Test fun read_all_returns_everything_the_limit_would_have_trimmed() {
+        val store = DiagnosticLogStore(temp.root)
+        repeat(30) { store.append(DebugLog.LogEntry(it.toLong(), "ws", "entry-$it")) }
+
+        assertEquals(10, store.readRecent(10).size)
+        val all = store.readAll()
+        assertEquals(30, all.size)
+        assertEquals("entry-0", all.first().message)
+        assertEquals("entry-29", all.last().message)
+    }
+
     @Test fun rotation_caps_the_pair_and_drops_the_oldest_lines() {
         // 400 bytes holds only a handful of lines, so this writes well past a full rotation.
         val s = store(maxFileBytes = 400)

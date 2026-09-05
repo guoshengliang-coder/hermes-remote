@@ -235,6 +235,11 @@ class SessionRuntimeStore(
                             } else runtime
                         }
                     }
+                    DebugLog.log("phase") {
+                        val held = _runtimes.value.values.filter { it.phase == SessionRunPhase.RECONNECTING }
+                        "${held.size} active run(s) → RECONNECTING cause=connection:${current::class.simpleName}" +
+                            held.joinToString(prefix = " [", postfix = "]") { "${it.key.sessionId}:${it.phaseBeforeReconnect}" }
+                    }
                 }
                 if (current is ConnectionState.Connected && previous != null && previous !is ConnectionState.Connected) {
                     resumeRunningSessions()
@@ -410,7 +415,7 @@ class SessionRuntimeStore(
     /** A run silent past the hard cap whose Mac no longer answers: the outcome is unconfirmed. */
     private fun markUnconfirmed(key: SessionRuntimeKey) {
         val now = clock()
-        updateRuntime(key) { runtime ->
+        updateRuntime(key, cause = "probe:gave-up") { runtime ->
             runtime.copy(
                 chat = runtime.chat.markInterrupted(),
                 phase = if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.INTERRUPTED,
@@ -482,6 +487,12 @@ class SessionRuntimeStore(
         }
         if (!accepted) return false
 
+        // A live handle is what a *running* session hands back; a session that finished while the
+        // app was away has none, and asking for one is not a failure. Treating the missing handle
+        // as failure was HG-1: recovery reported false, the startup gate turned that into a
+        // full-screen "couldn't load", and the transcript accepted just above was already correct.
+        // History acceptance is the success criterion — the handle only decides whether there is
+        // a live stream left to re-attach to.
         val handle = try {
             chatRepository.resume(key.sessionId, key.profile)?.takeIf { it.isNotBlank() }
         } catch (cancelled: CancellationException) {
@@ -489,8 +500,8 @@ class SessionRuntimeStore(
         } catch (error: Exception) {
             DebugLog.log("session", "foreground resume ${key.sessionId} failed: ${error.message}")
             null
-        } ?: return false
-        bindLiveHandle(key, handle)
+        }
+        if (handle != null) bindLiveHandle(key, handle)
         markRead(key)
         val media = mediaRepository
         if (media != null) {
@@ -600,7 +611,7 @@ class SessionRuntimeStore(
         if (active && !messages.covers(expectationFor(before).copy(lastAssistantText = ""))) {
             return ManualHistoryResult.BUSY
         }
-        updateRuntime(key) { runtime ->
+        updateRuntime(key, cause = "manual-refresh") { runtime ->
             runtime.copy(
                 chat = runtime.chat.copy(
                     messages = com.hermes.client.ui.chat.inheritStreamFields(
@@ -664,7 +675,7 @@ class SessionRuntimeStore(
     ) {
         historyReconcileJobs.remove(key)?.cancel()
         lastActiveKey = key
-        updateRuntime(key) { runtime ->
+        updateRuntime(key, cause = "prompt") { runtime ->
             runtime.copy(
                 chat = runtime.chat.withUserMessage(shownText, images, files, messageId)
                     .copy(pendingAttachments = emptyList()),
@@ -729,7 +740,7 @@ class SessionRuntimeStore(
      * advances so the observer's own run.interrupted a moment later is folded as a replay.
      */
     fun markInterrupted(key: SessionRuntimeKey) {
-        updateRuntime(key) { runtime ->
+        updateRuntime(key, cause = "stop") { runtime ->
             runtime.copy(
                 chat = runtime.chat.markInterrupted(),
                 phase = SessionRunPhase.IDLE,
@@ -743,7 +754,7 @@ class SessionRuntimeStore(
     }
 
     fun markFailed(key: SessionRuntimeKey, state: ChatUiState) {
-        updateRuntime(key) { runtime ->
+        updateRuntime(key, cause = "send-failed") { runtime ->
             runtime.copy(
                 chat = state.copy(isGenerating = false),
                 phase = if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.FAILED,
@@ -757,7 +768,7 @@ class SessionRuntimeStore(
     }
 
     fun finishLocal(key: SessionRuntimeKey) {
-        updateRuntime(key) { runtime ->
+        updateRuntime(key, cause = "finish-local") { runtime ->
             runtime.copy(
                 chat = runtime.chat.copy(isGenerating = false),
                 phase = SessionRunPhase.IDLE,
@@ -771,7 +782,7 @@ class SessionRuntimeStore(
     }
 
     fun continueAfterInput(key: SessionRuntimeKey) {
-        updateRuntime(key) { runtime ->
+        updateRuntime(key, cause = "input-answered") { runtime ->
             runtime.copy(
                 phase = SessionRunPhase.THINKING,
                 lastEventAt = System.currentTimeMillis(),
@@ -793,6 +804,9 @@ class SessionRuntimeStore(
         replayPending(event.storedSessionId)
         val now = System.currentTimeMillis()
         val occurred = parseOccurredAt(event.occurredAt) ?: now
+        // Delivery latency as the phone sees it (phone clock minus the Mac's stamp). 26% of
+        // completions were more than 30s late on 2026-09-05; this line makes that visible per run.
+        DebugLog.log("lifecycle") { "${event.event} s=${key.sessionId} late=${(now - occurred) / 1000}s" }
         val title = event.title?.trim()?.takeIf { it.isNotBlank() }
         // The inbox replays a terminal transition the live socket already delivered (or that the
         // user already read) a few seconds later. Folding it again would resurrect an unread badge,
@@ -813,7 +827,7 @@ class SessionRuntimeStore(
             title?.let { setTitle(key, it) }
             return
         }
-        updateRuntime(key) { runtime ->
+        updateRuntime(key, cause = "lifecycle:${event.event}") { runtime ->
             val titled = runtime.copy(title = title ?: runtime.title)
             when (event.event) {
                 "run.started", "run.resumed" -> titled.copy(
@@ -901,13 +915,35 @@ class SessionRuntimeStore(
 
     private fun updateRuntime(
         key: SessionRuntimeKey,
+        cause: String = "update",
         transform: (SessionRuntime) -> SessionRuntime,
     ) {
         aliases[key.sessionId] = key
+        val before = if (DebugLog.isEnabled()) _runtimes.value[key] else null
         _runtimes.update { map ->
             map + (key to transform(map[key] ?: SessionRuntime(key)).normalized())
         }
-        if (_runtimes.value[key]?.phase?.isActive == true) scheduleWatchdog()
+        val after = _runtimes.value[key]
+        if (after?.phase?.isActive == true) scheduleWatchdog()
+        if (DebugLog.isEnabled() && after != null) logTransition(key, before, after, cause)
+    }
+
+    /**
+     * One diagnostic line per change of the three things a user can see — phase, isGenerating,
+     * how many bubbles are streaming — with what caused it. This is the line that was missing on
+     * 2026-09-05: the whole HG-6/7/8 reconstruction would have been a grep. Costs nothing unless
+     * diagnostics are on; never fires for a delta that changes only text.
+     */
+    private fun logTransition(key: SessionRuntimeKey, before: SessionRuntime?, after: SessionRuntime, cause: String) {
+        val streamingAfter = after.chat.messages.count { it.role == Role.ASSISTANT && it.isStreaming }
+        val streamingBefore = before?.chat?.messages?.count { it.role == Role.ASSISTANT && it.isStreaming } ?: 0
+        if (before?.phase == after.phase && before.chat.isGenerating == after.chat.isGenerating &&
+            streamingBefore == streamingAfter
+        ) return
+        DebugLog.log("phase") {
+            "s=${key.sessionId} ${before?.phase ?: "-"}→${after.phase} gen=${after.chat.isGenerating} " +
+                "streaming=$streamingAfter cause=$cause"
+        }
     }
 
     private fun resolve(event: ServerEvent): SessionRuntimeKey? {
@@ -972,7 +1008,7 @@ class SessionRuntimeStore(
     private fun applyEvent(event: ServerEvent) {
         val key = resolve(event) ?: return
         if (event.type == "message.start") lastActiveKey = key
-        updateRuntime(key) { runtime ->
+        updateRuntime(key, cause = "event:${event.type}") { runtime ->
             val reduced = try {
                 runtime.chat.reduce(event)
             } catch (error: Exception) {
@@ -1147,7 +1183,19 @@ class SessionRuntimeStore(
         messages: List<ChatMessage>,
         expectation: HistoryExpectation,
     ): Boolean {
-        updateRuntime(key) { runtime ->
+        DebugLog.log("history") {
+            val current = _runtimes.value[key]?.let(::expectationFor)
+            val reason = when {
+                current == null -> null
+                current.userTurns > expectation.userTurns ||
+                    (expectation.lastUserText.isNotBlank() && current.lastUserText != expectation.lastUserText) ->
+                    "a newer prompt started"
+                else -> messages.coverageGap(expectation)
+            }
+            if (reason == null) "reconcile s=${key.sessionId}: ${messages.size} rows cover the local turns"
+            else "reconcile s=${key.sessionId} rejected: $reason"
+        }
+        updateRuntime(key, cause = "reconcile") { runtime ->
             val current = expectationFor(runtime)
             val newerPromptStarted = current.userTurns > expectation.userTurns ||
                 (expectation.lastUserText.isNotBlank() && current.lastUserText != expectation.lastUserText)
@@ -1190,16 +1238,21 @@ class SessionRuntimeStore(
             committed.zip(messages).all { (a, b) -> a.comparable() == b.comparable() }
     }
 
-    private fun List<ChatMessage>.covers(expectation: HistoryExpectation): Boolean {
+    private fun List<ChatMessage>.covers(expectation: HistoryExpectation): Boolean = coverageGap(expectation) == null
+
+    /** Null when the snapshot covers every locally observed turn; otherwise why it does not. */
+    private fun List<ChatMessage>.coverageGap(expectation: HistoryExpectation): String? {
         val users = filter { it.role == Role.USER }
         val assistants = filter { it.role == Role.ASSISTANT }
-        if (users.size < expectation.userTurns || assistants.size < expectation.assistantTurns) return false
+        if (users.size < expectation.userTurns) return "userTurns ${users.size}<${expectation.userTurns}"
+        if (assistants.size < expectation.assistantTurns) return "assistantTurns ${assistants.size}<${expectation.assistantTurns}"
         if (expectation.lastUserText.isNotBlank() && users.lastOrNull()?.text.orEmpty().matchText() != expectation.lastUserText) {
-            return false
+            return "last user turn differs"
         }
-        if (expectation.lastAssistantText.isBlank()) return true
+        if (expectation.lastAssistantText.isBlank()) return null
         val persisted = assistants.lastOrNull()?.text.orEmpty().matchText()
-        return persisted == expectation.lastAssistantText || persisted.contains(expectation.lastAssistantText)
+        if (persisted == expectation.lastAssistantText || persisted.contains(expectation.lastAssistantText)) return null
+        return "last assistant text not yet persisted"
     }
 
     private fun String.matchText(): String = trim().replace(Regex("\\s+"), " ")
@@ -1259,7 +1312,7 @@ class SessionRuntimeStore(
             runCatching { chatRepository.resume(runtime.key.sessionId, runtime.key.profile) }
                 .onSuccess { handle ->
                     bindLiveHandle(runtime.key, handle)
-                    updateRuntime(runtime.key) { it.copy(phase = it.restoredPhaseAfterReconnect()) }
+                    updateRuntime(runtime.key, cause = "reconnect") { it.copy(phase = it.restoredPhaseAfterReconnect()) }
                 }
                 .onFailure { error ->
                     // Resume can race a task completing while the socket was down. Do not invent

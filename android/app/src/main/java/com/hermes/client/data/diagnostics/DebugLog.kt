@@ -1,12 +1,16 @@
 package com.hermes.client.data.diagnostics
 
+import android.os.Build
 import android.util.Log
+import com.hermes.client.BuildConfig
 import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -39,6 +43,7 @@ object DebugLog {
     )
 
     @Volatile private var enabled = false
+    @Volatile private var runMarked = false
     @Volatile private var tokenToRedact: String? = null
     @Volatile private var store: DiagnosticLogStore? = null
     @Volatile private var io: Executor? = null
@@ -64,7 +69,42 @@ object DebugLog {
     fun isEnabled(): Boolean = enabled
 
     fun setEnabled(value: Boolean) {
+        val wasEnabled = enabled
         enabled = value
+        if (!value) {
+            // A later re-enable is a new capture session and deserves its own header.
+            runMarked = false
+        } else if (!wasEnabled) {
+            markRun()
+        }
+    }
+
+    /**
+     * One header per capture session. Two jobs: it states the build and device that produced
+     * everything below it — the first thing anyone reading a shared log needs and the thing a
+     * screenshot never carries — and it marks where a process restart cut the history, which the
+     * per-entry "previous run" flag can no longer express now that [exportFull] reads the file
+     * back as one stream.
+     */
+    private fun markRun() {
+        if (runMarked) return
+        runMarked = true
+        log(
+            "session",
+            "diagnostic logging on · v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · " +
+                "pid=${android.os.Process.myPid()} · Android ${Build.VERSION.SDK_INT} · " +
+                "${Build.MANUFACTURER} ${Build.MODEL}",
+        )
+    }
+
+    /**
+     * User-placed marker ("it just happened"). Reading a shared log otherwise starts with guessing
+     * which minute the reporter meant, and the answer is rarely in the last few lines — they are
+     * usually the navigation to Settings that came after.
+     */
+    fun mark(note: String) {
+        if (!enabled) return
+        log("mark", "──────── $note ────────")
     }
 
     /**
@@ -99,6 +139,16 @@ object DebugLog {
         tokenToRedact = token?.takeIf { it.isNotBlank() }
     }
 
+    /**
+     * Lazy form for anything on a hot path: the message is neither built nor allocated unless
+     * logging is on. Use it for per-event or per-update lines; the eager overload is fine for
+     * lines that fire a few times per run.
+     */
+    inline fun log(category: String, message: () -> String) {
+        if (!isEnabled()) return
+        log(category, message())
+    }
+
     fun log(category: String, message: String) {
         if (!enabled) return
         val safe = redact(message)
@@ -120,17 +170,89 @@ object DebugLog {
         store?.let { target -> ioExecutor.execute { target.clear() } }
     }
 
-    /** Plain-text dump for the Share sheet, oldest first. */
-    fun export(): String {
-        val snapshot = synchronized(lock) { buffer.toList() }
+    /**
+     * Plain-text dump for the Share sheet, oldest first. With [sessionId] only the lines that name
+     * that session (`s=<id>` / `session=<id>`) are included, so a user can hand over exactly the
+     * conversation that misbehaved instead of everything the app did that week.
+     */
+    fun export(sessionId: String? = null): String =
+        render(
+            synchronized(lock) { buffer.toList() }.forSession(sessionId),
+            sessionId,
+            showOrigin = true,
+        )
+
+    /**
+     * Full history for the Share sheet, oldest first: the rolling file rather than the in-memory
+     * ring. The ring holds [MAX_ENTRIES] entries, which during an active session is a few minutes
+     * — routinely less than the time between hitting a bug and getting to Settings → Diagnostics —
+     * while the file holds days. Blocks on file I/O, so call it off the main thread.
+     *
+     * [export] stays in-memory and is what the crash reporter uses: that path runs on a dying
+     * process where waiting on the I/O executor could hang.
+     */
+    fun exportFull(sessionId: String? = null): String {
+        awaitPendingWrites()
+        val fromDisk = store
+            ?.let { runCatching { it.readAll() }.getOrDefault(emptyList()) }
+            .orEmpty()
+        // Everything on disk was written by some run of this process, and the session header marks
+        // where each run began, so a per-entry "previous run" tag would label the whole file.
+        val all = fromDisk.ifEmpty { synchronized(lock) { buffer.toList() } }
+        return render(all.forSession(sessionId), sessionId, showOrigin = fromDisk.isEmpty())
+    }
+
+    /**
+     * Blocks until appends submitted before this call have reached the file. The executor is
+     * single-threaded and ordered, so an empty task behind them is enough of a barrier. Bounded:
+     * a stuck writer must not freeze the share action.
+     */
+    private fun awaitPendingWrites(timeoutMs: Long = 2_000L) {
+        if (store == null) return
+        val done = CountDownLatch(1)
+        val submitted = runCatching { ioExecutor.execute { done.countDown() } }.isSuccess
+        if (!submitted) return
+        runCatching { done.await(timeoutMs, TimeUnit.MILLISECONDS) }
+    }
+
+    private fun render(snapshot: List<LogEntry>, sessionId: String?, showOrigin: Boolean): String {
         if (snapshot.isEmpty()) return "(no diagnostic entries)"
         return buildString {
-            append("Hermes diagnostic log — ${snapshot.size} entries\n")
+            append("Hermes diagnostic log — ${snapshot.size} entries")
+            if (sessionId != null) append(" — session $sessionId")
+            append("\n")
             snapshot.forEach { e ->
-                val origin = if (e.fromPreviousRun) " (previous run)" else ""
+                val origin = if (showOrigin && e.fromPreviousRun) " (previous run)" else ""
                 append("${exportFmt.format(Instant.ofEpochMilli(e.timeMillis))} [${e.category}]$origin ${e.message}\n")
             }
         }
+    }
+
+    /**
+     * Narrows to one conversation, keeping every line that names no conversation at all.
+     *
+     * Those lines are the process-wide facts — the session header, connectivity, gateway health,
+     * the startup gate, the banner — and they are what a session's own lines have to be read
+     * against. Filtering them out would remove exactly the context that explains why the session
+     * behaved the way it did, which is the opposite of what picking a session is for.
+     */
+    private fun List<LogEntry>.forSession(sessionId: String?): List<LogEntry> =
+        if (sessionId == null) this
+        else filter { mentionsSession(it.message, sessionId) || !namesAnySession(it.message) }
+
+    private val sessionRef = Regex("(?:\\bs|\\bsession)=([A-Za-z0-9_\\-]{6,})")
+
+    fun mentionsSession(message: String, sessionId: String): Boolean =
+        sessionRef.findAll(message).any { it.groupValues[1] == sessionId }
+
+    /** True when the line is scoped to some conversation rather than to the process as a whole. */
+    fun namesAnySession(message: String): Boolean = sessionRef.containsMatchIn(message)
+
+    /** Distinct session ids named by [entries], most recently mentioned first. */
+    fun sessionIdsIn(entries: List<LogEntry>): List<String> {
+        val seen = LinkedHashSet<String>()
+        entries.asReversed().forEach { e -> sessionRef.findAll(e.message).forEach { seen += it.groupValues[1] } }
+        return seen.toList()
     }
 
     /** [export] when anything was captured, else null — a crash report omits an empty section. */

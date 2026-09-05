@@ -240,6 +240,7 @@ fi
 
 NODE_EXTRA_CA_CERTS="$run_dir/inputs/ca.crt" \
 PUBLIC_GATEWAY_URL="https://${server_name}:${edge_port}" \
+GATEWAY_SMOKE_ROUTE=public \
 INTERNAL_GATEWAY_URL="http://127.0.0.1:${gateway_port}" \
 RELAY_HEALTH_PATH=/relay-health \
 APP_TOKEN="$app_token" \
@@ -508,6 +509,7 @@ fi
 
 NODE_EXTRA_CA_CERTS="$run_dir/inputs/ca.crt" \
 PUBLIC_GATEWAY_URL="https://${server_name}:${edge_port}" \
+GATEWAY_SMOKE_ROUTE=public \
 INTERNAL_GATEWAY_URL="http://127.0.0.1:${blue_port}" \
 RELAY_HEALTH_PATH=/relay-health \
 APP_TOKEN="$app_token" \
@@ -531,6 +533,7 @@ fi
 
 NODE_EXTRA_CA_CERTS="$run_dir/inputs/ca.crt" \
 PUBLIC_GATEWAY_URL="https://${server_name}:${edge_port}" \
+GATEWAY_SMOKE_ROUTE=public \
 INTERNAL_GATEWAY_URL="http://127.0.0.1:${green_port}" \
 RELAY_HEALTH_PATH=/relay-health \
 APP_TOKEN="$app_token" \
@@ -558,6 +561,7 @@ fi
 
 NODE_EXTRA_CA_CERTS="$run_dir/inputs/ca.crt" \
 PUBLIC_GATEWAY_URL="https://${server_name}:${edge_port}" \
+GATEWAY_SMOKE_ROUTE=public \
 INTERNAL_GATEWAY_URL="http://127.0.0.1:${green_port}" \
 RELAY_HEALTH_PATH=/relay-health \
 APP_TOKEN="$app_token" \
@@ -598,6 +602,7 @@ fi
 
 NODE_EXTRA_CA_CERTS="$run_dir/inputs/ca.crt" \
 PUBLIC_GATEWAY_URL="https://${server_name}:${edge_port}" \
+GATEWAY_SMOKE_ROUTE=public \
 INTERNAL_GATEWAY_URL="http://127.0.0.1:${blue_port}" \
 RELAY_HEALTH_PATH=/relay-health \
 APP_TOKEN="$app_token" \

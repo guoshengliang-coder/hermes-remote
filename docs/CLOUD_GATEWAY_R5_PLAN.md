@@ -11,8 +11,9 @@ PostgreSQL 迁移，但所有命令仍明确拒绝 production。R5 的目标不�
 ## 当前生产差距
 
 2026-09-03 的首次只读检查确认线上 Gateway 仍是 `/opt/hermes-remote` 下的旧 Node 服务，缺少受管
-`current`/`previous` 和制品 manifest。到 2026-09-04，R5-B 与 R5-C1～C3 已经补齐旧服务异机恢复、
-Docker、PostgreSQL 18 和 loopback 监听基线；数据库恢复证据、受管 release/slot 与正式迁移仍未完成。
+`current`/`previous` 和制品 manifest。到 2026-09-05，R5-B、R5-C1～C3 与 R5-D 已经补齐旧服务异机恢复、
+Docker、PostgreSQL 18、loopback 监听和受管 blue 槽基线；数据库创建/schema 迁移、数据库恢复证据、
+R5-C4 timer 与账号模式正式晋级仍未完成。
 现有 443 路由、Gateway、发布服务、DERP 和证书必须继续保持健康，后续操作不得改变既有
 Android/Connector 的 URL、Token 与协议。
 
@@ -104,11 +105,17 @@ R5-E 代码阶段新增独立 PostgreSQL 恢复入口、严格配置/manifest、
 当前仅完成本地代码和自动测试；生产数据库/角色/schema 迁移、捕获、异机真实恢复、状态激活、timer 启用
 和服务切换均未执行，R5-E 生产门禁仍为 no-go。
 
+R5-D8 的 R5-E 生产准备复审发现，原 restore schema v1 只接受一个手工填写的 Docker image ID，无法同时
+绑定 R5-D5 后 Gateway manifest schema v3 中的 classic config digest 与 OCI descriptor digest。restore
+schema v2 改为接收 Gateway bundle manifest 路径，先校验同目录 archive SHA-256、发布合同、PG18/schema 7，
+再只接受 manifest 绑定的两个 runtime ID 之一；一次性 R5-E workflow 也改为打包并使用完整 bundle。该修复
+不创建生产数据库、不读取生产数据，也不授权后续生产步骤。
+
 R5-D 代码阶段新增独立 `production-baseline` 入口、严格 production-only 配置、R5-B evidence 与旧运行时
 identity 绑定、候选 Nginx 文件哈希门禁，以及仅限首次 `activeSlot: null` 的 R4 蓝绿状态机 capability。
 账号认证、账号绑定与数据库均固定关闭；切换失败使用 legacy 专用兼容 smoke 复核自动恢复。手动
 `Gateway R5-D Managed Baseline` workflow 只在无 Secret、无 SSH、无生产地址的一次性 Ubuntu 主机运行。
-源码尚未执行生产接管，香港 Gateway/Nginx 未因本阶段变化。操作细节与维护窗门禁见
+生产接管的最终结果与操作细节见
 `CLOUD_GATEWAY_R5_MANAGED_BASELINE.md`。
 
 PR #37 合并并通过 `main` CI/SAST/OCI 后执行的生产前只读复审确认资源、旧 identity、R5-B 证据、
@@ -146,3 +153,19 @@ schema v3 同时绑定 archive 内的 config/OCI 两个 digest，运行时仍只
 在打包时从 staging root 实际启动验证器，加入 Connector 挂接后的有界 REST 转发就绪等待，并只上送稳定、
 脱敏的 allowlist smoke 子阶段。生产 journal 保持 `candidate_started`，只允许同一计划重做候选验证；
 R5-D6 合并、最新 main OCI 制品和一次性演练全部通过前不得再次生产接管。
+
+使用 R5-D6 运维 bundle 续跑原 `25345666167a` 计划时，blue 私有候选和完整转发 smoke 已通过；Nginx
+完成切换后，公网验证却请求生产边缘未公开的 `/healthz`，收到 404 并触发
+`HR-RELEASE-003:smoke_check=liveness`。状态机在观察前恢复旧 Nginx、旧 Gateway、release links 和
+lifecycle 状态，归档 `route_switched` journal；随后确认旧 8444、PostgreSQL 5432 仍仅监听 loopback，
+blue/green 停止且禁用，公网 `/relay-health`、发布 `/health`、认证 REST 与 WebSocket 全部正常。R5-D7
+把私有镜像/就绪验证与公网路由验证拆开，并要求一次性演练显式覆盖生产公网接口集合；全部门禁通过前不再
+执行生产接管。
+
+R5-D7 合并提交 `833859aa9afe55f09d2fe8663ab0fd1528447ba4` 的 PR、CI、SAST、Gateway OCI、加密恢复和
+两次一次性 R5-D 演练全部通过后，获授权的正式接管在 2026-09-05 成功提交 run
+`5403064b-c220-42ab-91e0-d3b605e8c674`。blue 槽运行 Gateway 0.4.0，Nginx 上游切换到
+`127.0.0.1:18787`，旧 Node Gateway 停止并禁用；`current` 指向 `0.4.0-833859aa9afe`，`previous`
+保留 `0.2.0-54f7aed61172`。私有版本/就绪、公开 Connector、认证 REST/WebSocket、错误 Token、发布服务、
+镜像身份与 Nginx 均复核通过，容器无重启或告警。PostgreSQL 仍只监听 loopback，数据库与两个账号标志
+保持关闭，R5-C4 timer 未启用。R5-D 至此完成，R5-E/F 仍保持独立生产授权边界。

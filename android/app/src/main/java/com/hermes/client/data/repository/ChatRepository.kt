@@ -46,6 +46,25 @@ data class WorkspaceInfo(val cwd: String?, val branch: String?, val gitRepoRoot:
 data class PathItem(val text: String, val display: String, val meta: String)
 
 class ChatRepository(private val client: HermesGatewayClient) {
+    /**
+     * Identifies this client to Hermes on `session.create` and `session.resume`.
+     *
+     * Hermes stores whatever the caller passes (`_resolve_session_source` returns an explicit value
+     * unchanged) and derives the agent's platform — and therefore its system-prompt capability
+     * block — from it. Sending nothing made Hermes fall back to its environment guess, `tui`, which
+     * is indistinguishable from a real terminal and whose prompt block states there is no
+     * attachment channel and that `MEDIA:` tags are not intercepted. Both claims are false here:
+     * the app renders `MEDIA:` as a downloadable file card. The agent was faithfully obeying a
+     * prompt that did not describe this client.
+     *
+     * The matching capability text lives in the Mac's `~/.hermes/config.yaml` under
+     * `platform_hints.hermes_remote` — Hermes' supported config override, so no Hermes source is
+     * patched and an upgrade cannot clobber it. See docs/HERMES_CONTRACT.md.
+     *
+     * Sent on resume as well, so sessions stored before this shipped also get the right platform.
+     */
+    private val clientSource = "hermes_remote"
+
     val events: SharedFlow<ServerEvent> get() = client.events
     val connectionState: StateFlow<ConnectionState> get() = client.connectionState
 
@@ -69,6 +88,7 @@ class ChatRepository(private val client: HermesGatewayClient) {
      */
     suspend fun createSession(profile: String? = null, cwd: String? = null): CreatedSession {
         val result = client.call("session.create", buildJsonObject {
+            put("source", clientSource)
             if (!profile.isNullOrBlank()) put("profile", profile)
             if (!cwd.isNullOrBlank()) put("cwd", cwd)
         })
@@ -119,6 +139,7 @@ class ChatRepository(private val client: HermesGatewayClient) {
     suspend fun resume(sessionId: String, profile: String? = null): String? {
         val result = client.call("session.resume", buildJsonObject {
             put("session_id", sessionId)
+            put("source", clientSource)
             if (!profile.isNullOrBlank()) put("profile", profile)
         })
         return result.jsonObject["session_id"]?.jsonPrimitive?.content

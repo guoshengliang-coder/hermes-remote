@@ -22,8 +22,7 @@ const requiredEnvironment = [
   "R5E_RESTORE_DATABASE_URL",
   "R5E_SOURCE_POSTGRES_CONTAINER_ID",
   "R5E_RESTORE_POSTGRES_CONTAINER_ID",
-  "R5E_TARGET_IMAGE",
-  "R5E_TARGET_IMAGE_ID",
+  "R5E_TARGET_MANIFEST",
 ];
 for (const name of requiredEnvironment) {
   if (!process.env[name]) throw new Error(`missing_environment=${name}`);
@@ -34,7 +33,6 @@ if (![sourceContainerId, restoreContainerId].every((value) => /^[a-f0-9]{12,64}$
   throw new Error("postgres_container_id_invalid");
 }
 if (sourceContainerId === restoreContainerId) throw new Error("postgres_containers_must_differ");
-if (!/^sha256:[0-9a-f]{64}$/.test(process.env.R5E_TARGET_IMAGE_ID)) throw new Error("target_image_id_invalid");
 
 const base = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-r5e-e2e-")));
 try {
@@ -125,7 +123,7 @@ try {
   const evidenceFile = path.join(offHostRoot, "postgresql-restore.evidence.json");
   const statusFile = path.join(offHostRoot, "postgresql-backup.status.json");
   const restored = await verifyPostgresqlRestore({
-    schemaVersion: 1,
+    schemaVersion: 2,
     environment: "isolated-restore",
     operator: "github-actions",
     expectedSourceHostname: "github-r5e-source",
@@ -135,8 +133,7 @@ try {
     recipientPrivateKey,
     databaseUrlFile: restoreDatabaseUrlFile,
     imageDatabaseUrlFile,
-    targetImage: process.env.R5E_TARGET_IMAGE,
-    targetImageId: process.env.R5E_TARGET_IMAGE_ID,
+    targetArtifactManifest: process.env.R5E_TARGET_MANIFEST,
     evidenceFile,
     statusFile,
     offHostStorageId: "github-ephemeral-runner",
@@ -199,6 +196,7 @@ try {
     encryptedBytes: captured.archiveBytes,
     verifiedChecks: restored.verifiedChecks,
     accountRowsRestored: accountCount.rows[0].count,
+    targetRelease: restored.targetRelease,
   })}\n`);
 } finally {
   await rm(base, { recursive: true, force: true });

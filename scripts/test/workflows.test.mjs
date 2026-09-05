@@ -128,6 +128,7 @@ test('R5-D managed baseline runs only on a disposable secretless host', async ()
   assert.equal(/secrets\.|docker\s+(?:push|login)|packages: write|ssh\b|mrlgs\.net|47\.239\./.test(workflow), false);
   const harness = await readRoot('scripts/test-gateway-staging-bootstrap.sh');
   assert.match(harness, /GATEWAY_R5D_MANAGED_BASELINE_OK/);
+  assert.equal((harness.match(/GATEWAY_SMOKE_ROUTE=public/g) || []).length, 5);
   assert.match(harness, /package-production-baseline-bundle\.mjs/);
   assert.match(harness, /r5d_ops_root\/scripts\/verify-production-baseline-bundle\.mjs/);
   assert.match(harness, /node "\$r5d_ops_entrypoint"/);
@@ -146,7 +147,7 @@ test('R5-D managed baseline runs only on a disposable secretless host', async ()
   assert.equal(/0\.0\.0\.0|HERMES_SESSION_TOKEN/.test(smokeRuntime), false);
 });
 
-test('R5-E recovery uses only disposable PostgreSQL 18 and an immutable local image', async () => {
+test('R5-E recovery uses only disposable PostgreSQL 18 and a manifest-bound immutable image', async () => {
   const workflow = await read('gateway-r5e-recovery.yml');
   assert.match(workflow, /pull_request:[\s\S]*workflow_dispatch:/);
   assert.match(workflow, /permissions:\n  contents: read/);
@@ -156,7 +157,8 @@ test('R5-E recovery uses only disposable PostgreSQL 18 and an immutable local im
   assert.match(workflow, /run: node scripts\/test\/postgresql-recovery-e2e\.mjs/);
   assert.match(workflow, /R5E_SOURCE_POSTGRES_CONTAINER_ID: \$\{\{ job\.services\.postgres\.id \}\}/);
   assert.match(workflow, /R5E_RESTORE_POSTGRES_CONTAINER_ID: \$\{\{ job\.services\.postgres_restore\.id \}\}/);
-  assert.match(workflow, /R5E_TARGET_IMAGE_ID: \$\{\{ steps\.image\.outputs\.id \}\}/);
+  assert.match(workflow, /\.\/scripts\/package-gateway-bundle\.sh outputs\/r5e-gateway/);
+  assert.match(workflow, /R5E_TARGET_MANIFEST: \$\{\{ steps\.image\.outputs\.manifest \}\}/);
   assert.equal(/secrets\.|docker\s+(?:push|login)|packages: write|ssh\b|mrlgs\.net|47\.239\./.test(workflow), false);
   const harness = await readRoot('scripts/test/postgresql-recovery-e2e.mjs');
   assert.match(harness, /capturePostgresqlBackup/);

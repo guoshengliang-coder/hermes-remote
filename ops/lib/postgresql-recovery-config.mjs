@@ -4,7 +4,6 @@ import { OpsError } from "./errors.mjs";
 
 const HOSTNAME = /^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/;
 const TOKEN = /^[A-Za-z0-9._:-]{1,128}$/;
-const SHA256 = /^sha256:[0-9a-f]{64}$/;
 
 export async function loadPostgresqlBackupConfig(filePath) {
   const raw = await readStrictJson(filePath, "postgresql_backup_config");
@@ -42,12 +41,12 @@ export async function loadPostgresqlRestoreConfig(filePath) {
     exactKeys(raw, [
       "schemaVersion", "environment", "operator", "expectedSourceHostname", "archiveFile",
       "manifestFile", "recipientCertificate", "recipientPrivateKey", "databaseUrlFile",
-      "imageDatabaseUrlFile", "targetImage", "targetImageId", "evidenceFile", "statusFile",
+      "imageDatabaseUrlFile", "targetArtifactManifest", "evidenceFile", "statusFile",
       "offHostStorageId", "postgresqlMajorVersion", "databaseSchemaVersion",
     ], "postgresql_restore_config");
-    if (raw.schemaVersion !== 1 || raw.environment !== "isolated-restore") fail("postgresql_restore_requires_isolated_environment");
+    if (raw.schemaVersion !== 2 || raw.environment !== "isolated-restore") fail("postgresql_restore_requires_isolated_environment");
     const config = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       environment: "isolated-restore",
       operator: token(raw.operator, /^[A-Za-z0-9._-]{1,64}$/, "operator"),
       expectedSourceHostname: hostname(raw.expectedSourceHostname, "expectedSourceHostname"),
@@ -57,8 +56,7 @@ export async function loadPostgresqlRestoreConfig(filePath) {
       recipientPrivateKey: absolutePath(raw.recipientPrivateKey, "recipientPrivateKey"),
       databaseUrlFile: absolutePath(raw.databaseUrlFile, "databaseUrlFile"),
       imageDatabaseUrlFile: absolutePath(raw.imageDatabaseUrlFile, "imageDatabaseUrlFile"),
-      targetImage: token(raw.targetImage, /^[A-Za-z0-9][A-Za-z0-9._/@:-]{1,255}$/, "targetImage"),
-      targetImageId: token(raw.targetImageId, SHA256, "targetImageId"),
+      targetArtifactManifest: absolutePath(raw.targetArtifactManifest, "targetArtifactManifest"),
       evidenceFile: absolutePath(raw.evidenceFile, "evidenceFile"),
       statusFile: absolutePath(raw.statusFile, "statusFile"),
       offHostStorageId: token(raw.offHostStorageId, TOKEN, "offHostStorageId"),
@@ -67,7 +65,8 @@ export async function loadPostgresqlRestoreConfig(filePath) {
     };
     distinctPaths(
       config.archiveFile, config.manifestFile, config.recipientCertificate, config.recipientPrivateKey,
-      config.databaseUrlFile, config.imageDatabaseUrlFile, config.evidenceFile, config.statusFile,
+      config.databaseUrlFile, config.imageDatabaseUrlFile, config.targetArtifactManifest,
+      config.evidenceFile, config.statusFile,
     );
     return config;
   } catch (error) {
