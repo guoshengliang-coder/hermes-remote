@@ -12,6 +12,7 @@ import {
 import {
   capturePostgresqlBackup, publishPostgresqlBackupStatus, verifyPostgresqlRestore,
 } from "../../ops/lib/postgresql-recovery.mjs";
+import { sha256File } from "../../ops/lib/config.mjs";
 import { loadProductionEvidence } from "../../ops/lib/production-config.mjs";
 import { loadPostgresqlBackupStatus } from "../../ops/lib/production-monitor-config.mjs";
 import { OPS_ERROR_DEFINITIONS, createOpsError } from "../../ops/lib/errors.mjs";
@@ -31,7 +32,7 @@ test("R5-E publishes status only after encrypted capture and off-host restore ch
   const manifest = await loadPostgresqlBackupManifest(fixture.backup.manifestFile);
   assert.equal(manifest.archiveSha256, captured.archiveSha256);
 
-  const smoke = accountSmokeRunner(fixture.restore.targetImageId);
+  const smoke = accountSmokeRunner(fixture.target.containerdImageId);
   const restored = await verifyPostgresqlRestore(fixture.restore, {
     confirmation: "isolated:prod-host",
     hostname: "mac-restore-host",
@@ -53,7 +54,7 @@ test("R5-E publishes status only after encrypted capture and off-host restore ch
   const dockerRun = smoke.calls.find((call) => call.command === "docker" && call.args[0] === "run");
   assert.equal(dockerRun.args.includes("--read-only"), true);
   assert.equal(dockerRun.args.includes("--cap-drop=ALL"), true);
-  assert.equal(dockerRun.args.includes(fixture.restore.targetImageId), true);
+  assert.equal(dockerRun.args.includes(fixture.target.containerdImageId), true);
   assert.equal(dockerRun.args.some((value) => value.includes("postgresql://")), false);
   assert.equal((await lstat(fixture.restore.evidenceFile)).mode & 0o777, 0o600);
   assert.equal((await lstat(fixture.restore.statusFile)).mode & 0o777, 0o600);
@@ -133,13 +134,59 @@ test("R5-E rejects a non-empty target and a mismatched immutable image", async (
     confirmation: "isolated:prod-host", hostname: "mac-restore-host", runner: healthyRunner(),
     inspectEmptyDatabase: async () => false,
   }), hasCause("postgresql_restore_database_not_empty"));
-  const wrongImage = accountSmokeRunner(`sha256:${"c".repeat(64)}`);
+  const wrongImage = accountSmokeRunner(`sha256:${"d".repeat(64)}`);
   await assert.rejects(() => verifyPostgresqlRestore(fixture.restore, {
     confirmation: "isolated:prod-host", hostname: "mac-restore-host", runner: wrongImage.runner,
     inspectEmptyDatabase: async () => true, restoreDatabase: async () => {}, inspectDatabase: async () => facts(),
   }), hasCause("postgresql_restore_target_image_identity_mismatch"));
   await assert.rejects(() => access(fixture.restore.evidenceFile));
   await assert.rejects(() => access(fixture.restore.statusFile));
+});
+
+test("R5-E binds account smoke to a schema v3 Gateway bundle identity", async (t) => {
+  const fixture = await createFixture(t);
+  await capture(fixture);
+  const smoke = accountSmokeRunner(fixture.target.imageId);
+  const result = await verifyPostgresqlRestore(fixture.restore, {
+    confirmation: "isolated:prod-host", hostname: "mac-restore-host", runner: smoke.runner,
+    inspectEmptyDatabase: async () => true, restoreDatabase: async () => {}, inspectDatabase: async () => facts(),
+  });
+  assert.deepEqual(result.targetRelease, {
+    serverVersion: fixture.target.serverVersion,
+    sourceCommit: fixture.target.sourceCommit,
+    runtimeImageId: fixture.target.imageId,
+  });
+
+  const manifest = JSON.parse(await readFile(fixture.restore.targetArtifactManifest, "utf8"));
+  delete manifest.containerdImageId;
+  manifest.schemaVersion = 2;
+  await privateJson(fixture.restore.targetArtifactManifest, manifest);
+  await assert.rejects(() => verifyPostgresqlRestore({
+    ...fixture.restore,
+    evidenceFile: path.join(fixture.base, "legacy-manifest.evidence.json"),
+    statusFile: path.join(fixture.base, "legacy-manifest.status.json"),
+  }, {
+    confirmation: "isolated:prod-host", hostname: "mac-restore-host", runner: smoke.runner,
+  }), hasCause("postgresql_restore_target_manifest_v3_required"));
+});
+
+test("R5-E rejects target bundle tampering and release-contract drift before restore", async (t) => {
+  const fixture = await createFixture(t);
+  await capture(fixture);
+  await writeFile(fixture.targetArchivePath, "tampered-oci-archive", { mode: 0o600 });
+  await assert.rejects(() => verifyPostgresqlRestore(fixture.restore, {
+    confirmation: "isolated:prod-host", hostname: "mac-restore-host", runner: healthyRunner(),
+  }), hasCause("postgresql_restore_target_manifest_invalid"));
+  await assert.rejects(() => access(fixture.restore.evidenceFile));
+  await assert.rejects(() => access(fixture.restore.statusFile));
+
+  const manifest = JSON.parse(await readFile(fixture.restore.targetArtifactManifest, "utf8"));
+  manifest.archiveSha256 = await sha256File(fixture.targetArchivePath);
+  manifest.releaseContract.databaseSchemaVersion += 1;
+  await privateJson(fixture.restore.targetArtifactManifest, manifest);
+  await assert.rejects(() => verifyPostgresqlRestore(fixture.restore, {
+    confirmation: "isolated:prod-host", hostname: "mac-restore-host", runner: healthyRunner(),
+  }), hasCause("postgresql_restore_target_contract_mismatch"));
 });
 
 test("R5-E strict schemas, examples, error contract, and URL secrecy remain wired", async (t) => {
@@ -151,8 +198,11 @@ test("R5-E strict schemas, examples, error contract, and URL secrecy remain wire
   await privateJson(restorePath, fixture.restore);
   await privateJson(activationPath, fixture.activation);
   assert.equal((await loadPostgresqlBackupConfig(backupPath)).postgresqlMajorVersion, 18);
+  assert.equal((await loadPostgresqlRestoreConfig(restorePath)).schemaVersion, 2);
   assert.equal((await loadPostgresqlRestoreConfig(restorePath)).offHostStorageId, "mac-recovery-store");
   assert.equal((await loadPostgresqlStatusActivationConfig(activationPath)).sourceHostname, "prod-host");
+  await privateJson(restorePath, { ...fixture.restore, schemaVersion: 1 });
+  await assert.rejects(() => loadPostgresqlRestoreConfig(restorePath), isCode("HR-OPS-013"));
   await privateJson(backupPath, { ...fixture.backup, unexpected: true });
   await assert.rejects(() => loadPostgresqlBackupConfig(backupPath), isCode("HR-OPS-013"));
 
@@ -197,6 +247,26 @@ async function createFixture(t) {
   await chmod(recipientPrivateKey, 0o600);
   const archiveFile = path.join(recovery, "postgresql.cms");
   const manifestFile = path.join(recovery, "postgresql.manifest.json");
+  const targetSourceCommit = "a".repeat(40);
+  const targetArchiveFile = `Hermes-Gateway-0.4.0-${targetSourceCommit.slice(0, 12)}-linux-amd64.tar`;
+  const targetArchivePath = path.join(recovery, targetArchiveFile);
+  const targetArtifactManifest = path.join(recovery, `${targetArchiveFile.slice(0, -4)}.manifest.json`);
+  await writeFile(targetArchivePath, "verified-oci-archive", { mode: 0o600 });
+  const target = {
+    schemaVersion: 3,
+    kind: "hermes-go-gateway-oci",
+    serverVersion: "0.4.0",
+    sourceCommit: targetSourceCommit,
+    imageReference: `hermes-remote-gateway:0.4.0-${targetSourceCommit.slice(0, 12)}`,
+    imageId: `sha256:${"b".repeat(64)}`,
+    containerdImageId: `sha256:${"c".repeat(64)}`,
+    architecture: "amd64",
+    archiveFile: targetArchiveFile,
+    archiveSha256: await sha256File(targetArchivePath),
+    createdAt: "2026-09-04T01:00:00.000Z",
+    releaseContract: JSON.parse(await readFile("gateway/release-contract.json", "utf8")),
+  };
+  await privateJson(targetArtifactManifest, target);
   const backup = {
     schemaVersion: 1, environment: "production", operator: "test-operator",
     sourceHostname: "prod-host", serviceName: "postgresql", databaseUrlFile,
@@ -204,11 +274,10 @@ async function createFixture(t) {
     postgresqlMajorVersion: 18, databaseSchemaVersion: 7,
   };
   const restore = {
-    schemaVersion: 1, environment: "isolated-restore", operator: "test-operator",
+    schemaVersion: 2, environment: "isolated-restore", operator: "test-operator",
     expectedSourceHostname: "prod-host", archiveFile, manifestFile, recipientCertificate,
     recipientPrivateKey, databaseUrlFile, imageDatabaseUrlFile,
-    targetImage: `hermes-go-gateway@sha256:${"a".repeat(64)}`,
-    targetImageId: `sha256:${"b".repeat(64)}`,
+    targetArtifactManifest,
     evidenceFile: path.join(recovery, "restore.evidence.json"),
     statusFile: path.join(recovery, "backup.status.json"),
     offHostStorageId: "mac-recovery-store", postgresqlMajorVersion: 18, databaseSchemaVersion: 7,
@@ -220,7 +289,7 @@ async function createFixture(t) {
     candidateStatusFile: restore.statusFile,
     activeStatusFile: path.join(recovery, "latest-status.json"),
   };
-  return { base, backup, restore, activation };
+  return { base, backup, restore, activation, target, targetArchivePath };
 }
 
 async function capture(fixture) {
