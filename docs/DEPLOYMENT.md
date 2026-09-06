@@ -193,7 +193,7 @@ configuration and state and creates a new encrypted output. It requires a separa
 after CI passes; do not infer that approval from a merge or from an R5-A audit. The full key-handling,
 invocation, rollback, and verification procedure is in `CLOUD_GATEWAY_R5_RECOVERY.md`.
 
-## PostgreSQL production gate (R5-E manifest binding ready; production not executed)
+## PostgreSQL production gate (R5-E capture complete; restore pending)
 
 The existing HK host has enough nominal CPU and memory for the initial low-volume Gateway database,
 so a second server is not a prerequisite. PostgreSQL must remain a separate system service, listen only
@@ -226,6 +226,15 @@ The R5-E implementation and three separately authorized phases are documented in
 off-host restore verification with the immutable Gateway image, and evidence-bound atomic status
 activation. No production database, migration, capture, transfer, restore, status activation, or
 timer enablement is implied by the source implementation.
+
+As of 2026-09-06, the dedicated least-privilege role/database and schema 7 migration are complete with
+both account flags still disabled. The first successful production capture used the protected artifact
+from `main 7bc4f71472e7` and produced a 51,565-byte CMS AES-256-GCM archive. Its verified encrypted copy
+and matching Gateway artifact are retained off-host on the Mac; the private recovery key never left the
+Mac. The first isolated restore stopped before connecting because `pg_restore` lacked an explicit
+`--dbname`; the disposable database and credentials were removed and no restore evidence or active
+backup status exists yet. R5-E5A fixes that boundary and must pass all gates before a separately
+authorized restore retry.
 
 ## Production disk and backup monitoring (R5-C4; not deployed)
 

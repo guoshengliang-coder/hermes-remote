@@ -300,9 +300,12 @@ async function restoreEncryptedArchive(config, databaseUrl) {
     "cms", "-decrypt", "-binary", "-inform", "DER", "-in", config.archiveFile,
     "-recip", config.recipientCertificate, "-inkey", config.recipientPrivateKey,
   ], { stdio: ["ignore", "pipe", "pipe"], shell: false });
-  const restore = spawnSensitive("pg_restore", [
-    "--exit-on-error", "--single-transaction", "--no-owner", "--no-privileges",
-  ], databaseUrl, ["pipe", "ignore", "pipe"]);
+  const restore = spawnSensitive(
+    "pg_restore",
+    postgresqlRestoreArguments(databaseUrl),
+    databaseUrl,
+    ["pipe", "ignore", "pipe"],
+  );
   const opensslError = bounded(openssl.stderr);
   const restoreError = bounded(restore.stderr);
   openssl.stdout.pipe(restore.stdin);
@@ -494,6 +497,14 @@ export function postgresqlEnvironment(databaseUrl, environment = process.env) {
     PGPASSWORD: password,
     PGDATABASE: database,
   };
+}
+
+export function postgresqlRestoreArguments(databaseUrl) {
+  const database = postgresqlEnvironment(databaseUrl).PGDATABASE;
+  return [
+    "--dbname", database,
+    "--exit-on-error", "--single-transaction", "--no-owner", "--no-privileges",
+  ];
 }
 
 async function runSensitive(command, args, databaseUrl) {
