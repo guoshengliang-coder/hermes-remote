@@ -186,14 +186,22 @@ class SessionsViewModel @Inject constructor(
             .onSuccess { loadArchived(); refresh() }
     }
 
-    /** Cron jobs failed/overdue for the active profile — drives the list's alert strip. */
-    private val _cronAlerts = MutableStateFlow(0)
-    val cronAlerts: StateFlow<Int> = _cronAlerts.asStateFlow()
+    /**
+     * What the one alert slot on this screen should say. Cron trouble and channel trouble share
+     * it, merged root-cause-first: a channel that is down absorbs the deliveries it swallowed,
+     * so one outage reads as one problem instead of one per report it stopped.
+     */
+    private val _health = MutableStateFlow(com.hermes.client.ui.activity.MergedHealth())
+    val health: StateFlow<com.hermes.client.ui.activity.MergedHealth> = _health.asStateFlow()
 
     private fun refreshCronAlerts() = viewModelScope.launch {
-        runCatching { tools.cronJobs(profileManager.active.value) }.onSuccess { jobs ->
-            _cronAlerts.value = com.hermes.client.ui.activity.needsAttention(jobs, System.currentTimeMillis()).size
-        }
+        val profile = profileManager.active.value
+        val jobs = runCatching { tools.cronJobs(profile) }.getOrNull() ?: return@launch
+        // A channel read that fails leaves the merge with no root causes — cron alerts then stand
+        // on their own, which is the pre-merge behaviour rather than a blank strip.
+        val platforms = runCatching { tools.messagingPlatforms(profile) }.getOrDefault(emptyList())
+        _health.value = com.hermes.client.ui.activity.mergeHealth(jobs, platforms, System.currentTimeMillis())
+        _state.value = _state.value.copy(configuredChannels = platforms.count { it.configured })
     }
 
     /** Persist the chosen view mode; the [viewMode] observer in init fetches the tree when needed. */

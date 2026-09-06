@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Add
@@ -98,6 +99,7 @@ fun SessionsScreen(
     onOpenSearch: () -> Unit = {},
     onOpenCron: () -> Unit = {},
     onOpenBotSession: (sessionId: String, profile: String?) -> Unit = { _, _ -> },
+    onOpenMessaging: () -> Unit = {},
     onUnauthorized: () -> Unit = {},
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -105,7 +107,7 @@ fun SessionsScreen(
     val profiles by vm.profiles.collectAsStateWithLifecycle()
     val pinnedTokens by vm.pinnedTokens.collectAsStateWithLifecycle()
     val archivedState by vm.archivedState.collectAsStateWithLifecycle()
-    val cronAlerts by vm.cronAlerts.collectAsStateWithLifecycle()
+    val health by vm.health.collectAsStateWithLifecycle()
     val viewMode by vm.viewMode.collectAsStateWithLifecycle()
     val showBots = remember(state.configuredChannels, state.botSessions) {
         showBotsTab(state.configuredChannels, state.botSessions.size)
@@ -391,21 +393,52 @@ fun SessionsScreen(
                 // ── Sessions mode ───────────────────────────────────────────────────────────
                 // Cron alert strip: HealthStrip's pattern — only rendered when something needs
                 // attention, tap goes to the cron screen.
-                if (cronAlerts > 0) {
+                if (health.total > 0) {
+                    val label = when {
+                        // One outage, named, with its fallout — not a count of symptoms.
+                        health.channels.size == 1 && health.standaloneCronJobs == 0 -> {
+                            val channel = health.channels.single()
+                            if (channel.affectedJobs > 0) {
+                                localized(
+                                    language,
+                                    "${channel.name} 未连接 · ${channel.affectedJobs} 个定时任务受影响",
+                                    "${channel.name} is not connected · ${channel.affectedJobs} scheduled job(s) affected",
+                                )
+                            } else {
+                                localized(
+                                    language,
+                                    "${channel.name} 未连接",
+                                    "${channel.name} is not connected",
+                                )
+                            }
+                        }
+                        health.channels.isEmpty() -> localized(
+                            language,
+                            "${health.standaloneCronJobs} 个定时任务需要处理",
+                            "${health.standaloneCronJobs} scheduled job(s) need attention",
+                        )
+                        else -> localized(
+                            language,
+                            "${health.total} 项需要处理",
+                            "${health.total} things need attention",
+                        )
+                    }
                     Row(
                         Modifier.fillMaxWidth()
                             .background(MaterialTheme.colorScheme.errorContainer)
-                            .clickable { onOpenCron() }
+                            // Root cause first: when a channel is down that is where the fix is.
+                            .clickable { if (health.hasChannelCause) onOpenMessaging() else onOpenCron() }
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            Icons.Rounded.Schedule, contentDescription = null,
+                            if (health.hasChannelCause) Icons.Rounded.Forum else Icons.Rounded.Schedule,
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.onErrorContainer,
                             modifier = Modifier.padding(end = 8.dp),
                         )
                         Text(
-                            localized(language, "$cronAlerts 个定时任务需要处理", "$cronAlerts scheduled job(s) need attention"),
+                            label,
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             modifier = Modifier.weight(1f),
