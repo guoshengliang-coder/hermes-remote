@@ -396,6 +396,11 @@ fun ChatScreen(
     var showCameraPermissionDialog by rememberSaveable { mutableStateOf(false) }
     var cameraLaunchRequest by rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
     val attachScope = androidx.compose.runtime.rememberCoroutineScope()
+    // Export work MUST NOT hang off a scope remembered inside the share sheet's `if` block: the
+    // format handlers dismiss the sheet first, which forgets that block and cancels its scope
+    // before the export's first suspension point resumes. The write, the share sheet AND the
+    // failure toast all disappeared together, so the tap read as "nothing happened" (HG-9).
+    val exportScope = androidx.compose.runtime.rememberCoroutineScope()
 
     fun showAttachmentError(message: String?) {
         android.widget.Toast.makeText(
@@ -1402,7 +1407,6 @@ fun ChatScreen(
 
     if (shareFormatSheet) {
         val density = androidx.compose.ui.platform.LocalDensity.current.density
-        val scope = androidx.compose.runtime.rememberCoroutineScope()
         val subject = localized(language, "Hermes GO 对话记录", "Hermes GO chat transcript")
         ShareTranscriptSheet(
             onText = {
@@ -1429,7 +1433,7 @@ fun ChatScreen(
                     exportedAtMillis = now,
                     model = currentModel,
                 )
-                scope.launch {
+                exportScope.launch {
                     val ok = TranscriptShare.shareMarkdown(
                         context = context,
                         baseName = transcriptFileBaseName(sessionTitle, now),

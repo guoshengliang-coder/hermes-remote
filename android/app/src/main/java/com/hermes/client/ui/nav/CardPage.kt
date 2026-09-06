@@ -303,21 +303,28 @@ private fun StatCell(
     subColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
     // Both halves are entries, so each carries the chevron the entry-row contract requires and
-    // ripples over its whole half (the padding lives inside the clickable, not on the Row).
+    // ripples over its whole half (the padding lives inside the clickable, not on the Column).
     // 14dp side padding + a 16dp chevron is what keeps "mac-mini" at the full 23sp value size;
     // the shared shrink below is the fallback, not the normal state.
-    Row(
-        modifier.clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 18.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    //
+    // TOP-aligned, never centred (docs/DESIGN.md §3.3). Both cells are stretched to the taller
+    // one's height, so centring each cell's content pushed the SHORTER one down as a block: the
+    // moment "已连接 · 231 ms" wrapped, the whole 本周用量 column — title, value and sub — sat
+    // lower than 远程设备's and the card read as broken (HG-14). Top alignment makes the three
+    // slots line up by construction, because the pair's title and value heights are identical:
+    // only the wrapped sub grows, and it grows downwards into space the taller cell already owns.
+    Column(modifier.clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 18.dp)) {
         // Sizes are CONTROLLED by the parent so both cells stay in lockstep; the wrap-to-two-lines
         // fallback stays per-cell (only the overlong value needs it).
-        Column(Modifier.weight(1f).padding(end = 4.dp)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // The chevron rides the value line rather than the cell's midpoint — with a wrapped sub a
+        // vertically centred chevron drifts down towards the sub and stops reading as the value's
+        // affordance. The value keeps exactly the width budget it had before (chevron + 4dp gap).
+        Row(verticalAlignment = Alignment.CenterVertically) {
             FitText(
                 value,
                 style = MaterialTheme.typography.headlineSmall.copy(
@@ -325,22 +332,25 @@ private fun StatCell(
                     letterSpacing = (-0.3).sp,
                 ),
                 fontSizeSp = valueSp, minSp = 13f, onOverflow = onValueOverflow,
-                modifier = Modifier.padding(top = 5.dp, bottom = 4.dp),
+                modifier = Modifier.weight(1f).padding(top = 5.dp, bottom = 4.dp, end = 4.dp),
             )
-            sub?.let {
-                FitText(
-                    it,
-                    style = MaterialTheme.typography.bodyMedium.copy(color = subColor),
-                    fontSizeSp = subSp, minSp = 11f, onOverflow = onSubOverflow,
-                )
-            }
+            Icon(
+                ThinChevron,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp),
+            )
         }
-        Icon(
-            ThinChevron,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(16.dp),
-        )
+        // The sub runs the full cell width — nothing sits to its right, so the 20dp the chevron
+        // reserves on the value line is free here. That is what usually keeps "已连接 · 231 ms"
+        // on one line; wrapping stays legal as §3.3's ② fallback, it just no longer misaligns.
+        sub?.let {
+            FitText(
+                it,
+                style = MaterialTheme.typography.bodyMedium.copy(color = subColor),
+                fontSizeSp = subSp, minSp = 11f, onOverflow = onSubOverflow,
+            )
+        }
     }
 }
 

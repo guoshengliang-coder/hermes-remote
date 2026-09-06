@@ -253,12 +253,26 @@ const fixtureSessions = [
 ];
 // Workspace of the dynamically created stored session (set by session.create / workspace.move).
 let storedWorkspace = { cwd: LAUNCH_DIR, git_repo_root: null, git_branch: null };
+// Opt-in padding (default 0, so every existing flow is untouched). A five-row list never fills a
+// phone viewport, which is exactly the condition LazyColumn scroll-anchoring bugs need in order to
+// show up — HG-11 hid the 已置顶 section above the fold and could not be reproduced without a list
+// long enough to scroll. MOCK_HERMES_EXTRA_SESSIONS=40 gives you one.
+const extraSessions = Number(process.env.MOCK_HERMES_EXTRA_SESSIONS ?? 0);
+
 function mockSessions() {
   const rows = fixtureSessions.map((f) => ({
     id: f.id, title: f.title, model: f.model, message_count: 4, last_active: nowSec() - f.ago,
     profile: "default", is_default_profile: true, archived: Boolean(f.archived),
     cwd: f.cwd, git_repo_root: f.git_repo_root, git_branch: f.git_branch, source: "tui",
   }));
+  for (let i = 0; i < extraSessions; i += 1) {
+    rows.push({
+      id: `filler-${i}`, title: `填充会话 ${i + 1} · 让列表长到需要滚动`, model: "claude-sonnet-5",
+      message_count: 4, last_active: nowSec() - 60 * (i + 1),
+      profile: "default", is_default_profile: true, archived: false, source: "tui",
+      cwd: LAUNCH_DIR, git_repo_root: LAUNCH_DIR, git_branch: "main",
+    });
+  }
   if (promptCount > 0) {
     rows.unshift({
       id: STORED_ID, title: "Mock 会话", model: "claude-opus-5", message_count: promptCount * 2, last_active: nowSec(),

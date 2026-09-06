@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
@@ -96,13 +97,32 @@ class SessionsViewModel @Inject constructor(
      * Raw pinned tokens ("<profile>/<sessionId>", device-local). The list spans all profiles, so
      * the UI must test each session against its OWN profile token — not the active profile — or a
      * pin made in another profile would vanish. Pins do not sync to desktop (no gateway pin API).
+     *
+     * **null means "not read yet", and the list must not render until it resolves** (HG-11). With
+     * an `emptySet()` seed the first frame drew a list with no 已置顶 section; the pins then landed
+     * a beat later and that whole section was INSERTED at the top of a LazyColumn that anchors on
+     * the row already in view — so the section, and the pinned rows with it, ended up above the
+     * viewport. The user had to scroll back up to find pins they had every reason to think were
+     * lost. Reading a DataStore is cheap next to the network round trip the list already waits on,
+     * so gating the first frame on it costs nothing visible.
+     *
+     * A pin store that cannot be read degrades to "no pins" rather than hanging that gate forever.
      */
-    val pinnedTokens: StateFlow<Set<String>> =
-        pinStore.pinned.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+    val pinnedTokens: StateFlow<Set<String>?> =
+        pinStore.pinned
+            .catch { emit(emptySet()) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** True if [session] is pinned, keyed by the session's own profile. */
-    fun isPinned(session: Session, tokens: Set<String> = pinnedTokens.value): Boolean =
-        PinStore.token(session.profile, session.id) in tokens
+    /** True if [session] is pinned, keyed by the session's own profile. Unread pins pin nothing. */
+    fun isPinned(session: Session, tokens: Set<String>? = pinnedTokens.value): Boolean =
+        PinStore.token(session.profile, session.id) in tokens.orEmpty()
+
+    /**
+     * Bumped when the user pins a session, so the list can bring the 已置顶 section into view.
+     * A counter rather than a flag: pinning twice in a row must reveal twice.
+     */
+    private val _pinRevealRequests = MutableStateFlow(0L)
+    val pinRevealRequests: StateFlow<Long> = _pinRevealRequests.asStateFlow()
 
     /** Persisted view mode (Sessions flat list vs the gateway project tree). */
     val viewMode: StateFlow<ViewMode> =
@@ -463,6 +483,11 @@ class SessionsViewModel @Inject constructor(
 
     /** Pin/unpin keyed by the session's OWN profile, so it works regardless of the active one. */
     fun togglePin(session: Session) = viewModelScope.launch {
-        pinStore.toggle(PinStore.token(session.profile, session.id))
+        // Pinning lifts the row into a section above wherever the reader is standing; without the
+        // reveal it simply vanishes from under their finger (HG-11). Unpinning moves it back down
+        // into its recency group, which needs no chase.
+        if (pinStore.toggle(PinStore.token(session.profile, session.id))) {
+            _pinRevealRequests.value += 1
+        }
     }
 }

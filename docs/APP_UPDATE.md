@@ -50,6 +50,9 @@ downgrade is not supported.”
 
 ## Publishing
 
+> **A version number allocated on a feature branch is a version number that can be lost.** See
+> *Incident: 0.1.97 was allocated twice and published never* below before bumping anything.
+
 1. The integration agent bumps `appVersionName` and `appVersionCode`, updates `android/README.md`, and
    adds `android/releases/<version>.json` containing only channel and release notes.
 2. Commit the release, push it to `origin/main`, and confirm the worktree is clean. With the canonical
@@ -122,6 +125,44 @@ as `root:hermes-remote`, `/etc/hermes-release-server/tls` as `root:kkk`, and the
 as `root:root`. It verifies both upstream restarts and reloads Nginx. Services never read the live
 Certbot private key. The unit fixes `ReadOnlyPaths=/srv/hermes-releases` and enforces
 `UMask=0077`, restricted address families, and native syscall architecture.
+
+## Incident: 0.1.97 was allocated twice and published never (2026-09-05)
+
+The public index goes 0.1.96 (code 97) → 0.1.98 (code 99). Nothing was ever published as code 98.
+What the user saw was a hole in 版本记录; what actually happened is worse, and it is worth stating
+exactly because the rule that would have prevented it already existed and was simply not followed.
+
+Evidence:
+
+- `f0518d9` (09-05 18:58 +0800) bumped 0.1.95 → **0.1.96** / code 97. Published 11:05:53Z. Fine.
+- `b34704e` (09-05 20:34 +0800), on the diagnostics branch, bumped 0.1.96 → **0.1.97** / code 98.
+- `62707e8` (09-05 20:42 +0800), on the remote-source-identity branch, bumped 0.1.96 → **0.1.97**
+  / code 98 as well — eight minutes later, in parallel, from the same base.
+- Merging the two conflicted on `android/app/build.gradle.kts`. The conflict was resolved by moving
+  straight to **0.1.98** / code 99, which published at 13:16:15Z from `b2b8906`.
+
+So 0.1.97 was never built and never served — there is no missing index entry to restore, and no APK
+to back-fill. **The thing that was actually lost is its release notes.** `android/releases/0.1.97.json`
+still exists and still describes real, shipped work (per-session diagnostic-log filtering and sharing,
+`c9572b2`, which is an ancestor of `android-v0.1.98`): that feature reached every user inside 0.1.98,
+and no release note in any version has ever mentioned it. Nobody was told the feature exists.
+
+Root cause: **two feature branches each allocated a version number.** `AGENTS.md` already reserves the
+bump for the integration agent, after all Android changes for that package are integrated, precisely
+so that a number cannot be claimed twice. Grepping for the current version before bumping — the earlier
+lesson from the 0.1.95 collision — does not help here: both branches grepped correctly and both saw
+0.1.96. Only serializing the bump behind integration does.
+
+Two obligations follow, and neither is optional:
+
+- **A superseded bump orphans its notes file.** When conflict resolution moves a release to a higher
+  number, the notes of the number being dropped must be folded into the surviving release's notes.
+  `android/releases/0.1.97.json` is the outstanding case: its three entries describe work that shipped
+  undocumented, and the next release that carries a notes file must absorb them.
+- **Nothing currently detects this.** The publisher verifies the entry it just wrote; it never asks
+  whether some earlier `android/releases/*.json` never made it into the index. A pre-publish check
+  comparing local notes files against the public index would have flagged 0.1.97 the moment 0.1.98
+  went out. Not implemented — decide before the next release whether a hole should block a publish.
 
 ## Verification and recovery
 

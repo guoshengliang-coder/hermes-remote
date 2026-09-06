@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -16,6 +17,11 @@ import java.io.File
  * The cache dir is already declared to the provider (`file_paths.xml` grants all of cache-path),
  * so no manifest change is needed. Files are disposable: the OS reclaims the cache, and each
  * export overwrites its own timestamped name.
+ *
+ * `false` means a genuine failure the caller should report. Cancellation is NOT a failure and is
+ * rethrown: swallowing it here reported "couldn't export" for work that was merely abandoned, and
+ * the caller's toast could not appear anyway because the coroutine raising it was already dead
+ * (HG-9).
  */
 internal object TranscriptShare {
     private fun exportDir(context: Context): File =
@@ -29,7 +35,7 @@ internal object TranscriptShare {
         chooserTitle: String,
         subject: String,
     ): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
+        try {
             val file = File(exportDir(context), "$baseName.md")
             file.writeText(markdown)
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
@@ -45,7 +51,12 @@ internal object TranscriptShare {
             withContext(Dispatchers.Main) {
                 context.startActivity(Intent.createChooser(intent, chooserTitle))
             }
-        }.isSuccess
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            false
+        }
     }
 
     /** Writes [bitmap] as `<baseName>.png` and opens the system share sheet. Returns false on failure. */
@@ -56,7 +67,7 @@ internal object TranscriptShare {
         chooserTitle: String,
         subject: String,
     ): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
+        try {
             val file = File(exportDir(context), "$baseName.png")
             file.outputStream().use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
@@ -70,6 +81,11 @@ internal object TranscriptShare {
             withContext(Dispatchers.Main) {
                 context.startActivity(Intent.createChooser(intent, chooserTitle))
             }
-        }.isSuccess
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            false
+        }
     }
 }
