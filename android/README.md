@@ -229,6 +229,11 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.100 quiets a finished turn. The reasoning toggle and the folded tool-call summary
+  drop their chip and card borders for one grey line each, with click behaviour unchanged; a task
+  list stops claiming an item is in progress once the run has ended; and Hermes' context-compression
+  scaffolding is no longer rendered as if the user had typed it. That last one cuts the scaffolding
+  off the message rather than hiding the message, because upstream appends it to a real user turn.
 - Version 0.1.99 fixes five reported defects. Sharing a transcript as a Markdown file could do
   nothing at all — the export ran on a coroutine scope the share sheet cancelled on its way out,
   taking the failure toast with it. Pinned sessions that looked lost were being inserted above an
@@ -602,7 +607,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.99-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.100-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
