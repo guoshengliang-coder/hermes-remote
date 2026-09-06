@@ -48,10 +48,15 @@ const server = createServer(async (request, response) => {
     // Return a history that COVERS the locally observed turns so the app's reconciliation
     // acceptance passes — this is what swaps live ids (u-*/a-*) for history ids (h-*), the
     // suspected trigger for the anchor-jump bug. Content mirrors what streamRun produced.
+    // `timestamp` (Unix SECONDS, float) is Hermes' own column name — the app reads it to show
+    // times in 我的提问. Mirroring it here is what makes HG-4 reproducible locally; a mock that
+    // omitted it looked identical to the bug. Spread the rows a few minutes apart so the list has
+    // something to show.
+    const base = Math.floor(Date.now() / 1000) - promptCount * 300;
     const out = [];
     for (let i = 0; i < promptCount; i++) {
-      out.push({ id: i * 2 + 1, role: "user", content: promptTexts[i] ?? "t" });
-      out.push({ id: i * 2 + 2, role: "assistant", content: FULL_TEXT });
+      out.push({ id: i * 2 + 1, role: "user", content: promptTexts[i] ?? "t", timestamp: base + i * 300 });
+      out.push({ id: i * 2 + 2, role: "assistant", content: FULL_TEXT, timestamp: base + i * 300 + 60 });
     }
     return json(response, { messages: out });
   }

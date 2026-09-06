@@ -489,6 +489,15 @@ private fun mimeTypeForName(name: String): String? = when (name.substringAfterLa
 }
 
 /** Lenient ISO-8601 parse: with or without offset; null on anything unexpected. */
+/**
+ * The message's wall-clock time in epoch millis, or null when neither source carried one.
+ * Hermes' own `timestamp` (Unix seconds, float) wins; the ISO `created_at` is a fallback that no
+ * current Hermes emits. Non-positive values are treated as absent — a 0.0 would render as 1970.
+ */
+internal fun messageTimestampMillis(seconds: Double?, isoCreatedAt: String?): Long? =
+    seconds?.takeIf { it > 0.0 }?.let { (it * 1000).toLong() }
+        ?: isoCreatedAt?.let(::parseIsoTimestampMillis)
+
 internal fun parseIsoTimestampMillis(raw: String): Long? = runCatching {
     java.time.OffsetDateTime.parse(raw).toInstant().toEpochMilli()
 }.getOrNull() ?: runCatching {
@@ -511,7 +520,7 @@ fun MessageDto.toDomain(toolResults: Map<String, MessageDto> = emptyMap()): Chat
         text = parsed.text,
         images = parsed.images,
         files = parsed.files,
-        timestamp = createdAt?.let(::parseIsoTimestampMillis),
+        timestamp = messageTimestampMillis(timestamp, createdAt),
         // Hermes persists reasoning and tool calls on every assistant row and the gateway passes
         // them through; until 2026-09-05 the DTO simply did not model them, so every history
         // load or reconcile came back without the reasoning card or tool timeline (HG-8).

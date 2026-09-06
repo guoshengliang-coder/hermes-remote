@@ -47,7 +47,17 @@ import kotlinx.serialization.Serializable
     val id: Int? = null,
     val role: String,
     val content: String? = null,
-    // ISO-8601 when the gateway provides it; optional so older gateways keep parsing.
+    /**
+     * Hermes' own column name for the message time: `timestamp REAL NOT NULL`, Unix **seconds** as
+     * a float (docs/HERMES_CONTRACT.md §1b). Every message has one — the column is NOT NULL.
+     *
+     * The client used to model only [createdAt] below, a field upstream never emits, so every
+     * message loaded from history came back timeless and only live-streamed ones carried a stamp.
+     * The 我的提问 list showed times on recent prompts and none on older ones (HG-4).
+     */
+    val timestamp: Double? = null,
+    // Kept as a fallback: no upstream Hermes emits this, but a future gateway or a recorded
+    // fixture might, and an ISO string costs nothing to accept.
     @SerialName("created_at") val createdAt: String? = null,
     // Server-injected timeline markers (async_delegation_complete, model_switch, hidden, …).
     // Optional: older gateways and plain user turns simply omit them.

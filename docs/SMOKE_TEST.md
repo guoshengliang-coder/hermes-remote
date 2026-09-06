@@ -743,3 +743,34 @@ left `in_progress`). Both were recorded and eyeballed as §5.4 requires.
    a one-line 「上下文已压缩」note that expands to the original text, never a user bubble. The case
    worth hunting for is the other one — a compression that lands on a turn where you also typed
    something: your text must survive intact with the scaffolding cut off it.
+
+## HG-3 / HG-4 / HG-5 (2026-09-06 branch claude/hg3-4-5-chat-entries)
+
+### Verified on the emulator, 2026-09-06 (Pixel_9_API_36_1, local dev stack)
+
+- **HG-5 top bar and menu.** The chat top bar reads `[←] 标题 [＋] [⋮]` — the search icon is gone,
+  replaced by 新建对话. The 「更多」menu lists 搜索对话 → 我的提问 → 刷新对话 → 复制对话 → 分享对话
+  → 归档对话 → 切换人格, exactly the order `docs/DESIGN.md` §5.4 now specifies.
+- **HG-5 archive.** 归档对话 opens the confirm dialog (「归档这个对话？归档后它会从会话列表移到
+  「已归档」，随时可以恢复。」/ 取消 · 归档), neutral coloured, not error-red. Confirming archived
+  the conversation and returned to the sessions list.
+
+The dev mock now emits Hermes' own `timestamp` field on history messages
+(`scripts/dev/mock-hermes-stream.mjs`), so HG-4 is reproducible locally — a mock without it looked
+identical to the bug.
+
+### Still needs a device
+
+1. **HG-3 with two tool calls.** The dev mock emits at most one tool call per run, so the new
+   two-call grouping was only exercised by unit tests. On a device: a turn that used exactly two
+   tools must show ONE timeline (a single quiet 「2 次工具调用」line once the turn completes), not
+   two separately bordered cards. A turn with exactly one tool must still show its own card.
+2. **HG-4 in a real transcript.** Open a conversation with history from before this build:
+   **every** prompt in 我的提问 must now carry a time, not just the ones sent in this session, and
+   the times must match when they were actually asked. This is the whole point of the fix — the
+   unit test proves the mapping, only a real transcript proves the data arrives.
+3. **HG-5 archive failure path.** With the Mac unreachable, confirming 归档 must leave you in the
+   chat with the `HR-SESS-008` message — not bounce you to the list as if it had worked.
+4. **HG-5 ＋ button.** Tapping ＋ in a chat must create a new conversation in the default project
+   and open it; a second tap while it is still creating must do nothing (the button shows the
+   brand mark and disables). Emulator taps kept landing off-target here, so this went unverified.
