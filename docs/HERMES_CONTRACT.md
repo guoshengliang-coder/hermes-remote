@@ -129,11 +129,31 @@ Mirrored constant: `COMPRESSION_SNAPSHOT_HEADER` in `ui/chat/TimelineNote.kt` is
 `TODO_INJECTION_HEADER`. Upstream renaming or rewording it silently returns this app to rendering
 the scaffolding as a user bubble — there is no version negotiation and no error.
 
-### 5. Mirrored constant
+### 5. Mirrored constants
 
 `MEDIA_DELIVERY_EXTENSIONS` in `android/.../domain/Mappers.kt` is a hand-copy of
 `gateway/platforms/base.py` `MEDIA_DELIVERY_EXTS`. Pinned item-for-item by
 `HermesContractTest.media_delivery_extensions_mirror_the_upstream_delivery_whitelist`.
+
+`CompactionCarrier` in `android/.../domain/CompactionCarrier.kt` hand-copies three markers from
+`agent/context_compressor.py`:
+
+| 常量 | 上游 |
+|---|---|
+| `PRIOR_CONTEXT_HEADER` | `_MERGED_PRIOR_CONTEXT_HEADER` |
+| `SUMMARY_DELIMITER` | `_MERGED_SUMMARY_DELIMITER` |
+| `SUMMARY_END_MARKER` | `_SUMMARY_END_MARKER` |
+
+They delimit the context-compaction handoff that Hermes carries through the **user-role** channel.
+Upstream strips it before showing a transcript (`agent/compaction_display.py` →
+`ContextCompressor._strip_context_summary_handoff_message`), but the dashboard REST history we read
+does **not**, so the client must project it itself. The projection mirrors upstream's shape — keep
+the prior tail before the delimiter, keep the live message after the end marker, drop a pure
+handoff — because a carrier can hold real conversation, and dropping the turn on sight would lose
+it. Matching is anchored at content start, as upstream's own detector is.
+
+**If these strings change upstream, the scaffolding reappears verbatim in the chat and the bot
+transcript.** There is no version negotiation and no error; `HermesContractTest` pins them.
 
 **Do not align it with `gateway/run.py`'s `_TOOL_MEDIA_RE`.** That regex only auto-tags output from
 `text_to_speech` / `image_generate` (`_AUTO_APPEND_MEDIA_TOOL_NAMES`), carries a much shorter list,

@@ -510,6 +510,10 @@ internal fun parseIsoTimestampMillis(raw: String): Long? = runCatching {
  */
 fun MessageDto.toDomain(toolResults: Map<String, MessageDto> = emptyMap()): ChatMessage {
     val parsed = parseMessageContent(content.orEmpty())
+    // Compaction handoffs ride the user-role channel. Project them the way upstream projects a
+    // transcript for display, keeping any real content merged into the carrier; a turn left with
+    // nothing is dropped by [isRenderable].
+    val projected = CompactionCarrier.project(parsed.text)
     return ChatMessage(
         id = id?.toString() ?: "m-${hashCode()}",
         role = when (role.lowercase()) {
@@ -517,9 +521,11 @@ fun MessageDto.toDomain(toolResults: Map<String, MessageDto> = emptyMap()): Chat
             "assistant" -> Role.ASSISTANT
             else -> Role.SYSTEM
         },
-        text = parsed.text,
-        images = parsed.images,
-        files = parsed.files,
+        text = projected.orEmpty(),
+        // A pure handoff carries no images or files of its own; keeping them would resurrect the
+        // turn that [isRenderable] is about to drop.
+        images = if (projected == null) emptyList() else parsed.images,
+        files = if (projected == null) emptyList() else parsed.files,
         timestamp = messageTimestampMillis(timestamp, createdAt),
         // Hermes persists reasoning and tool calls on every assistant row and the gateway passes
         // them through; until 2026-09-05 the DTO simply did not model them, so every history
@@ -615,3 +621,12 @@ fun LaneDto.toDomain() = ProjectLane(
     isMain = isMain,
     sessions = sessions.map { it.toDomain() },
 )
+
+
+/**
+ * Whether a mapped history turn has anything left to show. A compaction carrier projected down to
+ * nothing (see [CompactionCarrier]) is machine scaffolding, not a turn someone took.
+ */
+fun ChatMessage.isRenderable(): Boolean =
+    text.isNotBlank() || images.isNotEmpty() || files.isNotEmpty() ||
+        tools.isNotEmpty() || thinking.isNotBlank() || displayKind != null
