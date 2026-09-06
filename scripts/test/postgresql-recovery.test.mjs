@@ -10,7 +10,8 @@ import {
   loadPostgresqlStatusActivationConfig,
 } from "../../ops/lib/postgresql-recovery-config.mjs";
 import {
-  capturePostgresqlBackup, postgresqlEnvironment, publishPostgresqlBackupStatus, verifyPostgresqlRestore,
+  capturePostgresqlBackup, postgresqlEnvironment, postgresqlRestoreArguments,
+  publishPostgresqlBackupStatus, verifyPostgresqlRestore,
 } from "../../ops/lib/postgresql-recovery.mjs";
 import { sha256File } from "../../ops/lib/config.mjs";
 import { loadProductionEvidence } from "../../ops/lib/production-config.mjs";
@@ -43,6 +44,17 @@ test("R5-E libpq environment rejects remote, ambiguous, and incomplete URLs", ()
   ]) {
     assert.throws(() => postgresqlEnvironment(value), isCode("HR-OPS-013"));
   }
+});
+
+test("R5-E gives pg_restore an explicit decoded database target without credentials", () => {
+  const args = postgresqlRestoreArguments(
+    "postgresql://restore-user:p%40ssword@127.0.0.1:5433/hermes%2Drestore",
+  );
+  assert.deepEqual(args, [
+    "--dbname", "hermes-restore",
+    "--exit-on-error", "--single-transaction", "--no-owner", "--no-privileges",
+  ]);
+  assert.equal(args.some((value) => value.includes("postgresql://") || value.includes("p@ssword")), false);
 });
 
 test("R5-E publishes status only after encrypted capture and off-host restore checks", async (t) => {

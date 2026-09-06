@@ -278,6 +278,11 @@ case "$PGPORT:$PGDATABASE" in
     ;;
   *) exit 64 ;;
 esac
+if [ "${tool}" = pg_restore ]; then
+  test "$1" = --dbname || exit 68
+  test "$2" = "$database" || exit 69
+  exec docker exec -i "$container" ${tool} --username hermes_r5e "$@"
+fi
 exec docker exec -i "$container" ${tool} --username hermes_r5e --dbname "$database" "$@"
 `;
     await writeFile(filePath, script, { flag: "wx", mode: 0o700 });
