@@ -6,6 +6,7 @@ import com.hermes.client.data.network.SessionStatsDto
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Session
 import com.hermes.client.domain.toDomain
+import com.hermes.client.domain.isRenderable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
@@ -161,6 +162,9 @@ class SessionRepository(
                     val m = dto.toDomain(toolResults)
                     m.copy(id = "h-$i-${m.id}")
                 }
+                // A compaction handoff projected down to nothing is machine scaffolding, not a
+                // turn anyone took. Indices are assigned first so ids stay stable across the drop.
+                .filter { it.isRenderable() }
             synchronized(historyCache) { historyCache[historyKey(sessionId, profile)] = loaded }
             loaded
         }

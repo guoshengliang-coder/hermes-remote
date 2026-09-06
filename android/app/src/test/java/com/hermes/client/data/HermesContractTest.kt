@@ -81,4 +81,25 @@ class HermesContractTest {
         assertTrue("html" in MEDIA_DELIVERY_EXTENSIONS)
         assertTrue("md" in MEDIA_DELIVERY_EXTENSIONS)
     }
+
+    /**
+     * The compaction markers are hand-copied from upstream `agent/context_compressor.py`. If they
+     * drift, the handoff scaffolding reappears verbatim in every compacted conversation — there is
+     * no negotiation and no error, only a wall of English machine text where a turn should be.
+     */
+    @Test
+    fun compaction_markers_mirror_the_upstream_delimiters() {
+        assertEquals(
+            "[PRIOR CONTEXT — for reference only; not a new message]",
+            com.hermes.client.domain.CompactionCarrier.PRIOR_CONTEXT_HEADER,
+        )
+        assertEquals(
+            "[END OF PRIOR CONTEXT — COMPACTION SUMMARY BELOW]",
+            com.hermes.client.domain.CompactionCarrier.SUMMARY_DELIMITER,
+        )
+        assertEquals(
+            "--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---",
+            com.hermes.client.domain.CompactionCarrier.SUMMARY_END_MARKER,
+        )
+    }
 }
