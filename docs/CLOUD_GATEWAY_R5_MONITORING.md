@@ -65,5 +65,7 @@ production-baseline operator bundle；不得用工作区文件补齐一个不完
 
 2026-09-06 已使用 `main 69e25cfd8d39` 的受保护 operator bundle 部署并启用该 15 分钟 timer；真实状态
 全绿、隔离测试状态触发 `HR-OPS-012` 的故障演练均通过，Gateway、Nginx、PostgreSQL、DERP 和发布服务
-没有被重启或降级。当前通知仍只写本机 journal。R5-E7 会自动刷新本文件所述状态，但不会改变
-`production-monitor` 的只读职责；每日捕获、Mac 接收与恢复各自失败时，旧状态自然过期并被现有监控发现。
+没有被重启或降级。当前通知仍只写本机 journal。2026-09-06 已使用 `main 6e92ce018a6b` 部署 R5-E7：
+生产端每日 03:15（`Asia/Hong_Kong`）捕获，Mac 每小时接收并恢复验证；首次手动完整闭环激活的新状态已由
+本监控判定为绿色。它不会改变 `production-monitor` 的只读职责；首个 scheduler-triggered 周期仍待观察，
+每日捕获、Mac 接收与恢复各自失败时，旧状态自然过期并被现有监控发现。
