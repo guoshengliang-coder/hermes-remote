@@ -113,6 +113,12 @@ data class SessionRuntime(
  * process lived, and the unlocked composer let a second live bubble stack under it (HG-6, HG-7).
  * Normalizing here instead of fixing each writer means a writer that forgets cannot desync the
  * committed state.
+ *
+ * The same rule covers the pending cards: an approval or clarify request is only meaningful while
+ * the run is waiting on it. Hermes answers an unanswered approval itself (deny after the timeout)
+ * and moves on without telling the client, so a card that outlives the run came back as a modal
+ * 需要审批 sheet on the next open of a finished conversation, and answering it flipped the finished
+ * session to a phantom 思考中 (emulator pass, 2026-09-06).
  */
 internal fun SessionRuntime.normalized(): SessionRuntime {
     val active = phase.isActive
@@ -122,7 +128,12 @@ internal fun SessionRuntime.normalized(): SessionRuntime {
         } else message
     }
     return copy(
-        chat = chat.copy(isGenerating = active, messages = messages),
+        chat = chat.copy(
+            isGenerating = active,
+            messages = messages,
+            pendingApproval = if (active) chat.pendingApproval else null,
+            pendingClarify = if (active) chat.pendingClarify else null,
+        ),
         phaseBeforeReconnect = if (phase == SessionRunPhase.RECONNECTING) phaseBeforeReconnect else null,
     )
 }
@@ -783,6 +794,16 @@ class SessionRuntimeStore(
 
     fun continueAfterInput(key: SessionRuntimeKey) {
         updateRuntime(key, cause = "input-answered") { runtime ->
+            // An answer to a card on a run this store has already seen end must not restart it:
+            // Hermes has moved on, nothing will follow, and the phantom 思考中 would sit there until
+            // the watchdog gave up. A runtime that has never seen a terminal (fresh process answering
+            // from the notification shade) still gets the optimistic THINKING.
+            if (!runtime.phase.isActive && runtime.lastTerminalAt > 0L) {
+                DebugLog.log("phase") {
+                    "s=${key.sessionId} input answered after the run ended (${runtime.phase}); not restarting"
+                }
+                return@updateRuntime runtime
+            }
             runtime.copy(
                 phase = SessionRunPhase.THINKING,
                 lastEventAt = System.currentTimeMillis(),
