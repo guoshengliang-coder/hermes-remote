@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "environment": "off-host-recovery",
+  "operator": "replace-with-operator",
+  "expectedSourceHostname": "replace-with-production-hostname",
+  "offHostStorageId": "replace-with-mac-storage-id",
+  "remoteHost": "replace-with-production-host-or-ip",
+  "remoteUser": "replace-with-ssh-user",
+  "sshIdentityFile": "/Users/replace/.ssh/hermes-production-ed25519",
+  "knownHostsFile": "/Users/replace/.ssh/known_hosts",
+  "remoteCommandPath": "/usr/local/sbin/hermes-go-postgresql-automation-remote",
+  "localRoot": "/Users/replace/.hermes-go/recovery/postgresql-generations",
+  "recipientCertificate": "/Users/replace/.hermes-go/recovery/postgresql-recipient-cert.pem",
+  "recipientPrivateKey": "/Users/replace/.hermes-go/recovery/postgresql-recipient-key.pem",
+  "targetArtifactManifest": "/Users/replace/.hermes-go/recovery/gateway/Hermes-Gateway.manifest.json",
+  "dockerPath": "/Applications/Docker.app/Contents/Resources/bin/docker",
+  "opensslPath": "/opt/homebrew/opt/openssl@3/bin/openssl",
+  "postgresqlImage": "postgres:18-alpine@sha256:replace-with-reviewed-digest",
+  "maximumEncryptedBytes": 107374182400,
+  "retentionCount": 30,
+  "postgresqlMajorVersion": 18,
+  "databaseSchemaVersion": 7
+}

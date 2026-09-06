@@ -63,6 +63,7 @@ production-baseline operator bundle；不得用工作区文件补齐一个不完
 `systemctl --failed` 和 journal 发现，但不会主动发送到手机、邮件或第三方平台。若需要外部通知，应由受保护
 的日志采集器消费 `daemon.alert`；不要把 webhook、邮箱、Token 或其他凭据写进 unit、仓库或命令输出。
 
-部署 unit、启用 timer 或接入外部通知都会改变生产状态，必须另行取得明确授权。源码合并和测试通过不授权
-这些操作。部署后至少验证一次全绿运行和一次使用测试状态文件触发的 `HR-OPS-012`，随后恢复真实状态并
-确认 Gateway、Nginx、PostgreSQL、DERP 和发布服务没有被重启或降级。
+2026-09-06 已使用 `main 69e25cfd8d39` 的受保护 operator bundle 部署并启用该 15 分钟 timer；真实状态
+全绿、隔离测试状态触发 `HR-OPS-012` 的故障演练均通过，Gateway、Nginx、PostgreSQL、DERP 和发布服务
+没有被重启或降级。当前通知仍只写本机 journal。R5-E7 会自动刷新本文件所述状态，但不会改变
+`production-monitor` 的只读职责；每日捕获、Mac 接收与恢复各自失败时，旧状态自然过期并被现有监控发现。

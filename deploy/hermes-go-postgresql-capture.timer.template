@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Hermes GO encrypted PostgreSQL capture daily
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 Asia/Hong_Kong
+Persistent=true
+RandomizedDelaySec=900
+AccuracySec=1min
+Unit=hermes-go-postgresql-capture.service
+
+[Install]
+WantedBy=timers.target

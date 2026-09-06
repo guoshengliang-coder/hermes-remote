@@ -193,7 +193,7 @@ configuration and state and creates a new encrypted output. It requires a separa
 after CI passes; do not infer that approval from a merge or from an R5-A audit. The full key-handling,
 invocation, rollback, and verification procedure is in `CLOUD_GATEWAY_R5_RECOVERY.md`.
 
-## PostgreSQL production gate (R5-E capture complete; restore pending)
+## PostgreSQL production gate (R5-E6 complete; R5-E7 automation pending deployment)
 
 The existing HK host has enough nominal CPU and memory for the initial low-volume Gateway database,
 so a second server is not a prerequisite. PostgreSQL must remain a separate system service, listen only
@@ -227,16 +227,20 @@ off-host restore verification with the immutable Gateway image, and evidence-bou
 activation. No production database, migration, capture, transfer, restore, status activation, or
 timer enablement is implied by the source implementation.
 
-As of 2026-09-06, the dedicated least-privilege role/database and schema 7 migration are complete with
-both account flags still disabled. The first successful production capture used the protected artifact
-from `main 7bc4f71472e7` and produced a 51,565-byte CMS AES-256-GCM archive. Its verified encrypted copy
-and matching Gateway artifact are retained off-host on the Mac; the private recovery key never left the
-Mac. The first isolated restore stopped before connecting because `pg_restore` lacked an explicit
-`--dbname`; the disposable database and credentials were removed and no restore evidence or active
-backup status exists yet. R5-E5A fixes that boundary and must pass all gates before a separately
-authorized restore retry.
+As of 2026-09-06, the dedicated least-privilege role/database, schema 7 migration, first encrypted
+production capture, Mac off-host PostgreSQL 18 restore, immutable-image account smoke, and atomic status
+activation are complete with both account flags still disabled. The private recovery key never left the
+Mac. The production monitor is enabled and passed both a real green check and an isolated failure drill.
 
-## Production disk and backup monitoring (R5-C4; not deployed)
+R5-E7 adds the still-pending recurring layer: a 03:15 Asia/Hong_Kong production capture timer, an hourly
+idempotent Mac LaunchAgent poll, immutable generations, strict SSH export, disposable PostgreSQL 18 restore on every new
+generation, evidence-bound status activation, and acknowledged retention. Install only the protected
+operator bundle. The remote SSH user receives sudo permission for the fixed root-owned wrapper only; it
+must never receive permission to run Node, the underlying automation script, or an arbitrary config as
+root. Validate one manual full cycle before enabling either scheduler, then observe one scheduled cycle
+and the following production-monitor check before R5-F.
+
+## Production disk and backup monitoring (R5-C4; deployed)
 
 R5-C4 adds a separate `production-monitor` command. It reads only the root filesystem capacity and one
 strict PostgreSQL encrypted-backup status file; it does not run `pg_dump`, connect to PostgreSQL, remove
