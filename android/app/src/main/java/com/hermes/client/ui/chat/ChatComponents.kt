@@ -69,7 +69,6 @@ import androidx.compose.material.icons.rounded.OpenInFull
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.DropdownMenu
@@ -1848,7 +1847,7 @@ internal fun AssistantTurn(
             if (msg.thinking.isNotBlank()) ThinkingCard(msg.id, msg.thinking)
             remember(msg.tools) { groupToolsForDisplay(msg.tools) }.forEach { group ->
                 when (group) {
-                    is ToolDisplayGroup.Single -> SemanticToolCard(group.tool)
+                    is ToolDisplayGroup.Single -> SemanticToolCard(group.tool, completed = !msg.isStreaming)
                     is ToolDisplayGroup.Timeline -> ToolTimelineCard(
                         group.tools,
                         completed = !msg.isStreaming,
@@ -2963,6 +2962,40 @@ internal fun RunningStatusLine(msg: ChatMessage) {
     }
 }
 
+/**
+ * One quiet line standing in for something folded away — reasoning, a finished tool timeline
+ * (docs/DESIGN.md §5.4, HG-15). Deliberately NOT a chip and NOT a bordered card: these controls
+ * are rarely opened and sit above the answer, so card weight there reads as noise. 0.1.94 folded
+ * the content but kept the container, which is why the complaint survived that fix.
+ */
+@Composable
+internal fun QuietFoldSummary(
+    label: String,
+    expanded: Boolean,
+    contentDescription: String,
+    onClick: () -> Unit,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickableNoIndication(onClick = onClick)
+            .padding(vertical = 5.dp)
+            .semantics { this.contentDescription = contentDescription },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = color, modifier = Modifier.weight(1f))
+        Icon(
+            if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(12.dp),
+        )
+    }
+}
+
 @Composable
 private fun ThinkingCard(messageId: String, text: String) {
     val language = LocalAppLanguage.current
@@ -2973,9 +3006,14 @@ private fun ThinkingCard(messageId: String, text: String) {
     // Closing the search does not fold it back; the reader may be mid-read.
     val autoExpand = shouldAutoExpand(LocalChatSearch.current, LocalTurnIsCurrentHit.current, SearchSource.THINKING, text)
     LaunchedEffect(autoExpand) { if (autoExpand) expanded = true }
-    AssistChip(
+    // Quiet in BOTH states: unlike the tool timeline this toggle never shows progress (a live run's
+    // reasoning is voiced by RunningStatusLine), so restyling it at completion would only flash.
+    QuietFoldSummary(
+        label = if (expanded) localized(language, "收起思考过程", "Hide reasoning")
+        else localized(language, "查看思考过程", "View reasoning"),
+        expanded = expanded,
+        contentDescription = localized(language, "思考过程", "Reasoning"),
         onClick = { expanded = !expanded },
-        label = { Text(if (expanded) localized(language, "收起思考过程", "Hide reasoning") else localized(language, "查看思考过程", "View reasoning")) },
     )
     if (expanded) {
         SelectionContainer {

@@ -52,6 +52,32 @@ fun isHiddenTimelineMessage(message: ChatMessage): Boolean =
 private val MODEL_SWITCH_NAME = Regex("changed to (\\S+?)(?: via |\\. |\\.]|$)")
 
 /**
+ * Hermes' context-compression scaffolding, copied verbatim from upstream
+ * (`tools/todo_tool.py` `TODO_INJECTION_HEADER`, Hermes 0.21.0 — see docs/HERMES_CONTRACT.md).
+ *
+ * It re-injects the surviving task list so the model keeps its plan across a compression
+ * boundary, and it rides the wire as role=user. The skills-reload notice that sometimes follows
+ * is appended AFTER this header by upstream ("so both strip together"), never on its own, so
+ * cutting here removes both.
+ *
+ * The part that is easy to get wrong: upstream folds the snapshot into the trailing REAL user
+ * turn whenever a standalone one would create consecutive user messages. Matching this as a
+ * whole-message prefix and hiding the message would therefore delete what the user actually
+ * typed. Cut at the marker instead — [withoutCompressionScaffolding] — and only treat the turn
+ * as a note when nothing of the user's own text is left.
+ */
+const val COMPRESSION_SNAPSHOT_HEADER = "[Your active task list was preserved across context compression]"
+
+/**
+ * [text] with the compression scaffolding and everything after it removed. Returns [text]
+ * unchanged when the marker is absent, and "" when the message was scaffolding alone.
+ */
+fun withoutCompressionScaffolding(text: String): String {
+    val index = text.indexOf(COMPRESSION_SNAPSHOT_HEADER)
+    return if (index < 0) text else text.substring(0, index).trimEnd()
+}
+
+/**
  * Classify a message as a timeline note, or null for a real conversation turn.
  *
  * display_kind (server marker) always wins; the prefix fallback below covers notices the
@@ -93,6 +119,11 @@ fun timelineNoteFor(message: ChatMessage): TimelineNote? {
             TimelineNote("⚙", "后台子任务已完成", "Background tasks finished", expandable = true)
         text.startsWith("[IMPORTANT: Background process") ->
             TimelineNote("⚙", "后台进程通报", "Background process report", expandable = true)
+        // Scaffolding ALONE — a turn that is nothing but the compression snapshot. When the user
+        // also typed something the marker sits further in and the message stays a real bubble
+        // with the scaffolding cut off it (see organizedForDisplay).
+        withoutCompressionScaffolding(text).isBlank() && text.contains(COMPRESSION_SNAPSHOT_HEADER) ->
+            TimelineNote("⧉", "上下文已压缩", "Context compressed", expandable = true)
         else -> null
     }
 }

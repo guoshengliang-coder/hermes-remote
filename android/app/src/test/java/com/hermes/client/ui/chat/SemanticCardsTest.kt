@@ -212,4 +212,22 @@ class SemanticCardsTest {
     @Test fun tsvIgnoresProseAroundTable() {
         assertEquals("a\tb", markdownTableToTsv("some text\n| a | b |\n|---|---|"))
     }
+
+    // Regression for HG-16. Hermes routinely stops updating a task list without ever marking the
+    // last item done, so a card that keeps rendering in_progress claimed work was still happening
+    // long after the run ended.
+    @Test fun `a finished turn leaves nothing in progress`() {
+        assertEquals("pending", settledTodoStatus("in_progress", turnCompleted = true))
+        // Not "failed" and not "cancelled": the app cannot tell an abandoned task from one that
+        // finished without a final report, and guessing would libel the run.
+        assertEquals("completed", settledTodoStatus("completed", turnCompleted = true))
+        assertEquals("cancelled", settledTodoStatus("cancelled", turnCompleted = true))
+        assertEquals("pending", settledTodoStatus("pending", turnCompleted = true))
+    }
+
+    @Test fun `a running turn still shows what is in progress`() {
+        assertEquals("in_progress", settledTodoStatus("in_progress", turnCompleted = false))
+        assertEquals("completed", settledTodoStatus("completed", turnCompleted = false))
+    }
+
 }

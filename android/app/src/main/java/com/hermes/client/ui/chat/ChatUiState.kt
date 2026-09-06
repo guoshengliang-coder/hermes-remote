@@ -278,6 +278,14 @@ private fun detachProcessNarration(text: String): Pair<String, String?> {
 
 internal fun ChatMessage.organizedForDisplay(): ChatMessage {
     if (isError) return this
+    if (role == Role.USER) {
+        // Hermes appends its context-compression snapshot to the trailing user turn, so a real
+        // prompt can arrive with pages of scaffolding stapled to it (HG-16). Cut the scaffolding
+        // and keep what the user typed. A turn that was scaffolding ALONE keeps its text: it is
+        // about to become a timeline note, whose expanded body shows the original.
+        val stripped = withoutCompressionScaffolding(text)
+        return if (stripped.isBlank() || stripped == text) this else copy(text = stripped)
+    }
     // REST history preserves Hermes tool turns as role="tool"; the domain mapper represents
     // unknown/non-chat roles as SYSTEM. Those turns contain the same untrusted wrappers as live
     // assistant output and must be collapsed too. Leave ordinary system notices untouched.
