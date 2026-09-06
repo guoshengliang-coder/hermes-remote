@@ -229,6 +229,18 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.103 stops Hermes' context-compaction handoff from being read as conversation. When a
+  conversation outgrows its context window Hermes compacts the earlier turns and carries the
+  handoff through the same user-role channel a person's messages use; upstream strips it before
+  showing a transcript, the dashboard REST history does not, and nothing on this side was
+  projecting it — so every compacted conversation showed a wall of English machine scaffolding.
+  A carrier can hold real conversation, so the projection keeps the prior tail before the
+  delimiter and the live message after the legacy end marker, and drops only a carrier left
+  holding nothing; matching is anchored at content start so a person quoting a marker still says
+  something real. The delimiters are pinned by HermesContractTest. The home screen's alert slot
+  also merges channel and scheduled-job trouble root-cause-first: a channel that is down absorbs
+  the deliveries it swallowed and says so, instead of one outage counting four times across two
+  screens.
 - Version 0.1.102 makes Hermes' other conversations visible. A fourth Chats segment, 机器人, lists
   what Hermes has been saying on DingTalk, Slack and the rest — grouped by channel, appearing only
   once a channel exists and stepping aside when the last one goes. Those transcripts are read-only
@@ -624,7 +636,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.102-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.103-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
