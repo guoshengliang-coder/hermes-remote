@@ -313,6 +313,7 @@ fun HermesNav(
                     onOpenCard = openCard,
                     onOpenSearch = { nav.navigate("search") { launchSingleTop = true } },
                     onOpenCron = { push("cron") },
+                    onOpenMessaging = { push("messaging") },
                     onOpenBotSession = { id, profile ->
                         push("bot_transcript/$id?profile=${profile.orEmpty()}")
                     },
