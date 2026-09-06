@@ -229,6 +229,12 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.101 merges two consecutive tool calls into one group instead of two cards, restores
+  the missing times in 我的提问 (Hermes always sent them under the column name `timestamp`; the
+  client was reading a `created_at` that upstream never emits, so every message loaded from history
+  arrived timeless), and reworks the chat top bar: 新建对话 takes the icon slot, search moves to the
+  head of the 更多 menu, and 归档对话 joins it. Archiving now confirms first, in the chat and in the
+  sessions list alike.
 - Version 0.1.100 quiets a finished turn. The reasoning toggle and the folded tool-call summary
   drop their chip and card borders for one grey line each, with click behaviour unchanged; a task
   list stops claiming an item is in progress once the run has ended; and Hermes' context-compression
@@ -607,7 +613,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.100-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.101-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
