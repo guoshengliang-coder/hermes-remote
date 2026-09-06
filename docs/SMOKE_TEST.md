@@ -576,6 +576,50 @@ when the phone is asleep — the fix only guarantees that what is shown is true 
    the app to the foreground twice a minute apart: the row turns 已中断 instead of spinning forever.
 
 
+### Emulator pass, 2026-09-06 (0.1.98, Pixel 9 API 36 against the local dev stack)
+
+Build `Hermes-Remote-0.1.98-debug.apk` from `main` b9751e1, mock Hermes via
+`scripts/dev/dev-stack.sh` (gateway on 8788, connector 0.1.2), diagnostics switch on. The mock
+answers every prompt with the same tool-using turn, so it exercises the state machine but not
+the sleep trigger. What the pass proved:
+
+- **Events before the session is bound are kept.** The first prompt's `session.info` arrived
+  before the chat was bound to the new id; the log shows `[event] buffered` and then `replaying`
+  once the id was known, and the transcript never lost the turn.
+- **Phase trail.** `[phase]` lines run `IDLE→THINKING→STREAMING→COMPLETED→IDLE`, each with its
+  `cause`, and the session-level mark plus the running footer stay in the bottom slot for the whole
+  run (screens 03, 14, 16).
+- **Completion closes the bubble** (cases 1 and 2 without the sleep). After `message.complete`
+  the answer keeps its action row, the composer offers 发送, and a second prompt gives exactly one
+  live bubble.
+- **Refresh as a truth check** (case 7, finished-run half). 更多 → 刷新对话 on a finished run: the
+  toast reads 「已同步 · 运行已结束」 within about a second (screens 12/13).
+- **Reasoning survives reopen** (case 3, reasoning half). 查看思考过程 is still there after
+  leaving and reopening the chat; the `[history] reconcile s=… 4 rows cover the local turns` line
+  confirms the reconcile ran and was accepted.
+- **List row.** The row reads 已完成 after the run; no 思考中 residue.
+- **Diagnostics page.** The session chips (全部 / `stored-mock-1`) appear; selecting the session
+  chip leaves only lines carrying `s=stored-mock-1` / `session=stored-mock-1` (screen 25).
+
+What the mock cannot show and still needs a real device or production Hermes:
+
+- Folding the tool timeline on reopen (case 6): the mock turn has fewer than three tool calls and
+  its history rows carry no persisted `tool_calls` / `reasoning`, so the fold threshold and the
+  `tool_call → arguments.name` label resolution were only covered by unit tests.
+- Cases 1, 2, 4 with the phone actually asleep (Doze latency), the 30-minute hard cap, and the
+  list pull-to-refresh probe (no row was active when the pull was tried).
+
+Found during the pass, not fixed in 0.1.98 (**stale approval sheet**): after answering the
+mock's `approval.request` with 拒绝 and letting the run finish, reopening the chat shows the
+modal 需要审批 sheet again (screens 07/08/17); BACK does not dismiss it, and answering again
+flips the finished session to a phantom 思考中 (`IDLE→THINKING cause=input-answered`). The
+reducer clears `pendingClarify` on the next `message.delta` but never clears `pendingApproval`,
+and neither was cleared when the phase left the active set. Fixed on branch
+`claude/stale-approval-clear`: `normalized()` drops both cards once the phase leaves the active
+set, and answering a card on a run the store has already seen end no longer restarts it
+(`StalePendingCardTest`). Still to confirm on a device: open a conversation whose approval you
+let time out — no sheet, no 思考中.
+
 ## Diagnostic observability and HG-1 / HG-10 (2026-09 branch claude/diagnostic-observability)
 
 ### Verified on the emulator, 2026-09-05
