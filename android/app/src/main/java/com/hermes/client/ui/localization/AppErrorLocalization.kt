@@ -102,6 +102,8 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "无法归档会话，请重试。", "Couldn't archive the conversation. Retry.")
         AppErrorCode.INSTALL_PERMISSION_REQUIRED ->
             localized(language, "需要允许安装未知应用，授权后请重试。", "Permission to install unknown apps is required. Grant it and retry.")
+        AppErrorCode.HISTORY_INCOMPLETE ->
+            localized(language, "无法同步完整会话内容，请重试。", "Couldn't synchronize the complete conversation. Retry.")
         AppErrorCode.RUN_UNCONFIRMED ->
             localized(language, "任务停止了，但没有确认完成，请打开会话检查。", "The task stopped without a confirmed completion. Open the conversation to check.")
         AppErrorCode.NOTIFICATION_ACTION_FAILED ->

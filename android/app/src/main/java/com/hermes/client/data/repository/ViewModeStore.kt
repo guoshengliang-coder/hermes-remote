@@ -24,6 +24,7 @@ class ViewModeStore(private val context: Context) {
         .map { prefs ->
             when (prefs[key]) {
                 ViewMode.PROJECTS.name -> ViewMode.PROJECTS
+                ViewMode.BOTS.name -> ViewMode.BOTS
                 ViewMode.ARCHIVED.name -> ViewMode.ARCHIVED
                 else -> ViewMode.SESSIONS
             }

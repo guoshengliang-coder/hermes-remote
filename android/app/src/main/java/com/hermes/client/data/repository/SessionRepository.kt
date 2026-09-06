@@ -79,6 +79,7 @@ class SessionRepository(
         // Coalescing keys. The two list keys are distinct because they are different queries;
         // `activityFeed` keeps cron sessions, so it deliberately does NOT share the list key.
         private const val LIST_ALL_KEY = "sessions:all"
+        private const val BOT_LIST_KEY = "sessions:bots"
         private const val ARCHIVED_ALL_KEY = "sessions:archived"
         private const val HISTORY_KEY_PREFIX = "history:"
     }
@@ -98,6 +99,16 @@ class SessionRepository(
         allProfilesCache = loaded
         allProfilesLoaded = true
         loaded
+    }
+
+    /**
+     * Every non-archived, non-empty session across profiles, WITHOUT the interactive-source
+     * filter. [listAllProfiles] drops messaging sources on purpose — they would flood the Chats
+     * list — so the Bots segment needs its own read of the same endpoint.
+     */
+    suspend fun botSessions(): List<Session> = coalesced(BOT_LIST_KEY) {
+        rest.profileSessions().sessions.map { it.toDomain() }
+            .filter { !it.archived && it.messageCount > 0 }
     }
 
     fun cachedAllProfiles(): List<Session> = allProfilesCache
