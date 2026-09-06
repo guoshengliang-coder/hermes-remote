@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "environment": "production",
+  "operator": "replace-with-operator",
+  "sourceHostname": "replace-with-production-hostname",
+  "serviceName": "postgresql",
+  "databaseUrlFile": "/etc/hermes-go/secrets/account-database-url",
+  "recipientCertificate": "/etc/hermes-go/recovery/postgresql-recipient-cert.pem",
+  "backupRoot": "/var/backups/hermes-go/postgresql-generations",
+  "latestDescriptorFile": "/var/backups/hermes-go/postgresql-generations/latest-ready.json",
+  "activeStatusFile": "/var/lib/hermes-go-monitor/latest-status.json",
+  "maximumEncryptedBytes": 107374182400,
+  "retentionCount": 14,
+  "postgresqlMajorVersion": 18,
+  "databaseSchemaVersion": 7
+}

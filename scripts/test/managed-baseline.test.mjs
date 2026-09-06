@@ -226,6 +226,7 @@ test("the immutable operator bundle carries the R5-E and production monitoring e
   const packager = await readFile("scripts/package-production-baseline-bundle.mjs", "utf8");
   assert.match(packager, /"scripts\/postgresql-provision\.mjs"/);
   assert.match(packager, /"scripts\/postgresql-recovery\.mjs"/);
+  assert.match(packager, /"scripts\/postgresql-automation\.mjs"/);
   assert.match(packager, /"scripts\/production-monitor\.mjs"/);
   assert.match(packager, /"ops\/production\.monitor\.example\.json"/);
   assert.match(packager, /"ops\/hermesctl-production-monitor-config\.schema\.json"/);
@@ -233,6 +234,12 @@ test("the immutable operator bundle carries the R5-E and production monitoring e
   assert.match(packager, /"deploy\/hermes-go-production-monitor\.service\.template"/);
   assert.match(packager, /"deploy\/hermes-go-production-monitor-alert\.service\.template"/);
   assert.match(packager, /"deploy\/hermes-go-production-monitor\.timer\.template"/);
+  assert.match(packager, /"deploy\/hermes-go-postgresql-capture\.service\.template"/);
+  assert.match(packager, /"deploy\/hermes-go-postgresql-capture-alert\.service\.template"/);
+  assert.match(packager, /"deploy\/hermes-go-postgresql-capture\.timer\.template"/);
+  assert.match(packager, /"deploy\/com\.hermesgo\.postgresql-offhost\.plist\.template"/);
+  assert.match(packager, /"deploy\/hermes-go-postgresql-automation-remote\.template"/);
+  assert.match(packager, /"deploy\/hermes-go-postgresql-automation\.sudoers\.template"/);
 });
 
 async function createFixture(t) {

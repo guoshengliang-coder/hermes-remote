@@ -140,6 +140,7 @@ test('R5-D managed baseline runs only on a disposable secretless host', async ()
   assert.match(packager, /\.\/ops\/lib\/production-smoke-runtime\.mjs/);
   assert.match(packager, /"scripts\/verify-production-baseline-bundle\.mjs"/);
   assert.match(packager, /"scripts\/postgresql-recovery\.mjs"/);
+  assert.match(packager, /"scripts\/postgresql-automation\.mjs"/);
   assert.match(packager, /"scripts\/lib\/release-errors\.mjs"/);
   assert.match(packager, /"scripts\/lib\/gateway-candidate-smoke\.mjs"/);
   assert.match(packager, /verifyStagedSmokeEntrypoint/);
@@ -159,15 +160,20 @@ test('R5-E recovery uses only disposable PostgreSQL 18 and a manifest-bound immu
   assert.match(workflow, /R5E_SOURCE_POSTGRES_CONTAINER_ID: \$\{\{ job\.services\.postgres\.id \}\}/);
   assert.match(workflow, /R5E_RESTORE_POSTGRES_CONTAINER_ID: \$\{\{ job\.services\.postgres_restore\.id \}\}/);
   assert.match(workflow, /\.\/scripts\/package-gateway-bundle\.sh outputs\/r5e-gateway/);
+  assert.match(workflow, /package-production-baseline-bundle\.mjs outputs\/r5e-ops/);
+  assert.match(workflow, /verify-production-baseline-bundle\.mjs/);
   assert.match(workflow, /R5E_TARGET_MANIFEST: \$\{\{ steps\.image\.outputs\.manifest \}\}/);
   assert.equal(/secrets\.|docker\s+(?:push|login)|packages: write|ssh\b|mrlgs\.net|47\.239\./.test(workflow), false);
   const harness = await readRoot('scripts/test/postgresql-recovery-e2e.mjs');
-  assert.match(harness, /capturePostgresqlBackup/);
+  assert.match(harness, /captureScheduledPostgresqlBackup/);
   assert.match(harness, /verifyPostgresqlRestore/);
-  assert.match(harness, /publishPostgresqlBackupStatus/);
+  assert.match(harness, /runOffHostRecoveryCycle/);
+  assert.match(harness, /activateScheduledPostgresqlBackup/);
   assert.match(harness, /provisionPostgresql/);
   assert.match(harness, /databaseProvisioned: true/);
   assert.match(harness, /account_smoke_transaction_not_rolled_back/);
+  assert.match(harness, /automatedCycle: true/);
+  assert.match(harness, /disposableMacRuntime: true/);
 });
 
 test('release secrets stay scoped to the steps that consume them', async () => {

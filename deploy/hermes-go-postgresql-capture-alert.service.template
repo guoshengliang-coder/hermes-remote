@@ -1,0 +1,10 @@
+[Unit]
+Description=Record Hermes GO encrypted PostgreSQL capture failure
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/logger --priority daemon.alert --tag hermes-go-postgresql-capture HR-OPS-013 daily encrypted PostgreSQL capture failed
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

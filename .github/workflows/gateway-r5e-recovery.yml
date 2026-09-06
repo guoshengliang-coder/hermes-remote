@@ -5,6 +5,8 @@ on:
     paths:
       - ".github/workflows/gateway-r5e-recovery.yml"
       - "deploy/Dockerfile.gateway"
+      - "deploy/com.hermesgo.postgresql-offhost.plist.template"
+      - "deploy/hermes-go-postgresql-*.template"
       - "gateway/**"
       - "ops/**"
       - "package-lock.json"
@@ -13,7 +15,9 @@ on:
       - "scripts/inspect-gateway-archive-identity.mjs"
       - "scripts/package-gateway-bundle.sh"
       - "scripts/package-gateway-image.sh"
+      - "scripts/package-production-baseline-bundle.mjs"
       - "scripts/postgresql-recovery.mjs"
+      - "scripts/postgresql-automation.mjs"
       - "scripts/postgresql-provision.mjs"
       - "scripts/test/postgresql-recovery-e2e.mjs"
       - "scripts/write-gateway-bundle-manifest.mjs"
@@ -73,6 +77,11 @@ jobs:
           output=$(./scripts/package-gateway-bundle.sh outputs/r5e-gateway)
           printf '%s\n' "$output"
           printf 'manifest=%s\n' "$(printf '%s\n' "$output" | sed -n 's/^MANIFEST=//p')" >> "$GITHUB_OUTPUT"
+      - name: Verify protected operator automation bundle
+        run: |
+          node scripts/package-production-baseline-bundle.mjs outputs/r5e-ops
+          node scripts/verify-production-baseline-bundle.mjs \
+            "$(find outputs/r5e-ops -maxdepth 1 -name '*.manifest.json' -print -quit)"
       - name: Exercise encrypted backup and restored account path
         env:
           R5E_SOURCE_DATABASE_URL: postgresql://hermes_r5e:ephemeral-only-password@127.0.0.1:5432/hermes_r5e_source

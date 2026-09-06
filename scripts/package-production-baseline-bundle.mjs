@@ -57,6 +57,7 @@ try {
   });
   verifyStagedSmokeEntrypoint(temporaryRoot);
   verifyStagedProductionMonitorEntrypoint(temporaryRoot);
+  verifyStagedPostgresqlAutomationEntrypoint(temporaryRoot);
 
   const sourceShort = sourceCommit.slice(0, 12);
   const archiveFile = `Hermes-R5D-Ops-${sourceShort}.tar.gz`;
@@ -145,6 +146,7 @@ async function stageRuntime(root) {
     "scripts/production-baseline.mjs",
     "scripts/production-monitor.mjs",
     "scripts/postgresql-recovery.mjs",
+    "scripts/postgresql-automation.mjs",
     "scripts/postgresql-provision.mjs",
     "scripts/verify-production-baseline-bundle.mjs",
     "scripts/verify-gateway-image-candidate.mjs",
@@ -154,9 +156,20 @@ async function stageRuntime(root) {
     "ops/production.monitor.example.json",
     "ops/hermesctl-production-monitor-config.schema.json",
     "ops/postgresql-backup-status.schema.json",
+    "ops/postgresql.capture-schedule.example.json",
+    "ops/postgresql.offhost.example.json",
+    "ops/hermesctl-postgresql-capture-schedule-config.schema.json",
+    "ops/hermesctl-postgresql-offhost-config.schema.json",
+    "ops/postgresql-backup-generation.schema.json",
     "deploy/hermes-go-production-monitor.service.template",
     "deploy/hermes-go-production-monitor-alert.service.template",
     "deploy/hermes-go-production-monitor.timer.template",
+    "deploy/hermes-go-postgresql-capture.service.template",
+    "deploy/hermes-go-postgresql-capture-alert.service.template",
+    "deploy/hermes-go-postgresql-capture.timer.template",
+    "deploy/com.hermesgo.postgresql-offhost.plist.template",
+    "deploy/hermes-go-postgresql-automation-remote.template",
+    "deploy/hermes-go-postgresql-automation.sudoers.template",
   ]) await copyFile(file, root);
   const connectorFiles = (await readdir(path.join(repoRoot, "connector/dist")))
     .filter((name) => name.endsWith(".js") && !name.endsWith(".test.js"))
@@ -204,6 +217,27 @@ function verifyStagedProductionMonitorEntrypoint(root) {
   if (result.error || result.status !== 1 || String(result.stdout ?? "") !== ""
       || diagnostic?.code !== "HR-OPS-001" || diagnostic?.stage !== "arguments_parse") {
     fail("production_baseline_bundle_monitor_entrypoint_invalid");
+  }
+}
+
+function verifyStagedPostgresqlAutomationEntrypoint(root) {
+  const result = spawnSync(process.execPath, ["scripts/postgresql-automation.mjs"], {
+    cwd: root,
+    encoding: "utf8",
+    env: {},
+    maxBuffer: 64 * 1024,
+    timeout: 10_000,
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let diagnostic;
+  try {
+    diagnostic = JSON.parse(String(result.stderr ?? "").trim());
+  } catch {}
+  if (result.error || result.status !== 1 || String(result.stdout ?? "") !== ""
+      || diagnostic?.code !== "HR-OPS-013"
+      || diagnostic?.stage !== "postgresql_automation_arguments") {
+    fail("production_baseline_bundle_postgresql_automation_entrypoint_invalid");
   }
 }
 

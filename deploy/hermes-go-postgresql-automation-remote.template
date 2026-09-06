@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+exec /usr/bin/flock --exclusive --wait 300 /run/lock/hermes-go-postgresql-automation.lock \
+  /usr/bin/node /opt/hermes-go-ops/scripts/postgresql-automation.mjs "$@" \
+  --config /etc/hermes-go/recovery/postgresql-capture-schedule.json \
+  --confirm production:__PRODUCTION_HOSTNAME__

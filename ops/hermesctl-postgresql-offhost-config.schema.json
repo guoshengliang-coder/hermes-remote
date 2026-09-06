@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mrlgs.net/schemas/hermesctl-postgresql-offhost-config.schema.json",
+  "title": "Hermes GO PostgreSQL off-host recovery configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "environment", "operator", "expectedSourceHostname", "offHostStorageId", "remoteHost", "remoteUser", "sshIdentityFile", "knownHostsFile", "remoteCommandPath", "localRoot", "recipientCertificate", "recipientPrivateKey", "targetArtifactManifest", "dockerPath", "opensslPath", "postgresqlImage", "maximumEncryptedBytes", "retentionCount", "postgresqlMajorVersion", "databaseSchemaVersion"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "environment": { "const": "off-host-recovery" },
+    "operator": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+    "expectedSourceHostname": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$" },
+    "offHostStorageId": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" },
+    "remoteHost": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$" },
+    "remoteUser": { "type": "string", "pattern": "^[a-z_][a-z0-9_-]{0,31}$" },
+    "sshIdentityFile": { "$ref": "#/$defs/path" },
+    "knownHostsFile": { "$ref": "#/$defs/path" },
+    "remoteCommandPath": { "$ref": "#/$defs/path" },
+    "localRoot": { "$ref": "#/$defs/path" },
+    "recipientCertificate": { "$ref": "#/$defs/path" },
+    "recipientPrivateKey": { "$ref": "#/$defs/path" },
+    "targetArtifactManifest": { "$ref": "#/$defs/path" },
+    "dockerPath": { "$ref": "#/$defs/path" },
+    "opensslPath": { "$ref": "#/$defs/path" },
+    "postgresqlImage": { "type": "string", "pattern": "^postgres:18-alpine@sha256:[0-9a-f]{64}$" },
+    "maximumEncryptedBytes": { "type": "integer", "minimum": 1024, "maximum": 1099511627776 },
+    "retentionCount": { "type": "integer", "minimum": 2, "maximum": 365 },
+    "postgresqlMajorVersion": { "const": 18 },
+    "databaseSchemaVersion": { "type": "integer", "minimum": 1 }
+  },
+  "$defs": { "path": { "type": "string", "pattern": "^/(?!/)[^\\u0000-\\u001f\\u007f]+$" } }
+}

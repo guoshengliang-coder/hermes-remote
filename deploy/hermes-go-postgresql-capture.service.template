@@ -1,0 +1,31 @@
+[Unit]
+Description=Hermes GO daily encrypted PostgreSQL capture
+After=postgresql.service local-fs.target
+Requires=postgresql.service
+OnFailure=hermes-go-postgresql-capture-alert.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/hermes-go-ops
+ExecStart=/usr/bin/flock --exclusive --nonblock /run/lock/hermes-go-postgresql-automation.lock /usr/bin/node /opt/hermes-go-ops/scripts/postgresql-automation.mjs capture --config /etc/hermes-go/recovery/postgresql-capture-schedule.json --confirm production:__PRODUCTION_HOSTNAME__
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/backups/hermes-go/postgresql-generations
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+UMask=0077
+StandardOutput=journal
+StandardError=journal
