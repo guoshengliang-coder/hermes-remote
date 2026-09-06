@@ -592,4 +592,43 @@ class ScreenshotTest {
         }
         compose.onRoot().captureRoboImage("screenshots/smoke.png", roborazziOptions = options)
     }
+
+    // ── Chats segments: the Bots tab takes the row from three labels to four, and the tightest
+    // case (English at fontScale 1.3) is the one that would otherwise only surface on a device.
+    private fun tabs(bots: Boolean, zh: Boolean) = buildList {
+        add(com.hermes.client.ui.sessions.ViewMode.SESSIONS to if (zh) "会话" else "Chats")
+        add(com.hermes.client.ui.sessions.ViewMode.PROJECTS to if (zh) "项目" else "Projects")
+        if (bots) add(com.hermes.client.ui.sessions.ViewMode.BOTS to if (zh) "机器人" else "Bots")
+        add(com.hermes.client.ui.sessions.ViewMode.ARCHIVED to if (zh) "已归档" else "Archive")
+    }
+
+    @Test fun segmentsThreeZh() = snap("segments-3-zh") {
+        com.hermes.client.ui.sessions.ChatsSegmentedRow(
+            tabs(bots = false, zh = true), com.hermes.client.ui.sessions.ViewMode.SESSIONS, {},
+        )
+    }
+
+    @Test fun segmentsFourZh() = snap("segments-4-zh") {
+        com.hermes.client.ui.sessions.ChatsSegmentedRow(
+            tabs(bots = true, zh = true), com.hermes.client.ui.sessions.ViewMode.BOTS, {},
+        )
+    }
+
+    @Test fun segmentsFourZhLargeFont() = snap("segments-4-zh-fs13", fontScale = 1.3f) {
+        com.hermes.client.ui.sessions.ChatsSegmentedRow(
+            tabs(bots = true, zh = true), com.hermes.client.ui.sessions.ViewMode.BOTS, {},
+        )
+    }
+
+    @Test fun segmentsFourEnLargeFont() = snap("segments-4-en-fs13", fontScale = 1.3f) {
+        com.hermes.client.ui.sessions.ChatsSegmentedRow(
+            tabs(bots = true, zh = false), com.hermes.client.ui.sessions.ViewMode.BOTS, {},
+        )
+    }
+
+    @Test fun segmentsFourEnLargeFontDark() = snap("segments-4-en-fs13-dark", darkTheme = true, fontScale = 1.3f) {
+        com.hermes.client.ui.sessions.ChatsSegmentedRow(
+            tabs(bots = true, zh = false), com.hermes.client.ui.sessions.ViewMode.BOTS, {},
+        )
+    }
 }

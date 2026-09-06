@@ -439,7 +439,8 @@ class StartupViewModel @Inject constructor(
                 sessions.archivedAllProfiles()
                 true
             }
-            ViewMode.SESSIONS, ViewMode.PROJECTS -> {
+            // Bots reads the same cross-profile list, then filters by source client-side.
+            ViewMode.SESSIONS, ViewMode.PROJECTS, ViewMode.BOTS -> {
                 sessions.listAllProfiles()
                 true
             }

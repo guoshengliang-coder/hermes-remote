@@ -3,7 +3,8 @@ package com.hermes.client.ui.sessions
 import com.hermes.client.domain.Session
 
 /** Which list the Chats screen shows: flat recency, the project tree, or archived sessions. */
-enum class ViewMode { SESSIONS, PROJECTS, ARCHIVED }
+// BOTS sits before ARCHIVED: it is warmer than the archive, and the archive keeps the far end.
+enum class ViewMode { SESSIONS, PROJECTS, BOTS, ARCHIVED }
 
 /** Flat, most-recent-first order for Sessions mode. Sessions with no [Session.lastActive] sort last. */
 fun sessionsByRecency(sessions: List<Session>): List<Session> =

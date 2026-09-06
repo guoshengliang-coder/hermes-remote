@@ -36,6 +36,12 @@ data class SessionsUiState(
     val error: AppError? = null,
     // I1: true when the server returned 401 — nav should route to Setup
     val unauthorized: Boolean = false,
+    /** Conversations Hermes had on messaging platforms; only fetched while the Bots segment is on. */
+    val botSessions: List<Session> = emptyList(),
+    val botsLoading: Boolean = false,
+    val botError: AppError? = null,
+    /** Channels configured on this Hermes. Zero AND no history means the Bots segment is hidden. */
+    val configuredChannels: Int = 0,
 )
 
 /** Projects-mode state: [tree] is the overview; [scope] is the drilled-in hydrated project (null = overview). */
@@ -346,9 +352,42 @@ class SessionsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Loads the Bots segment. Kept off the Chats path deliberately: the cross-profile list the
+     * Chats view uses filters messaging sources out, so this is a second read of the same
+     * endpoint rather than a filter over cached rows.
+     */
+    fun loadBots() = viewModelScope.launch {
+        _state.value = _state.value.copy(botsLoading = true, botError = null)
+        runCatching { sessions.botSessions() }
+            .onSuccess { _state.value = _state.value.copy(botSessions = it, botsLoading = false) }
+            .onFailure {
+                _state.value = _state.value.copy(
+                    botsLoading = false,
+                    botError = AppError(
+                        AppErrorCode.RPC_FAILED,
+                        retryable = true,
+                        technicalCause = it.message,
+                        stage = "bot_sessions_load",
+                    ),
+                )
+            }
+    }
+
+    /** How many channels this Hermes has configured — the Bots segment's visibility depends on it. */
+    fun refreshChannelCount() = viewModelScope.launch {
+        runCatching { tools.messagingPlatforms(profileManager.active.value) }
+            .onSuccess { platforms ->
+                _state.value = _state.value.copy(configuredChannels = platforms.count { it.configured })
+            }
+        // A failure leaves the count alone: the segment should not blink out because one poll
+        // failed, and the session history alone can still justify showing it.
+    }
+
     /** Refreshes whichever Chats segment is actually visible while the warm-start gate is up. */
     suspend fun recoverForForeground(): Boolean = when (viewModeStore.mode.first()) {
-        ViewMode.SESSIONS -> {
+        // Bot conversations come from the same cross-profile fetch the Chats list already does.
+        ViewMode.SESSIONS, ViewMode.BOTS -> {
             refreshOnce()
             !_state.value.unauthorized && _state.value.error == null
         }

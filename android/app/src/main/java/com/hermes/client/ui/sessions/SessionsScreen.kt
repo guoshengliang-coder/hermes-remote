@@ -97,6 +97,7 @@ fun SessionsScreen(
     onOpenCard: () -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenCron: () -> Unit = {},
+    onOpenBotSession: (sessionId: String, profile: String?) -> Unit = { _, _ -> },
     onUnauthorized: () -> Unit = {},
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -106,6 +107,17 @@ fun SessionsScreen(
     val archivedState by vm.archivedState.collectAsStateWithLifecycle()
     val cronAlerts by vm.cronAlerts.collectAsStateWithLifecycle()
     val viewMode by vm.viewMode.collectAsStateWithLifecycle()
+    val showBots = remember(state.configuredChannels, state.botSessions) {
+        showBotsTab(state.configuredChannels, state.botSessions.size)
+    }
+    // The channel count decides whether the segment exists; the sessions fill it.
+    LaunchedEffect(Unit) { vm.refreshChannelCount() }
+    LaunchedEffect(viewMode) { if (viewMode == ViewMode.BOTS) vm.loadBots() }
+    // A segment that disappears (last channel removed, history archived) must not strand the user
+    // on an empty view.
+    LaunchedEffect(showBots, viewMode) {
+        if (!showBots && viewMode == ViewMode.BOTS) vm.setViewMode(ViewMode.SESSIONS)
+    }
     val projectsState by vm.projectsState.collectAsStateWithLifecycle()
     val runtimes by vm.runtimes.collectAsStateWithLifecycle()
     val unreadTokens by vm.unreadTokens.collectAsStateWithLifecycle()
@@ -216,31 +228,23 @@ fun SessionsScreen(
                         }
                     },
                 )
-                val accent = MaterialTheme.colorScheme.primary
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
-                    val tabs = listOf(
-                        ViewMode.SESSIONS to localized(language, "会话", "Sessions"),
-                        ViewMode.PROJECTS to localized(language, "项目", "Projects"),
-                        ViewMode.ARCHIVED to localized(language, "已归档", "Archived"),
-                    )
-                    tabs.forEachIndexed { i, (mode, label) ->
-                        SegmentedButton(
-                            selected = viewMode == mode,
-                            onClick = { vm.setViewMode(mode) },
-                            shape = SegmentedButtonDefaults.itemShape(i, tabs.size),
-                            colors = SegmentedButtonDefaults.colors(
-                                activeContainerColor = accent,
-                                activeContentColor = MaterialTheme.colorScheme.onPrimary,
-                            ),
-                            // No check glyph: its appear/disappear used to shove the labels
-                            // sideways on every switch. Selection reads from the fill alone.
-                            icon = {},
-                        ) { Text(label) }
-                    }
-                }
+                ChatsSegmentedRow(
+                    tabs = buildList {
+                        // English labels are kept short on purpose: a fourth segment leaves
+                        // 91.5dp per cell, and "Sessions"/"Archived" clip at fontScale 1.3.
+                        add(ViewMode.SESSIONS to localized(language, "会话", "Chats"))
+                        add(ViewMode.PROJECTS to localized(language, "项目", "Projects"))
+                        // Only once this Hermes actually has a channel, or has history from one.
+                        if (showBots) add(ViewMode.BOTS to localized(language, "机器人", "Bots"))
+                        add(ViewMode.ARCHIVED to localized(language, "已归档", "Archive"))
+                    },
+                    selected = viewMode,
+                    onSelect = { vm.setViewMode(it) },
+                )
             }
         },
         floatingActionButton = {
+            if (viewMode == ViewMode.BOTS) return@Scaffold
             FloatingActionButton(
                 onClick = ::createSession,
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -302,6 +306,56 @@ fun SessionsScreen(
                             nowMs = System.currentTimeMillis(),
                             onOpenProject = { vm.enterProject(it) },
                         )
+                    }
+                }
+            } else if (viewMode == ViewMode.BOTS) {
+                // ── Bots: what Hermes has been saying on other apps. Read-only by nature —
+                // Hermes is a bot over there, so nothing typed here could appear as you. ─────
+                val sections = remember(state.botSessions) { botSections(state.botSessions) }
+                Box(Modifier.fillMaxSize()) {
+                    when {
+                        state.botsLoading && state.botSessions.isEmpty() ->
+                            com.hermes.client.ui.components.ListLoadingState()
+                        state.botError != null ->
+                            com.hermes.client.ui.components.ErrorState(
+                                error = state.botError!!,
+                                onRetry = { vm.loadBots() },
+                            )
+                        sections.isEmpty() ->
+                            com.hermes.client.ui.components.EmptyState(
+                                title = localized(language, "还没有机器人对话", "No bot conversations yet"),
+                                subtitle = localized(
+                                    language,
+                                    "别人在钉钉、Slack 这些应用里找 Hermes 聊过之后，记录会出现在这里。",
+                                    "Once someone talks to Hermes on DingTalk, Slack or another app, the record shows up here.",
+                                ),
+                            )
+                        else -> LazyColumn(Modifier.fillMaxSize()) {
+                            sections.forEach { section ->
+                                item(key = "bot-hdr-${section.source}") {
+                                    Text(
+                                        botSourceLabel(section.source),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(
+                                            start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp,
+                                        ),
+                                    )
+                                }
+                                items(section.sessions, key = { "bot-${it.id}" }) { s ->
+                                    ListItem(
+                                        headlineContent = { Text(s.title) },
+                                        supportingContent = {
+                                            Text(
+                                                localized(language, "${s.messageCount} 条", "${s.messageCount} messages"),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                            )
+                                        },
+                                        modifier = Modifier.clickable { onOpenBotSession(s.id, s.profile) },
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             } else if (viewMode == ViewMode.ARCHIVED) {
@@ -1035,4 +1089,35 @@ private fun UnreadIndicator() {
             .size(9.dp)
             .background(MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape),
     )
+}
+
+
+/**
+ * The Chats segment row. Extracted so its width can be pinned by a screenshot test: with the Bots
+ * segment present this row carries four labels in a 366dp span, and the tightest case — English at
+ * fontScale 1.3 — is exactly the one that would only ever be noticed on a device.
+ */
+@Composable
+internal fun ChatsSegmentedRow(
+    tabs: List<Pair<ViewMode, String>>,
+    selected: ViewMode,
+    onSelect: (ViewMode) -> Unit,
+) {
+    val accent = MaterialTheme.colorScheme.primary
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+        tabs.forEachIndexed { i, (mode, label) ->
+            SegmentedButton(
+                selected = selected == mode,
+                onClick = { onSelect(mode) },
+                shape = SegmentedButtonDefaults.itemShape(i, tabs.size),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = accent,
+                    activeContentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+                // No check glyph: its appear/disappear used to shove the labels sideways on every
+                // switch. Selection reads from the fill alone.
+                icon = {},
+            ) { Text(label, maxLines = 1) }
+        }
+    }
 }
