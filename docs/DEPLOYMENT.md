@@ -264,8 +264,11 @@ minutes and convert a failed run into a local `daemon.alert` journal event. They
 network notification credential or auto-remediation. Installation and timer enablement require explicit
 production authorization; this source change does not deploy them. See `CLOUD_GATEWAY_R5_MONITORING.md`
 for the dependency-free code snapshot, status-writer contract, validation sequence, and external-notification
-boundary. The dedicated entrypoint must be used by systemd; `scripts/hermesctl.mjs` remains available for
-interactive compatibility but loads unrelated deployment modules and is not the production timer entrypoint.
+boundary. The immutable production-baseline operator bundle carries that entrypoint, all three unit templates,
+and the strict monitor configuration/status contracts so production installation never has to mix a protected
+artifact with workspace files. The dedicated entrypoint must be used by systemd; `scripts/hermesctl.mjs` remains
+available for interactive compatibility but loads unrelated deployment modules and is not the production timer
+entrypoint.
 
 ## Production managed baseline (R5-D; adoption completed)
 

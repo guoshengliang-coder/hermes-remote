@@ -54,6 +54,9 @@ R5-E 先在异机生成严格状态候选，再由生产端 `activate-status` �
 `/opt/hermes-go-ops` 使用经审核提交的独立只读代码快照，避免覆盖旧 Gateway 所在的
 `/opt/hermes-remote`。快照只需包含 `scripts/production-monitor.mjs`，以及 `ops/lib` 中的
 `config.mjs`、`errors.mjs`、`production-monitor-config.mjs`、`production-monitor.mjs` 和 `system.mjs`。
+上述入口、三个 systemd 模板、私密配置示例和配置/状态 schema 必须来自同一提交生成且 SHA-256 绑定的
+production-baseline operator bundle；不得用工作区文件补齐一个不完整制品。打包门禁会在隔离目录实际加载
+监控入口，并以缺少参数的预期 `HR-OPS-001` 证明入口及依赖完整。
 该独立入口不加载部署、迁移或 Gateway 协议模块，也不需要 `node_modules`。`hermes-remote` 用户只能读取
 所需代码、配置与状态文件。模板不包含外发网络能力，
 因此当前告警可由

@@ -56,6 +56,7 @@ try {
     cwd: temporaryRoot,
   });
   verifyStagedSmokeEntrypoint(temporaryRoot);
+  verifyStagedProductionMonitorEntrypoint(temporaryRoot);
 
   const sourceShort = sourceCommit.slice(0, 12);
   const archiveFile = `Hermes-R5D-Ops-${sourceShort}.tar.gz`;
@@ -129,7 +130,9 @@ function assertCleanSource() {
 }
 
 async function stageRuntime(root) {
-  for (const directory of ["scripts/lib", "ops/lib", "connector/dist", "protocol/dist", "gateway", "release-server"]) {
+  for (const directory of [
+    "scripts/lib", "ops/lib", "deploy", "connector/dist", "protocol/dist", "gateway", "release-server",
+  ]) {
     await mkdir(path.join(root, directory), { recursive: true, mode: 0o755 });
   }
   for (const file of ["package.json", "package-lock.json", "connector/package.json", "protocol/package.json",
@@ -140,6 +143,7 @@ async function stageRuntime(root) {
   for (const name of opsFiles) await copyFile(path.join("ops/lib", name), root);
   for (const file of [
     "scripts/production-baseline.mjs",
+    "scripts/production-monitor.mjs",
     "scripts/postgresql-recovery.mjs",
     "scripts/postgresql-provision.mjs",
     "scripts/verify-production-baseline-bundle.mjs",
@@ -147,6 +151,12 @@ async function stageRuntime(root) {
     "scripts/smoke-compat-client.mjs",
     "scripts/lib/release-errors.mjs",
     "scripts/lib/gateway-candidate-smoke.mjs",
+    "ops/production.monitor.example.json",
+    "ops/hermesctl-production-monitor-config.schema.json",
+    "ops/postgresql-backup-status.schema.json",
+    "deploy/hermes-go-production-monitor.service.template",
+    "deploy/hermes-go-production-monitor-alert.service.template",
+    "deploy/hermes-go-production-monitor.timer.template",
   ]) await copyFile(file, root);
   const connectorFiles = (await readdir(path.join(repoRoot, "connector/dist")))
     .filter((name) => name.endsWith(".js") && !name.endsWith(".test.js"))
@@ -174,6 +184,26 @@ function verifyStagedSmokeEntrypoint(root) {
       || diagnostic?.stage !== "gateway_oci_smoke"
       || diagnostic?.technicalCause !== "smoke_check=configuration") {
     fail("production_baseline_bundle_smoke_entrypoint_invalid");
+  }
+}
+
+function verifyStagedProductionMonitorEntrypoint(root) {
+  const result = spawnSync(process.execPath, ["scripts/production-monitor.mjs"], {
+    cwd: root,
+    encoding: "utf8",
+    env: {},
+    maxBuffer: 64 * 1024,
+    timeout: 10_000,
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let diagnostic;
+  try {
+    diagnostic = JSON.parse(String(result.stderr ?? "").trim());
+  } catch {}
+  if (result.error || result.status !== 1 || String(result.stdout ?? "") !== ""
+      || diagnostic?.code !== "HR-OPS-001" || diagnostic?.stage !== "arguments_parse") {
+    fail("production_baseline_bundle_monitor_entrypoint_invalid");
   }
 }
 
