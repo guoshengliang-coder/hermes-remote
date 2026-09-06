@@ -139,6 +139,7 @@ test('R5-D managed baseline runs only on a disposable secretless host', async ()
   const packager = await readRoot('scripts/package-production-baseline-bundle.mjs');
   assert.match(packager, /\.\/ops\/lib\/production-smoke-runtime\.mjs/);
   assert.match(packager, /"scripts\/verify-production-baseline-bundle\.mjs"/);
+  assert.match(packager, /"scripts\/postgresql-recovery\.mjs"/);
   assert.match(packager, /"scripts\/lib\/release-errors\.mjs"/);
   assert.match(packager, /"scripts\/lib\/gateway-candidate-smoke\.mjs"/);
   assert.match(packager, /verifyStagedSmokeEntrypoint/);

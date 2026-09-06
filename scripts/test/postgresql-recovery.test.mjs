@@ -10,12 +10,40 @@ import {
   loadPostgresqlStatusActivationConfig,
 } from "../../ops/lib/postgresql-recovery-config.mjs";
 import {
-  capturePostgresqlBackup, publishPostgresqlBackupStatus, verifyPostgresqlRestore,
+  capturePostgresqlBackup, postgresqlEnvironment, publishPostgresqlBackupStatus, verifyPostgresqlRestore,
 } from "../../ops/lib/postgresql-recovery.mjs";
 import { sha256File } from "../../ops/lib/config.mjs";
 import { loadProductionEvidence } from "../../ops/lib/production-config.mjs";
 import { loadPostgresqlBackupStatus } from "../../ops/lib/production-monitor-config.mjs";
 import { OPS_ERROR_DEFINITIONS, createOpsError } from "../../ops/lib/errors.mjs";
+
+test("R5-E passes PostgreSQL credentials through split libpq environment fields", () => {
+  const environment = postgresqlEnvironment(
+    "postgresql://migration%2Duser:p%40ss%3Aword@127.0.0.1:5433/hermes%2Drestore",
+    { PATH: "/trusted/bin" },
+  );
+  assert.deepEqual(environment, {
+    PATH: "/trusted/bin",
+    LANG: "C",
+    PGHOST: "127.0.0.1",
+    PGPORT: "5433",
+    PGUSER: "migration-user",
+    PGPASSWORD: "p@ss:word",
+    PGDATABASE: "hermes-restore",
+  });
+  assert.equal(Object.values(environment).some((value) => value.includes("postgresql://")), false);
+});
+
+test("R5-E libpq environment rejects remote, ambiguous, and incomplete URLs", () => {
+  for (const value of [
+    "postgresql://user:secret@database.example.com:5432/hermes",
+    "postgresql://user:secret@127.0.0.1:5432/hermes?sslmode=disable",
+    "postgresql://user@127.0.0.1:5432/hermes",
+    "postgresql://user:secret@127.0.0.1:5432/",
+  ]) {
+    assert.throws(() => postgresqlEnvironment(value), isCode("HR-OPS-013"));
+  }
+});
 
 test("R5-E publishes status only after encrypted capture and off-host restore checks", async (t) => {
   const fixture = await createFixture(t);

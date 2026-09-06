@@ -41,6 +41,19 @@ sudo node scripts/postgresql-provision.mjs \
 R5-E2 只创建空数据库和最小权限角色，不迁移 schema、不修改 Gateway 配置或账号开关、不备份、不重启、
 不切流。schema 7 迁移继续使用目标不可变 Gateway 镜像并作为下一项独立生产门禁。
 
+## R5-E4A 生产捕获阻断与修复
+
+2026-09-06 的首次生产捕获在生成 dump 前安全停止：Ubuntu PostgreSQL 18 的 libpq 客户端没有把完整 URI
+形式的 `PGDATABASE` 环境变量展开为连接参数，因而退回默认 socket/root 连接；同时受保护运维 bundle
+包含完整 R5-E 实现但漏装了薄 CLI 入口。失败路径删除了本次 `.cms` 和 manifest，schema 7、现网 Gateway、
+PostgreSQL、Nginx 与账号开关均未改变。
+
+R5-E4A 将已验证的 loopback URL 解码为独立的 `PGHOST`、`PGPORT`、`PGUSER`、`PGPASSWORD` 和
+`PGDATABASE` 子进程环境，仍不把凭据放入参数、输出或日志，并拒绝远端主机、缺少用户/密码/数据库、
+查询参数、fragment 和控制字符。一次性 PostgreSQL 18 演练的工具 wrapper 必须逐项验证这些字段，避免
+再次用只识别旧错误形态的 mock 掩盖真实 libpq 行为。`scripts/postgresql-recovery.mjs` 同时纳入受哈希保护的
+operator bundle。该修复通过 PR 门禁和一次性 R5-E 演练后，仍需使用新 main 制品单独授权重试生产捕获。
+
 ## 安全与身份边界
 
 - 恢复私钥只保存在异机 `0600` 文件中，绝不复制到香港主机；生产主机只接收公开证书。

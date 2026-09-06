@@ -264,12 +264,15 @@ async function installPostgresqlWrappers(directory, sourcePostgresContainerId, r
   for (const tool of ["psql", "pg_dump", "pg_restore"]) {
     const filePath = path.join(directory, tool);
     const script = `#!/bin/sh
-case "$PGDATABASE" in
-  *:5432/*)
+test "$PGHOST" = 127.0.0.1 || exit 65
+test "$PGUSER" = hermes_r5e || exit 66
+test "$PGPASSWORD" = ephemeral-only-password || exit 67
+case "$PGPORT:$PGDATABASE" in
+  5432:hermes_r5e_source)
     container=${sourcePostgresContainerId}
     database=hermes_r5e_source
     ;;
-  *:5433/*)
+  5433:hermes_r5e_restore)
     container=${restorePostgresContainerId}
     database=hermes_r5e_restore
     ;;

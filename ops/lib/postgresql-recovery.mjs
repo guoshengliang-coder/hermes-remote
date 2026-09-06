@@ -454,8 +454,46 @@ function spawnSensitive(command, args, databaseUrl, stdio) {
   return spawn(command, args, {
     stdio,
     shell: false,
-    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", LANG: "C", PGDATABASE: databaseUrl },
+    env: postgresqlEnvironment(databaseUrl),
   });
+}
+
+export function postgresqlEnvironment(databaseUrl, environment = process.env) {
+  let parsed;
+  try {
+    parsed = new URL(databaseUrl);
+  } catch {
+    fail("postgresql_database_url_invalid", "postgresql_database_url_validate");
+  }
+  const hostname = parsed.hostname === "[::1]" ? "::1" : parsed.hostname;
+  const port = Number(parsed.port || 5432);
+  let username;
+  let password;
+  let database;
+  try {
+    username = decodeURIComponent(parsed.username);
+    password = decodeURIComponent(parsed.password);
+    database = decodeURIComponent(parsed.pathname.slice(1));
+  } catch {
+    fail("postgresql_database_url_invalid", "postgresql_database_url_validate");
+  }
+  const unsafe = (value) => !value || /[\u0000-\u001f\u007f]/.test(value);
+  if (!new Set(["postgres:", "postgresql:"]).has(parsed.protocol)
+      || !new Set(["127.0.0.1", "localhost", "::1", "host.docker.internal"]).has(hostname)
+      || !Number.isSafeInteger(port) || port < 1 || port > 65535
+      || unsafe(username) || unsafe(password) || unsafe(database)
+      || parsed.search || parsed.hash) {
+    fail("postgresql_database_url_invalid", "postgresql_database_url_validate");
+  }
+  return {
+    PATH: environment.PATH ?? "/usr/bin:/bin",
+    LANG: "C",
+    PGHOST: hostname,
+    PGPORT: String(port),
+    PGUSER: username,
+    PGPASSWORD: password,
+    PGDATABASE: database,
+  };
 }
 
 async function runSensitive(command, args, databaseUrl) {
