@@ -229,6 +229,14 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.99 fixes five reported defects. Sharing a transcript as a Markdown file could do
+  nothing at all — the export ran on a coroutine scope the share sheet cancelled on its way out,
+  taking the failure toast with it. Pinned sessions that looked lost were being inserted above an
+  already-anchored list, so the list now waits for the pin set before its first frame and follows a
+  session you just pinned. A file card opens from anywhere on the card, not only from a small icon.
+  The version record no longer hides the notes of the build you are running. The two halves of the
+  stat card are top-aligned, so a wrapped latency line stops pushing the other half down. It also
+  carries the previously unreleased HG-1 and HG-10 fixes and the shared diagnostic log.
 - Version 0.1.98 identifies this app to Hermes as its own client (`source=hermes_remote`) on
   session create and resume, so the agent stops receiving the terminal capability block that
   told it attachments were impossible here; the matching text lives in the Mac's
@@ -594,7 +602,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.98-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.99-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
