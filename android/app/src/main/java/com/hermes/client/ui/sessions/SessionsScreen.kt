@@ -228,30 +228,19 @@ fun SessionsScreen(
                         }
                     },
                 )
-                val accent = MaterialTheme.colorScheme.primary
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
-                    val tabs = buildList {
-                        add(ViewMode.SESSIONS to localized(language, "会话", "Sessions"))
+                ChatsSegmentedRow(
+                    tabs = buildList {
+                        // English labels are kept short on purpose: a fourth segment leaves
+                        // 91.5dp per cell, and "Sessions"/"Archived" clip at fontScale 1.3.
+                        add(ViewMode.SESSIONS to localized(language, "会话", "Chats"))
                         add(ViewMode.PROJECTS to localized(language, "项目", "Projects"))
                         // Only once this Hermes actually has a channel, or has history from one.
                         if (showBots) add(ViewMode.BOTS to localized(language, "机器人", "Bots"))
-                        add(ViewMode.ARCHIVED to localized(language, "已归档", "Archived"))
-                    }
-                    tabs.forEachIndexed { i, (mode, label) ->
-                        SegmentedButton(
-                            selected = viewMode == mode,
-                            onClick = { vm.setViewMode(mode) },
-                            shape = SegmentedButtonDefaults.itemShape(i, tabs.size),
-                            colors = SegmentedButtonDefaults.colors(
-                                activeContainerColor = accent,
-                                activeContentColor = MaterialTheme.colorScheme.onPrimary,
-                            ),
-                            // No check glyph: its appear/disappear used to shove the labels
-                            // sideways on every switch. Selection reads from the fill alone.
-                            icon = {},
-                        ) { Text(label) }
-                    }
-                }
+                        add(ViewMode.ARCHIVED to localized(language, "已归档", "Archive"))
+                    },
+                    selected = viewMode,
+                    onSelect = { vm.setViewMode(it) },
+                )
             }
         },
         floatingActionButton = {
@@ -1100,4 +1089,35 @@ private fun UnreadIndicator() {
             .size(9.dp)
             .background(MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape),
     )
+}
+
+
+/**
+ * The Chats segment row. Extracted so its width can be pinned by a screenshot test: with the Bots
+ * segment present this row carries four labels in a 366dp span, and the tightest case — English at
+ * fontScale 1.3 — is exactly the one that would only ever be noticed on a device.
+ */
+@Composable
+internal fun ChatsSegmentedRow(
+    tabs: List<Pair<ViewMode, String>>,
+    selected: ViewMode,
+    onSelect: (ViewMode) -> Unit,
+) {
+    val accent = MaterialTheme.colorScheme.primary
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+        tabs.forEachIndexed { i, (mode, label) ->
+            SegmentedButton(
+                selected = selected == mode,
+                onClick = { onSelect(mode) },
+                shape = SegmentedButtonDefaults.itemShape(i, tabs.size),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = accent,
+                    activeContentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+                // No check glyph: its appear/disappear used to shove the labels sideways on every
+                // switch. Selection reads from the fill alone.
+                icon = {},
+            ) { Text(label, maxLines = 1) }
+        }
+    }
 }
