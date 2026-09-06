@@ -13,7 +13,8 @@ PostgreSQL 迁移，但所有命令仍明确拒绝 production。R5 的目标不�
 2026-09-03 的首次只读检查确认线上 Gateway 仍是 `/opt/hermes-remote` 下的旧 Node 服务，缺少受管
 `current`/`previous` 和制品 manifest。到 2026-09-05，R5-B、R5-C1～C3 与 R5-D 已经补齐旧服务异机恢复、
 Docker、PostgreSQL 18、loopback 监听和受管 blue 槽基线；数据库创建/schema 迁移、数据库恢复证据、
-R5-C4 timer 和首次 R5-E6 异机恢复/状态激活已完成；R5-E7 每日自动闭环与账号模式正式晋级仍未完成。
+R5-C4 timer 和首次 R5-E6 异机恢复/状态激活已完成。2026-09-06 又完成 R5-E7 每日捕获、Mac 每小时
+异机恢复调度的生产安装和一次手动完整闭环；首个 scheduler-triggered 周期观察与账号模式正式晋级仍未完成。
 现有 443 路由、Gateway、发布服务、DERP 和证书必须继续保持健康，后续操作不得改变既有
 Android/Connector 的 URL、Token 与协议。
 

@@ -232,13 +232,14 @@ production capture, Mac off-host PostgreSQL 18 restore, immutable-image account 
 activation are complete with both account flags still disabled. The private recovery key never left the
 Mac. The production monitor is enabled and passed both a real green check and an isolated failure drill.
 
-R5-E7 adds the still-pending recurring layer: a 03:15 Asia/Hong_Kong production capture timer, an hourly
-idempotent Mac LaunchAgent poll, immutable generations, strict SSH export, disposable PostgreSQL 18 restore on every new
-generation, evidence-bound status activation, and acknowledged retention. Install only the protected
-operator bundle. The remote SSH user receives sudo permission for the fixed root-owned wrapper only; it
-must never receive permission to run Node, the underlying automation script, or an arbitrary config as
-root. Validate one manual full cycle before enabling either scheduler, then observe one scheduled cycle
-and the following production-monitor check before R5-F.
+R5-E7 was installed on 2026-09-06 from the protected `main 6e92ce018a6b` operator/Gateway artifacts. It runs a
+03:15 Asia/Hong_Kong production capture timer and an hourly idempotent Mac LaunchAgent poll, with immutable
+generations, strict SSH export, disposable PostgreSQL 18 restore on every new generation, evidence-bound status
+activation, and acknowledged retention. The automation SSH identity uses a dedicated password-locked account;
+its sudo permission names only the fixed root-owned wrapper and does not grant Node, the underlying script, or an
+arbitrary config. The initial manual full cycle, idempotent replay, and following production-monitor check passed
+without restarting Gateway, PostgreSQL, or Nginx; both account flags remain disabled. The first scheduler-triggered
+cycle and the following production-monitor check still must be observed before R5-F.
 
 ## Production disk and backup monitoring (R5-C4; deployed)
 
