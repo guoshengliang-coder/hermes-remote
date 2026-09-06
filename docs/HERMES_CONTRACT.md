@@ -82,6 +82,31 @@ does not affect another, so the laptop's `desktop` sessions are untouched.
 | `MEDIA:/absolute/path.ext` | Hermes → client | The canonical outbound attachment grammar. Extension must be in the delivery whitelist below. |
 | `@file:` / `@image:` | client → Hermes | Attachment references staged by the client and passed on `prompt.submit`. The Android parser also renders them in assistant messages, but that is tolerance, not the contract. |
 
+### 4b. Server-injected `role=user` scaffolding
+
+Hermes injects several notices as **user-role turns** so the model reads them as context. They are
+not something the person said, and the app renders them as one-line timeline notes
+(`ui/chat/TimelineNote.kt`) rather than user bubbles.
+
+| Marker | Upstream source | Notes |
+|---|---|---|
+| `[ASYNC DELEGATION …` | `_run_prompt_submit` (no `display_kind`) | Background delegation report. |
+| `[IMPORTANT: Background process …` | same | Background process report. |
+| `[Your active task list was preserved across context compression]` | `tools/todo_tool.py` `TODO_INJECTION_HEADER` | **See the hazard below.** |
+| `[Skills pruned during compression — reload before acting on these tasks]` | `agent/conversation_compression.py` `_PRUNED_SKILL_RELOAD_NOTICE_HEADER` | Only ever appended after the header above (`todo_snapshot = f"{todo_snapshot}\n\n{_reload_notice}"`), never alone, so cutting at that header removes both. |
+
+**Hazard — the compression snapshot is not always its own message.** Upstream folds it into the
+trailing *real* user turn whenever a standalone insertion would create consecutive user messages
+(`_merge_anchor_into_user_message`; `_strip_stale_todo_snapshot`'s own comment says "Snapshots are
+appended to the trailing user turn"). Upstream distinguishes the two cases with
+`_todo_snapshot_is_only_content`, and so must we: `withoutCompressionScaffolding` cuts at the
+marker and keeps whatever the user typed; only a turn left empty becomes a note. Matching the
+marker as a whole-message prefix and hiding the message would delete real user text.
+
+Mirrored constant: `COMPRESSION_SNAPSHOT_HEADER` in `ui/chat/TimelineNote.kt` is a hand-copy of
+`TODO_INJECTION_HEADER`. Upstream renaming or rewording it silently returns this app to rendering
+the scaffolding as a user bubble — there is no version negotiation and no error.
+
 ### 5. Mirrored constant
 
 `MEDIA_DELIVERY_EXTENSIONS` in `android/.../domain/Mappers.kt` is a hand-copy of
@@ -118,8 +143,12 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
 5. Confirm the `platform_hints` config override still resolves: on the Mac, `_resolve_platform_hint`
    must return the `hermes_remote` text and must leave the `desktop`/`tui` defaults untouched.
    Without it this app's platform silently has no capability block at all.
-6. Run the attachment and streaming smoke tests in `docs/SMOKE_TEST.md` against the upgraded Hermes.
-7. **Read the source, not the notes.** See below.
+6. Diff upstream `tools/todo_tool.py` `TODO_INJECTION_HEADER` against `COMPRESSION_SNAPSHOT_HEADER`
+   (section 4b), and re-check that the skills-reload notice is still appended after it rather than
+   emitted on its own. A silent reword here brings the scaffolding back into the transcript as a
+   user bubble.
+7. Run the attachment and streaming smoke tests in `docs/SMOKE_TEST.md` against the upgraded Hermes.
+8. **Read the source, not the notes.** See below.
 
 ## Known hazards
 

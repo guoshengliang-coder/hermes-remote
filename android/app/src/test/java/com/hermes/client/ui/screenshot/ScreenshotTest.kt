@@ -162,6 +162,46 @@ class ScreenshotTest {
         )
     }
 
+    // docs/DESIGN.md §5.4 (HG-15): after a completed turn these two are quiet TEXT, not a chip and
+    // not a bordered card. 0.1.94 folded the content and left the container, which is why the
+    // complaint outlived that fix — this golden is what stops the weight creeping back.
+    @Test fun quietFoldSummaries() = snap("turn-fold-quiet") {
+        androidx.compose.foundation.layout.Column {
+            com.hermes.client.ui.chat.QuietFoldSummary(
+                label = "查看思考过程", expanded = false, contentDescription = "思考过程", onClick = {},
+            )
+            com.hermes.client.ui.chat.ToolTimelineCard(
+                listOf(
+                    com.hermes.client.domain.ToolCall("a", "skill_view", com.hermes.client.domain.ToolStatus.DONE, output = "---", durationMs = 1_200),
+                    com.hermes.client.domain.ToolCall("b", "terminal", com.hermes.client.domain.ToolStatus.DONE, command = "date", exitCode = 0, durationMs = 300),
+                    com.hermes.client.domain.ToolCall("c", "bi_query", com.hermes.client.domain.ToolStatus.DONE, output = "rows: 42", durationMs = 900),
+                ),
+                completed = true,
+                stateKey = "quiet",
+            )
+            androidx.compose.material3.Text(
+                "是。广点通 09-04 的“平台侧”收入和展示数据没有回来。",
+                style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
+            )
+        }
+    }
+
+    // The same list after the run ended: item 3 was left in_progress by Hermes and must no longer
+    // be drawn as if work were still happening (HG-16).
+    @Test fun settledTaskList() = snap("task-list-settled") {
+        com.hermes.client.ui.chat.TodoCard(
+            com.hermes.client.domain.ToolCall(
+                "t", "todo", com.hermes.client.domain.ToolStatus.DONE,
+                todos = listOf(
+                    com.hermes.client.domain.TodoItem("复核国内 09-04 与 09-03 毛利桥", "completed"),
+                    com.hermes.client.domain.TodoItem("下钻工作室与产品系列", "completed"),
+                    com.hermes.client.domain.TodoItem("下钻产品、媒体与推广计划并形成归因结论", "in_progress"),
+                ),
+            ),
+            completed = true,
+        )
+    }
+
     @Test fun tableCardNarrow() = snap("table-card-narrow") {
         val raw = "| 项目 | 期望值 | 实际值 |\n|---|---|---|\n| 证书深度 | 4 | 2 |\n| 读超时 | 75s | 75s |"
         com.hermes.client.ui.chat.ChatTableCard(raw, onOpenFullscreen = {}) {

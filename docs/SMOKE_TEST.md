@@ -716,3 +716,30 @@ scroll-anchoring bugs need a list long enough to scroll.
    digits (`已连接 · 231 ms`): 本周用量 and 远程设备 must have their titles on one line, their values
    on one line, and their sub-lines starting on one line, whether or not the right sub wraps. Check
    again at font scale 1.3 and with a long device name, where both cells shrink together.
+
+## HG-15 / HG-16 (2026-09-06 branch claude/hg15-16-chat-noise)
+
+### Verified on the emulator, 2026-09-06 (Pixel_9_API_36_1, local dev stack)
+
+- **HG-15 reasoning row.** In a real chat, dark theme: 「查看思考过程」renders as a quiet grey line
+  with a 12dp chevron — no chip, no border — and tapping it still expands the reasoning and flips
+  the label to 「收起思考过程」. A lone tool call still renders as its own card, which is the
+  documented exception (`docs/DESIGN.md` §5.4: a single call was never folded).
+
+Two Roborazzi goldens pin the rest: `turn-fold-quiet` (the quiet reasoning + folded tool-timeline
+summary sitting above an answer) and `task-list-settled` (a finished turn whose third item Hermes
+left `in_progress`). Both were recorded and eyeballed as §5.4 requires.
+
+### Still needs a device
+
+1. **HG-15 with a real tool timeline.** The dev mock streams reasoning but no tool calls, so the
+   「N 次工具调用」summary was only seen in the golden, never in a live transcript above a long
+   answer. Check that folded it reads as one quiet line and that tapping still unfolds the rows.
+2. **HG-16a end to end.** Needs a run that leaves a task list at 2/3: the third item must be an
+   ordinary unfinished row (no bold, no filled marker) and the card header must not wear the
+   running marker either. While the run is still going, the in-progress item must look exactly as
+   it did before — this fix must not quiet a live list.
+3. **HG-16b end to end.** Needs a session long enough for Hermes to compress its context. Expected:
+   a one-line 「上下文已压缩」note that expands to the original text, never a user bubble. The case
+   worth hunting for is the other one — a compression that lands on a turn where you also typed
+   something: your text must survive intact with the scaffolding cut off it.

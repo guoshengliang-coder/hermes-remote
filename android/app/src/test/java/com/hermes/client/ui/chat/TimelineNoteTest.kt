@@ -94,4 +94,42 @@ class TimelineNoteTest {
         assertNull(domain.displayKind)
         assertNull(timelineNoteFor(domain))
     }
+
+    // Regression for HG-16. Hermes' compression scaffolding rides the wire as role=user, so a
+    // transcript ended with a wall of "[Your active task list was preserved…] / [Skills pruned…]"
+    // rendered as if the user had typed it.
+    @Test fun `compression scaffolding alone becomes a quiet note`() {
+        val scaffolding = COMPRESSION_SNAPSHOT_HEADER + "\n- [>] product. 下钻产品 (in_progress)\n\n" +
+            "[Skills pruned during compression — reload before acting on these tasks]\n" +
+            "…reload them first: skill_view(name='claude-code')."
+        val note = timelineNoteFor(msg(scaffolding))
+        assertEquals("上下文已压缩", note?.zh)
+        assertTrue("the original must stay readable on tap", note?.expandable == true)
+        assertFalse("a note is not a prompt turn", msg(scaffolding).isPromptTurn())
+    }
+
+    // The half that a naive prefix match gets catastrophically wrong: upstream appends the
+    // snapshot to the trailing REAL user turn, so hiding the whole message deletes what the
+    // person actually typed. Cut at the marker, keep the prompt, stay a bubble.
+    @Test fun `scaffolding appended to a real prompt keeps the prompt`() {
+        val text = "是不是广点通这个广告平台的收入没回来\n\n" + COMPRESSION_SNAPSHOT_HEADER + "\n- [>] product. 下钻 (in_progress)"
+        assertNull("still a real user turn", timelineNoteFor(msg(text)))
+        assertEquals("是不是广点通这个广告平台的收入没回来", withoutCompressionScaffolding(text))
+        assertEquals("是不是广点通这个广告平台的收入没回来", msg(text).organizedForDisplay().text)
+    }
+
+    @Test fun `messages without the marker are untouched`() {
+        val plain = "帮我看看昨天的数据"
+        assertEquals(plain, withoutCompressionScaffolding(plain))
+        assertEquals(plain, msg(plain).organizedForDisplay().text)
+        assertNull(timelineNoteFor(msg(plain)))
+    }
+
+    // A scaffolding-only turn keeps its text: the note's expanded body is the only place the
+    // original survives, so stripping it here would empty the card.
+    @Test fun `a scaffolding-only turn keeps its text for the expanded body`() {
+        val scaffolding = COMPRESSION_SNAPSHOT_HEADER + "\n- [>] 1. task (in_progress)"
+        assertEquals(scaffolding, msg(scaffolding).organizedForDisplay().text)
+    }
+
 }
