@@ -217,6 +217,17 @@ data class ModelOptionDto(
 @Serializable data class MessagingPlatformsDto(val platforms: List<MessagingPlatformDto> = emptyList())
 
 /**
+ * Reply from `POST /api/messaging/platforms/{id}/test`. [message] is Hermes' own diagnosis —
+ * which required field is missing, or that the gateway still needs a restart — so it is worth
+ * showing verbatim as detail behind our own localized summary.
+ */
+@Serializable data class MessagingTestDto(
+    val ok: Boolean = false,
+    val state: String? = null,
+    val message: String? = null,
+)
+
+/**
  * One day of MAIN-AGENT usage. Hermes groups these with SQLite `date(started_at,'unixepoch')`, so
  * [day] is a UTC date and the tokens are attributed to the day a session STARTED, not the day they
  * were spent. Auxiliary calls never reach this table — see [AuxTaskUsageDto].
