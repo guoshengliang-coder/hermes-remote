@@ -734,6 +734,30 @@ class ChatViewModel @Inject constructor(
             .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
             .getOrNull()?.id
 
+    /**
+     * Archives the open conversation. Returns null on success, or the error to show. Carries the
+     * session's OWN profile: the gateway keeps a database per profile and 404s without it, which
+     * would look like "archive silently did nothing" (the same trap the sessions list hit).
+     */
+    suspend fun archiveCurrentSession(): com.hermes.client.data.error.AppError? {
+        val id = storedSessionId.takeIf { it.isNotBlank() }
+            ?: return com.hermes.client.data.error.AppError(
+                com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND,
+                retryable = false, stage = "session_archive",
+            )
+        return runCatching { sessions.archive(id, archived = true, runtimeKey?.profile) }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+            .fold(
+                onSuccess = { null },
+                onFailure = {
+                    com.hermes.client.data.error.AppError(
+                        com.hermes.client.data.error.AppErrorCode.SESSION_ARCHIVE_FAILED,
+                        retryable = true, technicalCause = it.message, stage = "session_archive",
+                    )
+                },
+            )
+    }
+
     /** A send that raised, kept so the bubble's tap-to-retry can replay it with its attachments. */
     private data class FailedSend(val text: String, val attachments: List<PendingAttachment>, val error: com.hermes.client.data.error.AppError)
     private val failedSends = LinkedHashMap<String, FailedSend>()

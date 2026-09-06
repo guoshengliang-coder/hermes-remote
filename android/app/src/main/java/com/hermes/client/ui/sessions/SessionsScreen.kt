@@ -784,6 +784,7 @@ private fun SessionRow(
     var menuOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
+    var confirmingArchive by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
     val language = LocalAppLanguage.current
     val trailing: (@Composable () -> Unit)? = when (sessionRowTrailing(runtime, unread)) {
@@ -892,6 +893,28 @@ private fun SessionRow(
                 ) { Text(localized(language, "保存", "Save")) }
             },
             dismissButton = { TextButton(onClick = { renaming = false }) { Text(localized(language, "取消", "Cancel")) } },
+        )
+    }
+
+    if (confirmingArchive) {
+        AlertDialog(
+            onDismissRequest = { confirmingArchive = false },
+            title = { Text(localized(language, "归档这个对话？", "Archive this conversation?")) },
+            text = {
+                Text(
+                    localized(
+                        language,
+                        "归档后它会从会话列表移到「已归档」，随时可以恢复。",
+                        "It moves out of your conversation list into 已归档, and you can restore it any time.",
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmingArchive = false; onArchive() }) {
+                    Text(localized(language, "归档", "Archive"))
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmingArchive = false }) { Text(localized(language, "取消", "Cancel")) } },
         )
     }
 

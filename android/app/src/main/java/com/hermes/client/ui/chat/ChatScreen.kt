@@ -51,6 +51,7 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
@@ -385,6 +386,9 @@ fun ChatScreen(
     // Image attach: read picked/captured bytes and stage them onto the session.
     val clipboard = LocalClipboardManager.current
     var transcriptMenu by remember { mutableStateOf(false) }
+    var creatingNewChat by remember { mutableStateOf(false) }
+    var confirmArchive by rememberSaveable(sessionId) { mutableStateOf(false) }
+    var archiving by remember { mutableStateOf(false) }
     // Share-transcript format picker + the offscreen image export it can start.
     var shareFormatSheet by remember { mutableStateOf(false) }
     var transcriptImageExporting by remember { mutableStateOf(false) }
@@ -722,12 +726,38 @@ fun ChatScreen(
                         )
                     }
                 }
-                IconButton(onClick = { searchOpen = true }) {
-                    Icon(
-                        Icons.Rounded.Search,
-                        contentDescription = localized(language, "搜索当前对话", "Search this chat"),
-                        modifier = Modifier.offset(x = 4.dp),
-                    )
+                // The top bar carries the one highest-frequency action; search moved into the
+                // menu below (docs/DESIGN.md §5.4, HG-5). Reading an answer and wanting to start
+                // the next thing is the common case, and it used to cost a trip back to the list.
+                IconButton(
+                    onClick = {
+                        if (!creatingNewChat) {
+                            creatingNewChat = true
+                            exportScope.launch {
+                                try {
+                                    vm.createNewSession()?.let(onNewChat)
+                                        ?: android.widget.Toast.makeText(
+                                            context,
+                                            localized(language, "无法新建对话，请重试。", "Couldn't start a new conversation. Retry."),
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                } finally {
+                                    creatingNewChat = false
+                                }
+                            }
+                        }
+                    },
+                    enabled = !creatingNewChat,
+                ) {
+                    if (creatingNewChat) {
+                        com.hermes.client.ui.components.HermesMark(size = 20.dp)
+                    } else {
+                        Icon(
+                            Icons.Rounded.Add,
+                            contentDescription = localized(language, "新建对话", "New conversation"),
+                            modifier = Modifier.offset(x = 4.dp),
+                        )
+                    }
                 }
                 Box {
                     IconButton(onClick = { transcriptMenu = true }) {
@@ -743,8 +773,17 @@ fun ChatScreen(
                         shape = RoundedCornerShape(16.dp),
                         containerColor = MaterialTheme.colorScheme.surface,
                     ) {
-                            // Navigation before actions: the prompt list is how a long chat is
-                            // travelled (docs/DESIGN.md §5.4 我的提问).
+                            // Navigation before actions (docs/DESIGN.md §5.4). Search leads: it
+                            // lost its top-bar slot to 新建对话, so it must be the first thing
+                            // found here.
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, Modifier.size(20.dp)) },
+                                text = { Text(localized(language, "搜索对话", "Search this chat")) },
+                                onClick = {
+                                    transcriptMenu = false
+                                    searchOpen = true
+                                },
+                            )
                             DropdownMenuItem(
                                 leadingIcon = { Icon(com.hermes.client.ui.components.PromptListIcon, contentDescription = null, Modifier.size(20.dp)) },
                                 text = { Text(localized(language, "我的提问", "Your prompts")) },
@@ -801,6 +840,14 @@ fun ChatScreen(
                                         shareFormatSheet = true
                                     }
                                     transcriptMenu = false
+                                },
+                            )
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Rounded.Archive, contentDescription = null, Modifier.size(20.dp)) },
+                                text = { Text(localized(language, "归档对话", "Archive conversation")) },
+                                onClick = {
+                                    transcriptMenu = false
+                                    confirmArchive = true
                                 },
                             )
                             DropdownMenuItem(
@@ -1402,6 +1449,62 @@ fun ChatScreen(
             listLoading = providersLoading,
             listError = providersError,
             onRetryLoad = { vm.ensureProviders(force = true) },
+        )
+    }
+
+    // Archiving asks first (docs/DESIGN.md §5.2, HG-5): unlike the sessions list — where the row
+    // visibly leaves under your finger — this one carries you off the screen you were reading, so
+    // a confirm is the only feedback before the fact. NOT painted error-red: archiving is
+    // reversible from 已归档, and colouring reversible actions red dilutes the colour that means
+    // "you cannot undo this".
+    if (confirmArchive) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { if (!archiving) confirmArchive = false },
+            title = { Text(localized(language, "归档这个对话？", "Archive this conversation?")) },
+            text = {
+                Text(
+                    localized(
+                        language,
+                        "归档后它会从会话列表移到「已归档」，随时可以恢复。",
+                        "It moves out of your conversation list into 已归档, and you can restore it any time.",
+                    ),
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    enabled = !archiving,
+                    onClick = {
+                        archiving = true
+                        exportScope.launch {
+                            val error = vm.archiveCurrentSession()
+                            archiving = false
+                            confirmArchive = false
+                            if (error == null) {
+                                android.widget.Toast.makeText(
+                                    context,
+                                    localized(language, "已归档", "Archived"),
+                                    android.widget.Toast.LENGTH_SHORT,
+                                ).show()
+                                onMenu()
+                            } else {
+                                // Stay put on failure: nothing was archived, and bouncing to the
+                                // list would suggest otherwise.
+                                android.widget.Toast.makeText(
+                                    context,
+                                    error.localizedMessage(language),
+                                    android.widget.Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        }
+                    },
+                ) { Text(localized(language, "归档", "Archive")) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    enabled = !archiving,
+                    onClick = { confirmArchive = false },
+                ) { Text(localized(language, "取消", "Cancel")) }
+            },
         )
     }
 

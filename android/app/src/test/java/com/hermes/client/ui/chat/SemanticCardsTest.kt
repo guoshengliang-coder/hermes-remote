@@ -81,10 +81,15 @@ class SemanticCardsTest {
         val g1 = groupToolsForDisplay(listOf(tool("a"), tool("b"), tool("c")))
         assertEquals(1, g1.size)
         assertTrue(g1[0] is ToolDisplayGroup.Timeline)
-        // 2 consecutive -> singles
+        // 2 consecutive -> ONE timeline (HG-3). Two separately bordered cards read as two
+        // independent things when they are two steps of the same turn.
         val g2 = groupToolsForDisplay(listOf(tool("a"), tool("b")))
-        assertEquals(2, g2.size)
-        assertTrue(g2.all { it is ToolDisplayGroup.Single })
+        assertEquals(1, g2.size)
+        assertTrue(g2[0] is ToolDisplayGroup.Timeline)
+        // A lone call is still its own card: there is no group to make.
+        val g1a = groupToolsForDisplay(listOf(tool("a")))
+        assertEquals(1, g1a.size)
+        assertTrue(g1a[0] is ToolDisplayGroup.Single)
         // todo breaks the run: 3 + todo + 1 -> timeline, single(todo), single
         val g3 = groupToolsForDisplay(listOf(tool("a"), tool("b"), tool("c"), todoTool, tool("d")))
         assertEquals(3, g3.size)

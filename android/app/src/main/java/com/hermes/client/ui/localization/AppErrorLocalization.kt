@@ -98,6 +98,8 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "项目文件夹在 Mac 上不存在，会话已建在默认项目。", "The project folder no longer exists on the Mac, so the conversation was created in the default project.")
         AppErrorCode.MESSAGE_SEND_FAILED ->
             localized(language, "消息未发送，点按气泡重试。", "The message was not sent. Tap the bubble to retry.")
+        AppErrorCode.SESSION_ARCHIVE_FAILED ->
+            localized(language, "无法归档会话，请重试。", "Couldn't archive the conversation. Retry.")
         AppErrorCode.INSTALL_PERMISSION_REQUIRED ->
             localized(language, "需要允许安装未知应用，授权后请重试。", "Permission to install unknown apps is required. Grant it and retry.")
         AppErrorCode.RUN_UNCONFIRMED ->

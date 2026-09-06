@@ -516,9 +516,15 @@ internal sealed interface ToolDisplayGroup {
     data class Timeline(val tools: List<ToolCall>) : ToolDisplayGroup
 }
 
+/**
+ * Consecutive calls collapse into one timeline from **two** upwards (docs/DESIGN.md §5.4, HG-3).
+ * At the old threshold of three, a turn that used two tools drew two separately bordered cards and
+ * read as two independent things, when they are two steps of the same turn. A lone call stays its
+ * own card: there is no group to make.
+ */
 internal fun groupToolsForDisplay(
     tools: List<ToolCall>,
-    timelineThreshold: Int = 3,
+    timelineThreshold: Int = 2,
 ): List<ToolDisplayGroup> {
     val groups = mutableListOf<ToolDisplayGroup>()
     val run = mutableListOf<ToolCall>()

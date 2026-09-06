@@ -3,6 +3,7 @@ package com.hermes.client.domain
 import com.hermes.client.data.network.MessageDto
 import com.hermes.client.data.network.SessionDto
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class MappersTest {
@@ -283,4 +284,25 @@ class MappersTest {
         assertEquals("下载：会话整理", parsed.text)
         assertEquals("/Users/bs/output/会话 整理.md", parsed.files.single().remotePath)
     }
+
+    // Regression for HG-4. Hermes' messages table carries `timestamp REAL NOT NULL` (Unix seconds)
+    // and the API passes the row through verbatim; the client modelled only `created_at`, a field
+    // upstream never emits. Every message loaded from history therefore came back timeless, so the
+    // 我的提问 list showed times on recent prompts and nothing on older ones — backwards from what
+    // is useful. See docs/HERMES_CONTRACT.md §1b.
+    @Test fun `message time comes from Hermes' own timestamp column`() {
+        val fromUpstream = MessageDto(id = 1, role = "user", content = "hi", timestamp = 1_788_000_000.5)
+        assertEquals(1_788_000_000_500L, fromUpstream.toDomain().timestamp)
+
+        // The ISO fallback still parses, and never overrides a real upstream value.
+        val isoOnly = MessageDto(id = 2, role = "user", content = "hi", createdAt = "2026-09-05T01:20:00Z")
+        assertEquals(1_788_571_200_000L, isoOnly.toDomain().timestamp)
+        val both = MessageDto(id = 3, role = "user", content = "hi", timestamp = 1_788_000_000.0, createdAt = "2026-09-05T01:20:00Z")
+        assertEquals(1_788_000_000_000L, both.toDomain().timestamp)
+
+        // Neither present, and a zero stamp, both mean "unknown" — not 1970.
+        assertNull(MessageDto(id = 4, role = "user", content = "hi").toDomain().timestamp)
+        assertNull(MessageDto(id = 5, role = "user", content = "hi", timestamp = 0.0).toDomain().timestamp)
+    }
+
 }

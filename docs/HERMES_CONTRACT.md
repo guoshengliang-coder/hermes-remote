@@ -30,6 +30,28 @@ same change.
 Pinned by `HermesContractTest.session_wire_field_names_match_upstream` via the kotlinx-serialization
 descriptor, so a renamed `@SerialName` fails the build rather than silently deserializing to null.
 
+### 1b. Message wire fields (`GET /api/sessions/{id}/messages`)
+
+The endpoint returns rows straight out of Hermes' SQLite `messages` table —
+`hermes_state_messages.py` `_row_to_message_dict` is `dict(row)`, and the router passes the list
+through untouched — so **every column is a wire field under its column name**.
+
+The time field is **`timestamp`**, a `REAL NOT NULL` holding Unix **seconds** (a float). It is
+**not** `created_at`, and it is not an ISO-8601 string. Every message has one: the column is NOT
+NULL.
+
+This cost us a whole class of missing data. The client modelled `created_at` as an ISO string,
+which matches nothing upstream, so `timestamp` came back null for every message loaded from
+history; only messages streamed live in the current session carried a locally applied stamp. The
+「我的提问」list therefore showed times on recent prompts and nothing on older ones — exactly
+backwards from what is useful (HG-4). `docs/DESIGN.md` compounded it by recording "the gateway
+history has no `created_at`" as fact and filing the fix as connector work; no connector change was
+ever needed.
+
+Also consumed from the same rows: `id`, `role`, `content`, `reasoning` / `reasoning_content`,
+`tool_calls`, `tool_call_id`, `tool_name`, `display_kind`, `display_metadata`. A column Hermes
+renames disappears silently — deserialization yields null, never an error.
+
 ### 2. REST paths
 
 ```
@@ -147,8 +169,10 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
    (section 4b), and re-check that the skills-reload notice is still appended after it rather than
    emitted on its own. A silent reword here brings the scaffolding back into the transcript as a
    user bubble.
-7. Run the attachment and streaming smoke tests in `docs/SMOKE_TEST.md` against the upgraded Hermes.
-8. **Read the source, not the notes.** See below.
+7. Confirm the `messages` table still exposes `timestamp` (section 1b): `sqlite3 ~/.hermes/state.db
+   ".schema messages"`. A rename silently empties every history timestamp again.
+8. Run the attachment and streaming smoke tests in `docs/SMOKE_TEST.md` against the upgraded Hermes.
+9. **Read the source, not the notes.** See below.
 
 ## Known hazards
 
