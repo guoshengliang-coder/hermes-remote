@@ -103,6 +103,9 @@ fun CronScreen(
                                     val (icon, tint) = when (cronRowStatus(job, nowMs)) {
                                         CronRowStatus.FAILED, CronRowStatus.OVERDUE ->
                                             Icons.Rounded.ErrorOutline to MaterialTheme.colorScheme.error
+                                        // 跑成功但没送达：不是运行失败，也不是正常，自成一档。
+                                        CronRowStatus.UNDELIVERED ->
+                                            Icons.Rounded.ErrorOutline to MaterialTheme.colorScheme.error
                                         CronRowStatus.PAUSED ->
                                             Icons.Rounded.PauseCircleOutline to MaterialTheme.colorScheme.onSurfaceVariant
                                         CronRowStatus.OK ->
@@ -115,10 +118,16 @@ fun CronScreen(
                                         job.scheduleText + when {
                                             job.isPaused -> l10n("  · 已暂停", "  · paused")
                                             !job.enabled -> l10n("  · 已停用", "  · disabled")
+                                            cronRowStatus(job, nowMs) == CronRowStatus.UNDELIVERED ->
+                                                l10n("  · 未送达", "  · not delivered")
                                             else -> ""
                                         },
-                                        color = if (job.enabled && !job.isPaused) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.error,
+                                        color = when {
+                                            !job.enabled || job.isPaused -> MaterialTheme.colorScheme.error
+                                            cronRowStatus(job, nowMs) == CronRowStatus.UNDELIVERED ->
+                                                MaterialTheme.colorScheme.error
+                                            else -> MaterialTheme.colorScheme.primary
+                                        },
                                     )
                                 },
                                 headlineContent = { Text(cronDisplayName(job.name, job.prompt, job.id)) },

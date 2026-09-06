@@ -61,6 +61,7 @@ reassigned.
 | `CONFIG` | Local or deployment configuration | invalid URL, missing field, incompatible setting |
 | `STORE` | Local persistence | DataStore/database/cache failure |
 | `SEARCH` | Session and message search | gateway search request failed, search backend unavailable |
+| `CRON` | Scheduled jobs | run delivered nowhere, schedule/trigger failure |
 | `LINK` | Links the app opens out of its own content | no app can open the link, non-web scheme refused |
 | `UNKNOWN` | Truly unmapped failures | last-resort boundary only; must be investigated |
 
@@ -219,6 +220,7 @@ expanded without changing the underlying meaning.
 | `HR-LINK-001` | A link in app content (an assistant answer, a setup guide link) could not be handed to any app (no browser or handler installed, or the launch was refused). The link is copied to the clipboard so it can still be used | 没有能打开链接的应用，链接已复制。 | No app can open this link. It was copied to the clipboard. | No (paste the link elsewhere) |
 | `HR-LINK-002` | A link in app content is not an openable web address: its scheme is outside the http/https/mailto/tel allowlist, or it has no scheme at all (a relative or anchor-only target). Refused before reaching the system, so a crafted `intent:`/`file:` target cannot launch anything | 这个链接无法打开。 | This link can't be opened. | No |
 | `HR-SEARCH-001` | Gateway message search (`/api/sessions/search`) failed: transport error, non-2xx response, or unparseable body. The title matches on the search screen stay; only the message section shows the error with Retry | 消息搜索失败，请重试。 | Message search failed. Retry. | Yes |
+| `HR-CRON-001` | A scheduled job ran successfully but its output never reached the target channel (Hermes reports `last_status = delivery_failed`; the cause is in `last_delivery_error` and `last_error` is null). The job itself did not fail, so the recovery is on the channel, not the job | 任务运行成功，但结果没能送到目标渠道。 | The task ran successfully, but its result could not be delivered to the target channel. | Yes |
 | `HR-UNKNOWN-001` | Unmapped boundary failure | 出现未知错误，请复制诊断信息协助定位。 | An unknown error occurred. Copy diagnostics to help investigate. | Depends |
 
 

@@ -108,6 +108,12 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "通知操作未能发送，请重试。", "The notification action couldn't be sent. Try again.")
         AppErrorCode.SEARCH_FAILED ->
             localized(language, "消息搜索失败，请重试。", "Message search failed. Retry.")
+        AppErrorCode.CRON_DELIVERY_FAILED ->
+            localized(
+                language,
+                "任务运行成功，但结果没能送到目标渠道。",
+                "The task ran successfully, but its result could not be delivered to the target channel.",
+            )
         AppErrorCode.LINK_NO_HANDLER ->
             localized(language, "没有能打开链接的应用，链接已复制。", "No app can open this link. It was copied to the clipboard.")
         AppErrorCode.LINK_NOT_OPENABLE ->

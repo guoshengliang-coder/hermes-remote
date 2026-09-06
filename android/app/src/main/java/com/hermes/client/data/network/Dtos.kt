@@ -163,6 +163,11 @@ data class ModelOptionDto(
     @SerialName("last_run_at") val lastRunAt: String? = null,
     @SerialName("last_status") val lastStatus: String? = null,
     @SerialName("last_error") val lastError: String? = null,
+    // `delivery_failed` 是一个独立于 error/failed 的终态：agent 跑成功了，但输出没送到
+    // 目标渠道，详情在 lastDeliveryError（此时 lastError 为 null）。
+    @SerialName("last_delivery_error") val lastDeliveryError: String? = null,
+    /** 投递落点：`local`（只存不发，服务端缺省）/ `origin` / 任意已连接渠道名。 */
+    val deliver: String? = null,
     val profile: String? = null,
     val model: String? = null,
     val prompt: String? = null,
@@ -196,7 +201,16 @@ data class ModelOptionDto(
     val enabled: Boolean = false,
     val configured: Boolean = false,
     @SerialName("gateway_running") val gatewayRunning: Boolean = false,
+    /**
+     * 服务端算好的平台状态：`connected` / `pending_restart` / `startup_failed` /
+     * `gateway_stopped` / `not_configured` / `disabled`。这是唯一可信的来源——
+     * `enabled && gatewayRunning` 只说明网关进程活着，不代表这个平台连上了。
+     */
     val state: String? = null,
+    @SerialName("error_code") val errorCode: String? = null,
+    @SerialName("error_message") val errorMessage: String? = null,
+    @SerialName("needs_attention") val needsAttention: Boolean = false,
+    @SerialName("home_channel") val homeChannel: String? = null,
     @SerialName("docs_url") val docsUrl: String? = null,
     @SerialName("env_vars") val envVars: List<MessagingEnvVarDto> = emptyList(),
 )
