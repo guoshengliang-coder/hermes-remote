@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -101,6 +102,7 @@ fun MessagingScreen(
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val language = LocalAppLanguage.current
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val stateMessage = state.message?.resolve(language)
     val snackbar = androidx.compose.runtime.remember { androidx.compose.material3.SnackbarHostState() }
     androidx.compose.runtime.LaunchedEffect(stateMessage) {
@@ -125,21 +127,29 @@ fun MessagingScreen(
                 )
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(state.platforms, key = { it.id }) { p ->
-                        val status = when {
-                            p.enabled && p.gatewayRunning -> l10n("已连接", "Connected")
-                            p.enabled -> l10n("已启用", "Enabled")
-                            p.configured -> l10n("已配置", "Configured")
-                            else -> l10n("未配置", "Not configured")
-                        }
+                        // 状态一律取服务端算好的 state（见 MessagingRowStatus）；
+                        // enabled && gatewayRunning 会把「待重启」和「启动失败」都画成已连接。
+                        val rowStatus = messagingRowStatus(p)
+                        val status = messagingStatusText(rowStatus).resolve(language)
                         ListItem(
                             headlineContent = { Text(p.name ?: p.id) },
                             supportingContent = {
                                 Column {
                                     val setup = l10n("点击进行设置", "Tap to set up")
                                     Text(listOfNotNull(p.description?.takeIf { it.isNotBlank() }, setup).joinToString("  ·  "))
-                                    Text(status, style = MaterialTheme.typography.labelSmall,
-                                        color = if (p.enabled) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        status,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = when (rowStatus) {
+                                            MessagingRowStatus.CONNECTED ->
+                                                com.hermes.client.ui.theme.statusColor(com.hermes.client.ui.theme.StatusTone.GOOD, dark)
+                                            MessagingRowStatus.PENDING_RESTART ->
+                                                com.hermes.client.ui.theme.statusColor(com.hermes.client.ui.theme.StatusTone.WARN, dark)
+                                            MessagingRowStatus.FAILED, MessagingRowStatus.GATEWAY_STOPPED ->
+                                                com.hermes.client.ui.theme.statusColor(com.hermes.client.ui.theme.StatusTone.BAD, dark)
+                                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                    )
                                 }
                             },
                             trailingContent = {
