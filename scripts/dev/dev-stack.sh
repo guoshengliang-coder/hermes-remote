@@ -9,6 +9,9 @@
 # Ports may be moved out of the way of another project:
 #   HERMES_DEV_GATEWAY_PORT=8801 HERMES_DEV_MOCK_PORT=9121 ./scripts/dev/dev-stack.sh start
 #
+# A list long enough to scroll (needed for LazyColumn anchoring bugs — see HG-11):
+#   MOCK_HERMES_EXTRA_SESSIONS=40 ./scripts/dev/dev-stack.sh start
+#
 # This script only ever stops processes it started itself. It records each child PID under
 # $LOG_DIR and re-checks the recorded command before killing, and it refuses to start when a
 # port is held by a foreign process instead of taking the port by force. (Killing whatever
@@ -98,7 +101,7 @@ start_stack() {
   require_port "$MOCK_PORT" "$MOCK_MARKER" "mock hermes" HERMES_DEV_MOCK_PORT
 
   start_recorded mock "$ROOT" \
-    env MOCK_HERMES_PORT=$MOCK_PORT node "$MOCK_MARKER"
+    env MOCK_HERMES_PORT=$MOCK_PORT MOCK_HERMES_EXTRA_SESSIONS="${MOCK_HERMES_EXTRA_SESSIONS:-0}" node "$MOCK_MARKER"
   start_recorded gateway "$ROOT/gateway" \
     env APP_TOKEN=$APP_TOKEN CONNECTOR_TOKEN=$CONNECTOR_TOKEN PORT=$GATEWAY_PORT \
     node "$GATEWAY_MARKER"

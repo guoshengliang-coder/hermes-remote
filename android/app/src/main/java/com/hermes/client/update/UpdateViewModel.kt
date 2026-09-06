@@ -112,7 +112,7 @@ class UpdateViewModel(
                         lastCheckedAtMs = clock(),
                         rows = rows,
                         latest = latest,
-                        history = rows.filter { it.version.versionCode != latest?.version?.versionCode },
+                        history = historyRows(rows, latest),
                     )
                     refreshLocalApks(rows)
                 }

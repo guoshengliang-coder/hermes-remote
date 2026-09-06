@@ -395,9 +395,30 @@ fun SessionsScreen(
                     snapshotFlow { sessionsListState.firstVisibleItemIndex }
                         .collect { if (it == 0) needsYouPill = 0 }
                 }
+                // Same anchoring problem as 需要你处理 above, with a deliberate action behind it:
+                // a just-pinned row moves into the 已置顶 section at the top, which LazyColumn
+                // inserts ABOVE the viewport. Unlike an unsolicited promotion this one was asked
+                // for, so follow it up unconditionally instead of offering a pill (HG-11).
+                val pinReveals by vm.pinRevealRequests.collectAsStateWithLifecycle()
+                // Seeded with the count as it stands, so only a pin made while this list is on
+                // screen scrolls it. The counter outlives the screen; without the seed, coming
+                // back from a chat would replay the last pin and yank the reader to the top.
+                var handledPinReveals by remember { mutableStateOf(pinReveals) }
+                LaunchedEffect(pinReveals) {
+                    if (pinReveals != handledPinReveals) {
+                        handledPinReveals = pinReveals
+                        sessionsListState.animateScrollToItem(0)
+                    }
+                }
                 Box(Modifier.fillMaxSize()) {
+                    // Delegated properties do not smart-cast; the local also makes the
+                    // "pins are known from here down" boundary explicit.
+                    val pins = pinnedTokens
                     when {
-                        state.loading && state.sessions.isEmpty() -> com.hermes.client.ui.components.ListLoadingState()
+                        // Pins unread: rendering now would draw a list with no 已置顶 section and
+                        // then insert one above the viewport a beat later (HG-11).
+                        pins == null || (state.loading && state.sessions.isEmpty()) ->
+                            com.hermes.client.ui.components.ListLoadingState()
                         state.error != null && state.sessions.isEmpty() -> com.hermes.client.ui.components.ErrorState(
                             error = state.error!!,
                             onRetry = { vm.refresh() },
@@ -411,7 +432,7 @@ fun SessionsScreen(
                             )
                         else -> {
                             val isPinned = { s: Session ->
-                                com.hermes.client.data.repository.PinStore.token(s.profile, s.id) in pinnedTokens
+                                com.hermes.client.data.repository.PinStore.token(s.profile, s.id) in pins
                             }
                             // Sessions blocked on the user jump the whole order — then pins,
                             // then plain recency.
@@ -465,7 +486,7 @@ fun SessionsScreen(
                                         )
                                     }
                                     if ("pinned" !in collapsed) {
-                                        items(pinned, key = { "p-${it.id}" }) { s ->
+                                        items(pinned, key = { "p-${it.profile.orEmpty()}:${it.id}" }) { s ->
                                             SessionRow(
                                                 session = s, isPinned = true, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),

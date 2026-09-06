@@ -656,3 +656,63 @@ blocked UI taps and prevented the WebSocket from establishing. These need anothe
    traffic flows — the emulator cannot produce it. On a real device, a `[net] connectivity check
    says offline · …` line naming the missing capability, with the app still working, is the
    confirmation that the diagnosis was right.
+
+## HG-9 / HG-11 / HG-12 / HG-13 / HG-14 (2026-09-06 branch claude/hg9-14-ui-fixes)
+
+All five are Compose behaviours — coroutine-scope lifetime, LazyColumn scroll anchoring, hit
+targets and cross-cell alignment — that JVM unit tests cannot observe. What *is* unit-covered is
+stated per item. This branch also carries the previously unreleased HG-1 / HG-10 fixes, so the pass
+in the section above still applies and item 5 there (a network missing `NET_CAPABILITY_VALIDATED`)
+remains the only way to confirm HG-10.
+
+### Verified on the emulator, 2026-09-06 (Pixel_9_API_36_1, local dev stack)
+
+Driven against `scripts/dev/dev-stack.sh` (mock Hermes → connector → gateway, development tokens
+only — no production credentials were used). The mock gained an opt-in
+`MOCK_HERMES_EXTRA_SESSIONS=40`, because the five fixture sessions never fill a phone viewport and
+scroll-anchoring bugs need a list long enough to scroll.
+
+- **HG-11 cold start** — with 43 sessions, a force-stop and relaunch put 已置顶 at the top of the
+  first painted frame, no scrolling. Confirmed twice (5-session and 43-session lists).
+- **HG-11 pin from depth** — scrolled to 填充会话 38, long-press → 置顶: the list carried itself to
+  the top with that session visible in 已置顶. This is the case the user reported as "it disappears
+  and you have to drag it back".
+- **HG-13a** — checked against the real public index. 版本记录 now begins with **0.1.98 「当前」**
+  and its notes open; before the fix the record began at 0.1.96 and the running build's notes were
+  unreachable.
+- **HG-14** — 本周用量 and 远程设备 line up on all three rows, chevrons on the value line. With a
+  three-digit latency (`已连接 · 915 ms` — the exact shape from the report) the sub now fits on ONE
+  line, because the sub reclaimed the 20dp the chevron reserves.
+
+### Still needs a device
+
+- **HG-9** — the mock has no transcript worth exporting and the share sheet is a system surface;
+  the coroutine-scope race is also timing-dependent, so ten taps on a real device is the test.
+- **HG-12** — the mock emits no `MEDIA:` file attachments, so no file card could be rendered. The
+  READY / UPLOADING / FAILED hit-target matrix is entirely unverified.
+- **HG-14 wrapped sub** — `settings put system font_scale 1.3` did not change rendering on this
+  emulator, so the two-line-sub fallback (the state that originally misaligned the card) was never
+  actually reproduced. Only the now-single-line case is confirmed.
+- **HG-10** — unchanged: needs a network whose `NET_CAPABILITY_VALIDATED` is absent.
+
+1. **HG-9 — Markdown share actually opens.** In a chat, 分享对话 → 「Markdown 文件」. The system
+   share sheet must appear every time, with a `.md` attachment. Repeat ten times, including
+   immediately after opening the chat and on a long transcript; a single silent no-op is a
+   regression. Then check the failure path is audible again: with the transcript cache dir made
+   unwritable, the same tap must show the 无法导出 toast rather than nothing.
+2. **HG-11 — pins are visible without scrolling.** Pin a session, force-stop the app, cold start it.
+   The 已置顶 section must be on screen at the top of the list without any scrolling. Then, while
+   scrolled part-way down, long-press a session → 置顶: the list must carry you to the pinned
+   session rather than leaving it above the viewport. Unpinning must NOT jump the list. Unit-covered:
+   the unread-vs-empty pin seed and the pin-only reveal request.
+3. **HG-12 — the whole file card opens.** Tap a file card's name, its icon, and its empty space:
+   all three open the file. The card shows one trailing button (分享) and no 打开 button. A card
+   still uploading, and one that failed, must not ripple and must not react to a tap.
+4. **HG-13 — the running version's notes are readable.** Settings → 检查更新 while on the newest
+   published build: the 版本记录 list must start with the installed version, carrying the 「当前」
+   badge, and expand to its full notes. With an update available, that newer version must appear in
+   the card at the top and NOT be repeated in the record. Unit-covered as `historyRows`.
+5. **HG-14 — the stat card halves line up.** Card page, with a device whose latency reads three
+   digits (`已连接 · 231 ms`): 本周用量 and 远程设备 must have their titles on one line, their values
+   on one line, and their sub-lines starting on one line, whether or not the right sub wraps. Check
+   again at font scale 1.3 and with a long device name, where both cells shrink together.

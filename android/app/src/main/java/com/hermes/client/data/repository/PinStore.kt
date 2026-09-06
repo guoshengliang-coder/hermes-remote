@@ -19,11 +19,17 @@ class PinStore(private val context: Context) {
 
     val pinned: Flow<Set<String>> = context.pinDataStore.data.map { it[key] ?: emptySet() }
 
-    suspend fun toggle(token: String) {
-        context.pinDataStore.edit { prefs ->
+    /**
+     * Flips [token]'s pin and reports its NEW state. The caller needs the answer: pinning moves a
+     * row into the 已置顶 section above the viewport, so the list has to be told to follow it there
+     * (HG-11) — and only a pin does that, never an unpin.
+     */
+    suspend fun toggle(token: String): Boolean {
+        val updated = context.pinDataStore.edit { prefs ->
             val cur = prefs[key] ?: emptySet()
             prefs[key] = if (token in cur) cur - token else cur + token
         }
+        return token in (updated[key] ?: emptySet())
     }
 
     companion object {

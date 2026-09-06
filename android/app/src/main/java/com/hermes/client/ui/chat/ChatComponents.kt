@@ -66,7 +66,6 @@ import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.OpenInFull
-import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Close
@@ -1664,10 +1663,25 @@ private fun ChatFileList(
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         files.forEach { file ->
+            // The whole card opens the file (docs/DESIGN.md §5.4, HG-12). It used to be inert
+            // everywhere except two small icon buttons, so tapping the obvious target — the file
+            // name — did nothing at all. A file still uploading or failed stays UNCLICKABLE: a
+            // ripple that leads nowhere is the same dead end in a friendlier costume.
+            val openable = file.state == FileTransferState.READY &&
+                (file.remotePath != null || file.localPath != null)
+            val openLabel = localized(LocalAppLanguage.current, "打开文件", "Open file")
             Surface(
                 shape = RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (openable) {
+                            Modifier.clickable(onClickLabel = openLabel) { onOpen(file) }
+                        } else {
+                            Modifier
+                        }
+                    ),
             ) {
                 Row(
                     Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -1687,11 +1701,10 @@ private fun ChatFileList(
                     when (file.state) {
                         FileTransferState.UPLOADING -> com.hermes.client.ui.components.HermesMark(size = 22.dp)
                         FileTransferState.FAILED -> Icon(Icons.Rounded.BrokenImage, contentDescription = localized(LocalAppLanguage.current, "文件不可用", "File unavailable"))
+                        // Only 分享 keeps a button: 打开 is the whole card now, and one action
+                        // does not get two entry points.
                         FileTransferState.READY -> {
-                            if (file.remotePath != null || file.localPath != null) {
-                                IconButton(onClick = { onOpen(file) }, modifier = Modifier.size(38.dp)) {
-                                    Icon(Icons.Rounded.OpenInNew, localized(LocalAppLanguage.current, "打开文件", "Open file"), modifier = Modifier.size(19.dp))
-                                }
+                            if (openable) {
                                 IconButton(onClick = { onShare(file) }, modifier = Modifier.size(38.dp)) {
                                     Icon(Icons.Rounded.Share, localized(LocalAppLanguage.current, "分享文件", "Share file"), modifier = Modifier.size(19.dp))
                                 }

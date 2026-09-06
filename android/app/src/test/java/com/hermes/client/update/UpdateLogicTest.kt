@@ -110,6 +110,35 @@ class UpdateLogicTest {
         assertEquals(42L,removed)
     }
 
+    private fun version(name: String, code: Int) = UpdateVersion(
+        versionName = name, versionCode = code, applicationId = "com.hermes.remote",
+        channel = "internal", publishedAt = "2026-09-05T00:00:00Z",
+        fileName = "Hermes-Remote-$name-debug.apk",
+        downloadUrl = "https://mrlgs.net/releases/Hermes-Remote-$name-debug.apk",
+        sizeBytes = 12, sha256 = "a".repeat(64), certificateSha256 = cert, minSdk = 26,
+        releaseNotes = listOf("note for $name"), sourceCommit = "abcdef1",
+    )
+
+    // Regression for HG-13: on 0.1.98 the 版本记录 started at 0.1.96, so the release notes of the
+    // build actually running were unreachable — the "you're up to date" card carries none, and the
+    // record had dropped the only row that did. Latest is omitted only while it is being offered.
+    @Test fun `version record keeps the current build and omits only an offered update`() {
+        val newer = UpdateRow(version("0.1.99", 100), VersionEligibility.UPDATE)
+        val current = UpdateRow(version("0.1.98", 99), VersionEligibility.CURRENT)
+        val older = UpdateRow(version("0.1.96", 97), VersionEligibility.OLD)
+
+        // Already on the latest build: it stays, first, so its notes can be read.
+        val upToDate = historyRows(listOf(current, older), latest = current)
+        assertEquals(listOf(99, 97), upToDate.map { it.version.versionCode })
+
+        // An update is on offer: the primary card shows its notes, so the record does not repeat them.
+        val behind = historyRows(listOf(newer, current, older), latest = newer)
+        assertEquals(listOf(99, 97), behind.map { it.version.versionCode })
+
+        // No latest resolved from the index — never silently drop rows.
+        assertEquals(3, historyRows(listOf(newer, current, older), latest = null).size)
+    }
+
     @Test fun `apk retention prunes only release files outside the keep set`() {
         val existing = listOf(
             "Hermes-Remote-0.1.70-debug.apk",

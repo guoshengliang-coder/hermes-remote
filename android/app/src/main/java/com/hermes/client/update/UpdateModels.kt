@@ -118,6 +118,23 @@ fun classifyVersions(versions: List<UpdateVersion>, code: Int, app: String, chan
     versions.sortedByDescending { it.versionCode }.map { UpdateRow(it, classifyVersion(it, code, app, channel, cert, deviceSdk)) }
 
 /**
+ * The 版本记录 list (docs/DESIGN.md §5.9). It omits [latest] ONLY while the primary card is
+ * offering that version as a download — otherwise the same release notes would appear twice on
+ * one screen.
+ *
+ * The old rule dropped [latest] unconditionally, which quietly made the release notes of the
+ * build you are actually running unreachable: the primary card degrades to a one-line
+ * "you're up to date" with no notes, and the history skipped the row that had them. On 0.1.98 the
+ * record started at 0.1.96 and nothing in the app could say what 0.1.98 had changed (HG-13).
+ */
+fun historyRows(rows: List<UpdateRow>, latest: UpdateRow?): List<UpdateRow> =
+    if (latest?.eligibility == VersionEligibility.UPDATE) {
+        rows.filter { it.version.versionCode != latest.version.versionCode }
+    } else {
+        rows
+    }
+
+/**
  * One user-visible download stage.
  *
  * [ENQUEUING] exists purely so the UI has a busy state during the suspend call that hands the job

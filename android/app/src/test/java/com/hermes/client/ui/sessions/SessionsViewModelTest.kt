@@ -13,6 +13,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -242,6 +243,49 @@ class SessionsViewModelTest {
         vm.togglePin(session("s2", "client", profile = "odos"))
         advanceUntilIdle()
         io.mockk.coVerify { pinStore.toggle("odos/s2") }
+    }
+
+    // Regression for HG-11. Seeding the pin set with emptySet() let the list render a frame that
+    // claimed there were no pins; the real set arrived a beat later and the 已置顶 section was
+    // inserted ABOVE a viewport LazyColumn had already anchored, so the pins looked lost until the
+    // user scrolled back up. null means "not read yet" and is what the screen gates its first
+    // frame on — an emptySet() seed here is the bug.
+    @Test fun pinnedTokens_start_unread_then_resolve() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        every { pinStore.pinned } returns MutableStateFlow(setOf("personal/s1"))
+        val vm = buildVm()
+        advanceUntilIdle()
+
+        assertNull("pins must read as unread, never as 'no pins'", vm.pinnedTokens.value)
+
+        // Unconfined so the collector actually subscribes: WhileSubscribed only starts the
+        // upstream once someone is listening, which is exactly what the screen does.
+        val seen = mutableListOf<Set<String>?>()
+        backgroundScope.launch(kotlinx.coroutines.test.UnconfinedTestDispatcher(testScheduler)) {
+            vm.pinnedTokens.collect { seen += it }
+        }
+        advanceUntilIdle()
+        assertEquals("a subscriber must resolve the unread seed", setOf("personal/s1"), seen.last())
+        assertNull("the first thing a subscriber sees is still 'unread'", seen.first())
+    }
+
+    // A pin lifts the row into a section above wherever the reader is standing, so the list has to
+    // follow it there; an unpin moves it back down into its recency group and needs no chase.
+    @Test fun only_pinning_asks_the_list_to_follow_the_session() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        val vm = buildVm()
+        advanceUntilIdle()
+        assertEquals(0L, vm.pinRevealRequests.value)
+
+        coEvery { pinStore.toggle("personal/s1") } returns true
+        vm.togglePin(session("s1", "one"))
+        advanceUntilIdle()
+        assertEquals(1L, vm.pinRevealRequests.value)
+
+        coEvery { pinStore.toggle("personal/s1") } returns false
+        vm.togglePin(session("s1", "one"))
+        advanceUntilIdle()
+        assertEquals("unpinning must not yank the list", 1L, vm.pinRevealRequests.value)
     }
 
     // Archiving must carry the session's profile, or the gateway PATCH 404s against the wrong
