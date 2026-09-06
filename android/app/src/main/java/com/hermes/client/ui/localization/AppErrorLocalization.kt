@@ -114,6 +114,20 @@ fun AppError.localizedMessage(language: AppLanguage): String {
                 "任务运行成功，但结果没能送到目标渠道。",
                 "The task ran successfully, but its result could not be delivered to the target channel.",
             )
+        AppErrorCode.MESSAGING_LIST_FAILED ->
+            localized(language, "无法加载消息渠道，请重试。", "Couldn't load messaging channels. Retry.")
+        AppErrorCode.MESSAGING_SAVE_FAILED ->
+            localized(language, "渠道设置未能保存，请重试。", "The channel settings couldn't be saved. Retry.")
+        AppErrorCode.MESSAGING_PROFILE_CONFLICT ->
+            localized(
+                language,
+                "该渠道已被另一个身份占用，同一个渠道不能同时启用两次。",
+                "Another profile already owns this channel; it can't be enabled twice at once.",
+            )
+        AppErrorCode.MESSAGING_PLATFORM_FAILED ->
+            localized(language, "这个渠道没能连上，请检查设置。", "This channel didn't connect. Check its setup.")
+        AppErrorCode.MESSAGING_RESTART_FAILED ->
+            localized(language, "网关重启失败，请重试。", "The gateway restart failed. Retry.")
         AppErrorCode.LINK_NO_HANDLER ->
             localized(language, "没有能打开链接的应用，链接已复制。", "No app can open this link. It was copied to the clipboard.")
         AppErrorCode.LINK_NOT_OPENABLE ->

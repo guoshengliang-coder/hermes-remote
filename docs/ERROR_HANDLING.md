@@ -62,6 +62,7 @@ reassigned.
 | `STORE` | Local persistence | DataStore/database/cache failure |
 | `SEARCH` | Session and message search | gateway search request failed, search backend unavailable |
 | `CRON` | Scheduled jobs | run delivered nowhere, schedule/trigger failure |
+| `MSG` | Messaging channels (DingTalk, Slack, …) | list/save failure, profile conflict, platform not connected, gateway restart |
 | `LINK` | Links the app opens out of its own content | no app can open the link, non-web scheme refused |
 | `UNKNOWN` | Truly unmapped failures | last-resort boundary only; must be investigated |
 
@@ -221,6 +222,11 @@ expanded without changing the underlying meaning.
 | `HR-LINK-002` | A link in app content is not an openable web address: its scheme is outside the http/https/mailto/tel allowlist, or it has no scheme at all (a relative or anchor-only target). Refused before reaching the system, so a crafted `intent:`/`file:` target cannot launch anything | 这个链接无法打开。 | This link can't be opened. | No |
 | `HR-SEARCH-001` | Gateway message search (`/api/sessions/search`) failed: transport error, non-2xx response, or unparseable body. The title matches on the search screen stay; only the message section shows the error with Retry | 消息搜索失败，请重试。 | Message search failed. Retry. | Yes |
 | `HR-CRON-001` | A scheduled job ran successfully but its output never reached the target channel (Hermes reports `last_status = delivery_failed`; the cause is in `last_delivery_error` and `last_error` is null). The job itself did not fail, so the recovery is on the channel, not the job | 任务运行成功，但结果没能送到目标渠道。 | The task ran successfully, but its result could not be delivered to the target channel. | Yes |
+| `HR-MSG-001` | The messaging channel list could not be loaded (`GET /api/messaging/platforms` raised or returned non-2xx) | 无法加载消息渠道，请重试。 | Couldn't load messaging channels. Retry. | Yes |
+| `HR-MSG-002` | Saving a channel's credentials or enabled flag failed (`PUT /api/messaging/platforms/{id}`) | 渠道设置未能保存，请重试。 | The channel settings couldn't be saved. Retry. | Yes |
+| `HR-MSG-003` | Enabling the channel would break a multiplexed gateway because another profile already owns its listener (server returns 409) | 该渠道已被另一个身份占用，同一个渠道不能同时启用两次。 | Another profile already owns this channel; it can't be enabled twice at once. | No |
+| `HR-MSG-004` | Hermes reports the platform as `startup_failed`: it is configured and enabled, but its adapter did not come up. The technical cause is the server's `error_message`, kept behind a details toggle | 这个渠道没能连上，请检查设置。 | This channel didn't connect. Check its setup. | No (fix the setup) |
+| `HR-MSG-005` | Restarting the gateway failed (`POST /api/gateway/restart`), so channels saved as `pending_restart` stay disconnected | 网关重启失败，请重试。 | The gateway restart failed. Retry. | Yes |
 | `HR-UNKNOWN-001` | Unmapped boundary failure | 出现未知错误，请复制诊断信息协助定位。 | An unknown error occurred. Copy diagnostics to help investigate. | Depends |
 
 

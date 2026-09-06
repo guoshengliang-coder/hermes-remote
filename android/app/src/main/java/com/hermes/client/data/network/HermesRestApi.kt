@@ -567,6 +567,38 @@ class HermesRestApi(
             }
     }
 
+    /**
+     * Restarts the Hermes gateway. Enabling or configuring a platform only writes config — the
+     * running adapters are untouched until the gateway comes back, which is why `state` reports
+     * `pending_restart`. Interrupts every channel's live conversation, so callers must confirm.
+     */
+    suspend fun restartGateway(profile: String? = null) = withContext(Dispatchers.IO) {
+        val payload = "{}".toRequestBody("application/json".toMediaType())
+        restCall(builder("/api/gateway/restart${profileParam(profile, first = true)}").post(payload).build())
+            .execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    val body = resp.body?.string().orEmpty().take(180)
+                    throw HermesApiException(resp.code, "gateway restart failed: $body")
+                }
+            }
+    }
+
+    /** Asks Hermes to check one platform. The reply's `message` is a diagnosis, not just a verdict. */
+    suspend fun testMessagingPlatform(platformId: String, profile: String? = null): MessagingTestDto =
+        withContext(Dispatchers.IO) {
+            val payload = "{}".toRequestBody("application/json".toMediaType())
+            restCall(
+                builder("/api/messaging/platforms/$platformId/test${profileParam(profile, first = true)}")
+                    .post(payload).build(),
+            ).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) {
+                    throw HermesApiException(resp.code, "platform test failed: ${body.take(180)}")
+                }
+                json.decodeFromString(MessagingTestDto.serializer(), body)
+            }
+        }
+
     suspend fun setActiveProfile(name: String) = withContext(Dispatchers.IO) {
         val obj: JsonObject = buildJsonObject { put("name", name) }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
