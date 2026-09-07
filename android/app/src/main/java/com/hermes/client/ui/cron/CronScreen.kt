@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -96,41 +100,55 @@ fun CronScreen(
                             vm.clearMessage()
                         }
                     }
+                    val sections = remember(state.jobs, nowMs) { cronSections(state.jobs, nowMs) }
+                    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
                     LazyColumn(Modifier.fillMaxSize()) {
-                        items(state.jobs, key = { it.id }) { job ->
+                      sections.forEach { section ->
+                        item(key = "hdr-${section.group.name}") {
+                            Text(
+                                section.title.resolve(language),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+                            )
+                        }
+                        items(section.jobs, key = { it.id }) { job ->
+                            val rowStatus = cronRowStatus(job, nowMs)
                             ListItem(
-                                leadingContent = {
-                                    val (icon, tint) = when (cronRowStatus(job, nowMs)) {
-                                        CronRowStatus.FAILED, CronRowStatus.OVERDUE ->
-                                            Icons.Rounded.ErrorOutline to MaterialTheme.colorScheme.error
-                                        // 跑成功但没送达：不是运行失败，也不是正常，自成一档。
-                                        CronRowStatus.UNDELIVERED ->
-                                            Icons.Rounded.ErrorOutline to MaterialTheme.colorScheme.error
-                                        CronRowStatus.PAUSED ->
-                                            Icons.Rounded.PauseCircleOutline to MaterialTheme.colorScheme.onSurfaceVariant
-                                        CronRowStatus.OK ->
-                                            Icons.Rounded.CheckCircle to MaterialTheme.colorScheme.primary
-                                    }
-                                    Icon(icon, contentDescription = null, tint = tint)
-                                },
+                                // No leading icon: the Chats and channels lists carry none either,
+                                // and DESIGN §4.1 bars Material's filled set from this icon system —
+                                // ErrorOutline / CheckCircle / PauseCircleOutline all came from it.
+                                // Status now reads from the dot beside the name, on StatusColors.
                                 overlineContent = {
                                     Text(
-                                        job.scheduleText + when {
-                                            job.isPaused -> l10n("  · 已暂停", "  · paused")
-                                            !job.enabled -> l10n("  · 已停用", "  · disabled")
-                                            cronRowStatus(job, nowMs) == CronRowStatus.UNDELIVERED ->
-                                                l10n("  · 未送达", "  · not delivered")
-                                            else -> ""
-                                        },
-                                        color = when {
-                                            !job.enabled || job.isPaused -> MaterialTheme.colorScheme.error
-                                            cronRowStatus(job, nowMs) == CronRowStatus.UNDELIVERED ->
-                                                MaterialTheme.colorScheme.error
-                                            else -> MaterialTheme.colorScheme.primary
-                                        },
+                                        job.scheduleText + "  ·  " + cronDeliveryText(job.deliver).resolve(language),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 },
-                                headlineContent = { Text(cronDisplayName(job.name, job.prompt, job.id)) },
+                                headlineContent = {
+                                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                        Text(
+                                            cronDisplayName(job.name, job.prompt, job.id),
+                                            modifier = Modifier.weight(1f, fill = false),
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        )
+                                        // 状态色只出现在圆点与徽标上（DESIGN §5.9）；品牌色不再兼任「成功」。
+                                        val tone = when (rowStatus) {
+                                            CronRowStatus.FAILED, CronRowStatus.OVERDUE -> com.hermes.client.ui.theme.StatusTone.BAD
+                                            CronRowStatus.UNDELIVERED -> com.hermes.client.ui.theme.StatusTone.WARN
+                                            CronRowStatus.OK -> com.hermes.client.ui.theme.StatusTone.GOOD
+                                            CronRowStatus.PAUSED -> null
+                                        }
+                                        Box(
+                                            Modifier.padding(start = 8.dp).size(8.dp).background(
+                                                tone?.let { com.hermes.client.ui.theme.statusColor(it, dark) }
+                                                    ?: MaterialTheme.colorScheme.outline,
+                                                CircleShape,
+                                            ),
+                                        )
+                                    }
+                                },
                                 supportingContent = {
                                     val next = job.nextRunAt?.let { l10n("下次：", "Next: ") + com.hermes.client.ui.util.formatIso(it) }
                                     // Prompt snippet is only useful here when the headline is the name; when the job is
@@ -167,6 +185,7 @@ fun CronScreen(
                             )
                             HorizontalDivider()
                         }
+                      }
                     }
                 }
             }
