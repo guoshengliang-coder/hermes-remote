@@ -59,6 +59,23 @@ ED25519 公钥，sudoers 仅允许 root-owned 固定 wrapper。首次手动闭�
 生产捕获 timer 与 Mac 每小时 LaunchAgent 现已启用。R5-F 仍被首个 scheduler-triggered 捕获、Mac 恢复/
 激活及其后一次生产监控检查阻断；手动闭环不能代替该观察门禁。
 
+## R5-E7A 首次自动周期修复
+
+2026-09-07 首个 scheduler-triggered 生产捕获于 03:16:37 CST 成功，生成了 PostgreSQL 18 / schema 7
+的新加密代次；生产 timer 保持 active，Gateway、PostgreSQL 与 Nginx 未重启。Mac LaunchAgent 随后下载并
+校验了该代次的密文与 manifest，但一次性恢复在执行容器 PostgreSQL wrapper 时返回
+`env: node: No such file or directory`。LaunchAgent 的最小 PATH 不含 Node，而 wrapper 使用
+`#!/usr/bin/env node`；先前手动闭环继承交互式 PATH，因此没有暴露该差异。
+
+失败路径没有生成恢复证据、状态候选或完成标记，并清理了临时恢复目录、随机凭据、明文管道和容器；生产端
+保留未 ack 的加密代次和上一份有效状态。09:30 CST 的生产监控继续通过，但这只证明上一份已激活状态仍在
+36 小时新鲜度窗口内，不能替代新代次的恢复观察门禁。
+
+R5-E7A 让 wrapper 的 shebang 固定为启动当前受保护 operator 的绝对 `process.execPath`，并以完全不含
+`node` 的 PATH 执行真实 wrapper 回归测试。新源码、PR 与一次性 R5-E 演练通过后，仍须使用同提交的受保护
+operator bundle 更新 Mac 自动化并重放现有代次；只有恢复、账号 smoke、生产状态激活、ack 和随后监控全部
+通过，R5-F 阻断才可解除。
+
 ## R5-E1 生产只读预检结果
 
 2026-09-05 的授权只读检查确认 PostgreSQL 18.6 active/enabled、零重启并仅监听
@@ -199,6 +216,7 @@ R5-A 只读审计；只有恢复证据新鲜且所有门禁通过，才可讨论
 R5-E5A 本地修复阶段不连接生产主机，不再次读取生产数据或生成新备份，不安装状态、不部署代码，也不重启
 或切换任何服务；现有密文与受保护恢复材料仅等待修复通过全部门禁后的独立恢复授权。
 
-截至 2026-09-06，R5-E1 至 R5-E7 的实现、首次生产闭环、监控以及生产/Mac 两端调度安装均已完成；账号/
-数据库功能开关仍关闭。至少观察一次 scheduler-triggered 捕获、异机接收、恢复、激活和下一轮新鲜度检查
-后，才可开始 R5-F 账号功能正式晋级。
+截至 2026-09-07，R5-E1 至 R5-E7 的实现、首次手动生产闭环、监控以及生产/Mac 两端调度安装均已完成；
+首个自动捕获成功，但 Mac 恢复暴露了 R5-E7A 的 Node PATH 缺口。账号/数据库功能开关仍关闭。必须先部署
+受保护修复制品并完成该自动代次的异机接收、恢复、激活和下一轮新鲜度检查，才可开始 R5-F 账号功能正式
+晋级。

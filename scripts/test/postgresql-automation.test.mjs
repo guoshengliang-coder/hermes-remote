@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { Writable } from "node:stream";
 import {
   activateScheduledPostgresqlBackup,
   captureScheduledPostgresqlBackup,
+  createPostgresqlContainerToolWrapperSource,
   createBackupGenerationId,
   exportScheduledBackup,
   loadPostgresqlCaptureScheduleConfig,
@@ -112,6 +114,26 @@ test("R5-E7 off-host cycle verifies bytes, restores, activates, and is idempoten
   const second = await runOffHostRecoveryCycle(fixture.offhost, { hostname: "mac-mini", remote, restore });
   assert.equal(second.alreadyComplete, true);
   assert.equal(calls.length, 1);
+});
+
+test("R5-E7 PostgreSQL wrapper uses the running Node when LaunchAgent PATH has no node", async (t) => {
+  const base = await realpath(await mkdtemp(path.join(tmpdir(), "postgresql-wrapper-test-")));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const emptyPath = path.join(base, "empty-path");
+  const wrapper = path.join(base, "psql");
+  await mkdir(emptyPath, { mode: 0o700 });
+  const source = createPostgresqlContainerToolWrapperSource({
+    docker: "/usr/bin/true", container: "test-container", role: "test-role", database: "test-database",
+  });
+  await writeFile(wrapper, source, { mode: 0o700 });
+  await chmod(wrapper, 0o700);
+
+  assert.equal(source.startsWith(`#!${process.execPath}\n`), true);
+  assert.doesNotMatch(source, /^#!\/usr\/bin\/env node/);
+  const result = spawnSync(wrapper, ["--version"], {
+    encoding: "utf8", env: { PATH: emptyPath, HOME: base, LANG: "C" }, shell: false,
+  });
+  assert.equal(result.status, 0, String(result.stderr));
 });
 
 test("R5-E7 rejects a corrupted off-host download before restore or activation", async (t) => {
