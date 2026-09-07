@@ -71,6 +71,7 @@ class ChatViewModel @Inject constructor(
     private val fileRepository: ChatFileRepository,
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
     private val projectPrefs: com.hermes.client.data.repository.ProjectPrefsStore,
+    private val tools: com.hermes.client.data.repository.ToolsRepository,
 ) : ViewModel() {
 
     /**
@@ -756,6 +757,67 @@ class ChatViewModel @Inject constructor(
                     )
                 },
             )
+    }
+
+    private val _handoffTargets = MutableStateFlow<List<com.hermes.client.data.network.MessagingPlatformDto>>(emptyList())
+    /** Channels this conversation could be moved to: enabled, connected, and with a home chat set. */
+    val handoffTargets: StateFlow<List<com.hermes.client.data.network.MessagingPlatformDto>> = _handoffTargets.asStateFlow()
+
+    fun loadHandoffTargets() = viewModelScope.launch {
+        runCatching { tools.messagingPlatforms(profileManager.active.value) }
+            .onSuccess { platforms ->
+                // Offering a channel that would be refused (disabled, or no home chat) turns a
+                // typed refusal into a dead end the user has to discover by trying.
+                _handoffTargets.value = platforms.filter {
+                    it.enabled && it.configured && !it.homeChannel.isNullOrBlank()
+                }
+            }
+    }
+
+    /**
+     * Moves this conversation to a messaging channel and waits for the gateway's watcher to finish.
+     *
+     * The move is not reversible from here: the channel's current conversation ends, this one is
+     * re-bound to that chat, and it leaves the phone's list because its source becomes the channel.
+     * The caller confirms first (docs/DESIGN.md §5.5).
+     */
+    suspend fun handoffCurrentSession(platform: String): com.hermes.client.data.error.AppError? {
+        val id = storedSessionId.takeIf { it.isNotBlank() }
+            ?: return com.hermes.client.data.error.AppError(
+                com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND,
+                retryable = false, stage = "session_handoff",
+            )
+        val queued = runCatching { chat.requestHandoff(id, platform) }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+        queued.exceptionOrNull()?.let { failure ->
+            val rpc = (failure as? com.hermes.client.data.network.GatewayRpcException)?.code
+            val code = com.hermes.client.data.repository.handoffErrorCode(rpc)
+            return com.hermes.client.data.error.AppError(
+                code,
+                retryable = code == com.hermes.client.data.error.AppErrorCode.HANDOFF_SESSION_BUSY ||
+                    code == com.hermes.client.data.error.AppErrorCode.HANDOFF_IN_FLIGHT ||
+                    code == com.hermes.client.data.error.AppErrorCode.RPC_FAILED,
+                technicalCause = failure.message, stage = "session_handoff",
+            )
+        }
+        // The gateway watcher polls every two seconds and the move runs a full agent turn on the
+        // far side; give it a bounded wait rather than leaving the user on a spinner forever.
+        repeat(30) {
+            kotlinx.coroutines.delay(2_000)
+            val (state, error) = runCatching { chat.handoffState(id) }.getOrNull() ?: (null to null)
+            when (com.hermes.client.data.repository.handoffPhase(state)) {
+                com.hermes.client.data.repository.HandoffPhase.COMPLETED -> return null
+                com.hermes.client.data.repository.HandoffPhase.FAILED ->
+                    return com.hermes.client.data.error.AppError(
+                        com.hermes.client.data.error.AppErrorCode.RPC_FAILED,
+                        retryable = true, technicalCause = error, stage = "session_handoff",
+                    )
+                else -> Unit
+            }
+        }
+        // Still pending after a minute: the row is queued and the watcher owns it, so this is a
+        // "stopped waiting", not a failure — saying it failed could make the user queue a second.
+        return null
     }
 
     /** A send that raised, kept so the bubble's tap-to-retry can replay it with its attachments. */

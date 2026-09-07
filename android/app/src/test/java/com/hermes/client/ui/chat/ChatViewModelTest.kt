@@ -52,6 +52,7 @@ class ChatViewModelTest {
     private val mediaRepo = mockk<ChatMediaRepository>(relaxed = true)
     private val fileRepo = mockk<com.hermes.client.data.repository.ChatFileRepository>(relaxed = true)
     private val sessionRepo = mockk<SessionRepository>(relaxed = true)
+    private val toolsRepo = mockk<com.hermes.client.data.repository.ToolsRepository>(relaxed = true)
     private val modelRepo = mockk<ModelRepository>(relaxed = true)
     private val profileRepo = mockk<ProfileRepository>(relaxed = true)
     private val profileManager = mockk<com.hermes.client.data.repository.ProfileManager>(relaxed = true)
@@ -124,7 +125,7 @@ class ChatViewModelTest {
         return ChatViewModel(
             chatRepo, sessionRepo, store, reasoningPresetStore, profileRepo, profileManager,
             favoritesStore, pendingShareStore, tts, promptStore, configRepo, runtimeStore,
-            mediaRepo, fileRepo, mainDispatcherRule.dispatcher, projectPrefs,
+            mediaRepo, fileRepo, mainDispatcherRule.dispatcher, projectPrefs, toolsRepo,
         )
     }
 

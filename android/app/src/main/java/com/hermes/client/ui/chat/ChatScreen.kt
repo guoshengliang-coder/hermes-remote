@@ -52,6 +52,7 @@ import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Archive
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
@@ -210,6 +211,9 @@ fun ChatScreen(
     var showPromptSheet by remember { mutableStateOf(false) }
     val personaUi by vm.personaUi.collectAsStateWithLifecycle()
     var showPersonaSheet by remember { mutableStateOf(false) }
+    var showHandoffSheet by remember { mutableStateOf(false) }
+    var confirmHandoff by remember { mutableStateOf<com.hermes.client.data.network.MessagingPlatformDto?>(null) }
+    var handoffBusy by remember { mutableStateOf(false) }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { vm.stopReading() } }
     var draft by rememberSaveable(sessionId) { mutableStateOf("") }
     var composerFocused by rememberSaveable(sessionId) { mutableStateOf(false) }
@@ -666,6 +670,96 @@ fun ChatScreen(
         if (unauthorized) onUnauthorized()
     }
 
+    if (showHandoffSheet) {
+        val targets by vm.handoffTargets.collectAsStateWithLifecycle()
+        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { showHandoffSheet = false }) {
+            Text(
+                localized(language, "转到哪个渠道？", "Move to which channel?"),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp),
+            )
+            if (targets.isEmpty()) {
+                Text(
+                    localized(
+                        language,
+                        "没有可用的渠道。渠道要先启用，并且在目标聊天里设过默认投递落点。",
+                        "No channel is available. A channel must be enabled and have a delivery target set.",
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                )
+            }
+            targets.forEach { platform ->
+                androidx.compose.material3.ListItem(
+                    headlineContent = { Text(platform.name ?: platform.id) },
+                    supportingContent = {
+                        Text(
+                            localized(language, "落点：", "Target: ") + (platform.homeChannel ?: ""),
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        showHandoffSheet = false
+                        confirmHandoff = platform
+                    },
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+
+    confirmHandoff?.let { platform ->
+        val name = platform.name ?: platform.id
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { if (!handoffBusy) confirmHandoff = null },
+            title = { Text(localized(language, "转到$name？", "Move to $name?")) },
+            text = {
+                // Every consequence, before the tap: this cannot be undone from the phone.
+                Text(
+                    localized(
+                        language,
+                        "这条对话会搬到 $name 的默认落点，并在那边继续。\n\n" +
+                            "· $name 当前那条对话会结束\n" +
+                            "· 这条对话会从手机的会话列表消失\n" +
+                            "· 搬过去之后拉不回来",
+                        "This conversation moves to $name's delivery target and continues there.\n\n" +
+                            "· $name's current conversation ends\n" +
+                            "· This one leaves the phone's list\n" +
+                            "· It cannot be moved back",
+                    ),
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    enabled = !handoffBusy,
+                    onClick = {
+                        handoffBusy = true
+                        exportScope.launch {
+                            val error = vm.handoffCurrentSession(platform.id)
+                            handoffBusy = false
+                            confirmHandoff = null
+                            android.widget.Toast.makeText(
+                                context,
+                                error?.localizedMessage(language)
+                                    ?: localized(language, "已转到 $name", "Moved to $name"),
+                                android.widget.Toast.LENGTH_LONG,
+                            ).show()
+                            // On success this conversation now belongs to the channel and is gone
+                            // from the list; staying on it would show a session that no longer
+                            // lives here. On failure nothing moved, so stay put.
+                            if (error == null) onMenu()
+                        }
+                    },
+                ) { Text(if (handoffBusy) localized(language, "转移中…", "Moving…") else localized(language, "转过去", "Move")) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(enabled = !handoffBusy, onClick = { confirmHandoff = null }) {
+                    Text(localized(language, "取消", "Cancel"))
+                }
+            },
+        )
+    }
+
     Scaffold(
         topBar = {
             // The search bar takes the top bar's place (docs/DESIGN.md §5.4): the transcript
@@ -848,6 +942,15 @@ fun ChatScreen(
                                 onClick = {
                                     transcriptMenu = false
                                     confirmArchive = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Rounded.Forum, contentDescription = null, Modifier.size(20.dp)) },
+                                text = { Text(localized(language, "转到消息渠道", "Move to a channel")) },
+                                onClick = {
+                                    transcriptMenu = false
+                                    vm.loadHandoffTargets()
+                                    showHandoffSheet = true
                                 },
                             )
                             DropdownMenuItem(
