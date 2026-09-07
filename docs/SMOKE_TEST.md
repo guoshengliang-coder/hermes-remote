@@ -774,3 +774,29 @@ identical to the bug.
 4. **HG-5 ＋ button.** Tapping ＋ in a chat must create a new conversation in the default project
    and open it; a second tap while it is still creating must do nothing (the button shows the
    brand mark and disables). Emulator taps kept landing off-target here, so this went unverified.
+
+## Transcript disk cache (2026-09-07 branch claude/transcript-disk-cache)
+
+Unit tests cover the store (round trip, LRU-by-use eviction, oversize skip, corrupt file, unusable
+directory, path-safe keys), the fact that a payload off the disk maps to a byte-identical
+transcript through the same mapper as a fresh fetch, the runtime store's refusal to let a stored
+copy overwrite the network or a live run, and the presentation gate that used to mask a cached
+transcript. What none of them can prove is what a person actually sees, so on a device:
+
+1. **The point of the whole change.** Open a conversation, force-stop the app, reopen it and open
+   the same conversation. The transcript must appear **immediately** — no skeleton — with a 2dp
+   line at the top while the refresh runs. Before this change that path showed the chat skeleton
+   for as long as the round trip took, which after an app update was every session.
+2. **A session this device has never opened** must still show the skeleton, not a blank screen.
+   The cache is not a substitute for the first fetch.
+3. **Nothing stale is shown.** Send a message from the desktop while the phone is closed, then
+   open that conversation on the phone: the cached copy paints first, and the new turn must appear
+   a moment later without a jump in scroll position or a visible remount.
+4. **Changing the Relay drops it.** In 设置 → 连接, save a different Relay URL or token, then open
+   a conversation that was cached: it must fetch fresh rather than show the previous account's
+   history. This is the privacy case and it is the one worth doing carefully.
+5. **Storage stays bounded.** After browsing many conversations, the app's storage figure in system
+   settings must not grow without limit — the cache prunes to 32 MB / 300 entries.
+
+Emulator-only checks (1) and (2) were exercised during development; (3), (4) and (5) still need a
+real device with a real Mac at the other end.

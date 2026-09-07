@@ -31,11 +31,13 @@ class ConnectionSettingsViewModelTest {
     private val rest = mockk<HermesRestApi>(relaxed = true)
     private val chat = mockk<ChatRepository>(relaxed = true)
     private val gatedAuth = mockk<com.hermes.client.data.network.GatedAuth>(relaxed = true)
+    // Saving new credentials must drop the on-disk transcripts, so the view model now owns one.
+    private val transcripts = mockk<com.hermes.client.data.repository.TranscriptStore>(relaxed = true)
 
     @Before fun setUp() { Dispatchers.setMain(StandardTestDispatcher()) }
     @After fun tearDown() = Dispatchers.resetMain()
 
-    private fun buildVm() = ConnectionSettingsViewModel(store, rest, chat, gatedAuth)
+    private fun buildVm() = ConnectionSettingsViewModel(store, rest, chat, gatedAuth, transcripts)
 
     @Test fun prefills_fields_from_stored_config() {
         every { store.load() } returns GatewayConfig("https://host.ts.net", "tok123")

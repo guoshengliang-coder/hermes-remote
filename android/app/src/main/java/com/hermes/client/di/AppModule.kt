@@ -229,8 +229,19 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideSessionRepository(rest: HermesRestApi, scope: CoroutineScope): SessionRepository =
-        SessionRepository(rest, scope)
+    fun provideTranscriptStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.TranscriptStore =
+        com.hermes.client.data.repository.TranscriptStore(context)
+
+    @Provides
+    @Singleton
+    fun provideSessionRepository(
+        rest: HermesRestApi,
+        scope: CoroutineScope,
+        transcripts: com.hermes.client.data.repository.TranscriptStore,
+    ): SessionRepository =
+        SessionRepository(rest, scope, transcripts)
 
     @Provides
     @Singleton
