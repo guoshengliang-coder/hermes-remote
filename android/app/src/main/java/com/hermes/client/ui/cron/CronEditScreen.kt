@@ -37,6 +37,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +68,8 @@ data class CronEditState(
     val name: String = "",
     val schedule: Schedule = Schedule.Daily(9, 0),
     val prompt: String = "",
+    val deliver: String? = null,
+    val targets: List<com.hermes.client.data.network.CronDeliveryTargetDto> = emptyList(),
     val isNew: Boolean = true,
     val loading: Boolean = false,
     val saved: Boolean = false,
@@ -81,6 +85,14 @@ class CronEditViewModel @Inject constructor(
     val state: StateFlow<CronEditState> = _state.asStateFlow()
     private var jobId: String = "new"
     private val profile: String? get() = profileManager.active.value
+
+    /** Hermes' own option list; a failure leaves the picker with just 只存不发, never a guess. */
+    fun loadTargets() = viewModelScope.launch {
+        runCatching { tools.cronDeliveryTargets() }
+            .onSuccess { _state.value = _state.value.copy(targets = it) }
+    }
+
+    fun setDeliver(id: String?) { _state.value = _state.value.copy(deliver = id) }
 
     fun load(id: String, language: AppLanguage) {
         jobId = id
@@ -101,6 +113,7 @@ class CronEditViewModel @Inject constructor(
                         name = job.name ?: "",
                         schedule = parseCron(job.schedule?.expr ?: job.scheduleText),
                         prompt = job.prompt ?: "",
+                        deliver = job.deliver,
                         isNew = false,
                         loading = false,
                     )
@@ -125,8 +138,8 @@ class CronEditViewModel @Inject constructor(
         }
         val cron = s.schedule.toCron()
         runCatching {
-            if (s.isNew) tools.createCron(s.prompt, cron, s.name, profile)
-            else tools.updateCron(jobId, s.prompt, cron, s.name, profile)
+            if (s.isNew) tools.createCron(s.prompt, cron, s.name, s.deliver, profile)
+            else tools.updateCron(jobId, s.prompt, cron, s.name, s.deliver, profile)
         }.onSuccess { _state.value = s.copy(saved = true) }
             .onFailure { _state.value = s.copy(message = localizedText("保存失败（HR-RPC-001）", "Save failed (HR-RPC-001)")) }
     }
@@ -146,6 +159,7 @@ fun CronEditScreen(
     val stateMessage = state.message?.resolve(language)
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(jobId) { vm.load(jobId, language) }
+    LaunchedEffect(Unit) { vm.loadTargets() }
     LaunchedEffect(state.saved) { if (state.saved) onDone() }
     LaunchedEffect(stateMessage) { stateMessage?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
 
@@ -171,6 +185,12 @@ fun CronEditScreen(
             Spacer(Modifier.height(8.dp))
             val nowMs = androidx.compose.runtime.remember(state.schedule) { System.currentTimeMillis() }
             ScheduleBuilder(schedule = state.schedule, onChange = vm::setSchedule, nowMs = nowMs)
+            DeliveryPicker(
+                targets = state.targets,
+                selected = state.deliver,
+                onSelect = vm::setDeliver,
+            )
+
             OutlinedTextField(state.prompt, vm::setPrompt, label = { Text(l10n("提示词", "Prompt")) },
                 minLines = 5, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
             Button(
@@ -358,5 +378,60 @@ private fun TimeRow(hour: Int, minute: Int, onPick: (Int, Int) -> Unit) {
             },
             text = { TimePicker(state = state) },
         )
+    }
+}
+
+/**
+ * Where a job's result goes. `local` (save only) is the server's default and stays first; every
+ * other option is a channel Hermes reports as connected.
+ *
+ * A platform with no home channel is listed but not selectable: delivery there fails, and the
+ * server says so through `home_target_set` precisely so a UI can explain rather than let the user
+ * pick something that silently never arrives.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DeliveryPicker(
+    targets: List<com.hermes.client.data.network.CronDeliveryTargetDto>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+) {
+    Column(Modifier.padding(top = 4.dp)) {
+        Text(
+            l10n("结果投递到", "Deliver the result to"),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        FlowRow(
+            Modifier.padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            val local = selected.isNullOrBlank() || selected == "local"
+            FilterChip(
+                selected = local,
+                onClick = { onSelect(null) },
+                label = { Text(l10n("只存不发", "Saved only")) },
+            )
+            targets.filter { it.id != "local" }.forEach { target ->
+                val usable = target.homeTargetSet
+                FilterChip(
+                    selected = selected == target.id,
+                    enabled = usable,
+                    onClick = { onSelect(target.id) },
+                    label = { Text(target.name ?: target.id) },
+                )
+            }
+        }
+        targets.firstOrNull { !it.homeTargetSet }?.let {
+            Text(
+                l10n(
+                    "灰掉的渠道还没设默认投递落点，要先在目标聊天里用 /sethome 设置。",
+                    "Greyed-out channels have no delivery target yet; set one with /sethome in the destination chat.",
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
     }
 }

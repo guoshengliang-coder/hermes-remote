@@ -362,3 +362,18 @@ data class ModelOptionDto(
 @Serializable data class ProjectSessionsResultDto(
     val project: ProjectNodeDto? = null,
 )
+
+/**
+ * One option in the cron delivery picker. Hermes calls `GET /api/cron/delivery-targets` the
+ * "single source of truth for UIs": the implicit `local` plus every configured, connected
+ * platform. [homeTargetSet] is false when the platform has no home channel yet — delivery there
+ * would fail, so the option is shown but not selectable, with the reason said out loud.
+ */
+@Serializable data class CronDeliveryTargetDto(
+    val id: String,
+    val name: String? = null,
+    @SerialName("home_target_set") val homeTargetSet: Boolean = true,
+    @SerialName("home_env_var") val homeEnvVar: String? = null,
+)
+
+@Serializable data class CronDeliveryTargetsDto(val targets: List<CronDeliveryTargetDto> = emptyList())
