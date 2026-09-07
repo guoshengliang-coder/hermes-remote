@@ -3,6 +3,7 @@ package com.hermes.client.data.network
 import com.hermes.client.data.diagnostics.DebugLog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -44,12 +45,22 @@ data class BackoffPolicy(
         min(maxMs, (baseMs * factor.pow(attempt)).toLong())
 }
 
+private const val HANDSHAKE_TIMEOUT_MS = 20_000L
+
 open class HermesGatewayClient(
     private val okHttp: OkHttpClient,
     private val json: Json,
     private val scope: CoroutineScope,
     private val backoff: BackoffPolicy = BackoffPolicy(),
     private val rpcTimeoutMs: Long = 60_000L,
+    /**
+     * How long a socket may sit open without `gateway.ready` before it is torn down and retried
+     * (HG-19). Injectable so tests do not have to wait out the real value.
+     *
+     * Keep it ABOVE [READY_TIMEOUT_MS] in production: an RPC waiting on the readiness gate should
+     * report its own timeout first, rather than be cut short by a reconnect it cannot explain.
+     */
+    private val handshakeTimeoutMs: Long = HANDSHAKE_TIMEOUT_MS,
     // suspend so gated mode can fetch a fresh single-use WS ticket (an HTTP round trip) before
     // each connect; loopback mode returns immediately.
     private val wsEndpointProvider: suspend () -> GatewayWebSocketEndpoint,
@@ -86,6 +97,14 @@ open class HermesGatewayClient(
     // completed exceptionally when socket closes/fails or close() is called.
     @Volatile private var readyGate: CompletableDeferred<Unit> = CompletableDeferred()
 
+    /**
+     * Cancels the handshake watchdog for the socket currently being opened. See [openSocket].
+     */
+    @Volatile private var handshakeWatchdog: Job? = null
+
+    /** The generation whose death has already been processed; see [onSocketClosed]. */
+    @Volatile private var closedGen = -1
+
     private companion object {
         const val READY_TIMEOUT_MS = 15_000L
     }
@@ -113,6 +132,23 @@ open class HermesGatewayClient(
         // Install a fresh, uncompleted readiness gate for this new socket attempt.
         readyGate = CompletableDeferred()
         _state.value = ConnectionState.Connecting
+        // Connecting has exactly two exits — `gateway.ready` or the socket dying — and a socket
+        // that establishes but never completes the handshake takes neither. On 2026-09-07 one
+        // such socket left the app on 「正在连接 Relay…」 until it was force-stopped, while every
+        // RPC failed individually on READY_TIMEOUT_MS and REST health stayed green the whole time
+        // (HG-19). The per-call timeout protects a call; nothing protected the socket. This does.
+        handshakeWatchdog?.cancel()
+        handshakeWatchdog = scope.launch {
+            kotlinx.coroutines.delay(handshakeTimeoutMs)
+            if (gen != generation.get() || manuallyClosed || readyGate.isCompleted) return@launch
+            DebugLog.log("ws", "handshake timeout (gen=$gen): no gateway.ready in ${handshakeTimeoutMs}ms")
+            // Cancel AND report: cancel() normally makes OkHttp deliver onFailure, but the whole
+            // point of this watchdog is a socket that has stopped behaving normally, so the
+            // reconnect must not depend on that callback arriving. onSocketClosed is idempotent
+            // per generation, so whichever path lands second is ignored.
+            ws?.cancel()
+            onSocketClosed(gen, "gateway handshake timeout")
+        }
         // Resolve the URL off the calling thread: gated mode mints a WS ticket (HTTP) here. A
         // failure (e.g. login/ticket error) routes through onSocketClosed so backoff retries.
         scope.launch {
@@ -171,6 +207,7 @@ open class HermesGatewayClient(
                         // Handle gateway.ready: flip to Connected and open the readiness gate.
                         if (msg.event.type == "gateway.ready") {
                             attempt.set(0)
+                            handshakeWatchdog?.cancel()
                             _state.value = ConnectionState.Connected
                             readyGate.complete(Unit)
                         }
@@ -201,6 +238,13 @@ open class HermesGatewayClient(
     protected open fun onSocketClosed(gen: Int, reason: String) {
         // A newer socket has superseded this one (e.g. reconnectNow()) — ignore its death.
         if (gen != generation.get()) return
+        // One death per socket. The handshake watchdog both cancels the socket and reports it
+        // closed, so OkHttp's onFailure for that cancellation arrives second; without this guard
+        // it would schedule a SECOND backoff reconnect and leave two live sockets, which the
+        // generation check only shadows and never closes.
+        if (gen == closedGen) return
+        closedGen = gen
+        handshakeWatchdog?.cancel()
         DebugLog.log("ws", "socket closed (gen=$gen): $reason")
         // Fail any call() that is currently awaiting readiness so it throws immediately.
         readyGate.completeExceptionally(GatewayRpcException(0, reason))

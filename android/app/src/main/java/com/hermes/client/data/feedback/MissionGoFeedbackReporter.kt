@@ -84,12 +84,26 @@ class MissionGoFeedbackReporter private constructor() : FeedbackReporter {
         val fresh = entries.filter { it.timeMillis > lastAttachedAtMillis }.takeLast(LOG_ENTRY_LIMIT)
         if (fresh.isEmpty()) return
         fresh.forEach { entry ->
+            // The entry's OWN time has to travel inside the payload: MissionGo.log() has no
+            // timestamp parameter (checked against SDK 0.2.3 — all four overloads), so the SDK
+            // stamps each line at the moment it is called. Because the whole ring is copied in
+            // this one loop, every line used to land on the same millisecond: HG-19 arrived with
+            // 500 log lines carrying 16 distinct timestamps across a six-minute incident, which
+            // is ordering without timing — and timing is most of what a diagnostic log is for.
+            //
+            // Carried twice on purpose, for two readers. The message prefix is what a person sees
+            // on the MissionGo page, and it survives whether or not that page renders attributes;
+            // it reuses the shared-text export's format so one entry reads identically in a .txt
+            // and in a filed report. The `at` attribute is ISO-8601 UTC, unambiguous for anything
+            // parsing it.
+            val shown = DebugLog.formatTimestamp(entry.timeMillis)
             MissionGo.log(
                 level = if (entry.category == "error") MissionGoLogLevel.Error else MissionGoLogLevel.Debug,
                 // The server rejects the whole draft over this limit rather than truncating, so the
-                // cap is applied here.
-                message = entry.message.take(LOG_MESSAGE_LIMIT),
+                // cap is applied here. The prefix is part of the message, so it is inside the cap.
+                message = "$shown ${entry.message}".take(LOG_MESSAGE_LIMIT),
                 attributes = buildMap {
+                    put("at", java.time.Instant.ofEpochMilli(entry.timeMillis).toString())
                     put("category", entry.category)
                     if (entry.fromPreviousRun) put("run", "previous")
                 },

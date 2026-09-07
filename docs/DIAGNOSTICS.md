@@ -46,6 +46,15 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 | `[event] buffered … / replaying N buffered event(s)` | 别名未建立时事件被缓冲、随后重放 | Mac 端发起的运行 |
 | `[session] probe <id> failed (n)` | 探测失败次数 | 网络差 / Mac 失联 |
 | `[ws] opening socket (gen=N)` / `socket closed (gen=N): …` | socket 生死 | 每次重连 |
+| `[ws] handshake timeout (gen=N): no gateway.ready in 20000ms` | socket 接上了但网关始终没发 `gateway.ready`，看门狗把它拆掉重连 | 见下 |
+
+**握手停滞（HG-19）**：`Connecting` 只有两个出口——收到 `gateway.ready`，或 socket 死掉。曾经有
+第三种情形无人处理：socket 建立了、既不完成握手也不关闭。表现是横幅一直「正在连接 Relay…」、每个
+动作各自在 15 秒后报 `gateway readiness timeout`、而 `/api/status` 全程 200（REST 走 HTTP 隧道，
+与 WS 控制通道不同路），只有强杀 App 能脱身。0.1.105 起有 20 秒握手看门狗自动拆掉重连。
+
+排查时的判据：找 `opening socket (gen=N)` 之后**既没有 `gateway.ready` 也没有 `socket closed`** 的
+那个 gen——那就是停滞的 socket。看到 `handshake timeout` 说明看门狗已经接管，不再需要重启。
 
 判读：
 - 列表卡「思考中」但没有任何 `→COMPLETED_UNREAD` / `→IDLE` 行 → 终止信号一条都没到，去第 2 问。
@@ -59,14 +68,23 @@ ssh kkk@mrlgs.net
 ```
 
 网关 0.4.1 起写结构化 JSON 行（`GATEWAY_LOG_LEVEL`，默认 info）。**先看它**，答不上再看 2a/2b。
-注意两点：① R5-D 接管后网关是容器，日志在**活动槽**的 systemd 单元里（槽单元名在私密配置里；
-`readlink /opt/hermes-go/current` 加 committed journal 能告诉你哪个槽在线），旧的
-`hermes-remote-gateway` 单元已停，只剩接管前的历史；② 线上跑的 0.4.0 镜像还没有这些行，要等 0.4.1
-经 R5-F1 常规发版路径上线（见 docs/DEPLOYMENT.md）。
+注意两点：① R5-D 接管后网关是容器，日志跟着**活动槽**走（`readlink /opt/hermes-go/current` 加
+committed journal 能告诉你哪个槽在线；下面以 blue 为例，绿槽把容器名换掉即可；同名 systemd 单元的
+journal 是同一份），旧的 `hermes-remote-gateway` 单元已停，只剩接管前的历史；② 线上跑的 0.4.0 镜像
+还没有这些行，要等 0.4.1 经 R5-F1 常规发版路径上线（见 docs/DEPLOYMENT.md）。
 
 ```bash
-sudo journalctl -u <活动槽单元> --since "2026-09-05 10:20" -o cat | grep <会话id>
+sudo docker logs --since 2026-09-05T10:20:00Z hermes-go-gateway-blue 2>&1 | grep <会话id>
 ```
+
+> **先确认版本，否则你会对着空日志找原因。** 结构化日志是 Gateway **0.4.1** 才有的，而 HK 生产
+> 至今仍跑 **0.4.0**（`docs/DEPLOYMENT.md` 记着 0.4.1 需要一轮 ops 才能上）。2026-09-07 实测：容器
+> 运行 42 小时，全部输出只有一行启动日志——**这一节在 0.4.1 部署前拿不到任何证据**，不是查得不够。
+> 版本看 `sudo docker inspect hermes-go-gateway-blue --format '{{index .Config.Labels "org.opencontainers.image.version"}}'`。
+>
+> 单元名也变了：本文早先写的 `hermes-remote-gateway.service` 今天是 **inactive**，真正在跑的是
+> Docker 容器 `hermes-go-gateway-blue`（`journalctl -u hermes-go-gateway-blue` 只有启动行，日志在
+> 容器里）。`docs/DEPLOYMENT.md` 的对应命令尚未更新。
 
 | kind | 回答什么 |
 |---|---|

@@ -61,6 +61,14 @@ object DebugLog {
     private val exportFmt =
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS").withZone(ZoneId.systemDefault())
 
+    /**
+     * The log's one human-readable timestamp format, in the device's zone. Shared by the text
+     * export and the MissionGo feedback reporter so the same entry reads identically wherever it
+     * surfaces — two formatters would drift, and comparing a shared .txt against a filed report
+     * is exactly when that drift costs the reader.
+     */
+    fun formatTimestamp(millis: Long): String = exportFmt.format(Instant.ofEpochMilli(millis))
+
     private val lock = Any()
     private val buffer = ArrayDeque<LogEntry>(MAX_ENTRIES)
 
@@ -224,7 +232,7 @@ object DebugLog {
             append("\n")
             snapshot.forEach { e ->
                 val origin = if (showOrigin && e.fromPreviousRun) " (previous run)" else ""
-                append("${exportFmt.format(Instant.ofEpochMilli(e.timeMillis))} [${e.category}]$origin ${e.message}\n")
+                append("${formatTimestamp(e.timeMillis)} [${e.category}]$origin ${e.message}\n")
             }
         }
     }
