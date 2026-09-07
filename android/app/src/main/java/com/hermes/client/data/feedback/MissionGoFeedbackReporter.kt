@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Application
 import com.hermes.client.BuildConfig
 import com.hermes.client.data.diagnostics.DebugLog
+import java.io.File
 import io.missiongo.feedback.FeedbackOptions
 import io.missiongo.feedback.FeedbackResult
 import io.missiongo.feedback.MissionGo
@@ -17,7 +18,9 @@ import io.missiongo.feedback.MissionGoOptions
  * Created only when the build carries an endpoint and a token; otherwise the app uses
  * [UnavailableFeedbackReporter] and no entry point is shown.
  */
-class MissionGoFeedbackReporter private constructor() : FeedbackReporter {
+class MissionGoFeedbackReporter private constructor(
+    private val application: Application,
+) : FeedbackReporter {
 
     override val isAvailable: Boolean get() = MissionGo.isInitialized
 
@@ -38,6 +41,22 @@ class MissionGoFeedbackReporter private constructor() : FeedbackReporter {
             },
         )
     }
+
+    /**
+     * Snapshots the full rolling diagnostic log as an attachment. This is the whole reason to
+     * attach a file at all: the inline channel is capped at 500 entries and 256 KiB, while the
+     * file carries every run the rolling pair still holds — the same bytes the share sheet
+     * produces, and often the part of the history that explains the report.
+     */
+    override fun prepare(prefill: FeedbackPrefill): FeedbackPrefill {
+        val dir = attachmentDir()
+        FeedbackAttachments.pruneStale(dir)
+        val snapshot = FeedbackAttachments.snapshot(dir, "diagnostic", DebugLog.exportFull())
+            ?: return prefill
+        return prefill.copy(attachments = prefill.attachments + snapshot)
+    }
+
+    private fun attachmentDir(): File = File(application.filesDir, FeedbackAttachments.DIRECTORY)
 
     override fun open(
         activity: Activity,
@@ -66,6 +85,7 @@ class MissionGoFeedbackReporter private constructor() : FeedbackReporter {
         title = title.take(TITLE_LIMIT),
         description = description.take(DESCRIPTION_LIMIT),
         context = context.mapValues { it.value.take(CONTEXT_VALUE_LIMIT) },
+        attachments = attachments,
     )
 
     /**
@@ -150,7 +170,7 @@ class MissionGoFeedbackReporter private constructor() : FeedbackReporter {
             started.onFailure { error ->
                 DebugLog.log("feedback", "MissionGo init failed: ${error.javaClass.simpleName}: ${error.message}")
             }
-            return if (started.isSuccess) MissionGoFeedbackReporter() else UnavailableFeedbackReporter
+            return if (started.isSuccess) MissionGoFeedbackReporter(application) else UnavailableFeedbackReporter
         }
     }
 }

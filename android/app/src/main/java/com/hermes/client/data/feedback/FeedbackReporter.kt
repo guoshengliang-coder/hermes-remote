@@ -1,6 +1,7 @@
 package com.hermes.client.data.feedback
 
 import android.app.Activity
+import java.io.File
 import com.hermes.client.data.error.AppError
 import com.hermes.client.data.error.AppErrorCode
 import com.hermes.client.data.repository.ThemeMode
@@ -10,6 +11,12 @@ data class FeedbackPrefill(
     val title: String = "",
     val description: String = "",
     val context: Map<String, String> = emptyMap(),
+    /**
+     * Files uploaded after the report is created. Upload is best effort — a rejected file leaves
+     * the report itself intact — which is why the inline log entries and the description still
+     * carry the same account rather than deferring to the attachment.
+     */
+    val attachments: List<File> = emptyList(),
 )
 
 sealed interface FeedbackOutcome {
@@ -49,6 +56,16 @@ interface FeedbackReporter {
     fun setAppearance(appearance: FeedbackAppearance)
 
     /**
+     * Adds what this reporter can supply for the coming report — currently a snapshot of the
+     * rolling diagnostic log — and returns the prefill to submit.
+     *
+     * **Blocking file I/O; call off the main thread.** It waits for queued log appends to reach
+     * the file and then reads the rolling pair, which is bounded but not instant. Separate from
+     * [open] so the caller decides where that wait happens.
+     */
+    fun prepare(prefill: FeedbackPrefill): FeedbackPrefill
+
+    /**
      * Opens the editor. Attaches the current diagnostic-log snapshot first, so a report carries
      * the run that produced it.
      */
@@ -70,6 +87,8 @@ object UnavailableFeedbackReporter : FeedbackReporter {
     override fun setContext(namespace: String, values: Map<String, String>) = Unit
 
     override fun setAppearance(appearance: FeedbackAppearance) = Unit
+
+    override fun prepare(prefill: FeedbackPrefill): FeedbackPrefill = prefill
 
     override fun open(
         activity: Activity,

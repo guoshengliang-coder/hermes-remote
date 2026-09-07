@@ -117,6 +117,10 @@ class FeedbackReporterTest {
         reporter.setScreen("chat")
         reporter.setContext("gateway", mapOf("state" to "ready"))
         reporter.setAppearance(FeedbackAppearance.Dark)
+        // prepare() must be a pass-through, not a crash: an entry point that is hidden can still
+        // be reached by a caller that checked nothing.
+        val prefill = FeedbackPrefill(title = "t")
+        assertEquals(prefill, reporter.prepare(prefill))
         assertFalse("queueing must fail loudly enough for the caller to fall back", reporter.enqueue(FeedbackPrefill()))
 
         var outcome: FeedbackOutcome? = null
