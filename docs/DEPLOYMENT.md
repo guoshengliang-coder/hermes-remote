@@ -346,17 +346,18 @@ and readiness plus public Connector, REST, WebSocket, wrong-token, release-healt
 after the switch. PostgreSQL remains loopback-only, database/account flags remain disabled, and the production
 monitor timer remains off. R5-D is complete; this does not authorize R5-E or R5-F.
 
-## Routine production release (R5-F1; code complete, no production run yet)
+## Routine production release (R5-F1; first production run 2026-09-07, Gateway 0.4.1)
 
 R5-D can only run once (`activeSlot: null` → blue) and `hermesctl deploy/rollback` stay staging-only, so until
 R5-F1 there was no legitimate way to put a later Gateway version (0.4.1 with the structured logs, and everything
 after it) into production. R5-F1 adds `scripts/production-release.mjs`, carried by the operator bundle (manifest
-schema 3, `releaseEntrypoint`). It reuses the same private R5-D configuration file; only `targetArtifactManifest`
+schema 3, `releaseEntrypoint`). It takes a private configuration of the same shape as R5-D's (in production
+`/secure-input/hermes-go/production-release.json`, see the run record below); only `targetArtifactManifest`
 changes per release:
 
 ```bash
 node scripts/production-release.mjs \
-  --config /secure-input/hermes-go/production-managed-baseline.json \
+  --config /secure-input/hermes-go/production-release.json \
   --confirm production:<configured-hostname> \
   --operation deploy   # or: rollback
 ```
@@ -387,3 +388,35 @@ pick a quiet window (every App and Connector socket on the old slot reconnects o
 otherwise), and record the run here. The manual `Gateway R5-D Managed Baseline` workflow rehearses exactly this
 sequence on a disposable host: adoption, current-commit release into green, rollback to blue, site file
 byte-identical throughout. Source merge, a green rehearsal and this section do not authorize the production run.
+
+### Production run record — Gateway 0.4.1, 2026-09-07 (authorized)
+
+Artifacts: `gateway-bundle-80225d817b4284c69b4142f6312087747c8d9537` from the `Gateway OCI` run on `main`
+80225d8 (the R5-F1 merge itself), i.e. Gateway `0.4.1-80225d817b42` (archive SHA-256 `a8d3946f…`, containerd
+image `sha256:9da652c723af…`) and operator bundle `Hermes-R5D-Ops-80225d817b42` (schema 3, SHA-256 `706da963…`).
+Both verified locally, re-hashed on the HK host after transfer, and the operator bundle verified again from its
+extracted copy at `/opt/hermes-go-ops/80225d817b42`. The disposable rehearsal (run 34104753984) had passed on the
+same commit earlier that day.
+
+The R5-D private configuration and its inputs were no longer present under `/secure-input/hermes-go`, so a release
+configuration `/secure-input/hermes-go/production-release.json` was rebuilt from the live system: hostname `test`,
+slots blue 18787 / green 18788, `DEFAULT_DEVICE_ID=mac-mini`, account and database flags off, site file
+`/etc/nginx/conf.d/hermes-edge.conf`, token and TLS sources as root-only `0600` copies of the managed files
+(byte-identical, so the immutable-file checks pass). The read-only admission preflight then reported
+`activeSlot: blue`, source `0.4.0-833859aa9afe`, target `0.4.1-80225d817b42`.
+
+Attempt 1 (09:58:55Z) failed closed at `preflight_tls` before any change: the key had been sourced from
+`/etc/hermes-remote/tls/privkey.pem`, which is `0640 root:hermes-remote`, and the input inspector requires no
+group/other bits. Recorded in the audit as `HR-OPS-001`; blue kept serving.
+
+Attempt 2 (10:00:03Z → 10:00:52Z, 49 s) committed run `590d6014-87a9-403a-a2b3-101d3bf4b701`:
+`production-deploy`, `activeSlot: green`, `previousSlot: blue`, `preparedStage: candidate_verified`,
+`rollbackPoint: releases/0.4.0-833859aa9afe`. After the switch: `current` → `releases/0.4.1-80225d817b42`,
+`previous` → `releases/0.4.0-833859aa9afe`; green unit active, blue exited 0, legacy unit inactive; upstream
+`127.0.0.1:18788`; site file SHA-256 `422182b2…` identical before and after; `/relay-health` reports
+`connectors: 1` with `mac-mini` online; green container image `sha256:9da652c723af…` (the manifest's containerd
+ID), zero restarts, no warning-or-worse lines. The structured log is live: the first minute already carries
+`connector.online`, `app.tunnel.open` and `app.tunnel.close` lines, so the DIAGNOSTICS.md runbook now applies to
+production. Account and database flags remain disabled; PostgreSQL, the monitor timer and the R5-E automation were
+not touched. Rollback point for the next operation: `--operation rollback` with the 0.4.0 bundle
+(`Hermes-Gateway-0.4.0-833859aa9afe-linux-amd64`) as `targetArtifactManifest`.

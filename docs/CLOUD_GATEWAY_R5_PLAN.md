@@ -185,6 +185,10 @@ R5-D7 合并提交 `833859aa9afe55f09d2fe8663ab0fd1528447ba4` 的 PR、CI、SAST
 合法上线通道。R5-F1 代码阶段补上受管基线内的常规 blue↔green 发版与回滚入口 `scripts/production-release.mjs`
 （运维 bundle manifest v3、`production-release` capability、边缘预检、只改 upstream 不动站点文件、
 `HR-OPS-016`），并把一次性 R5-D 演练延长为"接管→发版→回滚"。账号与数据库标志继续固定关闭，R5-F 的账号
-模式晋级不受影响。当前仅完成代码、单测与文档；生产上 0.4.1 的实际发版仍需单独授权，并须在发版前取到与
-最新一次 `Gateway OCI` `main` 运行匹配的 Gateway/运维 bundle。细节见 `CLOUD_GATEWAY_R5_MANAGED_BASELINE.md`
+模式晋级不受影响。细节见 `CLOUD_GATEWAY_R5_MANAGED_BASELINE.md`
 "常规生产发版"与 `DEPLOYMENT.md` "Routine production release"。
+
+同日 PR #78 合入 `main` 80225d8，一次性演练 run 34104753984 通过后，经授权用同一提交的制品完成了
+R5-F1 的首次生产运行：Gateway 0.4.1 进入 green 槽（run `590d6014-87a9-403a-a2b3-101d3bf4b701`，49 秒，
+站点文件不变，Connector 在线，容器零重启），`previous` 回滚点为 0.4.0-833859aa9afe。生产网关从此有了
+结构化日志；账号、数据库、监控 timer 与 R5-E 自动化均未触碰。R5-F 账号模式晋级仍是独立的 go/no-go。
