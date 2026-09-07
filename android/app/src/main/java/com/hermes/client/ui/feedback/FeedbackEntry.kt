@@ -6,7 +6,11 @@ import android.content.ContextWrapper
 import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.hermes.client.data.feedback.FeedbackOutcome
 import com.hermes.client.data.feedback.FeedbackPrefill
 import com.hermes.client.data.feedback.FeedbackReporter
@@ -35,13 +39,18 @@ internal tailrec fun Context.hostActivity(): Activity? = when (this) {
 fun rememberFeedbackLauncher(reporter: FeedbackReporter): (FeedbackPrefill) -> Unit {
     val context = LocalContext.current
     val language = LocalAppLanguage.current
-    return remember(reporter, context, language) {
+    val scope = rememberCoroutineScope()
+    return remember(reporter, context, language, scope) {
         { prefill ->
             val activity = context.hostActivity()
             if (activity == null) {
                 Toast.makeText(context, unavailableText(language), Toast.LENGTH_SHORT).show()
-            } else {
-                reporter.open(activity, prefill) { outcome ->
+            } else scope.launch {
+                // prepare() waits on the log writer and reads the rolling files, so it cannot run
+                // on the click. The editor opens a moment later, which is invisible next to the
+                // Activity transition that follows it.
+                val prepared = withContext(Dispatchers.IO) { reporter.prepare(prefill) }
+                reporter.open(activity, prepared) { outcome ->
                     when (outcome) {
                         is FeedbackOutcome.Submitted -> Toast.makeText(
                             context,
@@ -56,7 +65,9 @@ fun rememberFeedbackLauncher(reporter: FeedbackReporter): (FeedbackPrefill) -> U
                         ).show()
                     }
                 }
+                Unit
             }
+            Unit
         }
     }
 }

@@ -125,6 +125,7 @@ class MainActivity : ComponentActivity() {
                         Surface {
                             // If the previous run crashed, show the saved trace first so it can be
                             // shared, then continue into the app once dismissed.
+                            val crashScope = androidx.compose.runtime.rememberCoroutineScope()
                             var report by remember { mutableStateOf(crashReport) }
                             val current = report
                             if (current != null) {
@@ -138,26 +139,44 @@ class MainActivity : ComponentActivity() {
                                             // filed even with no network right now; the user is
                                             // told that and let back into the app immediately
                                             // rather than being held on a crash screen.
-                                            val queued = feedbackReporter.enqueue(
-                                                com.hermes.client.data.feedback.FeedbackPrefill(
-                                                    title = localized(languages.current, "崩溃", "Crash"),
-                                                    description = com.hermes.client.data.feedback.trimCrashReport(current),
-                                                    context = mapOf("entry" to "crash_screen"),
-                                                ),
-                                            )
-                                            android.widget.Toast.makeText(
-                                                this@MainActivity,
+                                            crashScope.launch {
+                                                val queued = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                                    // The trace goes up twice on purpose. The
+                                                    // description is trimmed to fit the server's
+                                                    // limit and survives even if the upload that
+                                                    // follows the report is refused; the
+                                                    // attachment is the whole file, untrimmed.
+                                                    val whole = com.hermes.client.data.feedback.FeedbackAttachments.snapshot(
+                                                        java.io.File(filesDir, com.hermes.client.data.feedback.FeedbackAttachments.DIRECTORY),
+                                                        "crash",
+                                                        current,
+                                                    )
+                                                    feedbackReporter.enqueue(
+                                                        feedbackReporter.prepare(
+                                                            com.hermes.client.data.feedback.FeedbackPrefill(
+                                                                title = localized(languages.current, "崩溃", "Crash"),
+                                                                description = com.hermes.client.data.feedback.trimCrashReport(current),
+                                                                context = mapOf("entry" to "crash_screen"),
+                                                                attachments = listOfNotNull(whole),
+                                                            ),
+                                                        ),
+                                                    )
+                                                }
+                                                android.widget.Toast.makeText(
+                                                    this@MainActivity,
+                                                    if (queued) {
+                                                        localized(languages.current, "已加入上报队列，联网后自动提交。", "Queued. It will be sent once there's a network.")
+                                                    } else {
+                                                        localized(languages.current, "上报失败，可改用分享。", "Couldn't queue the report. Share it instead.")
+                                                    },
+                                                    android.widget.Toast.LENGTH_LONG,
+                                                ).show()
                                                 if (queued) {
-                                                    localized(languages.current, "已加入上报队列，联网后自动提交。", "Queued. It will be sent once there's a network.")
-                                                } else {
-                                                    localized(languages.current, "上报失败，可改用分享。", "Couldn't queue the report. Share it instead.")
-                                                },
-                                                android.widget.Toast.LENGTH_LONG,
-                                            ).show()
-                                            if (queued) {
-                                                CrashReporter.clear(this@MainActivity)
-                                                report = null
+                                                    CrashReporter.clear(this@MainActivity)
+                                                    report = null
+                                                }
                                             }
+                                            Unit
                                         }
                                     } else {
                                         null
