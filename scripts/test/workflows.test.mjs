@@ -182,7 +182,7 @@ test('release secrets stay scoped to the steps that consume them', async () => {
   const jobLevelEnv = lines.filter(line => /^ {4}env:\s*$/.test(line));
   assert.deepEqual(jobLevelEnv, [], 'release secrets must not be exposed to every step through job-level env');
   const secrets = lines.filter(line => line.includes('secrets.'));
-  assert.equal(secrets.length, 3);
+  assert.equal(secrets.length, 5);
   for (const line of secrets) assert.match(line, /^ {10}\w+: \$\{\{ secrets\.\w+ \}\}$/, `unexpected secret usage: ${line}`);
   assert.match(release, /Build signed APK and erase signing key[\s\S]*key="\$HOME\/\.android\/debug\.keystore"[\s\S]*trap[^\n]*\$key/);
   assert.match(release, /Publish APK and erase deployment key[\s\S]*key="\$HOME\/\.ssh\/id_ed25519"[\s\S]*trap[^\n]*\$key/);
@@ -191,4 +191,11 @@ test('release secrets stay scoped to the steps that consume them', async () => {
   const deployment = release.indexOf('Publish APK and erase deployment key');
   assert.ok(signing >= 0 && deployment > signing, 'signing and deployment must be separate ordered steps');
   assert.equal(release.slice(signing, deployment).includes('RELEASE_SSH_PRIVATE_KEY'), false, 'SSH key must not exist while Gradle/build scripts run');
+  // The MissionGo endpoint and token are read by Gradle, so they belong to the build step and have
+  // no business in the deployment shell that follows it.
+  assert.ok(
+    release.slice(signing, deployment).includes('MISSIONGO_SDK_TOKEN'),
+    'MissionGo build configuration must reach the step that runs Gradle',
+  );
+  assert.equal(release.slice(deployment).includes('MISSIONGO_'), false, 'MissionGo secrets must not reach the publish step');
 });
