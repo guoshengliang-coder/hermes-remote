@@ -15,8 +15,9 @@ PostgreSQL 迁移，但所有命令仍明确拒绝 production。R5 的目标不�
 Docker、PostgreSQL 18、loopback 监听和受管 blue 槽基线；数据库创建/schema 迁移、数据库恢复证据、
 R5-C4 timer 和首次 R5-E6 异机恢复/状态激活已完成。2026-09-06 又完成 R5-E7 每日捕获、Mac 每小时
 异机恢复调度的生产安装和一次手动完整闭环。2026-09-07 首个 scheduler-triggered 捕获成功，但 Mac 自动
-恢复因 LaunchAgent PATH 无法解析 wrapper 的 `node` 而失败关闭；R5-E7A 修复制品部署、同代次恢复/激活、
-后续监控观察与账号模式正式晋级仍未完成。
+恢复因 LaunchAgent PATH 无法解析 wrapper 的 `node` 而失败关闭；R5-E7A 随后用 `main 4d2cc6561826`
+受保护制品修复并重放同一代次，异机恢复、schema 7、账号 smoke、状态激活、ack 和后续监控全部通过。
+R5-E 数据库恢复自动化门禁已完成，账号模式正式晋级仍未执行。
 现有 443 路由、Gateway、发布服务、DERP 和证书必须继续保持健康，后续操作不得改变既有
 Android/Connector 的 URL、Token 与协议。
 

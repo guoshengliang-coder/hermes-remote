@@ -193,7 +193,7 @@ configuration and state and creates a new encrypted output. It requires a separa
 after CI passes; do not infer that approval from a merge or from an R5-A audit. The full key-handling,
 invocation, rollback, and verification procedure is in `CLOUD_GATEWAY_R5_RECOVERY.md`.
 
-## PostgreSQL production gate (R5-E7 deployed; first automatic restore remediation pending)
+## PostgreSQL production gate (R5-E7A complete; R5-F pending)
 
 The existing HK host has enough nominal CPU and memory for the initial low-volume Gateway database,
 so a second server is not a prerequisite. PostgreSQL must remain a separate system service, listen only
@@ -243,8 +243,13 @@ capture succeeded on 2026-09-07, but the Mac restore failed closed because its L
 `node` resolved by the disposable PostgreSQL wrapper's `/usr/bin/env` shebang. The encrypted generation remains
 available and unacknowledged, temporary restore state was cleaned, and the prior valid production status remains
 active. R5-E7A binds that wrapper to the protected operator runtime's absolute Node executable and adds a minimal-PATH
-regression. R5-F remains blocked until the protected fix is installed on the Mac, the same generation completes
-restore/activation/ack, and the following production monitor passes.
+regression. PR #75 and its disposable PostgreSQL 18 rehearsal passed; the protected `main 4d2cc6561826` operator
+bundle was then installed as a new immutable Mac directory and the LaunchAgent plist was atomically switched. The
+same scheduled generation completed restore, schema 7 verification, immutable-image account smoke, production status
+activation, and acknowledgement at 13:56 CST; the naturally scheduled 14:00 production monitor passed. No temporary
+container or plaintext remained. Gateway, PostgreSQL, and Nginx retained their original start times and zero restarts;
+account and binding capabilities remain disabled while legacy tokens remain accepted. The R5-E scheduler observation
+gate is complete, so R5-F may proceed to its separate production go/no-go review.
 
 ## Production disk and backup monitoring (R5-C4; deployed)
 
