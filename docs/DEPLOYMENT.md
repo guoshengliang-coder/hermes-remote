@@ -420,3 +420,82 @@ ID), zero restarts, no warning-or-worse lines. The structured log is live: the f
 production. Account and database flags remain disabled; PostgreSQL, the monitor timer and the R5-E automation were
 not touched. Rollback point for the next operation: `--operation rollback` with the 0.4.0 bundle
 (`Hermes-Gateway-0.4.0-833859aa9afe-linux-amd64`) as `targetArtifactManifest`.
+
+## Edge JSON compression (2026-09-07, authorized)
+
+Nothing on the path compressed anything. Hermes returns no `Content-Encoding` even when asked for gzip, the
+Gateway's `selectResponseHeaders` forwards only four headers (`content-encoding` is not one of them), and the edge
+had `gzip on` from `nginx.conf` with `gzip_types` and `gzip_proxied` still commented out — so the default
+`gzip_types text/html` and `gzip_proxied off` meant `application/json` was never compressed. The cross-profile
+session list (`?limit=500`, 195 sessions) had grown from 204 KB on 08-30 to 302 KB and is re-fetched on the
+sessions screen's 250 ms / 1.25 s / 3 s refresh ladder; on 09-06 it alone accounted for 40.6 MB across 139
+requests, 71% of the app's non-APK traffic.
+
+Five directives were added at the top of `location ^~ /api/` in `/etc/nginx/conf.d/hermes-edge.conf`:
+
+```nginx
+gzip_types application/json;
+gzip_proxied any;
+gzip_vary on;
+gzip_min_length 1024;
+gzip_comp_level 6;
+```
+
+**Only `application/json`, and never a streaming type.** gzip makes Nginx buffer a chunked response until it ends:
+a 5-chunk `application/json` stream that arrived at 202/403/603/804/1005 ms uncompressed arrived as a single
+block at 1006 ms once compressed. `text/event-stream` is unaffected *because it is not listed* — it kept arriving
+incrementally under the same config. The Gateway has no SSE or chunked-JSON endpoint today (`/api/mobile/events`
+returns immediately; chat streams over WebSocket), so nothing regressed, but adding a streaming content-type here
+later would silently destroy incremental delivery.
+
+`/releases` is deliberately left out so the APK verification chain is untouched: `UpdateRepository` checks the
+downloaded file's size and SHA-256 against the signed manifest, and `scripts/publish-android-apk.sh` fetches
+`index.json` with curl. The cost is that `index.json` (117,961 B) is now the largest uncompressed item in a cold
+start. Compressing it needs its own evaluation against `APP_UPDATE.md`, not a widened `gzip_types`.
+
+Verified before the change on an isolated Nginx 1.28.3 on the same host (loopback ports, own prefix and pid, a
+Node origin serving the real payloads; production never touched): JSON compressed and byte-identical after
+decoding, binary artifacts and sub-1 KB bodies untouched, a client that sends no `Accept-Encoding` served
+identical bytes, the `/api/ws` upgrade still `101` with a valid `Sec-WebSocket-Accept` and its frame intact, and
+200 × 305 KB costing 0.84 s of worker CPU (4.2 ms/request). A control server proved the directives do not escape
+the location: it inherits `gzip on` but, without `gzip_types`, still served uncompressed with `Content-Length`
+intact — which is why `missiongo.mrlgs.net` and the release site are unaffected.
+
+Applied at 22:23 with `nginx -t` then `systemctl reload nginx` (never `restart`): `worker_shutdown_timeout` is
+unset, so old workers keep existing connections until they close and the Connector's `/v1/connect` tunnel and the
+app's `/api/ws` both survived — `/relay-health` still reported `connectors: 1` with `mac-mini` online, and the
+green container stayed up with zero restarts. DERP (`derper`, ports 8443 and 80) and `missiongo.conf` are on
+different ports and a different server block and were not involved.
+
+The site file's SHA-256 is now `4c67d49d…`, superseding the `422182b2…` recorded in the R5-F1 run above; the
+pre-change bytes are kept at `/root/hermes-edge.conf.bak-20260907-2213`. This is expected: R5-F1 never rewrites
+the site file — it only moves the upstream include — and its gate is the semantic
+`satisfiesProductionNginxContract`, re-checked after the edit (one upstream include, exact `server_name`,
+`proxy_pass http://hermes_go_gateway_production`, no 8444 proxy). The per-run hash in
+`journal.checkpoint.nginxConfigSha256` is captured from the live file at the start of each run
+(`ops/lib/deploy.mjs`), so it guards against the file changing *during* a release, not across releases. Do not
+edit this file while a release is in flight; check `deploy-state.json` reports `committed` first. Rollback:
+
+```bash
+sudo cp -a /root/hermes-edge.conf.bak-20260907-2213 /etc/nginx/conf.d/hermes-edge.conf \
+  && sudo nginx -t && sudo systemctl reload nginx
+```
+
+Production measurements, same endpoints, before and after (Nginx `body_bytes_sent`):
+
+| Endpoint | Before | After | |
+|---|---:|---:|---|
+| `/api/profiles/sessions` | 314,219 | 26,969 | 11.7× |
+| `/api/messaging/platforms` | 49,170 | 8,727 | 5.6× |
+| `/api/cron/jobs` | 39,346 | 13,392 | 2.9× |
+| `/api/config` | 28,368 | 10,325 | 2.7× |
+| `/api/analytics/usage` | 27,088 | 5,542 | 4.9× |
+| `/api/model/options` | 8,688 | 1,516 | 5.7× |
+| `/api/sessions/<id>/messages` | 503,620 | 146,297 | 3.4× |
+| `/api/status` | 1,464 | 671 | 2.2× |
+| `/releases/index.json` | 117,961 | 117,961 | excluded by design |
+
+A cold start that moved ~862 KB now moves ~200 KB, 118 KB of which is the untouched `index.json`. `/api/ws` and
+`/api/mobile/events` are not compressed — a WebSocket is a `101` upgrade and an empty poll body is 77 B, below
+`gzip_min_length`; their access-log numbers move for unrelated reasons and must not be read as a compression
+ratio. The owner confirmed the app renders normally after a cold start and a session open.
