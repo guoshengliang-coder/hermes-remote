@@ -186,6 +186,7 @@ Surfaces this app started depending on after 0.1.102. None of them are version-n
 | cron `last_status = delivery_failed` + `last_delivery_error` | ran fine, never delivered; `last_error` is null here | A rename makes that failure silent again |
 | `GET /api/cron/delivery-targets` | `{id, name, home_target_set, home_env_var}`; upstream calls it the single source of truth for UIs | On failure the picker offers only 只存不发 |
 | `handoff.request` / `handoff.state` | refusals 4009 / 4025 / 4026 / 4027 | An unmodelled code degrades to `HR-RPC-001` |
+| session row `display_name` | the peer or group a platform session is with (`sessions.display_name`; the list endpoint strips only `system_prompt`/`model_config`) | Absent means the bot transcript names the channel but not the person |
 
 **A directional fact worth not re-deriving:** handoff moves a **local session out to a platform**,
 one way. `Platform` does contain `local`, but it is not a configured gateway platform (no home
