@@ -229,6 +229,17 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.106 makes reopening a session immediate and a filed report complete. Transcripts now
+  live on disk instead of in a ten-entry memory cache that died with the process, so with a couple
+  of hundred sessions an app update or a background eviction no longer made almost every open a
+  cold one; the reveal also stopped keying on "is a request running" and now asks "is there
+  anything to show", so a transcript already in hand is no longer held behind a skeleton until the
+  network answers. The bot transcript renders Hermes' markdown instead of delivering tables as rows
+  of pipes, and each turn now names whoever was speaking on the other platform. A feedback report
+  carries the whole rolling diagnostic log as an attachment rather than the last 500 lines, and a
+  reported crash carries the untrimmed trace; the inline entries and the trimmed description stay,
+  because attachment upload happens after the item is created and a refused file must not leave a
+  report with nothing in it.
 - Version 0.1.105 finishes the messaging-channel work. The channels page in 设置 opens on the
   channels this Hermes actually has, with the full catalogue one segment away, and a configured
   channel now has its own page: health with Hermes' own error text as detail, the delivery target
@@ -658,7 +669,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.105-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.106-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
