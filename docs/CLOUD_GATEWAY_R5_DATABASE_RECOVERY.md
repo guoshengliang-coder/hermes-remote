@@ -56,8 +56,8 @@ ED25519 公钥，sudoers 仅允许 root-owned 固定 wrapper。首次手动闭�
 状态激活和幂等重放；生产监控随后通过。一次性容器和明文均已清理，Gateway、PostgreSQL、Nginx 没有
 重启，两个账号开关保持 `0`。
 
-生产捕获 timer 与 Mac 每小时 LaunchAgent 现已启用。R5-F 仍被首个 scheduler-triggered 捕获、Mac 恢复/
-激活及其后一次生产监控检查阻断；手动闭环不能代替该观察门禁。
+生产捕获 timer 与 Mac 每小时 LaunchAgent 现已启用。首个 scheduler-triggered 捕获的初次恢复故障与
+R5-E7A 修复结果记录在下方；其恢复、激活和后续监控观察门禁现已完成。
 
 ## R5-E7A 首次自动周期修复
 
@@ -72,9 +72,15 @@ ED25519 公钥，sudoers 仅允许 root-owned 固定 wrapper。首次手动闭�
 36 小时新鲜度窗口内，不能替代新代次的恢复观察门禁。
 
 R5-E7A 让 wrapper 的 shebang 固定为启动当前受保护 operator 的绝对 `process.execPath`，并以完全不含
-`node` 的 PATH 执行真实 wrapper 回归测试。新源码、PR 与一次性 R5-E 演练通过后，仍须使用同提交的受保护
-operator bundle 更新 Mac 自动化并重放现有代次；只有恢复、账号 smoke、生产状态激活、ack 和随后监控全部
-通过，R5-F 阻断才可解除。
+`node` 的 PATH 执行真实 wrapper 回归测试。PR #75 与一次性 R5-E 演练通过后，2026-09-07 使用
+`main 4d2cc6561826` 的受保护 operator bundle 在 Mac 新建不可变目录并原子更新 LaunchAgent。13:56 CST
+重放现有自动代次成功，完成 PostgreSQL 18 恢复、schema 7、不可变 Gateway 账号事务 smoke、生产状态激活
+和 ack；14:00 的下一轮生产监控返回 success。LaunchAgent 最后退出码为 0，临时容器、随机凭据、明文管道
+与下载目录均已清理，旧 operator 与精确 plist 保留为回滚点。
+
+部署后 Gateway blue、PostgreSQL 18 和 Nginx 的启动时间未改变且重启数为 0，公网 relay health 继续显示
+Mac Connector 在线；账号认证与绑定 capability 仍为关闭，旧 App/Connector Token 仍可用。R5-E7 首个
+自动闭环观察门禁至此完成，R5-F 不再被数据库恢复自动化阻断，但账号功能启用仍是独立生产晋级动作。
 
 ## R5-E1 生产只读预检结果
 
@@ -216,7 +222,6 @@ R5-A 只读审计；只有恢复证据新鲜且所有门禁通过，才可讨论
 R5-E5A 本地修复阶段不连接生产主机，不再次读取生产数据或生成新备份，不安装状态、不部署代码，也不重启
 或切换任何服务；现有密文与受保护恢复材料仅等待修复通过全部门禁后的独立恢复授权。
 
-截至 2026-09-07，R5-E1 至 R5-E7 的实现、首次手动生产闭环、监控以及生产/Mac 两端调度安装均已完成；
-首个自动捕获成功，但 Mac 恢复暴露了 R5-E7A 的 Node PATH 缺口。账号/数据库功能开关仍关闭。必须先部署
-受保护修复制品并完成该自动代次的异机接收、恢复、激活和下一轮新鲜度检查，才可开始 R5-F 账号功能正式
-晋级。
+截至 2026-09-07，R5-E1 至 R5-E7A 的实现、手动闭环、生产/Mac 两端调度、首个自动捕获、异机恢复、
+状态激活、ack 和下一轮新鲜度检查均已完成。账号/数据库功能开关仍关闭；R5-F 账号功能正式晋级可以进入
+独立 go/no-go 复审。

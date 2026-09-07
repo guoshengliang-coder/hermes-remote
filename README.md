@@ -72,8 +72,9 @@ tracked in
 `docs/CLOUD_GATEWAY_R5_DATABASE_RECOVERY.md`.
 R5-E1 through R5-E7 have completed the least-privilege PostgreSQL 18/schema 7 setup, encrypted production
 capture, Mac off-host restore rehearsal, evidence-bound status activation, production freshness monitoring,
-and deployment of the daily capture/hourly off-host recovery loop. Account enablement remains disabled until
-the first scheduler-triggered production cycle passes its observation gate.
+and deployment of the daily capture/hourly off-host recovery loop. R5-E7A repaired the minimal-PATH Mac
+LaunchAgent issue found by the first scheduled cycle; that generation's restore, activation, acknowledgement,
+and following production monitor passed. Account enablement remains disabled pending the separate R5-F go/no-go.
 
 For the Android base, configure the public Gateway URL and the Gateway `APP_TOKEN` in token mode. The public token terminates in Hong Kong; the separate local Hermes credential exists only on the Mac Connector.
 
