@@ -30,6 +30,9 @@ class HermesContractTest {
             setOf(
                 "id", "title", "model", "provider", "last_active", "message_count", "profile",
                 "is_default_profile", "archived", "cwd", "source", "git_branch", "git_repo_root",
+                // Present on messaging-platform rows: the peer or group Hermes is talking to.
+                // Absent on local sessions, hence nullable — but the name is upstream's.
+                "display_name",
             ),
             names,
         )

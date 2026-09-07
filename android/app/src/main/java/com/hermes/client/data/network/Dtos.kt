@@ -26,6 +26,8 @@ import kotlinx.serialization.Serializable
     val source: String? = null,
     @SerialName("git_branch") val gitBranch: String? = null,
     @SerialName("git_repo_root") val gitRepoRoot: String? = null,
+    /** Who the gateway is talking to on a messaging platform (the DingTalk peer, the group). */
+    @SerialName("display_name") val displayName: String? = null,
 )
 @Serializable data class SessionListDto(val sessions: List<SessionDto> = emptyList())
 
