@@ -47,6 +47,7 @@ import com.hermes.client.ui.cron.CronDetailScreen
 import com.hermes.client.ui.cron.CronEditScreen
 import com.hermes.client.ui.cron.CronScreen
 import com.hermes.client.ui.messaging.MessagingScreen
+import com.hermes.client.ui.messaging.MessagingDetailScreen
 import com.hermes.client.ui.messaging.MessagingSetupScreen
 import com.hermes.client.ui.models.ModelsScreen
 import com.hermes.client.ui.models.ModelsViewModel
@@ -427,6 +428,17 @@ fun HermesNav(
                 MessagingScreen(
                     onMenu = back,
                     onSetup = { id -> nav.navigate("messaging_setup/$id") },
+                    onOpenChannel = { id -> nav.navigate("messaging_detail/$id") },
+                )
+            }
+            composable("messaging_detail/{id}") { entry ->
+                MessagingDetailScreen(
+                    platformId = entry.arguments?.getString("id").orEmpty(),
+                    onBack = back,
+                    onEditCredentials = { id -> nav.navigate("messaging_setup/$id") },
+                    // Conversations have one home: the 机器人 segment on the Chats screen.
+                    onOpenBots = { nav.popBackStack("sessions", inclusive = false) },
+                    onOpenCron = { nav.navigate("cron") },
                 )
             }
             composable("messaging_setup/{id}") { entry ->
