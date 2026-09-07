@@ -229,6 +229,15 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.104 gives testers a way to report from inside the app. The card page gains 反馈与建议
+  after app updates, and the crash screen gains 上报 next to Share. A report carries what the device
+  already knew and previously had no way to send: build and version, model and OS, the screen you
+  were on, and a snapshot of the diagnostic log when you had it running — so a bug no longer arrives
+  as a screenshot and a sentence. The crash path goes through a queue that survives the process, so a
+  crash with no network still reports once there is one. The entry points are absent, rather than
+  broken, in a build with no feedback configuration. Diagnostic redaction was strengthened on the way
+  in: the rule set now covers `Authorization: Bearer <credential>`, whose credential the old pattern
+  left in the clear because it stopped at the first space.
 - Version 0.1.103 stops Hermes' context-compaction handoff from being read as conversation. When a
   conversation outgrows its context window Hermes compacts the earlier turns and carries the
   handoff through the same user-role channel a person's messages use; upstream strips it before
@@ -636,7 +645,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.103-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.104-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
