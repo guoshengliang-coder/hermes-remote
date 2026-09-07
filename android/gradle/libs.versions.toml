@@ -33,7 +33,7 @@ androidxTestJunit = "1.3.0"
 androidxTestRunner = "1.7.0"
 zxingEmbedded = "4.3.0"
 glance = "1.1.1"
-missiongoFeedback = "0.2.3"
+missiongoFeedback = "0.2.5"
 
 [libraries]
 core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
