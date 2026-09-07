@@ -2022,8 +2022,13 @@ internal fun AssistantTurn(
     }
 }
 
+/**
+ * Assistant prose, rendered. Deliberately not private: the bot transcript is a second renderer
+ * over the same history, and when it drew this text with a bare [Text] every table, bullet and
+ * `**bold**` reached the reader as literal Markdown punctuation.
+ */
 @Composable
-private fun AssistantMarkdownBlock(
+internal fun AssistantMarkdownBlock(
     content: String,
     anchorKey: String,
     onOpenTableFullscreen: (String) -> Unit,

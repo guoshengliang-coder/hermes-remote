@@ -32,6 +32,7 @@ fun SessionDto.toDomain() = Session(
     cwd = cwd?.ifBlank { null },
     gitBranch = gitBranch?.ifBlank { null },
     gitRepoRoot = gitRepoRoot?.ifBlank { null },
+    displayName = displayName?.ifBlank { null },
 )
 
 private val IMAGE_DIRECTIVE = Regex(

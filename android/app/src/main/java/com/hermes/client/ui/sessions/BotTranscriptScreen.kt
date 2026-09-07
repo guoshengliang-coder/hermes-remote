@@ -50,6 +50,8 @@ data class BotTranscriptState(
     val messages: List<ChatMessage> = emptyList(),
     val title: String = "",
     val source: String? = null,
+    /** Who Hermes is talking to over there — the DingTalk peer, or the group. */
+    val peer: String? = null,
     val loading: Boolean = true,
     val error: AppError? = null,
 )
@@ -69,7 +71,8 @@ class BotTranscriptViewModel @Inject constructor(
         runCatching { sessions.history(sessionId, profile) }
             .onSuccess {
                 _state.value = BotTranscriptState(
-                    messages = it, title = row?.title.orEmpty(), source = row?.source, loading = false,
+                    messages = it, title = row?.title.orEmpty(), source = row?.source,
+                    peer = row?.displayName, loading = false,
                 )
             }
             .onFailure {
@@ -77,6 +80,7 @@ class BotTranscriptViewModel @Inject constructor(
                     loading = false,
                     title = row?.title.orEmpty(),
                     source = row?.source,
+                    peer = row?.displayName,
                     error = AppError(
                         AppErrorCode.HISTORY_INCOMPLETE,
                         retryable = true,
@@ -133,7 +137,15 @@ fun BotTranscriptScreen(
                 ) {
                     Icon(Icons.Rounded.Forum, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                     Text(
-                        localized(
+                        // Name the peer when the gateway gives one: "来自钉钉" alone leaves the
+                        // reader guessing which of their DingTalk chats this record is.
+                        state.peer?.takeIf { it.isNotBlank() }?.let { peer ->
+                            localized(
+                                language,
+                                "来自${botSourceLabel(state.source ?: "")} · $peer · 只读",
+                                "From ${botSourceLabel(state.source ?: "")} · $peer · read-only",
+                            )
+                        } ?: localized(
                             language,
                             "来自${botSourceLabel(state.source ?: "")} · 只读",
                             "From ${botSourceLabel(state.source ?: "")} · read-only",
@@ -154,7 +166,7 @@ fun BotTranscriptScreen(
                         Modifier.fillMaxSize().padding(horizontal = 16.dp),
                     ) {
                         items(state.messages, key = { it.id }) { message ->
-                            BotTranscriptTurn(message)
+                            BotTranscriptTurn(message, state.peer, state.source, language)
                         }
                     }
                 }
@@ -176,7 +188,12 @@ fun BotTranscriptScreen(
 }
 
 @Composable
-private fun BotTranscriptTurn(message: ChatMessage) {
+private fun BotTranscriptTurn(
+    message: ChatMessage,
+    peer: String?,
+    source: String?,
+    language: com.hermes.client.ui.localization.AppLanguage,
+) {
     // The chat screen strips Hermes' compression scaffolding in ChatUiState; this renderer is a
     // second path to the same history and has to do the same, or a turn that arrived with pages of
     // machine text stapled to it shows all of it. Timeline notes are collapsed to nothing here:
@@ -184,22 +201,43 @@ private fun BotTranscriptTurn(message: ChatMessage) {
     val body = com.hermes.client.ui.chat.withoutCompressionScaffolding(message.text).trim()
     if (body.isBlank()) return
     if (message.role == Role.USER) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.78f),
-                shape = MaterialTheme.shapes.large,
-            ) {
-                Text(
-                    body,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
-                )
+        Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+            // Who said it. A right-side bubble means "me" everywhere else in this app; here it is
+            // whoever was talking to Hermes on the other platform, so it has to be named.
+            Text(
+                listOfNotNull(
+                    peer?.takeIf { it.isNotBlank() },
+                    com.hermes.client.ui.localization.localized(
+                        language,
+                        "在${botSourceLabel(source ?: "")}",
+                        "on ${botSourceLabel(source ?: "")}",
+                    ),
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                textAlign = TextAlign.End,
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.78f),
+                    shape = MaterialTheme.shapes.large,
+                ) {
+                    Text(
+                        body,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
+                    )
+                }
             }
         }
     } else {
-        Text(
-            body,
-            style = MaterialTheme.typography.bodyLarge,
+        // Hermes' own prose, through the chat screen's renderer. A bare Text here delivered every
+        // table and **bold** as literal Markdown punctuation.
+        com.hermes.client.ui.chat.AssistantMarkdownBlock(
+            content = body,
+            anchorKey = "bot-${message.id}",
+            onOpenTableFullscreen = {},
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         )
     }
