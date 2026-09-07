@@ -92,6 +92,64 @@ class SessionRuntimeStoreTest {
         )
     }
 
+    // ---- Disk-cached transcripts (docs/DESIGN.md §5.4 rule 4) ----------------------------------
+    // Reading a stored transcript is IO, so it can land after the network or after a run has
+    // started streaming. Both of those are authoritative; a stored copy may only fill a blank.
+
+    private fun message(id: String, text: String) =
+        ChatMessage(id = id, role = Role.USER, text = text)
+
+    @Test fun cachedHistoryFillsAnEmptyTranscriptAndLeavesTheRefreshRunning() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("stored-1", "personal")
+        fixture.store.markHistoryLoading(key, null)
+
+        fixture.store.acceptCachedHistory(key, listOf(message("h-0-1", "从磁盘来的")))
+
+        val chat = fixture.store.runtimes.value.getValue(key).chat
+        assertEquals(listOf("从磁盘来的"), chat.messages.map { it.text })
+        assertTrue("content exists, so the surface may reveal it", chat.historyLoaded)
+        assertTrue("the authoritative refresh is still running", chat.historyLoading)
+    }
+
+    @Test fun cachedHistoryIsDroppedWhenTheNetworkAnsweredFirst() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("stored-1", "personal")
+        fixture.store.markHistoryLoading(key, null)
+        fixture.store.acceptHistory(key, listOf(message("h-0-9", "服务端的")), System.currentTimeMillis())
+
+        fixture.store.acceptCachedHistory(key, listOf(message("h-0-1", "磁盘的")))
+
+        val chat = fixture.store.runtimes.value.getValue(key).chat
+        assertEquals(listOf("服务端的"), chat.messages.map { it.text })
+        assertFalse(chat.historyLoading)
+    }
+
+    @Test fun cachedHistoryIsDroppedWhenSomethingIsAlreadyOnScreen() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("stored-1", "personal")
+        fixture.store.markHistoryLoading(key, listOf(message("u-live", "刚发出去的")))
+
+        fixture.store.acceptCachedHistory(key, listOf(message("h-0-1", "磁盘的")))
+
+        assertEquals(
+            listOf("刚发出去的"),
+            fixture.store.runtimes.value.getValue(key).chat.messages.map { it.text },
+        )
+    }
+
+    @Test fun anEmptyCachedTranscriptChangesNothing() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("stored-1", "personal")
+        fixture.store.markHistoryLoading(key, null)
+
+        fixture.store.acceptCachedHistory(key, emptyList())
+
+        val chat = fixture.store.runtimes.value.getValue(key).chat
+        assertTrue(chat.messages.isEmpty())
+        assertFalse("an empty cache must not claim the transcript is loaded", chat.historyLoaded)
+    }
+
     @Test fun notificationTargetMapsALiveHandleBackToItsStoredConversation() = runTest {
         val fixture = fixture()
         val key = fixture.store.register("stored-42", "artist")

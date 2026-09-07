@@ -82,7 +82,7 @@ class HermesRestApi(
      * Transport failures are now logged too. Previously a timed-out call left only the opening
      * line and no outcome at all, which reads exactly like a request that never returned.
      */
-    private suspend inline fun <reified T> get(path: String): T = withContext(Dispatchers.IO) {
+    private suspend fun getRaw(path: String): String = withContext(Dispatchers.IO) {
         val call = restCall(builder(path).get().build())
         // The shared client deliberately has no read timeout because WebSockets are long-lived.
         // A per-call deadline is essential for REST, otherwise a stalled Relay/Connector request
@@ -112,9 +112,16 @@ class HermesRestApi(
                     "GET $path ← ${resp.code} (${elapsed}ms)"
                 }
             }
-            json.decodeFromString<T>(body)
+            body
         }
     }
+
+    /**
+     * The transcript cache stores the payload rather than the mapped domain objects, so the body
+     * has to survive the trip out of [getRaw] — decoding is split off here so that a cached
+     * payload and a fresh one go through exactly the same parser (see [TranscriptStore]).
+     */
+    private suspend inline fun <reified T> get(path: String): T = json.decodeFromString(getRaw(path))
 
     /**
      * T10b: test connectivity using explicitly supplied credentials WITHOUT reading from
@@ -219,7 +226,15 @@ class HermesRestApi(
         get("/api/profiles/sessions?limit=$limit&order=recent${if (archivedOnly) "&archived=only" else ""}")
 
     suspend fun messages(sessionId: String, profile: String? = null): List<MessageDto> =
-        get<MessagesDto>("/api/sessions/$sessionId/messages${profileParam(profile, first = true)}").messages
+        parseMessages(messagesRaw(sessionId, profile))
+
+    /** The transcript payload as it came off the wire, for [TranscriptStore] to keep. */
+    suspend fun messagesRaw(sessionId: String, profile: String? = null): String =
+        getRaw("/api/sessions/$sessionId/messages${profileParam(profile, first = true)}")
+
+    /** Parses a transcript payload, whether it arrived just now or came back off the disk. */
+    fun parseMessages(raw: String): List<MessageDto> =
+        json.decodeFromString<MessagesDto>(raw).messages
 
     /** Stream a Connector-authorized artifact to disk; large files never become strings/ByteArrays. */
     suspend fun downloadArtifact(

@@ -542,6 +542,20 @@ Hermes 的单一入口。详情页展示 Mac、Connector、Hermes、Gateway 与�
   底色与高光 (`skeletonBaseColor` / `skeletonHighlightColor`) 与聊天历史骨架同一套。
   行形状不稳定的页面**禁止**画骨架 —— 猜错的骨架比转盘更差，内容一到就重排。
 - **聊天页只有一个指示物**（决策 2026-09-04）：删除三点跳动 `TypingIndicator`。
+
+**4. 手上有内容就不许盖骨架（决策 2026-09-07）。** 骨架只属于**冷开**——本机一个字都没有的那一次。
+   一旦本地缓存能给出这条会话的历史，进入会话就**直接显示内容**，后台刷新走上表的
+   `TopProgressLine`，不再把 alpha 压到 0 用骨架蒙住。
+   在此之前，磁盘上没有历史，`markHistoryLoading` 期间 `historyLoading=true` 会把
+   `initialPresentationReady` 摁回 false，于是**即使内存里已有这条会话的消息，用户看到的仍是骨架**，
+   要一直等到网络回来 —— 内存缓存只省了布局，没省等待。真正的判据不是"有没有在刷新"，而是
+   "**有没有东西可给用户看**"。
+   保留的那一半是对的、不能删：揭示前仍要等 LazyColumn 连续几帧坐标稳定
+   （`INITIAL_PRESENTATION_STABLE_FRAMES`），否则首帧是几条用户气泡、下一帧才吸附到助手尾部。
+   命中缓存时这只是几帧，不是一个网络往返。
+   缓存落在 `filesDir/transcript-history/`（gzip 的原始 REST 报文）：**不能放 `cacheDir`** ——
+   `file_paths.xml` 的 `<cache-path name="captures" path="."/>` 把整个 `cacheDir` 交给了
+   FileProvider，而 transcript 是用户的全部对话内容。备份侧已由 `allowBackup=false` 挡住。
 - **指示物属于会话的这一轮运行，不属于某个气泡**（决策 2026-09-05，HG-8）：运行中而尚无
   assistant 气泡在流式（Relay 先观测到 `run.started`、`message.start` 还没到；或一次历史对账把
   进行中的行换掉了）时，同一个 `RunningStatusLine` 以"只有标记"的形态渲染在列表的**常驻底部槽位**

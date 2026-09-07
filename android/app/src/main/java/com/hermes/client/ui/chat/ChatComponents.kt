@@ -936,10 +936,13 @@ fun ChatMessageList(
         displayMessages.size,
     ) {
         if (initialPresentationReady && !state.historyLoading) return@LaunchedEffect
+        val immediate = immediatePresentationDecision(
+            isGenerating = state.isGenerating,
+            historyLoading = state.historyLoading,
+            historyLoaded = state.historyLoaded,
+        )
         when {
-            state.isGenerating -> initialPresentationReady = true
-            state.historyLoading -> initialPresentationReady = false
-            !state.historyLoaded -> initialPresentationReady = true
+            immediate != null -> initialPresentationReady = immediate
             else -> {
                 var previousSignature: List<Triple<Any, Int, Int>>? = null
                 var stableFrames = 0
@@ -1192,6 +1195,14 @@ fun ChatMessageList(
                     .alpha(1f - transcriptAlpha),
             )
         }
+        // Showing a stored transcript while the authoritative one is still on its way is exactly
+        // the "refresh with content already visible" row of docs/DESIGN.md §5.4's table: a 2dp
+        // line that does not cover what is being read, never a skeleton over readable text.
+        if (transcriptAlpha >= 1f && state.historyLoading && state.historyLoaded) {
+            com.hermes.client.ui.components.TopProgressLine(
+                Modifier.fillMaxWidth().align(Alignment.TopCenter),
+            )
+        }
     }
     }
 }
@@ -1200,6 +1211,32 @@ fun ChatMessageList(
  * Stable render keys survive local-id to REST-id replacement and adjacent assistant-record merges.
  * User text anchors a conversation turn; assistant/system ordinals only advance inside that turn.
  */
+/**
+ * Whether the transcript can be shown without waiting, or null for "lay it out, wait for the
+ * coordinates to stop moving, then reveal".
+ *
+ * The masked state exists for one reason: a cold open would otherwise show a frame of user
+ * bubbles before the list settles on the assistant tail. It was keyed on `historyLoading`, which
+ * also covers the refresh that runs behind a transcript we already have — so a cache hit sat
+ * fully laid out at alpha 0 with the skeleton over it until the network answered, and the memory
+ * cache bought layout work rather than the wait (docs/DESIGN.md §5.4 rule 4). The question is not
+ * "is a request running" but "is there anything to show".
+ */
+internal fun immediatePresentationDecision(
+    isGenerating: Boolean,
+    historyLoading: Boolean,
+    historyLoaded: Boolean,
+): Boolean? = when {
+    // A live run paints itself; never mask an answer that is arriving.
+    isGenerating -> true
+    // Cold open: nothing to draw yet, so the skeleton owns the screen.
+    historyLoading && !historyLoaded -> false
+    // Not loading and nothing loaded — an error or a brand-new session. Reveal the empty ground.
+    !historyLoaded -> true
+    // Content in hand. Settle the layout, then reveal, whether or not a refresh is still running.
+    else -> null
+}
+
 internal fun List<ChatMessage>.conversationRenderKeys(): List<String> = map { it.id }
 
 internal fun ChatMessage.streamContentRevision(): Int =

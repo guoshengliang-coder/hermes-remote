@@ -565,6 +565,30 @@ class SessionRuntimeStore(
         scheduleProcessPolling(key, PROCESS_DISCOVERY_GRACE_POLLS)
     }
 
+    /**
+     * Late-arriving transcript from the disk cache ([com.hermes.client.data.repository.TranscriptStore]).
+     *
+     * Unlike [markHistoryLoading] this cannot be handed its content synchronously — reading and
+     * parsing a stored payload is IO — so it has to defend against the two things that can happen
+     * while it is in flight: the network answering first, and the session starting to stream. Both
+     * are authoritative over a stored copy, so this applies only while there is still nothing to
+     * show. `historyLoading` deliberately stays true: the refresh really is still running, and the
+     * chat surface renders that as the top progress line once content exists (docs/DESIGN.md §5.4).
+     */
+    fun acceptCachedHistory(key: SessionRuntimeKey, messages: List<ChatMessage>) {
+        if (messages.isEmpty()) return
+        updateRuntime(key) { runtime ->
+            if (runtime.chat.messages.isNotEmpty() || runtime.chat.historyLoaded) return@updateRuntime runtime
+            runtime.copy(
+                chat = runtime.chat.copy(
+                    messages = messages,
+                    historyLoaded = true,
+                    historyError = null,
+                ),
+            )
+        }
+    }
+
     /** Do not let a slower REST response overwrite deltas received after that request started. */
     fun acceptHistory(
         key: SessionRuntimeKey,

@@ -456,6 +456,20 @@ class ChatViewModel @Inject constructor(
         _reasoningEffort.value = null
         val cachedHistory = sessions.cachedHistory(id, profile)?.map { it.organizedForDisplay() }
         runtimeStore.markHistoryLoading(key, cachedHistory)
+        // The memory cache holds ten transcripts and dies with the process, so with ~200 sessions
+        // a cold open is the normal case, not the exception. Ask the disk in parallel with the
+        // network: whichever answers first ends the skeleton, and acceptCachedHistory stands down
+        // if the network won (docs/DESIGN.md §5.4 rule 4).
+        if (cachedHistory.isNullOrEmpty()) {
+            viewModelScope.launch {
+                val stored = runCatching { sessions.diskHistory(id, profile) }.getOrNull()
+                if (storedSessionId != id || stored.isNullOrEmpty()) return@launch
+                val organized = kotlinx.coroutines.withContext(defaultDispatcher) {
+                    stored.map { it.organizedForDisplay() }
+                }
+                if (storedSessionId == id) runtimeStore.acceptCachedHistory(key, organized)
+            }
+        }
         collectJob?.cancel()
         collectJob = viewModelScope.launch {
             runtimeStore.runtimes
