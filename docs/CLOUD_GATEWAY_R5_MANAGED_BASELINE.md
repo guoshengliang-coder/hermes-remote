@@ -178,6 +178,14 @@ R5-F1 补的就是这条路，且刻意不把它做成 R5-F 账号模式晋级�
 代码合并、演练通过和本节都不构成生产授权。生产运行前的门禁与操作顺序见 `DEPLOYMENT.md`
 "Routine production release"。
 
+**首次生产运行（2026-09-07，已授权）**：PR #78 合入 `main` 80225d8 后，同一提交的一次性演练
+（run 34104753984）通过，随后用该提交的 Gateway/运维 bundle 在 HK 主机完成 0.4.1 发版：run
+`590d6014-87a9-403a-a2b3-101d3bf4b701`，blue（0.4.0-833859aa9afe）→ green（0.4.1-80225d817b42），49 秒，
+站点文件哈希前后一致，Connector 在线，容器零重启，结构化日志已在生产出现。R5-D 时的私密配置与输入已
+不在 `/secure-input/hermes-go`，本次按现场重建为 `production-release.json`；第一次尝试因 TLS 私钥源
+`0640 root:hermes-remote` 不满足输入检查而在 `preflight_tls` 关闭，未触碰服务，改用 root-only 副本后成功。
+细节见 `DEPLOYMENT.md` 的运行记录。回滚点为 `previous` = 0.4.0-833859aa9afe。
+
 ## 2026-09-04 部署前只读预检
 
 经单独授权的白名单读取确认生产主机仍为 Linux x86_64，根盘约 100 GiB 且使用率 16%，可用内存约
