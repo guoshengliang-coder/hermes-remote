@@ -61,6 +61,7 @@ reassigned.
 | `CONFIG` | Local or deployment configuration | invalid URL, missing field, incompatible setting |
 | `STORE` | Local persistence | DataStore/database/cache failure |
 | `SEARCH` | Session and message search | gateway search request failed, search backend unavailable |
+| `FEEDBACK` | In-app feedback reporting to MissionGo | not configured, submission failed, token rejected, rate limited |
 | `CRON` | Scheduled jobs | run delivered nowhere, schedule/trigger failure |
 | `MSG` | Messaging channels (DingTalk, Slack, …) | list/save failure, profile conflict, platform not connected, gateway restart |
 | `LINK` | Links the app opens out of its own content | no app can open the link, non-web scheme refused |
@@ -227,6 +228,10 @@ expanded without changing the underlying meaning.
 | `HR-MSG-003` | Enabling the channel would break a multiplexed gateway because another profile already owns its listener (server returns 409) | 该渠道已被另一个身份占用，同一个渠道不能同时启用两次。 | Another profile already owns this channel; it can't be enabled twice at once. | No |
 | `HR-MSG-004` | Hermes reports the platform as `startup_failed`: it is configured and enabled, but its adapter did not come up. The technical cause is the server's `error_message`, kept behind a details toggle | 这个渠道没能连上，请检查设置。 | This channel didn't connect. Check its setup. | No (fix the setup) |
 | `HR-MSG-005` | Restarting the gateway failed (`POST /api/gateway/restart`), so channels saved as `pending_restart` stay disconnected | 网关重启失败，请重试。 | The gateway restart failed. Retry. | Yes |
+| `HR-FEEDBACK-001` | The build carries no MissionGo endpoint/token, so the SDK was never initialized (a fresh clone, another machine, ordinary CI). Entry points are hidden in this state; the code exists for the boundary that is reached anyway | 这个版本没有开启反馈功能。 | Feedback is not enabled in this build. | No |
+| `HR-FEEDBACK-002` | Submitting a report failed for any other reason — network, an unparseable response, an expired local draft, or a server code we do not special-case. Retryability comes from the SDK, which reports what it used for its own retries, rather than from a local table of codes | 反馈没有提交成功，请重试。 | The feedback wasn't submitted. Retry. | Depends (as reported) |
+| `HR-FEEDBACK-003` | The feedback service refused the report's credentials (`http_401` / `http_403`): the SDK token was revoked, mistyped, or belongs to another product. Retrying cannot help; the build has to be fixed | 反馈服务拒绝了这次提交，请联系开发者。 | The feedback service rejected this report. Contact the developer. | No |
+| `HR-FEEDBACK-004` | The feedback service applied its per-token rate limit (`http_429`) | 反馈提交过于频繁，请稍后再试。 | Too many reports just now. Try again shortly. | Yes |
 | `HR-UNKNOWN-001` | Unmapped boundary failure | 出现未知错误，请复制诊断信息协助定位。 | An unknown error occurred. Copy diagnostics to help investigate. | Depends |
 
 

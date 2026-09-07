@@ -231,3 +231,29 @@ val ExternalLinkIcon: ImageVector by lazy {
         lineTo(19.4f, 10.2f)
     }
 }
+
+/**
+ * Rounded speech bubble with a tail — the feedback entry on the card page.
+ *
+ * Same construction as that row's neighbours (a rounded rectangle plus one small shape, exactly
+ * like the update glyph's box-and-arrow), so the five icons read as one set at 22dp. The bubble is
+ * left hollow: a chat app already spends filled bubbles on messages, and an outline at this weight
+ * reads as "say something" rather than "a conversation".
+ */
+val FeedbackBubbleIcon: ImageVector by lazy {
+    strokeIcon("StrokeFeedbackBubble") {
+        moveTo(6.5f, 4.5f)
+        lineTo(17.5f, 4.5f)
+        arcTo(2.6f, 2.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 20.1f, y1 = 7.1f)
+        lineTo(20.1f, 14.4f)
+        arcTo(2.6f, 2.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 17.5f, y1 = 17f)
+        lineTo(12.4f, 17f)
+        lineTo(8.2f, 20.2f)
+        lineTo(8.2f, 17f)
+        lineTo(6.5f, 17f)
+        arcTo(2.6f, 2.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 3.9f, y1 = 14.4f)
+        lineTo(3.9f, 7.1f)
+        arcTo(2.6f, 2.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 6.5f, y1 = 4.5f)
+        close()
+    }
+}

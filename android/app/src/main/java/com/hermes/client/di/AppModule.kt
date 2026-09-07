@@ -4,6 +4,8 @@ import android.content.Context
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.EncryptedCredentialStore
 import com.hermes.client.data.auth.normalizeGatewayBaseUrl
+import com.hermes.client.data.feedback.FeedbackReporter
+import com.hermes.client.data.feedback.MissionGoFeedbackReporter
 import com.hermes.client.data.network.GatedAuth
 import com.hermes.client.data.network.GatedAuthenticator
 import com.hermes.client.data.network.HermesGatewayClient
@@ -63,6 +65,16 @@ object AppModule {
     @Provides
     @DefaultDispatcher
     fun provideDefaultDispatcher(): CoroutineDispatcher = Dispatchers.Default
+
+    /**
+     * Initializes the MissionGo SDK when this build was configured for it, or hands back the
+     * unavailable stand-in. Held as a singleton because the SDK is a process-wide object and its
+     * background worker may wake in a process that never showed any UI.
+     */
+    @Provides
+    @Singleton
+    fun provideFeedbackReporter(@ApplicationContext context: Context): FeedbackReporter =
+        MissionGoFeedbackReporter.createFor(context as android.app.Application)
 
     @Provides
     @Singleton

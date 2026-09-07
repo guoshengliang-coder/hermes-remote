@@ -101,6 +101,12 @@ jobs:
         shell: bash
         env:
           HERMES_DEBUG_KEYSTORE_BASE64: ${{ secrets.HERMES_DEBUG_KEYSTORE_BASE64 }}
+          # The in-app feedback entry only exists when the build carries these. They reach a local
+          # build through the gitignored android/missiongo.properties, which a runner never has, so
+          # without them a released APK would silently ship without the feature. Ordinary CI is
+          # deliberately left without them and exercises the not-configured path instead.
+          MISSIONGO_ENDPOINT: ${{ secrets.MISSIONGO_ENDPOINT }}
+          MISSIONGO_SDK_TOKEN: ${{ secrets.MISSIONGO_SDK_TOKEN }}
         run: |
           set -euo pipefail
           key="$HOME/.android/debug.keystore"

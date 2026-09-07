@@ -63,7 +63,10 @@ class DebugLogTest {
         DebugLog.log("rest", "GET /api/sessions  token=SECRET-TOKEN-123 end")
         val msg = DebugLog.entries.value.single().message
         assertFalse("raw token must not appear", msg.contains("SECRET-TOKEN-123"))
-        assertTrue("token must be masked", msg.contains("***"))
+        // Which marker appears depends on how the token was written: masked to *** on its own, or
+        // swallowed whole by the credential rules when it sits behind a `token=` label. Both are
+        // redacted; asserting one exact marker would only pin down the order of two passes.
+        assertTrue("token must be masked", msg.contains("<redacted>") || msg.contains("***"))
     }
 
     @Test fun blank_token_does_not_redact_everything() {
@@ -239,7 +242,7 @@ class DebugLogTest {
 
         val onDisk = DiagnosticLogStore(logDir()).readRecent(10).single().message
         assertFalse("raw token must not reach the file", onDisk.contains("SECRET-TOKEN-123"))
-        assertTrue(onDisk.contains("***"))
+        assertTrue(onDisk.contains("<redacted>") || onDisk.contains("***"))
     }
 
     @Test fun clear_also_empties_the_file() {
@@ -264,5 +267,40 @@ class DebugLogTest {
         assertEquals(null, DebugLog.exportIfAny())
         DebugLog.log("ws", "something")
         assertTrue(DebugLog.exportIfAny()!!.contains("something"))
+    }
+
+    @Test fun credential_shaped_text_is_redacted_without_any_registered_token() {
+        // The registered-token replacement only covers the one value we know about. A ws ticket or
+        // an authorization header that never went through setTokenToRedact used to ride along in
+        // the clear — and entries now leave the device, where the sink keeps text verbatim.
+        DebugLog.setTokenToRedact(null)
+        DebugLog.log("ws", "opening wss://gw.example/socket?ticket=SECRET-TICKET-9 (gen=3)")
+        DebugLog.log("rest", "GET /api/x  Authorization: Bearer SECRET-HEADER-9")
+
+        val messages = DebugLog.entries.value.map { it.message }
+        assertFalse("ticket must not survive", messages.any { it.contains("SECRET-TICKET-9") })
+        assertFalse("header must not survive", messages.any { it.contains("SECRET-HEADER-9") })
+        assertTrue(messages.any { it.contains("<redacted>") })
+        // Everything around the secret is still readable, or the log stops being useful.
+        assertTrue(messages.first().contains("gen=3"))
+    }
+
+    @Test fun credential_shaped_text_is_redacted_on_disk_too() {
+        DebugLog.init(logDir(), direct)
+        DebugLog.setTokenToRedact(null)
+        DebugLog.log("ws", "url wss://gw.example/s?ticket=SECRET-TICKET-9")
+
+        val onDisk = DiagnosticLogStore(logDir()).readRecent(10).single().message
+        assertFalse(onDisk.contains("SECRET-TICKET-9"))
+        assertTrue(onDisk.contains("<redacted>"))
+    }
+
+    @Test fun redaction_covers_both_the_registered_token_and_the_shared_rules() {
+        DebugLog.setTokenToRedact("SECRET-TOKEN-123")
+        DebugLog.log("ws", "auth=SECRET-TOKEN-123 then ?ticket=SECRET-TICKET-9")
+
+        val message = DebugLog.entries.value.single().message
+        assertFalse(message.contains("SECRET-TOKEN-123"))
+        assertFalse(message.contains("SECRET-TICKET-9"))
     }
 }

@@ -2,6 +2,7 @@ package com.hermes.client.data.diagnostics
 
 import android.os.Build
 import android.util.Log
+import com.hermes.client.data.error.redactSecrets
 import com.hermes.client.BuildConfig
 import java.io.File
 import java.time.Instant
@@ -258,9 +259,19 @@ object DebugLog {
     /** [export] when anything was captured, else null — a crash report omits an empty section. */
     fun exportIfAny(): String? = if (_entries.value.isEmpty()) null else export()
 
+    /**
+     * Masks the registered session token, then applies the shared credential rules.
+     *
+     * The token replacement alone is not enough once entries leave the device: a diagnostic sink
+     * keeps host-supplied text verbatim, and a ticket or authorization header that never went
+     * through [setTokenToRedact] would ride along in the clear. Redaction happens here, on the way
+     * into the buffer, so every consumer — the in-app view, the rolling file, the share sheet, a
+     * crash report, an uploaded report — sees the same redacted text.
+     */
     fun redact(message: String): String {
-        val token = tokenToRedact ?: return message
-        return message.replace(token, "***")
+        val token = tokenToRedact
+        val masked = if (token != null) message.replace(token, "***") else message
+        return redactSecrets(masked)
     }
 
     /** Test seam: drops the on-disk mirror so a test can exercise the in-memory path alone. */

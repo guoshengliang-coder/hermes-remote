@@ -9,6 +9,7 @@ local.properties
 android/**/build/
 android/.kotlin/
 android/keystore.properties
+android/missiongo.properties
 android/keystore/
 android/*.apk
 android/*.aab

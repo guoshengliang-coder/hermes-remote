@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var pendingShare: com.hermes.client.share.PendingShareStore
     @Inject lateinit var languages: AppLanguageProvider
     @Inject lateinit var foregroundRecovery: ForegroundRecoveryCoordinator
+    @Inject lateinit var feedbackReporter: com.hermes.client.data.feedback.FeedbackReporter
     private val startupViewModel: StartupViewModel by viewModels()
     private val processColdStart = PROCESS_UI_LAUNCH_CLAIMED.compareAndSet(false, true)
 
@@ -131,6 +132,36 @@ class MainActivity : ComponentActivity() {
                                     report = current,
                                     onShare = { shareCrash(current) },
                                     onDismiss = { CrashReporter.clear(this@MainActivity); report = null },
+                                    onReport = if (feedbackReporter.isAvailable) {
+                                        {
+                                            // The queue survives this process, so the report is
+                                            // filed even with no network right now; the user is
+                                            // told that and let back into the app immediately
+                                            // rather than being held on a crash screen.
+                                            val queued = feedbackReporter.enqueue(
+                                                com.hermes.client.data.feedback.FeedbackPrefill(
+                                                    title = localized(languages.current, "崩溃", "Crash"),
+                                                    description = com.hermes.client.data.feedback.trimCrashReport(current),
+                                                    context = mapOf("entry" to "crash_screen"),
+                                                ),
+                                            )
+                                            android.widget.Toast.makeText(
+                                                this@MainActivity,
+                                                if (queued) {
+                                                    localized(languages.current, "已加入上报队列，联网后自动提交。", "Queued. It will be sent once there's a network.")
+                                                } else {
+                                                    localized(languages.current, "上报失败，可改用分享。", "Couldn't queue the report. Share it instead.")
+                                                },
+                                                android.widget.Toast.LENGTH_LONG,
+                                            ).show()
+                                            if (queued) {
+                                                CrashReporter.clear(this@MainActivity)
+                                                report = null
+                                            }
+                                        }
+                                    } else {
+                                        null
+                                    },
                                 )
                             } else {
                                 androidx.compose.foundation.layout.Box {

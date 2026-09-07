@@ -60,8 +60,9 @@ import com.hermes.client.ui.localization.localized
  * The card page (modal drawer off the session list), v3 — matched to the real-device base
  * design: "Hermes" wordmark + settings gear up top; an identity card showing ONLY the current
  * profile (tap → the dedicated profile picker); one stats container (weekly usage | remote
- * device); then four shortcut rows — scheduled jobs, theme, model, app updates — icon + label
- * left, current value + chevron right.
+ * device); then the shortcut rows — scheduled jobs, theme, model, app updates, feedback — icon +
+ * label left, current value + chevron right. The feedback row is absent when the build carries no
+ * MissionGo endpoint/token, which is a supported configuration rather than an error.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -225,6 +226,7 @@ fun CardPage(
                 }
             }
 
+            val launchFeedback = com.hermes.client.ui.feedback.rememberFeedbackLauncher(vm.feedbackReporter)
             // ── Shortcut rows: icon + label | current value + chevron ────────────────
             Column(Modifier.padding(top = 10.dp)) {
                 ShortcutRow(
@@ -258,6 +260,22 @@ fun CardPage(
                     alertDot = updateAvailable != null,
                     onClick = { onNavigate("app_update") },
                 )
+                if (vm.feedbackReporter.isAvailable) {
+                    HorizontalDivider(color = hairline)
+                    ShortcutRow(
+                        icon = com.hermes.client.ui.components.FeedbackBubbleIcon,
+                        label = localized(language, "反馈与建议", "Feedback"),
+                        // No value: this row performs an action instead of leading somewhere with a
+                        // current setting to show, the same shape as the scheduled-jobs row.
+                        onClick = {
+                            launchFeedback(
+                                com.hermes.client.data.feedback.FeedbackPrefill(
+                                    context = mapOf("entry" to "card_page"),
+                                ),
+                            )
+                        },
+                    )
+                }
             }
         }
         }
