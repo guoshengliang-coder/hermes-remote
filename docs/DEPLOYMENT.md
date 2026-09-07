@@ -193,7 +193,7 @@ configuration and state and creates a new encrypted output. It requires a separa
 after CI passes; do not infer that approval from a merge or from an R5-A audit. The full key-handling,
 invocation, rollback, and verification procedure is in `CLOUD_GATEWAY_R5_RECOVERY.md`.
 
-## PostgreSQL production gate (R5-E6 complete; R5-E7 automation pending deployment)
+## PostgreSQL production gate (R5-E7 deployed; first automatic restore remediation pending)
 
 The existing HK host has enough nominal CPU and memory for the initial low-volume Gateway database,
 so a second server is not a prerequisite. PostgreSQL must remain a separate system service, listen only
@@ -239,7 +239,12 @@ activation, and acknowledged retention. The automation SSH identity uses a dedic
 its sudo permission names only the fixed root-owned wrapper and does not grant Node, the underlying script, or an
 arbitrary config. The initial manual full cycle, idempotent replay, and following production-monitor check passed
 without restarting Gateway, PostgreSQL, or Nginx; both account flags remain disabled. The first scheduler-triggered
-cycle and the following production-monitor check still must be observed before R5-F.
+capture succeeded on 2026-09-07, but the Mac restore failed closed because its LaunchAgent PATH did not contain the
+`node` resolved by the disposable PostgreSQL wrapper's `/usr/bin/env` shebang. The encrypted generation remains
+available and unacknowledged, temporary restore state was cleaned, and the prior valid production status remains
+active. R5-E7A binds that wrapper to the protected operator runtime's absolute Node executable and adds a minimal-PATH
+regression. R5-F remains blocked until the protected fix is installed on the Mac, the same generation completes
+restore/activation/ack, and the following production monitor passes.
 
 ## Production disk and backup monitoring (R5-C4; deployed)
 

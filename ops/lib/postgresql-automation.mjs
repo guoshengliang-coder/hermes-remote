@@ -571,13 +571,20 @@ async function waitForPostgresql(docker, name, role, database, options) {
 
 async function installContainerToolWrapper(root, docker, container, role, database) {
   const wrapper = path.join(root, "postgresql-container-tool");
-  const dockerEnvironment = safeDockerEnvironment();
-  const source = `#!/usr/bin/env node\nimport { spawnSync } from "node:child_process";\nimport path from "node:path";\nconst tool=path.basename(process.argv[1]);\nconst docker=${JSON.stringify(docker)};\nconst container=${JSON.stringify(container)};\nconst role=${JSON.stringify(role)};\nconst database=${JSON.stringify(database)};\nconst dockerEnvironment=${JSON.stringify(dockerEnvironment)};\nconst command='export PGPASSWORD="$(cat /run/secrets/postgres-password)" PGHOST=127.0.0.1 PGPORT=5432 PGUSER="$1" PGDATABASE="$2"; shift 2; exec "$0" "$@"';\nconst args=["exec","-i",container,"sh","-c",command,tool,role,database,...process.argv.slice(2)];\nconst result=spawnSync(docker,args,{stdio:"inherit",shell:false,env:dockerEnvironment});\nprocess.exit(result.status??1);\n`;
+  const source = createPostgresqlContainerToolWrapperSource({ docker, container, role, database });
   await writeFile(wrapper, source, { mode: 0o700, flag: "wx" });
   await copyFile(wrapper, path.join(root, "psql"));
   await copyFile(wrapper, path.join(root, "pg_restore"));
   await chmod(path.join(root, "psql"), 0o700);
   await chmod(path.join(root, "pg_restore"), 0o700);
+}
+
+export function createPostgresqlContainerToolWrapperSource({ docker, container, role, database }, nodePath = process.execPath) {
+  if (!path.isAbsolute(nodePath) || /[\u0000-\u0020\u007f]/.test(nodePath)) {
+    fail("postgresql_automation_node_path_invalid");
+  }
+  const dockerEnvironment = safeDockerEnvironment();
+  return `#!${nodePath}\nimport { spawnSync } from "node:child_process";\nimport path from "node:path";\nconst tool=path.basename(process.argv[1]);\nconst docker=${JSON.stringify(docker)};\nconst container=${JSON.stringify(container)};\nconst role=${JSON.stringify(role)};\nconst database=${JSON.stringify(database)};\nconst dockerEnvironment=${JSON.stringify(dockerEnvironment)};\nconst command='export PGPASSWORD="$(cat /run/secrets/postgres-password)" PGHOST=127.0.0.1 PGPORT=5432 PGUSER="$1" PGDATABASE="$2"; shift 2; exec "$0" "$@"';\nconst args=["exec","-i",container,"sh","-c",command,tool,role,database,...process.argv.slice(2)];\nconst result=spawnSync(docker,args,{stdio:"inherit",shell:false,env:dockerEnvironment});\nprocess.exit(result.status??1);\n`;
 }
 
 async function symlinkExecutable(root, name, source) {
