@@ -147,6 +147,12 @@ object Notif {
     const val CHANNEL_SERVICE = "service"
     /** Downloaded-and-verified app updates. */
     const val CHANNEL_UPDATES = "updates"
+    /**
+     * A messaging channel stopped connecting. Its own category so it can be silenced without
+     * muting run failures — and so a silent DingTalk outage is not something you find out about
+     * days later from a report that never arrived.
+     */
+    const val CHANNEL_MESSAGING = "messaging_health"
 
     /** Channels created by earlier releases; deleted on startup so their settings do not linger. */
     val LEGACY_CHANNELS = listOf("approvals", "activity")
@@ -156,7 +162,11 @@ object Notif {
     const val SERVICE_NOTIFICATION_ID = 1001
     const val SUMMARY_NOTIFICATION_ID = 1002
     const val UPDATE_NOTIFICATION_ID = 990_101
-    val RESERVED_IDS = setOf(SERVICE_NOTIFICATION_ID, SUMMARY_NOTIFICATION_ID, 1003, UPDATE_NOTIFICATION_ID)
+    const val MESSAGING_HEALTH_NOTIFICATION_ID = 990_201
+    val RESERVED_IDS = setOf(
+        SERVICE_NOTIFICATION_ID, SUMMARY_NOTIFICATION_ID, 1003, UPDATE_NOTIFICATION_ID,
+        MESSAGING_HEALTH_NOTIFICATION_ID,
+    )
 
     // Notifiable events on the app's WebSocket (/api/ws), verified against the gateway source:
     //  - approval.request / clarify.request -> the agent needs the user
