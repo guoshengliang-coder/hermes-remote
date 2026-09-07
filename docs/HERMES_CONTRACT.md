@@ -115,6 +115,8 @@ not something the person said, and the app renders them as one-line timeline not
 | `[ASYNC DELEGATION …` | `_run_prompt_submit` (no `display_kind`) | Background delegation report. |
 | `[IMPORTANT: Background process …` | same | Background process report. |
 | `[Your active task list was preserved across context compression]` | `tools/todo_tool.py` `TODO_INJECTION_HEADER` | **See the hazard below.** |
+| `[PRIOR CONTEXT — for reference only; not a new message]` | `agent/context_compressor.py` `_MERGED_PRIOR_CONTEXT_HEADER` | Context-compaction carrier. Projected by `domain/CompactionCarrier.kt`, see §5. |
+| `[CONTEXT COMPACTION …` / `[CONTEXT SUMMARY]` | same file | Pure handoff; the turn is dropped when nothing real is merged in. |
 | `[Skills pruned during compression — reload before acting on these tasks]` | `agent/conversation_compression.py` `_PRUNED_SKILL_RELOAD_NOTICE_HEADER` | Only ever appended after the header above (`todo_snapshot = f"{todo_snapshot}\n\n{_reload_notice}"`), never alone, so cutting at that header removes both. |
 
 **Hazard — the compression snapshot is not always its own message.** Upstream folds it into the
@@ -169,6 +171,31 @@ and aligning to it would silently drop `html` and `md` attachments.
 safe by default; a removed one is not — and a future upstream value colliding with `hermes_remote`
 would make the phone hide every session it created, so `HermesContractTest` asserts it stays out of
 the excluded set.
+
+### 7. Messaging channels and cron delivery (added 2026-09-07)
+
+Surfaces this app started depending on after 0.1.102. None of them are version-negotiated:
+
+| What we read | What upstream gives | If upstream changes it |
+|---|---|---|
+| `GET /api/messaging/platforms` → `state` | `connected` / `pending_restart` / `startup_failed` / `gateway_stopped` / `not_configured` / `disabled` | An unknown value degrades to 状态未知; it can **never** degrade to connected |
+| same → `needs_attention` / `error_message` / `home_channel` | `hermes_cli/web_routers/messaging.py` `_messaging_platform_payload` | Absent means not shown; the main status is unaffected |
+| `POST /api/gateway/restart` | `hermes_cli/web_routers/actions.py` | 404 surfaces as `HR-MSG-005` |
+| `POST /api/messaging/platforms/{id}/test` | its `message` is a diagnosis, shown as detail | Absent means the test fails |
+| cron `deliver` | `local` (server default) / `origin` / any connected channel id | An unknown value renders as its own target name |
+| cron `last_status = delivery_failed` + `last_delivery_error` | ran fine, never delivered; `last_error` is null here | A rename makes that failure silent again |
+| `GET /api/cron/delivery-targets` | `{id, name, home_target_set, home_env_var}`; upstream calls it the single source of truth for UIs | On failure the picker offers only 只存不发 |
+| `handoff.request` / `handoff.state` | refusals 4009 / 4025 / 4026 / 4027 | An unmodelled code degrades to `HR-RPC-001` |
+
+**A directional fact worth not re-deriving:** handoff moves a **local session out to a platform**,
+one way. `Platform` does contain `local`, but it is not a configured gateway platform (no home
+channel), so `platform=local` is refused with 4025. `handoff.request` also goes through
+`_with_session`, which requires a session live in the **dashboard** process — a channel session
+lives in the **gateway** process. **A channel conversation cannot be pulled back to the phone.**
+
+`BOT_SOURCES` is derived from the `EXCLUDED_SOURCES` in §6 (minus `cron`/`subagent`/`tool`) rather
+than hand-listed a second time: a platform source added upstream then joins the 机器人 segment
+instead of belonging to neither surface.
 
 ## Upgrade checklist
 
