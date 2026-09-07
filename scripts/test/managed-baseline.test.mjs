@@ -194,14 +194,23 @@ test("R5-D operator bundle manifest binds one safe archive to the exact source c
   });
   await writeJson(manifestPath, manifest);
   const parsed = await loadProductionBaselineBundleManifest(manifestPath);
-  assert.equal(parsed.schemaVersion, 2);
-  assert.equal(parsed.kind, "hermes-go-production-baseline-bundle-v2");
+  assert.equal(parsed.schemaVersion, 3);
+  assert.equal(parsed.kind, "hermes-go-production-baseline-bundle-v3");
   assert.equal(parsed.sourceCommit, sourceCommit);
   assert.equal(parsed.entrypoint, "scripts/production-baseline.mjs");
   assert.equal(parsed.connectorEntry, "connector/dist/index.js");
   assert.equal(parsed.smokeRuntimeEntry, "ops/lib/production-smoke-runtime.mjs");
+  assert.equal(parsed.releaseEntrypoint, "scripts/production-release.mjs");
 
-  const legacyManifest = { ...manifest };
+  // Schema 2 (R5-D3..R5-E7A) stays readable: the Mac automation still runs from one.
+  const r5dManifest = { ...manifest, schemaVersion: 2, kind: "hermes-go-production-baseline-bundle-v2" };
+  delete r5dManifest.releaseEntrypoint;
+  await writeJson(manifestPath, r5dManifest);
+  assert.equal((await loadProductionBaselineBundleManifest(manifestPath)).releaseEntrypoint, undefined);
+  await writeJson(manifestPath, { ...manifest, releaseEntrypoint: "scripts/production-baseline.mjs" });
+  await assert.rejects(() => loadProductionBaselineBundleManifest(manifestPath), isCode("HR-OPS-014"));
+
+  const legacyManifest = { ...r5dManifest };
   delete legacyManifest.smokeRuntimeEntry;
   legacyManifest.schemaVersion = 1;
   legacyManifest.kind = "hermes-go-production-baseline-bundle-v1";

@@ -67,7 +67,11 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 ssh kkk@mrlgs.net
 ```
 
-网关写结构化 JSON 行（`GATEWAY_LOG_LEVEL`，默认 info）。**先看它**，答不上再看 2a/2b：
+网关 0.4.1 起写结构化 JSON 行（`GATEWAY_LOG_LEVEL`，默认 info）。**先看它**，答不上再看 2a/2b。
+注意两点：① R5-D 接管后网关是容器，日志跟着**活动槽**走（`readlink /opt/hermes-go/current` 加
+committed journal 能告诉你哪个槽在线；下面以 blue 为例，绿槽把容器名换掉即可；同名 systemd 单元的
+journal 是同一份），旧的 `hermes-remote-gateway` 单元已停，只剩接管前的历史；② 线上跑的 0.4.0 镜像
+还没有这些行，要等 0.4.1 经 R5-F1 常规发版路径上线（见 docs/DEPLOYMENT.md）。
 
 ```bash
 sudo docker logs --since 2026-09-05T10:20:00Z hermes-go-gateway-blue 2>&1 | grep <会话id>

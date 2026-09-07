@@ -154,8 +154,14 @@ printf '%s\n' "$database_bundle_output"
 database_manifest_path=$(printf '%s\n' "$database_bundle_output" | sed -n 's/^MANIFEST=//p')
 database_server_version=$(printf '%s\n' "$database_bundle_output" | sed -n 's/^SERVER_VERSION=//p' | tail -n 1)
 database_source_commit=$(printf '%s\n' "$database_bundle_output" | sed -n 's/^SOURCE_COMMIT=//p' | tail -n 1)
+# The current-commit bundle must carry the version declared by gateway/package.json — pinning a
+# literal here silently broke every rehearsal after the 0.4.1 bump.
+expected_current_version=$(node --input-type=module -e '
+  import { readFileSync } from "node:fs";
+  process.stdout.write(JSON.parse(readFileSync("gateway/package.json", "utf8")).version);
+')
 if [ -z "$r3_manifest_path" ] || [ -z "$r4_manifest_path" ] || [ -z "$database_manifest_path" ] \
-    || [ "$database_server_version" != "0.4.0" ] || [ -z "$database_source_commit" ]; then
+    || [ "$database_server_version" != "$expected_current_version" ] || [ -z "$database_source_commit" ]; then
   report_failure candidate "bundle_identity_missing"
   exit 1
 fi
@@ -493,6 +499,102 @@ EOF
   echo "GATEWAY_R5D_MANAGED_BASELINE_OK"
   echo "TARGET_SERVER_VERSION=$r4_server_version"
   echo "TARGET_SOURCE_COMMIT=$r4_source_commit"
+
+  # R5-F1: a routine release inside the managed baseline that R5-D just committed. The
+  # current-commit bundle moves blue -> green through the immutable operator bundle's release
+  # entrypoint, then rolls back to blue. The Nginx site file must survive both byte-for-byte.
+  r5f1_entrypoint="$r5d_ops_root/scripts/production-release.mjs"
+  if [ ! -f "$r5f1_entrypoint" ]; then
+    report_failure candidate "production_release_bundle_entrypoint_missing"
+    exit 1
+  fi
+  release_config_path="$run_dir/inputs/production-release.json"
+  write_release_config() {
+    sed "s#\"targetArtifactManifest\": \"[^\"]*\"#\"targetArtifactManifest\": \"$1\"#" \
+      "$production_config_path" >"$release_config_path"
+    chmod 0600 "$release_config_path"
+  }
+  run_release() {
+    sudo env \
+      "PATH=$PATH" \
+      "NODE_EXTRA_CA_CERTS=$run_dir/inputs/ca.crt" \
+      "HERMES_SMOKE_CONNECTOR_ENTRY=$repo_root/connector/dist/index.js" \
+      "HERMES_MODE=live" \
+      "HERMES_BASE_URL=http://127.0.0.1:${mock_port}" \
+      "HERMES_BASIC_AUTH_USERNAME=demo" \
+      "HERMES_BASIC_AUTH_PASSWORD=secret" \
+      "FILES_ROOT=$run_dir/runtime/candidate" \
+      "UPLOAD_ROOT=$run_dir/runtime/candidate/uploads" \
+      node "$r5f1_entrypoint" \
+        --config "$release_config_path" \
+        --confirm "production:${production_hostname}" \
+        --operation "$1"
+  }
+  verify_public_release() {
+    NODE_EXTRA_CA_CERTS="$run_dir/inputs/ca.crt" \
+    PUBLIC_GATEWAY_URL="https://${server_name}:${edge_port}" \
+    GATEWAY_SMOKE_ROUTE=public \
+    INTERNAL_GATEWAY_URL="http://127.0.0.1:$1" \
+    RELAY_HEALTH_PATH=/relay-health \
+    APP_TOKEN="$app_token" \
+    INTERNAL_STATUS_TOKEN="$internal_status_token" \
+    EXPECTED_SOURCE_COMMIT="$2" \
+    EXPECTED_SERVER_VERSION="$3" \
+    EXPECTED_DEVICE_ID=oci-staging \
+      node scripts/verify-gateway-image-candidate.mjs
+  }
+  site_sha_before=$(sudo sha256sum /etc/nginx/conf.d/hermes-go-ephemeral.conf | cut -d' ' -f1)
+
+  write_release_config "$database_manifest_path"
+  run_release deploy
+  expected_r5f1_release="releases/${database_server_version}-$(printf '%s' "$database_source_commit" | cut -c1-12)"
+  if [ "$(sudo readlink "$managed_install_root/current")" != "$expected_r5f1_release" ] \
+      || [ "$(sudo readlink "$managed_install_root/previous")" != "$expected_r5d_release" ] \
+      || ! sudo systemctl is-active --quiet "${green_service_name}.service" \
+      || sudo systemctl is-active --quiet "${blue_service_name}.service" \
+      || sudo systemctl is-active --quiet "${service_name}.service" \
+      || [ "$(sudo sha256sum /etc/nginx/conf.d/hermes-go-ephemeral.conf | cut -d' ' -f1)" != "$site_sha_before" ] \
+      || ! sudo grep "127.0.0.1:${green_port}" /etc/nginx/hermes-go-upstreams/hermes-go-ephemeral-upstream.conf >/dev/null \
+      || ! sudo grep '^ACCOUNT_AUTH_ENABLED=0$' "$managed_config_root/slots/green/gateway.env" >/dev/null \
+      || ! sudo grep '^ACCOUNT_BINDING_ENABLED=0$' "$managed_config_root/slots/green/gateway.env" >/dev/null; then
+    report_failure candidate "production_release_final_state_invalid"
+    exit 1
+  fi
+  verify_public_release "$green_port" "$database_source_commit" "$database_server_version"
+
+  write_release_config "$r4_manifest_path"
+  run_release rollback
+  if [ "$(sudo readlink "$managed_install_root/current")" != "$expected_r5d_release" ] \
+      || [ "$(sudo readlink "$managed_install_root/previous")" != "$expected_r5f1_release" ] \
+      || ! sudo systemctl is-active --quiet "${blue_service_name}.service" \
+      || sudo systemctl is-active --quiet "${green_service_name}.service" \
+      || sudo systemctl is-active --quiet "${service_name}.service" \
+      || [ "$(sudo sha256sum /etc/nginx/conf.d/hermes-go-ephemeral.conf | cut -d' ' -f1)" != "$site_sha_before" ] \
+      || ! sudo grep "127.0.0.1:${blue_port}" /etc/nginx/hermes-go-upstreams/hermes-go-ephemeral-upstream.conf >/dev/null; then
+    report_failure candidate "production_rollback_final_state_invalid"
+    exit 1
+  fi
+  verify_public_release "$blue_port" "$r4_source_commit" "$r4_server_version"
+
+  sudo env "PATH=$PATH" \
+    "AUDIT_PATH=$managed_state_root/ops/operations.jsonl" \
+    "JOURNAL_PATH=$managed_state_root/ops/deploy-state.json" \
+    node --input-type=module -e '
+      import { readFileSync } from "node:fs";
+      const audit = readFileSync(process.env.AUDIT_PATH, "utf8").trim().split("\n").map(JSON.parse);
+      const tail = audit.slice(-4).map((entry) => `${entry.operation}:${entry.result}`);
+      if (tail.join(",") !== "deploy:started,deploy:success,rollback:started,rollback:success") {
+        throw new Error(`release_audit_sequence_invalid=${tail.join(",")}`);
+      }
+      const journal = JSON.parse(readFileSync(process.env.JOURNAL_PATH, "utf8"));
+      if (journal.operation !== "rollback" || journal.stage !== "committed"
+          || journal.activeSlot !== "green" || journal.candidateSlot !== "blue") {
+        throw new Error("release_rollback_journal_invalid");
+      }
+    '
+  echo "GATEWAY_R5F1_PRODUCTION_RELEASE_OK"
+  echo "RELEASE_SERVER_VERSION=$database_server_version"
+  echo "RELEASE_SOURCE_COMMIT=$database_source_commit"
   exit 0
 fi
 

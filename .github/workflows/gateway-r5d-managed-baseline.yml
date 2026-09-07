@@ -40,7 +40,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install --yes nginx openssl postgresql-client
-      - name: Exercise legacy adoption and managed cutover
+      # R5-D adopts the legacy service into blue; R5-F1 then moves the current-commit bundle
+      # blue -> green and rolls back, all through the immutable operator bundle's entrypoints.
+      - name: Exercise legacy adoption, managed cutover and the R5-F1 routine release
         env:
           HERMES_R5D_ONLY: "1"
         run: ./scripts/test-gateway-staging-bootstrap.sh

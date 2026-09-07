@@ -89,6 +89,9 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
     if (options.authorization === "production-managed-baseline" && candidateInitiallyActive) {
       fail("managed_baseline_candidate_must_be_inactive", "candidate_port");
     }
+    if (options.authorization === "production-release" && candidateInitiallyActive) {
+      fail("production_release_candidate_must_be_inactive", "candidate_port");
+    }
     await prepareLockDirectories(config, paths, ownership);
     lock = await acquireDeploymentLock(paths.lock, runId);
     await prepareDeploymentDirectories(config, paths, candidateSlot, ownership);
@@ -121,7 +124,7 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
       nginxConfigSha256: await optionalRegularFileSha256(config.nginx.configFile),
       upstreamSha256: await optionalRegularFileSha256(config.nginx.upstreamConfigFile),
     };
-    if (options.authorization === "production-managed-baseline") {
+    if (options.authorization === "production-managed-baseline" || options.authorization === "production-release") {
       await archiveSupersededPreSwitchDeploymentJournal(
         paths.journal,
         paths.historyRoot,
@@ -404,7 +407,13 @@ function authorizeCandidate(config, options, getUid, platform, architecture, can
     && options.confirmation === `production:${config.host?.hostname}`
     && operation === "deploy"
     && activeSlot === null;
-  if (!staging && !managedBaseline) fail("staging_confirmation_required", "candidate_authorize");
+  const productionRelease = options.authorization === "production-release"
+    && config.managedBaseline === true
+    && config.environment === "production"
+    && options.confirmation === `production:${config.host?.hostname}`
+    && activeSlot !== null
+    && typeof options.sourcePreflight === "function";
+  if (!staging && !managedBaseline && !productionRelease) fail("staging_confirmation_required", "candidate_authorize");
   if (getUid() !== 0) fail("candidate_requires_root", "candidate_authorize");
   if (platform !== "linux" || architecture !== "x64") fail(`unsupported_host=${platform}/${architecture}`, "candidate_authorize");
   if (typeof candidateSmoke !== "function") fail("candidate_full_smoke_required", "candidate_authorize");

@@ -13,6 +13,7 @@ try {
     archiveFile: manifest.archiveFile,
     archiveSha256: manifest.archiveSha256,
     smokeRuntimeEntry: manifest.smokeRuntimeEntry ?? null,
+    releaseEntrypoint: manifest.releaseEntrypoint ?? null,
   }, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${JSON.stringify(errorPayload(error, "managedBaseline", "production_baseline_bundle_verify"))}\n`);

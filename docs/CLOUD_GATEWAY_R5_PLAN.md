@@ -30,6 +30,7 @@ Android/Connector 的 URL、Token 与协议。
 | R5-C 主机前置 | 安装 Docker 与 PostgreSQL 18；PG/8444 只监听 loopback；建立磁盘/备份告警 | R5-A 除候选发布外全绿，既有 443 持续健康 | 是，安装/配置需授权 |
 | R5-D 受管基线 | 从已验证的旧服务进入可回滚的受管 release/slot 基线，账号标志保持关闭 | `current`/`previous`、journal、自动恢复和兼容 smoke 全绿 | 是，维护窗与切流需授权 |
 | R5-E 数据库准备 | 用目标不可变镜像迁移 schema；加密导出、异机复制、独立恢复及账号 smoke | 30 天内的严格恢复证据，legacy 客户端仍正常 | 是，迁移/备份需授权 |
+| R5-F1 常规发版 | 受管基线内的 blue↔green 常规 deploy/rollback 路径（`scripts/production-release.mjs`），账号与数据库标志继续关闭；只改 upstream include，不动站点文件 | 一次性演练完成接管→发版→回滚且站点文件不变；单测覆盖授权矩阵 | 是，每次发版单独授权 |
 | R5-F 正式晋级 | 使用已在 GitHub 一次性 staging 验证的同一制品执行生产候选与切换 | 观察窗、Android/Desktop/Connector、回滚点和审计通过 | 是，最终 go/no-go |
 
 任何源码合并、GitHub staging 成功或只读审计通过都不等于生产授权。安装软件、修改监听、创建数据库、
@@ -178,3 +179,12 @@ R5-D7 合并提交 `833859aa9afe55f09d2fe8663ab0fd1528447ba4` 的 PR、CI、SAST
 `833859aa9afe` manifest/containerd 身份与关闭的账号标志均符合预期，生产仍无 Hermes 数据库、角色、
 连接 URL、恢复证书或备份状态。R5-E2 因而新增严格的首次数据库初始化入口：只接收全新状态、从 `0600`
 文件读取凭据、避免 SQL 日志捕获、验证最小权限并在失败时清理本次对象。合并和一次性门禁完成前不得运行生产初始化。
+
+2026-09-07，R5-E 调度门禁完成后复盘发现：受管基线只有 R5-D 这一条首次接管路径，`hermesctl deploy/rollback`
+仍是 staging-only，因此 0.4.0 之后的任何网关版本（首先是带结构化日志的 0.4.1，PR #55/#58 已在 `main`）都没有
+合法上线通道。R5-F1 代码阶段补上受管基线内的常规 blue↔green 发版与回滚入口 `scripts/production-release.mjs`
+（运维 bundle manifest v3、`production-release` capability、边缘预检、只改 upstream 不动站点文件、
+`HR-OPS-016`），并把一次性 R5-D 演练延长为"接管→发版→回滚"。账号与数据库标志继续固定关闭，R5-F 的账号
+模式晋级不受影响。当前仅完成代码、单测与文档；生产上 0.4.1 的实际发版仍需单独授权，并须在发版前取到与
+最新一次 `Gateway OCI` `main` 运行匹配的 Gateway/运维 bundle。细节见 `CLOUD_GATEWAY_R5_MANAGED_BASELINE.md`
+"常规生产发版"与 `DEPLOYMENT.md` "Routine production release"。

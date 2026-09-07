@@ -15,6 +15,11 @@ const MANIFEST_V1_KEYS = Object.freeze([
   "connectorEntry",
 ]);
 const MANIFEST_V2_KEYS = Object.freeze([...MANIFEST_V1_KEYS, "smokeRuntimeEntry"]);
+// Schema 3 (R5-F1) adds the routine production release entrypoint. Schema 2 bundles remain
+// readable because the R5-E automation on the Mac still runs from one; they simply cannot be
+// used for a release, which the release runbook checks before upload.
+const MANIFEST_V3_KEYS = Object.freeze([...MANIFEST_V2_KEYS, "releaseEntrypoint"]);
+const MANIFEST_KEYS_BY_SCHEMA = Object.freeze({ 1: MANIFEST_V1_KEYS, 2: MANIFEST_V2_KEYS, 3: MANIFEST_V3_KEYS });
 
 export async function loadProductionBaselineBundleManifest(filePath, {
   verifyArchive = true,
@@ -22,7 +27,7 @@ export async function loadProductionBaselineBundleManifest(filePath, {
 } = {}) {
   try {
     const raw = await readStrictJson(filePath);
-    const keys = raw.schemaVersion === 1 ? MANIFEST_V1_KEYS : raw.schemaVersion === 2 ? MANIFEST_V2_KEYS : undefined;
+    const keys = MANIFEST_KEYS_BY_SCHEMA[raw.schemaVersion];
     if (!keys) fail("bundle_contract_invalid");
     exactKeys(raw, keys);
     if (raw.kind !== `hermes-go-production-baseline-bundle-v${raw.schemaVersion}`) fail("bundle_contract_invalid");
@@ -36,8 +41,11 @@ export async function loadProductionBaselineBundleManifest(filePath, {
         || raw.connectorEntry !== "connector/dist/index.js") {
       fail("bundle_entrypoints_invalid");
     }
-    if (raw.schemaVersion === 2 && raw.smokeRuntimeEntry !== "ops/lib/production-smoke-runtime.mjs") {
+    if (raw.schemaVersion >= 2 && raw.smokeRuntimeEntry !== "ops/lib/production-smoke-runtime.mjs") {
       fail("bundle_smoke_runtime_entry_invalid");
+    }
+    if (raw.schemaVersion >= 3 && raw.releaseEntrypoint !== "scripts/production-release.mjs") {
+      fail("bundle_release_entrypoint_invalid");
     }
     if (verifyArchive) {
       const archivePath = path.join(path.dirname(filePath), raw.archiveFile);
@@ -53,8 +61,8 @@ export async function loadProductionBaselineBundleManifest(filePath, {
 
 export function createProductionBaselineBundleManifest({ sourceCommit, createdAt, archiveFile, archiveSha256 }) {
   return {
-    schemaVersion: 2,
-    kind: "hermes-go-production-baseline-bundle-v2",
+    schemaVersion: 3,
+    kind: "hermes-go-production-baseline-bundle-v3",
     sourceCommit,
     createdAt,
     archiveFile,
@@ -62,6 +70,7 @@ export function createProductionBaselineBundleManifest({ sourceCommit, createdAt
     entrypoint: "scripts/production-baseline.mjs",
     connectorEntry: "connector/dist/index.js",
     smokeRuntimeEntry: "ops/lib/production-smoke-runtime.mjs",
+    releaseEntrypoint: "scripts/production-release.mjs",
   };
 }
 

@@ -104,6 +104,13 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "inspect_database_provision_stage_and_retry",
   }),
+  productionRelease: Object.freeze({
+    code: "HR-OPS-016",
+    summaryZh: "生产 Gateway 常规发版未完成，已阻止切换或已恢复当前版本。请检查发版阶段后重试。",
+    summaryEn: "The routine production Gateway release did not complete. The switch was blocked or the current release was restored. Inspect the release stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_production_release_stage_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;

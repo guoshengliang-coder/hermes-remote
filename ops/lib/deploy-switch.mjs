@@ -68,7 +68,7 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
       await assertCurrentRelease(config, releaseTarget(targetManifest));
       await assertServiceActive(runner, candidate.serviceName, "committed_candidate_not_active");
       if (await serviceActive(runner, source.serviceName)) fail("committed_source_still_active", "switch_committed_verify");
-      await assertSwitchedNginx(config, journal.candidateSlot);
+      await assertSwitchedNginx(config, journal.candidateSlot, options);
       await options.publicSmoke(smokeRequest(config, targetManifest, journal.candidateSlot, true));
       await removeManagedFile(paths.handoff(planDigest), false);
       return committedResult(config, journal, targetManifest, operation);
@@ -103,7 +103,7 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
       mustRun(runner, "systemctl", ["restart", `${candidate.serviceName}.service`], "candidate_restart");
       await verifyCandidateBase(config, targetManifest, journal.candidateSlot, material.internal, options);
 
-      await atomicSwitchNginx(config, journal.candidateSlot, runner, ownership.host);
+      await atomicSwitchNginx(config, journal.candidateSlot, runner, ownership.host, options);
       journal = await persistStage(paths.journal, journal, "route_switched", now, ownership.host);
     } else {
       checkpoint = await readSwitchCheckpoint(paths.checkpoint(planDigest), journal, planDigest);
@@ -113,7 +113,7 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
       sourceStopped = !await serviceActive(runner, source.serviceName);
       if (!sourceStopped) fail("source_still_active_after_route_switch", "switch_resume");
       await assertServiceActive(runner, candidate.serviceName, "candidate_service_not_active");
-      await assertSwitchedNginx(config, journal.candidateSlot);
+      await assertSwitchedNginx(config, journal.candidateSlot, options);
     }
 
     if (!reached(journal, "draining")) {
@@ -197,10 +197,12 @@ async function recoverExistingService(config, journal, checkpoint, runner, optio
   if (marker) await removeManagedFile(paths.handoff(planDigest), true);
 }
 
-async function atomicSwitchNginx(config, slot, runner, owner) {
+async function atomicSwitchNginx(config, slot, runner, owner, options = {}) {
   try {
+    const desired = await desiredNginxConfig(config, options);
     await atomicWrite(config.nginx.upstreamConfigFile, renderNginxUpstream(config, slot), 0o644, owner);
-    await atomicWrite(config.nginx.configFile, await desiredNginxConfig(config), 0o644, owner);
+    // A routine release leaves the site file untouched: only the upstream include moves.
+    if (!desired.live) await atomicWrite(config.nginx.configFile, desired.content, 0o644, owner);
   } catch (error) {
     fail(technical(error), "nginx_configuration_write");
   }
@@ -208,31 +210,43 @@ async function atomicSwitchNginx(config, slot, runner, owner) {
   mustRun(runner, "systemctl", ["reload", "nginx.service"], "nginx_reload");
 }
 
-async function assertSwitchedNginx(config, slot) {
+async function assertSwitchedNginx(config, slot, options = {}) {
   const nginxConfig = await readManagedFile(config.nginx.configFile, true);
   const upstream = await readManagedFile(config.nginx.upstreamConfigFile, true);
-  if (!nginxConfig.content.equals(await desiredNginxConfig(config))
+  if (!nginxConfig.content.equals((await desiredNginxConfig(config, options)).content)
       || !upstream.content.equals(Buffer.from(renderNginxUpstream(config, slot)))) {
     fail("switched_nginx_configuration_mismatch", "switch_resume");
   }
 }
 
-async function desiredNginxConfig(config) {
-  if (config.managedBaseline !== true) return Buffer.from(renderDeployNginxConfig(config));
+async function desiredNginxConfig(config, options = {}) {
+  if (config.managedBaseline !== true) return { live: false, content: Buffer.from(renderDeployNginxConfig(config)) };
+  if (options.authorization === "production-release") {
+    // R5-F1: the site file already carries the production upstream include from R5-D. A routine
+    // release never rewrites it from any source; it only has to still satisfy the contract.
+    const live = await readManagedFile(config.nginx.configFile, true);
+    if (!satisfiesProductionNginxContract(config, live.content.toString("utf8"))) {
+      fail("production_release_live_nginx_contract_invalid", "nginx_configuration_source");
+    }
+    return { live: true, content: live.content };
+  }
   const candidate = await readManagedFile(config.nginx.candidateConfigSource, true);
   if (createHash("sha256").update(candidate.content).digest("hex") !== config.nginx.candidateConfigSha256) {
     fail("production_nginx_candidate_hash_mismatch", "nginx_configuration_source");
   }
-  const content = candidate.content.toString("utf8");
-  const include = `include ${config.nginx.upstreamConfigFile};`;
-  const upstream = "hermes_go_gateway_production";
-  if (content.split(include).length !== 2
-      || !hasExactServerName(content, config.nginx.serverName)
-      || !content.includes(`proxy_pass http://${upstream}`)
-      || content.includes(`proxy_pass http://127.0.0.1:${config.legacySource.gatewayPort}`)) {
+  if (!satisfiesProductionNginxContract(config, candidate.content.toString("utf8"))) {
     fail("production_nginx_candidate_contract_invalid", "nginx_configuration_source");
   }
-  return candidate.content;
+  return { live: false, content: candidate.content };
+}
+
+export function satisfiesProductionNginxContract(config, content) {
+  const include = `include ${config.nginx.upstreamConfigFile};`;
+  const upstream = "hermes_go_gateway_production";
+  return content.split(include).length === 2
+    && hasExactServerName(content, config.nginx.serverName)
+    && content.includes(`proxy_pass http://${upstream}`)
+    && !content.includes(`proxy_pass http://127.0.0.1:${config.legacySource.gatewayPort}`);
 }
 
 function hasExactServerName(content, expected) {
@@ -568,7 +582,13 @@ function authorizeSwitch(config, options) {
     && options.confirmation === `production:${config.host?.hostname}`
     && (options.operation ?? "deploy") === "deploy"
     && options.activeSlot === null;
-  if (!staging && !managedBaseline) fail("staging_confirmation_required", "switch_authorize");
+  const productionRelease = options.authorization === "production-release"
+    && config.managedBaseline === true
+    && config.environment === "production"
+    && options.confirmation === `production:${config.host?.hostname}`
+    && options.activeSlot !== null
+    && typeof options.sourcePreflight === "function";
+  if (!staging && !managedBaseline && !productionRelease) fail("staging_confirmation_required", "switch_authorize");
   if ((options.getUid ?? (() => process.getuid?.()))() !== 0) fail("switch_requires_root", "switch_authorize");
   if ((options.platform ?? process.platform) !== "linux" || (options.architecture ?? process.arch) !== "x64") {
     fail("unsupported_switch_host", "switch_authorize");
