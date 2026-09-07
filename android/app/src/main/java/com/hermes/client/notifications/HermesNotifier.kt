@@ -211,6 +211,10 @@ class HermesNotifier(
      * takes three channels down is still one thing to go and look at.
      */
     fun messagingHealth(names: List<String>, language: AppLanguage) {
+        // Same gate every other post goes through: without it lint flags the notify as an
+        // unchecked POST_NOTIFICATIONS call, and on a device with notifications off it would
+        // silently throw instead of simply not posting.
+        if (!mgr.areNotificationsEnabled()) return
         if (names.isEmpty()) {
             runCatching { mgr.cancel(Notif.MESSAGING_HEALTH_NOTIFICATION_ID) }
             return
