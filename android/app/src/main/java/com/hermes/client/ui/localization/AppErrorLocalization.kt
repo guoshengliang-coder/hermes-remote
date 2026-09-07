@@ -108,6 +108,14 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "任务停止了，但没有确认完成，请打开会话检查。", "The task stopped without a confirmed completion. Open the conversation to check.")
         AppErrorCode.NOTIFICATION_ACTION_FAILED ->
             localized(language, "通知操作未能发送，请重试。", "The notification action couldn't be sent. Try again.")
+        AppErrorCode.FEEDBACK_UNAVAILABLE ->
+            localized(language, "这个版本没有开启反馈功能。", "Feedback is not enabled in this build.")
+        AppErrorCode.FEEDBACK_SUBMIT_FAILED ->
+            localized(language, "反馈没有提交成功，请重试。", "The feedback wasn't submitted. Retry.")
+        AppErrorCode.FEEDBACK_REJECTED ->
+            localized(language, "反馈服务拒绝了这次提交，请联系开发者。", "The feedback service rejected this report. Contact the developer.")
+        AppErrorCode.FEEDBACK_RATE_LIMITED ->
+            localized(language, "反馈提交过于频繁，请稍后再试。", "Too many reports just now. Try again shortly.")
         AppErrorCode.SEARCH_FAILED ->
             localized(language, "消息搜索失败，请重试。", "Message search failed. Retry.")
         AppErrorCode.CRON_DELIVERY_FAILED ->

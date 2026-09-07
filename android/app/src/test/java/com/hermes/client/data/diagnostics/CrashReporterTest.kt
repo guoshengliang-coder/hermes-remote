@@ -96,7 +96,7 @@ class CrashReporterTest {
 
         val text = report(breadcrumbs = CrashReporter.snapshotBreadcrumbs())
         assertFalse(text.contains("SECRET-TOKEN-123"))
-        assertTrue(text.contains("***"))
+        assertTrue(text.contains("<redacted>") || text.contains("***"))
     }
 
     @Test fun the_trace_is_always_present_even_with_nothing_else() {

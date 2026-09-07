@@ -49,6 +49,10 @@ enum class AppErrorCode(val value: String) {
     RUN_UNCONFIRMED("HR-SYNC-002"),
     NOTIFICATION_ACTION_FAILED("HR-NOTIF-001"),
     SEARCH_FAILED("HR-SEARCH-001"),
+    FEEDBACK_UNAVAILABLE("HR-FEEDBACK-001"),
+    FEEDBACK_SUBMIT_FAILED("HR-FEEDBACK-002"),
+    FEEDBACK_REJECTED("HR-FEEDBACK-003"),
+    FEEDBACK_RATE_LIMITED("HR-FEEDBACK-004"),
     CRON_DELIVERY_FAILED("HR-CRON-001"),
     MESSAGING_LIST_FAILED("HR-MSG-001"),
     MESSAGING_SAVE_FAILED("HR-MSG-002"),
@@ -82,8 +86,21 @@ data class AppError(
     }
 }
 
-/** Defense-in-depth redaction for copyable diagnostic summaries. */
-fun redactDiagnostic(value: String): String = value
-    .replace(Regex("(?i)(token|authorization|cookie|password)\\s*[:=]\\s*[^\\s,;]+"), "$1=<redacted>")
+/**
+ * Strips credential-shaped substrings. Split out from [redactDiagnostic] so the diagnostic log can
+ * reuse the same rules without the 1,000-character cap, which only makes sense for a summary meant
+ * to be copied into a chat. Anything leaving the app goes through here: MissionGo, like any
+ * diagnostic sink, keeps host-supplied text verbatim, so redaction has to happen on our side.
+ */
+fun redactSecrets(value: String): String = value
+    // The optional scheme word matters: `Authorization: Bearer <credential>` is the common shape,
+    // and a value pattern that stops at the first space eats only the word "Bearer" and leaves the
+    // credential in the clear.
+    .replace(
+        Regex("(?i)(token|authorization|cookie|password)\\s*[:=]\\s*(?:(?:bearer|basic|digest|token)\\s+)?[^\\s,;]+"),
+        "$1=<redacted>",
+    )
     .replace(Regex("(?i)([?&](?:token|ticket|key|signature)=)[^&\\s]+"), "$1<redacted>")
-    .take(1_000)
+
+/** Defense-in-depth redaction for copyable diagnostic summaries. */
+fun redactDiagnostic(value: String): String = redactSecrets(value).take(1_000)
