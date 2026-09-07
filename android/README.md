@@ -229,6 +229,19 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.105 finishes the messaging-channel work. The channels page in 设置 opens on the
+  channels this Hermes actually has, with the full catalogue one segment away, and a configured
+  channel now has its own page: health with Hermes' own error text as detail, the delivery target
+  both scheduled delivery and a session handoff land on, and links to its conversations and to the
+  jobs that depend on it. The scheduled-jobs list is brought in line with the other two — grouped
+  needs-you-first, Material's filled glyphs dropped for a status dot on StatusColors (the brand
+  blue had been doubling as a success colour), and every row now says where its result goes. A job
+  can finally be told where to deliver from the phone, with channels that have no target shown but
+  not selectable. A channel that stops connecting raises a notification once, riding the existing
+  fifteen-minute wake-up rather than a timer of its own, and the home screen's single alert slot
+  merges channel and job trouble root-cause-first. A conversation can be moved to a channel from
+  the chat's overflow menu, with every consequence stated before the tap. §5.16 of docs/DESIGN.md
+  now records the whole design.
 - Version 0.1.104 gives testers a way to report from inside the app. The card page gains 反馈与建议
   after app updates, and the crash screen gains 上报 next to Share. A report carries what the device
   already knew and previously had no way to send: build and version, model and OS, the screen you
@@ -645,7 +658,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.104-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.105-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

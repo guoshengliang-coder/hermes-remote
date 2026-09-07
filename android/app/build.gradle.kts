@@ -5,8 +5,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // Increment both values for every APK distributed to testers. Keep versionCode
 // strictly increasing so Android always accepts the newer package as an update.
-val appVersionCode = 105
-val appVersionName = "0.1.104"
+val appVersionCode = 106
+val appVersionName = "0.1.105"
 
 // Temporary shared debug identity used by every authorized Hermes Remote build host. The private
 // keystore stays outside Git at ~/.android/debug.keystore; only its public certificate digest is
