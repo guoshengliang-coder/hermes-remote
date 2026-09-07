@@ -21,6 +21,9 @@ export async function executeDeployment(config, targetManifest, options = {}) {
   const activeSlot = options.authorization === "production-managed-baseline"
     ? null
     : await resolveActiveSlot(config, sourceManifest);
+  if (options.authorization === "production-release" && activeSlot === null) {
+    throw new OpsError("config", "production_release_requires_committed_managed_slot", "deploy_command_authorize");
+  }
   const prepare = options.prepareCandidate ?? prepareCandidate;
   const switchTraffic = options.switchCandidate ?? switchCandidate;
   const now = options.now ?? (() => new Date());
@@ -181,7 +184,16 @@ function authorizeCommand(config, options) {
     && options.operation === "deploy"
     && options.sourceManifest?.schemaVersion === 1
     && options.confirmation === `production:${config.host?.hostname}`;
-  if (!staging && !managedBaseline) {
+  // R5-F1: a routine slot-to-slot release inside the committed managed baseline. The source is
+  // the managed release behind `current` (never the legacy descriptor), and the caller must
+  // supply the release preflight that re-checks the live edge before any service is stopped.
+  const productionRelease = options.authorization === "production-release"
+    && config.managedBaseline === true
+    && config.environment === "production"
+    && options.sourceManifest?.schemaVersion >= 2
+    && typeof options.sourcePreflight === "function"
+    && options.confirmation === `production:${config.host?.hostname}`;
+  if (!staging && !managedBaseline && !productionRelease) {
     throw new OpsError("config", "staging_confirmation_required", "deploy_command_authorize");
   }
   if ((options.getUid ?? (() => process.getuid?.()))() !== 0) {

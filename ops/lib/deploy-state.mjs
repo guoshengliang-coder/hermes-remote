@@ -265,8 +265,8 @@ export async function archiveSupersededPreSwitchDeploymentJournal(
 
   if (sameDeploymentPlan(existing, expected)) return null;
   if (existing.stage !== "checkpoint_created"
-      || existing.operation !== "deploy"
-      || existing.activeSlot !== null
+      || existing.operation !== expected.operation
+      || existing.activeSlot !== expected.activeSlot
       || existing.candidateSlot !== expected.candidateSlot
       || JSON.stringify(existing.source) !== JSON.stringify(expected.source)
       || JSON.stringify(existing.checkpoint) !== JSON.stringify(currentCheckpoint)) {

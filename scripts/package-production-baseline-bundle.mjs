@@ -58,6 +58,7 @@ try {
   verifyStagedSmokeEntrypoint(temporaryRoot);
   verifyStagedProductionMonitorEntrypoint(temporaryRoot);
   verifyStagedPostgresqlAutomationEntrypoint(temporaryRoot);
+  verifyStagedProductionReleaseEntrypoint(temporaryRoot);
 
   const sourceShort = sourceCommit.slice(0, 12);
   const archiveFile = `Hermes-R5D-Ops-${sourceShort}.tar.gz`;
@@ -144,6 +145,7 @@ async function stageRuntime(root) {
   for (const name of opsFiles) await copyFile(path.join("ops/lib", name), root);
   for (const file of [
     "scripts/production-baseline.mjs",
+    "scripts/production-release.mjs",
     "scripts/production-monitor.mjs",
     "scripts/postgresql-recovery.mjs",
     "scripts/postgresql-automation.mjs",
@@ -238,6 +240,27 @@ function verifyStagedPostgresqlAutomationEntrypoint(root) {
       || diagnostic?.code !== "HR-OPS-013"
       || diagnostic?.stage !== "postgresql_automation_arguments") {
     fail("production_baseline_bundle_postgresql_automation_entrypoint_invalid");
+  }
+}
+
+function verifyStagedProductionReleaseEntrypoint(root) {
+  const result = spawnSync(process.execPath, ["scripts/production-release.mjs"], {
+    cwd: root,
+    encoding: "utf8",
+    env: {},
+    maxBuffer: 64 * 1024,
+    timeout: 10_000,
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let diagnostic;
+  try {
+    diagnostic = JSON.parse(String(result.stderr ?? "").trim());
+  } catch {}
+  if (result.error || result.status !== 1 || String(result.stdout ?? "") !== ""
+      || diagnostic?.code !== "HR-OPS-016"
+      || diagnostic?.stage !== "production_release_arguments") {
+    fail("production_baseline_bundle_release_entrypoint_invalid");
   }
 }
 

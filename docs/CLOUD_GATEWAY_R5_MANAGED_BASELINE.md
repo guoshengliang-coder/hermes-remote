@@ -144,6 +144,40 @@ run `5403064b-c220-42ab-91e0-d3b605e8c674` 返回 `stage: committed`，blue 槽�
 保持在线，blue 容器重启次数为 0 且无 warning 以上 journal。PostgreSQL 保持 loopback；数据库、账号认证、
 账号绑定和监控 timer 均未启用。本记录完成 R5-D，不代表 R5-E 数据库或 R5-F 账号模式授权。
 
+## 常规生产发版（R5-F1，2026-09-07 代码阶段）
+
+R5-D 只允许 `activeSlot: null` 的首次接管，`hermesctl deploy/rollback` 仍为 staging-only，所以接管完成后
+受管基线里并没有"第二次发版"的合法路径：网关 0.4.1（结构化日志）以及之后的每个版本都进不了生产。
+R5-F1 补的就是这条路，且刻意不把它做成 R5-F 账号模式晋级的一部分——账号与数据库标志继续固定关闭。
+
+- **入口**：`scripts/production-release.mjs --config <同一份 R5-D 私密配置> --confirm production:<主机名>
+  --operation deploy|rollback`。运维 bundle manifest 升为 schema v3，新增 `releaseEntrypoint` 固定该入口；
+  v2 仍可读（Mac 上的 R5-E 自动化还在用 v2 制品），但不能用于发版。打包器会在 staging root 内实际启动
+  该入口并只接受 `HR-OPS-016` 的参数诊断。
+- **授权面**：新增 `production-release` capability，三处（命令、候选、切换）各自独立判定：受管配置、
+  生产环境、精确确认值、`current` 为 schema ≥ 2 的受管 release（旧描述符永远不能当发版的源）、committed
+  journal 给出非空活动槽、且必须提供边缘预检回调。缺任一项都回落到 `staging_confirmation_required`。
+- **边缘预检**（准入时一次，停旧槽前再一次）：活动槽 unit active、旧 `hermes-remote-gateway` unit
+  inactive、upstream include 指向活动槽、站点文件仍满足生产合同（唯一 upstream include、精确
+  `server_name`、`hermes_go_gateway_production`、无 8444 代理）。
+- **Nginx**：常规发版**只重写 upstream include 文件**，站点文件一个字节都不动（R5-D 才需要候选站点文件与
+  哈希）。切流后与 committed 复核都拿现场站点文件比对，不再读候选源。
+- **失败与回滚**：沿用 R4 的锁、顺序 journal、checkpoint、lifecycle 单 writer 交接、观察窗和自动恢复；
+  停旧槽之后的任何失败都恢复旧槽、upstream、release links 与 lifecycle 状态，并用 publicSmoke 对旧版本复核，
+  统一返回 `HR-OPS-016`。`rollback` 是同一状态机指向 `previous`；`previous` 仍是旧 Node 描述符时拒绝
+  （那是 R5-B 恢复，不是槽回滚）。停在 `checkpoint_created` 的失败 deploy 计划可被同槽位的新计划取代，
+  规则与 R5-D 相同。
+- **一次性演练**：手动 workflow `Gateway R5-D Managed Baseline` 在接管完成后继续用解压的运维 bundle 把当前
+  提交的 Gateway bundle 发到 green、公开验证、再回滚到 blue，并断言站点文件哈希全程不变、upstream 指向正确
+  槽位、审计尾部为 deploy/rollback 各一对 started/success。演练脚本顺带改为从 `gateway/package.json` 读取
+  当前版本，不再写死 `0.4.0`（0.4.1 升版后那条断言会让整个演练失败）。
+- **单测**：`scripts/test/production-release.test.mjs` 覆盖准入矩阵、未接管/无 journal 拒绝、边缘预检四种
+  失败、回滚目标绑定、capability 委托、R4 命令层对 production-release 的三条拒绝、Nginx 合同、错误码登记
+  与入口参数 fail-closed；bundle manifest v2/v3 兼容在 managed-baseline 测试中覆盖。
+
+代码合并、演练通过和本节都不构成生产授权。生产运行前的门禁与操作顺序见 `DEPLOYMENT.md`
+"Routine production release"。
+
 ## 2026-09-04 部署前只读预检
 
 经单独授权的白名单读取确认生产主机仍为 Linux x86_64，根盘约 100 GiB 且使用率 16%，可用内存约

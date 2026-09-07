@@ -38,25 +38,32 @@ a `[{deviceId, online}]` list added for the app's remote-device tile):
 curl https://mrlgs.net/relay-health
 ```
 
-Gateway status and logs:
+Gateway status and logs. Since the R5-D adoption the Gateway is a container run by the active
+slot's systemd unit (the slot names are private configuration; `readlink /opt/hermes-go/current`
+and the committed deployment journal say which slot is live). The container's stdout is the
+unit's journal, so `journalctl -u <active-slot-unit>` is the log; the retired
+`hermes-remote-gateway` unit is stopped and only holds pre-adoption history:
 
 ```bash
-sudo systemctl status hermes-remote-gateway
-sudo journalctl -u hermes-remote-gateway -n 100 --no-pager
+sudo systemctl status <active-slot-unit>
+sudo journalctl -u <active-slot-unit> -n 100 --no-pager
 ```
 
-The Gateway writes one JSON object per line (`{"ts","level","kind",...}`); `GATEWAY_LOG_LEVEL`
-selects `off` / `error` / `info` (default) / `debug`. The lines an incident needs, all at `info`:
-`app.tunnel.open` / `app.tunnel.close` (frame and byte counts both ways, whether the Connector was
-still online), `connector.online` / `connector.offline`, `lifecycle.received` (with `lagMs` behind
-the Mac's stamp), `lifecycle.served` / `lifecycle.acked`, and `http.tunnel` (method, path, status,
+From Gateway 0.4.1 on, the Gateway writes one JSON object per line (`{"ts","level","kind",...}`);
+`GATEWAY_LOG_LEVEL` selects `off` / `error` / `info` (default) / `debug`, and the managed slot
+environment does not set it. The lines an incident needs, all at `info`: `app.tunnel.open` /
+`app.tunnel.close` (frame and byte counts both ways, whether the Connector was still online),
+`connector.online` / `connector.offline`, `lifecycle.received` (with `lagMs` behind the Mac's
+stamp), `lifecycle.served` / `lifecycle.acked`, and `http.tunnel` (method, path, status,
 duration). Credential-shaped fields are never written; relayed frames are counted, not quoted.
+The 0.4.0 image adopted by R5-D predates these lines; they appear once 0.4.1 is released through
+the R5-F1 path below.
 
 ```bash
 # everything about one conversation, in order
-sudo journalctl -u hermes-remote-gateway --since "2026-09-05 10:20" -o cat | grep 20260905_102612_6d5fd4
+sudo journalctl -u <active-slot-unit> --since "2026-09-05 10:20" -o cat | grep 20260905_102612_6d5fd4
 # app sockets opening and closing, with what they carried
-sudo journalctl -u hermes-remote-gateway -o cat | grep -E '"kind":"app.tunnel.(open|close)"'
+sudo journalctl -u <active-slot-unit> -o cat | grep -E '"kind":"app.tunnel.(open|close)"'
 ```
 
 The Connector writes the same shape (`CONNECTOR_LOG_LEVEL`): `tunnel.open` / `tunnel.close` per app
@@ -338,3 +345,45 @@ manifest-bound containerd image, Nginx targets `127.0.0.1:18787`, and the old No
 and readiness plus public Connector, REST, WebSocket, wrong-token, release-health and route-isolation checks passed
 after the switch. PostgreSQL remains loopback-only, database/account flags remain disabled, and the production
 monitor timer remains off. R5-D is complete; this does not authorize R5-E or R5-F.
+
+## Routine production release (R5-F1; code complete, no production run yet)
+
+R5-D can only run once (`activeSlot: null` → blue) and `hermesctl deploy/rollback` stay staging-only, so until
+R5-F1 there was no legitimate way to put a later Gateway version (0.4.1 with the structured logs, and everything
+after it) into production. R5-F1 adds `scripts/production-release.mjs`, carried by the operator bundle (manifest
+schema 3, `releaseEntrypoint`). It reuses the same private R5-D configuration file; only `targetArtifactManifest`
+changes per release:
+
+```bash
+node scripts/production-release.mjs \
+  --config /secure-input/hermes-go/production-managed-baseline.json \
+  --confirm production:<configured-hostname> \
+  --operation deploy   # or: rollback
+```
+
+What it does and refuses, in order: exact `production:<hostname>` confirmation, root, Linux/amd64 and the real
+hostname; account and database flags still disabled; the target manifest is schema 2/3 with maintenance and
+rollback declared; `current` must be a managed release (schema ≥ 2, never the legacy descriptor) with a
+`committed` journal naming the live slot; the live slot unit is active, the retired `hermes-remote-gateway`
+unit is inactive, the upstream include names the live slot, and the Nginx site file still satisfies the
+production contract (one upstream include, exact `server_name`, `hermes_go_gateway_production`, no 8444 proxy).
+The same edge check runs again immediately before the live slot is stopped. Then the R4 machine moves the
+release to the other slot: lock, journal, checkpoint, immutable image load, private `/healthz`/`/readyz`/
+identity/Connector/REST/WebSocket smoke on the loopback smoke runtime, lifecycle handoff, atomic upstream
+rewrite plus `nginx -t`/reload, public smoke, observation window, public smoke again, `current`/`previous`
+links, `committed`. **The Nginx site file is never rewritten by a release** — only the upstream include moves —
+and a failure after the live slot stopped restores that slot, the upstream, the release links and the
+lifecycle state, then re-verifies the public route (`HR-OPS-016`).
+
+`--operation rollback` is the same machine pointed at the release behind `previous`; the configuration's
+`targetArtifactManifest` must name that exact bundle (keep the previous bundle on the host) and a `previous`
+that is still the legacy descriptor is refused — that case is an R5-B recovery, not a slot rollback.
+
+Before an authorized production run: download the Gateway and operator bundles from the same successful
+`Gateway OCI` run on `main` (they expire after seven days; a docs-only push does not re-run the workflow, so
+match the latest run, not the latest commit), verify both with `scripts/verify-production-baseline-bundle.mjs`
+before and after transfer, extract the operator bundle to a fresh directory and run the entrypoint from there,
+pick a quiet window (every App and Connector socket on the old slot reconnects once at the switch; no downtime
+otherwise), and record the run here. The manual `Gateway R5-D Managed Baseline` workflow rehearses exactly this
+sequence on a disposable host: adoption, current-commit release into green, rollback to blue, site file
+byte-identical throughout. Source merge, a green rehearsal and this section do not authorize the production run.
