@@ -405,11 +405,24 @@ class HermesRestApi(
     suspend fun resumeCron(jobId: String, profile: String? = null) = cronAction(jobId, "resume", profile)
     suspend fun triggerCron(jobId: String, profile: String? = null) = cronAction(jobId, "trigger", profile)
 
-    suspend fun createCron(prompt: String, schedule: String, name: String, profile: String? = null) =
+    /** Delivery options for a scheduled job — Hermes' own list, never one we assemble. */
+    suspend fun cronDeliveryTargets(): List<CronDeliveryTargetDto> =
+        get<CronDeliveryTargetsDto>("/api/cron/delivery-targets").targets
+
+    suspend fun createCron(
+        prompt: String,
+        schedule: String,
+        name: String,
+        deliver: String? = null,
+        profile: String? = null,
+    ) =
         withContext(Dispatchers.IO) {
             val obj = buildJsonObject {
                 put("prompt", prompt); put("schedule", schedule)
                 if (name.isNotBlank()) put("name", name)
+                // Omitted entirely when unset: the server's own default is "local", and sending a
+                // blank would be normalized to the same thing while looking like an intent.
+                if (!deliver.isNullOrBlank()) put("deliver", deliver)
             }
             val payload = json.encodeToString(JsonObject.serializer(), obj)
                 .toRequestBody("application/json".toMediaType())
@@ -422,10 +435,18 @@ class HermesRestApi(
                 }
         }
 
-    suspend fun updateCron(jobId: String, prompt: String, schedule: String, name: String, profile: String? = null) =
+    suspend fun updateCron(
+        jobId: String,
+        prompt: String,
+        schedule: String,
+        name: String,
+        deliver: String? = null,
+        profile: String? = null,
+    ) =
         withContext(Dispatchers.IO) {
             val obj = buildJsonObject {
                 put("prompt", prompt); put("schedule", schedule); put("name", name)
+                if (!deliver.isNullOrBlank()) put("deliver", deliver)
             }
             val payload = json.encodeToString(JsonObject.serializer(), obj)
                 .toRequestBody("application/json".toMediaType())

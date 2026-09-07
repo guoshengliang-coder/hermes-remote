@@ -18,6 +18,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -180,11 +183,15 @@ class MessagingViewModel @Inject constructor(
 fun MessagingScreen(
     onMenu: () -> Unit,
     onSetup: (String) -> Unit = {},
+    onOpenChannel: (String) -> Unit = {},
     vm: MessagingViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val language = LocalAppLanguage.current
     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    var filter by androidx.compose.runtime.saveable.rememberSaveable {
+        androidx.compose.runtime.mutableStateOf(MessagingFilter.CONFIGURED)
+    }
     val stateMessage = state.message?.resolve(language)
     val snackbar = androidx.compose.runtime.remember { androidx.compose.material3.SnackbarHostState() }
     androidx.compose.runtime.LaunchedEffect(stateMessage) {
@@ -235,13 +242,49 @@ fun MessagingScreen(
                     onRetry = vm::load,
                 )
                 else -> {
-                    val sections = androidx.compose.runtime.remember(state.platforms) {
-                        messagingSections(state.platforms)
+                    val slice = androidx.compose.runtime.remember(state.platforms, filter) {
+                        messagingSlice(state.platforms, filter)
                     }
+                    val sections = androidx.compose.runtime.remember(slice) { messagingSections(slice) }
                     val pending = androidx.compose.runtime.remember(state.platforms) {
                         pendingRestartPlatforms(state.platforms)
                     }
                     LazyColumn(Modifier.fillMaxSize()) {
+                        item(key = "filter") {
+                            val configured = state.platforms.count { it.configured }
+                            SingleChoiceSegmentedButtonRow(
+                                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                            ) {
+                                val options = listOf(
+                                    MessagingFilter.CONFIGURED to l10n("已配置 $configured", "In use $configured"),
+                                    MessagingFilter.ALL to l10n("全部 ${state.platforms.size}", "All ${state.platforms.size}"),
+                                )
+                                options.forEachIndexed { i, (value, label) ->
+                                    SegmentedButton(
+                                        selected = filter == value,
+                                        onClick = { filter = value },
+                                        shape = SegmentedButtonDefaults.itemShape(i, options.size),
+                                        colors = SegmentedButtonDefaults.colors(
+                                            activeContainerColor = MaterialTheme.colorScheme.primary,
+                                            activeContentColor = MaterialTheme.colorScheme.onPrimary,
+                                        ),
+                                        icon = {},
+                                    ) { Text(label, maxLines = 1) }
+                                }
+                            }
+                        }
+                        if (sections.isEmpty()) {
+                            item(key = "empty") {
+                                com.hermes.client.ui.components.EmptyState(
+                                    title = l10n("还没有接入任何渠道", "No channels yet"),
+                                    subtitle = l10n(
+                                        "切到「全部」挑一个平台，填好凭据就能让 Hermes 在那边收发消息。",
+                                        "Switch to All, pick a platform and fill in its credentials to let Hermes work there.",
+                                    ),
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                                )
+                            }
+                        }
                         if (pending.isNotEmpty()) {
                             item(key = "pending-restart") {
                                 // Saving a channel only writes config. Without this card the app
@@ -271,7 +314,9 @@ fun MessagingScreen(
                                     language = language,
                                     dark = dark,
                                     testing = state.testing == p.id,
-                                    onOpen = { onSetup(p.id) },
+                                    // A configured channel opens its own page; an untouched one
+                                    // goes straight to the form, since there is nothing to show yet.
+                                    onOpen = { if (p.configured) onOpenChannel(p.id) else onSetup(p.id) },
                                     onToggle = { enabled ->
                                         if (p.configured) vm.toggle(p.id, enabled) else onSetup(p.id)
                                     },

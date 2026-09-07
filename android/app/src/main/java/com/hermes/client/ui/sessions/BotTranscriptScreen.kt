@@ -177,7 +177,12 @@ fun BotTranscriptScreen(
 
 @Composable
 private fun BotTranscriptTurn(message: ChatMessage) {
-    if (message.text.isBlank()) return
+    // The chat screen strips Hermes' compression scaffolding in ChatUiState; this renderer is a
+    // second path to the same history and has to do the same, or a turn that arrived with pages of
+    // machine text stapled to it shows all of it. Timeline notes are collapsed to nothing here:
+    // this is a read-only record, and a turn that was ONLY scaffolding is not something anyone said.
+    val body = com.hermes.client.ui.chat.withoutCompressionScaffolding(message.text).trim()
+    if (body.isBlank()) return
     if (message.role == Role.USER) {
         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End) {
             Surface(
@@ -185,7 +190,7 @@ private fun BotTranscriptTurn(message: ChatMessage) {
                 shape = MaterialTheme.shapes.large,
             ) {
                 Text(
-                    message.text,
+                    body,
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
                 )
@@ -193,7 +198,7 @@ private fun BotTranscriptTurn(message: ChatMessage) {
         }
     } else {
         Text(
-            message.text,
+            body,
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         )

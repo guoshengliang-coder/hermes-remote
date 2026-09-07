@@ -107,6 +107,12 @@ fun CronDetailScreen(
                                 Column(Modifier.padding(12.dp)) {
                                     Field(l10n("状态", "Status"), if (job.isPaused) l10n("已暂停", "Paused") else if (job.enabled) l10n("已启用", "Enabled") else l10n("已停用", "Disabled"))
                                     Field(l10n("下次运行", "Next run"), formatIso(job.nextRunAt))
+                                    // The same value the channel page calls 默认投递落点. A job that
+                                    // "runs but nothing arrives" is usually this plus a dead channel.
+                                    Field(
+                                        l10n("投递到", "Delivers to"),
+                                        cronDeliveryText(job.deliver).resolve(language),
+                                    )
                                     Field(
                                         l10n("上次运行", "Last run"),
                                         formatIso(job.lastRunAt) +

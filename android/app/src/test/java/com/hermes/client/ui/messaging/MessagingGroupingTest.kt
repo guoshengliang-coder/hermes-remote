@@ -73,4 +73,15 @@ class MessagingGroupingTest {
             assertTrue(title.en.isNotBlank())
         }
     }
+
+    /** The default slice hides the two dozen platforms nobody here has ever touched. */
+    @Test fun the_configured_slice_leaves_the_untouched_catalog_out() {
+        val all = listOf(
+            MessagingPlatformDto(id = "dingtalk", state = "connected", configured = true),
+            MessagingPlatformDto(id = "irc", state = "not_configured", configured = false),
+            MessagingPlatformDto(id = "buzz", state = "not_configured", configured = false),
+        )
+        assertEquals(listOf("dingtalk"), messagingSlice(all, MessagingFilter.CONFIGURED).map { it.id })
+        assertEquals(3, messagingSlice(all, MessagingFilter.ALL).size)
+    }
 }

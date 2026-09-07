@@ -73,6 +73,16 @@ class HermesNotifier(
         )
         // Channel importance cannot be changed after creation, so the old approvals/activity
         // channels are retired rather than reused; their user settings do not carry over.
+        channel(
+            Notif.CHANNEL_MESSAGING,
+            localized(language, "消息渠道", "Messaging channels"),
+            NotificationManager.IMPORTANCE_DEFAULT,
+            localized(
+                language,
+                "钉钉、Slack 等渠道断开连接时提醒；渠道里的新消息不提醒",
+                "Alerts when a channel like DingTalk or Slack stops connecting; new messages there are not announced",
+            ),
+        )
         Notif.LEGACY_CHANNELS.forEach { runCatching { sys.deleteNotificationChannel(it) } }
     }
 
@@ -194,6 +204,41 @@ class HermesNotifier(
         spec.accentProfile?.let { b.setColor(avatarAccentArgb(it)) }
         spec.whenMs?.let { b.setWhen(it).setShowWhen(true) }
         return b.build()
+    }
+
+    /**
+     * A messaging channel stopped connecting. One notification for all of them: an outage that
+     * takes three channels down is still one thing to go and look at.
+     */
+    fun messagingHealth(names: List<String>, language: AppLanguage) {
+        // Same gate every other post goes through: without it lint flags the notify as an
+        // unchecked POST_NOTIFICATIONS call, and on a device with notifications off it would
+        // silently throw instead of simply not posting.
+        if (!mgr.areNotificationsEnabled()) return
+        if (names.isEmpty()) {
+            runCatching { mgr.cancel(Notif.MESSAGING_HEALTH_NOTIFICATION_ID) }
+            return
+        }
+        val title = if (names.size == 1) {
+            localized(language, "${names.first()} 未连接", "${names.first()} is not connected")
+        } else {
+            localized(language, "${names.size} 个消息渠道未连接", "${names.size} messaging channels are not connected")
+        }
+        val n = NotificationCompat.Builder(context, Notif.CHANNEL_MESSAGING)
+            .setSmallIcon(R.drawable.ic_stat_hermes)
+            .setContentTitle(title)
+            .setContentText(
+                localized(
+                    language,
+                    "投递到这些渠道的定时任务会失败。点击查看。",
+                    "Scheduled deliveries to them will fail. Tap to check.",
+                ),
+            )
+            .setStyle(NotificationCompat.BigTextStyle().bigText(names.joinToString("、")))
+            .setContentIntent(openIntent("messaging", Notif.MESSAGING_HEALTH_NOTIFICATION_ID))
+            .setAutoCancel(true)
+            .build()
+        runCatching { mgr.notify(Notif.MESSAGING_HEALTH_NOTIFICATION_ID, n) }
     }
 
     private fun openIntent(route: String?, id: Int): PendingIntent {

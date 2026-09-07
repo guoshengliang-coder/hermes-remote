@@ -54,3 +54,19 @@ fun messagingGroupTitle(group: MessagingGroup): LocalizedText = when (group) {
 /** Channels saved but not yet live. The list offers one restart for all of them, not one each. */
 fun pendingRestartPlatforms(platforms: List<MessagingPlatformDto>): List<MessagingPlatformDto> =
     platforms.filter { messagingRowStatus(it) == MessagingRowStatus.PENDING_RESTART }
+
+/** Which slice of the catalog the list is showing. */
+enum class MessagingFilter { CONFIGURED, ALL }
+
+/**
+ * Hermes reports every platform it knows about — 33 of them — and all but a handful are
+ * unconfigured. Showing them in one list buried the channels someone actually uses under two dozen
+ * they have never touched, and made "add a channel" indistinguishable from "here is a wall of
+ * names". The default slice is what this Hermes actually has; the full catalog is where you go to
+ * add one.
+ */
+fun messagingSlice(platforms: List<MessagingPlatformDto>, filter: MessagingFilter): List<MessagingPlatformDto> =
+    when (filter) {
+        MessagingFilter.CONFIGURED -> platforms.filter { it.configured }
+        MessagingFilter.ALL -> platforms
+    }
