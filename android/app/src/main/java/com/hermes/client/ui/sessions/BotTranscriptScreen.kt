@@ -52,6 +52,7 @@ data class BotTranscriptState(
     val source: String? = null,
     /** Who Hermes is talking to over there — the DingTalk peer, or the group. */
     val peer: String? = null,
+    val chatType: String? = null,
     val loading: Boolean = true,
     val error: AppError? = null,
 )
@@ -72,7 +73,8 @@ class BotTranscriptViewModel @Inject constructor(
             .onSuccess {
                 _state.value = BotTranscriptState(
                     messages = it, title = row?.title.orEmpty(), source = row?.source,
-                    peer = row?.displayName, loading = false,
+                    peer = row?.displayName,
+                    chatType = row?.chatType, loading = false,
                 )
             }
             .onFailure {
@@ -81,6 +83,7 @@ class BotTranscriptViewModel @Inject constructor(
                     title = row?.title.orEmpty(),
                     source = row?.source,
                     peer = row?.displayName,
+                    chatType = row?.chatType,
                     error = AppError(
                         AppErrorCode.HISTORY_INCOMPLETE,
                         retryable = true,
@@ -137,19 +140,7 @@ fun BotTranscriptScreen(
                 ) {
                     Icon(Icons.Rounded.Forum, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                     Text(
-                        // Name the peer when the gateway gives one: "来自钉钉" alone leaves the
-                        // reader guessing which of their DingTalk chats this record is.
-                        state.peer?.takeIf { it.isNotBlank() }?.let { peer ->
-                            localized(
-                                language,
-                                "来自${botSourceLabel(state.source ?: "")} · $peer · 只读",
-                                "From ${botSourceLabel(state.source ?: "")} · $peer · read-only",
-                            )
-                        } ?: localized(
-                            language,
-                            "来自${botSourceLabel(state.source ?: "")} · 只读",
-                            "From ${botSourceLabel(state.source ?: "")} · read-only",
-                        ),
+                        botOriginLabel(state.peer, state.chatType, state.source, language),
                         style = MaterialTheme.typography.labelLarge,
                     )
                 }
@@ -166,7 +157,7 @@ fun BotTranscriptScreen(
                         Modifier.fillMaxSize().padding(horizontal = 16.dp),
                     ) {
                         items(state.messages, key = { it.id }) { message ->
-                            BotTranscriptTurn(message, state.peer, state.source, language)
+                            BotTranscriptTurn(message, state.peer, state.chatType, state.source, language)
                         }
                     }
                 }
@@ -191,9 +182,21 @@ fun BotTranscriptScreen(
 private fun BotTranscriptTurn(
     message: ChatMessage,
     peer: String?,
+    chatType: String?,
     source: String?,
     language: com.hermes.client.ui.localization.AppLanguage,
 ) {
+    // Classification belongs to the chat screen; this renderer only draws. See BotTurnKind.
+    when (botTurnKind(message)) {
+        BotTurnKind.HIDDEN -> return
+        BotTurnKind.NOTE -> {
+            com.hermes.client.ui.chat.timelineNoteFor(message)?.let { note ->
+                com.hermes.client.ui.chat.TimelineNoteRow(note, message)
+            }
+            return
+        }
+        BotTurnKind.TURN -> Unit
+    }
     // The chat screen strips Hermes' compression scaffolding in ChatUiState; this renderer is a
     // second path to the same history and has to do the same, or a turn that arrived with pages of
     // machine text stapled to it shows all of it. Timeline notes are collapsed to nothing here:
@@ -210,14 +213,7 @@ private fun BotTranscriptTurn(
             // Who said it. A right-side bubble means "me" everywhere else in this app; here it is
             // whoever was talking to Hermes on the other platform, so it has to be named.
             Text(
-                listOfNotNull(
-                    peer?.takeIf { it.isNotBlank() },
-                    com.hermes.client.ui.localization.localized(
-                        language,
-                        "在${botSourceLabel(source ?: "")}",
-                        "on ${botSourceLabel(source ?: "")}",
-                    ),
-                ).joinToString(" · "),
+                botPeerLabel(peer, chatType, source, language),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),

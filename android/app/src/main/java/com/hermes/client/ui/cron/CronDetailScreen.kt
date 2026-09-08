@@ -101,7 +101,7 @@ fun CronDetailScreen(
                 LazyColumn(Modifier.padding(padding).fillMaxSize()) {
                     item {
                         Column(Modifier.padding(16.dp)) {
-                            Field(l10n("计划", "Schedule"), job.scheduleText)
+                            Field(l10n("计划", "Schedule"), cronScheduleText(job.scheduleText, language))
                             Spacer(Modifier.height(8.dp))
                             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
                                 Column(Modifier.padding(12.dp)) {

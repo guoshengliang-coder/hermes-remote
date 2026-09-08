@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.lazy.LazyColumn
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -103,14 +104,19 @@ fun CronScreen(
                     val sections = remember(state.jobs, nowMs) { cronSections(state.jobs, nowMs) }
                     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
                     val needsYou = sections.firstOrNull { it.group == CronGroup.NEEDS_YOU }?.jobs?.size ?: 0
-                    LazyColumn(Modifier.fillMaxSize()) {
+                    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+                    val scope = androidx.compose.runtime.rememberCoroutineScope()
+                    LazyColumn(Modifier.fillMaxSize(), state = listState) {
                       // Same HealthStrip the home screen uses. Without it a long list makes the
                       // reader scroll to find out whether anything is wrong at all.
                       if (needsYou > 0) {
                         item(key = "health") {
+                            // Tappable, with an arrow: it scrolls the list to the group that
+                            // needs a person, and a strip that only announces is a dead end.
                             Row(
                                 Modifier.fillMaxWidth()
                                     .background(MaterialTheme.colorScheme.errorContainer)
+                                    .clickable { scope.launch { listState.animateScrollToItem(1) } }
                                     .padding(horizontal = 16.dp, vertical = 8.dp),
                                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                             ) {
@@ -118,6 +124,13 @@ fun CronScreen(
                                     l10n("$needsYou 个任务需要处理", "$needsYou job(s) need attention"),
                                     style = MaterialTheme.typography.labelLarge,
                                     color = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Icon(
+                                    com.hermes.client.ui.components.ThinChevronIcon,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.size(20.dp),
                                 )
                             }
                         }

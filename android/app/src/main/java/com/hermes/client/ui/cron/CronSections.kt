@@ -74,7 +74,7 @@ fun cronSublineText(
         CronRowStatus.OK -> null
     }
     return listOfNotNull(
-        scheduleText.takeIf { it.isNotBlank() && it != "—" },
+        cronScheduleText(scheduleText, language).takeIf { it.isNotBlank() && it != "—" },
         cronDeliveryText(deliver).resolve(language),
         outcome,
     ).joinToString("  ·  ")
