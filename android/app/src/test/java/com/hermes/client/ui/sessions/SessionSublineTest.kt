@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import com.hermes.client.domain.Session
 import com.hermes.client.ui.theme.HermesTheme
+import com.hermes.client.ui.InChinese
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -26,8 +27,10 @@ class SessionSublineTest {
 
     @Test fun pinned_subline_carries_the_pin_before_the_project_and_model() {
         compose.setContent {
-            HermesTheme(darkTheme = false) {
-                SessionSubline(session(repo = "/u/hermes-remote"), pinned = true)
+            InChinese {
+                HermesTheme(darkTheme = false) {
+                    SessionSubline(session(repo = "/u/hermes-remote"), pinned = true)
+                }
             }
         }
         compose.onNodeWithContentDescription("已置顶").assertIsDisplayed()
@@ -37,7 +40,7 @@ class SessionSublineTest {
 
     @Test fun unpinned_subline_has_no_pin() {
         compose.setContent {
-            HermesTheme(darkTheme = false) { SessionSubline(session(repo = "/u/hermes-remote")) }
+            InChinese { HermesTheme(darkTheme = false) { SessionSubline(session(repo = "/u/hermes-remote")) } }
         }
         compose.onNodeWithContentDescription("已置顶").assertDoesNotExist()
         compose.onNodeWithText("hermes-remote").assertIsDisplayed()
@@ -45,7 +48,7 @@ class SessionSublineTest {
 
     @Test fun pinned_without_any_subline_content_still_shows_the_pin() {
         compose.setContent {
-            HermesTheme(darkTheme = false) { SessionSubline(session(model = null), pinned = true) }
+            InChinese { HermesTheme(darkTheme = false) { SessionSubline(session(model = null), pinned = true) } }
         }
         compose.onNodeWithContentDescription("已置顶").assertIsDisplayed()
     }

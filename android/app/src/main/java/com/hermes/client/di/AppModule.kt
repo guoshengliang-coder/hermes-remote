@@ -9,6 +9,8 @@ import com.hermes.client.data.auth.AccountTransportMode
 import com.hermes.client.data.auth.AccountClock
 import com.hermes.client.data.auth.ConversationDeviceStore
 import com.hermes.client.data.auth.normalizeGatewayBaseUrl
+import com.hermes.client.data.feedback.FeedbackReporter
+import com.hermes.client.data.feedback.MissionGoFeedbackReporter
 import com.hermes.client.data.network.GatedAuth
 import com.hermes.client.data.network.AccountApi
 import com.hermes.client.data.network.GatedAuthenticator
@@ -51,6 +53,22 @@ annotation class UpdateHttpClient
 @Retention(AnnotationRetention.BINARY)
 annotation class AccountHttpClient
 
+/**
+ * WebSocket ping cadence, which OkHttp also uses as the pong deadline: no pong within one interval
+ * and the client declares the connection lost.
+ *
+ * It is bounded on both sides. Too long and the edge proxy hangs up first — nginx closes an idle
+ * upstream at `proxy_read_timeout 75s` (deploy/hermes-edge.nginx.conf.template), so the ping has to
+ * be comfortably under that. Too short and a sleeping device kills its own healthy socket: the app
+ * holds no wake lock, so with the screen off the timer is batched and a pong can easily arrive late.
+ * 20s was doing exactly that. Whether 45s is enough tolerance in practice is the open question that
+ * needs a real device (docs/SMOKE_TEST.md, background connection, case 11).
+ *
+ * The cost of the larger value is slower detection of a silently dead socket in the foreground —
+ * still well inside the 60s RPC timeout, so a send fails with a connection error either way.
+ */
+const val GATEWAY_PING_INTERVAL_SECONDS = 45L
+
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
@@ -58,6 +76,16 @@ object AppModule {
     @Provides
     @DefaultDispatcher
     fun provideDefaultDispatcher(): CoroutineDispatcher = Dispatchers.Default
+
+    /**
+     * Initializes the MissionGo SDK when this build was configured for it, or hands back the
+     * unavailable stand-in. Held as a singleton because the SDK is a process-wide object and its
+     * background worker may wake in a process that never showed any UI.
+     */
+    @Provides
+    @Singleton
+    fun provideFeedbackReporter(@ApplicationContext context: Context): FeedbackReporter =
+        MissionGoFeedbackReporter.createFor(context as android.app.Application)
 
     @Provides
     @Singleton
@@ -82,7 +110,7 @@ object AppModule {
         // Preserve the pinned DNS fallback for existing installations that still use the legacy
         // sslip.io URL. The mrlgs.net production URL uses normal Android DNS resolution.
         .dns(RelayDns())
-        .pingInterval(20, TimeUnit.SECONDS)
+        .pingInterval(GATEWAY_PING_INTERVAL_SECONDS, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         // Gated-dashboard auth: the cookie jar carries the session cookies on every REST call,
         // and the authenticator re-logs-in and retries on a 401. In loopback/token mode the jar
@@ -258,7 +286,8 @@ object AppModule {
             readStore,
             sessions,
             media,
-            accountSessions,
+            accountSessions = accountSessions,
+            watchdogEnabled = true,
         )
 
     @Provides
@@ -278,12 +307,27 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideTranscriptStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.TranscriptStore =
+        com.hermes.client.data.repository.TranscriptStore(context)
+
+    @Provides
+    @Singleton
     fun provideSessionRepository(
         rest: HermesRestApi,
         scope: CoroutineScope,
         accountSessions: AccountSessionManager,
         conversationDevices: ConversationDeviceStore,
-    ): SessionRepository = SessionRepository(rest, scope, accountSessions, conversationDevices)
+        transcripts: com.hermes.client.data.repository.TranscriptStore,
+    ): SessionRepository =
+        SessionRepository(
+            rest = rest,
+            scope = scope,
+            accountSessions = accountSessions,
+            conversationDevices = conversationDevices,
+            transcripts = transcripts,
+        )
 
     @Provides
     @Singleton

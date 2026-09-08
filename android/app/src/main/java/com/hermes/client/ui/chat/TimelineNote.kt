@@ -52,6 +52,82 @@ fun isHiddenTimelineMessage(message: ChatMessage): Boolean =
 private val MODEL_SWITCH_NAME = Regex("changed to (\\S+?)(?: via |\\. |\\.]|$)")
 
 /**
+ * Hermes' context-compression scaffolding, copied verbatim from upstream
+ * (`tools/todo_tool.py` `TODO_INJECTION_HEADER`, Hermes 0.21.0 — see docs/HERMES_CONTRACT.md).
+ *
+ * It re-injects the surviving task list so the model keeps its plan across a compression
+ * boundary, and it rides the wire as role=user. The skills-reload notice that sometimes follows
+ * is appended AFTER this header by upstream ("so both strip together"), never on its own, so
+ * cutting here removes both.
+ *
+ * The part that is easy to get wrong: upstream folds the snapshot into the trailing REAL user
+ * turn whenever a standalone one would create consecutive user messages. Matching this as a
+ * whole-message prefix and hiding the message would therefore delete what the user actually
+ * typed. Cut at the marker instead — [withoutCompressionScaffolding] — and only treat the turn
+ * as a note when nothing of the user's own text is left.
+ */
+const val COMPRESSION_SNAPSHOT_HEADER = "[Your active task list was preserved across context compression]"
+
+/**
+ * [text] with the compression scaffolding and everything after it removed. Returns [text]
+ * unchanged when the marker is absent, and "" when the message was scaffolding alone.
+ */
+fun withoutCompressionScaffolding(text: String): String {
+    val index = text.indexOf(COMPRESSION_SNAPSHOT_HEADER)
+    return if (index < 0) text else text.substring(0, index).trimEnd()
+}
+
+/**
+ * Hermes' attachment context notes, copied from upstream `gateway/run_inbound.py`
+ * (`_prepend_inbound_document_notes`, `_prepend_inbound_media_file_notes`, the STT-disabled voice
+ * branch) and `gateway/run.py` `_build_media_placeholder` — Hermes 0.21.0, see
+ * docs/HERMES_CONTRACT.md §4b.
+ *
+ * When somebody attaches a file on DingTalk or another platform, Hermes staples a note to the user
+ * turn telling the agent where the cached copy is and what to do with it. It rides the wire as
+ * part of the person's own message, so the bot transcript showed the whole thing — including the
+ * platform's signed storage URL, sanitised into an eighty-character run of underscores (HG-24).
+ *
+ * These carry nothing a reader wants: they are an instruction to the model about a path. The image
+ * and sticker notes are deliberately NOT in this set — `[The user sent an image~ Here's what I can
+ * see: …]` is a description of what arrived, which is the only account of it the transcript has.
+ *
+ * The discriminator is "points at a cached path": every note in this family says `saved at:`, and
+ * the caption-less placeholders are a bare label plus a URL.
+ */
+private val ATTACHMENT_PATH_NOTE = Regex(
+    """\[The user sent [^\[\]]{0,500}?saved at:[^\[\]]{0,2000}?]""",
+)
+private val ATTACHMENT_URL_PLACEHOLDER = Regex(
+    """\[User sent (?:an image|audio|a video|a file): [^\[\]\r\n]{0,2000}?]""",
+)
+private val ATTACHMENT_VOICE_NOTE = Regex(
+    """\[The user sent a voice message: /[^\[\]\r\n]{0,2000}?]""",
+)
+
+/**
+ * [text] with Hermes' attachment context notes removed, wherever they sit.
+ *
+ * Position is not a reliable marker. Upstream only ever prepends the note, but the production
+ * store holds both shapes: of the DingTalk turns carrying one, most begin with it and at least one
+ * has it after what the person typed (`用一个连不上啊` first, note second — the turn in HG-24's
+ * screenshot). Matching it as a prefix would therefore have left it on screen in exactly the case
+ * that was reported. The same hazard as the compression snapshot, arrived at from the other side.
+ *
+ * Returns "" when the message was nothing but attachment notes, which is how a caption-less
+ * attachment reaches us.
+ */
+fun withoutAttachmentScaffolding(text: String): String {
+    if (!text.contains("sent a", ignoreCase = true) && !text.contains("sent an", ignoreCase = true)) return text
+    return listOf(ATTACHMENT_PATH_NOTE, ATTACHMENT_URL_PLACEHOLDER, ATTACHMENT_VOICE_NOTE)
+        .fold(text) { carried, pattern -> pattern.replace(carried, "") }
+        .lines()
+        .joinToString("\n") { it.trimEnd() }
+        .replace(Regex("\n{3,}"), "\n\n")
+        .trim()
+}
+
+/**
  * Classify a message as a timeline note, or null for a real conversation turn.
  *
  * display_kind (server marker) always wins; the prefix fallback below covers notices the
@@ -93,6 +169,11 @@ fun timelineNoteFor(message: ChatMessage): TimelineNote? {
             TimelineNote("⚙", "后台子任务已完成", "Background tasks finished", expandable = true)
         text.startsWith("[IMPORTANT: Background process") ->
             TimelineNote("⚙", "后台进程通报", "Background process report", expandable = true)
+        // Scaffolding ALONE — a turn that is nothing but the compression snapshot. When the user
+        // also typed something the marker sits further in and the message stays a real bubble
+        // with the scaffolding cut off it (see organizedForDisplay).
+        withoutCompressionScaffolding(text).isBlank() && text.contains(COMPRESSION_SNAPSHOT_HEADER) ->
+            TimelineNote("⧉", "上下文已压缩", "Context compressed", expandable = true)
         else -> null
     }
 }

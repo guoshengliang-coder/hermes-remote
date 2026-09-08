@@ -70,6 +70,23 @@ class HermesRestApi(
 
     private companion object {
         const val REST_TIMEOUT_SECONDS = 20L
+        /** A quiet poll is only worth a line once it stops being quick. */
+        const val SLOW_REQUEST_MS = 1_000L
+
+        /**
+         * Refreshes whose quick, successful outcome says nothing the rest of the log does not.
+         * They were 70 of the 500 buffered entries in the HG-27 report, competing for a byte
+         * budget with the lines that explain a failure.
+         *
+         * `/api/status` is deliberately NOT here. "REST kept answering 200 while the socket was
+         * wedged" is the contrast that made HG-27 diagnosable, and once the health monitor stops
+         * re-reporting an unchanged state it is the only line still carrying it.
+         */
+        val QUIET_PATH_PREFIXES = listOf(
+            "/api/mobile/events",
+            "/api/profiles/sessions",
+            "/api/messaging/platforms",
+        )
         const val CONNECTION_TEST_TIMEOUT_SECONDS = 12L
     }
 
@@ -134,22 +151,46 @@ class HermesRestApi(
         timeout().timeout(REST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
     }
 
-    private suspend inline fun <reified T> get(
-        path: String,
-        deviceIdOverride: String? = null,
-    ): T = withContext(Dispatchers.IO) {
-        com.hermes.client.data.diagnostics.DebugLog.log("rest", "GET $path")
+    /** High-frequency polls whose successful, fast outcome carries no information. */
+    private fun isQuietPath(path: String): Boolean =
+        QUIET_PATH_PREFIXES.any { path.startsWith(it) }
+
+    /**
+     * One log line per call instead of two, and none at all for a quiet poll.
+     *
+     * The inbox poll runs every two seconds while the app is foregrounded, so the old
+     * request-then-response pair was writing roughly a line a second of "nothing happened" — which
+     * pushed a 500-entry buffer out in about eight minutes and made the shared log cover less time
+     * than it takes a user to reach Settings after hitting a bug. A poll that returns quickly and
+     * successfully says nothing the lifecycle channel does not already say when it dispatches what
+     * the poll found, so it is dropped; a slow or failing one is still recorded.
+     *
+     * Transport failures are now logged too. Previously a timed-out call left only the opening
+     * line and no outcome at all, which reads exactly like a request that never returned.
+     */
+    private suspend fun getRaw(path: String, deviceIdOverride: String? = null): String = withContext(Dispatchers.IO) {
         val call = restCall(builder(path, deviceIdOverride).get().build())
         // The shared client deliberately has no read timeout because WebSockets are long-lived.
         // A per-call deadline is essential for REST, otherwise a stalled Relay/Connector request
         // leaves a Compose loading screen spinning forever.
         call.timeout().timeout(REST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        call.execute().use { resp ->
+        val startedAt = System.currentTimeMillis()
+        val response = try {
+            call.execute()
+        } catch (error: Throwable) {
+            val elapsed = System.currentTimeMillis() - startedAt
+            com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                "GET $path ✗ ${error.javaClass.simpleName}: ${error.message} (${elapsed}ms)"
+            }
+            throw error
+        }
+        response.use { resp ->
+            val elapsed = System.currentTimeMillis() - startedAt
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
-                com.hermes.client.data.diagnostics.DebugLog.log(
-                    "rest", "GET $path ← ${resp.code} ${body.take(200)}",
-                )
+                com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                    "GET $path ← ${resp.code} (${elapsed}ms) ${body.take(200)}"
+                }
                 val stableCode = runCatching {
                     json.decodeFromString<AccountErrorEnvelopeDto>(body).error.code
                 }.getOrNull()
@@ -159,10 +200,24 @@ class HermesRestApi(
                     errorCode = stableCode,
                 )
             }
-            com.hermes.client.data.diagnostics.DebugLog.log("rest", "GET $path ← ${resp.code}")
-            json.decodeFromString<T>(body)
+            if (!isQuietPath(path) || elapsed >= SLOW_REQUEST_MS) {
+                com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                    "GET $path ← ${resp.code} (${elapsed}ms)"
+                }
+            }
+            body
         }
     }
+
+    /**
+     * The transcript cache stores the payload rather than the mapped domain objects, so the body
+     * has to survive the trip out of [getRaw] — decoding is split off here so that a cached
+     * payload and a fresh one go through exactly the same parser (see [TranscriptStore]).
+     */
+    private suspend inline fun <reified T> get(
+        path: String,
+        deviceIdOverride: String? = null,
+    ): T = json.decodeFromString(getRaw(path, deviceIdOverride))
 
     /**
      * T10b: test connectivity using explicitly supplied credentials WITHOUT reading from
@@ -292,24 +347,21 @@ class HermesRestApi(
         sessionId: String,
         profile: String? = null,
         deviceId: String? = null,
-    ): List<MessageDto> = withContext(Dispatchers.IO) {
-        val path = "/api/sessions/$sessionId/messages${profileParam(profile, first = true)}"
-        val call = restCall(builder(path, deviceId).get().build())
-        call.execute().use { response ->
-            val body = response.body.string()
-            if (!response.isSuccessful) {
-                val stableCode = runCatching {
-                    json.decodeFromString<AccountErrorEnvelopeDto>(body).error.code
-                }.getOrNull()
-                throw HermesApiException(
-                    code = response.code,
-                    message = stableCode ?: body.ifBlank { "HTTP ${response.code}" },
-                    errorCode = stableCode,
-                )
-            }
-            json.decodeFromString<MessagesDto>(body).messages
-        }
-    }
+    ): List<MessageDto> = parseMessages(messagesRaw(sessionId, profile, deviceId))
+
+    /** The transcript payload as it came off the wire, for [TranscriptStore] to keep. */
+    suspend fun messagesRaw(
+        sessionId: String,
+        profile: String? = null,
+        deviceId: String? = null,
+    ): String = getRaw(
+        "/api/sessions/$sessionId/messages${profileParam(profile, first = true)}",
+        deviceId,
+    )
+
+    /** Parses a transcript payload, whether it arrived just now or came back off the disk. */
+    fun parseMessages(raw: String): List<MessageDto> =
+        json.decodeFromString<MessagesDto>(raw).messages
 
     /** Stream a Connector-authorized artifact to disk; large files never become strings/ByteArrays. */
     suspend fun downloadArtifact(
@@ -506,11 +558,24 @@ class HermesRestApi(
     suspend fun resumeCron(jobId: String, profile: String? = null) = cronAction(jobId, "resume", profile)
     suspend fun triggerCron(jobId: String, profile: String? = null) = cronAction(jobId, "trigger", profile)
 
-    suspend fun createCron(prompt: String, schedule: String, name: String, profile: String? = null) =
+    /** Delivery options for a scheduled job — Hermes' own list, never one we assemble. */
+    suspend fun cronDeliveryTargets(): List<CronDeliveryTargetDto> =
+        get<CronDeliveryTargetsDto>("/api/cron/delivery-targets").targets
+
+    suspend fun createCron(
+        prompt: String,
+        schedule: String,
+        name: String,
+        deliver: String? = null,
+        profile: String? = null,
+    ) =
         withContext(Dispatchers.IO) {
             val obj = buildJsonObject {
                 put("prompt", prompt); put("schedule", schedule)
                 if (name.isNotBlank()) put("name", name)
+                // Omitted entirely when unset: the server's own default is "local", and sending a
+                // blank would be normalized to the same thing while looking like an intent.
+                if (!deliver.isNullOrBlank()) put("deliver", deliver)
             }
             val payload = json.encodeToString(JsonObject.serializer(), obj)
                 .toRequestBody("application/json".toMediaType())
@@ -523,10 +588,18 @@ class HermesRestApi(
                 }
         }
 
-    suspend fun updateCron(jobId: String, prompt: String, schedule: String, name: String, profile: String? = null) =
+    suspend fun updateCron(
+        jobId: String,
+        prompt: String,
+        schedule: String,
+        name: String,
+        deliver: String? = null,
+        profile: String? = null,
+    ) =
         withContext(Dispatchers.IO) {
             val obj = buildJsonObject {
                 put("prompt", prompt); put("schedule", schedule); put("name", name)
+                if (!deliver.isNullOrBlank()) put("deliver", deliver)
             }
             val payload = json.encodeToString(JsonObject.serializer(), obj)
                 .toRequestBody("application/json".toMediaType())
@@ -546,8 +619,9 @@ class HermesRestApi(
             }
     }
 
-    suspend fun analyticsUsage(profile: String? = null): UsageDto =
-        get("/api/analytics/usage${profileParam(profile, first = true)}")
+    /** [days] is clamped upstream to 1-365; the UI only ever offers 7 / 30 / 90. */
+    suspend fun analyticsUsage(profile: String? = null, days: Int = 30): UsageDto =
+        get("/api/analytics/usage?days=${days.coerceIn(1, 365)}${profileParam(profile)}")
 
 
     // ---- Config (whole-object GET-modify-PUT so no fields are ever dropped) ----
@@ -666,6 +740,38 @@ class HermesRestApi(
                 }
             }
     }
+
+    /**
+     * Restarts the Hermes gateway. Enabling or configuring a platform only writes config — the
+     * running adapters are untouched until the gateway comes back, which is why `state` reports
+     * `pending_restart`. Interrupts every channel's live conversation, so callers must confirm.
+     */
+    suspend fun restartGateway(profile: String? = null) = withContext(Dispatchers.IO) {
+        val payload = "{}".toRequestBody("application/json".toMediaType())
+        restCall(builder("/api/gateway/restart${profileParam(profile, first = true)}").post(payload).build())
+            .execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    val body = resp.body?.string().orEmpty().take(180)
+                    throw HermesApiException(resp.code, "gateway restart failed: $body")
+                }
+            }
+    }
+
+    /** Asks Hermes to check one platform. The reply's `message` is a diagnosis, not just a verdict. */
+    suspend fun testMessagingPlatform(platformId: String, profile: String? = null): MessagingTestDto =
+        withContext(Dispatchers.IO) {
+            val payload = "{}".toRequestBody("application/json".toMediaType())
+            restCall(
+                builder("/api/messaging/platforms/$platformId/test${profileParam(profile, first = true)}")
+                    .post(payload).build(),
+            ).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) {
+                    throw HermesApiException(resp.code, "platform test failed: ${body.take(180)}")
+                }
+                json.decodeFromString(MessagingTestDto.serializer(), body)
+            }
+        }
 
     suspend fun setActiveProfile(name: String) = withContext(Dispatchers.IO) {
         val obj: JsonObject = buildJsonObject { put("name", name) }

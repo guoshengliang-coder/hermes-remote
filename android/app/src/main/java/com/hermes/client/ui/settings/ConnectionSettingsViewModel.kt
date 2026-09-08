@@ -41,6 +41,7 @@ class ConnectionSettingsViewModel @Inject constructor(
     private val rest: HermesRestApi,
     private val chat: ChatRepository,
     private val gatedAuth: GatedAuth,
+    private val transcripts: com.hermes.client.data.repository.TranscriptStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(
         runCatching { store.load() }.getOrNull()?.let {
@@ -124,6 +125,9 @@ class ConnectionSettingsViewModel @Inject constructor(
         }
         store.save(GatewayConfig(url, s.token.trim(), s.username.trim(), s.password))
         gatedAuth.cookieJar.clear() // force a fresh login with the new credentials
+        // Transcripts are now kept on disk, so pointing the app at a different Relay or account
+        // must drop them: nobody may open a session and be shown the previous account's history.
+        viewModelScope.launch { transcripts.clear() }
         if (reconnect) runCatching { chat.reconnect() }
         _state.value = _state.value.copy(saved = true, testResult = localizedText("已保存，正在重新连接", "Saved — reconnecting"))
     }

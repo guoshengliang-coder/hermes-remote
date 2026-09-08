@@ -26,6 +26,14 @@ import kotlinx.serialization.Serializable
     val source: String? = null,
     @SerialName("git_branch") val gitBranch: String? = null,
     @SerialName("git_repo_root") val gitRepoRoot: String? = null,
+    /**
+     * Who the gateway is talking to on a messaging platform. Upstream fills this for a group and
+     * leaves it EMPTY for a direct message — measured on a live Hermes, where every `dm` row had
+     * a blank one — so it cannot carry the whole label on its own; see [chatType].
+     */
+    @SerialName("display_name") val displayName: String? = null,
+    /** `dm` or `group` on a messaging-platform session; absent on local ones. */
+    @SerialName("chat_type") val chatType: String? = null,
 )
 @Serializable data class SessionListDto(val sessions: List<SessionDto> = emptyList())
 
@@ -47,12 +55,32 @@ import kotlinx.serialization.Serializable
     val id: Int? = null,
     val role: String,
     val content: String? = null,
-    // ISO-8601 when the gateway provides it; optional so older gateways keep parsing.
+    /**
+     * Hermes' own column name for the message time: `timestamp REAL NOT NULL`, Unix **seconds** as
+     * a float (docs/HERMES_CONTRACT.md §1b). Every message has one — the column is NOT NULL.
+     *
+     * The client used to model only [createdAt] below, a field upstream never emits, so every
+     * message loaded from history came back timeless and only live-streamed ones carried a stamp.
+     * The 我的提问 list showed times on recent prompts and none on older ones (HG-4).
+     */
+    val timestamp: Double? = null,
+    // Kept as a fallback: no upstream Hermes emits this, but a future gateway or a recorded
+    // fixture might, and an ISO string costs nothing to accept.
     @SerialName("created_at") val createdAt: String? = null,
     // Server-injected timeline markers (async_delegation_complete, model_switch, hidden, …).
     // Optional: older gateways and plain user turns simply omit them.
     @SerialName("display_kind") val displayKind: String? = null,
     @SerialName("display_metadata") val displayMetadata: kotlinx.serialization.json.JsonObject? = null,
+    // Reasoning as Hermes persists it. Both columns carry the same text; reasoning_content is the
+    // one populated more often, so it is preferred. Absent on user turns and older gateways.
+    val reasoning: String? = null,
+    @SerialName("reasoning_content") val reasoningContent: String? = null,
+    // The assistant turn's tool calls in OpenAI shape ({id, function: {name, arguments}}). Hermes
+    // returns a parsed array; kept as a JsonElement so a stringified array still maps.
+    @SerialName("tool_calls") val toolCalls: kotlinx.serialization.json.JsonElement? = null,
+    // On a role="tool" result row: which call this answers, and the tool that produced it.
+    @SerialName("tool_call_id") val toolCallId: String? = null,
+    @SerialName("tool_name") val toolName: String? = null,
 )
 @Serializable data class MessagesDto(val messages: List<MessageDto> = emptyList())
 
@@ -143,6 +171,11 @@ data class ModelOptionDto(
     @SerialName("last_run_at") val lastRunAt: String? = null,
     @SerialName("last_status") val lastStatus: String? = null,
     @SerialName("last_error") val lastError: String? = null,
+    // `delivery_failed` 是一个独立于 error/failed 的终态：agent 跑成功了，但输出没送到
+    // 目标渠道，详情在 lastDeliveryError（此时 lastError 为 null）。
+    @SerialName("last_delivery_error") val lastDeliveryError: String? = null,
+    /** 投递落点：`local`（只存不发，服务端缺省）/ `origin` / 任意已连接渠道名。 */
+    val deliver: String? = null,
     val profile: String? = null,
     val model: String? = null,
     val prompt: String? = null,
@@ -176,11 +209,31 @@ data class ModelOptionDto(
     val enabled: Boolean = false,
     val configured: Boolean = false,
     @SerialName("gateway_running") val gatewayRunning: Boolean = false,
+    /**
+     * 服务端算好的平台状态：`connected` / `pending_restart` / `startup_failed` /
+     * `gateway_stopped` / `not_configured` / `disabled`。这是唯一可信的来源——
+     * `enabled && gatewayRunning` 只说明网关进程活着，不代表这个平台连上了。
+     */
     val state: String? = null,
+    @SerialName("error_code") val errorCode: String? = null,
+    @SerialName("error_message") val errorMessage: String? = null,
+    @SerialName("needs_attention") val needsAttention: Boolean = false,
+    @SerialName("home_channel") val homeChannel: String? = null,
     @SerialName("docs_url") val docsUrl: String? = null,
     @SerialName("env_vars") val envVars: List<MessagingEnvVarDto> = emptyList(),
 )
 @Serializable data class MessagingPlatformsDto(val platforms: List<MessagingPlatformDto> = emptyList())
+
+/**
+ * Reply from `POST /api/messaging/platforms/{id}/test`. [message] is Hermes' own diagnosis —
+ * which required field is missing, or that the gateway still needs a restart — so it is worth
+ * showing verbatim as detail behind our own localized summary.
+ */
+@Serializable data class MessagingTestDto(
+    val ok: Boolean = false,
+    val state: String? = null,
+    val message: String? = null,
+)
 
 /**
  * One day of MAIN-AGENT usage. Hermes groups these with SQLite `date(started_at,'unixepoch')`, so
@@ -317,3 +370,18 @@ data class ModelOptionDto(
 @Serializable data class ProjectSessionsResultDto(
     val project: ProjectNodeDto? = null,
 )
+
+/**
+ * One option in the cron delivery picker. Hermes calls `GET /api/cron/delivery-targets` the
+ * "single source of truth for UIs": the implicit `local` plus every configured, connected
+ * platform. [homeTargetSet] is false when the platform has no home channel yet — delivery there
+ * would fail, so the option is shown but not selectable, with the reason said out loud.
+ */
+@Serializable data class CronDeliveryTargetDto(
+    val id: String,
+    val name: String? = null,
+    @SerialName("home_target_set") val homeTargetSet: Boolean = true,
+    @SerialName("home_env_var") val homeEnvVar: String? = null,
+)
+
+@Serializable data class CronDeliveryTargetsDto(val targets: List<CronDeliveryTargetDto> = emptyList())

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "environment": "production",
+  "operator": "replace-with-operator",
+  "sourceHostname": "replace-with-production-hostname",
+  "manifestFile": "/var/backups/hermes-go/postgresql.manifest.json",
+  "restoreEvidenceFile": "/etc/hermes-go/recovery/postgresql-restore.evidence.json",
+  "candidateStatusFile": "/etc/hermes-go/recovery/postgresql-backup.status.json",
+  "activeStatusFile": "/var/lib/hermes-go-monitor/latest-status.json"
+}

@@ -11,7 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.lazy.LazyColumn
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -96,40 +101,89 @@ fun CronScreen(
                             vm.clearMessage()
                         }
                     }
-                    LazyColumn(Modifier.fillMaxSize()) {
-                        items(state.jobs, key = { it.id }) { job ->
+                    val sections = remember(state.jobs, nowMs) { cronSections(state.jobs, nowMs) }
+                    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+                    val needsYou = sections.firstOrNull { it.group == CronGroup.NEEDS_YOU }?.jobs?.size ?: 0
+                    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+                    val scope = androidx.compose.runtime.rememberCoroutineScope()
+                    LazyColumn(Modifier.fillMaxSize(), state = listState) {
+                      // Same HealthStrip the home screen uses. Without it a long list makes the
+                      // reader scroll to find out whether anything is wrong at all.
+                      if (needsYou > 0) {
+                        item(key = "health") {
+                            // Tappable, with an arrow: it scrolls the list to the group that
+                            // needs a person, and a strip that only announces is a dead end.
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.errorContainer)
+                                    .clickable { scope.launch { listState.animateScrollToItem(1) } }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    l10n("$needsYou 个任务需要处理", "$needsYou job(s) need attention"),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Icon(
+                                    com.hermes.client.ui.components.ThinChevronIcon,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                      }
+                      sections.forEach { section ->
+                        item(key = "hdr-${section.group.name}") {
+                            Text(
+                                section.title.resolve(language),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+                            )
+                        }
+                        items(section.jobs, key = { it.id }) { job ->
+                            val rowStatus = cronRowStatus(job, nowMs)
                             ListItem(
-                                leadingContent = {
-                                    val (icon, tint) = when (cronRowStatus(job, nowMs)) {
-                                        CronRowStatus.FAILED, CronRowStatus.OVERDUE ->
-                                            Icons.Rounded.ErrorOutline to MaterialTheme.colorScheme.error
-                                        CronRowStatus.PAUSED ->
-                                            Icons.Rounded.PauseCircleOutline to MaterialTheme.colorScheme.onSurfaceVariant
-                                        CronRowStatus.OK ->
-                                            Icons.Rounded.CheckCircle to MaterialTheme.colorScheme.primary
+                                // No leading icon and no overline: the Chats and channels lists
+                                // carry neither, and DESIGN §4.1 bars Material's filled set from
+                                // this icon system (ErrorOutline / CheckCircle / PauseCircleOutline
+                                // all came from it). Status reads from the dot beside the name.
+                                headlineContent = {
+                                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                        Text(
+                                            cronDisplayName(job.name, job.prompt, job.id),
+                                            modifier = Modifier.weight(1f, fill = false),
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        )
+                                        // 状态色只出现在圆点与徽标上（DESIGN §5.9）；品牌色不再兼任「成功」。
+                                        val tone = when (rowStatus) {
+                                            CronRowStatus.FAILED, CronRowStatus.OVERDUE -> com.hermes.client.ui.theme.StatusTone.BAD
+                                            CronRowStatus.UNDELIVERED -> com.hermes.client.ui.theme.StatusTone.WARN
+                                            CronRowStatus.OK -> com.hermes.client.ui.theme.StatusTone.GOOD
+                                            CronRowStatus.PAUSED -> null
+                                        }
+                                        Box(
+                                            Modifier.padding(start = 8.dp).size(8.dp).background(
+                                                tone?.let { com.hermes.client.ui.theme.statusColor(it, dark) }
+                                                    ?: MaterialTheme.colorScheme.outline,
+                                                CircleShape,
+                                            ),
+                                        )
                                     }
-                                    Icon(icon, contentDescription = null, tint = tint)
                                 },
-                                overlineContent = {
-                                    Text(
-                                        job.scheduleText + when {
-                                            job.isPaused -> l10n("  · 已暂停", "  · paused")
-                                            !job.enabled -> l10n("  · 已停用", "  · disabled")
-                                            else -> ""
-                                        },
-                                        color = if (job.enabled && !job.isPaused) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.error,
-                                    )
-                                },
-                                headlineContent = { Text(cronDisplayName(job.name, job.prompt, job.id)) },
                                 supportingContent = {
-                                    val next = job.nextRunAt?.let { l10n("下次：", "Next: ") + com.hermes.client.ui.util.formatIso(it) }
-                                    // Prompt snippet is only useful here when the headline is the name; when the job is
-                                    // unnamed the headline already shows the prompt (via cronDisplayName), so don't repeat it.
-                                    val fallback = job.name?.takeIf { it.isNotBlank() }?.let {
-                                        job.prompt?.replace("\n", " ")?.trim()?.take(100)
-                                    }
-                                    Text(next ?: fallback.orEmpty())
+                                    // 节奏或落点 · 上次结果 — the row grammar the three lists share.
+                                    // The exact next-run timestamp lives on the detail screen: in a
+                                    // list, "每 10 分钟" plus "上次失败" is what decides whether to look.
+                                    Text(
+                                        cronSublineText(job.scheduleText, job.deliver, rowStatus, language),
+                                        maxLines = 2,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    )
                                 },
                                 trailingContent = {
                                     Box {
@@ -158,6 +212,7 @@ fun CronScreen(
                             )
                             HorizontalDivider()
                         }
+                      }
                     }
                 }
             }

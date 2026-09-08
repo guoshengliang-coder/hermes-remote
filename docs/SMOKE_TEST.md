@@ -426,3 +426,377 @@ sparse real-world data, a genuinely offline Mac, or a stalled tunnel.
    chart. This is upstream behaviour, not a client bug; the footnote exists to state it.
 7. Both themes: the error state's code line and the empty state's icon must be legible in dark mode
    (the error colour family is now explicit — see `ErrorColorsTest`).
+
+## Background connection smoke test (2026-09 branch claude/background-connection, R1)
+
+R1 changes when the app is allowed to keep its socket while backgrounded. Everything below is
+reproducible on the emulator against the local dev stack — no production access and no real device
+are needed for cases 1–5.
+
+Environment (build and boot separately; the emulator on the dev host starves under concurrent
+Gradle work — see the header of `scripts/dev/emulator.sh`):
+
+```bash
+./scripts/dev/emulator.sh start Pixel_9_API_36_1
+./scripts/dev/dev-stack.sh start
+# logs: $TMPDIR/hermes-dev-stack/{mock,gateway,connector}.log
+```
+
+The gateway itself logs only startup and shutdown, so its log proves nothing about a socket. The
+decisive evidence is the app's own diagnostic log, which mirrors to logcat once 设置 → 诊断 →
+诊断日志 is on:
+
+```bash
+adb logcat -s HermesDebug | grep -E "\[(ws|service|lifecycle)\]"
+```
+
+`socket closed (gen=N): client closing` is the client deciding to disconnect; `opening socket` marks
+a reconnect. A window containing neither means the connection was never dropped — which is the
+distinction that matters here, because the R3 banner grace deliberately hides a fast reconnect and
+would otherwise make a dropped socket look like a socket that survived.
+
+### Emulator cases
+
+1. **The reported bug.** Turn every notification switch off. Send a prompt, and while the answer is
+   still streaming switch to the launcher for ~90 seconds (longer than the 45s grace), then return.
+   Expected: no reconnect banner, the stream continues, and the gateway log shows no close. Before
+   R1 this closed the socket at 45s and the session came back as 正在恢复连接….
+2. **Ownership survives an intermediate completion.** With notifications still off, run a prompt
+   that leaves a background process running, wait for the assistant message to complete, then
+   background the app for ~90s. Expected: still connected — `message.complete` no longer releases
+   phone ownership while work continues.
+3. **Idle still disconnects.** Notifications off, nothing running: background the app for ~90s.
+   Expected: the socket closes after the grace period (`1000 / client closing` in the gateway log)
+   and no foreground-service card appears. R1 must not turn into "always connected".
+4. **Power saving still wins.** Set 监控策略 to 省电, start a run, background the app. Expected: the
+   socket closes after the grace period — an explicit instruction outranks the run.
+5. **The service card.** With notifications off and a run in flight, the MIN `service` card appears
+   while backgrounded and disappears when the run ends (docs/DESIGN.md §5.10). Confirm it is silent
+   and cannot be dismissed while the run is live.
+
+### Emulator cases — banner and reconnect cost (R3)
+
+6. **A blip says nothing.** With a run streaming, switch to the launcher and back within ~2 seconds.
+   Expected: no banner at any point, and no 连接已恢复 strip either — if the user was never told it
+   broke, there is nothing to repair. Repeat a few times; a flash of red on the first frame back is
+   the regression.
+7. **A real outage still reports promptly.** Stop the dev stack (`./scripts/dev/dev-stack.sh stop`)
+   while the chat is open. Expected: within ~2.5s the banner appears in the calm progress style
+   (spinner, 正在重新连接…), not the red failure style, and it keeps updating through the backoff
+   rather than staying hidden. Restart the stack: the banner disappears and 连接已恢复，正在同步会话…
+   appears for three seconds.
+8. **Failure still looks like failure.** Point the app at an unreachable gateway. Expected: the red
+   `errorContainer` banner with HR-CONN-002, 详情 and 重试.
+9. **No transcript storm.** With diagnostic logging on, open an idle chat (nothing running), drop
+   and restore the connection. Expected: the `history` channel shows no reconcile pass for that
+   chat — an idle chat has no gap to recover. Repeat with a chat that is mid-answer: that one must
+   reconcile.
+10. **Notification settings copy.** Turn 启用通知 off: the explanation about the silent 后台保持连接
+    card appears under the switch and disappears when the switch is back on.
+
+### Emulator pass, 2026-09-04 (branch claude/background-connection)
+
+Cases 1–5, 9 and 10 were run on Pixel_9_API_36_1 against the local stack and passed. Two findings
+came out of the pass rather than out of review, and both are fixed on the branch:
+
+- The 「连接已恢复」 strip still appeared after a *deliberate* idle disconnect. The outage had burned
+  its grace while the app was backgrounded, so the first frame back was already "interrupted". The
+  grace now only runs while the chat is on screen (see docs/DESIGN.md, connection visual grading).
+- With notifications off the 后台监控方式 group was greyed out, which after R1 left those users no
+  way to opt out of the keep-alive at all — 省电 is now the only control that does that. The group
+  is reachable regardless of the notification switch.
+
+Ports: the stack was run on 8788 rather than the script's 8787, which was held by an unrelated
+project. Note that `dev-stack.sh stop` kills whatever holds its ports.
+
+### Device cases (still unverified — no real device on the dev host)
+
+11. **Screen-off survival.** Start a run, lock the phone for 5–10 minutes, unlock. Record whether the
+   socket survived and, if not, the close code and the elapsed time. This is the M1 item: the
+   emulator reaches the gateway over `adb reverse` on loopback, which never drops and never passes
+   through the edge nginx `proxy_read_timeout 75s`, so it cannot answer this question. The result
+   decides whether the 45s ping cadence R2 settled on is enough tolerance. If sockets still die with
+   the screen off, the next step is an application-level heartbeat that can forgive a single missed
+   beat — OkHttp's own ping treats one late pong as a dead connection and offers no leniency knob,
+   which is why R2 could only widen the window rather than add tolerance.
+12. **Reaching the real edge.** Because loopback bypasses nginx, at least one run should be observed
+   against the production gateway to confirm the 45s ping actually keeps the proxy's 75s idle timer
+   from firing. Ordinary use of the app is enough; no deployment is involved.
+13. **Vendor battery management.** On a Chinese OEM ROM, confirm the foreground service is not killed
+   during a run, and whether the app needs to be added to the battery whitelist.
+
+## Session state consistency smoke test (2026-09 branch claude/session-state-desync-tests)
+
+HG-6, HG-7 and HG-8 were one incident on one conversation (2026-09-05, session
+`20260905_102612_6d5fd4`), reconstructed from the Mac mini `messages` table, the Gateway's
+`lifecycle-events.json` and the edge Nginx access log. The mechanism is fully covered by unit
+tests (`SessionStateDesyncRegressionTest`, `HistoryReasoningAndToolsMappingTest`,
+`SessionRunIndicatorTest`); the cases below exist because the trigger — the phone asleep when the
+run ends — is not something a JVM test can produce. Across 180 observed completions, 26% reached the
+phone more than 30s late, so ordinary use reproduces this several times a day.
+
+Diagnostic log as in the background-connection section (设置 → 诊断 → 诊断日志, then
+`adb logcat -s HermesDebug`). The gateway log proves nothing here either.
+
+### Device cases (need a real device — the emulator never sleeps)
+
+1. **Finished while asleep (HG-6).** Send a prompt that runs for 2–3 minutes, immediately switch
+   apps and lock the phone, return after the run has finished. Expected: the list row shows 已完成
+   (or nothing, once the chat has been opened); the answer bubble shows the action row, **not**
+   「生成中」 with a running timer; the composer offers 发送, not 停止. Before the fix the bubble kept
+   counting for as long as the process lived.
+2. **Follow-up after that (HG-7).** From case 1, send a follow-up. Expected: exactly one bubble is
+   live; the previous answer keeps its action row. Before the fix two 「生成中」 rows stacked.
+3. **Reasoning and tool cards survive (HG-8, second half).** Open a conversation whose last turn
+   used tools and reasoning, wait for the run to finish, background and return so a history
+   reconcile runs (watch for `history reconcile ... accepted=true` in the log). Expected: 查看思考过程
+   and the tool timeline are still there. Before the fix both vanished on the first reconcile.
+4. **Waiting is reported as waiting (HG-8, first half).** Trigger a clarify/approval while the
+   phone is on a flaky network (toggle airplane mode for ~10s and back). Expected: the list row
+   still says 等待你的确认 / 等待你的回答 / 等待你处理 after the reconnect, never 思考中.
+5. **Run active, no bubble yet.** Start a run from the Mac (or let a scheduled run start) and open
+   the chat before its first token. Expected: the mark renders alone in the bottom slot of the
+   transcript; the list row and the chat agree that something is running.
+
+Report each case with the diagnostic log window around the reconnect or the observed
+`run.completed`. Nothing in this branch changes the transport: a completion still arrives late
+when the phone is asleep — the fix only guarantees that what is shown is true once it arrives.
+
+6. **Tool timeline after completion (0.1.94, docs/DESIGN.md §5.4).** Watch a tool-heavy run to
+   the end without leaving the chat: the timeline stays open and gains a summary row. Leave the
+   chat and reopen it: the timeline is folded to「N 次工具调用 · 耗时」; tap to unfold; every row
+   now carries the real target name (`mcp__…`, not `tool_call`), its output and exit code —
+   identical to what streamed live.
+7. **Refresh as a truth check (0.1.96).** With a run that finished while the phone slept (case 1),
+   press the chat refresh button *before* the list row updates on its own. Expected: within about a
+   second the bubble closes and the toast says「已同步 · 运行已结束」; the composer offers 发送. On a
+   run that is genuinely still going, the toast says「已同步 · 仍在运行 · 已运行 N 分钟」 and nothing
+   is queued. On the list, pull to refresh while a row says 思考中: the row corrects itself without
+   opening the chat. Stop the Mac's Hermes entirely, wait 30 minutes with a run showing 思考中, bring
+   the app to the foreground twice a minute apart: the row turns 已中断 instead of spinning forever.
+
+
+### Emulator pass, 2026-09-06 (0.1.98, Pixel 9 API 36 against the local dev stack)
+
+Build `Hermes-Remote-0.1.98-debug.apk` from `main` b9751e1, mock Hermes via
+`scripts/dev/dev-stack.sh` (gateway on 8788, connector 0.1.2), diagnostics switch on. The mock
+answers every prompt with the same tool-using turn, so it exercises the state machine but not
+the sleep trigger. What the pass proved:
+
+- **Events before the session is bound are kept.** The first prompt's `session.info` arrived
+  before the chat was bound to the new id; the log shows `[event] buffered` and then `replaying`
+  once the id was known, and the transcript never lost the turn.
+- **Phase trail.** `[phase]` lines run `IDLE→THINKING→STREAMING→COMPLETED→IDLE`, each with its
+  `cause`, and the session-level mark plus the running footer stay in the bottom slot for the whole
+  run (screens 03, 14, 16).
+- **Completion closes the bubble** (cases 1 and 2 without the sleep). After `message.complete`
+  the answer keeps its action row, the composer offers 发送, and a second prompt gives exactly one
+  live bubble.
+- **Refresh as a truth check** (case 7, finished-run half). 更多 → 刷新对话 on a finished run: the
+  toast reads 「已同步 · 运行已结束」 within about a second (screens 12/13).
+- **Reasoning survives reopen** (case 3, reasoning half). 查看思考过程 is still there after
+  leaving and reopening the chat; the `[history] reconcile s=… 4 rows cover the local turns` line
+  confirms the reconcile ran and was accepted.
+- **List row.** The row reads 已完成 after the run; no 思考中 residue.
+- **Diagnostics page.** The session chips (全部 / `stored-mock-1`) appear; selecting the session
+  chip leaves only lines carrying `s=stored-mock-1` / `session=stored-mock-1` (screen 25).
+
+What the mock cannot show and still needs a real device or production Hermes:
+
+- Folding the tool timeline on reopen (case 6): the mock turn has fewer than three tool calls and
+  its history rows carry no persisted `tool_calls` / `reasoning`, so the fold threshold and the
+  `tool_call → arguments.name` label resolution were only covered by unit tests.
+- Cases 1, 2, 4 with the phone actually asleep (Doze latency), the 30-minute hard cap, and the
+  list pull-to-refresh probe (no row was active when the pull was tried).
+
+Found during the pass, not fixed in 0.1.98 (**stale approval sheet**): after answering the
+mock's `approval.request` with 拒绝 and letting the run finish, reopening the chat shows the
+modal 需要审批 sheet again (screens 07/08/17); BACK does not dismiss it, and answering again
+flips the finished session to a phantom 思考中 (`IDLE→THINKING cause=input-answered`). The
+reducer clears `pendingClarify` on the next `message.delta` but never clears `pendingApproval`,
+and neither was cleared when the phase left the active set. Fixed on branch
+`claude/stale-approval-clear`: `normalized()` drops both cards once the phase leaves the active
+set, and answering a card on a run the store has already seen end no longer restarts it
+(`StalePendingCardTest`). Still to confirm on a device: open a conversation whose approval you
+let time out — no sheet, no 思考中.
+
+## Diagnostic observability and HG-1 / HG-10 (2026-09 branch claude/diagnostic-observability)
+
+### Verified on the emulator, 2026-09-05
+
+Captured from `adb logcat -s HermesDebug` while the gateway was deliberately unreachable:
+
+```text
+[startup] CONNECTION_RECOVERY · CONFIGURATION → NETWORK → AUTHENTICATION
+[startup] hot start HR-CONN-002 — leaving the app visible
+[health]  unknown → unreachable(unreachable)
+[rest]    GET /api/mobile/events?after=0&limit=100 ← 502 (3096ms)
+```
+
+That covers: the startup trail carries reason, phases and outcome; a hot-start failure no longer
+blocks (the sessions list and health strip stayed visible, with no full-screen error); health
+resolves to *unreachable* rather than *device-offline* on a device whose network works; and a REST
+call is one line with a duration, with failures logged where they previously were not.
+
+### Still unverified — the emulator on the dev host degraded mid-pass
+
+System UI began ANR-ing repeatedly (the failure mode `scripts/dev/emulator.sh` documents), which
+blocked UI taps and prevented the WebSocket from establishing. These need another pass:
+
+1. **Share produces a file.** Settings → 诊断 → 分享 must hand the share sheet a
+   `hermes-diagnostic-*.txt` attachment, not a wall of pasted text, and the file must contain more
+   than 500 entries after a long session.
+2. **「标记现场」** inserts a visible divider, and the button is disabled while logging is off.
+3. **A quiet poll writes nothing.** With the gateway reachable, an idle foreground minute must
+   produce no `rest` line for `/api/mobile/events`. (Only the failing case was observable in the
+   pass above — failures are logged by design.)
+4. **HG-1 end to end.** Let a run finish while the app is backgrounded, then reopen that chat: the
+   transcript restores with no full-screen error. Unit-covered, not yet seen on a device.
+5. **HG-10 end to end.** Requires a network whose `NET_CAPABILITY_VALIDATED` is absent while
+   traffic flows — the emulator cannot produce it. On a real device, a `[net] connectivity check
+   says offline · …` line naming the missing capability, with the app still working, is the
+   confirmation that the diagnosis was right.
+
+## HG-9 / HG-11 / HG-12 / HG-13 / HG-14 (2026-09-06 branch claude/hg9-14-ui-fixes)
+
+All five are Compose behaviours — coroutine-scope lifetime, LazyColumn scroll anchoring, hit
+targets and cross-cell alignment — that JVM unit tests cannot observe. What *is* unit-covered is
+stated per item. This branch also carries the previously unreleased HG-1 / HG-10 fixes, so the pass
+in the section above still applies and item 5 there (a network missing `NET_CAPABILITY_VALIDATED`)
+remains the only way to confirm HG-10.
+
+### Verified on the emulator, 2026-09-06 (Pixel_9_API_36_1, local dev stack)
+
+Driven against `scripts/dev/dev-stack.sh` (mock Hermes → connector → gateway, development tokens
+only — no production credentials were used). The mock gained an opt-in
+`MOCK_HERMES_EXTRA_SESSIONS=40`, because the five fixture sessions never fill a phone viewport and
+scroll-anchoring bugs need a list long enough to scroll.
+
+- **HG-11 cold start** — with 43 sessions, a force-stop and relaunch put 已置顶 at the top of the
+  first painted frame, no scrolling. Confirmed twice (5-session and 43-session lists).
+- **HG-11 pin from depth** — scrolled to 填充会话 38, long-press → 置顶: the list carried itself to
+  the top with that session visible in 已置顶. This is the case the user reported as "it disappears
+  and you have to drag it back".
+- **HG-13a** — checked against the real public index. 版本记录 now begins with **0.1.98 「当前」**
+  and its notes open; before the fix the record began at 0.1.96 and the running build's notes were
+  unreachable.
+- **HG-14** — 本周用量 and 远程设备 line up on all three rows, chevrons on the value line. With a
+  three-digit latency (`已连接 · 915 ms` — the exact shape from the report) the sub now fits on ONE
+  line, because the sub reclaimed the 20dp the chevron reserves.
+
+### Still needs a device
+
+- **HG-9** — the mock has no transcript worth exporting and the share sheet is a system surface;
+  the coroutine-scope race is also timing-dependent, so ten taps on a real device is the test.
+- **HG-12** — the mock emits no `MEDIA:` file attachments, so no file card could be rendered. The
+  READY / UPLOADING / FAILED hit-target matrix is entirely unverified.
+- **HG-14 wrapped sub** — `settings put system font_scale 1.3` did not change rendering on this
+  emulator, so the two-line-sub fallback (the state that originally misaligned the card) was never
+  actually reproduced. Only the now-single-line case is confirmed.
+- **HG-10** — unchanged: needs a network whose `NET_CAPABILITY_VALIDATED` is absent.
+
+1. **HG-9 — Markdown share actually opens.** In a chat, 分享对话 → 「Markdown 文件」. The system
+   share sheet must appear every time, with a `.md` attachment. Repeat ten times, including
+   immediately after opening the chat and on a long transcript; a single silent no-op is a
+   regression. Then check the failure path is audible again: with the transcript cache dir made
+   unwritable, the same tap must show the 无法导出 toast rather than nothing.
+2. **HG-11 — pins are visible without scrolling.** Pin a session, force-stop the app, cold start it.
+   The 已置顶 section must be on screen at the top of the list without any scrolling. Then, while
+   scrolled part-way down, long-press a session → 置顶: the list must carry you to the pinned
+   session rather than leaving it above the viewport. Unpinning must NOT jump the list. Unit-covered:
+   the unread-vs-empty pin seed and the pin-only reveal request.
+3. **HG-12 — the whole file card opens.** Tap a file card's name, its icon, and its empty space:
+   all three open the file. The card shows one trailing button (分享) and no 打开 button. A card
+   still uploading, and one that failed, must not ripple and must not react to a tap.
+4. **HG-13 — the running version's notes are readable.** Settings → 检查更新 while on the newest
+   published build: the 版本记录 list must start with the installed version, carrying the 「当前」
+   badge, and expand to its full notes. With an update available, that newer version must appear in
+   the card at the top and NOT be repeated in the record. Unit-covered as `historyRows`.
+5. **HG-14 — the stat card halves line up.** Card page, with a device whose latency reads three
+   digits (`已连接 · 231 ms`): 本周用量 and 远程设备 must have their titles on one line, their values
+   on one line, and their sub-lines starting on one line, whether or not the right sub wraps. Check
+   again at font scale 1.3 and with a long device name, where both cells shrink together.
+
+## HG-15 / HG-16 (2026-09-06 branch claude/hg15-16-chat-noise)
+
+### Verified on the emulator, 2026-09-06 (Pixel_9_API_36_1, local dev stack)
+
+- **HG-15 reasoning row.** In a real chat, dark theme: 「查看思考过程」renders as a quiet grey line
+  with a 12dp chevron — no chip, no border — and tapping it still expands the reasoning and flips
+  the label to 「收起思考过程」. A lone tool call still renders as its own card, which is the
+  documented exception (`docs/DESIGN.md` §5.4: a single call was never folded).
+
+Two Roborazzi goldens pin the rest: `turn-fold-quiet` (the quiet reasoning + folded tool-timeline
+summary sitting above an answer) and `task-list-settled` (a finished turn whose third item Hermes
+left `in_progress`). Both were recorded and eyeballed as §5.4 requires.
+
+### Still needs a device
+
+1. **HG-15 with a real tool timeline.** The dev mock streams reasoning but no tool calls, so the
+   「N 次工具调用」summary was only seen in the golden, never in a live transcript above a long
+   answer. Check that folded it reads as one quiet line and that tapping still unfolds the rows.
+2. **HG-16a end to end.** Needs a run that leaves a task list at 2/3: the third item must be an
+   ordinary unfinished row (no bold, no filled marker) and the card header must not wear the
+   running marker either. While the run is still going, the in-progress item must look exactly as
+   it did before — this fix must not quiet a live list.
+3. **HG-16b end to end.** Needs a session long enough for Hermes to compress its context. Expected:
+   a one-line 「上下文已压缩」note that expands to the original text, never a user bubble. The case
+   worth hunting for is the other one — a compression that lands on a turn where you also typed
+   something: your text must survive intact with the scaffolding cut off it.
+
+## HG-3 / HG-4 / HG-5 (2026-09-06 branch claude/hg3-4-5-chat-entries)
+
+### Verified on the emulator, 2026-09-06 (Pixel_9_API_36_1, local dev stack)
+
+- **HG-5 top bar and menu.** The chat top bar reads `[←] 标题 [＋] [⋮]` — the search icon is gone,
+  replaced by 新建对话. The 「更多」menu lists 搜索对话 → 我的提问 → 刷新对话 → 复制对话 → 分享对话
+  → 归档对话 → 切换人格, exactly the order `docs/DESIGN.md` §5.4 now specifies.
+- **HG-5 archive.** 归档对话 opens the confirm dialog (「归档这个对话？归档后它会从会话列表移到
+  「已归档」，随时可以恢复。」/ 取消 · 归档), neutral coloured, not error-red. Confirming archived
+  the conversation and returned to the sessions list.
+
+The dev mock now emits Hermes' own `timestamp` field on history messages
+(`scripts/dev/mock-hermes-stream.mjs`), so HG-4 is reproducible locally — a mock without it looked
+identical to the bug.
+
+### Still needs a device
+
+1. **HG-3 with two tool calls.** The dev mock emits at most one tool call per run, so the new
+   two-call grouping was only exercised by unit tests. On a device: a turn that used exactly two
+   tools must show ONE timeline (a single quiet 「2 次工具调用」line once the turn completes), not
+   two separately bordered cards. A turn with exactly one tool must still show its own card.
+2. **HG-4 in a real transcript.** Open a conversation with history from before this build:
+   **every** prompt in 我的提问 must now carry a time, not just the ones sent in this session, and
+   the times must match when they were actually asked. This is the whole point of the fix — the
+   unit test proves the mapping, only a real transcript proves the data arrives.
+3. **HG-5 archive failure path.** With the Mac unreachable, confirming 归档 must leave you in the
+   chat with the `HR-SESS-008` message — not bounce you to the list as if it had worked.
+4. **HG-5 ＋ button.** Tapping ＋ in a chat must create a new conversation in the default project
+   and open it; a second tap while it is still creating must do nothing (the button shows the
+   brand mark and disables). Emulator taps kept landing off-target here, so this went unverified.
+
+## Transcript disk cache (2026-09-07 branch claude/transcript-disk-cache)
+
+Unit tests cover the store (round trip, LRU-by-use eviction, oversize skip, corrupt file, unusable
+directory, path-safe keys), the fact that a payload off the disk maps to a byte-identical
+transcript through the same mapper as a fresh fetch, the runtime store's refusal to let a stored
+copy overwrite the network or a live run, and the presentation gate that used to mask a cached
+transcript. What none of them can prove is what a person actually sees, so on a device:
+
+1. **The point of the whole change.** Open a conversation, force-stop the app, reopen it and open
+   the same conversation. The transcript must appear **immediately** — no skeleton — with a 2dp
+   line at the top while the refresh runs. Before this change that path showed the chat skeleton
+   for as long as the round trip took, which after an app update was every session.
+2. **A session this device has never opened** must still show the skeleton, not a blank screen.
+   The cache is not a substitute for the first fetch.
+3. **Nothing stale is shown.** Send a message from the desktop while the phone is closed, then
+   open that conversation on the phone: the cached copy paints first, and the new turn must appear
+   a moment later without a jump in scroll position or a visible remount.
+4. **Changing the Relay drops it.** In 设置 → 连接, save a different Relay URL or token, then open
+   a conversation that was cached: it must fetch fresh rather than show the previous account's
+   history. This is the privacy case and it is the one worth doing carefully.
+5. **Storage stays bounded.** After browsing many conversations, the app's storage figure in system
+   settings must not grow without limit — the cache prunes to 32 MB / 300 entries.
+
+Emulator-only checks (1) and (2) were exercised during development; (3), (4) and (5) still need a
+real device with a real Mac at the other end.

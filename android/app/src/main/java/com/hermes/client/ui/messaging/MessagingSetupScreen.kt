@@ -23,10 +23,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -93,7 +91,7 @@ fun MessagingSetupScreen(
     val snackbar = remember { SnackbarHostState() }
     val language = LocalAppLanguage.current
     val stateMessage = state.message?.resolve(language)
-    val context = LocalContext.current
+    val linkHandler = com.hermes.client.ui.components.rememberSafeUriHandler()
     val values = remember { mutableStateMapOf<String, String>() }
 
     LaunchedEffect(platformId) { vm.load(platformId) }
@@ -129,13 +127,9 @@ fun MessagingSetupScreen(
                         l10n("配置指南 ↗", "Setup guide ↗"),
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(top = 8.dp).clickable {
-                            runCatching {
-                                context.startActivity(
-                                    android.content.Intent(android.content.Intent.ACTION_VIEW, url.toUri()),
-                                )
-                            }
-                        },
+                        // The bare runCatching this replaces made a device with no browser a
+                        // silent dead end: the row looked tappable and simply did nothing.
+                        modifier = Modifier.padding(top = 8.dp).clickable { linkHandler.openUri(url) },
                     )
                 }
                 if (p.envVars.isEmpty()) {

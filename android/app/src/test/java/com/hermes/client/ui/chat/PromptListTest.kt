@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.hermes.client.ui.theme.HermesTheme
+import com.hermes.client.ui.InChinese
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -33,7 +34,7 @@ class PromptListTest {
 
     @Test fun rows_carry_an_ordinal_and_only_the_current_row_says_where_you_are() {
         var picked: PromptRow? = null
-        compose.setContent { HermesTheme(darkTheme = false) { PromptListContent(rows, onPick = { picked = it }) } }
+        compose.setContent { InChinese { HermesTheme(darkTheme = false) { PromptListContent(rows, onPick = { picked = it }) } } }
         compose.onNodeWithText("1").assertIsDisplayed()
         compose.onNodeWithText("3").assertIsDisplayed()
         // The current row is announced as such; nobody else is, and there is no visible "当前位置" text.
@@ -50,7 +51,7 @@ class PromptListTest {
 
     @Test fun header_counts_prompts_and_offers_the_way_back_to_the_latest_turn() {
         var latest = 0
-        compose.setContent { HermesTheme(darkTheme = false) { PromptListHeader(count = 3, onLatest = { latest++ }) } }
+        compose.setContent { InChinese { HermesTheme(darkTheme = false) { PromptListHeader(count = 3, onLatest = { latest++ }) } } }
         compose.onNodeWithText("我的提问").assertIsDisplayed()
         compose.onNodeWithText("3 条").assertIsDisplayed()
         compose.onNodeWithTag("prompt-list-latest").performClick()

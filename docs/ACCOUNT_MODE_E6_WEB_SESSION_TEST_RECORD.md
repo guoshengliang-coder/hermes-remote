@@ -104,7 +104,7 @@ being silently treated as one signature. This test is local-only and sends no pr
 The repository now also includes a staging-only provider acceptance command. Its default preflight
 is read-only; the send path requires an exact `staging:<account-host>` confirmation and permits only
 Resend's delivered/bounced test addresses. It compares one-hour PII-free counters before and after
-the probe and fails on concurrent deltas, timeout, or an absent final callback using `HR-OPS-011`.
+the probe and fails on concurrent deltas, timeout, or an absent final callback using `HR-OPS-017`.
 The command has deterministic no-network regression tests, but has not been run against Resend or a
 deployed staging host in this record.
 

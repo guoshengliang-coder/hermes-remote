@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "environment": "isolated-restore",
+  "operator": "replace-with-operator-id",
+  "expectedSourceHostname": "replace-with-production-hostname",
+  "archiveFile": "/secure-input/hermes-go/legacy-gateway.cms",
+  "manifestFile": "/secure-input/hermes-go/legacy-gateway.manifest.json",
+  "recipientCertificate": "/secure-input/hermes-go/recovery-recipient-cert.pem",
+  "recipientPrivateKey": "/secure-input/hermes-go/recovery-recipient-key.pem",
+  "restoreRoot": "/private/tmp/hermes-go-legacy-restore",
+  "listenPort": 18787,
+  "evidenceFile": "/secure-evidence/hermes-go/legacy-recovery.json"
+}

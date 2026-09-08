@@ -484,7 +484,7 @@ failure timestamps, and process-lifetime deleted-row totals grouped only by data
 credential tombstones, lifecycle events, and audit events. It never
 returns an account, installation, binding, invitation, provider-message, recipient, or credential
 identifier. A null `lastAttemptAt` is normal during the 60-second startup delay. A newer
-`lastFailureAt` than `lastSuccessAt` is the `HR-OPS-013` alert condition; login remains available and
+`lastFailureAt` than `lastSuccessAt` is the `HR-OPS-019` alert condition; login remains available and
 the scheduler retries on its next six-hour interval. This endpoint also remains absent from public
 Nginx routing.
 

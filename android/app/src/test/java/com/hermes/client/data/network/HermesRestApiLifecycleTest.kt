@@ -6,6 +6,7 @@ import com.hermes.client.data.auth.AccountSessionStore
 import com.hermes.client.data.auth.GatewayConfig
 import com.hermes.client.data.auth.PendingEmailChallenge
 import kotlinx.coroutines.test.runTest
+import com.hermes.client.data.diagnostics.DebugLog
 import kotlinx.serialization.json.Json
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -22,6 +23,90 @@ class HermesRestApiLifecycleTest {
         testHttpClient(),
         Json { ignoreUnknownKeys = true },
     ) { GatewayConfig(server.url("/").toString().trimEnd('/'), "app-token") }
+
+    /**
+     * The inbox poll runs every two seconds in the foreground. Logging a request and a response
+     * line each time filled a 500-entry buffer in about eight minutes with "nothing happened",
+     * which is why a shared log rarely still contained the incident. A quick, successful poll is
+     * now silent; anything else still speaks.
+     */
+    @Test fun a_quick_successful_inbox_poll_writes_no_diagnostic_line() = runTest {
+        DebugLog.setEnabled(true)
+        DebugLog.clear()
+        serverRule.server.enqueue(
+            MockResponse.Builder().code(200).body("""{"events":[],"nextCursor":0,"hasMore":false}""").build(),
+        )
+
+        api(serverRule.server).lifecycleEvents(after = 0)
+
+        assertTrue(
+            "a quiet poll must not be logged, got ${DebugLog.entries.value}",
+            DebugLog.entries.value.none { it.category == "rest" },
+        )
+    }
+
+    /**
+     * The session-list and platform refreshes were 70 of the 500 buffered entries in the HG-27
+     * report, saying nothing a failure would not say louder. They now follow the rule the inbox
+     * poll already followed (DESIGN.md §5.15).
+     */
+    @Test fun a_quick_successful_session_list_refresh_writes_no_diagnostic_line() = runTest {
+        DebugLog.setEnabled(true)
+        DebugLog.clear()
+        serverRule.server.enqueue(MockResponse.Builder().code(200).body("""{"sessions":[]}""").build())
+
+        runCatching { api(serverRule.server).profileSessions() }
+
+        assertTrue(
+            "a quiet refresh must not be logged, got ${DebugLog.entries.value}",
+            DebugLog.entries.value.none { it.category == "rest" },
+        )
+    }
+
+    /**
+     * `/api/status` deliberately stays loud. "REST kept answering 200 while the socket was
+     * wedged" is the contrast that made HG-27 readable, and once the health monitor stops
+     * re-reporting an unchanged tier it is the only line still carrying it.
+     */
+    @Test fun the_status_probe_is_never_quieted() = runTest {
+        DebugLog.setEnabled(true)
+        DebugLog.clear()
+        serverRule.server.enqueue(
+            MockResponse.Builder().code(200).body("""{"version":"1","gateway_running":true}""").build(),
+        )
+
+        runCatching { api(serverRule.server).gatewayStatus() }
+
+        assertTrue(
+            "the status probe must stay in the log, got ${DebugLog.entries.value}",
+            DebugLog.entries.value.any { it.category == "rest" && it.message.contains("/api/status") },
+        )
+    }
+
+    @Test fun a_failing_inbox_poll_is_still_logged() = runTest {
+        DebugLog.setEnabled(true)
+        DebugLog.clear()
+        serverRule.server.enqueue(MockResponse.Builder().code(503).body("down").build())
+
+        runCatching { api(serverRule.server).lifecycleEvents(after = 0) }
+
+        val line = DebugLog.entries.value.single { it.category == "rest" }
+        assertTrue(line.message, line.message.contains("503"))
+    }
+
+    @Test fun a_non_polling_request_is_logged_once_with_its_duration() = runTest {
+        DebugLog.setEnabled(true)
+        DebugLog.clear()
+        serverRule.server.enqueue(
+            MockResponse.Builder().code(200).body("""{"version":"1","gateway_running":true}""").build(),
+        )
+
+        runCatching { api(serverRule.server).gatewayStatus() }
+
+        val lines = DebugLog.entries.value.filter { it.category == "rest" }
+        assertEquals(1, lines.size)
+        assertTrue(lines.single().message, lines.single().message.contains("ms)"))
+    }
 
     @Test fun lifecycleEvents_parsesRelayEnvelopeAndUsesCursor() = runTest {
         serverRule.server.enqueue(MockResponse.Builder().code(200).body(

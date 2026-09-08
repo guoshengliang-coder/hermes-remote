@@ -70,7 +70,7 @@ class SessionRepositoryTest {
     }
 
     @Test fun history_removes_every_internal_tool_payload_shape_at_data_boundary() = runTest {
-        coEvery { rest.messages("session-1", "default") } returns listOf(
+        rest.stubTranscript("session-1", "default", listOf(
             MessageDto(1, "user", "请检查环境"),
             MessageDto(2, "tool", "<untrusted_tool_result source=\"web_search\">raw</untrusted_tool_result>"),
             MessageDto(3, "tool", "{\"output\":\"health=200\",\"exit_code\":0}"),
@@ -78,7 +78,7 @@ class SessionRepositoryTest {
             MessageDto(5, "tool_result", "{\"success\":true,\"content\":\"skill body\"}"),
             MessageDto(6, "tool_call", "internal call arguments"),
             MessageDto(7, "assistant", "环境检查完成。"),
-        )
+        ))
 
         val history = repo.history("session-1", "default")
 
@@ -88,9 +88,9 @@ class SessionRepositoryTest {
     }
 
     @Test fun history_keeps_non_tool_system_notices() = runTest {
-        coEvery { rest.messages("session-2", null) } returns listOf(
+        rest.stubTranscript("session-2", null, listOf(
             MessageDto(1, "system", "会话已恢复"),
-        )
+        ))
 
         val history = repo.history("session-2")
 
@@ -106,11 +106,13 @@ class SessionRepositoryTest {
     @Test fun concurrent_history_fetches_share_one_round_trip() = runTest {
         val release = CompletableDeferred<Unit>()
         var calls = 0
-        coEvery { rest.messages("session-3", "default") } coAnswers {
+        val payload = payloadFor("session-3", "default")
+        coEvery { rest.messagesRaw("session-3", "default") } coAnswers {
             calls += 1
             if (calls == 1) release.await()
-            listOf(MessageDto(1, "user", "开始"))
+            payload
         }
+        every { rest.parseMessages(payload) } returns listOf(MessageDto(1, "user", "开始"))
 
         val first = async(Dispatchers.Unconfined) { repo.history("session-3", "default") }
         val second = async(Dispatchers.Unconfined) { repo.history("session-3", "default") }
@@ -150,10 +152,10 @@ class SessionRepositoryTest {
         var route = AccountRoutingContext("account-1", "mac-1")
         every { manager.routingContext() } answers { route }
         val accountRepo = SessionRepository(
-            rest,
-            CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
-            manager,
-            affinity,
+            rest = rest,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            accountSessions = manager,
+            conversationDevices = affinity,
         )
         coEvery { rest.profileSessions(any(), false, "mac-1") } returns ProfileSessionsDto(
             sessions = listOf(dto("session-1", "tui", 2)),
@@ -176,12 +178,14 @@ class SessionRepositoryTest {
         val manager = mockk<AccountSessionManager>()
         every { manager.routingContext() } returns AccountRoutingContext("account-1", "mac-default")
         val accountRepo = SessionRepository(
-            rest,
-            CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
-            manager,
-            mockk(relaxed = true),
+            rest = rest,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            accountSessions = manager,
+            conversationDevices = mockk(relaxed = true),
         )
-        coEvery { rest.messages("session-2", "personal", "mac-history") } returns listOf(
+        coEvery { rest.messagesRaw("session-2", "personal", "mac-history") } returns
+            """{"messages":[{"id":1,"role":"assistant","content":"from historical Mac"}]}"""
+        every { rest.parseMessages(any()) } returns listOf(
             MessageDto(1, "assistant", "from historical Mac"),
         )
 
@@ -207,10 +211,10 @@ class SessionRepositoryTest {
             ),
         )
         val accountRepo = SessionRepository(
-            rest,
-            CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
-            manager,
-            affinity,
+            rest = rest,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            accountSessions = manager,
+            conversationDevices = affinity,
         )
         coEvery { rest.deleteSession("session-2", "personal", "mac-history") } returns Unit
 

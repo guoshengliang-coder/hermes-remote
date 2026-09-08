@@ -25,6 +25,7 @@ class LifecycleEventJobService : JobService() {
     @Inject lateinit var events: LifecycleEventRepository
     @Inject lateinit var settings: NotificationSettings
     @Inject lateinit var dispatcher: LifecycleNotificationDispatcher
+    @Inject lateinit var channelHealth: ChannelHealthWatcher
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var activeJob: Job? = null
@@ -36,6 +37,8 @@ class LifecycleEventJobService : JobService() {
                 val prefs = settings.prefs.first()
                 if (prefs.enabled) {
                     events.sync { batch -> dispatcher.dispatch(batch) }
+                    // One extra call on a wake-up that was happening anyway; never its own timer.
+                    runCatching { channelHealth.check() }
                 }
                 jobFinished(params, false)
             } catch (cancelled: CancellationException) {

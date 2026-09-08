@@ -46,11 +46,30 @@ data class WorkspaceInfo(val cwd: String?, val branch: String?, val gitRepoRoot:
 data class PathItem(val text: String, val display: String, val meta: String)
 
 class ChatRepository(private val client: HermesGatewayClient) {
+    /**
+     * Identifies this client to Hermes on `session.create` and `session.resume`.
+     *
+     * Hermes stores whatever the caller passes (`_resolve_session_source` returns an explicit value
+     * unchanged) and derives the agent's platform — and therefore its system-prompt capability
+     * block — from it. Sending nothing made Hermes fall back to its environment guess, `tui`, which
+     * is indistinguishable from a real terminal and whose prompt block states there is no
+     * attachment channel and that `MEDIA:` tags are not intercepted. Both claims are false here:
+     * the app renders `MEDIA:` as a downloadable file card. The agent was faithfully obeying a
+     * prompt that did not describe this client.
+     *
+     * The matching capability text lives in the Mac's `~/.hermes/config.yaml` under
+     * `platform_hints.hermes_remote` — Hermes' supported config override, so no Hermes source is
+     * patched and an upgrade cannot clobber it. See docs/HERMES_CONTRACT.md.
+     *
+     * Sent on resume as well, so sessions stored before this shipped also get the right platform.
+     */
+    private val clientSource = "hermes_remote"
+
     val events: SharedFlow<ServerEvent> get() = client.events
     val connectionState: StateFlow<ConnectionState> get() = client.connectionState
 
     fun connect() = client.connect()
-    fun disconnect() = client.close()
+    fun disconnect() = client.close("chat repository disconnect")
 
     /** Force an immediate reconnect, skipping the backoff wait (user tapped "Retry"). */
     fun reconnect() = client.reconnectNow()
@@ -69,6 +88,7 @@ class ChatRepository(private val client: HermesGatewayClient) {
      */
     suspend fun createSession(profile: String? = null, cwd: String? = null): CreatedSession {
         val result = client.call("session.create", buildJsonObject {
+            put("source", clientSource)
             if (!profile.isNullOrBlank()) put("profile", profile)
             if (!cwd.isNullOrBlank()) put("cwd", cwd)
         })
@@ -119,6 +139,7 @@ class ChatRepository(private val client: HermesGatewayClient) {
     suspend fun resume(sessionId: String, profile: String? = null): String? {
         val result = client.call("session.resume", buildJsonObject {
             put("session_id", sessionId)
+            put("source", clientSource)
             if (!profile.isNullOrBlank()) put("profile", profile)
         })
         return result.jsonObject["session_id"]?.jsonPrimitive?.content
@@ -333,5 +354,28 @@ class ChatRepository(private val client: HermesGatewayClient) {
             if (!questionId.isNullOrEmpty()) put("question_id", questionId)
         })
         return (result as? JsonObject)?.get("status")?.let { (it as? JsonPrimitive)?.content }.orEmpty()
+    }
+
+
+    /**
+     * Queues a move of this conversation to a messaging channel. The gateway only writes a pending
+     * row; its own watcher claims it, re-binds the channel's home chat to this session and has the
+     * agent introduce itself there. Refusals are typed — see [handoffErrorCode].
+     */
+    suspend fun requestHandoff(sessionId: String, platform: String) {
+        client.call(
+            "handoff.request",
+            buildJsonObject {
+                put("session_id", sessionId)
+                put("platform", platform)
+            },
+        )
+    }
+
+    /** Polls the queued move: pending | running | completed | failed. */
+    suspend fun handoffState(sessionId: String): Pair<String?, String?> {
+        val result = client.call("handoff.state", buildJsonObject { put("session_id", sessionId) })
+        val obj = result.jsonObject
+        return obj["state"]?.jsonPrimitive?.contentOrNull to obj["error"]?.jsonPrimitive?.contentOrNull
     }
 }

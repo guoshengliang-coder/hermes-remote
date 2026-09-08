@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hermes-go.invalid/schemas/postgresql-status-activation-config-v1.json",
+  "title": "Hermes GO production PostgreSQL backup status activation configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "environment", "operator", "sourceHostname", "manifestFile", "restoreEvidenceFile", "candidateStatusFile", "activeStatusFile"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "environment": { "const": "production" },
+    "operator": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+    "sourceHostname": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$" },
+    "manifestFile": { "$ref": "#/$defs/absolutePath" },
+    "restoreEvidenceFile": { "$ref": "#/$defs/absolutePath" },
+    "candidateStatusFile": { "$ref": "#/$defs/absolutePath" },
+    "activeStatusFile": { "$ref": "#/$defs/absolutePath" }
+  },
+  "$defs": { "absolutePath": { "type": "string", "pattern": "^/(?!/)[^\\u0000-\\u001f\\u007f]+$" } }
+}

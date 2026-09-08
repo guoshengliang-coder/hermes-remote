@@ -18,6 +18,12 @@ class CronRowStatusTest {
     @Test fun failed_last_run_is_FAILED() {
         assertEquals(CronRowStatus.FAILED, cronRowStatus(job(lastStatus = "error"), NOW))
     }
+
+    /** Regression: `delivery_failed` used to land in OK, so the list showed a healthy row for a
+     *  job whose result never arrived anywhere. */
+    @Test fun delivery_failed_is_its_own_row_status() {
+        assertEquals(CronRowStatus.UNDELIVERED, cronRowStatus(job(lastStatus = "delivery_failed"), NOW))
+    }
     @Test fun overdue_is_OVERDUE() {
         assertEquals(CronRowStatus.OVERDUE, cronRowStatus(job(nextRunAt = iso(NOW - 10 * 60_000)), NOW))
     }

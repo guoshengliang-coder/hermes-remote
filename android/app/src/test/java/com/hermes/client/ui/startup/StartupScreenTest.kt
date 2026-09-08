@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.hermes.client.BuildConfig
 import com.hermes.client.ui.theme.HermesTheme
+import com.hermes.client.ui.InChinese
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -35,8 +36,10 @@ class StartupScreenTest {
         state.value = initial
         compose.mainClock.autoAdvance = false
         compose.setContent {
-            HermesTheme(darkTheme = dark) {
-                StartupScreen(state = state.value, onRetry = { retries++ }, onOpenConnectionSettings = {})
+            InChinese {
+                HermesTheme(darkTheme = dark) {
+                    StartupScreen(state = state.value, onRetry = { retries++ }, onOpenConnectionSettings = {})
+                }
             }
         }
     }

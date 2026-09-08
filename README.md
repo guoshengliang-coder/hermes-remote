@@ -88,9 +88,18 @@ The staging-only R3 Cloud Ops command contract and its completed ephemeral deplo
 `docs/CLOUD_GATEWAY_R3_OPS.md` and `docs/CLOUD_GATEWAY_R3_TEST_RECORD.md`.
 The staging-only R4 safe-upgrade design and completed isolated staging/fault-injection evidence are documented in
 `docs/CLOUD_GATEWAY_R4_PLAN.md` and `docs/CLOUD_GATEWAY_R4_TEST_RECORD.md`.
-The production-promotion work is deliberately separate from those staging commands. Its read-only audit contract,
-legacy recovery boundary, PostgreSQL/off-host restore gates, and still-pending production actions are tracked in
-`docs/CLOUD_GATEWAY_R5_PLAN.md`.
+The production-promotion work is deliberately separate from those staging commands. Its completed managed-Gateway
+adoption, read-only audit contract, legacy recovery boundary, and still-pending PostgreSQL/account actions are
+tracked in
+`docs/CLOUD_GATEWAY_R5_PLAN.md`; the R5-C4 disk/backup status and local-alert contract is in
+`docs/CLOUD_GATEWAY_R5_MONITORING.md`, the R5-D production managed-baseline adoption contract is in
+`docs/CLOUD_GATEWAY_R5_MANAGED_BASELINE.md`, and the R5-E encrypted PostgreSQL/off-host restore contract is in
+`docs/CLOUD_GATEWAY_R5_DATABASE_RECOVERY.md`.
+R5-E1 through R5-E7 have completed the least-privilege PostgreSQL 18/schema 7 setup, encrypted production
+capture, Mac off-host restore rehearsal, evidence-bound status activation, production freshness monitoring,
+and deployment of the daily capture/hourly off-host recovery loop. R5-E7A repaired the minimal-PATH Mac
+LaunchAgent issue found by the first scheduled cycle; that generation's restore, activation, acknowledgement,
+and following production monitor passed. Account enablement remains disabled pending the separate R5-F go/no-go.
 
 Android now contains a capability-gated email-code account path beside the existing Relay URL +
 `APP_TOKEN` mode. Account mode stores its own encrypted phone session, selects owned/shared Macs by

@@ -263,7 +263,10 @@ class SessionRuntimeNotificationStateTest {
     @Test fun clearing_a_pending_approval_from_the_shade_updates_the_chat_state() = runTest {
         val f = fixture()
         val key = f.store.register("s1", "personal")
+        // A card only survives normalization while the run is active (StalePendingCardTest).
+        f.store.beginPrompt(key, "ls")
         f.store.updateChat(key) { it.copy(pendingApproval = ApprovalRequest("ls", "", emptyList(), true)) }
+        assertNotNull(f.store.runtimes.value.getValue(key).chat.pendingApproval)
         f.store.clearPendingApproval(key)
         assertNull(f.store.runtimes.value.getValue(key).chat.pendingApproval)
     }
@@ -272,6 +275,8 @@ class SessionRuntimeNotificationStateTest {
         val f = fixture()
         val key = f.store.register("s1", "personal")
         val batch = ClarifyRequest("req", listOf(ClarifyQuestion("q1", "A?"), ClarifyQuestion("q2", "B?")))
+        // A card only survives normalization while the run is active (StalePendingCardTest).
+        f.store.beginPrompt(key, "deploy")
         f.store.updateChat(key) { it.copy(pendingClarify = batch) }
 
         f.store.lockClarifyAnswer(key, "q1", "yes")

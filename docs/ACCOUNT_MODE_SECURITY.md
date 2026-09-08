@@ -257,7 +257,7 @@ fingerprint and follows the normal new-account/new-invitation rules.
 One account-free deletion completion receipt remains as two keyed hashes so a long-offline client
 can resolve an ambiguous retry; it contains no account, email, token, grant, or response data.
 
-Sweep failure never disables login or readiness. It is reported only as `HR-OPS-013`, retried on the
+Sweep failure never disables login or readiness. It is reported only as `HR-OPS-019`, retried on the
 next interval, and exposed through an authenticated aggregate-only operations snapshot. No account,
 installation, binding, invitation, provider-message, or recipient identifier is emitted. Routine
 installation history and device-access history are deliberately excluded until their product

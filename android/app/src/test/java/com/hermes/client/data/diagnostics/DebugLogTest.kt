@@ -5,10 +5,22 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
+import java.util.concurrent.Executor
 
 class DebugLogTest {
+    @get:Rule val temp = TemporaryFolder()
+
+    /** Runs the file work inline so a test never has to wait on the real background executor. */
+    private val direct = Executor { it.run() }
+
     @Before fun setUp() {
+        // DebugLog is a process-wide object; detach any file mirror a previous test attached so
+        // the in-memory cases run against memory alone.
+        DebugLog.detachStore()
         DebugLog.setTokenToRedact(null)
         DebugLog.setEnabled(true)
         DebugLog.clear()
@@ -18,6 +30,54 @@ class DebugLogTest {
         DebugLog.setEnabled(false)
         DebugLog.setTokenToRedact(null)
         DebugLog.clear()
+        DebugLog.detachStore()
+    }
+
+    private fun logDir(): File = File(temp.root, "diagnostics")
+
+    /**
+     * The snapshot exists because HG-27 could not be explained from scattered lines: a socket
+     * generation with no ready, no close and no watchdog line, and no way to tell which guard had
+     * sent the watchdog home. One line at the moment the user notices answers all of it.
+     */
+    @Test fun a_registered_snapshot_is_written_on_demand() {
+        DebugLog.setStateSnapshot { "state=Connecting gen=17 manuallyClosed=false" }
+        try {
+            DebugLog.captureSnapshot()
+            val line = DebugLog.entries.value.single()
+            assertEquals("ws", line.category)
+            assertTrue(line.message, line.message.startsWith("snapshot state=Connecting gen=17"))
+        } finally {
+            DebugLog.setStateSnapshot(null)
+        }
+    }
+
+    @Test fun a_snapshot_writes_nothing_when_no_source_is_registered() {
+        DebugLog.setStateSnapshot(null)
+        DebugLog.captureSnapshot()
+        assertTrue(DebugLog.entries.value.isEmpty())
+    }
+
+    @Test fun a_snapshot_writes_nothing_while_logging_is_off() {
+        DebugLog.setStateSnapshot { "state=Connecting" }
+        try {
+            DebugLog.setEnabled(false)
+            DebugLog.captureSnapshot()
+            assertTrue(DebugLog.entries.value.isEmpty())
+        } finally {
+            DebugLog.setStateSnapshot(null)
+        }
+    }
+
+    /** A snapshot source that throws must not take the report down with it. */
+    @Test fun a_snapshot_source_that_fails_is_swallowed() {
+        DebugLog.setStateSnapshot { error("boom") }
+        try {
+            DebugLog.captureSnapshot()
+            assertTrue(DebugLog.entries.value.isEmpty())
+        } finally {
+            DebugLog.setStateSnapshot(null)
+        }
     }
 
     @Test fun disabled_log_is_a_noop() {
@@ -48,7 +108,10 @@ class DebugLogTest {
         DebugLog.log("rest", "GET /api/sessions  token=SECRET-TOKEN-123 end")
         val msg = DebugLog.entries.value.single().message
         assertFalse("raw token must not appear", msg.contains("SECRET-TOKEN-123"))
-        assertTrue("token must be masked", msg.contains("***"))
+        // Which marker appears depends on how the token was written: masked to *** on its own, or
+        // swallowed whole by the credential rules when it sits behind a `token=` label. Both are
+        // redacted; asserting one exact marker would only pin down the order of two passes.
+        assertTrue("token must be masked", msg.contains("<redacted>") || msg.contains("***"))
     }
 
     @Test fun blank_token_does_not_redact_everything() {
@@ -73,5 +136,216 @@ class DebugLogTest {
         assertTrue(text.contains("message not found"))
         // newest-last ordering
         assertTrue(text.indexOf("open(s1)") < text.indexOf("message not found"))
+    }
+
+    @Test fun entries_survive_into_the_next_process() {
+        // First run: capture, then drop every in-memory trace the way a kill would.
+        DebugLog.init(logDir(), direct)
+        DebugLog.log("ws", "opening socket")
+        DebugLog.log("session", "open(s1)")
+        DebugLog.detachStore()
+        DebugLog.setEnabled(false)
+        DebugLog.clear()
+        assertTrue(DebugLog.entries.value.isEmpty())
+
+        // Second run: the same directory restores what the first one wrote.
+        DebugLog.init(logDir(), direct)
+        val restored = DebugLog.entries.value
+        assertEquals(listOf("opening socket", "open(s1)"), restored.map { it.message })
+        assertTrue("restored entries must be marked", restored.all { it.fromPreviousRun })
+    }
+
+    @Test fun restored_entries_precede_ones_captured_during_startup() {
+        DebugLog.init(logDir(), direct)
+        DebugLog.log("ws", "from the first run")
+        DebugLog.detachStore()
+        DebugLog.clear()
+
+        DebugLog.log("ws", "from the new run")
+        DebugLog.init(logDir(), direct)
+
+        val entries = DebugLog.entries.value
+        assertEquals(listOf("from the first run", "from the new run"), entries.map { it.message })
+        assertFalse("live entries must not be flagged", entries.last().fromPreviousRun)
+    }
+
+    /**
+     * The share sheet used to dump the ring buffer, so it could never carry more than
+     * [DebugLog.MAX_ENTRIES] — a few minutes during an active session, routinely less than the gap
+     * between hitting a bug and reaching Settings. The file already held far more; only the export
+     * threw it away.
+     */
+    @Test fun exportFull_reaches_past_the_ring_buffer_into_the_file() {
+        DebugLog.init(logDir(), direct)
+        val overflow = DebugLog.MAX_ENTRIES + 120
+        repeat(overflow) { DebugLog.log("ws", "entry-$it") }
+
+        // The in-app list stays bounded on purpose; only the export changes.
+        assertEquals(DebugLog.MAX_ENTRIES, DebugLog.entries.value.size)
+        assertFalse(DebugLog.export().contains("entry-0 "))
+
+        val full = DebugLog.exportFull()
+        assertTrue(full.contains("entry-0"))
+        assertTrue(full.contains("entry-${overflow - 1}"))
+    }
+
+    /**
+     * The two halves of this feature arrived from different branches: filtering by session, and
+     * exporting the whole file rather than the 500-entry ring. Combined, filtering must reach the
+     * file — a filter that only narrows what is already in memory keeps the eight-minute window
+     * that made sharing useless.
+     */
+    @Test fun exportFull_filters_the_file_by_session() {
+        DebugLog.init(logDir(), direct)
+        repeat(DebugLog.MAX_ENTRIES + 60) { DebugLog.log("ws", "event s=session-alpha n=$it") }
+        DebugLog.log("ws", "event s=session-beta only")
+
+        val alpha = DebugLog.exportFull("session-alpha")
+        assertTrue(alpha.contains("s=session-alpha n=0"))
+        assertFalse(alpha.contains("session-beta"))
+    }
+
+    /**
+     * Picking a session must not throw away the process-wide lines. The session header, the
+     * connectivity and gateway-health lines, the startup gate and the banner name no conversation
+     * — and they are the context a session's own lines have to be read against.
+     */
+    @Test fun filtering_by_session_keeps_lines_that_name_no_session() {
+        DebugLog.clear()
+        DebugLog.log("session", "diagnostic logging on · v0.0.0 (0)")
+        DebugLog.log("net", "connectivity check says offline · no VALIDATED capability")
+        DebugLog.log("ws", "event s=session-alpha started")
+        DebugLog.log("ws", "event s=session-beta started")
+
+        val alpha = DebugLog.export("session-alpha")
+
+        assertTrue(alpha, alpha.contains("diagnostic logging on"))
+        assertTrue(alpha, alpha.contains("no VALIDATED capability"))
+        assertTrue(alpha, alpha.contains("s=session-alpha"))
+        assertFalse(alpha, alpha.contains("session-beta"))
+    }
+
+    @Test fun exportFull_falls_back_to_memory_when_no_file_is_attached() {
+        DebugLog.detachStore()
+        DebugLog.log("ws", "memory-only")
+
+        assertTrue(DebugLog.exportFull().contains("memory-only"))
+    }
+
+    /**
+     * Once the export reads the file back as one stream, the per-entry "previous run" flag can no
+     * longer show where a process restarted — the header does that job instead, and carries the
+     * build and device that a screenshot never does.
+     */
+    @Test fun enabling_writes_a_session_header() {
+        DebugLog.setEnabled(false)
+        DebugLog.clear()
+        DebugLog.setEnabled(true)
+
+        val header = DebugLog.entries.value.single()
+        assertEquals("session", header.category)
+        assertTrue(header.message.startsWith("diagnostic logging on"))
+    }
+
+    @Test fun re_enabling_starts_a_new_session_header_but_staying_on_does_not() {
+        DebugLog.setEnabled(false)
+        DebugLog.clear()
+        DebugLog.setEnabled(true)
+        DebugLog.setEnabled(true)
+        assertEquals(1, DebugLog.entries.value.count { it.category == "session" })
+
+        DebugLog.setEnabled(false)
+        DebugLog.setEnabled(true)
+        assertEquals(2, DebugLog.entries.value.count { it.category == "session" })
+    }
+
+    @Test fun a_user_marker_is_recorded_only_while_logging_is_on() {
+        DebugLog.clear()
+        DebugLog.mark("here")
+        assertEquals(1, DebugLog.entries.value.size)
+        assertEquals("mark", DebugLog.entries.value.single().category)
+        assertTrue(DebugLog.entries.value.single().message.contains("here"))
+
+        DebugLog.setEnabled(false)
+        DebugLog.clear()
+        DebugLog.mark("ignored")
+        assertTrue(DebugLog.entries.value.isEmpty())
+    }
+
+    @Test fun disabled_logging_writes_nothing_to_disk() {
+        DebugLog.init(logDir(), direct)
+        DebugLog.setEnabled(false)
+        DebugLog.log("ws", "should not be recorded")
+
+        assertTrue(DiagnosticLogStore(logDir()).readRecent(10).isEmpty())
+    }
+
+    @Test fun the_registered_token_is_redacted_on_disk_too() {
+        DebugLog.init(logDir(), direct)
+        DebugLog.setTokenToRedact("SECRET-TOKEN-123")
+        DebugLog.log("rest", "GET /api/sessions  token=SECRET-TOKEN-123 end")
+
+        val onDisk = DiagnosticLogStore(logDir()).readRecent(10).single().message
+        assertFalse("raw token must not reach the file", onDisk.contains("SECRET-TOKEN-123"))
+        assertTrue(onDisk.contains("<redacted>") || onDisk.contains("***"))
+    }
+
+    @Test fun clear_also_empties_the_file() {
+        DebugLog.init(logDir(), direct)
+        DebugLog.log("ws", "a")
+        DebugLog.clear()
+
+        assertTrue(DiagnosticLogStore(logDir()).readRecent(10).isEmpty())
+    }
+
+    @Test fun export_marks_entries_from_an_earlier_run() {
+        DebugLog.init(logDir(), direct)
+        DebugLog.log("ws", "before the kill")
+        DebugLog.detachStore()
+        DebugLog.clear()
+        DebugLog.init(logDir(), direct)
+
+        assertTrue(DebugLog.export().contains("(previous run)"))
+    }
+
+    @Test fun export_if_any_is_null_when_nothing_was_captured() {
+        assertEquals(null, DebugLog.exportIfAny())
+        DebugLog.log("ws", "something")
+        assertTrue(DebugLog.exportIfAny()!!.contains("something"))
+    }
+
+    @Test fun credential_shaped_text_is_redacted_without_any_registered_token() {
+        // The registered-token replacement only covers the one value we know about. A ws ticket or
+        // an authorization header that never went through setTokenToRedact used to ride along in
+        // the clear — and entries now leave the device, where the sink keeps text verbatim.
+        DebugLog.setTokenToRedact(null)
+        DebugLog.log("ws", "opening wss://gw.example/socket?ticket=SECRET-TICKET-9 (gen=3)")
+        DebugLog.log("rest", "GET /api/x  Authorization: Bearer SECRET-HEADER-9")
+
+        val messages = DebugLog.entries.value.map { it.message }
+        assertFalse("ticket must not survive", messages.any { it.contains("SECRET-TICKET-9") })
+        assertFalse("header must not survive", messages.any { it.contains("SECRET-HEADER-9") })
+        assertTrue(messages.any { it.contains("<redacted>") })
+        // Everything around the secret is still readable, or the log stops being useful.
+        assertTrue(messages.first().contains("gen=3"))
+    }
+
+    @Test fun credential_shaped_text_is_redacted_on_disk_too() {
+        DebugLog.init(logDir(), direct)
+        DebugLog.setTokenToRedact(null)
+        DebugLog.log("ws", "url wss://gw.example/s?ticket=SECRET-TICKET-9")
+
+        val onDisk = DiagnosticLogStore(logDir()).readRecent(10).single().message
+        assertFalse(onDisk.contains("SECRET-TICKET-9"))
+        assertTrue(onDisk.contains("<redacted>"))
+    }
+
+    @Test fun redaction_covers_both_the_registered_token_and_the_shared_rules() {
+        DebugLog.setTokenToRedact("SECRET-TOKEN-123")
+        DebugLog.log("ws", "auth=SECRET-TOKEN-123 then ?ticket=SECRET-TICKET-9")
+
+        val message = DebugLog.entries.value.single().message
+        assertFalse(message.contains("SECRET-TOKEN-123"))
+        assertFalse(message.contains("SECRET-TICKET-9"))
     }
 }

@@ -34,7 +34,11 @@ CONNECTOR_TOKEN_FILE=/etc/hermes-remote/secrets/connector-token
 INTERNAL_STATUS_TOKEN_FILE=/etc/hermes-remote/secrets/internal-status-token
 DEFAULT_DEVICE_ID=mac-mini
 LIFECYCLE_EVENT_STORE_FILE=/var/lib/hermes-remote/lifecycle-events.json
+# Optional; structured JSON log verbosity: off | error | info (default) | debug.
+GATEWAY_LOG_LEVEL=info
 ```
+
+The Connector accepts the same optional knob as `CONNECTOR_LOG_LEVEL` (default `info`).
 
 Account authentication is an independent, default-off control plane. I1 introduces the following
 configuration, but production must keep `ACCOUNT_AUTH_ENABLED=0` until the account database
@@ -113,7 +117,7 @@ includes both the Return-Path TXT and MX records; DKIM must match the complete p
 public value even when DNS returns it as multiple chunks. DMARC belongs at
 `_dmarc.<sending-domain>` and starts at monitored `p=none` with aggregate reporting before a later
 reviewed move to `quarantine` or `reject`. `npm run ops:email-domain -- --config <path>` reads public
-DNS only and returns `HR-OPS-012` until all four records match. Passing this check does not replace
+DNS only and returns `HR-OPS-018` until all four records match. Passing this check does not replace
 Resend dashboard verification or inbox-header acceptance.
 
 Use `ops/email-staging.example.json` only as a template for the isolated provider acceptance gate.
@@ -174,7 +178,7 @@ is returned.
 Account mode also starts a bounded retention scheduler after 60 seconds and repeats it every six
 hours. Each sweep removes no more than 1,000 rows per eligible table, uses `SKIP LOCKED` for
 multi-Gateway safety, and does not gate readiness or login if maintenance fails. Alert when the
-retention snapshot's `lastFailureAt` is newer than `lastSuccessAt` (`HR-OPS-013`). Expired refresh
+retention snapshot's `lastFailureAt` is newer than `lastSuccessAt` (`HR-OPS-019`). Expired refresh
 hashes and unreferenced session tombstones use the same 35-day post-expiry window. Routine
 installation and device-access history are not part of this first retention class. A due permanent
 account deletion is the explicit exception: it removes every relationship for that account within

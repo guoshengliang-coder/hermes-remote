@@ -252,7 +252,7 @@ export function createAccountRuntime(
         3_650,
       ) * 24 * 60 * 60 * 1_000,
     }),
-    { reportFailure: () => console.error("HR-OPS-013 account retention sweep failed") },
+    { reportFailure: () => console.error("HR-OPS-019 account retention sweep failed") },
   );
   const accessRevocations = new PostgresAccountAccessRevocationSubscriber(accessRevocationPool);
   const webAudience = googleAuthEnabled && webSessionEnabled

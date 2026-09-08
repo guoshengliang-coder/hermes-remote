@@ -1,4 +1,5 @@
 import path from "node:path";
+import { runtimeImageIds } from "./config.mjs";
 import { OpsError } from "./errors.mjs";
 
 export const DEPLOY_SLOTS = Object.freeze(["blue", "green"]);
@@ -25,8 +26,9 @@ export function renderDeployGatewayEnvironment(config, slot) {
   ].join("\n");
 }
 
-export function renderDeploySystemdUnit(config, manifest, slot) {
+export function renderDeploySystemdUnit(config, manifest, slot, runtimeImageId = manifest.imageId) {
   assertSlot(slot);
+  assertRuntimeImageId(manifest, runtimeImageId);
   const selected = config.slots[slot];
   if (!selected) throw new OpsError("deployment", "candidate_slot_missing", "candidate_template");
   const { configRoot, stateRoot } = config.paths;
@@ -41,7 +43,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStartPre=-/usr/bin/docker rm --force ${selected.containerName}
-ExecStart=/usr/bin/docker run --name ${selected.containerName} --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000 --cap-drop=ALL --security-opt=no-new-privileges --memory=256m --cpus=1 --pids-limit=128 --publish 127.0.0.1:${selected.gatewayPort}:8787 --env-file ${environmentPath} --mount type=bind,src=${configRoot}/secrets,dst=/run/hermes-go/secrets,readonly --mount type=bind,src=${statePath},dst=/var/lib/hermes-go --log-driver=local --log-opt max-size=10m --log-opt max-file=3 ${manifest.imageId}
+ExecStart=/usr/bin/docker run --name ${selected.containerName} --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000 --cap-drop=ALL --security-opt=no-new-privileges --memory=256m --cpus=1 --pids-limit=128 --publish 127.0.0.1:${selected.gatewayPort}:8787 --env-file ${environmentPath} --mount type=bind,src=${configRoot}/secrets,dst=/run/hermes-go/secrets,readonly --mount type=bind,src=${statePath},dst=/var/lib/hermes-go --log-driver=local --log-opt max-size=10m --log-opt max-file=3 ${runtimeImageId}
 ExecStop=/usr/bin/docker stop --time 20 ${selected.containerName}
 Restart=always
 RestartSec=3
@@ -67,11 +69,17 @@ WantedBy=multi-user.target
 `;
 }
 
+function assertRuntimeImageId(manifest, runtimeImageId) {
+  if (!runtimeImageIds(manifest).includes(runtimeImageId)) {
+    throw new OpsError("artifact", "runtime_image_identity_mismatch", "candidate_template");
+  }
+}
+
 export function renderNginxUpstream(config, slot) {
   assertSlot(slot);
   const selected = config.slots[slot];
   if (!selected) throw new OpsError("deployment", "candidate_slot_missing", "upstream_template");
-  return `upstream hermes_go_gateway_staging {
+  return `upstream ${upstreamName(config)} {
     server 127.0.0.1:${selected.gatewayPort};
     keepalive 32;
 }
@@ -95,22 +103,22 @@ server {
     client_max_body_size 10m;
 
     location = /healthz {
-        proxy_pass http://hermes_go_gateway_staging/healthz;
+        proxy_pass http://${upstreamName(config)}/healthz;
         ${commonProxyHeaders(75)}
     }
 
     location = /readyz {
-        proxy_pass http://hermes_go_gateway_staging/readyz;
+        proxy_pass http://${upstreamName(config)}/readyz;
         ${commonProxyHeaders(75)}
     }
 
     location = /relay-health {
-        proxy_pass http://hermes_go_gateway_staging/health;
+        proxy_pass http://${upstreamName(config)}/health;
         ${commonProxyHeaders(75)}
     }
 
     location = /v2/capabilities {
-        proxy_pass http://hermes_go_gateway_staging/v2/capabilities;
+        proxy_pass http://${upstreamName(config)}/v2/capabilities;
         ${commonProxyHeaders(75)}
     }
 
@@ -121,12 +129,12 @@ server {
     }
 
     location = /api/ws {
-        proxy_pass http://hermes_go_gateway_staging;
+        proxy_pass http://${upstreamName(config)};
         ${webSocketProxyHeaders()}
     }
 
     location /api/ {
-        proxy_pass http://hermes_go_gateway_staging;
+        proxy_pass http://${upstreamName(config)};
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         ${forwardedHeaders()}
@@ -136,7 +144,7 @@ server {
     }
 
     location = /v1/connect {
-        proxy_pass http://hermes_go_gateway_staging/v1/connect;
+        proxy_pass http://${upstreamName(config)}/v1/connect;
         ${webSocketProxyHeaders()}
     }
 
@@ -145,6 +153,10 @@ server {
     }
 }
 `;
+}
+
+function upstreamName(config) {
+  return config.managedBaseline === true ? "hermes_go_gateway_production" : "hermes_go_gateway_staging";
 }
 
 function commonProxyHeaders(timeoutSeconds) {

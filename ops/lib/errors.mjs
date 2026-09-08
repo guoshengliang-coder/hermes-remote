@@ -69,15 +69,57 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "resolve_production_gates_and_retry",
   }),
-  emailAcceptance: Object.freeze({
+  recovery: Object.freeze({
     code: "HR-OPS-011",
+    summaryZh: "旧 Gateway 恢复制品的捕获或隔离验证未完成，线上服务保持不变。请检查恢复阶段后重试。",
+    summaryEn: "Legacy Gateway recovery capture or isolated verification did not complete; the live service was left unchanged. Inspect the recovery stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_legacy_recovery_stage_and_retry",
+  }),
+  monitoring: Object.freeze({
+    code: "HR-OPS-012",
+    summaryZh: "生产主机磁盘或数据库备份监控发现异常，请检查告警项并尽快处理。",
+    summaryEn: "Production disk or database-backup monitoring found a problem. Inspect the alert and resolve it promptly.",
+    retryable: true,
+    recoveryAction: "inspect_production_monitor_alert_and_retry",
+  }),
+  databaseRecovery: Object.freeze({
+    code: "HR-OPS-013",
+    summaryZh: "PostgreSQL 加密备份或异机恢复验证未完成，未更新有效备份状态。请检查失败阶段后重试。",
+    summaryEn: "PostgreSQL encrypted backup or off-host restore verification did not complete, so no valid backup status was published. Inspect the failed stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_database_recovery_stage_and_retry",
+  }),
+  managedBaseline: Object.freeze({
+    code: "HR-OPS-014",
+    summaryZh: "生产 Gateway 受管基线接管未完成，已阻止切换或尝试恢复旧服务。请检查接管阶段后重试。",
+    summaryEn: "The managed production Gateway baseline was not established. The switch was blocked or legacy recovery was attempted. Inspect the adoption stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_managed_baseline_stage_and_retry",
+  }),
+  databaseProvision: Object.freeze({
+    code: "HR-OPS-015",
+    summaryZh: "PostgreSQL 生产数据库初始化未完成，账号功能保持关闭。请检查初始化阶段后重试。",
+    summaryEn: "Production PostgreSQL initialization did not complete; account features remain disabled. Inspect the initialization stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_database_provision_stage_and_retry",
+  }),
+  productionRelease: Object.freeze({
+    code: "HR-OPS-016",
+    summaryZh: "生产 Gateway 常规发版未完成，已阻止切换或已恢复当前版本。请检查发版阶段后重试。",
+    summaryEn: "The routine production Gateway release did not complete. The switch was blocked or the current release was restored. Inspect the release stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_production_release_stage_and_retry",
+  }),
+  emailAcceptance: Object.freeze({
+    code: "HR-OPS-017",
     summaryZh: "Staging 邮件发送或最终投递验收未完成，请检查邮件配置、Webhook 和聚合指标后重试。",
     summaryEn: "Staging email submission or final-delivery acceptance did not complete. Check mail configuration, the webhook, and aggregate metrics before retrying.",
     retryable: true,
     recoveryAction: "inspect_email_delivery_and_retry",
   }),
   emailDomain: Object.freeze({
-    code: "HR-OPS-012",
+    code: "HR-OPS-018",
     summaryZh: "邮件域名的 SPF、DKIM、DMARC 公共记录尚未通过验收，请修正 DNS 后重试。",
     summaryEn: "The mail domain's public SPF, DKIM, and DMARC records did not pass acceptance. Fix DNS and retry.",
     retryable: true,
@@ -124,6 +166,7 @@ export function errorPayload(error, fallbackKind = "status", fallbackStage) {
 
 export function redactOpsValue(value) {
   return String(value ?? "unknown_failure")
+    .replace(/\b(postgres(?:ql)?):\/\/[^\s/@:]+:[^\s/@]+@/gi, "$1://[REDACTED]@")
     .replace(/-----BEGIN [^-\r\n]*PRIVATE KEY-----[\s\S]*?-----END [^-\r\n]*PRIVATE KEY-----/gi, "[REDACTED_PRIVATE_KEY]")
     .replace(/-----BEGIN [^-\r\n]*PRIVATE KEY-----/gi, "[REDACTED_PRIVATE_KEY]")
     .replace(/\bauthorization\s*[=:]\s*(?:(?:bearer|basic)\s+)?[^\s,;]+/gi, "authorization=[REDACTED]")

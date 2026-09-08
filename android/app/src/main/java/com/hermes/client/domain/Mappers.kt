@@ -6,6 +6,14 @@ import com.hermes.client.data.network.ProjectNodeDto
 import com.hermes.client.data.network.ProjectTreeDto
 import com.hermes.client.data.network.RepoDto
 import com.hermes.client.data.network.SessionDto
+import com.hermes.client.ui.chat.normalizeDisplayPayload
+import com.hermes.client.ui.chat.parseToolPayloadMeta
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import java.net.URI
 
 fun SessionDto.toDomain() = Session(
@@ -24,6 +32,8 @@ fun SessionDto.toDomain() = Session(
     cwd = cwd?.ifBlank { null },
     gitBranch = gitBranch?.ifBlank { null },
     gitRepoRoot = gitRepoRoot?.ifBlank { null },
+    displayName = displayName?.ifBlank { null },
+    chatType = chatType?.ifBlank { null },
 )
 
 private val IMAGE_DIRECTIVE = Regex(
@@ -45,7 +55,7 @@ private val LOCAL_MARKDOWN_IMAGE = Regex(
     "!\\[([^]\\r\\n]*)]\\(\\s*(<?(?:file://)?/[^)\\r\\n>]*?\\.(?:png|jpe?g|gif|webp)>?)(?:\\s+[\"'][^)\\r\\n]*[\"'])?\\s*\\)",
     RegexOption.IGNORE_CASE,
 )
-private val MEDIA_DELIVERY_EXTENSIONS = listOf(
+internal val MEDIA_DELIVERY_EXTENSIONS = listOf(
     // Keep this aligned with Hermes gateway.platforms.base.MEDIA_DELIVERY_EXTS. Android previews
     // the four formats supported by ChatImage; every other format remains downloadable.
     "png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "svg",
@@ -137,7 +147,7 @@ internal fun parseMessageContent(raw: String): ParsedMessageContent {
         path.takeIf { imageMimeTypeForPath(it) != null }?.let(::remoteImage)
     }
     val localMarkdownImages = LOCAL_MARKDOWN_IMAGE.findAll(labeledFiles.text).mapNotNull { match ->
-        normalizeLocalImagePath(match.groupValues[2])?.let(::remoteImage)
+        normalizeLocalImagePath(match.groupValues[2])?.takeIf(::looksLikeMacAbsolutePath)?.let(::remoteImage)
     }.toList()
     val webImages = MARKDOWN_IMAGE.findAll(labeledFiles.text).mapIndexed { index, match ->
         val url = match.groupValues[2]
@@ -171,8 +181,8 @@ internal fun parseMessageContent(raw: String): ParsedMessageContent {
     val explicitFiles = explicitMedia.paths
         .filter { imageMimeTypeForPath(it) == null }
         .map(::remoteFile)
-    val localMarkdownFiles = LOCAL_MARKDOWN_FILE.findAll(labeledFiles.text).map { match ->
-        normalizeExplicitMediaPath(match.groupValues[2]).let(::remoteFile)
+    val localMarkdownFiles = LOCAL_MARKDOWN_FILE.findAll(labeledFiles.text).mapNotNull { match ->
+        normalizeExplicitMediaPath(match.groupValues[2]).takeIf(::looksLikeMacAbsolutePath)?.let(::remoteFile)
     }.toList()
     val files = (explicitFiles + directiveFiles + naturalFiles + localMarkdownFiles)
         .distinctBy { it.remotePath ?: it.localPath ?: it.id }
@@ -181,6 +191,10 @@ internal fun parseMessageContent(raw: String): ParsedMessageContent {
         .replace(ATTACHED_IMAGE_PLACEHOLDER, "")
         .replace(FILE_DIRECTIVE, "")
         .replace(ATTACHED_FILE_PLACEHOLDER, "")
+        // Both of these still collapse to the link label whether or not the target became a card:
+        // a root-relative URL cannot resolve in this transcript either, so showing the reader its
+        // text is no worse than showing them a link that goes nowhere. Only the attachment card
+        // is withheld — that is the part that promised a downloadable file (HG-23).
         .replace(LOCAL_MARKDOWN_IMAGE) { it.groupValues[1].takeIf(String::isNotBlank).orEmpty() }
         .replace(LOCAL_MARKDOWN_FILE) { it.groupValues[1].takeIf(String::isNotBlank).orEmpty() }
         .replace(MARKDOWN_IMAGE) { it.groupValues[1].takeIf(String::isNotBlank).orEmpty() }
@@ -263,6 +277,45 @@ private fun normalizeExplicitMediaPath(raw: String): String {
         .getOrNull()
         ?.takeIf { it.isNotBlank() }
         ?: reference.removePrefix("file://")
+}
+
+/**
+ * Top-level directories that exist on macOS. Anything else at the root of an absolute path came
+ * from somewhere other than the Mac's filesystem.
+ *
+ * `home` and `net` are the automounter's; `cores` holds crash dumps. All are listed because a
+ * Hermes-delivered path may legitimately sit in any of them, and a false negative here costs a
+ * real attachment its card.
+ */
+private val MAC_ABSOLUTE_PATH_ROOTS = setOf(
+    "users", "tmp", "private", "var", "opt", "volumes", "applications",
+    "system", "library", "etc", "usr", "bin", "sbin", "cores", "home", "net", "dev",
+)
+
+/**
+ * True when [path] can be a path on the Mac, as opposed to a root-relative URL that merely starts
+ * with a slash.
+ *
+ * Markdown link syntax cannot distinguish the two on its own, and the app used to treat every
+ * `/…` target with a delivery extension as a Mac path. A page quoted into the transcript —
+ * `[![Hermes Agent](/docs/img/logo.png)` out of a scraped documentation site — therefore became
+ * an attachment card, and opening it asked the Connector for `/docs/img/logo.png`, which is
+ * outside `FILES_ROOT` and refused with 403. The user saw "this file is not inside the directory
+ * the Mac allows" for a file that was never on the Mac at all (HG-23).
+ *
+ * The first path segment is the one signal that separates the two reliably: a real delivery lands
+ * under `/Users`, `/tmp`, `/private/var/folders`, `/Volumes` or a sibling, while a website's own
+ * paths (`/docs`, `/assets`, `/blog`, `/img`) never do.
+ *
+ * This deliberately does NOT apply to `MEDIA:`, `@file:`/`@image:` or the "文件已保存到 …" labels.
+ * Those grammars are explicit delivery instructions, not prose that happens to contain a link, so
+ * a path arriving through them is taken at its word — the Connector remains the authority on
+ * whether it is readable.
+ */
+private fun looksLikeMacAbsolutePath(path: String): Boolean {
+    if (!path.startsWith('/')) return false
+    val root = path.drop(1).substringBefore('/')
+    return root.lowercase() in MAC_ABSOLUTE_PATH_ROOTS
 }
 
 /** Natural-language compatibility for generated non-image artifacts such as markdown reports. */
@@ -481,14 +534,31 @@ private fun mimeTypeForName(name: String): String? = when (name.substringAfterLa
 }
 
 /** Lenient ISO-8601 parse: with or without offset; null on anything unexpected. */
+/**
+ * The message's wall-clock time in epoch millis, or null when neither source carried one.
+ * Hermes' own `timestamp` (Unix seconds, float) wins; the ISO `created_at` is a fallback that no
+ * current Hermes emits. Non-positive values are treated as absent — a 0.0 would render as 1970.
+ */
+internal fun messageTimestampMillis(seconds: Double?, isoCreatedAt: String?): Long? =
+    seconds?.takeIf { it > 0.0 }?.let { (it * 1000).toLong() }
+        ?: isoCreatedAt?.let(::parseIsoTimestampMillis)
+
 internal fun parseIsoTimestampMillis(raw: String): Long? = runCatching {
     java.time.OffsetDateTime.parse(raw).toInstant().toEpochMilli()
 }.getOrNull() ?: runCatching {
     java.time.LocalDateTime.parse(raw).atZone(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
 }.getOrNull()
 
-fun MessageDto.toDomain(): ChatMessage {
+/**
+ * [toolResults] maps a tool_call_id to the role="tool" row that answered it, so a persisted call
+ * comes back with the same output, exit code and duration the live tool.complete event carried.
+ */
+fun MessageDto.toDomain(toolResults: Map<String, MessageDto> = emptyMap()): ChatMessage {
     val parsed = parseMessageContent(content.orEmpty())
+    // Compaction handoffs ride the user-role channel. Project them the way upstream projects a
+    // transcript for display, keeping any real content merged into the carrier; a turn left with
+    // nothing is dropped by [isRenderable].
+    val projected = CompactionCarrier.project(parsed.text)
     return ChatMessage(
         id = id?.toString() ?: "m-${hashCode()}",
         role = when (role.lowercase()) {
@@ -496,14 +566,69 @@ fun MessageDto.toDomain(): ChatMessage {
             "assistant" -> Role.ASSISTANT
             else -> Role.SYSTEM
         },
-        text = parsed.text,
-        images = parsed.images,
-        files = parsed.files,
-        timestamp = createdAt?.let(::parseIsoTimestampMillis),
+        text = projected.orEmpty(),
+        // A pure handoff carries no images or files of its own; keeping them would resurrect the
+        // turn that [isRenderable] is about to drop.
+        images = if (projected == null) emptyList() else parsed.images,
+        files = if (projected == null) emptyList() else parsed.files,
+        timestamp = messageTimestampMillis(timestamp, createdAt),
+        // Hermes persists reasoning and tool calls on every assistant row and the gateway passes
+        // them through; until 2026-09-05 the DTO simply did not model them, so every history
+        // load or reconcile came back without the reasoning card or tool timeline (HG-8).
+        thinking = if (role.equals("assistant", ignoreCase = true)) {
+            reasoningContent?.takeIf { it.isNotBlank() } ?: reasoning?.takeIf { it.isNotBlank() } ?: ""
+        } else "",
+        tools = if (role.equals("assistant", ignoreCase = true)) historyToolCalls(toolResults) else emptyList(),
         displayKind = displayKind?.ifBlank { null },
         displayTaskCount = displayMetadata?.intOrNull("task_count"),
         displayFailedCount = displayMetadata?.intOrNull("failed_count"),
     )
+}
+
+/**
+ * Rebuilds the turn's tool cards from the persisted call list, joined with the role="tool" result
+ * rows by tool_call_id. The result row's content is the same payload a live tool.complete event
+ * carries, so it goes through the same normalization and metadata parsing as the live path
+ * (ChatUiState.reduce); a call whose result row is missing still maps to a completed card.
+ */
+private fun MessageDto.historyToolCalls(toolResults: Map<String, MessageDto>): List<ToolCall> {
+    val array: JsonArray = when (val raw: JsonElement? = toolCalls) {
+        is JsonArray -> raw
+        is JsonPrimitive -> raw.contentOrNull
+            ?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() } as? JsonArray
+        else -> null
+    } ?: return emptyList()
+    return array.mapIndexedNotNull { index, element ->
+        val call = element as? JsonObject ?: return@mapIndexedNotNull null
+        val function = call["function"] as? JsonObject
+        val wrapperName = (function?.get("name") as? JsonPrimitive)?.contentOrNull?.ifBlank { null }
+            ?: return@mapIndexedNotNull null
+        val id = (call["id"] as? JsonPrimitive)?.contentOrNull?.ifBlank { null } ?: "h-tool-$index"
+        val arguments = (function["arguments"] as? JsonPrimitive)?.contentOrNull
+        val argumentsObject = arguments?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() } as? JsonObject
+        val rawResult = toolResults[id]?.content?.takeIf { it.isNotBlank() }
+        val resultMeta = rawResult?.let(::parseToolPayloadMeta)
+        ToolCall(
+            id = id,
+            name = historyToolLabel(wrapperName, argumentsObject),
+            status = ToolStatus.DONE,
+            output = rawResult?.let(::normalizeDisplayPayload).orEmpty(),
+            command = resultMeta?.command ?: arguments?.let { parseToolPayloadMeta(it) }?.command,
+            exitCode = resultMeta?.exitCode,
+            durationMs = resultMeta?.durationMs,
+            todos = resultMeta?.todos.orEmpty(),
+        )
+    }
+}
+
+/**
+ * Hermes invokes dynamic (MCP) tools through a `tool_call` wrapper whose real target sits in
+ * `arguments.name`. Live `tool.start` events already report that target, so the persisted record
+ * must resolve it too or a completed turn reads as a column of bare `tool_call` rows.
+ */
+internal fun historyToolLabel(wrapperName: String, arguments: JsonObject?): String {
+    if (wrapperName != "tool_call") return wrapperName
+    return (arguments?.get("name") as? JsonPrimitive)?.contentOrNull?.ifBlank { null } ?: wrapperName
 }
 
 private fun kotlinx.serialization.json.JsonObject.intOrNull(key: String): Int? =
@@ -541,3 +666,12 @@ fun LaneDto.toDomain() = ProjectLane(
     isMain = isMain,
     sessions = sessions.map { it.toDomain() },
 )
+
+
+/**
+ * Whether a mapped history turn has anything left to show. A compaction carrier projected down to
+ * nothing (see [CompactionCarrier]) is machine scaffolding, not a turn someone took.
+ */
+fun ChatMessage.isRenderable(): Boolean =
+    text.isNotBlank() || images.isNotEmpty() || files.isNotEmpty() ||
+        tools.isNotEmpty() || thinking.isNotBlank() || displayKind != null

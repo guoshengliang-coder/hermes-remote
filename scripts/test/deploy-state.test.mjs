@@ -8,6 +8,7 @@ import { loadBundleManifest, loadDeployConfig } from "../../ops/lib/config.mjs";
 import {
   advanceDeploymentJournal,
   acquireDeploymentLock,
+  archiveSupersededPreSwitchDeploymentJournal,
   createDeploymentJournal,
   DEPLOYMENT_STAGES,
   deploymentPlanDigest,
@@ -137,6 +138,152 @@ test("deployment journal permits only ordered, durable state transitions", async
   await assert.rejects(() => readDeploymentJournal(journalPath), isOpsCode("HR-OPS-007"));
 });
 
+test("a recorded pre-switch production failure is archived before a new managed-baseline plan", async (t) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-failed-baseline-")));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const historyRoot = path.join(root, "history");
+  await mkdir(historyRoot, { recursive: true, mode: 0o700 });
+  const journalPath = path.join(root, "deploy-state.json");
+  const auditPath = path.join(root, "operations.jsonl");
+  const source = sourceIdentity();
+  const oldTarget = targetIdentity();
+  const checkpoint = {
+    currentReleaseTarget: "releases/0.2.0-aaaaaaaaaaaa",
+    previousReleaseTarget: null,
+    nginxConfigSha256: "e".repeat(64),
+    upstreamSha256: null,
+  };
+  let existing = createDeploymentJournal({
+    operation: "deploy",
+    planDigest: "1".repeat(64),
+    runId: "failed-before-switch",
+    activeSlot: null,
+    candidateSlot: "blue",
+    source,
+    target: oldTarget,
+    now: new Date("2026-09-05T04:48:03.000Z"),
+  });
+  for (const stage of ["artifact_verified", "lock_acquired"]) {
+    existing = advanceDeploymentJournal(existing, stage, new Date("2026-09-05T04:48:04.000Z"));
+  }
+  existing = advanceDeploymentJournal(existing, "checkpoint_created", new Date("2026-09-05T04:48:05.000Z"), { checkpoint });
+  await writeDeploymentJournal(journalPath, existing, currentOwnership().host);
+  await writeFile(auditPath, `${JSON.stringify({
+    runId: existing.runId,
+    operation: "deploy",
+    stage: "failed",
+    result: "failed",
+    errorCode: "HR-OPS-002",
+    finishedAt: "2026-09-05T04:48:09.000Z",
+  })}\n`, { mode: 0o600 });
+  await chmod(auditPath, 0o600);
+
+  const expected = createDeploymentJournal({
+    operation: "deploy",
+    planDigest: "2".repeat(64),
+    runId: "replacement-plan",
+    activeSlot: null,
+    candidateSlot: "blue",
+    source,
+    target: { ...oldTarget, sourceCommit: "f".repeat(40), imageId: `sha256:${"9".repeat(64)}` },
+    now: new Date("2026-09-05T05:00:00.000Z"),
+  });
+  const archived = await archiveSupersededPreSwitchDeploymentJournal(
+    journalPath,
+    historyRoot,
+    auditPath,
+    expected,
+    checkpoint,
+    currentOwnership().host,
+  );
+  assert.equal(archived.journal.runId, existing.runId);
+  assert.deepEqual(await readDeploymentJournal(archived.archivePath), existing);
+  await assert.rejects(() => lstat(journalPath), (error) => error?.code === "ENOENT");
+  assert.equal((await readOrCreateDeploymentJournal(journalPath, expected, currentOwnership().host)).runId, expected.runId);
+});
+
+test("failed-journal replacement rejects missing failure evidence and any post-checkpoint state", async (t) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-failed-baseline-reject-")));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const historyRoot = path.join(root, "history");
+  await mkdir(historyRoot, { recursive: true, mode: 0o700 });
+  const journalPath = path.join(root, "deploy-state.json");
+  const auditPath = path.join(root, "operations.jsonl");
+  const checkpoint = {
+    currentReleaseTarget: "releases/0.2.0-aaaaaaaaaaaa",
+    previousReleaseTarget: null,
+    nginxConfigSha256: "e".repeat(64),
+    upstreamSha256: null,
+  };
+  let existing = createDeploymentJournal({
+    operation: "deploy",
+    planDigest: "3".repeat(64),
+    runId: "unrecorded-failure",
+    activeSlot: null,
+    candidateSlot: "blue",
+    source: sourceIdentity(),
+    target: targetIdentity(),
+    now: new Date("2026-09-05T04:48:03.000Z"),
+  });
+  for (const stage of ["artifact_verified", "lock_acquired"]) {
+    existing = advanceDeploymentJournal(existing, stage, new Date("2026-09-05T04:48:04.000Z"));
+  }
+  existing = advanceDeploymentJournal(existing, "checkpoint_created", new Date("2026-09-05T04:48:05.000Z"), { checkpoint });
+  await writeDeploymentJournal(journalPath, existing, currentOwnership().host);
+  const expected = createDeploymentJournal({
+    operation: "deploy",
+    planDigest: "4".repeat(64),
+    runId: "new-plan",
+    activeSlot: null,
+    candidateSlot: "blue",
+    source: sourceIdentity(),
+    target: { ...targetIdentity(), sourceCommit: "f".repeat(40) },
+    now: new Date("2026-09-05T05:00:00.000Z"),
+  });
+  await assert.rejects(() => archiveSupersededPreSwitchDeploymentJournal(
+    journalPath,
+    historyRoot,
+    auditPath,
+    expected,
+    checkpoint,
+    currentOwnership().host,
+  ), isOpsCode("HR-OPS-007"));
+  assert.equal((await readDeploymentJournal(journalPath)).runId, existing.runId);
+
+  existing = advanceDeploymentJournal(existing, "migration_verified", new Date("2026-09-05T04:48:06.000Z"));
+  await writeDeploymentJournal(journalPath, existing, currentOwnership().host);
+  await writeFile(auditPath, `${JSON.stringify({
+    runId: existing.runId,
+    operation: "deploy",
+    stage: "failed",
+    result: "failed",
+    errorCode: "HR-OPS-002",
+    finishedAt: "2026-09-05T04:48:09.000Z",
+  })}\n`, { mode: 0o600 });
+  await chmod(auditPath, 0o600);
+  await assert.rejects(() => archiveSupersededPreSwitchDeploymentJournal(
+    journalPath,
+    historyRoot,
+    auditPath,
+    expected,
+    checkpoint,
+    currentOwnership().host,
+  ), isOpsCode("HR-OPS-007"));
+  assert.equal((await readDeploymentJournal(journalPath)).stage, "migration_verified");
+
+  existing = advanceDeploymentJournal(existing, "candidate_started", new Date("2026-09-05T04:48:07.000Z"));
+  await writeDeploymentJournal(journalPath, existing, currentOwnership().host);
+  await assert.rejects(() => archiveSupersededPreSwitchDeploymentJournal(
+    journalPath,
+    historyRoot,
+    auditPath,
+    expected,
+    checkpoint,
+    currentOwnership().host,
+  ), isOpsCode("HR-OPS-007"));
+  assert.equal((await readDeploymentJournal(journalPath)).stage, "candidate_started");
+});
+
 test("deployment lock is exclusive, stale-owner aware, and ownership fenced", async (t) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-deploy-lock-")));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -226,6 +373,42 @@ test("candidate preparation reaches private verification without changing curren
   assert.equal(journal.stage, "candidate_verified");
   assert.equal(journal.checkpoint.currentReleaseTarget, fixture.currentTarget);
   assert.equal(journal.checkpoint.upstreamSha256, null);
+});
+
+test("production candidate preparation is reachable only through the dedicated R5-D capability", async (t) => {
+  const fixture = await createCandidateFixture(t);
+  const production = {
+    ...fixture.config,
+    environment: "production",
+    managedBaseline: true,
+    host: { hostname: "prod-host", architecture: "amd64" },
+  };
+  const runner = createTransactionalRunner({ ...fixture, config: production });
+  const common = {
+    runner,
+    platform: "linux",
+    architecture: "x64",
+    getUid: () => 0,
+    confirmation: "production:prod-host",
+    ownership: currentOwnership(),
+    fetchImpl: candidateFetch(fixture.targetManifest),
+    sleep: async () => {},
+    now: incrementingClock(),
+    runId: "production-baseline-candidate",
+    activeSlot: null,
+    candidateSmoke: async () => {},
+    legacySmoke: async () => {},
+  };
+  await assert.rejects(
+    () => prepareCandidate(production, fixture.sourceManifest, fixture.targetManifest, common),
+    isOpsCode("HR-OPS-007"),
+  );
+  const prepared = await prepareCandidate(production, fixture.sourceManifest, fixture.targetManifest, {
+    ...common,
+    authorization: "production-managed-baseline",
+  });
+  assert.equal(prepared.stage, "candidate_verified");
+  assert.equal(prepared.environment, "production");
 });
 
 test("candidate smoke failure stops only the candidate and safely resumes", async (t) => {
@@ -472,6 +655,65 @@ test("public smoke failure restores the old route, service, release links, and l
     "ops",
     "deploy-state.recovered.candidate-fixture.json",
   ), "utf8")).includes('"stage": "route_switched"'), true);
+});
+
+test("R5-D production switch failure uses the legacy compatibility smoke after automatic recovery", async (t) => {
+  const fixture = await createCandidateFixture(t);
+  const candidateConfigSource = path.join(fixture.base, "inputs", "hermes-remote-gateway.candidate.conf");
+  await writeFile(candidateConfigSource, [
+    `include ${fixture.config.nginx.upstreamConfigFile};`,
+    `server { listen 443 ssl; server_name ${fixture.config.nginx.serverName};`,
+    "location /api/ { proxy_pass http://hermes_go_gateway_production; }",
+    "}",
+    "",
+  ].join("\n"), { mode: 0o600 });
+  const production = {
+    ...fixture.config,
+    environment: "production",
+    managedBaseline: true,
+    host: { hostname: "prod-host", architecture: "amd64" },
+    nginx: {
+      ...fixture.config.nginx,
+      candidateConfigSource,
+      candidateConfigSha256: createHash("sha256").update(await readFile(candidateConfigSource)).digest("hex"),
+    },
+  };
+  fixture.config = production;
+  const runner = createTransactionalRunner(fixture);
+  const authorization = {
+    runner,
+    platform: "linux",
+    architecture: "x64",
+    getUid: () => 0,
+    confirmation: "production:prod-host",
+    authorization: "production-managed-baseline",
+    activeSlot: null,
+    ownership: currentOwnership(),
+    fetchImpl: candidateFetch(fixture.targetManifest),
+    sleep: async () => {},
+    now: incrementingClock(),
+    candidateSmoke: async () => {},
+    legacySmoke: async (request) => {
+      assert.equal(request.recovery, true);
+      assert.equal(request.expectedServerVersion, fixture.sourceManifest.serverVersion);
+      authorization.recoveryVerified = true;
+    },
+    sourcePreflight: async () => {},
+  };
+  await prepareCandidate(production, fixture.sourceManifest, fixture.targetManifest, {
+    ...authorization,
+    runId: "production-baseline-candidate",
+  });
+  await writeLifecycleSnapshot(production.legacySource.stateDirectory, [lifecycleRecord(1, "production-before")], 2);
+  await assert.rejects(() => switchCandidate(production, fixture.sourceManifest, fixture.targetManifest, {
+    ...authorization,
+    runId: "production-baseline-switch",
+    publicSmoke: async () => { throw new Error("injected production public smoke failure"); },
+  }), isOpsCode("HR-OPS-008"));
+  assert.equal(authorization.recoveryVerified, true);
+  assert.equal(runner.active.has(production.legacySource.serviceName), true);
+  assert.equal(runner.active.has(production.slots.blue.serviceName), false);
+  assert.equal(await readFile(production.nginx.configFile, "utf8"), fixture.nginxContent);
 });
 
 test("an interrupted pre-handoff maintenance window is detected and restores the source", async (t) => {

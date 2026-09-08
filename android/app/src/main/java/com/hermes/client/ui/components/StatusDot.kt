@@ -52,9 +52,13 @@ fun bannerLabel(state: ConnectionState, zh: Boolean = false): String = when (sta
 fun connectionBannerModel(state: ConnectionState, zh: Boolean = false): ConnectionBannerModel = when (state) {
     ConnectionState.Connecting, ConnectionState.Reconnecting ->
         ConnectionBannerModel(bannerLabel(state, zh), progress = true)
+    // Calm styling on purpose: an interruption restores itself (the foreground owner reconnects
+    // immediately), so it is a progress state that happens to carry a code — not a failure. Only
+    // ConnectionState.Error, which means the Relay actually refused us, gets the error colours.
+    // The AppError is kept so "详情 / Details" and copy-diagnostics stay available (HR-CONN-004).
     ConnectionState.Disconnected -> ConnectionBannerModel(
         bannerLabel(state, zh),
-        progress = false,
+        progress = true,
         error = AppError(AppErrorCode.CONNECTION_INTERRUPTED, retryable = true, stage = "websocket"),
     )
     is ConnectionState.Error -> ConnectionBannerModel(

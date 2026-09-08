@@ -48,10 +48,15 @@ const server = createServer(async (request, response) => {
     // Return a history that COVERS the locally observed turns so the app's reconciliation
     // acceptance passes — this is what swaps live ids (u-*/a-*) for history ids (h-*), the
     // suspected trigger for the anchor-jump bug. Content mirrors what streamRun produced.
+    // `timestamp` (Unix SECONDS, float) is Hermes' own column name — the app reads it to show
+    // times in 我的提问. Mirroring it here is what makes HG-4 reproducible locally; a mock that
+    // omitted it looked identical to the bug. Spread the rows a few minutes apart so the list has
+    // something to show.
+    const base = Math.floor(Date.now() / 1000) - promptCount * 300;
     const out = [];
     for (let i = 0; i < promptCount; i++) {
-      out.push({ id: i * 2 + 1, role: "user", content: promptTexts[i] ?? "t" });
-      out.push({ id: i * 2 + 2, role: "assistant", content: FULL_TEXT });
+      out.push({ id: i * 2 + 1, role: "user", content: promptTexts[i] ?? "t", timestamp: base + i * 300 });
+      out.push({ id: i * 2 + 2, role: "assistant", content: FULL_TEXT, timestamp: base + i * 300 + 60 });
     }
     return json(response, { messages: out });
   }
@@ -120,7 +125,27 @@ const PROSE_C = `## 结论
 
 最后确认一遍所有服务的健康状态，全部正常后本次排查结束。整体来看系统架构是健康的，只是这一处配置需要微调。`;
 
-const FULL_TEXT = PROSE_A + CODE_BLOCK + RAW_JSON + PROSE_B + DIFF_BLOCK + CODE_BLOCK_2 + PROSE_C;
+// Ordered/bulleted lists and links are the most common shape of a real answer and were the one
+// thing this fixture never produced, so body-typography changes could not be seen on a device.
+const PROSE_LIST = `### 三个可能原因
+
+1. **证书链深度不足** \u2014 \`proxy_ssl_verify_depth\` 默认是 1，中间 CA 校验会直接失败，这是最常见的一种。
+2. **upstream 超时** \u2014 网关重启期间连接池没有排空，旧连接还在被复用。
+3. **端口占用** \u2014 \`8444\` 已被占用，服务起不来。
+
+排查顺序建议：
+
+- 先看证书链，成本最低
+- 再看端口占用
+  - \`lsof -i :8444\`
+  - \`systemctl status\`
+- 最后才动连接池配置
+
+参考 [nginx SSL 模块文档](https://nginx.org/en/docs/http/ngx_http_ssl_module.html) 与内部记录 https://mrlgs.net/relay-health 。
+
+`;
+
+const FULL_TEXT = PROSE_A + CODE_BLOCK + RAW_JSON + PROSE_B + PROSE_LIST + DIFF_BLOCK + CODE_BLOCK_2 + PROSE_C;
 const REASONING = "用户报告了部署问题。我需要先检查 nginx 配置，然后验证证书链。可能的原因有三类：超时、证书、连接池。逐一排查是最稳妥的路径。先用只读命令收集信息，避免影响线上服务。";
 
 function chunks(text, size) {
@@ -233,12 +258,26 @@ const fixtureSessions = [
 ];
 // Workspace of the dynamically created stored session (set by session.create / workspace.move).
 let storedWorkspace = { cwd: LAUNCH_DIR, git_repo_root: null, git_branch: null };
+// Opt-in padding (default 0, so every existing flow is untouched). A five-row list never fills a
+// phone viewport, which is exactly the condition LazyColumn scroll-anchoring bugs need in order to
+// show up — HG-11 hid the 已置顶 section above the fold and could not be reproduced without a list
+// long enough to scroll. MOCK_HERMES_EXTRA_SESSIONS=40 gives you one.
+const extraSessions = Number(process.env.MOCK_HERMES_EXTRA_SESSIONS ?? 0);
+
 function mockSessions() {
   const rows = fixtureSessions.map((f) => ({
     id: f.id, title: f.title, model: f.model, message_count: 4, last_active: nowSec() - f.ago,
     profile: "default", is_default_profile: true, archived: Boolean(f.archived),
     cwd: f.cwd, git_repo_root: f.git_repo_root, git_branch: f.git_branch, source: "tui",
   }));
+  for (let i = 0; i < extraSessions; i += 1) {
+    rows.push({
+      id: `filler-${i}`, title: `填充会话 ${i + 1} · 让列表长到需要滚动`, model: "claude-sonnet-5",
+      message_count: 4, last_active: nowSec() - 60 * (i + 1),
+      profile: "default", is_default_profile: true, archived: false, source: "tui",
+      cwd: LAUNCH_DIR, git_repo_root: LAUNCH_DIR, git_branch: "main",
+    });
+  }
   if (promptCount > 0) {
     rows.unshift({
       id: STORED_ID, title: "Mock 会话", model: "claude-opus-5", message_count: promptCount * 2, last_active: nowSec(),

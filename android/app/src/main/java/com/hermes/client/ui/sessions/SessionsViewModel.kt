@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
@@ -36,6 +37,12 @@ data class SessionsUiState(
     val error: AppError? = null,
     // I1: true when the server returned 401 — nav should route to Setup
     val unauthorized: Boolean = false,
+    /** Conversations Hermes had on messaging platforms; only fetched while the Bots segment is on. */
+    val botSessions: List<Session> = emptyList(),
+    val botsLoading: Boolean = false,
+    val botError: AppError? = null,
+    /** Channels configured on this Hermes. Zero AND no history means the Bots segment is hidden. */
+    val configuredChannels: Int = 0,
 )
 
 /** Projects-mode state: [tree] is the overview; [scope] is the drilled-in hydrated project (null = overview). */
@@ -100,13 +107,32 @@ class SessionsViewModel @Inject constructor(
      * Raw pinned tokens ("<profile>/<sessionId>", device-local). The list spans all profiles, so
      * the UI must test each session against its OWN profile token — not the active profile — or a
      * pin made in another profile would vanish. Pins do not sync to desktop (no gateway pin API).
+     *
+     * **null means "not read yet", and the list must not render until it resolves** (HG-11). With
+     * an `emptySet()` seed the first frame drew a list with no 已置顶 section; the pins then landed
+     * a beat later and that whole section was INSERTED at the top of a LazyColumn that anchors on
+     * the row already in view — so the section, and the pinned rows with it, ended up above the
+     * viewport. The user had to scroll back up to find pins they had every reason to think were
+     * lost. Reading a DataStore is cheap next to the network round trip the list already waits on,
+     * so gating the first frame on it costs nothing visible.
+     *
+     * A pin store that cannot be read degrades to "no pins" rather than hanging that gate forever.
      */
-    val pinnedTokens: StateFlow<Set<String>> =
-        pinStore.pinned.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+    val pinnedTokens: StateFlow<Set<String>?> =
+        pinStore.pinned
+            .catch { emit(emptySet()) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** True if [session] is pinned, keyed by the session's own profile. */
-    fun isPinned(session: Session, tokens: Set<String> = pinnedTokens.value): Boolean =
-        PinStore.token(session.profile, session.id, session.deviceId) in tokens
+    /** True if [session] is pinned, keyed by the session's own profile. Unread pins pin nothing. */
+    fun isPinned(session: Session, tokens: Set<String>? = pinnedTokens.value): Boolean =
+        PinStore.token(session.profile, session.id, session.deviceId) in tokens.orEmpty()
+
+    /**
+     * Bumped when the user pins a session, so the list can bring the 已置顶 section into view.
+     * A counter rather than a flag: pinning twice in a row must reveal twice.
+     */
+    private val _pinRevealRequests = MutableStateFlow(0L)
+    val pinRevealRequests: StateFlow<Long> = _pinRevealRequests.asStateFlow()
 
     /** Persisted view mode (Sessions flat list vs the gateway project tree). */
     val viewMode: StateFlow<ViewMode> =
@@ -164,14 +190,22 @@ class SessionsViewModel @Inject constructor(
             .onSuccess { loadArchived(); refresh() }
     }
 
-    /** Cron jobs failed/overdue for the active profile — drives the list's alert strip. */
-    private val _cronAlerts = MutableStateFlow(0)
-    val cronAlerts: StateFlow<Int> = _cronAlerts.asStateFlow()
+    /**
+     * What the one alert slot on this screen should say. Cron trouble and channel trouble share
+     * it, merged root-cause-first: a channel that is down absorbs the deliveries it swallowed,
+     * so one outage reads as one problem instead of one per report it stopped.
+     */
+    private val _health = MutableStateFlow(com.hermes.client.ui.activity.MergedHealth())
+    val health: StateFlow<com.hermes.client.ui.activity.MergedHealth> = _health.asStateFlow()
 
     private fun refreshCronAlerts() = viewModelScope.launch {
-        runCatching { tools.cronJobs(profileManager.active.value) }.onSuccess { jobs ->
-            _cronAlerts.value = com.hermes.client.ui.activity.needsAttention(jobs, System.currentTimeMillis()).size
-        }
+        val profile = profileManager.active.value
+        val jobs = runCatching { tools.cronJobs(profile) }.getOrNull() ?: return@launch
+        // A channel read that fails leaves the merge with no root causes — cron alerts then stand
+        // on their own, which is the pre-merge behaviour rather than a blank strip.
+        val platforms = runCatching { tools.messagingPlatforms(profile) }.getOrDefault(emptyList())
+        _health.value = com.hermes.client.ui.activity.mergeHealth(jobs, platforms, System.currentTimeMillis())
+        _state.value = _state.value.copy(configuredChannels = platforms.count { it.configured })
     }
 
     /** Persist the chosen view mode; the [viewMode] observer in init fetches the tree when needed. */
@@ -278,6 +312,8 @@ class SessionsViewModel @Inject constructor(
     private var eventRefreshJob: Job? = null
 
     fun refresh() {
+        // A row saying 思考中 is the store's belief, not the server's; a user-driven refresh asks.
+        runtimeStore.probeActiveRuntimes(reason = "list-refresh", staleOnly = false)
         refreshVersion++
         if (refreshJob?.isActive == true) return
         refreshJob = viewModelScope.launch {
@@ -334,11 +370,43 @@ class SessionsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Loads the Bots segment. Kept off the Chats path deliberately: the cross-profile list the
+     * Chats view uses filters messaging sources out, so this is a second read of the same
+     * endpoint rather than a filter over cached rows.
+     */
+    fun loadBots() = viewModelScope.launch {
+        _state.value = _state.value.copy(botsLoading = true, botError = null)
+        runCatching { sessions.botSessions() }
+            .onSuccess { _state.value = _state.value.copy(botSessions = it, botsLoading = false) }
+            .onFailure {
+                _state.value = _state.value.copy(
+                    botsLoading = false,
+                    botError = AppError(
+                        AppErrorCode.RPC_FAILED,
+                        retryable = true,
+                        technicalCause = it.message,
+                        stage = "bot_sessions_load",
+                    ),
+                )
+            }
+    }
+
+    /** How many channels this Hermes has configured — the Bots segment's visibility depends on it. */
+    fun refreshChannelCount() = viewModelScope.launch {
+        runCatching { tools.messagingPlatforms(profileManager.active.value) }
+            .onSuccess { platforms ->
+                _state.value = _state.value.copy(configuredChannels = platforms.count { it.configured })
+            }
+        // A failure leaves the count alone: the segment should not blink out because one poll
+        // failed, and the session history alone can still justify showing it.
+    }
+
     /** Refreshes whichever Chats segment is actually visible while the warm-start gate is up. */
     suspend fun recoverForForeground(): Boolean {
         restoreSelectedRoute()
         return when (viewModeStore.mode.first()) {
-            ViewMode.SESSIONS -> {
+            ViewMode.SESSIONS, ViewMode.BOTS -> {
                 refreshOnce()
                 !_state.value.unauthorized && _state.value.error == null
             }
@@ -487,6 +555,11 @@ class SessionsViewModel @Inject constructor(
 
     /** Pin/unpin keyed by the session's OWN profile, so it works regardless of the active one. */
     fun togglePin(session: Session) = viewModelScope.launch {
-        pinStore.toggle(PinStore.token(session.profile, session.id, session.deviceId))
+        // Pinning lifts the row into a section above wherever the reader is standing; without the
+        // reveal it simply vanishes from under their finger (HG-11). Unpinning moves it back down
+        // into its recency group, which needs no chase.
+        if (pinStore.toggle(PinStore.token(session.profile, session.id, session.deviceId))) {
+            _pinRevealRequests.value += 1
+        }
     }
 }

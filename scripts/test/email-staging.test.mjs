@@ -155,12 +155,12 @@ test("email staging exercise rejects concurrent aggregate activity instead of mi
       }
       throw new Error("unexpected request");
     },
-  }), isOpsCode("HR-OPS-011"));
+  }), isOpsCode("HR-OPS-017"));
 });
 
 test("email acceptance error is localized, retryable, registered, and CLI-wired", async () => {
   const definition = OPS_ERROR_DEFINITIONS.emailAcceptance;
-  assert.equal(definition.code, "HR-OPS-011");
+  assert.equal(definition.code, "HR-OPS-017");
   assert.match(definition.summaryZh, /邮件/);
   assert.match(definition.summaryEn, /email/i);
   assert.equal(definition.retryable, true);
@@ -170,7 +170,7 @@ test("email acceptance error is localized, retryable, registered, and CLI-wired"
     readFile("scripts/verify-email-staging.mjs", "utf8"),
     readFile("package.json", "utf8"),
   ]);
-  assert.match(registry, /`HR-OPS-011`/);
+  assert.match(registry, /`HR-OPS-017`/);
   assert.match(cli, /exerciseEmailStaging/);
   assert.equal(JSON.parse(rootPackage).scripts["ops:email-staging"], "node scripts/verify-email-staging.mjs");
 });

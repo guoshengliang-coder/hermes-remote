@@ -17,6 +17,29 @@ private fun job(
 )
 
 class NeedsYouTest {
+    /** Regression: `delivery_failed` used to fall through every branch, so a job whose output
+     *  never reached its channel looked like a clean run and never surfaced here. */
+    @Test fun delivery_failed_status_makes_an_UNDELIVERED_alert() {
+        val alerts = needsAttention(listOf(job(lastStatus = "delivery_failed")), NOW)
+        assertEquals(1, alerts.size)
+        assertEquals(CronAlertReason.UNDELIVERED, alerts.single().reason)
+    }
+
+    @Test fun delivery_failed_is_matched_case_insensitively() {
+        assertEquals(
+            CronAlertReason.UNDELIVERED,
+            needsAttention(listOf(job(lastStatus = "DELIVERY_FAILED")), NOW).single().reason,
+        )
+    }
+
+    /** A hard run failure still outranks a delivery failure. */
+    @Test fun run_failure_outranks_delivery_failure() {
+        assertEquals(
+            CronAlertReason.FAILED,
+            needsAttention(listOf(job(lastStatus = "error")), NOW).single().reason,
+        )
+    }
+
     @Test fun failed_status_makes_a_FAILED_alert() {
         assertEquals(CronAlertReason.FAILED, needsAttention(listOf(job(lastStatus = "error")), NOW).single().reason)
         assertEquals(CronAlertReason.FAILED, needsAttention(listOf(job(lastStatus = "failed")), NOW).single().reason)

@@ -1,0 +1,24 @@
+[Unit]
+Description=Record a high-priority Hermes GO production monitoring alert
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/logger --priority daemon.alert --tag hermes-go-production-monitor HR-OPS-012 production disk or database backup monitor requires operator attention
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+UMask=0077
+StandardOutput=journal
+StandardError=journal

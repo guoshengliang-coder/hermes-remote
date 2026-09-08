@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.hermesgo.postgresql-offhost</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE_PATH__</string>
+    <string>__OPS_ROOT__/scripts/postgresql-automation.mjs</string>
+    <string>offhost</string>
+    <string>--config</string><string>__OFFHOST_CONFIG__</string>
+    <string>--confirm</string><string>isolated:__PRODUCTION_HOSTNAME__</string>
+  </array>
+  <key>StartInterval</key><integer>3600</integer>
+  <key>RunAtLoad</key><true/>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>__LOG_ROOT__/postgresql-offhost.log</string>
+  <key>StandardErrorPath</key><string>__LOG_ROOT__/postgresql-offhost.error.log</string>
+</dict>
+</plist>

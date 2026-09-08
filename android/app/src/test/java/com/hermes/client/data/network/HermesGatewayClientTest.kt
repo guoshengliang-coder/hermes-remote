@@ -40,14 +40,29 @@ class HermesGatewayClientTest {
      * Call [drainOkHttp] on the returned OkHttpClient before the test ends
      * so MockWebServer's taskRunner queue is empty when the rule's @after fires.
      */
-    private fun makeClientAndHttp(server: MockWebServer): Pair<HermesGatewayClient, OkHttpClient> {
+    /** Waits on the real clock for [target] websocket upgrades; runTest's clock is virtual. */
+    private suspend fun awaitUpgrades(
+        upgrades: java.util.concurrent.atomic.AtomicInteger,
+        target: Int,
+        timeoutMs: Long = 10_000,
+    ) = withContext(Dispatchers.IO) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (upgrades.get() < target && System.currentTimeMillis() < deadline) Thread.sleep(25)
+    }
+
+    private fun makeClientAndHttp(
+        server: MockWebServer,
+        handshakeTimeoutMs: Long = 20_000L,
+    ): Pair<HermesGatewayClient, OkHttpClient> {
         val base = server.url("/api/ws").toString().replace("http", "ws")
         val okHttp = OkHttpClient.Builder()
             .readTimeout(10, TimeUnit.SECONDS)
             .build()
-        return HermesGatewayClient(okHttp, json, testScope) {
-            GatewayWebSocketEndpoint(base, "t")
-        } to okHttp
+        return HermesGatewayClient(
+            okHttp, json, testScope,
+            handshakeTimeoutMs = handshakeTimeoutMs,
+            wsEndpointProvider = { GatewayWebSocketEndpoint(base, "t") },
+        ) to okHttp
     }
 
     /**
@@ -437,4 +452,63 @@ class HermesGatewayClientTest {
             tearDownClient(client, okHttp)
         }
     }
+
+    /**
+     * Regression for HG-19. A socket that upgrades but never sends `gateway.ready` used to leave
+     * the client on Connecting forever: the only exits were the ready frame and the socket dying,
+     * and this socket did neither. On a real device that meant 「正在连接 Relay…」 until the app was
+     * force-stopped, while every RPC failed on its own 15s timeout and REST health stayed green.
+     */
+    @Test fun a_socket_that_never_says_ready_is_torn_down_and_retried() = runTest {
+        val upgrades = java.util.concurrent.atomic.AtomicInteger(0)
+        val silent = object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                // Upgrade and then say nothing at all — no gateway.ready, no close.
+                upgrades.incrementAndGet()
+            }
+        }
+        repeat(2) {
+            serverRule.server.enqueue(MockResponse.Builder().webSocketUpgrade(silent).build())
+        }
+        val (client, okHttp) = makeClientAndHttp(serverRule.server, handshakeTimeoutMs = 300)
+        try {
+            client.connect()
+            // The watchdog must fire and the backoff must open a SECOND socket without help.
+            // Real clock, not runTest's virtual one: the work being waited on is OkHttp's.
+            awaitUpgrades(upgrades, 2)
+            assertTrue("a stalled handshake must be retried, not waited on forever", upgrades.get() >= 2)
+        } finally {
+            tearDownClient(client, okHttp)
+        }
+    }
+
+    /**
+     * The watchdog cancels the socket AND reports it closed, so OkHttp's onFailure for that
+     * cancellation arrives second. Without the per-generation guard that second report would
+     * schedule another backoff reconnect, leaving two live sockets that the generation check only
+     * shadows and never closes.
+     */
+    @Test fun one_stalled_socket_produces_exactly_one_retry() = runTest {
+        val upgrades = java.util.concurrent.atomic.AtomicInteger(0)
+        val silent = object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) { upgrades.incrementAndGet() }
+        }
+        repeat(4) {
+            serverRule.server.enqueue(MockResponse.Builder().webSocketUpgrade(silent).build())
+        }
+        val (client, okHttp) = makeClientAndHttp(serverRule.server, handshakeTimeoutMs = 300)
+        try {
+            client.connect()
+            awaitUpgrades(upgrades, 2)
+            // Give any duplicate reconnect the same window the legitimate one had.
+            withContext(Dispatchers.IO) { Thread.sleep(400) }
+            assertTrue(
+                "one stalled socket must yield one retry, not a pair (got ${upgrades.get()} upgrades)",
+                upgrades.get() <= 3,
+            )
+        } finally {
+            tearDownClient(client, okHttp)
+        }
+    }
+
 }

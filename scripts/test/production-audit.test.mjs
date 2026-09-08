@@ -193,12 +193,13 @@ async function createFixture(t, { evidence = true } = {}) {
 
 function targetManifest() {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     kind: "hermes-go-gateway-oci",
     serverVersion: "0.4.0",
     sourceCommit: "a".repeat(40),
     imageReference: `hermes-remote-gateway:0.4.0-${"a".repeat(12)}`,
     imageId: `sha256:${"b".repeat(64)}`,
+    containerdImageId: `sha256:${"c".repeat(64)}`,
     architecture: "amd64",
     archiveFile: `Hermes-Gateway-0.4.0-${"a".repeat(12)}-linux-amd64.tar`,
     archiveSha256: "e".repeat(64),

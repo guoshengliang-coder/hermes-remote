@@ -1,16 +1,17 @@
 import path from "node:path";
+import { runtimeImageIds } from "./config.mjs";
 import { OpsError } from "./errors.mjs";
 
 const RESULT_PREFIX = "DATABASE_MIGRATION_OK ";
 const CONTAINER_DATABASE_URL = "/run/hermes-go/database/account-database-url";
 
-export function verifyDatabaseMigration(config, manifest, runner) {
+export function verifyDatabaseMigration(config, manifest, runner, runtimeImageId = manifest.imageId) {
   if (config.database === null) {
     return { required: false, schemaVersion: null, postgresqlMajor: null, appliedMigrations: [] };
   }
   const contract = manifest.releaseContract;
   if (!contract) fail("database_release_contract_missing");
-  const result = runner.run("docker", migrationArguments(config, manifest), {
+  const result = runner.run("docker", migrationArguments(config, manifest, runtimeImageId), {
     allowFailure: true,
     timeout: 120_000,
   });
@@ -40,9 +41,10 @@ export function verifyDatabaseMigration(config, manifest, runner) {
   return { required: true, ...value };
 }
 
-export function migrationArguments(config, manifest) {
+export function migrationArguments(config, manifest, runtimeImageId = manifest.imageId) {
   if (config.database === null || !manifest.releaseContract) fail("database_configuration_missing");
   if (!config.paths?.configRoot) fail("database_secret_root_missing");
+  if (!runtimeImageIds(manifest).includes(runtimeImageId)) fail("database_runtime_image_identity_invalid");
   const databaseUrlPath = path.join(config.paths.configRoot, "database-secrets", "account-database-url");
   return [
     "run",
@@ -67,7 +69,7 @@ export function migrationArguments(config, manifest) {
     `ACCOUNT_DATABASE_SCHEMA_VERSION=${manifest.releaseContract.databaseSchemaVersion}`,
     "--env",
     `ACCOUNT_DATABASE_SUPPORTED_MAJORS=${manifest.releaseContract.supportedPostgresqlMajors.join(",")}`,
-    manifest.imageId,
+    runtimeImageId,
     "node",
     "gateway/dist/ops/migrate-account.mjs",
   ];

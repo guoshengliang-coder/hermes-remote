@@ -8,6 +8,7 @@ import com.hermes.client.domain.Role
 import com.hermes.client.domain.ToolCall
 import com.hermes.client.domain.ToolStatus
 import com.hermes.client.ui.theme.HermesTheme
+import com.hermes.client.ui.InChinese
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,7 +30,7 @@ class RunningRowTest {
 
     private fun show(msg: ChatMessage) {
         compose.mainClock.autoAdvance = false
-        compose.setContent { HermesTheme(darkTheme = false) { RunningStatusLine(msg) } }
+        compose.setContent { InChinese { HermesTheme(darkTheme = false) { RunningStatusLine(msg) } } }
     }
 
     @Test fun before_the_first_token_the_mark_stands_alone() {

@@ -128,14 +128,25 @@ class GatewayConnectionService : Service() {
         // stop can never reach the system while a startForeground() promise is outstanding.
         private val gate = ForegroundStartGate()
 
-        fun start(context: Context) {
+        /**
+         * Best-effort start. Android 12+ refuses a foreground-service start from the background
+         * (ForegroundServiceStartNotAllowedException) and the process lifecycle's ON_STOP lands
+         * ~700ms after the activity stops, so this call can legitimately be refused. Rethrowing
+         * killed the caller's coroutine — and with it all background connection management for
+         * the rest of the process — so the refusal is recorded and reported instead.
+         *
+         * @return true when the system accepted the start request.
+         */
+        fun start(context: Context): Boolean {
             val i = Intent(context, GatewayConnectionService::class.java)
             gate.onStartRequested()
-            try {
+            return try {
                 androidx.core.content.ContextCompat.startForegroundService(context, i)
+                true
             } catch (e: RuntimeException) {
                 gate.onStartFailed()
-                throw e
+                DebugLog.log("service", "foreground start refused: ${e.javaClass.simpleName}: ${e.message}")
+                false
             }
         }
 

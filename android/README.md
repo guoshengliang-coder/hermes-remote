@@ -240,6 +240,196 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   takes control. The chat header drops the profile avatar, promotes search beside More, removes the
   unused New chat menu entry, and adds a manual conversation refresh that preserves visible content,
   waits for active streaming to finish, then force-syncs and remeasures the transcript in place.
+- Version 0.1.92 ships no app-visible change: the APK is functionally identical to 0.1.91.
+  The only commit behind it fixes `scripts/dev/dev-stack.sh`, a developer-machine tool that is
+  not part of the package — it used to free its ports by killing whatever held them, which on
+  2026-09-04 would have taken down an unrelated project's dev server listening on 8787. It now
+  tracks the PIDs it starts and refuses to start when a port belongs to someone else.
+- Version 0.1.93 makes the session phase the single truth for whether a turn is running. A run
+  that finished while the phone was asleep used to keep its bubble on 生成中 with a live timer,
+  unlock the composer under it (a second live bubble stacked on a follow-up), and a reconnect
+  rewrote 等待你处理 into 思考中. History reconciles now keep the reasoning card and tool
+  timeline instead of erasing them — `MessageDto` finally models the `reasoning` and
+  `tool_calls` fields the gateway had been relaying all along — and a run that is active before
+  its first token shows the running mark in the transcript's bottom slot instead of nothing.
+  Reconstructed from the 2026-09-05 incident behind HG-6/7/8; nothing about the transport
+  changes, so a completion still arrives late while the phone sleeps — it is just shown
+  truthfully once it does.
+- Version 0.1.94 makes a turn rebuilt from history look exactly like the turn that streamed:
+  dynamic MCP calls are labelled by their real target instead of the `tool_call` wrapper, and the
+  persisted tool-result rows are joined back onto their cards so every row carries its output,
+  exit code and duration. A completed turn's timeline now folds behind a one-line summary
+  (calls · duration · failures); a timeline watched to completion stays open, one first seen
+  complete starts folded (docs/DESIGN.md §5.4, decision 2026-09-05).
+- Version 0.1.97 gives the diagnostic log what the 2026-09-05 investigation lacked. Under the
+  existing diagnostics switch (off by default, zero cost while off — hot-path lines are now lazy
+  and never build their string) the session store writes one `[phase]` line per visible state
+  change with its cause, a refused history reconcile names the coverage gap, and an observed
+  lifecycle event records how late it reached the phone. The diagnostics page gains a chip per
+  session the log mentions; the list and the Share button follow it, so a report carries exactly
+  the conversation that misbehaved. `docs/DIAGNOSTICS.md` is the read-only runbook that turns the
+  HG-6/7/8 reconstruction into a ten-minute procedure.
+- Version 0.1.96 closes the two ways a run's state could still go wrong after 0.1.93. Events for
+  a session id the app has not aliased yet (a run started on the Mac, a scheduled run, a handle
+  not yet resumed) are held for a minute and replayed the moment the alias appears instead of
+  being dropped — so a completion that arrives under an unknown id closes the turn at once. A run
+  the app believes active is asked about: on waking up, every three minutes of silence in the
+  foreground, and whenever the user refreshes; Hermes' session.info settles it. A transport error
+  never invents an outcome; only thirty silent minutes plus two failed probes mark a run
+  interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
+  queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.109 changes almost nothing you can see, and changes what happens after something
+  goes wrong. HG-27 arrived with 5,864 diagnostic entries across 31 hours and still could not say
+  why a socket had sat in 「正在连接 Relay…」 for a minute: every silent early-return on the
+  reconnect path left no trace, and a recovery path failing looks exactly like nothing happening.
+  The socket now records the HTTP upgrade completing (which separates "never dialled" from "the
+  Relay took the connection and went quiet" — different faults, different owners), every
+  connection transition including the way back to Connected, which guard stood the handshake
+  watchdog down, who asked for a close and why, and the scheduled reconnect that never ran. When
+  the chat banner rises, one line writes the socket's whole internal state; it never carries the
+  ticket. Paying for those lines, six repeating shapes that were 41% of the buffer are gone —
+  two of them defects: `thinking.delta` had slipped past the streaming filter, and the health
+  probe's "only log changes" check compared a value containing the latency, so it had never
+  suppressed anything. `/api/status` deliberately stays: "the web calls kept working while the
+  socket was stuck" is the contrast that makes a stall readable. Diagnostic logging is now on by
+  default in debug builds, because a stall can only be diagnosed if capture was already running —
+  the switch in 设置 → 诊断 still turns it off and the choice sticks.
+- Version 0.1.108 makes the machine-facing text stop reaching the reader, and gives the two list
+  pages the shape the design specifies. The bot transcript no longer decides for itself what a row
+  is: it now asks the chat screen the same question the chat screen asks, so the compaction
+  carriers, the server-injected `[ASYNC DELEGATION …` scaffolding and the empty turns left behind
+  after that text is stripped disappear from a DingTalk conversation the same way they already
+  disappeared from your own. Each turn also names the conversation rather than the platform —
+  a direct message says 私聊, a group says 群聊 — because Hermes leaves `display_name` blank on
+  DMs and the row had nothing else to show. 定时任务 says when a job runs in words: 每天 18:15
+  instead of `15 18 * * *`, 每 2 分钟 instead of `*/2 * * * *`; an expression nobody taught it is
+  still shown verbatim rather than guessed at. Both 消息渠道 and 定时任务 now match the drawing:
+  one leading glyph for the row's kind, one trailing chevron and nothing else in the row, the
+  已配置/全部 filter fixed above the list instead of scrolling away with it, and the health strip
+  at the top of 定时任务 is now a target — tapping it scrolls to the jobs that need you.
+- Version 0.1.107 stops the app assuming everyone reads Chinese, and cleans up two things the
+  transcript was showing that nobody wrote. The language setting now leads with 跟随系统 and starts
+  there: a Chinese phone gets Chinese, every other phone gets English, where before the stored
+  default was the literal string "ZH" and nothing read the device locale at all — an English phone
+  opened in Chinese and stayed there until its owner found Settings, in Chinese. Bold now survives
+  Chinese punctuation; CommonMark refuses to close a `**` run that sits between a full stop and the
+  next word, which is the ordinary shape of a Chinese sentence, so emphasis had been reaching every
+  reader as literal asterisks. And a file attached on DingTalk no longer drags Hermes' internal note
+  about where the cached copy lives into the person's own message. Separately, a Markdown link
+  pointing at a website's own path is no longer mistaken for a file on the Mac: quoting a fetched
+  page used to produce an attachment card that could only ever fail to open.
+- Version 0.1.106 makes reopening a session immediate and a filed report complete. Transcripts now
+  live on disk instead of in a ten-entry memory cache that died with the process, so with a couple
+  of hundred sessions an app update or a background eviction no longer made almost every open a
+  cold one; the reveal also stopped keying on "is a request running" and now asks "is there
+  anything to show", so a transcript already in hand is no longer held behind a skeleton until the
+  network answers. The bot transcript renders Hermes' markdown instead of delivering tables as rows
+  of pipes, and each turn now names whoever was speaking on the other platform. A feedback report
+  carries the whole rolling diagnostic log as an attachment rather than the last 500 lines, and a
+  reported crash carries the untrimmed trace; the inline entries and the trimmed description stay,
+  because attachment upload happens after the item is created and a refused file must not leave a
+  report with nothing in it.
+- Version 0.1.105 finishes the messaging-channel work. The channels page in 设置 opens on the
+  channels this Hermes actually has, with the full catalogue one segment away, and a configured
+  channel now has its own page: health with Hermes' own error text as detail, the delivery target
+  both scheduled delivery and a session handoff land on, and links to its conversations and to the
+  jobs that depend on it. The scheduled-jobs list is brought in line with the other two — grouped
+  needs-you-first, Material's filled glyphs dropped for a status dot on StatusColors (the brand
+  blue had been doubling as a success colour), and every row now says where its result goes. A job
+  can finally be told where to deliver from the phone, with channels that have no target shown but
+  not selectable. A channel that stops connecting raises a notification once, riding the existing
+  fifteen-minute wake-up rather than a timer of its own, and the home screen's single alert slot
+  merges channel and job trouble root-cause-first. A conversation can be moved to a channel from
+  the chat's overflow menu, with every consequence stated before the tap. §5.16 of docs/DESIGN.md
+  now records the whole design.
+- Version 0.1.104 gives testers a way to report from inside the app. The card page gains 反馈与建议
+  after app updates, and the crash screen gains 上报 next to Share. A report carries what the device
+  already knew and previously had no way to send: build and version, model and OS, the screen you
+  were on, and a snapshot of the diagnostic log when you had it running — so a bug no longer arrives
+  as a screenshot and a sentence. The crash path goes through a queue that survives the process, so a
+  crash with no network still reports once there is one. The entry points are absent, rather than
+  broken, in a build with no feedback configuration. Diagnostic redaction was strengthened on the way
+  in: the rule set now covers `Authorization: Bearer <credential>`, whose credential the old pattern
+  left in the clear because it stopped at the first space.
+- Version 0.1.103 stops Hermes' context-compaction handoff from being read as conversation. When a
+  conversation outgrows its context window Hermes compacts the earlier turns and carries the
+  handoff through the same user-role channel a person's messages use; upstream strips it before
+  showing a transcript, the dashboard REST history does not, and nothing on this side was
+  projecting it — so every compacted conversation showed a wall of English machine scaffolding.
+  A carrier can hold real conversation, so the projection keeps the prior tail before the
+  delimiter and the live message after the legacy end marker, and drops only a carrier left
+  holding nothing; matching is anchored at content start so a person quoting a marker still says
+  something real. The delimiters are pinned by HermesContractTest. The home screen's alert slot
+  also merges channel and scheduled-job trouble root-cause-first: a channel that is down absorbs
+  the deliveries it swallowed and says so, instead of one outage counting four times across two
+  screens.
+- Version 0.1.102 makes Hermes' other conversations visible. A fourth Chats segment, 机器人, lists
+  what Hermes has been saying on DingTalk, Slack and the rest — grouped by channel, appearing only
+  once a channel exists and stepping aside when the last one goes. Those transcripts are read-only
+  by nature: Hermes is a bot over there, so nothing sent from the phone could appear as you.
+  The channels page in 设置 gained the two things that made its switch meaningless — a gateway
+  restart (saving only writes config; adapters stay untouched until the gateway comes back) and a
+  connection test — plus grouping that puts a broken channel above twenty working ones. Its status
+  light no longer lies: it reads Hermes' own `state` instead of inferring "connected" from an
+  enabled flag and a live gateway, so 待重启 and 启动失败 stop showing green. A scheduled job whose
+  run succeeded but whose output never reached its channel (`delivery_failed`) is finally an alert
+  instead of a clean row, and raw English server tokens no longer reach the user as primary text.
+- Version 0.1.101 merges two consecutive tool calls into one group instead of two cards, restores
+  the missing times in 我的提问 (Hermes always sent them under the column name `timestamp`; the
+  client was reading a `created_at` that upstream never emits, so every message loaded from history
+  arrived timeless), and reworks the chat top bar: 新建对话 takes the icon slot, search moves to the
+  head of the 更多 menu, and 归档对话 joins it. Archiving now confirms first, in the chat and in the
+  sessions list alike.
+- Version 0.1.100 quiets a finished turn. The reasoning toggle and the folded tool-call summary
+  drop their chip and card borders for one grey line each, with click behaviour unchanged; a task
+  list stops claiming an item is in progress once the run has ended; and Hermes' context-compression
+  scaffolding is no longer rendered as if the user had typed it. That last one cuts the scaffolding
+  off the message rather than hiding the message, because upstream appends it to a real user turn.
+- Version 0.1.99 fixes five reported defects. Sharing a transcript as a Markdown file could do
+  nothing at all — the export ran on a coroutine scope the share sheet cancelled on its way out,
+  taking the failure toast with it. Pinned sessions that looked lost were being inserted above an
+  already-anchored list, so the list now waits for the pin set before its first frame and follows a
+  session you just pinned. A file card opens from anywhere on the card, not only from a small icon.
+  The version record no longer hides the notes of the build you are running. The two halves of the
+  stat card are top-aligned, so a wrapped latency line stops pushing the other half down. It also
+  carries the previously unreleased HG-1 and HG-10 fixes and the shared diagnostic log.
+- Version 0.1.98 identifies this app to Hermes as its own client (`source=hermes_remote`) on
+  session create and resume, so the agent stops receiving the terminal capability block that
+  told it attachments were impossible here; the matching text lives in the Mac's
+  `platform_hints` config (docs/HERMES_CONTRACT.md). It also documents the artifact-download
+  error codes (HR-FILE-003..007) and the Connector's refusal logging, which shipped in 0.1.97
+  without a release note.
+- Version 0.1.95 moves an assistant reply's file attachment below the reply text, so a long
+  report no longer scrolls its download card out of view, and records attachments in both the
+  Markdown and long-image transcript exports, which previously dropped them entirely.
+- Version 0.1.91 keeps a running task connected while you switch away, and stops reporting outages
+  the task never noticed. Backgrounding the app mid-run used to drop the socket 45 seconds later
+  and greet you with "reconnecting" on your return: the notification switch was evaluated before
+  the active-run rule and defaults to off, an intermediate `message.complete` released the phone's
+  claim on a run whose background processes were still working, and a foreground-service start
+  refused by Android 12+ killed the whole monitoring loop. A run this phone owns — one it started,
+  or one whose chat is open — now holds the connection regardless of the notification switch, with
+  Power saving still able to opt out. When a run keeps the connection with notifications off, a
+  silent ongoing card says so, and Background monitoring stays reachable so that choice can be
+  reversed. The chat banner waits out a short grace before announcing anything, timed only while
+  the chat is on screen, so a brief switch away says nothing at all; an interruption that heals
+  itself is styled as progress rather than failure. Reconnecting no longer re-downloads the
+  transcript of an idle chat that merely happened to be open, and the WebSocket ping window widened
+  from 20s to 45s so a sleeping device stops killing its own healthy socket.
+- Version 0.1.90 rebuilds the usage page and gives the app one loading language. The usage figures
+  used to contradict each other: the headline summed Hermes's main-agent rows while the model list
+  underneath already included auxiliary calls, so the rows added up to more than the total. Both
+  now derive from one response and the split is stated outright. 本周用量 means seven calendar days
+  rather than the last seven days that happened to have traffic, and the chart plots real dates
+  instead of spacing unequal gaps evenly. The window is selectable (7 / 30 / 90); the trend has an
+  axis and opens a per-day breakdown on tap; auxiliary spend is broken out by task, answering what
+  context compression actually costs; cost is isolated at the bottom with a sheet explaining what
+  it excludes, and it follows Hermes's own switch when that is turned off. An offline Mac and a
+  timed-out request now say so instead of sharing one generic failure, and a profile with no usage
+  gets an empty state rather than zeros that looked identical to a broken connector. Loading is now
+  one system derived from the launcher icon — light moving over a still shape, on a single period
+  and a 250ms reveal gate, replacing every bare spinner. The assistant body gets a spacing and type
+  contract, and links opened from an answer no longer crash on a device with no browser.
 - Version 0.1.89 stops the app from re-downloading a conversation it already has, and stops a
   routine reconnect from hiding the conversation behind the launch screen. Chat open, history
   reconciliation, foreground recovery and the startup coordinator used to wake together after a
@@ -568,7 +758,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.89-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.109-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

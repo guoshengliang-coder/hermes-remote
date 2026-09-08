@@ -26,6 +26,14 @@ enum class AppErrorCode(val value: String) {
     UPDATE_SUPERSEDED("HR-UPDATE-009"),
     FILE_READ_FAILED("HR-FILE-001"),
     TRANSCRIPT_FILE_FAILED("HR-FILE-002"),
+    // Downloading a Hermes-delivered artifact. Split by cause: a 403/413/missing file is not worth
+    // retrying, and "no app can open this type" is not a transfer failure at all — collapsing them
+    // into one message left both the user and the agent unable to tell which had happened.
+    ARTIFACT_FORBIDDEN("HR-FILE-003"),
+    ARTIFACT_TOO_LARGE("HR-FILE-004"),
+    ARTIFACT_MISSING("HR-FILE-005"),
+    ARTIFACT_DOWNLOAD_FAILED("HR-FILE-006"),
+    ATTACHMENT_NO_VIEWER("HR-FILE-007"),
     AVATAR_PHOTO_FAILED("HR-MEDIA-002"),
     TRANSCRIPT_IMAGE_FAILED("HR-MEDIA-003"),
     PROFILE_IDENTITY_SAVE_FAILED("HR-STORE-001"),
@@ -35,10 +43,28 @@ enum class AppErrorCode(val value: String) {
     PROJECT_MOVE_FAILED("HR-SESS-005"),
     PROJECT_FELL_BACK_TO_DEFAULT("HR-SESS-006"),
     MESSAGE_SEND_FAILED("HR-SESS-007"),
+    SESSION_ARCHIVE_FAILED("HR-SESS-008"),
     INSTALL_PERMISSION_REQUIRED("HR-PERM-003"),
+    HISTORY_INCOMPLETE("HR-SYNC-001"),
     RUN_UNCONFIRMED("HR-SYNC-002"),
     NOTIFICATION_ACTION_FAILED("HR-NOTIF-001"),
     SEARCH_FAILED("HR-SEARCH-001"),
+    FEEDBACK_UNAVAILABLE("HR-FEEDBACK-001"),
+    FEEDBACK_SUBMIT_FAILED("HR-FEEDBACK-002"),
+    FEEDBACK_REJECTED("HR-FEEDBACK-003"),
+    FEEDBACK_RATE_LIMITED("HR-FEEDBACK-004"),
+    CRON_DELIVERY_FAILED("HR-CRON-001"),
+    MESSAGING_LIST_FAILED("HR-MSG-001"),
+    MESSAGING_SAVE_FAILED("HR-MSG-002"),
+    MESSAGING_PROFILE_CONFLICT("HR-MSG-003"),
+    MESSAGING_PLATFORM_FAILED("HR-MSG-004"),
+    MESSAGING_RESTART_FAILED("HR-MSG-005"),
+    HANDOFF_SESSION_BUSY("HR-MSG-006"),
+    HANDOFF_CHANNEL_DISABLED("HR-MSG-007"),
+    HANDOFF_NO_TARGET("HR-MSG-008"),
+    HANDOFF_IN_FLIGHT("HR-MSG-009"),
+    LINK_NO_HANDLER("HR-LINK-001"),
+    LINK_NOT_OPENABLE("HR-LINK-002"),
     UNKNOWN("HR-UNKNOWN-001"),
     ;
 
@@ -64,8 +90,21 @@ data class AppError(
     }
 }
 
-/** Defense-in-depth redaction for copyable diagnostic summaries. */
-fun redactDiagnostic(value: String): String = value
-    .replace(Regex("(?i)(token|authorization|cookie|password)\\s*[:=]\\s*[^\\s,;]+"), "$1=<redacted>")
+/**
+ * Strips credential-shaped substrings. Split out from [redactDiagnostic] so the diagnostic log can
+ * reuse the same rules without the 1,000-character cap, which only makes sense for a summary meant
+ * to be copied into a chat. Anything leaving the app goes through here: MissionGo, like any
+ * diagnostic sink, keeps host-supplied text verbatim, so redaction has to happen on our side.
+ */
+fun redactSecrets(value: String): String = value
+    // The optional scheme word matters: `Authorization: Bearer <credential>` is the common shape,
+    // and a value pattern that stops at the first space eats only the word "Bearer" and leaves the
+    // credential in the clear.
+    .replace(
+        Regex("(?i)(token|authorization|cookie|password)\\s*[:=]\\s*(?:(?:bearer|basic|digest|token)\\s+)?[^\\s,;]+"),
+        "$1=<redacted>",
+    )
     .replace(Regex("(?i)([?&](?:token|ticket|key|signature)=)[^&\\s]+"), "$1<redacted>")
-    .take(1_000)
+
+/** Defense-in-depth redaction for copyable diagnostic summaries. */
+fun redactDiagnostic(value: String): String = redactSecrets(value).take(1_000)

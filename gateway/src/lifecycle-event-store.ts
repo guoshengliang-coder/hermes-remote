@@ -5,6 +5,7 @@ import {
   parseWireMessage,
   type SessionLifecycleEvent,
 } from "@hermes-remote/protocol";
+import { silentGatewayLogger, type GatewayLogger } from "./gateway-log.js";
 
 export interface StoredLifecycleEvent {
   sequence: number;
@@ -42,6 +43,7 @@ export class LifecycleEventStore {
   constructor(
     private readonly path: string,
     private readonly maxEvents = 10_000,
+    private readonly log: GatewayLogger = silentGatewayLogger,
   ) {}
 
   ingest(event: SessionLifecycleEvent, now = new Date()): Promise<StoredLifecycleEvent> {
@@ -72,10 +74,24 @@ export class LifecycleEventStore {
         .filter((record) => record.sequence > after)
         .sort((a, b) => a.sequence - b.sequence);
       const events = candidates.slice(0, boundedLimit);
+      const hasMore = candidates.length > events.length;
+      // A served page is the moment the phone learned of these events; the gap between a
+      // record's receivedAt and this line is how long the phone was not asking.
+      if (events.length > 0) {
+        this.log.info("lifecycle.served", {
+          after,
+          count: events.length,
+          firstSequence: events[0]?.sequence,
+          lastSequence: events.at(-1)?.sequence,
+          hasMore,
+        });
+      } else {
+        this.log.debug("lifecycle.served", { after, count: 0 });
+      }
       return {
         events,
         nextCursor: events.at(-1)?.sequence ?? Math.max(0, after),
-        hasMore: candidates.length > events.length,
+        hasMore,
       };
     });
   }
@@ -104,6 +120,7 @@ export class LifecycleEventStore {
         changed += 1;
       }
       if (changed > 0) await this.persist();
+      this.log.info("lifecycle.acked", { field, requested: new Set(eventIds).size, changed });
       return changed;
     });
   }

@@ -94,6 +94,64 @@ class SessionRuntimeStoreTest {
         )
     }
 
+    // ---- Disk-cached transcripts (docs/DESIGN.md §5.4 rule 4) ----------------------------------
+    // Reading a stored transcript is IO, so it can land after the network or after a run has
+    // started streaming. Both of those are authoritative; a stored copy may only fill a blank.
+
+    private fun message(id: String, text: String) =
+        ChatMessage(id = id, role = Role.USER, text = text)
+
+    @Test fun cachedHistoryFillsAnEmptyTranscriptAndLeavesTheRefreshRunning() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("stored-1", "personal")
+        fixture.store.markHistoryLoading(key, null)
+
+        fixture.store.acceptCachedHistory(key, listOf(message("h-0-1", "从磁盘来的")))
+
+        val chat = fixture.store.runtimes.value.getValue(key).chat
+        assertEquals(listOf("从磁盘来的"), chat.messages.map { it.text })
+        assertTrue("content exists, so the surface may reveal it", chat.historyLoaded)
+        assertTrue("the authoritative refresh is still running", chat.historyLoading)
+    }
+
+    @Test fun cachedHistoryIsDroppedWhenTheNetworkAnsweredFirst() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("stored-1", "personal")
+        fixture.store.markHistoryLoading(key, null)
+        fixture.store.acceptHistory(key, listOf(message("h-0-9", "服务端的")), System.currentTimeMillis())
+
+        fixture.store.acceptCachedHistory(key, listOf(message("h-0-1", "磁盘的")))
+
+        val chat = fixture.store.runtimes.value.getValue(key).chat
+        assertEquals(listOf("服务端的"), chat.messages.map { it.text })
+        assertFalse(chat.historyLoading)
+    }
+
+    @Test fun cachedHistoryIsDroppedWhenSomethingIsAlreadyOnScreen() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("stored-1", "personal")
+        fixture.store.markHistoryLoading(key, listOf(message("u-live", "刚发出去的")))
+
+        fixture.store.acceptCachedHistory(key, listOf(message("h-0-1", "磁盘的")))
+
+        assertEquals(
+            listOf("刚发出去的"),
+            fixture.store.runtimes.value.getValue(key).chat.messages.map { it.text },
+        )
+    }
+
+    @Test fun anEmptyCachedTranscriptChangesNothing() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("stored-1", "personal")
+        fixture.store.markHistoryLoading(key, null)
+
+        fixture.store.acceptCachedHistory(key, emptyList())
+
+        val chat = fixture.store.runtimes.value.getValue(key).chat
+        assertTrue(chat.messages.isEmpty())
+        assertFalse("an empty cache must not claim the transcript is loaded", chat.historyLoaded)
+    }
+
     @Test fun notificationTargetMapsALiveHandleBackToItsStoredConversation() = runTest {
         val fixture = fixture()
         val key = fixture.store.register("stored-42", "artist")
@@ -235,6 +293,37 @@ class SessionRuntimeStoreTest {
     // rungs unconditionally, so an already-reconciled conversation was re-downloaded in full three
     // more times — per session, per reconnect. That is what made a half-megabyte transcript cost
     // megabytes of mobile traffic every time the socket blinked (measured 2026-09-03).
+    /**
+     * Reconnecting used to re-download the transcript of every chat that merely happened to be on
+     * screen. An idle chat has no gap to recover — nothing was streaming — and the foreground
+     * startup gate already refreshes the visible destination, so that fetch was pure duplication.
+     */
+    @Test fun reconnecting_only_re_reads_transcripts_that_had_work_in_flight() = runTest {
+        val sessions = mockk<com.hermes.client.data.repository.SessionRepository>()
+        coEvery { sessions.history(any(), any()) } returns listOf(
+            ChatMessage("u", Role.USER, "开始"),
+            ChatMessage("a", Role.ASSISTANT, "回答"),
+        )
+        val fixture = fixture(sessions)
+
+        val watching = fixture.store.register("idle-but-open", "personal")
+        fixture.store.setVisible(watching, true)
+
+        val busy = fixture.store.register("still-running", "personal")
+        fixture.store.beginPrompt(busy, "跑起来")
+        fixture.events.emit(event("message.start", "still-running"))
+        fixture.events.emit(event("message.delta", "still-running", "半截"))
+        runCurrent()
+
+        fixture.connection.value = ConnectionState.Reconnecting
+        runCurrent()
+        fixture.connection.value = ConnectionState.Connected
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { sessions.history("idle-but-open", "personal") }
+        coVerify(atLeast = 1) { sessions.history("still-running", "personal") }
+    }
+
     @Test fun reconciliation_stops_downloading_once_a_snapshot_is_accepted() = runTest {
         val sessions = mockk<com.hermes.client.data.repository.SessionRepository>()
         val user = ChatMessage("persisted-user", Role.USER, "开始")
@@ -367,6 +456,29 @@ class SessionRuntimeStoreTest {
         assertEquals("手机已经收到的完整答案", store.runtimes.value.getValue(key).chat.messages.last().text)
     }
 
+    /**
+     * Regression for HG-1. `session.resume` returns no live handle for a session that already
+     * finished — which is the ordinary case when a run completes while the app is away. Treating
+     * that as a failed recovery made the startup gate cover the whole app with "couldn't load the
+     * first screen", over a transcript that had just been accepted correctly.
+     */
+    @Test fun foreground_recovery_succeeds_for_a_session_that_already_finished() = runTest {
+        val sessions = mockk<com.hermes.client.data.repository.SessionRepository>()
+        val user = ChatMessage("persisted-user", Role.USER, "开始")
+        val answer = ChatMessage("persisted-answer", Role.ASSISTANT, "完成内容")
+        coEvery { sessions.history("s1", "personal") } returns listOf(user, answer)
+        val fixture = fixture(sessions)
+        val key = fixture.store.register("s1", "personal")
+        // A relaxed ChatRepository returns no handle from resume(), which is exactly what an
+        // idle session hands back.
+        coEvery { fixture.chat.resume("s1", "personal") } returns null
+
+        val recovered = fixture.store.recoverVisibleSession(key)
+
+        assertTrue("an idle session is recovered, not failed", recovered)
+        assertEquals("完成内容", fixture.store.runtimes.value.getValue(key).chat.messages.last().text)
+    }
+
     @Test fun foregroundRecoveryWaitsForCompleteHistoryBeforeReportingReady() = runTest {
         val sessions = mockk<com.hermes.client.data.repository.SessionRepository>()
         val user = ChatMessage("persisted-user", Role.USER, "开始")
@@ -421,6 +533,55 @@ class SessionRuntimeStoreTest {
         assertTrue(active in store.runtimes.value)
         assertEquals(SessionRunPhase.SUBMITTING, store.runtimes.value.getValue(active).phase)
         assertTrue(store.runtimes.value.size <= 21)
+    }
+
+    /**
+     * Regression for problem B of the background-connection review. `message.complete` used to
+     * clear phone ownership, so a run that finished its message while a background process kept
+     * working fell out of the keep-alive policy and had its socket closed 45s later — mid-run.
+     */
+    @Test fun a_completed_message_keeps_phone_ownership_while_a_background_process_runs() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("s1", "personal")
+        fixture.store.beginPrompt(key, "起一个长任务")
+        fixture.store.updateChat(key) { state ->
+            state.copy(
+                backgroundProcesses = listOf(
+                    com.hermes.client.data.repository.BackgroundProcess(
+                        id = "p1",
+                        command = "npm run dev",
+                        running = true,
+                    ),
+                ),
+            )
+        }
+
+        fixture.events.emit(event("message.complete", "s1"))
+        advanceUntilIdle()
+
+        val runtime = fixture.store.runtimes.value.getValue(key)
+        assertTrue("background work must keep the session phone-owned", runtime.startedLocally)
+        assertTrue(runtime.hasActiveWork)
+    }
+
+    /** The authoritative "no longer running" snapshot is still what releases phone ownership. */
+    @Test fun an_authoritative_not_running_snapshot_releases_phone_ownership() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("s1", "personal")
+        fixture.store.beginPrompt(key, "起一个长任务")
+
+        fixture.events.emit(
+            ServerEvent(
+                "session.info",
+                "s1",
+                buildJsonObject { put("session_id", "s1"); put("running", false) },
+            ),
+        )
+        advanceUntilIdle()
+
+        val runtime = fixture.store.runtimes.value.getValue(key)
+        assertFalse(runtime.startedLocally)
+        assertFalse(runtime.hasActiveWork)
     }
 
     @Test fun observed_external_run_updates_list_state_without_becoming_phone_owned() = runTest {

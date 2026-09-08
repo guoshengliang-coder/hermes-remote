@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hermes-go.invalid/schemas/hermesctl-production-monitor-config-v1.json",
+  "title": "Hermes GO read-only production capacity and backup monitor configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "environment", "operator", "host", "backup"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "environment": { "const": "production" },
+    "operator": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostname", "diskMount", "warningFreeDiskMiB", "criticalFreeDiskMiB"],
+      "properties": {
+        "hostname": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$" },
+        "diskMount": { "const": "/" },
+        "warningFreeDiskMiB": { "type": "integer", "minimum": 2048, "maximum": 1048576 },
+        "criticalFreeDiskMiB": { "type": "integer", "minimum": 1024, "maximum": 1048575 }
+      }
+    },
+    "backup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "statusFile",
+        "maximumAgeHours",
+        "minimumEncryptedBytes",
+        "expectedPostgresqlMajorVersion",
+        "expectedDatabaseSchemaVersion"
+      ],
+      "properties": {
+        "statusFile": { "type": "string", "pattern": "^/" },
+        "maximumAgeHours": { "type": "integer", "minimum": 1, "maximum": 168 },
+        "minimumEncryptedBytes": { "type": "integer", "minimum": 1024, "maximum": 1099511627776 },
+        "expectedPostgresqlMajorVersion": { "const": 18 },
+        "expectedDatabaseSchemaVersion": { "type": "integer", "minimum": 1, "maximum": 2147483647 }
+      }
+    }
+  }
+}

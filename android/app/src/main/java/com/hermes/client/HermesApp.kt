@@ -3,6 +3,8 @@ package com.hermes.client
 import android.app.Application
 import com.hermes.client.data.diagnostics.CrashReporter
 import com.hermes.client.data.diagnostics.DebugLog
+import com.hermes.client.data.feedback.FeedbackReporter
+import com.hermes.client.data.feedback.toFeedbackAppearance
 import com.hermes.client.data.repository.SettingsStore
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -18,6 +20,7 @@ import com.hermes.client.widget.HermesWidget
 @HiltAndroidApp
 class HermesApp : Application() {
     @Inject lateinit var settingsStore: SettingsStore
+    @Inject lateinit var feedbackReporter: FeedbackReporter
     @Inject lateinit var lifecycleMonitoring: com.hermes.client.notifications.LifecycleMonitoringCoordinator
     @Inject lateinit var modelCatalog: com.hermes.client.data.repository.ModelCatalogStore
     @Inject lateinit var notifier: com.hermes.client.notifications.HermesNotifier
@@ -32,6 +35,10 @@ class HermesApp : Application() {
         // Channels must exist even when Smart/Power-saving mode never starts the foreground
         // service; creating channels is local-only and does not open a network connection.
         notifier.ensureChannels()
+        // Attach the rolling diagnostic file before the toggle is restored, so entries captured
+        // during startup are mirrored, and so the previous run's entries — the ones a crash or a
+        // background kill would otherwise take with it — are read back into the buffer.
+        DebugLog.init(java.io.File(filesDir, "diagnostics"))
         // Restore the diagnostic-logging toggle at launch so capture is active before the
         // Diagnostics screen is ever opened (e.g. to catch a failure on the first session open).
         settingsStore.debugLogging
@@ -40,6 +47,14 @@ class HermesApp : Application() {
             .launchIn(appScope)
         // Notification channels live outside Compose and Android keeps them after creation. Re-run
         // channel creation when the in-app language changes so their names follow the user's choice.
+        // Injecting the reporter is what initializes the MissionGo SDK, and that has to happen
+        // synchronously here: its background worker can wake in a process that never showed UI.
+        // The editor runs in its own Activity and resolves resources from the system configuration,
+        // so the in-app theme has to be mirrored to it and kept in sync.
+        settingsStore.themeMode
+            .distinctUntilChanged()
+            .onEach { feedbackReporter.setAppearance(it.toFeedbackAppearance()) }
+            .launchIn(appScope)
         settingsStore.appLanguage
             .distinctUntilChanged()
             .onEach {

@@ -99,7 +99,7 @@ test("email-domain audit reports every mismatch without leaking DNS values or re
     { id: "dkim_txt", status: "blocked" },
     { id: "dmarc_txt", status: "blocked" },
   ]);
-  assert.equal(result.error.code, "HR-OPS-012");
+  assert.equal(result.error.code, "HR-OPS-018");
   const serialized = JSON.stringify(result);
   for (const forbidden of ["wrong.example", "wrong-public-key", "eu-west-1", "resolver-private"]) {
     assert.equal(serialized.includes(forbidden), false);
@@ -144,7 +144,7 @@ test("email-domain audit distinguishes lookup failure and a missing DMARC report
 
 test("email-domain error is bilingual, retryable, registered, and CLI-wired", async () => {
   const definition = OPS_ERROR_DEFINITIONS.emailDomain;
-  assert.equal(definition.code, "HR-OPS-012");
+  assert.equal(definition.code, "HR-OPS-018");
   assert.match(definition.summaryZh, /域名/);
   assert.match(definition.summaryEn, /mail domain/i);
   assert.equal(definition.retryable, true);
@@ -154,7 +154,7 @@ test("email-domain error is bilingual, retryable, registered, and CLI-wired", as
     readFile("scripts/verify-email-domain.mjs", "utf8"),
     readFile("package.json", "utf8"),
   ]);
-  assert.match(registry, /`HR-OPS-012`/);
+  assert.match(registry, /`HR-OPS-018`/);
   assert.match(cli, /auditEmailDomain/);
   assert.equal(JSON.parse(rootPackage).scripts["ops:email-domain"], "node scripts/verify-email-domain.mjs");
 });

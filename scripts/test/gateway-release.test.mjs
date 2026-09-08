@@ -7,7 +7,7 @@ test("Gateway release contract stays aligned with package and protocol versions"
   const gatewayPackage = JSON.parse(await readFile("gateway/package.json", "utf8"));
   const contract = JSON.parse(await readFile("gateway/release-contract.json", "utf8"));
   const protocolSource = await readFile("protocol/src/index.ts", "utf8");
-  assert.equal(gatewayPackage.version, "0.4.0");
+  assert.equal(gatewayPackage.version, "0.4.1");
   assert.equal(contract.manifestVersion, 2);
   assert.match(protocolSource, new RegExp(`PROTOCOL_VERSION = ${contract.protocolVersions.legacy}`));
   assert.match(
@@ -73,6 +73,14 @@ test("Gateway image build context is allowlisted and release packaging fails clo
     assert.equal(imageTest.includes(required), true, `${required} missing from Gateway OCI smoke gate`);
   }
   assert.equal(/docker\s+(?:push|login)/.test(imageTest), false);
+
+  const bundleScript = await readFile("scripts/package-gateway-bundle.sh", "utf8");
+  assert.match(bundleScript, /inspect-gateway-archive-identity\.mjs/);
+  assert.match(bundleScript, /CONTAINERD_IMAGE_ID=/);
+
+  const manifestWriter = await readFile("scripts/write-gateway-bundle-manifest.mjs", "utf8");
+  assert.match(manifestWriter, /schemaVersion: 3/);
+  assert.match(manifestWriter, /containerdImageId/);
 });
 
 test("Gateway candidate smoke can split public and private verification routes safely", async () => {
@@ -83,4 +91,10 @@ test("Gateway candidate smoke can split public and private verification routes s
   assert.match(verifier, /const relayHealth = await fetchJson\(relayHealthPath\)/);
   assert.equal(verifier.includes('required("INTERNAL_GATEWAY_URL")'), false);
   assert.equal(verifier.includes('required("RELAY_HEALTH_PATH")'), false);
+  assert.match(verifier, /waitForGatewayForwarding/);
+  assert.match(verifier, /runGatewaySmokeCheck\("release_identity"/);
+  assert.match(verifier, /runGatewaySmokeCheck\("websocket_forward"/);
+  assert.match(verifier, /statusMode === "live"/);
+  assert.match(verifier, /gatewaySmokeRoutePolicy/);
+  assert.match(verifier, /if \(routePolicy\.verifyPrivateSurface\)/);
 });

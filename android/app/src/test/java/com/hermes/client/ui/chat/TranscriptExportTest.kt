@@ -1,5 +1,6 @@
 package com.hermes.client.ui.chat
 
+import com.hermes.client.domain.ChatFile
 import com.hermes.client.domain.ChatImage
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
@@ -12,8 +13,14 @@ import org.junit.Test
 class TranscriptExportTest {
     private val stamp = 1_756_000_000_000L  // fixed instant so assertions stay deterministic
 
-    private fun msg(role: Role, text: String, images: List<ChatImage> = emptyList()) =
-        ChatMessage(id = "m-${text.hashCode()}", role = role, text = text, images = images)
+    private fun msg(
+        role: Role,
+        text: String,
+        images: List<ChatImage> = emptyList(),
+        files: List<ChatFile> = emptyList(),
+    ) = ChatMessage(id = "m-${text.hashCode()}", role = role, text = text, images = images, files = files)
+
+    private fun file(name: String) = ChatFile(id = "f-${name.hashCode()}", name = name)
 
     // ---- Markdown document ----
 
@@ -117,5 +124,49 @@ class TranscriptExportTest {
         assertTrue(estimateTranscriptImageHeightDp(withBreaks) > estimateTranscriptImageHeightDp(plain))
         assertTrue(estimateTranscriptImageHeightDp(withImage) > estimateTranscriptImageHeightDp(plain))
         assertEquals(0, estimateTranscriptImageHeightDp(emptyList()))
+    }
+
+    // ---- Attachments in the export (docs/DESIGN.md §5.13, decision 2026-09-05) ----
+    // Regression: both exports used to emit only `text`, so a delivered file vanished from the
+    // record and a successful delivery read as a failure.
+
+    @Test fun markdown_records_delivered_file_attachments() {
+        val md = transcriptMarkdown(
+            title = null,
+            messages = listOf(msg(Role.ASSISTANT, "报告已生成。", files = listOf(file("经营快报.html")))),
+            language = AppLanguage.ZH,
+            exportedAtMillis = stamp,
+        )
+        assertTrue("prose still exported", md.contains("报告已生成。"))
+        assertTrue("attachment must be recorded", md.contains("附件：经营快报.html"))
+    }
+
+    @Test fun markdown_records_every_attachment_in_english_too() {
+        val md = transcriptMarkdown(
+            title = null,
+            messages = listOf(msg(Role.ASSISTANT, "Done.", files = listOf(file("a.pdf"), file("b.csv")))),
+            language = AppLanguage.EN,
+            exportedAtMillis = stamp,
+        )
+        assertTrue(md.contains("Attachment: a.pdf"))
+        assertTrue(md.contains("Attachment: b.csv"))
+    }
+
+    // A file-only turn carries no text; it must still survive the body filter.
+    @Test fun markdown_keeps_a_turn_that_is_only_an_attachment() {
+        val md = transcriptMarkdown(
+            title = null,
+            messages = listOf(msg(Role.ASSISTANT, "", files = listOf(file("only.html")))),
+            language = AppLanguage.ZH,
+            exportedAtMillis = stamp,
+        )
+        assertTrue(md.contains("## 助手"))
+        assertTrue(md.contains("附件：only.html"))
+    }
+
+    @Test fun height_estimate_covers_attachment_only_turns() {
+        val onlyFile = listOf(msg(Role.ASSISTANT, "", files = listOf(file("x.html"))))
+        assertTrue("an attachment-only turn is no longer estimated as empty",
+            estimateTranscriptImageHeightDp(onlyFile) > 0)
     }
 }

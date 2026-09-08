@@ -47,10 +47,12 @@ import com.hermes.client.ui.cron.CronDetailScreen
 import com.hermes.client.ui.cron.CronEditScreen
 import com.hermes.client.ui.cron.CronScreen
 import com.hermes.client.ui.messaging.MessagingScreen
+import com.hermes.client.ui.messaging.MessagingDetailScreen
 import com.hermes.client.ui.messaging.MessagingSetupScreen
 import com.hermes.client.ui.models.ModelsScreen
 import com.hermes.client.ui.models.ModelsViewModel
 import com.hermes.client.ui.sessions.SessionsScreen
+import com.hermes.client.ui.sessions.BotTranscriptScreen
 import com.hermes.client.ui.sessions.SessionsViewModel
 import com.hermes.client.ui.sessions.SearchViewModel
 import com.hermes.client.ui.settings.AboutScreen
@@ -368,6 +370,10 @@ fun HermesNav(
                     onOpenCard = openCard,
                     onOpenSearch = { nav.navigate("search") { launchSingleTop = true } },
                     onOpenCron = { push("cron") },
+                    onOpenMessaging = { push("messaging") },
+                    onOpenBotSession = { id, profile ->
+                        push("bot_transcript/$id?profile=${profile.orEmpty()}")
+                    },
                     onUnauthorized = onUnauthorized,
                 )
             }
@@ -471,10 +477,26 @@ fun HermesNav(
                     onDone = { nav.popBackStack() },
                 )
             }
+            composable("bot_transcript/{id}?profile={profile}") { entry ->
+                val id = entry.arguments?.getString("id").orEmpty()
+                val profile = entry.arguments?.getString("profile")?.takeIf { it.isNotBlank() }
+                BotTranscriptScreen(sessionId = id, profile = profile, onBack = back)
+            }
             composable("messaging") {
                 MessagingScreen(
                     onMenu = back,
                     onSetup = { id -> nav.navigate("messaging_setup/$id") },
+                    onOpenChannel = { id -> nav.navigate("messaging_detail/$id") },
+                )
+            }
+            composable("messaging_detail/{id}") { entry ->
+                MessagingDetailScreen(
+                    platformId = entry.arguments?.getString("id").orEmpty(),
+                    onBack = back,
+                    onEditCredentials = { id -> nav.navigate("messaging_setup/$id") },
+                    // Conversations have one home: the 机器人 segment on the Chats screen.
+                    onOpenBots = { nav.popBackStack("sessions", inclusive = false) },
+                    onOpenCron = { nav.navigate("cron") },
                 )
             }
             composable("messaging_setup/{id}") { entry ->

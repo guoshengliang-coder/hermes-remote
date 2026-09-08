@@ -20,6 +20,7 @@ import {
   loadDeployConfig,
   loadOpsConfig,
   manifestIdentity,
+  runtimeImageIds,
 } from "../../ops/lib/config.mjs";
 import {
   createOpsError,
@@ -34,6 +35,7 @@ import {
   bootstrapStaging,
   createDoctorBundle,
   getStatus,
+  inspectLoadedImage,
   preflight,
 } from "../../ops/lib/hermesctl.mjs";
 import {
@@ -117,7 +119,7 @@ test("R4 deploy config strictly isolates two staging slots", async (t) => {
   await assert.rejects(() => loadDeployConfig(configPath), isOpsCode("HR-OPS-001"));
 });
 
-test("bundle manifest v2 embeds a strict release contract while v1 remains readable", async (t) => {
+test("bundle manifest v3 binds both Docker identities while v1 and v2 remain readable", async (t) => {
   const fixture = await createFixture(t);
   const legacy = await loadBundleManifest(fixture.manifestPath);
   assert.equal(legacy.schemaVersion, 1);
@@ -137,6 +139,20 @@ test("bundle manifest v2 embeds a strict release contract while v1 remains reada
     JSON.stringify(manifestIdentity({ ...manifestV2, releaseContract: reorderedContract })),
   );
 
+  const manifestV3 = {
+    ...manifestV2,
+    schemaVersion: 3,
+    containerdImageId: `sha256:${"c".repeat(64)}`,
+  };
+  await writeJson(fixture.manifestPath, manifestV3);
+  const parsedV3 = await loadBundleManifest(fixture.manifestPath);
+  assert.deepEqual(runtimeImageIds(parsedV3), [manifestV3.imageId, manifestV3.containerdImageId]);
+  assert.equal(manifestIdentity(parsedV3).containerdImageId, manifestV3.containerdImageId);
+  const missingContainerdId = { ...manifestV3 };
+  delete missingContainerdId.containerdImageId;
+  await writeJson(fixture.manifestPath, missingContainerdId);
+  await assert.rejects(() => loadBundleManifest(fixture.manifestPath), isOpsCode("HR-OPS-002"));
+
   await writeJson(fixture.manifestPath, {
     ...manifestV2,
     releaseContract: { ...manifestV2.releaseContract, unexpected: true },
@@ -148,12 +164,18 @@ test("release transition matrix rejects unsafe deploy and rollback paths", () =>
   const legacy = releaseManifest("0.2.0", 1);
   const r4 = releaseManifest("0.3.0", 2);
   const next = releaseManifest("0.4.0", 2, { manifestVersion: 2 });
+  const containerdNext = {
+    ...releaseManifest("0.5.0", 2, { manifestVersion: 2 }),
+    schemaVersion: 3,
+    containerdImageId: `sha256:${"e".repeat(64)}`,
+  };
 
   const deploy = assessReleaseTransition(legacy, r4, { operation: "deploy" });
   assert.equal(deploy.compatible, true);
   assert.equal(deploy.source.serverVersion, "0.2.0");
   assert.equal(compareVersions("0.10.0", "0.9.9"), 1);
   assert.equal(compareVersions("1.0.0", "1.0.0"), 0);
+  assert.equal(assessReleaseTransition(r4, containerdNext, { operation: "deploy" }).compatible, true);
 
   assert.throws(
     () => assessReleaseTransition(legacy, releaseManifest("0.3.0", 2, { minimumSourceVersion: "0.2.1" }), { operation: "deploy" }),
@@ -450,7 +472,7 @@ test("status is layered and doctor writes an exclusive allowlist-only private bu
 
 test("Cloud Ops failures keep stable bilingual codes and redact diagnostic values", async () => {
   const codes = Object.values(OPS_ERROR_DEFINITIONS).map((definition) => definition.code);
-  assert.deepEqual(codes, ["HR-OPS-001", "HR-OPS-002", "HR-OPS-003", "HR-OPS-004", "HR-OPS-005", "HR-OPS-006", "HR-OPS-007", "HR-OPS-008", "HR-OPS-009", "HR-OPS-010", "HR-OPS-011", "HR-OPS-012"]);
+  assert.deepEqual(codes, ["HR-OPS-001", "HR-OPS-002", "HR-OPS-003", "HR-OPS-004", "HR-OPS-005", "HR-OPS-006", "HR-OPS-007", "HR-OPS-008", "HR-OPS-009", "HR-OPS-010", "HR-OPS-011", "HR-OPS-012", "HR-OPS-013", "HR-OPS-014", "HR-OPS-015", "HR-OPS-016", "HR-OPS-017", "HR-OPS-018"]);
   for (const definition of Object.values(OPS_ERROR_DEFINITIONS)) {
     assert.match(definition.summaryZh, /[\u3400-\u9fff]/);
     assert.match(definition.summaryEn, /^[A-Z]/);
@@ -481,14 +503,39 @@ test("Gateway bundle packaging and hermesctl CLI remain wired to clean immutable
   assert.equal(/docker\s+(?:push|login)/.test(packageScript), false);
 
   const manifestWriter = await readFile("scripts/write-gateway-bundle-manifest.mjs", "utf8");
-  assert.match(manifestWriter, /schemaVersion: 2/);
+  assert.match(manifestWriter, /schemaVersion: 3/);
+  assert.match(manifestWriter, /containerdImageId/);
   assert.match(manifestWriter, /releaseContract/);
 
   const cli = await readFile("scripts/hermesctl.mjs", "utf8");
-  for (const command of ["preflight", "bootstrap", "status", "doctor", "deploy", "rollback", "production-audit"]) {
+  for (const command of ["preflight", "bootstrap", "status", "doctor", "deploy", "rollback", "production-audit", "production-monitor", "legacy-capture", "legacy-restore"]) {
     assert.equal(cli.includes(`\"${command}\"`), true);
   }
   assert.match(cli, /confirmation: args\.confirm/);
+});
+
+test("Docker classic and Docker 29 containerd image IDs are both exact manifest-bound identities", async () => {
+  const config = await loadOpsConfig("ops/staging.example.json");
+  const manifest = {
+    schemaVersion: 3,
+    imageReference: "hermes-remote-gateway:0.4.0-abcdef123456",
+    imageId: `sha256:${"a".repeat(64)}`,
+    containerdImageId: `sha256:${"b".repeat(64)}`,
+  };
+  for (const runtimeImageId of [manifest.imageId, manifest.containerdImageId]) {
+    const image = inspectLoadedImage({
+      run: () => ({ status: 0, stdout: `${runtimeImageId}|amd64\n`, stderr: "" }),
+    }, manifest);
+    assert.equal(image.imageId, runtimeImageId);
+    assert.match(renderSystemdUnit(config, manifest, runtimeImageId), new RegExp(runtimeImageId));
+  }
+  assert.throws(() => inspectLoadedImage({
+    run: () => ({ status: 0, stdout: `sha256:${"c".repeat(64)}|amd64\n`, stderr: "" }),
+  }, manifest), isOpsCode("HR-OPS-002"));
+  assert.throws(
+    () => renderSystemdUnit(config, manifest, `sha256:${"c".repeat(64)}`),
+    isOpsCode("HR-OPS-002"),
+  );
 });
 
 test("R4 command orchestration resolves the managed R3 source before prepare and switch", async (t) => {
@@ -589,6 +636,67 @@ test("R4 command authorization fails before creating managed state", async (t) =
   await assert.rejects(() => lstat(config.paths.stateRoot), { code: "ENOENT" });
 });
 
+test("R5-D orchestration uses its verified legacy source and fixed initial slot without relaxing R4", async (t) => {
+  const fixture = await createFixture(t);
+  const source = releaseManifest("0.2.0", 1);
+  const target = releaseManifest("0.3.0", 2);
+  const config = {
+    schemaVersion: 1,
+    environment: "production",
+    operator: "test-operator",
+    targetArtifactManifest: fixture.manifestPath,
+    managedBaseline: true,
+    host: { hostname: "prod-host", architecture: "amd64" },
+    paths: fixture.config.paths,
+    legacySource: {
+      serviceName: "hermes-remote-gateway",
+      containerName: "hermes-remote-gateway-legacy",
+      gatewayPort: 18444,
+      stateDirectory: path.join(fixture.base, "legacy-state"),
+    },
+    slots: {
+      blue: { serviceName: "hermes-go-gateway-blue", containerName: "hermes-go-gateway-blue", gatewayPort: 18787 },
+      green: { serviceName: "hermes-go-gateway-green", containerName: "hermes-go-gateway-green", gatewayPort: 18788 },
+    },
+    gateway: { defaultDeviceId: "production-mac", accountAuthEnabled: false, accountBindingEnabled: false },
+    secrets: fixture.config.secrets,
+    database: null,
+    nginx: {
+      ...fixture.config.nginx,
+      upstreamConfigFile: path.join(fixture.base, "nginx", "hermes-go-production-upstream.conf"),
+    },
+    deployment: { drainTimeoutSeconds: 5, observationSeconds: 1 },
+  };
+  const calls = [];
+  const result = await executeDeployment(config, target, {
+    operation: "deploy",
+    authorization: "production-managed-baseline",
+    confirmation: "production:prod-host",
+    sourceManifest: source,
+    candidateSmoke: async () => {},
+    publicSmoke: async () => {},
+    legacySmoke: async () => {},
+    sourcePreflight: async () => {},
+    ownership: currentOwnership(),
+    getUid: () => 0,
+    platform: "linux",
+    architecture: "x64",
+    prepareCandidate: async (_config, resolvedSource, _target, options) => {
+      calls.push(["prepare", resolvedSource.serverVersion, options.activeSlot, options.authorization]);
+      return { stage: "candidate_verified" };
+    },
+    switchCandidate: async (_config, resolvedSource, _target, options) => {
+      calls.push(["switch", resolvedSource.serverVersion, options.activeSlot, options.authorization]);
+      return { ok: true, stage: "committed" };
+    },
+  });
+  assert.deepEqual(calls, [
+    ["prepare", "0.2.0", null, "production-managed-baseline"],
+    ["switch", "0.2.0", null, "production-managed-baseline"],
+  ]);
+  assert.equal(result.command, "deploy");
+});
+
 test("R4 CLI smoke fails closed before deployment when its isolated Connector environment is absent", async (t) => {
   const fixture = await createFixture(t);
   const example = JSON.parse(await readFile("ops/staging.deploy.example.json", "utf8"));
@@ -645,6 +753,8 @@ test("R4 CLI smoke fails closed before deployment when its isolated Connector en
     expectedServerVersion: "0.2.0",
   });
   assert.equal(verifierEnvironment.INTERNAL_GATEWAY_URL, `http://127.0.0.1:${config.legacySource.gatewayPort}`);
+  assert.equal(verifierEnvironment.HERMES_STATUS_MODE, "live");
+  assert.equal(verifierEnvironment.GATEWAY_SMOKE_ROUTE, "public");
 });
 
 test("ephemeral staging exercises R3/R4 rollback and PostgreSQL activation without production access", async () => {

@@ -7,6 +7,7 @@ const [
   archiveSha256,
   imageReference,
   imageId,
+  containerdImageId,
   architecture,
   serverVersion,
   sourceCommit,
@@ -14,19 +15,20 @@ const [
   releaseContractPath,
 ] = process.argv.slice(2);
 
-if (!manifestPath || process.argv.length !== 12) {
-  throw new Error("usage: write-gateway-bundle-manifest <manifest> <archive> <sha256> <image> <id> <arch> <version> <commit> <created-at> <release-contract>");
+if (!manifestPath || process.argv.length !== 13) {
+  throw new Error("usage: write-gateway-bundle-manifest <manifest> <archive> <sha256> <image> <config-id> <containerd-id> <arch> <version> <commit> <created-at> <release-contract>");
 }
 
 const releaseContract = validateReleaseContract(JSON.parse(await readFile(releaseContractPath, "utf8")));
 
 const manifest = validateManifest({
-  schemaVersion: 2,
+  schemaVersion: 3,
   kind: "hermes-go-gateway-oci",
   serverVersion,
   sourceCommit,
   imageReference,
   imageId,
+  containerdImageId,
   architecture,
   archiveFile,
   archiveSha256,
@@ -53,6 +55,7 @@ function validateManifest(value) {
   }
   if (!/^[0-9a-f]{64}$/.test(value.archiveSha256)) throw new Error("invalid archiveSha256");
   if (!/^sha256:[0-9a-f]{64}$/.test(value.imageId)) throw new Error("invalid imageId");
+  if (!/^sha256:[0-9a-f]{64}$/.test(value.containerdImageId)) throw new Error("invalid containerdImageId");
   if (value.architecture !== "amd64") throw new Error("invalid architecture");
   if (!/^\d+\.\d+\.\d+$/.test(value.serverVersion)) throw new Error("invalid serverVersion");
   if (!/^[0-9a-f]{40}$/.test(value.sourceCommit)) throw new Error("invalid sourceCommit");

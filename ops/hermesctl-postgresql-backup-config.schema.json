@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hermes-go.invalid/schemas/postgresql-backup-config-v1.json",
+  "title": "Hermes GO production PostgreSQL encrypted backup configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "environment", "operator", "sourceHostname", "serviceName", "databaseUrlFile", "recipientCertificate", "archiveFile", "manifestFile", "maximumEncryptedBytes", "postgresqlMajorVersion", "databaseSchemaVersion"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "environment": { "const": "production" },
+    "operator": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+    "sourceHostname": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$" },
+    "serviceName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9@.-]{0,62}$" },
+    "databaseUrlFile": { "$ref": "#/$defs/absolutePath" },
+    "recipientCertificate": { "$ref": "#/$defs/absolutePath" },
+    "archiveFile": { "$ref": "#/$defs/absolutePath" },
+    "manifestFile": { "$ref": "#/$defs/absolutePath" },
+    "maximumEncryptedBytes": { "type": "integer", "minimum": 1024, "maximum": 1099511627776 },
+    "postgresqlMajorVersion": { "const": 18 },
+    "databaseSchemaVersion": { "type": "integer", "minimum": 1, "maximum": 2147483647 }
+  },
+  "$defs": { "absolutePath": { "type": "string", "pattern": "^/(?!/)[^\\u0000-\\u001f\\u007f]+$" } }
+}

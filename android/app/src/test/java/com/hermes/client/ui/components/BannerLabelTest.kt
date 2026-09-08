@@ -19,6 +19,20 @@ class BannerLabelTest {
         assertEquals(true, connectionBannerModel(ConnectionState.Connecting).progress)
         assertEquals(null, connectionBannerModel(ConnectionState.Connecting).error)
     }
+    /**
+     * An interruption restores itself, so it renders as progress, not as a failure — only a Relay
+     * that actually refused us gets the error colours. The code stays reachable through 详情.
+     */
+    @Test fun a_self_healing_interruption_is_not_styled_as_a_failure() {
+        val interrupted = connectionBannerModel(ConnectionState.Disconnected)
+        assertEquals(true, interrupted.progress)
+        assertEquals("HR-CONN-004", interrupted.error!!.code.value)
+
+        val failed = connectionBannerModel(ConnectionState.Error("boom"))
+        assertEquals(false, failed.progress)
+        assertEquals("HR-CONN-002", failed.error!!.code.value)
+    }
+
     @Test fun errors_have_registered_codes_and_chinese_copy() {
         assertEquals(
             "HR-CONN-002",

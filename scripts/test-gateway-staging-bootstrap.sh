@@ -154,8 +154,14 @@ printf '%s\n' "$database_bundle_output"
 database_manifest_path=$(printf '%s\n' "$database_bundle_output" | sed -n 's/^MANIFEST=//p')
 database_server_version=$(printf '%s\n' "$database_bundle_output" | sed -n 's/^SERVER_VERSION=//p' | tail -n 1)
 database_source_commit=$(printf '%s\n' "$database_bundle_output" | sed -n 's/^SOURCE_COMMIT=//p' | tail -n 1)
+# The current-commit bundle must carry the version declared by gateway/package.json — pinning a
+# literal here silently broke every rehearsal after the 0.4.1 bump.
+expected_current_version=$(node --input-type=module -e '
+  import { readFileSync } from "node:fs";
+  process.stdout.write(JSON.parse(readFileSync("gateway/package.json", "utf8")).version);
+')
 if [ -z "$r3_manifest_path" ] || [ -z "$r4_manifest_path" ] || [ -z "$database_manifest_path" ] \
-    || [ "$database_server_version" != "0.4.0" ] || [ -z "$database_source_commit" ]; then
+    || [ "$database_server_version" != "$expected_current_version" ] || [ -z "$database_source_commit" ]; then
   report_failure candidate "bundle_identity_missing"
   exit 1
 fi
@@ -240,6 +246,7 @@ fi
 
 NODE_EXTRA_CA_CERTS="$run_dir/inputs/ca.crt" \
 PUBLIC_GATEWAY_URL="https://${server_name}:${edge_port}" \
+GATEWAY_SMOKE_ROUTE=public \
 INTERNAL_GATEWAY_URL="http://127.0.0.1:${gateway_port}" \
 RELAY_HEALTH_PATH=/relay-health \
 APP_TOKEN="$app_token" \
@@ -338,6 +345,259 @@ run_transition() {
     node scripts/hermesctl.mjs "$operation" --config "$deploy_config_path" --confirm staging
 }
 
+if [ "${HERMES_R5D_ONLY:-0}" = 1 ]; then
+  production_hostname=$(hostname)
+  managed_install_root=/opt/hermes-go-r5d-ephemeral
+  managed_config_root=/etc/hermes-go-r5d-ephemeral
+  managed_state_root=/var/lib/hermes-go-r5d-ephemeral
+  r5d_ops_bundle_dir="$run_dir/r5d-ops-bundle"
+  r5d_ops_root="$run_dir/r5d-ops-runtime"
+  mkdir -m 0700 "$r5d_ops_bundle_dir" "$r5d_ops_root"
+  if ! r5d_ops_bundle_output=$(node scripts/package-production-baseline-bundle.mjs "$r5d_ops_bundle_dir"); then
+    report_failure prerequisite "production_baseline_bundle_package_failed"
+    exit 1
+  fi
+  printf '%s\n' "$r5d_ops_bundle_output"
+  r5d_ops_manifest_path=$(printf '%s\n' "$r5d_ops_bundle_output" | sed -n 's/^MANIFEST=//p')
+  r5d_ops_archive_path=$(printf '%s\n' "$r5d_ops_bundle_output" | sed -n 's/^ARCHIVE=//p')
+  r5d_ops_source_commit=$(printf '%s\n' "$r5d_ops_bundle_output" | sed -n 's/^SOURCE_COMMIT=//p')
+  if [ -z "$r5d_ops_manifest_path" ] || [ -z "$r5d_ops_archive_path" ] \
+      || [ "$r5d_ops_source_commit" != "$database_source_commit" ]; then
+    report_failure candidate "production_baseline_bundle_identity_invalid"
+    exit 1
+  fi
+  node scripts/verify-production-baseline-bundle.mjs "$r5d_ops_manifest_path"
+  tar -xzf "$r5d_ops_archive_path" -C "$r5d_ops_root"
+  node "$r5d_ops_root/scripts/verify-production-baseline-bundle.mjs" "$r5d_ops_manifest_path"
+  r5d_ops_entrypoint="$r5d_ops_root/scripts/production-baseline.mjs"
+  if [ ! -f "$r5d_ops_entrypoint" ]; then
+    report_failure candidate "production_baseline_bundle_entrypoint_missing"
+    exit 1
+  fi
+  r3_archive_path=$(node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import path from "node:path";
+    const manifestPath = process.argv[1];
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    process.stdout.write(path.join(path.dirname(manifestPath), manifest.archiveFile));
+  ' "$r3_manifest_path")
+  r3_manifest_sha=$(sha256sum "$r3_manifest_path" | cut -d' ' -f1)
+  r3_archive_sha=$(sha256sum "$r3_archive_path" | cut -d' ' -f1)
+  identity_digest=$(R3_MANIFEST_PATH="$r3_manifest_path" R3_MANIFEST_SHA="$r3_manifest_sha" \
+    R3_ARCHIVE_PATH="$r3_archive_path" R3_ARCHIVE_SHA="$r3_archive_sha" \
+    node --input-type=module -e '
+      import { createHash } from "node:crypto";
+      const files = [
+        { path: process.env.R3_MANIFEST_PATH, sha256: process.env.R3_MANIFEST_SHA },
+        { path: process.env.R3_ARCHIVE_PATH, sha256: process.env.R3_ARCHIVE_SHA },
+      ].sort((left, right) => left.path.localeCompare(right.path));
+      process.stdout.write(createHash("sha256").update(JSON.stringify(files)).digest("hex"));
+    ')
+  legacy_evidence_path="$run_dir/inputs/legacy-recovery.json"
+  SOURCE_HOSTNAME="$production_hostname" IDENTITY_DIGEST="$identity_digest" \
+    node --input-type=module -e '
+      import { writeFileSync } from "node:fs";
+      const now = new Date();
+      const evidence = {
+        schemaVersion: 1,
+        kind: "hermes-go-legacy-recovery-v1",
+        sourceHostname: process.env.SOURCE_HOSTNAME,
+        createdAt: new Date(now.getTime() - 1000).toISOString(),
+        artifactSha256: "e".repeat(64),
+        subject: { identityDigest: process.env.IDENTITY_DIGEST },
+        restoreHostname: "isolated-r5d-restore",
+        restoredAt: now.toISOString(),
+        verifiedChecks: ["archive_hash", "files_restored", "service_start"],
+      };
+      writeFileSync(process.argv[1], `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
+    ' "$legacy_evidence_path"
+
+  candidate_nginx_path="$run_dir/inputs/hermes-go-ephemeral.candidate.conf"
+  sed \
+    -e "1i\\include /etc/nginx/hermes-go-upstreams/hermes-go-ephemeral-upstream.conf;" \
+    -e "s#http://127.0.0.1:${gateway_port}#http://hermes_go_gateway_production#g" \
+    /etc/nginx/conf.d/hermes-go-ephemeral.conf >"$candidate_nginx_path"
+  chmod 0600 "$candidate_nginx_path"
+  candidate_nginx_sha=$(sha256sum "$candidate_nginx_path" | cut -d' ' -f1)
+  production_config_path="$run_dir/inputs/managed-baseline.json"
+  cat >"$production_config_path" <<EOF
+{
+  "schemaVersion": 1,
+  "environment": "production",
+  "operator": "github-actions",
+  "targetArtifactManifest": "$r4_manifest_path",
+  "host": { "hostname": "$production_hostname", "architecture": "amd64" },
+  "paths": {
+    "installRoot": "$managed_install_root",
+    "configRoot": "$managed_config_root",
+    "stateRoot": "$managed_state_root",
+    "systemdUnitDirectory": "/etc/systemd/system"
+  },
+  "legacySource": {
+    "serviceName": "$service_name",
+    "containerName": "$container_name",
+    "gatewayPort": $gateway_port,
+    "stateDirectory": "/var/lib/hermes-go-ephemeral/gateway",
+    "compatibilityVersion": "$r3_server_version",
+    "identityFiles": [
+      { "path": "$r3_manifest_path", "sha256": "$r3_manifest_sha" },
+      { "path": "$r3_archive_path", "sha256": "$r3_archive_sha" }
+    ],
+    "recoveryEvidence": "$legacy_evidence_path"
+  },
+  "slots": {
+    "blue": { "serviceName": "$blue_service_name", "containerName": "$blue_container_name", "gatewayPort": $blue_port },
+    "green": { "serviceName": "$green_service_name", "containerName": "$green_container_name", "gatewayPort": $green_port }
+  },
+  "gateway": { "defaultDeviceId": "oci-staging", "accountAuthEnabled": false, "accountBindingEnabled": false },
+  "secrets": {
+    "appTokenSource": "$run_dir/inputs/app-token",
+    "connectorTokenSource": "$run_dir/inputs/connector-token",
+    "internalStatusTokenSource": "$run_dir/inputs/internal-status-token"
+  },
+  "database": null,
+  "nginx": {
+    "serverName": "$server_name",
+    "listenPort": $edge_port,
+    "certificateSource": "$run_dir/inputs/fullchain.pem",
+    "privateKeySource": "$run_dir/inputs/privkey.pem",
+    "candidateConfigSource": "$candidate_nginx_path",
+    "candidateConfigSha256": "$candidate_nginx_sha",
+    "configFile": "/etc/nginx/conf.d/hermes-go-ephemeral.conf",
+    "upstreamConfigFile": "/etc/nginx/hermes-go-upstreams/hermes-go-ephemeral-upstream.conf"
+  },
+  "deployment": { "drainTimeoutSeconds": 5, "observationSeconds": 1 }
+}
+EOF
+  chmod 0600 "$production_config_path"
+
+  sudo env \
+    "PATH=$PATH" \
+    "NODE_EXTRA_CA_CERTS=$run_dir/inputs/ca.crt" \
+    "HERMES_SMOKE_CONNECTOR_ENTRY=$repo_root/connector/dist/index.js" \
+    "HERMES_MODE=live" \
+    "HERMES_BASE_URL=http://127.0.0.1:${mock_port}" \
+    "HERMES_BASIC_AUTH_USERNAME=demo" \
+    "HERMES_BASIC_AUTH_PASSWORD=secret" \
+    "FILES_ROOT=$run_dir/runtime/candidate" \
+    "UPLOAD_ROOT=$run_dir/runtime/candidate/uploads" \
+    node "$r5d_ops_entrypoint" \
+      --config "$production_config_path" \
+      --confirm "production:${production_hostname}"
+
+  expected_r5d_release="releases/${r4_server_version}-$(printf '%s' "$r4_source_commit" | cut -c1-12)"
+  expected_legacy_release="releases/${r3_server_version}-$(printf '%s' "$identity_digest" | cut -c1-12)"
+  if [ "$(sudo readlink "$managed_install_root/current")" != "$expected_r5d_release" ] \
+      || [ "$(sudo readlink "$managed_install_root/previous")" != "$expected_legacy_release" ] \
+      || ! sudo systemctl is-active --quiet "${blue_service_name}.service" \
+      || sudo systemctl is-active --quiet "${service_name}.service" \
+      || ! sudo grep '^ACCOUNT_AUTH_ENABLED=0$' "$managed_config_root/slots/blue/gateway.env" >/dev/null \
+      || ! sudo grep '^ACCOUNT_BINDING_ENABLED=0$' "$managed_config_root/slots/blue/gateway.env" >/dev/null; then
+    report_failure candidate "managed_baseline_final_state_invalid"
+    exit 1
+  fi
+  echo "GATEWAY_R5D_MANAGED_BASELINE_OK"
+  echo "TARGET_SERVER_VERSION=$r4_server_version"
+  echo "TARGET_SOURCE_COMMIT=$r4_source_commit"
+
+  # R5-F1: a routine release inside the managed baseline that R5-D just committed. The
+  # current-commit bundle moves blue -> green through the immutable operator bundle's release
+  # entrypoint, then rolls back to blue. The Nginx site file must survive both byte-for-byte.
+  r5f1_entrypoint="$r5d_ops_root/scripts/production-release.mjs"
+  if [ ! -f "$r5f1_entrypoint" ]; then
+    report_failure candidate "production_release_bundle_entrypoint_missing"
+    exit 1
+  fi
+  release_config_path="$run_dir/inputs/production-release.json"
+  write_release_config() {
+    sed "s#\"targetArtifactManifest\": \"[^\"]*\"#\"targetArtifactManifest\": \"$1\"#" \
+      "$production_config_path" >"$release_config_path"
+    chmod 0600 "$release_config_path"
+  }
+  run_release() {
+    sudo env \
+      "PATH=$PATH" \
+      "NODE_EXTRA_CA_CERTS=$run_dir/inputs/ca.crt" \
+      "HERMES_SMOKE_CONNECTOR_ENTRY=$repo_root/connector/dist/index.js" \
+      "HERMES_MODE=live" \
+      "HERMES_BASE_URL=http://127.0.0.1:${mock_port}" \
+      "HERMES_BASIC_AUTH_USERNAME=demo" \
+      "HERMES_BASIC_AUTH_PASSWORD=secret" \
+      "FILES_ROOT=$run_dir/runtime/candidate" \
+      "UPLOAD_ROOT=$run_dir/runtime/candidate/uploads" \
+      node "$r5f1_entrypoint" \
+        --config "$release_config_path" \
+        --confirm "production:${production_hostname}" \
+        --operation "$1"
+  }
+  verify_public_release() {
+    NODE_EXTRA_CA_CERTS="$run_dir/inputs/ca.crt" \
+    PUBLIC_GATEWAY_URL="https://${server_name}:${edge_port}" \
+    GATEWAY_SMOKE_ROUTE=public \
+    INTERNAL_GATEWAY_URL="http://127.0.0.1:$1" \
+    RELAY_HEALTH_PATH=/relay-health \
+    APP_TOKEN="$app_token" \
+    INTERNAL_STATUS_TOKEN="$internal_status_token" \
+    EXPECTED_SOURCE_COMMIT="$2" \
+    EXPECTED_SERVER_VERSION="$3" \
+    EXPECTED_DEVICE_ID=oci-staging \
+      node scripts/verify-gateway-image-candidate.mjs
+  }
+  site_sha_before=$(sudo sha256sum /etc/nginx/conf.d/hermes-go-ephemeral.conf | cut -d' ' -f1)
+
+  write_release_config "$database_manifest_path"
+  run_release deploy
+  expected_r5f1_release="releases/${database_server_version}-$(printf '%s' "$database_source_commit" | cut -c1-12)"
+  if [ "$(sudo readlink "$managed_install_root/current")" != "$expected_r5f1_release" ] \
+      || [ "$(sudo readlink "$managed_install_root/previous")" != "$expected_r5d_release" ] \
+      || ! sudo systemctl is-active --quiet "${green_service_name}.service" \
+      || sudo systemctl is-active --quiet "${blue_service_name}.service" \
+      || sudo systemctl is-active --quiet "${service_name}.service" \
+      || [ "$(sudo sha256sum /etc/nginx/conf.d/hermes-go-ephemeral.conf | cut -d' ' -f1)" != "$site_sha_before" ] \
+      || ! sudo grep "127.0.0.1:${green_port}" /etc/nginx/hermes-go-upstreams/hermes-go-ephemeral-upstream.conf >/dev/null \
+      || ! sudo grep '^ACCOUNT_AUTH_ENABLED=0$' "$managed_config_root/slots/green/gateway.env" >/dev/null \
+      || ! sudo grep '^ACCOUNT_BINDING_ENABLED=0$' "$managed_config_root/slots/green/gateway.env" >/dev/null; then
+    report_failure candidate "production_release_final_state_invalid"
+    exit 1
+  fi
+  verify_public_release "$green_port" "$database_source_commit" "$database_server_version"
+
+  write_release_config "$r4_manifest_path"
+  run_release rollback
+  if [ "$(sudo readlink "$managed_install_root/current")" != "$expected_r5d_release" ] \
+      || [ "$(sudo readlink "$managed_install_root/previous")" != "$expected_r5f1_release" ] \
+      || ! sudo systemctl is-active --quiet "${blue_service_name}.service" \
+      || sudo systemctl is-active --quiet "${green_service_name}.service" \
+      || sudo systemctl is-active --quiet "${service_name}.service" \
+      || [ "$(sudo sha256sum /etc/nginx/conf.d/hermes-go-ephemeral.conf | cut -d' ' -f1)" != "$site_sha_before" ] \
+      || ! sudo grep "127.0.0.1:${blue_port}" /etc/nginx/hermes-go-upstreams/hermes-go-ephemeral-upstream.conf >/dev/null; then
+    report_failure candidate "production_rollback_final_state_invalid"
+    exit 1
+  fi
+  verify_public_release "$blue_port" "$r4_source_commit" "$r4_server_version"
+
+  sudo env "PATH=$PATH" \
+    "AUDIT_PATH=$managed_state_root/ops/operations.jsonl" \
+    "JOURNAL_PATH=$managed_state_root/ops/deploy-state.json" \
+    node --input-type=module -e '
+      import { readFileSync } from "node:fs";
+      const audit = readFileSync(process.env.AUDIT_PATH, "utf8").trim().split("\n").map(JSON.parse);
+      const tail = audit.slice(-4).map((entry) => `${entry.operation}:${entry.result}`);
+      if (tail.join(",") !== "deploy:started,deploy:success,rollback:started,rollback:success") {
+        throw new Error(`release_audit_sequence_invalid=${tail.join(",")}`);
+      }
+      const journal = JSON.parse(readFileSync(process.env.JOURNAL_PATH, "utf8"));
+      if (journal.operation !== "rollback" || journal.stage !== "committed"
+          || journal.activeSlot !== "green" || journal.candidateSlot !== "blue") {
+        throw new Error("release_rollback_journal_invalid");
+      }
+    '
+  echo "GATEWAY_R5F1_PRODUCTION_RELEASE_OK"
+  echo "RELEASE_SERVER_VERSION=$database_server_version"
+  echo "RELEASE_SOURCE_COMMIT=$database_source_commit"
+  exit 0
+fi
+
 write_deploy_config "$r4_manifest_path"
 run_transition deploy
 
@@ -351,6 +611,7 @@ fi
 
 NODE_EXTRA_CA_CERTS="$run_dir/inputs/ca.crt" \
 PUBLIC_GATEWAY_URL="https://${server_name}:${edge_port}" \
+GATEWAY_SMOKE_ROUTE=public \
 INTERNAL_GATEWAY_URL="http://127.0.0.1:${blue_port}" \
 RELAY_HEALTH_PATH=/relay-health \
 APP_TOKEN="$app_token" \
@@ -374,6 +635,7 @@ fi
 
 NODE_EXTRA_CA_CERTS="$run_dir/inputs/ca.crt" \
 PUBLIC_GATEWAY_URL="https://${server_name}:${edge_port}" \
+GATEWAY_SMOKE_ROUTE=public \
 INTERNAL_GATEWAY_URL="http://127.0.0.1:${green_port}" \
 RELAY_HEALTH_PATH=/relay-health \
 APP_TOKEN="$app_token" \
@@ -401,6 +663,7 @@ fi
 
 NODE_EXTRA_CA_CERTS="$run_dir/inputs/ca.crt" \
 PUBLIC_GATEWAY_URL="https://${server_name}:${edge_port}" \
+GATEWAY_SMOKE_ROUTE=public \
 INTERNAL_GATEWAY_URL="http://127.0.0.1:${green_port}" \
 RELAY_HEALTH_PATH=/relay-health \
 APP_TOKEN="$app_token" \
@@ -441,6 +704,7 @@ fi
 
 NODE_EXTRA_CA_CERTS="$run_dir/inputs/ca.crt" \
 PUBLIC_GATEWAY_URL="https://${server_name}:${edge_port}" \
+GATEWAY_SMOKE_ROUTE=public \
 INTERNAL_GATEWAY_URL="http://127.0.0.1:${blue_port}" \
 RELAY_HEALTH_PATH=/relay-health \
 APP_TOKEN="$app_token" \

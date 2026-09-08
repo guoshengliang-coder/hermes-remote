@@ -98,9 +98,64 @@ data class SessionRuntime(
     val lastTerminalAt: Long = 0L,
     /** When the state now described by [phase] happened — event time, not sync time. */
     val occurredAt: Long = 0L,
+    /**
+     * The active phase this run was in when the socket dropped; restored once it is back. Only
+     * meaningful while [phase] is RECONNECTING and cleared by [normalized] otherwise.
+     */
+    val phaseBeforeReconnect: SessionRunPhase? = null,
 ) {
     val hasRunningProcesses: Boolean get() = chat.backgroundProcesses.any { it.running }
     val hasActiveWork: Boolean get() = phase.isActive || hasRunningProcesses
+}
+
+/**
+ * The store's invariant, applied to every committed runtime: [SessionRuntime.phase] is the single
+ * source of truth for "is this turn running". `isGenerating` is derived from it, and a phase that
+ * is not active leaves no assistant bubble streaming.
+ *
+ * Every session-level terminal writer (an observed `run.completed`, `session.info{running:false}`,
+ * finishLocal, markFailed) used to clear phase and isGenerating and forget the bubble, so a turn
+ * that had finished on the Mac kept rendering "生成中" with a live chronometer for as long as the
+ * process lived, and the unlocked composer let a second live bubble stack under it (HG-6, HG-7).
+ * Normalizing here instead of fixing each writer means a writer that forgets cannot desync the
+ * committed state.
+ *
+ * The same rule covers the pending cards: an approval or clarify request is only meaningful while
+ * the run is waiting on it. Hermes answers an unanswered approval itself (deny after the timeout)
+ * and moves on without telling the client, so a card that outlives the run came back as a modal
+ * 需要审批 sheet on the next open of a finished conversation, and answering it flipped the finished
+ * session to a phantom 思考中 (emulator pass, 2026-09-06).
+ */
+internal fun SessionRuntime.normalized(): SessionRuntime {
+    val active = phase.isActive
+    val messages = if (active) chat.messages else chat.messages.map { message ->
+        if (message.role == Role.ASSISTANT && message.isStreaming) {
+            message.copy(isStreaming = false).organizedForDisplay()
+        } else message
+    }
+    return copy(
+        chat = chat.copy(
+            isGenerating = active,
+            messages = messages,
+            pendingApproval = if (active) chat.pendingApproval else null,
+            pendingClarify = if (active) chat.pendingClarify else null,
+        ),
+        phaseBeforeReconnect = if (phase == SessionRunPhase.RECONNECTING) phaseBeforeReconnect else null,
+    )
+}
+
+/**
+ * A reconnect used to collapse every active phase into THINKING, so a run that was waiting for the
+ * user came back as "思考中" and nobody was told they were being waited on (HG-8). Pending cards are
+ * authoritative for approval and clarification; WAITING_ATTENTION is known only to the observer,
+ * so it is remembered across the outage.
+ */
+internal fun SessionRuntime.restoredPhaseAfterReconnect(): SessionRunPhase = when {
+    chat.pendingApproval != null -> SessionRunPhase.WAITING_APPROVAL
+    chat.pendingClarify != null -> SessionRunPhase.WAITING_CLARIFICATION
+    else -> phaseBeforeReconnect
+        ?.takeIf { it.isActive && it != SessionRunPhase.RECONNECTING }
+        ?: SessionRunPhase.THINKING
 }
 
 /**
@@ -119,6 +174,13 @@ class SessionRuntimeStore(
     private val sessionRepository: SessionRepository? = null,
     private val mediaRepository: ChatMediaRepository? = null,
     private val accountSessions: AccountSessionManager? = null,
+    /** Wall clock, injectable so staleness and expiry can be driven by a test. */
+    private val clock: () -> Long = { System.currentTimeMillis() },
+    /**
+     * Whether the foreground watchdog runs. Off by default so a test's advanceUntilIdle never
+     * chases a rescheduling timer; production turns it on (AppModule).
+     */
+    private val watchdogEnabled: Boolean = false,
 ) {
     private val _runtimes = MutableStateFlow<Map<SessionRuntimeKey, SessionRuntime>>(emptyMap())
     val runtimes: StateFlow<Map<SessionRuntimeKey, SessionRuntime>> = _runtimes.asStateFlow()
@@ -126,6 +188,15 @@ class SessionRuntimeStore(
     val unreadTokens: StateFlow<Set<String>> = _unreadTokens.asStateFlow()
 
     private val aliases = ConcurrentHashMap<String, SessionRuntimeKey>()
+    /**
+     * Events that arrived for a session id nothing is aliased to yet — a run started on the Mac,
+     * a scheduled run, a handle the phone has not resumed. They used to be dropped on the floor
+     * (observed as `unmatched reasoning.delta … awaiting history reconciliation`); a dropped
+     * message.complete then left the turn open until the lifecycle inbox caught up minutes
+     * later. Held briefly and replayed in order the moment an alias for that id appears.
+     */
+    private val pendingEvents = ConcurrentHashMap<String, ArrayDeque<Pair<Long, ServerEvent>>>()
+    private val replaying = ThreadLocal<Boolean>()
     private val processPollJobs = ConcurrentHashMap<SessionRuntimeKey, Job>()
     private val processPollGraceRemaining = ConcurrentHashMap<SessionRuntimeKey, Int>()
     private val historyReconcileJobs = ConcurrentHashMap<SessionRuntimeKey, Job>()
@@ -138,6 +209,10 @@ class SessionRuntimeStore(
     // A composed chat screen stays "visible" while the phone is locked; only a visible chat in a
     // foreground app is actually being read. Completion folds use this to decide read vs unread.
     @Volatile private var appInForeground = false
+    @Volatile private var connected = false
+    private val lastProbeAt = ConcurrentHashMap<SessionRuntimeKey, Long>()
+    private val probeFailures = ConcurrentHashMap<SessionRuntimeKey, Int>()
+    @Volatile private var watchdogJob: Job? = null
 
     init {
         readStore?.let { store ->
@@ -164,6 +239,7 @@ class SessionRuntimeStore(
         appScope.launch {
             var previous: ConnectionState? = null
             chatRepository.connectionState.collect { current ->
+                connected = current is ConnectionState.Connected
                 if (current is ConnectionState.Reconnecting || current is ConnectionState.Error ||
                     current is ConnectionState.Disconnected
                 ) {
@@ -171,18 +247,32 @@ class SessionRuntimeStore(
                     _runtimes.update { map ->
                         map.mapValues { (_, runtime) ->
                             if (runtime.phase.isActive &&
+                                runtime.phase != SessionRunPhase.RECONNECTING &&
                                 (runtime.key.deviceId == null || runtime.key.deviceId == activeDevice)
-                            ) runtime.copy(phase = SessionRunPhase.RECONNECTING)
-                            else runtime
+                            ) {
+                                runtime.copy(
+                                    phase = SessionRunPhase.RECONNECTING,
+                                    phaseBeforeReconnect = runtime.phase,
+                                ).normalized()
+                            } else runtime
                         }
+                    }
+                    DebugLog.log("phase") {
+                        val held = _runtimes.value.values.filter { it.phase == SessionRunPhase.RECONNECTING }
+                        "${held.size} active run(s) → RECONNECTING cause=connection:${current::class.simpleName}" +
+                            held.joinToString(prefix = " [", postfix = "]") { "${it.key.sessionId}:${it.phaseBeforeReconnect}" }
                     }
                 }
                 if (current is ConnectionState.Connected && previous != null && previous !is ConnectionState.Connected) {
                     resumeRunningSessions()
-                    // WebSocket notifications are not replayed across a disconnect. Re-read every
-                    // active/visible transcript so any events produced in the gap are recovered.
+                    // WebSocket notifications are not replayed across a disconnect, so a run
+                    // that was streaming has to be re-read to recover the gap. An idle chat that
+                    // merely happens to be on screen has no gap to recover: nothing was streaming,
+                    // and the foreground startup gate already refreshes the visible destination
+                    // (ForegroundRecoveryCoordinator) when the app comes back. Pulling its whole
+                    // transcript here too was the common case of the reconnect fetch storm.
                     _runtimes.value.values
-                        .filter { it.phase.isActive || it.key in visible || it.chat.isGenerating }
+                        .filter { it.phase.isActive || it.chat.isGenerating }
                         .forEach { runtime ->
                             val expectation = expectationFor(runtime).let { expected ->
                                 // A stream interrupted mid-answer may not be a literal prefix of
@@ -214,6 +304,7 @@ class SessionRuntimeStore(
         val retained = _runtimes.value.keys
         aliases.entries.filter { it.value !in retained }.forEach { aliases.remove(it.key, it.value) }
         if (lastActiveKey !in retained) lastActiveKey = null
+        replayPending(sessionId)
         return key
     }
 
@@ -240,6 +331,8 @@ class SessionRuntimeStore(
             map + (key to current.copy(liveHandle = handle ?: current.liveHandle))
         }
         if (!handle.isNullOrBlank()) scheduleProcessPolling(key, PROCESS_DISCOVERY_GRACE_POLLS)
+        replayPending(key.sessionId)
+        if (!handle.isNullOrBlank()) replayPending(handle)
     }
 
     /**
@@ -269,6 +362,91 @@ class SessionRuntimeStore(
         appInForeground = foreground
         if (foreground) visible.toList().forEach { key ->
             if (_runtimes.value[key]?.phase?.isTerminalVerdict == true) markRead(key)
+        }
+        // Waking up is the one moment Doze cannot have hidden: whatever finished while the phone
+        // slept is asked about now instead of whenever the inbox next gets polled.
+        if (foreground) {
+            probeActiveRuntimes(reason = "foreground", staleOnly = false)
+            scheduleWatchdog()
+        }
+    }
+
+    enum class ProbeResult { PROBED, RATE_LIMITED, OFFLINE, FAILED, GAVE_UP, IDLE }
+
+    /**
+     * Ask Hermes whether a run the store still believes is active really is. A successful
+     * `session.resume` makes Hermes emit `session.info{running}`, which the normal event fold
+     * settles: `running:false` retires the phase and (via normalization) closes the bubble. The
+     * store never invents a terminal state from a transport error — only a run that has been
+     * silent past [ACTIVE_RUN_HARD_CAP_MS] and failed to answer twice is marked interrupted, so
+     * a row cannot spin forever after the Mac disappears.
+     */
+    suspend fun probe(key: SessionRuntimeKey, force: Boolean = false): ProbeResult {
+        val runtime = _runtimes.value[key] ?: return ProbeResult.IDLE
+        if (!runtime.phase.isActive || runtime.phase == SessionRunPhase.RECONNECTING) return ProbeResult.IDLE
+        if (!connected) return ProbeResult.OFFLINE
+        val now = clock()
+        if (!force && now - (lastProbeAt[key] ?: 0L) < PROBE_MIN_INTERVAL_MS) return ProbeResult.RATE_LIMITED
+        lastProbeAt[key] = now
+        return runCatching { chatRepository.resume(key.sessionId, key.profile) }
+            .fold(
+                onSuccess = { handle ->
+                    probeFailures.remove(key)
+                    bindLiveHandle(key, handle)
+                    ProbeResult.PROBED
+                },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    val failures = probeFailures.merge(key, 1, Int::plus) ?: 1
+                    DebugLog.log("session", "probe s=${key.sessionId} failed ($failures): ${error.message}")
+                    val silentFor = now - runtime.lastEventAt
+                    if (failures >= PROBE_FAILURES_BEFORE_GIVING_UP && silentFor > ACTIVE_RUN_HARD_CAP_MS) {
+                        DebugLog.log("session", "probe s=${key.sessionId}: silent ${silentFor / 60_000} min and unreachable, marking interrupted")
+                        markUnconfirmed(key)
+                        probeFailures.remove(key)
+                        ProbeResult.GAVE_UP
+                    } else ProbeResult.FAILED
+                },
+            )
+    }
+
+    /** Probe every active runtime; [staleOnly] restricts it to runs silent past [STALE_RUN_MS]. */
+    fun probeActiveRuntimes(reason: String, staleOnly: Boolean) {
+        val now = clock()
+        val candidates = _runtimes.value.values.filter { runtime ->
+            runtime.phase.isActive && runtime.phase != SessionRunPhase.RECONNECTING &&
+                (!staleOnly || now - runtime.lastEventAt > STALE_RUN_MS)
+        }
+        if (candidates.isEmpty()) return
+        DebugLog.log("session", "probing ${candidates.size} active run(s): $reason")
+        candidates.forEach { runtime -> appScope.launch { probe(runtime.key) } }
+    }
+
+    private fun scheduleWatchdog() {
+        if (!watchdogEnabled || !appInForeground) return
+        if (watchdogJob?.isActive == true) return
+        watchdogJob = appScope.launch {
+            delay(WATCHDOG_TICK_MS)
+            watchdogJob = null
+            if (!appInForeground) return@launch
+            probeActiveRuntimes(reason = "watchdog", staleOnly = true)
+            if (_runtimes.value.values.any { it.phase.isActive }) scheduleWatchdog()
+        }
+    }
+
+    /** A run silent past the hard cap whose Mac no longer answers: the outcome is unconfirmed. */
+    private fun markUnconfirmed(key: SessionRuntimeKey) {
+        val now = clock()
+        updateRuntime(key, cause = "probe:gave-up") { runtime ->
+            runtime.copy(
+                chat = runtime.chat.markInterrupted(),
+                phase = if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.INTERRUPTED,
+                toolName = null,
+                lastEventAt = now,
+                startedLocally = false,
+                lastTerminalAt = now,
+                occurredAt = now,
+            )
         }
     }
 
@@ -325,24 +503,30 @@ class SessionRuntimeStore(
                     .map { it.organizedForDisplay() }
                 accepted = acceptReconciledHistory(key, history, expectation)
                 if (accepted) break
-                DebugLog.log("history", "foreground recovery ${key.sessionId} waiting for complete history")
+                DebugLog.log("history", "foreground recovery s=${key.sessionId} waiting for complete history")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                DebugLog.log("history", "foreground recovery ${key.sessionId} failed: ${error.message}")
+                DebugLog.log("history", "foreground recovery s=${key.sessionId} failed: ${error.message}")
             }
         }
         if (!accepted) return false
 
+        // A live handle is what a *running* session hands back; a session that finished while the
+        // app was away has none, and asking for one is not a failure. Treating the missing handle
+        // as failure was HG-1: recovery reported false, the startup gate turned that into a
+        // full-screen "couldn't load", and the transcript accepted just above was already correct.
+        // History acceptance is the success criterion — the handle only decides whether there is
+        // a live stream left to re-attach to.
         val handle = try {
             chatRepository.resume(key.sessionId, key.profile)?.takeIf { it.isNotBlank() }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            DebugLog.log("session", "foreground resume ${key.sessionId} failed: ${error.message}")
+            DebugLog.log("session", "foreground resume s=${key.sessionId} failed: ${error.message}")
             null
-        } ?: return false
-        bindLiveHandle(key, handle)
+        }
+        if (handle != null) bindLiveHandle(key, handle)
         markRead(key)
         val media = mediaRepository
         if (media != null) {
@@ -351,7 +535,7 @@ class SessionRuntimeStore(
                 acceptHydratedImages(key, media.hydrateMessages(committed, key.profile))
             }.onFailure { error ->
                 if (error is CancellationException) throw error
-                DebugLog.log("media", "foreground hydration ${key.sessionId} failed: ${error.message}")
+                DebugLog.log("media", "foreground hydration s=${key.sessionId} failed: ${error.message}")
             }
         }
         return true
@@ -368,7 +552,7 @@ class SessionRuntimeStore(
         _runtimes.update { map ->
             val current = map[key] ?: return@update map
             if (current.phase.isTerminalVerdict) {
-                map + (key to current.copy(phase = SessionRunPhase.IDLE))
+                map + (key to current.copy(phase = SessionRunPhase.IDLE).normalized())
             } else map
         }
         if (readStore != null) readPersistenceQueue.trySend(token to false)
@@ -393,6 +577,30 @@ class SessionRuntimeStore(
             )
         }
         scheduleProcessPolling(key, PROCESS_DISCOVERY_GRACE_POLLS)
+    }
+
+    /**
+     * Late-arriving transcript from the disk cache ([com.hermes.client.data.repository.TranscriptStore]).
+     *
+     * Unlike [markHistoryLoading] this cannot be handed its content synchronously — reading and
+     * parsing a stored payload is IO — so it has to defend against the two things that can happen
+     * while it is in flight: the network answering first, and the session starting to stream. Both
+     * are authoritative over a stored copy, so this applies only while there is still nothing to
+     * show. `historyLoading` deliberately stays true: the refresh really is still running, and the
+     * chat surface renders that as the top progress line once content exists (docs/DESIGN.md §5.4).
+     */
+    fun acceptCachedHistory(key: SessionRuntimeKey, messages: List<ChatMessage>) {
+        if (messages.isEmpty()) return
+        updateRuntime(key) { runtime ->
+            if (runtime.chat.messages.isNotEmpty() || runtime.chat.historyLoaded) return@updateRuntime runtime
+            runtime.copy(
+                chat = runtime.chat.copy(
+                    messages = messages,
+                    historyLoaded = true,
+                    historyError = null,
+                ),
+            )
+        }
     }
 
     /** Do not let a slower REST response overwrite deltas received after that request started. */
@@ -421,7 +629,11 @@ class SessionRuntimeStore(
                     messages = if (keepLive) {
                         runtime.chat.messages
                     } else {
-                        com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages)
+                        com.hermes.client.ui.chat.inheritStreamFields(
+                            com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                            runtime.chat.messages,
+                            runActive = runtime.phase.isActive,
+                        )
                     },
                     historyLoading = false,
                     historyLoaded = true,
@@ -438,14 +650,26 @@ class SessionRuntimeStore(
      * queue one refresh after completion instead of overwriting unpersisted deltas.
      */
     fun acceptManualHistory(key: SessionRuntimeKey, messages: List<ChatMessage>): ManualHistoryResult {
-        val previous = _runtimes.value[key]?.chat?.messages
-        updateRuntime(key) { runtime ->
-            if (runtime.chat.isGenerating || runtime.phase.isActive) return@updateRuntime runtime
+        val before = _runtimes.value[key] ?: return ManualHistoryResult.BUSY
+        val previous = before.chat.messages
+        // A run in progress no longer defers the refresh: "something looks wrong" is exactly the
+        // moment the user must not be told to wait for a completion the phone may never hear
+        // (HG-8). The transcript is refreshed the way a reconnect reconcile is — accepted only
+        // when REST covers every locally observed turn — and the phase is left to the events.
+        val active = before.phase.isActive || before.chat.isGenerating
+        if (active && !messages.covers(expectationFor(before).copy(lastAssistantText = ""))) {
+            return ManualHistoryResult.BUSY
+        }
+        updateRuntime(key, cause = "manual-refresh") { runtime ->
             runtime.copy(
                 chat = runtime.chat.copy(
-                    messages = com.hermes.client.ui.chat.inheritTimestamps(
-                        com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                    messages = com.hermes.client.ui.chat.inheritStreamFields(
+                        com.hermes.client.ui.chat.inheritTimestamps(
+                            com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                            runtime.chat.messages,
+                        ),
                         runtime.chat.messages,
+                        runActive = runtime.phase.isActive,
                     ),
                     historyLoading = false,
                     historyLoaded = true,
@@ -453,14 +677,12 @@ class SessionRuntimeStore(
                 ),
             )
         }
-        val committedRuntime = _runtimes.value[key] ?: return ManualHistoryResult.BUSY
-        if (committedRuntime.chat.isGenerating || committedRuntime.phase.isActive) {
-            return ManualHistoryResult.BUSY
-        }
-        val committed = committedRuntime.chat.messages
-        val accepted = committed.size == messages.size && committed.zip(messages).all { (a, b) ->
-            a.copy(timestamp = null, id = "") == b.copy(timestamp = null, id = "")
-        }
+        val committed = _runtimes.value[key]?.chat?.messages ?: return ManualHistoryResult.BUSY
+        // Inherited stream fields (reasoning, tool results, the live tail) legitimately differ
+        // from the raw REST rows; compare with them normalized out, as the reconcile does.
+        fun ChatMessage.comparable() = copy(timestamp = null, id = "", thinking = "", tools = emptyList(), isStreaming = false)
+        val accepted = committed.size == messages.size &&
+            committed.zip(messages).all { (a, b) -> a.comparable() == b.comparable() }
         if (!accepted) return ManualHistoryResult.BUSY
         return if (previous == committed) ManualHistoryResult.UNCHANGED else ManualHistoryResult.CHANGED
     }
@@ -502,7 +724,7 @@ class SessionRuntimeStore(
     ) {
         historyReconcileJobs.remove(key)?.cancel()
         lastActiveKey = key
-        updateRuntime(key) { runtime ->
+        updateRuntime(key, cause = "prompt") { runtime ->
             runtime.copy(
                 chat = runtime.chat.withUserMessage(shownText, images, files, messageId)
                     .copy(pendingAttachments = emptyList()),
@@ -567,7 +789,7 @@ class SessionRuntimeStore(
      * advances so the observer's own run.interrupted a moment later is folded as a replay.
      */
     fun markInterrupted(key: SessionRuntimeKey) {
-        updateRuntime(key) { runtime ->
+        updateRuntime(key, cause = "stop") { runtime ->
             runtime.copy(
                 chat = runtime.chat.markInterrupted(),
                 phase = SessionRunPhase.IDLE,
@@ -581,7 +803,7 @@ class SessionRuntimeStore(
     }
 
     fun markFailed(key: SessionRuntimeKey, state: ChatUiState) {
-        updateRuntime(key) { runtime ->
+        updateRuntime(key, cause = "send-failed") { runtime ->
             runtime.copy(
                 chat = state.copy(isGenerating = false),
                 phase = if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.FAILED,
@@ -595,7 +817,7 @@ class SessionRuntimeStore(
     }
 
     fun finishLocal(key: SessionRuntimeKey) {
-        updateRuntime(key) { runtime ->
+        updateRuntime(key, cause = "finish-local") { runtime ->
             runtime.copy(
                 chat = runtime.chat.copy(isGenerating = false),
                 phase = SessionRunPhase.IDLE,
@@ -609,7 +831,17 @@ class SessionRuntimeStore(
     }
 
     fun continueAfterInput(key: SessionRuntimeKey) {
-        updateRuntime(key) { runtime ->
+        updateRuntime(key, cause = "input-answered") { runtime ->
+            // An answer to a card on a run this store has already seen end must not restart it:
+            // Hermes has moved on, nothing will follow, and the phantom 思考中 would sit there until
+            // the watchdog gave up. A runtime that has never seen a terminal (fresh process answering
+            // from the notification shade) still gets the optimistic THINKING.
+            if (!runtime.phase.isActive && runtime.lastTerminalAt > 0L) {
+                DebugLog.log("phase") {
+                    "s=${key.sessionId} input answered after the run ended (${runtime.phase}); not restarting"
+                }
+                return@updateRuntime runtime
+            }
             runtime.copy(
                 phase = SessionRunPhase.THINKING,
                 lastEventAt = System.currentTimeMillis(),
@@ -626,8 +858,14 @@ class SessionRuntimeStore(
         // handle and its durable database key. Preserve both aliases so a later WebSocket
         // completion/progress notification always opens the stored conversation.
         event.runtimeSessionId.takeIf { it.isNotBlank() }?.let { aliases[it] = key }
+        aliases[event.storedSessionId] = key
+        event.runtimeSessionId.takeIf { it.isNotBlank() }?.let(::replayPending)
+        replayPending(event.storedSessionId)
         val now = System.currentTimeMillis()
         val occurred = parseOccurredAt(event.occurredAt) ?: now
+        // Delivery latency as the phone sees it (phone clock minus the Mac's stamp). 26% of
+        // completions were more than 30s late on 2026-09-05; this line makes that visible per run.
+        DebugLog.log("lifecycle") { "${event.event} s=${key.sessionId} late=${(now - occurred) / 1000}s" }
         val title = event.title?.trim()?.takeIf { it.isNotBlank() }
         // The inbox replays a terminal transition the live socket already delivered (or that the
         // user already read) a few seconds later. Folding it again would resurrect an unread badge,
@@ -648,7 +886,7 @@ class SessionRuntimeStore(
             title?.let { setTitle(key, it) }
             return
         }
-        updateRuntime(key) { runtime ->
+        updateRuntime(key, cause = "lifecycle:${event.event}") { runtime ->
             val titled = runtime.copy(title = title ?: runtime.title)
             when (event.event) {
                 "run.started", "run.resumed" -> titled.copy(
@@ -683,7 +921,7 @@ class SessionRuntimeStore(
                     occurredAt = occurred,
                 )
                 "run.interrupted", "run.unknown" -> titled.copy(
-                    chat = runtime.chat.copy(isGenerating = false),
+                    chat = runtime.chat.markInterrupted(),
                     phase = if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.INTERRUPTED,
                     toolName = null,
                     lastEventAt = now,
@@ -738,11 +976,34 @@ class SessionRuntimeStore(
 
     private fun updateRuntime(
         key: SessionRuntimeKey,
+        cause: String = "update",
         transform: (SessionRuntime) -> SessionRuntime,
     ) {
         aliases[key.sessionId] = key
+        val before = if (DebugLog.isEnabled()) _runtimes.value[key] else null
         _runtimes.update { map ->
-            map + (key to transform(map[key] ?: SessionRuntime(key)))
+            map + (key to transform(map[key] ?: SessionRuntime(key)).normalized())
+        }
+        val after = _runtimes.value[key]
+        if (after?.phase?.isActive == true) scheduleWatchdog()
+        if (DebugLog.isEnabled() && after != null) logTransition(key, before, after, cause)
+    }
+
+    /**
+     * One diagnostic line per change of the three things a user can see — phase, isGenerating,
+     * how many bubbles are streaming — with what caused it. This is the line that was missing on
+     * 2026-09-05: the whole HG-6/7/8 reconstruction would have been a grep. Costs nothing unless
+     * diagnostics are on; never fires for a delta that changes only text.
+     */
+    private fun logTransition(key: SessionRuntimeKey, before: SessionRuntime?, after: SessionRuntime, cause: String) {
+        val streamingAfter = after.chat.messages.count { it.role == Role.ASSISTANT && it.isStreaming }
+        val streamingBefore = before?.chat?.messages?.count { it.role == Role.ASSISTANT && it.isStreaming } ?: 0
+        if (before?.phase == after.phase && before.chat.isGenerating == after.chat.isGenerating &&
+            streamingBefore == streamingAfter
+        ) return
+        DebugLog.log("phase") {
+            "s=${key.sessionId} ${before?.phase ?: "-"}→${after.phase} gen=${after.chat.isGenerating} " +
+                "streaming=$streamingAfter cause=$cause"
         }
     }
 
@@ -754,7 +1015,12 @@ class SessionRuntimeStore(
             if (event.type == "message.start" || event.type == "session.info") {
                 return register(id, profiles.active.value)
             }
-            DebugLog.log("event", "unmatched ${event.type} session=$id; awaiting history reconciliation")
+            if (replaying.get() == true) {
+                DebugLog.log("event", "dropped ${event.type} session=$id: still unmatched after replay")
+            } else {
+                bufferUnmatched(id, event)
+                DebugLog.log("event", "buffered ${event.type} session=$id until its session is known")
+            }
             return null
         }
         val active = _runtimes.value.values.filter { it.phase.isActive }
@@ -767,10 +1033,43 @@ class SessionRuntimeStore(
         return null
     }
 
+    private fun bufferUnmatched(id: String, event: ServerEvent) {
+        val now = clock()
+        val queue = pendingEvents.getOrPut(id) { ArrayDeque() }
+        synchronized(queue) {
+            while (queue.isNotEmpty() && now - queue.first().first > PENDING_EVENT_TTL_MS) queue.removeFirst()
+            if (queue.size >= PENDING_EVENT_CAP) queue.removeFirst()
+            queue.addLast(now to event)
+        }
+    }
+
+    /** Apply, in arrival order, whatever was held for [id]; anything older than the TTL is gone. */
+    private fun replayPending(id: String) {
+        val queue = pendingEvents.remove(id) ?: return
+        val now = clock()
+        val due = synchronized(queue) { queue.filter { now - it.first <= PENDING_EVENT_TTL_MS }.map { it.second } }
+        if (due.isEmpty()) return
+        DebugLog.log("event", "replaying ${due.size} buffered event(s) for session=$id")
+        replaying.set(true)
+        try {
+            due.forEach { event ->
+                try {
+                    applyEvent(event)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    DebugLog.log("event", "replay failed ${event.type} session=$id: ${error.message}")
+                }
+            }
+        } finally {
+            replaying.set(false)
+        }
+    }
+
     private fun applyEvent(event: ServerEvent) {
         val key = resolve(event) ?: return
         if (event.type == "message.start") lastActiveKey = key
-        updateRuntime(key) { runtime ->
+        updateRuntime(key, cause = "event:${event.type}") { runtime ->
             val reduced = try {
                 runtime.chat.reduce(event)
             } catch (error: Exception) {
@@ -829,8 +1128,14 @@ class SessionRuntimeStore(
                     else -> runtime.toolName
                 },
                 lastEventAt = now,
+                // Sticky: only an authoritative "this session is no longer running" clears the
+                // flag. A run can emit message.complete (or a recoverable error) and keep working
+                // — background processes still running, another message to follow — and dropping
+                // the flag there used to hand the session back to the idle-background policy,
+                // which closed the socket mid-run. Terminal transitions the app performs itself
+                // (finishLocal / markFailed / markInterrupted) and observed run.completed /
+                // run.interrupted still clear it.
                 startedLocally = when (event.type) {
-                    "message.complete", "error" -> false
                     "session.info" -> if (event.bool("running") == false) false else runtime.startedLocally
                     else -> runtime.startedLocally
                 },
@@ -904,7 +1209,7 @@ class SessionRuntimeStore(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
-                        DebugLog.log("history", "reconcile ${key.sessionId} failed: ${error.message}")
+                        DebugLog.log("history", "reconcile s=${key.sessionId} failed: ${error.message}")
                         continue
                     }
                     val accepted = acceptReconciledHistory(key, history, expectation)
@@ -939,7 +1244,19 @@ class SessionRuntimeStore(
         messages: List<ChatMessage>,
         expectation: HistoryExpectation,
     ): Boolean {
-        updateRuntime(key) { runtime ->
+        DebugLog.log("history") {
+            val current = _runtimes.value[key]?.let(::expectationFor)
+            val reason = when {
+                current == null -> null
+                current.userTurns > expectation.userTurns ||
+                    (expectation.lastUserText.isNotBlank() && current.lastUserText != expectation.lastUserText) ->
+                    "a newer prompt started"
+                else -> messages.coverageGap(expectation)
+            }
+            if (reason == null) "reconcile s=${key.sessionId}: ${messages.size} rows cover the local turns"
+            else "reconcile s=${key.sessionId} rejected: $reason"
+        }
+        updateRuntime(key, cause = "reconcile") { runtime ->
             val current = expectationFor(runtime)
             val newerPromptStarted = current.userTurns > expectation.userTurns ||
                 (expectation.lastUserText.isNotBlank() && current.lastUserText != expectation.lastUserText)
@@ -953,9 +1270,13 @@ class SessionRuntimeStore(
                 chat = runtime.chat.copy(
                     // Order matters: identity first (list keys/anchors survive the swap), then
                     // timestamps inherited onto the aligned list.
-                    messages = com.hermes.client.ui.chat.inheritTimestamps(
-                        com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                    messages = com.hermes.client.ui.chat.inheritStreamFields(
+                        com.hermes.client.ui.chat.inheritTimestamps(
+                            com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                            runtime.chat.messages,
+                        ),
                         runtime.chat.messages,
+                        runActive = runtime.phase.isActive,
                     ),
                     historyLoading = false,
                     historyLoaded = true,
@@ -965,25 +1286,34 @@ class SessionRuntimeStore(
         }
         // StateFlow.update may retry its transform under contention, so keep the transform free of
         // side effects and derive acceptance from the committed snapshot afterward.
-        // Timestamp inheritance and id alignment both mutate the committed list relative to the
-        // raw REST result, so acceptance compares content with stamps AND ids normalized out.
+        // Timestamp inheritance, id alignment and stream-field inheritance all mutate the committed
+        // list relative to the raw REST result, so acceptance compares content with stamps, ids,
+        // reasoning, tools and streaming state normalized out. Comparing the inherited fields would
+        // never match, and a reconcile that never "accepts" re-downloads the whole transcript on
+        // every rung of the ladder (the 2026-09-03 fetch storm).
         val committed = _runtimes.value[key]?.chat?.messages ?: return false
+        fun ChatMessage.comparable() = copy(
+            timestamp = null, id = "", thinking = "", tools = emptyList(), isStreaming = false,
+        )
         return committed.size == messages.size &&
-            committed.zip(messages).all { (a, b) ->
-                a.copy(timestamp = null, id = "") == b.copy(timestamp = null, id = "")
-            }
+            committed.zip(messages).all { (a, b) -> a.comparable() == b.comparable() }
     }
 
-    private fun List<ChatMessage>.covers(expectation: HistoryExpectation): Boolean {
+    private fun List<ChatMessage>.covers(expectation: HistoryExpectation): Boolean = coverageGap(expectation) == null
+
+    /** Null when the snapshot covers every locally observed turn; otherwise why it does not. */
+    private fun List<ChatMessage>.coverageGap(expectation: HistoryExpectation): String? {
         val users = filter { it.role == Role.USER }
         val assistants = filter { it.role == Role.ASSISTANT }
-        if (users.size < expectation.userTurns || assistants.size < expectation.assistantTurns) return false
+        if (users.size < expectation.userTurns) return "userTurns ${users.size}<${expectation.userTurns}"
+        if (assistants.size < expectation.assistantTurns) return "assistantTurns ${assistants.size}<${expectation.assistantTurns}"
         if (expectation.lastUserText.isNotBlank() && users.lastOrNull()?.text.orEmpty().matchText() != expectation.lastUserText) {
-            return false
+            return "last user turn differs"
         }
-        if (expectation.lastAssistantText.isBlank()) return true
+        if (expectation.lastAssistantText.isBlank()) return null
         val persisted = assistants.lastOrNull()?.text.orEmpty().matchText()
-        return persisted == expectation.lastAssistantText || persisted.contains(expectation.lastAssistantText)
+        if (persisted == expectation.lastAssistantText || persisted.contains(expectation.lastAssistantText)) return null
+        return "last assistant text not yet persisted"
     }
 
     private fun String.matchText(): String = trim().replace(Regex("\\s+"), " ")
@@ -1046,15 +1376,13 @@ class SessionRuntimeStore(
             runCatching { chatRepository.resume(runtime.key.sessionId, runtime.key.profile) }
                 .onSuccess { handle ->
                     bindLiveHandle(runtime.key, handle)
-                    updateRuntime(runtime.key) {
-                        it.copy(phase = if (it.chat.isGenerating) SessionRunPhase.THINKING else SessionRunPhase.IDLE)
-                    }
+                    updateRuntime(runtime.key, cause = "reconnect") { it.copy(phase = it.restoredPhaseAfterReconnect()) }
                 }
                 .onFailure { error ->
                     // Resume can race a task completing while the socket was down. Do not invent
                     // an interruption: lifecycle sync and authoritative history decide whether it
                     // finished, is still running, or genuinely stopped.
-                    DebugLog.log("session", "resume after reconnect ${runtime.key.sessionId} failed: ${error.message}")
+                    DebugLog.log("session", "resume after reconnect s=${runtime.key.sessionId} failed: ${error.message}")
                     scheduleHistoryReconciliation(
                         runtime.key,
                         expectationFor(runtime).copy(lastAssistantText = ""),
@@ -1081,5 +1409,16 @@ class SessionRuntimeStore(
         val FOREGROUND_RECOVERY_DELAYS_MS = longArrayOf(0L, 250L, 750L, 1_500L)
         /** Keep recent idle histories warm without retaining every session opened in this process. */
         const val MAX_CACHED_IDLE_RUNTIMES = 20
+        /** How long an event for a not-yet-aliased session waits for its alias before it is dropped. */
+        const val PENDING_EVENT_TTL_MS = 60_000L
+        const val PENDING_EVENT_CAP = 200
+        /** A foreground run this long without any event is asked about by the watchdog. */
+        const val STALE_RUN_MS = 3 * 60_000L
+        const val WATCHDOG_TICK_MS = 60_000L
+        /** One probe per run per minute, however many triggers fire. */
+        const val PROBE_MIN_INTERVAL_MS = 60_000L
+        /** Silent this long AND unreachable twice: the outcome is unconfirmed, the row stops spinning. */
+        const val ACTIVE_RUN_HARD_CAP_MS = 30 * 60_000L
+        const val PROBE_FAILURES_BEFORE_GIVING_UP = 2
     }
 }

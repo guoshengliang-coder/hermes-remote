@@ -43,6 +43,9 @@ import com.hermes.client.ui.util.formatEpoch
 import com.hermes.client.ui.util.formatIso
 import com.hermes.client.ui.localization.l10n
 import com.hermes.client.ui.localization.LocalAppLanguage
+import com.hermes.client.ui.localization.localizedMessage
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,13 +101,52 @@ fun CronDetailScreen(
                 LazyColumn(Modifier.padding(padding).fillMaxSize()) {
                     item {
                         Column(Modifier.padding(16.dp)) {
-                            Field(l10n("计划", "Schedule"), job.scheduleText)
+                            Field(l10n("计划", "Schedule"), cronScheduleText(job.scheduleText, language))
                             Spacer(Modifier.height(8.dp))
                             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
                                 Column(Modifier.padding(12.dp)) {
                                     Field(l10n("状态", "Status"), if (job.isPaused) l10n("已暂停", "Paused") else if (job.enabled) l10n("已启用", "Enabled") else l10n("已停用", "Disabled"))
                                     Field(l10n("下次运行", "Next run"), formatIso(job.nextRunAt))
-                                    Field(l10n("上次运行", "Last run"), formatIso(job.lastRunAt) + (job.lastStatus?.let { " · $it" } ?: ""))
+                                    // The same value the channel page calls 默认投递落点. A job that
+                                    // "runs but nothing arrives" is usually this plus a dead channel.
+                                    Field(
+                                        l10n("投递到", "Delivers to"),
+                                        cronDeliveryText(job.deliver).resolve(language),
+                                    )
+                                    Field(
+                                        l10n("上次运行", "Last run"),
+                                        formatIso(job.lastRunAt) +
+                                            (cronStatusLabel(job.lastStatus, language)?.let { " · $it" } ?: ""),
+                                    )
+                                    job.lastDeliveryError?.takeIf { it.isNotBlank() }?.let { err ->
+                                        var deliveryExpanded by rememberSaveable(err) { mutableStateOf(false) }
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(
+                                            AppError(
+                                                AppErrorCode.CRON_DELIVERY_FAILED,
+                                                retryable = true,
+                                                technicalCause = err,
+                                                stage = "cron_delivery",
+                                            ).localizedMessage(language),
+                                            color = MaterialTheme.colorScheme.error,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.clickable { deliveryExpanded = !deliveryExpanded },
+                                        )
+                                        if (deliveryExpanded) {
+                                            Text(
+                                                err,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                modifier = Modifier.padding(top = 4.dp),
+                                            )
+                                        }
+                                        Text(
+                                            if (deliveryExpanded) l10n("收起", "Show less") else l10n("展开", "Show more"),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(top = 2.dp).clickable { deliveryExpanded = !deliveryExpanded },
+                                        )
+                                    }
                                     job.lastError?.takeIf { it.isNotBlank() }?.let { err ->
                                         var errorExpanded by rememberSaveable(err) { mutableStateOf(false) }
                                         Spacer(Modifier.height(6.dp))
@@ -163,7 +205,7 @@ fun CronDetailScreen(
                     items(state.runs, key = { it.id }) { run ->
                         ListItem(
                             headlineContent = { Text(formatEpoch(run.startedAt)) },
-                            supportingContent = { Text(run.endReason ?: "—") },
+                            supportingContent = { Text(cronStatusLabel(run.endReason, language) ?: "—") },
                         )
                         HorizontalDivider()
                     }

@@ -42,6 +42,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.testTag
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -286,9 +287,9 @@ private fun ToolStatusDot(running: Boolean, failed: Boolean) {
  * metadata and the raw payload.
  */
 @Composable
-internal fun SemanticToolCard(tool: ToolCall) {
+internal fun SemanticToolCard(tool: ToolCall, completed: Boolean = false) {
     if (tool.todos.isNotEmpty()) {
-        TodoCard(tool)
+        TodoCard(tool, completed = completed)
         return
     }
     val language = LocalAppLanguage.current
@@ -515,9 +516,15 @@ internal sealed interface ToolDisplayGroup {
     data class Timeline(val tools: List<ToolCall>) : ToolDisplayGroup
 }
 
+/**
+ * Consecutive calls collapse into one timeline from **two** upwards (docs/DESIGN.md §5.4, HG-3).
+ * At the old threshold of three, a turn that used two tools drew two separately bordered cards and
+ * read as two independent things, when they are two steps of the same turn. A lone call stays its
+ * own card: there is no group to make.
+ */
 internal fun groupToolsForDisplay(
     tools: List<ToolCall>,
-    timelineThreshold: Int = 3,
+    timelineThreshold: Int = 2,
 ): List<ToolDisplayGroup> {
     val groups = mutableListOf<ToolDisplayGroup>()
     val run = mutableListOf<ToolCall>()
@@ -541,6 +548,14 @@ internal fun groupToolsForDisplay(
     return groups
 }
 
+/**
+ * How a todo item reads once the turn is over. Only `in_progress` changes, and only to `pending`:
+ * the run stopped, so nothing is running, but an item Hermes never updated may well have been
+ * finished without a final report — calling it failed would be a guess (HG-16).
+ */
+internal fun settledTodoStatus(status: String, turnCompleted: Boolean): String =
+    if (turnCompleted && status == "in_progress") "pending" else status
+
 /** Progress over a task list: done counts completed; total excludes cancelled. */
 internal fun todoProgress(todos: List<TodoItem>): Pair<Int, Int> {
     var done = 0
@@ -553,9 +568,17 @@ internal fun todoProgress(todos: List<TodoItem>): Pair<Int, Int> {
     return done to total
 }
 
-/** Checklist card for task-list payloads: progress bar plus per-item state. */
+/**
+ * Checklist card for task-list payloads: progress bar plus per-item state.
+ *
+ * [completed] means the turn is over. Hermes commonly stops updating the list without ever
+ * marking the last item done, so a card that keeps rendering `in_progress` claims work is still
+ * happening minutes after the run ended (HG-16). Once the turn is over that item is drawn as an
+ * ordinary unfinished one — NOT as "failed" or "abandoned", because nothing here knows whether it
+ * finished unreported (docs/DESIGN.md §5.4).
+ */
 @Composable
-internal fun TodoCard(tool: ToolCall) {
+internal fun TodoCard(tool: ToolCall, completed: Boolean = false) {
     val language = LocalAppLanguage.current
     val (done, total) = todoProgress(tool.todos)
     Surface(
@@ -572,7 +595,15 @@ internal fun TodoCard(tool: ToolCall) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TodoStateBox(status = "in_progress")
+                // Was hard-coded "in_progress", so a finished 3/3 list wore the running marker and
+                // so did every list whose turn had ended. The header reports the real state and
+                // settles with the turn, exactly like the rows below it.
+                TodoStateBox(
+                    status = settledTodoStatus(
+                        if (total > 0 && done == total) "completed" else "in_progress",
+                        completed,
+                    ),
+                )
                 Text(
                     localized(language, "任务清单", "Task list"),
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
@@ -605,12 +636,14 @@ internal fun TodoCard(tool: ToolCall) {
             Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 tool.todos.forEach { todo ->
                     val doneOrCancelled = todo.status == "completed" || todo.status == "cancelled"
+                    // After the turn ends nothing is in progress any more; see the KDoc above.
+                    val status = settledTodoStatus(todo.status, completed)
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        TodoStateBox(status = todo.status)
+                        TodoStateBox(status = status)
                         Text(
                             todo.content,
                             style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = if (todo.status == "in_progress") FontWeight.SemiBold else FontWeight.Normal,
+                                fontWeight = if (status == "in_progress") FontWeight.SemiBold else FontWeight.Normal,
                                 textDecoration = if (doneOrCancelled) {
                                     androidx.compose.ui.text.style.TextDecoration.LineThrough
                                 } else {
@@ -619,7 +652,7 @@ internal fun TodoCard(tool: ToolCall) {
                             ),
                             color = when {
                                 doneOrCancelled -> MaterialTheme.colorScheme.outline
-                                todo.status == "in_progress" -> MaterialTheme.colorScheme.onSurface
+                                status == "in_progress" -> MaterialTheme.colorScheme.onSurface
                                 else -> MaterialTheme.colorScheme.onSurfaceVariant
                             },
                             modifier = Modifier.padding(start = 9.dp),
@@ -670,24 +703,80 @@ private fun TodoStateBox(status: String) {
 }
 
 /**
+ * The tool timeline's shell. Folded shut after a completed turn it is [plain] — no surface, no
+ * border, no padding — so the summary reads as one quiet line rather than a card (HG-15).
+ * Running or expanded it is the bordered card, which is where grouping actually earns its weight.
+ */
+@Composable
+private fun ContainerOrPlain(plain: Boolean, content: @Composable () -> Unit) {
+    val modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+    if (plain) {
+        Box(modifier) { content() }
+    } else {
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(16.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+            ),
+            modifier = modifier,
+        ) { content() }
+    }
+}
+
+/**
  * Timeline card: three or more consecutive calls in one shell, one row per call
  * with the command (or first output line) as the summary; tapping a row expands
  * its output inline behind the hierarchy rail.
  */
 @Composable
-internal fun ToolTimelineCard(tools: List<ToolCall>) {
+internal fun ToolTimelineCard(
+    tools: List<ToolCall>,
+    // docs/DESIGN.md §5.4: a completed turn's timeline folds behind a one-line summary. The
+    // fold is decided once, when the card first enters the composition: a card watched to
+    // completion stays open (folding it at that instant would jump the bottom-pinned viewport);
+    // a card first seen already complete starts folded.
+    completed: Boolean = false,
+    stateKey: String = tools.firstOrNull()?.id.orEmpty(),
+) {
     val language = LocalAppLanguage.current
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(16.dp),
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
-        ),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-    ) {
-        Column(Modifier.padding(horizontal = 13.dp, vertical = 7.dp)) {
-            tools.forEach { tool ->
+    var cardExpanded by rememberSaveable("timeline-card-$stateKey") { mutableStateOf(!completed) }
+    val searchable = remember(tools) { tools.joinToString("\n") { it.name + " " + it.output } }
+    val autoExpand = shouldAutoExpand(LocalChatSearch.current, LocalTurnIsCurrentHit.current, SearchSource.TOOL, searchable)
+    androidx.compose.runtime.LaunchedEffect(autoExpand) { if (autoExpand) cardExpanded = true }
+    val failed = tools.count { (it.exitCode ?: 0) != 0 }
+    // A completed timeline that is folded shut carries NO container: it is one quiet line, not a
+    // card (docs/DESIGN.md §5.4, HG-15). Folding alone was not enough — the bordered surface kept
+    // giving a rarely-opened control card weight directly above the answer. Running or expanded,
+    // the border comes back, because then there is real content to group.
+    val folded = completed && !cardExpanded
+    ContainerOrPlain(plain = folded) {
+        Column(
+            Modifier.padding(
+                horizontal = if (folded) 0.dp else 13.dp,
+                vertical = if (folded) 0.dp else 7.dp,
+            ),
+        ) {
+            if (completed) {
+                val totalMs = tools.mapNotNull { it.durationMs }.takeIf { it.isNotEmpty() }?.sum()
+                val summary = buildString {
+                    append(localized(language, "${tools.size} 次工具调用", "${tools.size} tool calls"))
+                    totalMs?.let { append(" · ").append(formatToolDuration(it)) }
+                    if (failed > 0) append(" · ").append(localized(language, "$failed 次失败", "$failed failed"))
+                }
+                QuietFoldSummary(
+                    label = summary,
+                    expanded = cardExpanded,
+                    contentDescription = if (cardExpanded) localized(language, "收起工具时间线", "Collapse tool timeline")
+                    else localized(language, "展开工具时间线", "Expand tool timeline"),
+                    onClick = { cardExpanded = !cardExpanded },
+                    // A failure is the one thing worth a colour here; everything else stays quiet.
+                    color = if (failed > 0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("tool-timeline-summary"),
+                )
+            }
+            if (!completed || cardExpanded) tools.forEach { tool ->
                 var expanded by rememberSaveable("timeline-${tool.id}") { mutableStateOf(false) }
                 val running = tool.status == ToolStatus.RUNNING
                 val failed = !running && (tool.exitCode ?: 0) != 0
@@ -790,6 +879,6 @@ internal fun ToolTimelineCard(tools: List<ToolCall>) {
 }
 
 // Rows toggle without a ripple so the card reads as one quiet timeline.
-private fun Modifier.clickableNoIndication(onClick: () -> Unit): Modifier = this.then(
+internal fun Modifier.clickableNoIndication(onClick: () -> Unit): Modifier = this.then(
     Modifier.clickable(onClick = onClick),
 )

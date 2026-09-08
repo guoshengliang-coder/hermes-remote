@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "environment": "production",
+  "operator": "replace-with-operator-id",
+  "host": {
+    "hostname": "replace-with-production-hostname",
+    "diskMount": "/",
+    "warningFreeDiskMiB": 20480,
+    "criticalFreeDiskMiB": 10240
+  },
+  "backup": {
+    "statusFile": "/var/lib/hermes-remote/backups/latest-status.json",
+    "maximumAgeHours": 36,
+    "minimumEncryptedBytes": 1048576,
+    "expectedPostgresqlMajorVersion": 18,
+    "expectedDatabaseSchemaVersion": 7
+  }
+}

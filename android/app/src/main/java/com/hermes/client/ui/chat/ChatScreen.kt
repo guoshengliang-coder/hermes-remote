@@ -51,6 +51,8 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Archive
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
@@ -155,11 +157,16 @@ fun ChatScreen(
     LaunchedEffect(language) { vm.setAppLanguage(language) }
     val state by vm.state.collectAsStateWithLifecycle()
     val connState by vm.connectionState.collectAsStateWithLifecycle()
+    // Null while the connection is fine, and also during a short outage the user should never
+    // learn about (see connectionBanner). connState itself stays raw for send-enablement.
+    val bannerState by vm.connectionBanner.collectAsStateWithLifecycle()
     var connectionWasInterrupted by remember(sessionId) { mutableStateOf(false) }
     var recoveryNotice by remember(sessionId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(connState, sessionId) {
-        when (connState) {
-            ConnectionState.Connected -> if (connectionWasInterrupted) {
+    LaunchedEffect(bannerState, sessionId) {
+        // "Connection restored" is only news to someone who was told it broke. Keying this off the
+        // banner rather than the raw state means a blip announces neither the loss nor the repair.
+        if (bannerState == null) {
+            if (connectionWasInterrupted) {
                 recoveryNotice = localized(
                     language,
                     "连接已恢复，正在同步会话…",
@@ -169,10 +176,9 @@ fun ChatScreen(
                 kotlinx.coroutines.delay(3_000L)
                 recoveryNotice = null
             }
-            else -> {
-                connectionWasInterrupted = true
-                recoveryNotice = null
-            }
+        } else {
+            connectionWasInterrupted = true
+            recoveryNotice = null
         }
     }
     val unauthorized by vm.unauthorized.collectAsStateWithLifecycle()
@@ -213,6 +219,9 @@ fun ChatScreen(
     var showPromptSheet by remember { mutableStateOf(false) }
     val personaUi by vm.personaUi.collectAsStateWithLifecycle()
     var showPersonaSheet by remember { mutableStateOf(false) }
+    var showHandoffSheet by remember { mutableStateOf(false) }
+    var confirmHandoff by remember { mutableStateOf<com.hermes.client.data.network.MessagingPlatformDto?>(null) }
+    var handoffBusy by remember { mutableStateOf(false) }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { vm.stopReading() } }
     var draft by rememberSaveable(sessionId) { mutableStateOf("") }
     var composerFocused by rememberSaveable(sessionId) { mutableStateOf(false) }
@@ -247,11 +256,27 @@ fun ChatScreen(
     LaunchedEffect(vm, language) {
         vm.refreshEvents.collect { event ->
             when (event) {
-                ChatViewModel.ConversationRefreshEvent.QUEUED -> android.widget.Toast.makeText(
-                    context,
-                    localized(language, "当前回复完成后将自动刷新", "The conversation will refresh after this reply"),
-                    android.widget.Toast.LENGTH_SHORT,
-                ).show()
+                ChatViewModel.ConversationRefreshEvent.RUN_ENDED -> {
+                    androidx.compose.runtime.withFrameNanos { }
+                    viewportController.requestHeldRestore()
+                    android.widget.Toast.makeText(
+                        context,
+                        localized(language, "已同步 · 运行已结束", "Synced · the run had finished"),
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                ChatViewModel.ConversationRefreshEvent.STILL_RUNNING -> {
+                    viewportController.releaseHeldAnchor()
+                    val elapsed = vm.lastConfirmedRunElapsedMs.value?.let { ms ->
+                        " · " + localized(language, "已运行 ", "running for ") +
+                            formatElapsedTime(ms, zh = language == com.hermes.client.ui.localization.AppLanguage.ZH)
+                    }.orEmpty()
+                    android.widget.Toast.makeText(
+                        context,
+                        localized(language, "已同步 · 仍在运行", "Synced · still running") + elapsed,
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
                 ChatViewModel.ConversationRefreshEvent.SUCCEEDED_CHANGED -> {
                     // Let the stable-id message updates reach layout before the restore
                     // transaction samples row/block geometry.
@@ -373,6 +398,9 @@ fun ChatScreen(
     // Image attach: read picked/captured bytes and stage them onto the session.
     val clipboard = LocalClipboardManager.current
     var transcriptMenu by remember { mutableStateOf(false) }
+    var creatingNewChat by remember { mutableStateOf(false) }
+    var confirmArchive by rememberSaveable(sessionId) { mutableStateOf(false) }
+    var archiving by remember { mutableStateOf(false) }
     // Share-transcript format picker + the offscreen image export it can start.
     var shareFormatSheet by remember { mutableStateOf(false) }
     var transcriptImageExporting by remember { mutableStateOf(false) }
@@ -384,6 +412,11 @@ fun ChatScreen(
     var showCameraPermissionDialog by rememberSaveable { mutableStateOf(false) }
     var cameraLaunchRequest by rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
     val attachScope = androidx.compose.runtime.rememberCoroutineScope()
+    // Export work MUST NOT hang off a scope remembered inside the share sheet's `if` block: the
+    // format handlers dismiss the sheet first, which forgets that block and cancels its scope
+    // before the export's first suspension point resumes. The write, the share sheet AND the
+    // failure toast all disappeared together, so the tap read as "nothing happened" (HG-9).
+    val exportScope = androidx.compose.runtime.rememberCoroutineScope()
 
     fun showAttachmentError(message: String?) {
         android.widget.Toast.makeText(
@@ -515,8 +548,25 @@ fun ChatScreen(
                     context.startActivity(
                         if (share) android.content.Intent.createChooser(intent, file.name) else intent,
                     )
-                }.onFailure { showAttachmentError(null) }
-            }.onFailure { showAttachmentError(null) }
+                }.onFailure {
+                    // The download already succeeded — the phone simply has no handler for this
+                    // MIME type. Reporting it as a transfer failure sent a 2026-09-05 investigation
+                    // after the wrong layer entirely.
+                    showAttachmentError(
+                        com.hermes.client.data.error.AppError(
+                            com.hermes.client.data.error.AppErrorCode.ATTACHMENT_NO_VIEWER,
+                            retryable = false,
+                            technicalCause = it.message,
+                            stage = if (share) "attachment_share" else "attachment_open",
+                        ).localizedMessage(language),
+                    )
+                }
+            }.onFailure { error ->
+                showAttachmentError(
+                    com.hermes.client.data.error.artifactDownloadError(error)
+                        .localizedMessage(language),
+                )
+            }
         }
     }
 
@@ -628,6 +678,96 @@ fun ChatScreen(
         if (unauthorized) onUnauthorized()
     }
 
+    if (showHandoffSheet) {
+        val targets by vm.handoffTargets.collectAsStateWithLifecycle()
+        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { showHandoffSheet = false }) {
+            Text(
+                localized(language, "转到哪个渠道？", "Move to which channel?"),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp),
+            )
+            if (targets.isEmpty()) {
+                Text(
+                    localized(
+                        language,
+                        "没有可用的渠道。渠道要先启用，并且在目标聊天里设过默认投递落点。",
+                        "No channel is available. A channel must be enabled and have a delivery target set.",
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                )
+            }
+            targets.forEach { platform ->
+                androidx.compose.material3.ListItem(
+                    headlineContent = { Text(platform.name ?: platform.id) },
+                    supportingContent = {
+                        Text(
+                            localized(language, "落点：", "Target: ") + (platform.homeChannel ?: ""),
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        showHandoffSheet = false
+                        confirmHandoff = platform
+                    },
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+
+    confirmHandoff?.let { platform ->
+        val name = platform.name ?: platform.id
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { if (!handoffBusy) confirmHandoff = null },
+            title = { Text(localized(language, "转到$name？", "Move to $name?")) },
+            text = {
+                // Every consequence, before the tap: this cannot be undone from the phone.
+                Text(
+                    localized(
+                        language,
+                        "这条对话会搬到 $name 的默认落点，并在那边继续。\n\n" +
+                            "· $name 当前那条对话会结束\n" +
+                            "· 这条对话会从手机的会话列表消失\n" +
+                            "· 搬过去之后拉不回来",
+                        "This conversation moves to $name's delivery target and continues there.\n\n" +
+                            "· $name's current conversation ends\n" +
+                            "· This one leaves the phone's list\n" +
+                            "· It cannot be moved back",
+                    ),
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    enabled = !handoffBusy,
+                    onClick = {
+                        handoffBusy = true
+                        exportScope.launch {
+                            val error = vm.handoffCurrentSession(platform.id)
+                            handoffBusy = false
+                            confirmHandoff = null
+                            android.widget.Toast.makeText(
+                                context,
+                                error?.localizedMessage(language)
+                                    ?: localized(language, "已转到 $name", "Moved to $name"),
+                                android.widget.Toast.LENGTH_LONG,
+                            ).show()
+                            // On success this conversation now belongs to the channel and is gone
+                            // from the list; staying on it would show a session that no longer
+                            // lives here. On failure nothing moved, so stay put.
+                            if (error == null) onMenu()
+                        }
+                    },
+                ) { Text(if (handoffBusy) localized(language, "转移中…", "Moving…") else localized(language, "转过去", "Move")) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(enabled = !handoffBusy, onClick = { confirmHandoff = null }) {
+                    Text(localized(language, "取消", "Cancel"))
+                }
+            },
+        )
+    }
+
     Scaffold(
         topBar = {
             // The search bar takes the top bar's place (docs/DESIGN.md §5.4): the transcript
@@ -688,12 +828,38 @@ fun ChatScreen(
                         )
                     }
                 }
-                IconButton(onClick = { searchOpen = true }) {
-                    Icon(
-                        Icons.Rounded.Search,
-                        contentDescription = localized(language, "搜索当前对话", "Search this chat"),
-                        modifier = Modifier.offset(x = 4.dp),
-                    )
+                // The top bar carries the one highest-frequency action; search moved into the
+                // menu below (docs/DESIGN.md §5.4, HG-5). Reading an answer and wanting to start
+                // the next thing is the common case, and it used to cost a trip back to the list.
+                IconButton(
+                    onClick = {
+                        if (!creatingNewChat) {
+                            creatingNewChat = true
+                            exportScope.launch {
+                                try {
+                                    vm.createNewSession()?.let(onNewChat)
+                                        ?: android.widget.Toast.makeText(
+                                            context,
+                                            localized(language, "无法新建对话，请重试。", "Couldn't start a new conversation. Retry."),
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                } finally {
+                                    creatingNewChat = false
+                                }
+                            }
+                        }
+                    },
+                    enabled = !creatingNewChat,
+                ) {
+                    if (creatingNewChat) {
+                        com.hermes.client.ui.components.HermesMark(size = 20.dp)
+                    } else {
+                        Icon(
+                            Icons.Rounded.Add,
+                            contentDescription = localized(language, "新建对话", "New conversation"),
+                            modifier = Modifier.offset(x = 4.dp),
+                        )
+                    }
                 }
                 Box {
                     IconButton(onClick = { transcriptMenu = true }) {
@@ -709,8 +875,17 @@ fun ChatScreen(
                         shape = RoundedCornerShape(16.dp),
                         containerColor = MaterialTheme.colorScheme.surface,
                     ) {
-                            // Navigation before actions: the prompt list is how a long chat is
-                            // travelled (docs/DESIGN.md §5.4 我的提问).
+                            // Navigation before actions (docs/DESIGN.md §5.4). Search leads: it
+                            // lost its top-bar slot to 新建对话, so it must be the first thing
+                            // found here.
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, Modifier.size(20.dp)) },
+                                text = { Text(localized(language, "搜索对话", "Search this chat")) },
+                                onClick = {
+                                    transcriptMenu = false
+                                    searchOpen = true
+                                },
+                            )
                             DropdownMenuItem(
                                 leadingIcon = { Icon(com.hermes.client.ui.components.PromptListIcon, contentDescription = null, Modifier.size(20.dp)) },
                                 text = { Text(localized(language, "我的提问", "Your prompts")) },
@@ -767,6 +942,23 @@ fun ChatScreen(
                                         shareFormatSheet = true
                                     }
                                     transcriptMenu = false
+                                },
+                            )
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Rounded.Archive, contentDescription = null, Modifier.size(20.dp)) },
+                                text = { Text(localized(language, "归档对话", "Archive conversation")) },
+                                onClick = {
+                                    transcriptMenu = false
+                                    confirmArchive = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Rounded.Forum, contentDescription = null, Modifier.size(20.dp)) },
+                                text = { Text(localized(language, "转到消息渠道", "Move to a channel")) },
+                                onClick = {
+                                    transcriptMenu = false
+                                    vm.loadHandoffTargets()
+                                    showHandoffSheet = true
                                 },
                             )
                             DropdownMenuItem(
@@ -1035,11 +1227,9 @@ fun ChatScreen(
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            if (!connected) {
-                ConnectionBanner(connState, onRetry = { vm.reconnect() })
-            } else {
-                recoveryNotice?.let { ConnectionRecoveryBanner(it) }
-            }
+            bannerState?.let { banner ->
+                ConnectionBanner(banner, onRetry = { vm.reconnect() })
+            } ?: recoveryNotice?.let { ConnectionRecoveryBanner(it) }
             // Parked clarify: a slim strip that reopens the decision card.
             if (state.pendingClarify != null && clarifyCollapsed) {
                 Surface(
@@ -1373,9 +1563,64 @@ fun ChatScreen(
         )
     }
 
+    // Archiving asks first (docs/DESIGN.md §5.2, HG-5): unlike the sessions list — where the row
+    // visibly leaves under your finger — this one carries you off the screen you were reading, so
+    // a confirm is the only feedback before the fact. NOT painted error-red: archiving is
+    // reversible from 已归档, and colouring reversible actions red dilutes the colour that means
+    // "you cannot undo this".
+    if (confirmArchive) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { if (!archiving) confirmArchive = false },
+            title = { Text(localized(language, "归档这个对话？", "Archive this conversation?")) },
+            text = {
+                Text(
+                    localized(
+                        language,
+                        "归档后它会从会话列表移到「已归档」，随时可以恢复。",
+                        "It moves out of your conversation list into 已归档, and you can restore it any time.",
+                    ),
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    enabled = !archiving,
+                    onClick = {
+                        archiving = true
+                        exportScope.launch {
+                            val error = vm.archiveCurrentSession()
+                            archiving = false
+                            confirmArchive = false
+                            if (error == null) {
+                                android.widget.Toast.makeText(
+                                    context,
+                                    localized(language, "已归档", "Archived"),
+                                    android.widget.Toast.LENGTH_SHORT,
+                                ).show()
+                                onMenu()
+                            } else {
+                                // Stay put on failure: nothing was archived, and bouncing to the
+                                // list would suggest otherwise.
+                                android.widget.Toast.makeText(
+                                    context,
+                                    error.localizedMessage(language),
+                                    android.widget.Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        }
+                    },
+                ) { Text(localized(language, "归档", "Archive")) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    enabled = !archiving,
+                    onClick = { confirmArchive = false },
+                ) { Text(localized(language, "取消", "Cancel")) }
+            },
+        )
+    }
+
     if (shareFormatSheet) {
         val density = androidx.compose.ui.platform.LocalDensity.current.density
-        val scope = androidx.compose.runtime.rememberCoroutineScope()
         val subject = localized(language, "Hermes GO 对话记录", "Hermes GO chat transcript")
         ShareTranscriptSheet(
             onText = {
@@ -1402,7 +1647,7 @@ fun ChatScreen(
                     exportedAtMillis = now,
                     model = currentModel,
                 )
-                scope.launch {
+                exportScope.launch {
                     val ok = TranscriptShare.shareMarkdown(
                         context = context,
                         baseName = transcriptFileBaseName(sessionTitle, now),

@@ -5,8 +5,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // Increment both values for every APK distributed to testers. Keep versionCode
 // strictly increasing so Android always accepts the newer package as an update.
-val appVersionCode = 90
-val appVersionName = "0.1.89"
+val appVersionCode = 110
+val appVersionName = "0.1.109"
 
 // Temporary shared debug identity used by every authorized Hermes Remote build host. The private
 // keystore stays outside Git at ~/.android/debug.keystore; only its public certificate digest is
@@ -21,6 +21,22 @@ val keystorePropsFile = rootProject.file("keystore.properties")
 val keystoreProps = Properties().apply {
     if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
 }
+
+// MissionGo feedback endpoint and SDK token. Same shape as the keystore above: a gitignored local
+// file, with environment variables as the CI path. Both absent is a supported state, not an error
+// — a fresh clone, another machine, or ordinary CI has neither, and the documented behaviour is
+// that the feature is simply not there: the SDK stays uninitialized and no entry point is shown.
+// Never fall back to a placeholder token; that ships an app whose every submission 401s, and the
+// failure only surfaces in a user's hands.
+val missionGoPropsFile = rootProject.file("missiongo.properties")
+val missionGoProps = Properties().apply {
+    if (missionGoPropsFile.exists()) missionGoPropsFile.inputStream().use { load(it) }
+}
+fun missionGoSetting(propertyName: String, environmentName: String): String =
+    (missionGoProps.getProperty(propertyName) ?: System.getenv(environmentName) ?: "").trim()
+
+fun javaStringLiteral(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 plugins {
     alias(libs.plugins.android.application)
@@ -51,6 +67,16 @@ android {
         manifestPlaceholders["appLabel"] = "Hermes GO"
         buildConfigField("String", "UPDATE_INDEX_URL", "\"https://mrlgs.net/releases/index.json\"")
         buildConfigField("String", "EXPECTED_UPDATE_CERT_SHA256", "\"$expectedDebugCertificateSha256\"")
+        buildConfigField(
+            "String",
+            "MISSIONGO_ENDPOINT",
+            javaStringLiteral(missionGoSetting("missiongoEndpoint", "MISSIONGO_ENDPOINT")),
+        )
+        buildConfigField(
+            "String",
+            "MISSIONGO_SDK_TOKEN",
+            javaStringLiteral(missionGoSetting("missiongoSdkToken", "MISSIONGO_SDK_TOKEN")),
+        )
     }
     signingConfigs {
         // Do not rely on AGP's environment-dependent default debug keystore lookup. CI runners
@@ -188,6 +214,7 @@ dependencies {
     implementation(libs.markdown.m3)
     implementation(libs.zxing.embedded)
     implementation(libs.glance.appwidget)
+    implementation(libs.missiongo.feedback)
 
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)

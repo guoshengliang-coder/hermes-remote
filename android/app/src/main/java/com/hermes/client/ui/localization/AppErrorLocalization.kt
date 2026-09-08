@@ -54,6 +54,32 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "无法读取所选文件，请重新选择。", "Couldn't read the selected file. Choose it again.")
         AppErrorCode.TRANSCRIPT_FILE_FAILED ->
             localized(language, "无法生成对话文件，请重试。", "Couldn't create the transcript file. Retry.")
+        AppErrorCode.ARTIFACT_FORBIDDEN ->
+            localized(
+                language,
+                "这个文件不在 Mac 允许访问的目录内，无法下载。请让 Hermes 把它放到允许的目录。",
+                "The file sits outside the folder the Mac allows, so it can't be downloaded. Ask Hermes to place it inside that folder.",
+            )
+        AppErrorCode.ARTIFACT_TOO_LARGE ->
+            localized(
+                language,
+                "文件超过传输上限，无法下载。请让 Hermes 压缩或拆分后再发。",
+                "The file exceeds the transfer limit. Ask Hermes to compress or split it.",
+            )
+        AppErrorCode.ARTIFACT_MISSING ->
+            localized(
+                language,
+                "这个文件在 Mac 上已不存在，请让 Hermes 重新生成。",
+                "The file is no longer on the Mac. Ask Hermes to produce it again.",
+            )
+        AppErrorCode.ARTIFACT_DOWNLOAD_FAILED ->
+            localized(language, "文件下载失败，请重试。", "The download failed. Retry.")
+        AppErrorCode.ATTACHMENT_NO_VIEWER ->
+            localized(
+                language,
+                "手机上没有能打开这种文件的应用。文件已下载，请改用「分享」保存到其他应用。",
+                "No app on this phone can open this file type. It downloaded fine — use Share to save it elsewhere.",
+            )
         AppErrorCode.TRANSCRIPT_IMAGE_FAILED ->
             localized(language, "无法生成对话长图，请重试或改用 Markdown 文件。", "Couldn't render the transcript image. Retry, or share it as a Markdown file.")
         AppErrorCode.AVATAR_PHOTO_FAILED ->
@@ -72,14 +98,62 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "项目文件夹在 Mac 上不存在，会话已建在默认项目。", "The project folder no longer exists on the Mac, so the conversation was created in the default project.")
         AppErrorCode.MESSAGE_SEND_FAILED ->
             localized(language, "消息未发送，点按气泡重试。", "The message was not sent. Tap the bubble to retry.")
+        AppErrorCode.SESSION_ARCHIVE_FAILED ->
+            localized(language, "无法归档会话，请重试。", "Couldn't archive the conversation. Retry.")
         AppErrorCode.INSTALL_PERMISSION_REQUIRED ->
             localized(language, "需要允许安装未知应用，授权后请重试。", "Permission to install unknown apps is required. Grant it and retry.")
+        AppErrorCode.HISTORY_INCOMPLETE ->
+            localized(language, "无法同步完整会话内容，请重试。", "Couldn't synchronize the complete conversation. Retry.")
         AppErrorCode.RUN_UNCONFIRMED ->
             localized(language, "任务停止了，但没有确认完成，请打开会话检查。", "The task stopped without a confirmed completion. Open the conversation to check.")
         AppErrorCode.NOTIFICATION_ACTION_FAILED ->
             localized(language, "通知操作未能发送，请重试。", "The notification action couldn't be sent. Try again.")
+        AppErrorCode.FEEDBACK_UNAVAILABLE ->
+            localized(language, "这个版本没有开启反馈功能。", "Feedback is not enabled in this build.")
+        AppErrorCode.FEEDBACK_SUBMIT_FAILED ->
+            localized(language, "反馈没有提交成功，请重试。", "The feedback wasn't submitted. Retry.")
+        AppErrorCode.FEEDBACK_REJECTED ->
+            localized(language, "反馈服务拒绝了这次提交，请联系开发者。", "The feedback service rejected this report. Contact the developer.")
+        AppErrorCode.FEEDBACK_RATE_LIMITED ->
+            localized(language, "反馈提交过于频繁，请稍后再试。", "Too many reports just now. Try again shortly.")
         AppErrorCode.SEARCH_FAILED ->
             localized(language, "消息搜索失败，请重试。", "Message search failed. Retry.")
+        AppErrorCode.CRON_DELIVERY_FAILED ->
+            localized(
+                language,
+                "任务运行成功，但结果没能送到目标渠道。",
+                "The task ran successfully, but its result could not be delivered to the target channel.",
+            )
+        AppErrorCode.MESSAGING_LIST_FAILED ->
+            localized(language, "无法加载消息渠道，请重试。", "Couldn't load messaging channels. Retry.")
+        AppErrorCode.MESSAGING_SAVE_FAILED ->
+            localized(language, "渠道设置未能保存，请重试。", "The channel settings couldn't be saved. Retry.")
+        AppErrorCode.MESSAGING_PROFILE_CONFLICT ->
+            localized(
+                language,
+                "该渠道已被另一个身份占用，同一个渠道不能同时启用两次。",
+                "Another profile already owns this channel; it can't be enabled twice at once.",
+            )
+        AppErrorCode.MESSAGING_PLATFORM_FAILED ->
+            localized(language, "这个渠道没能连上，请检查设置。", "This channel didn't connect. Check its setup.")
+        AppErrorCode.MESSAGING_RESTART_FAILED ->
+            localized(language, "网关重启失败，请重试。", "The gateway restart failed. Retry.")
+        AppErrorCode.HANDOFF_SESSION_BUSY ->
+            localized(language, "会话正在运行，等这一轮结束再转。", "The conversation is mid-turn. Wait for it to finish, then move it.")
+        AppErrorCode.HANDOFF_CHANNEL_DISABLED ->
+            localized(language, "这个渠道没有启用，先在消息渠道里开启。", "That channel isn't enabled. Turn it on under Messaging first.")
+        AppErrorCode.HANDOFF_NO_TARGET ->
+            localized(
+                language,
+                "这个渠道还没设默认投递落点，要先在目标聊天里用 /sethome 设置。",
+                "That channel has no delivery target yet. Set one with /sethome in the destination chat.",
+            )
+        AppErrorCode.HANDOFF_IN_FLIGHT ->
+            localized(language, "已经有一次转移在进行，稍后再试。", "A move is already in flight. Try again shortly.")
+        AppErrorCode.LINK_NO_HANDLER ->
+            localized(language, "没有能打开链接的应用，链接已复制。", "No app can open this link. It was copied to the clipboard.")
+        AppErrorCode.LINK_NOT_OPENABLE ->
+            localized(language, "这个链接无法打开。", "This link can't be opened.")
         AppErrorCode.UNKNOWN ->
             localized(language, "出现未知错误，请重试。", "An unknown error occurred. Retry.")
     }

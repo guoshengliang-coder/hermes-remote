@@ -22,8 +22,8 @@ test('every action is pinned to a full commit SHA with a readable version commen
   }
 });
 
-test('ordinary CI, SAST, and the Gateway image gate stay unprivileged and never require signing material', async () => {
-  for (const file of ['ci.yml', 'sast.yml', 'gateway-oci.yml']) {
+test('ordinary CI, SAST, and the Gateway image gates stay unprivileged and never require signing material', async () => {
+  for (const file of ['ci.yml', 'sast.yml', 'gateway-oci.yml', 'gateway-r5e-recovery.yml']) {
     const text = await read(file);
     assert.equal(/gradlew[^\n]*assemble/.test(text), false, `${file}: packages an APK, which needs the canonical debug key`);
     assert.equal(/KEYSTORE|RELEASE_SSH/.test(text), false, `${file}: references release signing or deployment secrets`);
@@ -41,10 +41,11 @@ test('ordinary CI, SAST, and the Gateway image gate stay unprivileged and never 
   assert.match(gatewayOci, /runs-on: ubuntu-24\.04/);
   assert.match(gatewayOci, /run: \.\/scripts\/test-gateway-image\.sh/);
   assert.match(gatewayOci, /run: \.\/scripts\/package-gateway-bundle\.sh outputs\/gateway-bundle/);
+  assert.match(gatewayOci, /run: node scripts\/package-production-baseline-bundle\.mjs outputs\/production-baseline-bundle/);
   assert.match(gatewayOci, /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/);
   assert.match(gatewayOci, /uses: actions\/upload-artifact@[0-9a-f]{40} # v7\.0\.1/);
   assert.match(gatewayOci, /name: gateway-bundle-\$\{\{ github\.sha \}\}/);
-  assert.match(gatewayOci, /path: outputs\/gateway-bundle\//);
+  assert.match(gatewayOci, /path: \|[\s\S]*outputs\/gateway-bundle\/[\s\S]*outputs\/production-baseline-bundle\//);
   assert.match(gatewayOci, /if-no-files-found: error/);
   assert.match(gatewayOci, /retention-days: 7/);
   assert.match(gatewayOci, /permissions:\n  contents: read/);
@@ -52,7 +53,7 @@ test('ordinary CI, SAST, and the Gateway image gate stay unprivileged and never 
 });
 
 test('routine workflows cancel stale PR runs and bound every job', async () => {
-  for (const file of ['ci.yml', 'sast.yml', 'gateway-oci.yml']) {
+  for (const file of ['ci.yml', 'sast.yml', 'gateway-oci.yml', 'gateway-r5e-recovery.yml']) {
     const workflow = await read(file);
     assert.match(workflow, /group: .+\$\{\{ github\.event\.pull_request\.number \|\| github\.ref \}\}/);
     assert.match(workflow, /cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/);
@@ -113,13 +114,80 @@ test('Gateway ephemeral staging is manual, bounded, secretless, and production-i
   assert.equal(/secrets\.|docker\s+(?:push|login)|packages: write|ssh\b|mrlgs\.net/.test(workflow), false);
 });
 
+test('R5-D managed baseline runs only on a disposable secretless host', async () => {
+  const workflow = await read('gateway-r5d-managed-baseline.yml');
+  assert.match(workflow, /^on:\n  workflow_dispatch:\s*$/m);
+  assert.equal(/\n\s+(?:push|pull_request|schedule):/.test(workflow), false);
+  assert.match(workflow, /permissions:\n  contents: read/);
+  assert.match(workflow, /runs-on: ubuntu-24\.04/);
+  assert.match(workflow, /timeout-minutes: 30/);
+  assert.match(workflow, /group: gateway-r5d-managed-baseline/);
+  assert.match(workflow, /image: postgres:18-alpine@sha256:[0-9a-f]{64}/);
+  assert.match(workflow, /HERMES_R5D_ONLY: "1"/);
+  assert.match(workflow, /run: \.\/scripts\/test-gateway-staging-bootstrap\.sh/);
+  assert.equal(/secrets\.|docker\s+(?:push|login)|packages: write|ssh\b|mrlgs\.net|47\.239\./.test(workflow), false);
+  const harness = await readRoot('scripts/test-gateway-staging-bootstrap.sh');
+  assert.match(harness, /GATEWAY_R5D_MANAGED_BASELINE_OK/);
+  assert.match(harness, /GATEWAY_R5F1_PRODUCTION_RELEASE_OK/);
+  // Five explicit public verifications in the staging round trip plus the shared helper the
+  // R5-F1 release and rollback both call.
+  assert.equal((harness.match(/GATEWAY_SMOKE_ROUTE=public/g) || []).length, 6);
+  assert.match(harness, /node "\$r5f1_entrypoint"/);
+  assert.doesNotMatch(harness, /node scripts\/production-release\.mjs/);
+  assert.match(harness, /package-production-baseline-bundle\.mjs/);
+  assert.match(harness, /r5d_ops_root\/scripts\/verify-production-baseline-bundle\.mjs/);
+  assert.match(harness, /node "\$r5d_ops_entrypoint"/);
+  assert.doesNotMatch(harness, /node scripts\/production-baseline\.mjs/);
+  const entrypoint = await readRoot('scripts/production-baseline.mjs');
+  assert.match(entrypoint, /withProductionSmokeRuntime/);
+  assert.match(entrypoint, /\.\.\/connector\/dist\/index\.js/);
+  const packager = await readRoot('scripts/package-production-baseline-bundle.mjs');
+  assert.match(packager, /\.\/ops\/lib\/production-smoke-runtime\.mjs/);
+  assert.match(packager, /"scripts\/verify-production-baseline-bundle\.mjs"/);
+  assert.match(packager, /"scripts\/postgresql-recovery\.mjs"/);
+  assert.match(packager, /"scripts\/postgresql-automation\.mjs"/);
+  assert.match(packager, /"scripts\/lib\/release-errors\.mjs"/);
+  assert.match(packager, /"scripts\/lib\/gateway-candidate-smoke\.mjs"/);
+  assert.match(packager, /verifyStagedSmokeEntrypoint/);
+  const smokeRuntime = await readRoot('ops/lib/production-smoke-runtime.mjs');
+  assert.match(smokeRuntime, /server\.listen\(0, "127\.0\.0\.1"\)/);
+  assert.equal(/0\.0\.0\.0|HERMES_SESSION_TOKEN/.test(smokeRuntime), false);
+});
+
+test('R5-E recovery uses only disposable PostgreSQL 18 and a manifest-bound immutable image', async () => {
+  const workflow = await read('gateway-r5e-recovery.yml');
+  assert.match(workflow, /pull_request:[\s\S]*workflow_dispatch:/);
+  assert.match(workflow, /permissions:\n  contents: read/);
+  assert.match(workflow, /runs-on: ubuntu-24\.04/);
+  assert.match(workflow, /timeout-minutes: 25/);
+  assert.match(workflow, /image: postgres:18-alpine@sha256:[0-9a-f]{64}/);
+  assert.match(workflow, /run: node scripts\/test\/postgresql-recovery-e2e\.mjs/);
+  assert.match(workflow, /R5E_SOURCE_POSTGRES_CONTAINER_ID: \$\{\{ job\.services\.postgres\.id \}\}/);
+  assert.match(workflow, /R5E_RESTORE_POSTGRES_CONTAINER_ID: \$\{\{ job\.services\.postgres_restore\.id \}\}/);
+  assert.match(workflow, /\.\/scripts\/package-gateway-bundle\.sh outputs\/r5e-gateway/);
+  assert.match(workflow, /package-production-baseline-bundle\.mjs outputs\/r5e-ops/);
+  assert.match(workflow, /verify-production-baseline-bundle\.mjs/);
+  assert.match(workflow, /R5E_TARGET_MANIFEST: \$\{\{ steps\.image\.outputs\.manifest \}\}/);
+  assert.equal(/secrets\.|docker\s+(?:push|login)|packages: write|ssh\b|mrlgs\.net|47\.239\./.test(workflow), false);
+  const harness = await readRoot('scripts/test/postgresql-recovery-e2e.mjs');
+  assert.match(harness, /captureScheduledPostgresqlBackup/);
+  assert.match(harness, /verifyPostgresqlRestore/);
+  assert.match(harness, /runOffHostRecoveryCycle/);
+  assert.match(harness, /activateScheduledPostgresqlBackup/);
+  assert.match(harness, /provisionPostgresql/);
+  assert.match(harness, /databaseProvisioned: true/);
+  assert.match(harness, /account_smoke_transaction_not_rolled_back/);
+  assert.match(harness, /automatedCycle: true/);
+  assert.match(harness, /disposableMacRuntime: true/);
+});
+
 test('release secrets stay scoped to the steps that consume them', async () => {
   const release = await read('android-release.yml');
   const lines = release.split('\n');
   const jobLevelEnv = lines.filter(line => /^ {4}env:\s*$/.test(line));
   assert.deepEqual(jobLevelEnv, [], 'release secrets must not be exposed to every step through job-level env');
   const secrets = lines.filter(line => line.includes('secrets.'));
-  assert.equal(secrets.length, 3);
+  assert.equal(secrets.length, 5);
   for (const line of secrets) assert.match(line, /^ {10}\w+: \$\{\{ secrets\.\w+ \}\}$/, `unexpected secret usage: ${line}`);
   assert.match(release, /Build signed APK and erase signing key[\s\S]*key="\$HOME\/\.android\/debug\.keystore"[\s\S]*trap[^\n]*\$key/);
   assert.match(release, /Publish APK and erase deployment key[\s\S]*key="\$HOME\/\.ssh\/id_ed25519"[\s\S]*trap[^\n]*\$key/);
@@ -128,4 +196,11 @@ test('release secrets stay scoped to the steps that consume them', async () => {
   const deployment = release.indexOf('Publish APK and erase deployment key');
   assert.ok(signing >= 0 && deployment > signing, 'signing and deployment must be separate ordered steps');
   assert.equal(release.slice(signing, deployment).includes('RELEASE_SSH_PRIVATE_KEY'), false, 'SSH key must not exist while Gradle/build scripts run');
+  // The MissionGo endpoint and token are read by Gradle, so they belong to the build step and have
+  // no business in the deployment shell that follows it.
+  assert.ok(
+    release.slice(signing, deployment).includes('MISSIONGO_SDK_TOKEN'),
+    'MissionGo build configuration must reach the step that runs Gradle',
+  );
+  assert.equal(release.slice(deployment).includes('MISSIONGO_'), false, 'MissionGo secrets must not reach the publish step');
 });

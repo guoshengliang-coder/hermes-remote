@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Add
@@ -97,6 +98,8 @@ fun SessionsScreen(
     onOpenCard: () -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenCron: () -> Unit = {},
+    onOpenBotSession: (sessionId: String, profile: String?) -> Unit = { _, _ -> },
+    onOpenMessaging: () -> Unit = {},
     onUnauthorized: () -> Unit = {},
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -104,8 +107,19 @@ fun SessionsScreen(
     val profiles by vm.profiles.collectAsStateWithLifecycle()
     val pinnedTokens by vm.pinnedTokens.collectAsStateWithLifecycle()
     val archivedState by vm.archivedState.collectAsStateWithLifecycle()
-    val cronAlerts by vm.cronAlerts.collectAsStateWithLifecycle()
+    val health by vm.health.collectAsStateWithLifecycle()
     val viewMode by vm.viewMode.collectAsStateWithLifecycle()
+    val showBots = remember(state.configuredChannels, state.botSessions) {
+        showBotsTab(state.configuredChannels, state.botSessions.size)
+    }
+    // The channel count decides whether the segment exists; the sessions fill it.
+    LaunchedEffect(Unit) { vm.refreshChannelCount() }
+    LaunchedEffect(viewMode) { if (viewMode == ViewMode.BOTS) vm.loadBots() }
+    // A segment that disappears (last channel removed, history archived) must not strand the user
+    // on an empty view.
+    LaunchedEffect(showBots, viewMode) {
+        if (!showBots && viewMode == ViewMode.BOTS) vm.setViewMode(ViewMode.SESSIONS)
+    }
     val projectsState by vm.projectsState.collectAsStateWithLifecycle()
     val runtimes by vm.runtimes.collectAsStateWithLifecycle()
     val unreadTokens by vm.unreadTokens.collectAsStateWithLifecycle()
@@ -216,31 +230,23 @@ fun SessionsScreen(
                         }
                     },
                 )
-                val accent = MaterialTheme.colorScheme.primary
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
-                    val tabs = listOf(
-                        ViewMode.SESSIONS to localized(language, "会话", "Sessions"),
-                        ViewMode.PROJECTS to localized(language, "项目", "Projects"),
-                        ViewMode.ARCHIVED to localized(language, "已归档", "Archived"),
-                    )
-                    tabs.forEachIndexed { i, (mode, label) ->
-                        SegmentedButton(
-                            selected = viewMode == mode,
-                            onClick = { vm.setViewMode(mode) },
-                            shape = SegmentedButtonDefaults.itemShape(i, tabs.size),
-                            colors = SegmentedButtonDefaults.colors(
-                                activeContainerColor = accent,
-                                activeContentColor = MaterialTheme.colorScheme.onPrimary,
-                            ),
-                            // No check glyph: its appear/disappear used to shove the labels
-                            // sideways on every switch. Selection reads from the fill alone.
-                            icon = {},
-                        ) { Text(label) }
-                    }
-                }
+                ChatsSegmentedRow(
+                    tabs = buildList {
+                        // English labels are kept short on purpose: a fourth segment leaves
+                        // 91.5dp per cell, and "Sessions"/"Archived" clip at fontScale 1.3.
+                        add(ViewMode.SESSIONS to localized(language, "会话", "Chats"))
+                        add(ViewMode.PROJECTS to localized(language, "项目", "Projects"))
+                        // Only once this Hermes actually has a channel, or has history from one.
+                        if (showBots) add(ViewMode.BOTS to localized(language, "机器人", "Bots"))
+                        add(ViewMode.ARCHIVED to localized(language, "已归档", "Archive"))
+                    },
+                    selected = viewMode,
+                    onSelect = { vm.setViewMode(it) },
+                )
             }
         },
         floatingActionButton = {
+            if (viewMode == ViewMode.BOTS) return@Scaffold
             FloatingActionButton(
                 onClick = ::createSession,
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -304,6 +310,56 @@ fun SessionsScreen(
                         )
                     }
                 }
+            } else if (viewMode == ViewMode.BOTS) {
+                // ── Bots: what Hermes has been saying on other apps. Read-only by nature —
+                // Hermes is a bot over there, so nothing typed here could appear as you. ─────
+                val sections = remember(state.botSessions) { botSections(state.botSessions) }
+                Box(Modifier.fillMaxSize()) {
+                    when {
+                        state.botsLoading && state.botSessions.isEmpty() ->
+                            com.hermes.client.ui.components.ListLoadingState()
+                        state.botError != null ->
+                            com.hermes.client.ui.components.ErrorState(
+                                error = state.botError!!,
+                                onRetry = { vm.loadBots() },
+                            )
+                        sections.isEmpty() ->
+                            com.hermes.client.ui.components.EmptyState(
+                                title = localized(language, "还没有机器人对话", "No bot conversations yet"),
+                                subtitle = localized(
+                                    language,
+                                    "别人在钉钉、Slack 这些应用里找 Hermes 聊过之后，记录会出现在这里。",
+                                    "Once someone talks to Hermes on DingTalk, Slack or another app, the record shows up here.",
+                                ),
+                            )
+                        else -> LazyColumn(Modifier.fillMaxSize()) {
+                            sections.forEach { section ->
+                                item(key = "bot-hdr-${section.source}") {
+                                    Text(
+                                        botSourceLabel(section.source),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(
+                                            start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp,
+                                        ),
+                                    )
+                                }
+                                items(section.sessions, key = { "bot-${it.id}" }) { s ->
+                                    ListItem(
+                                        headlineContent = { Text(s.title) },
+                                        supportingContent = {
+                                            Text(
+                                                localized(language, "${s.messageCount} 条", "${s.messageCount} messages"),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                            )
+                                        },
+                                        modifier = Modifier.clickable { onOpenBotSession(s.id, s.profile) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             } else if (viewMode == ViewMode.ARCHIVED) {
                 // ── Archived mode (was its own pushed screen; now the third segment) ────────
                 Box(Modifier.fillMaxSize()) {
@@ -337,21 +393,52 @@ fun SessionsScreen(
                 // ── Sessions mode ───────────────────────────────────────────────────────────
                 // Cron alert strip: HealthStrip's pattern — only rendered when something needs
                 // attention, tap goes to the cron screen.
-                if (cronAlerts > 0) {
+                if (health.total > 0) {
+                    val label = when {
+                        // One outage, named, with its fallout — not a count of symptoms.
+                        health.channels.size == 1 && health.standaloneCronJobs == 0 -> {
+                            val channel = health.channels.single()
+                            if (channel.affectedJobs > 0) {
+                                localized(
+                                    language,
+                                    "${channel.name} 未连接 · ${channel.affectedJobs} 个定时任务受影响",
+                                    "${channel.name} is not connected · ${channel.affectedJobs} scheduled job(s) affected",
+                                )
+                            } else {
+                                localized(
+                                    language,
+                                    "${channel.name} 未连接",
+                                    "${channel.name} is not connected",
+                                )
+                            }
+                        }
+                        health.channels.isEmpty() -> localized(
+                            language,
+                            "${health.standaloneCronJobs} 个定时任务需要处理",
+                            "${health.standaloneCronJobs} scheduled job(s) need attention",
+                        )
+                        else -> localized(
+                            language,
+                            "${health.total} 项需要处理",
+                            "${health.total} things need attention",
+                        )
+                    }
                     Row(
                         Modifier.fillMaxWidth()
                             .background(MaterialTheme.colorScheme.errorContainer)
-                            .clickable { onOpenCron() }
+                            // Root cause first: when a channel is down that is where the fix is.
+                            .clickable { if (health.hasChannelCause) onOpenMessaging() else onOpenCron() }
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            Icons.Rounded.Schedule, contentDescription = null,
+                            if (health.hasChannelCause) Icons.Rounded.Forum else Icons.Rounded.Schedule,
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.onErrorContainer,
                             modifier = Modifier.padding(end = 8.dp),
                         )
                         Text(
-                            localized(language, "$cronAlerts 个定时任务需要处理", "$cronAlerts scheduled job(s) need attention"),
+                            label,
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             modifier = Modifier.weight(1f),
@@ -395,9 +482,30 @@ fun SessionsScreen(
                     snapshotFlow { sessionsListState.firstVisibleItemIndex }
                         .collect { if (it == 0) needsYouPill = 0 }
                 }
+                // Same anchoring problem as 需要你处理 above, with a deliberate action behind it:
+                // a just-pinned row moves into the 已置顶 section at the top, which LazyColumn
+                // inserts ABOVE the viewport. Unlike an unsolicited promotion this one was asked
+                // for, so follow it up unconditionally instead of offering a pill (HG-11).
+                val pinReveals by vm.pinRevealRequests.collectAsStateWithLifecycle()
+                // Seeded with the count as it stands, so only a pin made while this list is on
+                // screen scrolls it. The counter outlives the screen; without the seed, coming
+                // back from a chat would replay the last pin and yank the reader to the top.
+                var handledPinReveals by remember { mutableStateOf(pinReveals) }
+                LaunchedEffect(pinReveals) {
+                    if (pinReveals != handledPinReveals) {
+                        handledPinReveals = pinReveals
+                        sessionsListState.animateScrollToItem(0)
+                    }
+                }
                 Box(Modifier.fillMaxSize()) {
+                    // Delegated properties do not smart-cast; the local also makes the
+                    // "pins are known from here down" boundary explicit.
+                    val pins = pinnedTokens
                     when {
-                        state.loading && state.sessions.isEmpty() -> com.hermes.client.ui.components.ListLoadingState()
+                        // Pins unread: rendering now would draw a list with no 已置顶 section and
+                        // then insert one above the viewport a beat later (HG-11).
+                        pins == null || (state.loading && state.sessions.isEmpty()) ->
+                            com.hermes.client.ui.components.ListLoadingState()
                         state.error != null && state.sessions.isEmpty() -> com.hermes.client.ui.components.ErrorState(
                             error = state.error!!,
                             onRetry = { vm.refresh() },
@@ -411,7 +519,7 @@ fun SessionsScreen(
                             )
                         else -> {
                             val isPinned = { s: Session ->
-                                com.hermes.client.data.repository.PinStore.token(s.profile, s.id, s.deviceId) in pinnedTokens
+                                com.hermes.client.data.repository.PinStore.token(s.profile, s.id, s.deviceId) in pins
                             }
                             // Sessions blocked on the user jump the whole order — then pins,
                             // then plain recency.
@@ -465,7 +573,7 @@ fun SessionsScreen(
                                         )
                                     }
                                     if ("pinned" !in collapsed) {
-                                        items(pinned, key = { "p-${it.id}" }) { s ->
+                                        items(pinned, key = { "p-${it.profile.orEmpty()}:${it.id}" }) { s ->
                                             SessionRow(
                                                 session = s, isPinned = true, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
@@ -763,6 +871,7 @@ private fun SessionRow(
     var menuOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
+    var confirmingArchive by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
     val language = LocalAppLanguage.current
     val trailing: (@Composable () -> Unit)? = when (sessionRowTrailing(runtime, unread)) {
@@ -871,6 +980,28 @@ private fun SessionRow(
                 ) { Text(localized(language, "保存", "Save")) }
             },
             dismissButton = { TextButton(onClick = { renaming = false }) { Text(localized(language, "取消", "Cancel")) } },
+        )
+    }
+
+    if (confirmingArchive) {
+        AlertDialog(
+            onDismissRequest = { confirmingArchive = false },
+            title = { Text(localized(language, "归档这个对话？", "Archive this conversation?")) },
+            text = {
+                Text(
+                    localized(
+                        language,
+                        "归档后它会从会话列表移到「已归档」，随时可以恢复。",
+                        "It moves out of your conversation list into 已归档, and you can restore it any time.",
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmingArchive = false; onArchive() }) {
+                    Text(localized(language, "归档", "Archive"))
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmingArchive = false }) { Text(localized(language, "取消", "Cancel")) } },
         )
     }
 
@@ -991,4 +1122,35 @@ private fun UnreadIndicator() {
             .size(9.dp)
             .background(MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape),
     )
+}
+
+
+/**
+ * The Chats segment row. Extracted so its width can be pinned by a screenshot test: with the Bots
+ * segment present this row carries four labels in a 366dp span, and the tightest case — English at
+ * fontScale 1.3 — is exactly the one that would only ever be noticed on a device.
+ */
+@Composable
+internal fun ChatsSegmentedRow(
+    tabs: List<Pair<ViewMode, String>>,
+    selected: ViewMode,
+    onSelect: (ViewMode) -> Unit,
+) {
+    val accent = MaterialTheme.colorScheme.primary
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+        tabs.forEachIndexed { i, (mode, label) ->
+            SegmentedButton(
+                selected = selected == mode,
+                onClick = { onSelect(mode) },
+                shape = SegmentedButtonDefaults.itemShape(i, tabs.size),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = accent,
+                    activeContentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+                // No check glyph: its appear/disappear used to shove the labels sideways on every
+                // switch. Selection reads from the fill alone.
+                icon = {},
+            ) { Text(label, maxLines = 1) }
+        }
+    }
 }

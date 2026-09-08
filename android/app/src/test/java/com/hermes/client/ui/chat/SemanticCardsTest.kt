@@ -81,10 +81,15 @@ class SemanticCardsTest {
         val g1 = groupToolsForDisplay(listOf(tool("a"), tool("b"), tool("c")))
         assertEquals(1, g1.size)
         assertTrue(g1[0] is ToolDisplayGroup.Timeline)
-        // 2 consecutive -> singles
+        // 2 consecutive -> ONE timeline (HG-3). Two separately bordered cards read as two
+        // independent things when they are two steps of the same turn.
         val g2 = groupToolsForDisplay(listOf(tool("a"), tool("b")))
-        assertEquals(2, g2.size)
-        assertTrue(g2.all { it is ToolDisplayGroup.Single })
+        assertEquals(1, g2.size)
+        assertTrue(g2[0] is ToolDisplayGroup.Timeline)
+        // A lone call is still its own card: there is no group to make.
+        val g1a = groupToolsForDisplay(listOf(tool("a")))
+        assertEquals(1, g1a.size)
+        assertTrue(g1a[0] is ToolDisplayGroup.Single)
         // todo breaks the run: 3 + todo + 1 -> timeline, single(todo), single
         val g3 = groupToolsForDisplay(listOf(tool("a"), tool("b"), tool("c"), todoTool, tool("d")))
         assertEquals(3, g3.size)
@@ -212,4 +217,22 @@ class SemanticCardsTest {
     @Test fun tsvIgnoresProseAroundTable() {
         assertEquals("a\tb", markdownTableToTsv("some text\n| a | b |\n|---|---|"))
     }
+
+    // Regression for HG-16. Hermes routinely stops updating a task list without ever marking the
+    // last item done, so a card that keeps rendering in_progress claimed work was still happening
+    // long after the run ended.
+    @Test fun `a finished turn leaves nothing in progress`() {
+        assertEquals("pending", settledTodoStatus("in_progress", turnCompleted = true))
+        // Not "failed" and not "cancelled": the app cannot tell an abandoned task from one that
+        // finished without a final report, and guessing would libel the run.
+        assertEquals("completed", settledTodoStatus("completed", turnCompleted = true))
+        assertEquals("cancelled", settledTodoStatus("cancelled", turnCompleted = true))
+        assertEquals("pending", settledTodoStatus("pending", turnCompleted = true))
+    }
+
+    @Test fun `a running turn still shows what is in progress`() {
+        assertEquals("in_progress", settledTodoStatus("in_progress", turnCompleted = false))
+        assertEquals("completed", settledTodoStatus("completed", turnCompleted = false))
+    }
+
 }

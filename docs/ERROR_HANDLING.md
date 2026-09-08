@@ -61,6 +61,10 @@ reassigned.
 | `CONFIG` | Local or deployment configuration | invalid URL, missing field, incompatible setting |
 | `STORE` | Local persistence | DataStore/database/cache failure |
 | `SEARCH` | Session and message search | gateway search request failed, search backend unavailable |
+| `FEEDBACK` | In-app feedback reporting to MissionGo | not configured, submission failed, token rejected, rate limited |
+| `CRON` | Scheduled jobs | run delivered nowhere, schedule/trigger failure |
+| `MSG` | Messaging channels (DingTalk, Slack, …) | list/save failure, profile conflict, platform not connected, gateway restart |
+| `LINK` | Links the app opens out of its own content | no app can open the link, non-web scheme refused |
 | `UNKNOWN` | Truly unmapped failures | last-resort boundary only; must be investigated |
 
 ## Canonical structured error
@@ -118,7 +122,7 @@ expanded without changing the underlying meaning.
 
 | Code | Condition | Default Chinese explanation | Default English explanation | Retryable |
 |---|---|---|---|---|
-| `HR-CONN-001` | Device has no usable network | 当前网络不可用，请检查网络连接。 | No usable network is available. Check your connection. | Yes |
+| `HR-CONN-001` | Device has no usable network **and the gateway probe also failed** (a capability read alone never decides — see docs/DESIGN.md) | 当前网络不可用，请检查网络连接。 | No usable network is available. Check your connection. | Yes |
 | `HR-CONN-002` | WebSocket connection failed | 无法连接 Relay，将自动重试。 | Couldn't connect to the Relay. Retrying automatically. | Yes |
 | `HR-CONN-003` | `gateway.ready` handshake timed out | Relay 已连接，但会话握手超时。 | The Relay connected, but the session handshake timed out. | Yes |
 | `HR-CONN-004` | Connection was interrupted during an operation | 连接中断，正在恢复会话。 | The connection was interrupted. Restoring the conversation. | Yes |
@@ -207,11 +211,22 @@ expanded without changing the underlying meaning.
 | `HR-OPS-008` | Lifecycle-state handoff, public route switch, observation, or automatic recovery did not complete | Gateway 路由切换未完成，已尝试恢复原服务。请检查恢复状态。 | The Gateway route switch did not complete. Recovery of the existing service was attempted. Inspect the recovery state. | Yes (inspect the recovery state and retry) |
 | `HR-OPS-009` | PostgreSQL version validation, advisory migration lock, ordered migration, or exact schema verification did not complete | Gateway 数据库迁移或版本校验未完成，已阻止发布。请检查数据库状态后重试。 | The Gateway database migration or version check did not complete, so the release was blocked. Inspect the database state and retry. | Yes (inspect database state and retry; public routing remains unchanged) |
 | `HR-OPS-010` | One or more read-only production-promotion gates for host identity, resources, artifact, legacy rollback, loopback routing, Docker, PostgreSQL, or off-host restore evidence are incomplete | 生产晋级前置门禁尚未全部通过，线上服务保持不变。请补齐阻断项后重新审计。 | Production promotion gates are incomplete; the live service was left unchanged. Resolve the blockers and audit again. | Yes (resolve the reported gates and rerun the read-only audit) |
-| `HR-OPS-011` | Staging transactional-email submission, signed webhook receipt, or expected final-delivery aggregate did not complete | Staging 邮件发送或最终投递验收未完成，请检查邮件配置、Webhook 和聚合指标后重试。 | Staging email submission or final-delivery acceptance did not complete. Check mail configuration, the webhook, and aggregate metrics before retrying. | Yes (inspect email delivery and retry in isolated staging) |
-| `HR-OPS-012` | Public SPF TXT, Return-Path MX, DKIM TXT, or DMARC TXT records do not match the reviewed mail-domain contract | 邮件域名的 SPF、DKIM、DMARC 公共记录尚未通过验收，请修正 DNS 后重试。 | The mail domain's public SPF, DKIM, and DMARC records did not pass acceptance. Fix DNS and retry. | Yes (fix DNS and rerun the read-only audit) |
-| `HR-OPS-013` | The bounded account-retention sweep could not complete; the login service remains available and the next scheduled sweep will retry | 账号数据定期清理未完成，登录服务仍可使用，系统将在下一周期重试。 | Account-data maintenance did not complete. Login remains available, and the system will retry on the next cycle. | Yes (inspect the private retention snapshot and database health) |
+| `HR-OPS-011` | Legacy Gateway capture, encrypted artifact validation, file restoration, or isolated service compatibility smoke did not complete | 旧 Gateway 恢复制品的捕获或隔离验证未完成，线上服务保持不变。请检查恢复阶段后重试。 | Legacy Gateway recovery capture or isolated verification did not complete; the live service was left unchanged. Inspect the recovery stage and retry. | Yes (inspect the reported recovery stage and retry; the live service remains unchanged) |
+| `HR-OPS-012` | Production root disk is below its warning threshold, or the encrypted PostgreSQL backup status is missing, invalid, stale, not confirmed off-host, or mismatched | 生产主机磁盘或数据库备份监控发现异常，请检查告警项并尽快处理。 | Production disk or database-backup monitoring found a problem. Inspect the alert and resolve it promptly. | Yes (inspect the local high-priority alert, resolve its reported condition, and rerun the read-only monitor) |
+| `HR-OPS-013` | PostgreSQL encrypted backup, immutable-artifact account smoke, or off-host restore verification did not complete; valid backup status remains unpublished | PostgreSQL 加密备份或异机恢复验证未完成，未更新有效备份状态。请检查失败阶段后重试。 | PostgreSQL encrypted backup or off-host restore verification did not complete, so no valid backup status was published. Inspect the failed stage and retry. | Yes (inspect the failed database-recovery stage and retry; do not enable the production monitor timer until a valid status is installed) |
+| `HR-OPS-014` | Production managed-baseline admission, legacy identity binding, candidate adoption, route switch, or automatic legacy recovery did not complete | 生产 Gateway 受管基线接管未完成，已阻止切换或尝试恢复旧服务。请检查接管阶段后重试。 | The managed production Gateway baseline was not established. The switch was blocked or legacy recovery was attempted. Inspect the adoption stage and retry. | Yes (inspect the adoption journal and verified legacy rollback point before retrying) |
+| `HR-OPS-015` | Production PostgreSQL role/database initialization, least-privilege verification, or atomic URL installation did not complete | PostgreSQL 生产数据库初始化未完成，账号功能保持关闭。请检查初始化阶段后重试。 | Production PostgreSQL initialization did not complete; account features remain disabled. Inspect the initialization stage and retry. | Yes (inspect the initialization stage and retry; account features remain disabled) |
+| `HR-OPS-016` | Routine production Gateway release (R5-F1) admission, slot-to-slot candidate, route switch, or automatic restore of the current release did not complete | 生产 Gateway 常规发版未完成，已阻止切换或已恢复当前版本。请检查发版阶段后重试。 | The routine production Gateway release did not complete. The switch was blocked or the current release was restored. Inspect the release stage and retry. | Yes (inspect the deployment journal and the `previous` rollback point before retrying) |
+| `HR-OPS-017` | Staging transactional-email submission, signed webhook receipt, or expected final-delivery aggregate did not complete | Staging 邮件发送或最终投递验收未完成，请检查邮件配置、Webhook 和聚合指标后重试。 | Staging email submission or final-delivery acceptance did not complete. Check mail configuration, the webhook, and aggregate metrics before retrying. | Yes (inspect email delivery and retry in isolated staging) |
+| `HR-OPS-018` | Public SPF TXT, Return-Path MX, DKIM TXT, or DMARC TXT records do not match the reviewed mail-domain contract | 邮件域名的 SPF、DKIM、DMARC 公共记录尚未通过验收，请修正 DNS 后重试。 | The mail domain's public SPF, DKIM, and DMARC records did not pass acceptance. Fix DNS and rerun the read-only audit. | Yes (fix DNS and rerun the read-only audit) |
+| `HR-OPS-019` | The bounded account-retention sweep could not complete; the login service remains available and the next scheduled sweep will retry | 账号数据定期清理未完成，登录服务仍可使用，系统将在下一周期重试。 | Account-data maintenance did not complete. Login remains available, and the system will retry on the next cycle. | Yes (inspect the private retention snapshot and database health) |
 | `HR-FILE-001` | A selected attachment could not be read | 无法读取所选文件，请重新选择。 | Couldn't read the selected file. Choose it again. | Yes |
 | `HR-FILE-002` | An exported transcript file could not be written or shared | 无法生成对话文件，请重试。 | Couldn't create the transcript file. Retry. | Yes |
+| `HR-FILE-003` | A Hermes-delivered artifact resolved outside `FILES_ROOT`, or the Mac refused to open it (Connector 403) | 这个文件不在 Mac 允许访问的目录内，无法下载。请让 Hermes 把它放到允许的目录。 | The file sits outside the folder the Mac allows, so it can't be downloaded. Ask Hermes to place it inside that folder. | No (move the file, or widen `FILES_ROOT`) |
+| `HR-FILE-004` | A Hermes-delivered artifact exceeds `MAX_FILE_BYTES` (Connector 413) | 文件超过传输上限，无法下载。请让 Hermes 压缩或拆分后再发。 | The file exceeds the transfer limit. Ask Hermes to compress or split it. | No (compress or split the artifact) |
+| `HR-FILE-005` | A Hermes-delivered artifact is gone or is not a regular file (Connector 404 / `invalid_file` / `invalid_path`) | 这个文件在 Mac 上已不存在，请让 Hermes 重新生成。 | The file is no longer on the Mac. Ask Hermes to produce it again. | No (ask Hermes to regenerate it) |
+| `HR-FILE-006` | Artifact transfer failed for any other reason (network, timeout, unexpected status) | 文件下载失败，请重试。 | The download failed. Retry. | Yes |
+| `HR-FILE-007` | The artifact downloaded, but no installed app can open its MIME type | 手机上没有能打开这种文件的应用。文件已下载，请改用「分享」保存到其他应用。 | No app on this phone can open this file type. It downloaded fine — use Share to save it elsewhere. | No (use Share to hand the file to another app) |
 | `HR-MEDIA-001` | Image save, preparation, or share operation failed | 图片操作失败，请重试。 | The image operation failed. Retry. | Yes |
 | `HR-MEDIA-003` | The transcript image could not be rendered or shared | 无法生成对话长图，请重试或改用 Markdown 文件。 | Couldn't render the transcript image. Retry, or share it as a Markdown file. | Yes |
 | `HR-MEDIA-002` | A picked avatar photo could not be decoded, cropped, or encoded (ImageDecoder/BitmapFactory failure, unreadable URI, empty image) | 无法读取所选照片，请换一张再试。 | Couldn't read the selected photo. Try a different one. | Yes |
@@ -223,14 +238,45 @@ expanded without changing the underlying meaning.
 | `HR-SESS-005` | Unmapped failure moving a session to another project | 无法移动会话到该项目，请重试。 | Couldn't move the conversation to that project. Retry. | Yes |
 | `HR-SESS-007` | A user message could not be submitted (`prompt.submit`/attachment upload raised, or the live-handle wait timed out); the bubble stays on screen as 未发送 with tap-to-retry | 消息未发送，点按气泡重试。 | The message was not sent. Tap the bubble to retry. | Yes |
 | `HR-SESS-006` | New session was requested in a project folder the Mac no longer has; the gateway created it in the default project instead | 项目文件夹在 Mac 上不存在，会话已建在默认项目。 | The project folder no longer exists on the Mac, so the conversation was created in the default project. | No |
+| `HR-SESS-008` | Archiving a conversation from the chat screen failed (`PATCH /api/sessions/{id}` raised); the chat stays open and nothing was archived | 无法归档会话，请重试。 | Couldn't archive the conversation. Retry. | Yes |
 | `HR-CLARIFY-001` | Clarify answer arrived after the request expired server-side | 这个提问已失效，agent 没有收到这次回答，请在输入框直接说明你的选择。 | The clarify question expired before the answer arrived; tell the agent your choice in the composer. | No |
 | `HR-SYNC-001` | Final history reconciliation failed | 无法同步完整会话内容，请重试。 | Couldn't synchronize the complete conversation. Retry. | Yes |
 | `HR-SYNC-002` | Run stopped without a confirmed terminal state (Relay observed `run.interrupted`/`run.unknown`, or the phone marked it interrupted) | 任务停止了，但没有确认完成，请打开会话检查。 | The task stopped without a confirmed completion. Open the conversation to check. | No (open the conversation) |
 | `HR-PERM-001` | Camera permission denied | 相机权限未开启，请前往系统设置允许。 | Camera permission is disabled. Allow it in system settings. | Yes |
 | `HR-PERM-002` | Notification permission denied | 通知权限未开启，后台任务可能无法及时提醒。 | Notifications are disabled, so background alerts may be delayed. | Yes |
 | `HR-NOTIF-001` | A notification action (approve/deny/reply/choice) could not be delivered to the gateway | 通知操作未能发送，请重试。 | The notification action couldn't be sent. Try again. | Yes |
+| `HR-LINK-001` | A link in app content (an assistant answer, a setup guide link) could not be handed to any app (no browser or handler installed, or the launch was refused). The link is copied to the clipboard so it can still be used | 没有能打开链接的应用，链接已复制。 | No app can open this link. It was copied to the clipboard. | No (paste the link elsewhere) |
+| `HR-LINK-002` | A link in app content is not an openable web address: its scheme is outside the http/https/mailto/tel allowlist, or it has no scheme at all (a relative or anchor-only target). Refused before reaching the system, so a crafted `intent:`/`file:` target cannot launch anything | 这个链接无法打开。 | This link can't be opened. | No |
 | `HR-SEARCH-001` | Gateway message search (`/api/sessions/search`) failed: transport error, non-2xx response, or unparseable body. The title matches on the search screen stay; only the message section shows the error with Retry | 消息搜索失败，请重试。 | Message search failed. Retry. | Yes |
+| `HR-CRON-001` | A scheduled job ran successfully but its output never reached the target channel (Hermes reports `last_status = delivery_failed`; the cause is in `last_delivery_error` and `last_error` is null). The job itself did not fail, so the recovery is on the channel, not the job | 任务运行成功，但结果没能送到目标渠道。 | The task ran successfully, but its result could not be delivered to the target channel. | Yes |
+| `HR-MSG-001` | The messaging channel list could not be loaded (`GET /api/messaging/platforms` raised or returned non-2xx) | 无法加载消息渠道，请重试。 | Couldn't load messaging channels. Retry. | Yes |
+| `HR-MSG-002` | Saving a channel's credentials or enabled flag failed (`PUT /api/messaging/platforms/{id}`) | 渠道设置未能保存，请重试。 | The channel settings couldn't be saved. Retry. | Yes |
+| `HR-MSG-003` | Enabling the channel would break a multiplexed gateway because another profile already owns its listener (server returns 409) | 该渠道已被另一个身份占用，同一个渠道不能同时启用两次。 | Another profile already owns this channel; it can't be enabled twice at once. | No |
+| `HR-MSG-004` | Hermes reports the platform as `startup_failed`: it is configured and enabled, but its adapter did not come up. The technical cause is the server's `error_message`, kept behind a details toggle | 这个渠道没能连上，请检查设置。 | This channel didn't connect. Check its setup. | No (fix the setup) |
+| `HR-MSG-005` | Restarting the gateway failed (`POST /api/gateway/restart`), so channels saved as `pending_restart` stay disconnected | 网关重启失败，请重试。 | The gateway restart failed. Retry. | Yes |
+| `HR-FEEDBACK-001` | The build carries no MissionGo endpoint/token, so the SDK was never initialized (a fresh clone, another machine, ordinary CI). Entry points are hidden in this state; the code exists for the boundary that is reached anyway | 这个版本没有开启反馈功能。 | Feedback is not enabled in this build. | No |
+| `HR-FEEDBACK-002` | Submitting a report failed for any other reason — network, an unparseable response, an expired local draft, or a server code we do not special-case. Retryability comes from the SDK, which reports what it used for its own retries, rather than from a local table of codes | 反馈没有提交成功，请重试。 | The feedback wasn't submitted. Retry. | Depends (as reported) |
+| `HR-FEEDBACK-003` | The feedback service refused the report's credentials (`http_401` / `http_403`): the SDK token was revoked, mistyped, or belongs to another product. Retrying cannot help; the build has to be fixed | 反馈服务拒绝了这次提交，请联系开发者。 | The feedback service rejected this report. Contact the developer. | No |
+| `HR-FEEDBACK-004` | The feedback service applied its per-token rate limit (`http_429`) | 反馈提交过于频繁，请稍后再试。 | Too many reports just now. Try again shortly. | Yes |
+| `HR-MSG-006` | Handoff refused because the conversation is mid-turn (gateway 4009). The move is queued only between turns, so the fix is to wait rather than retry immediately | 会话正在运行，等这一轮结束再转。 | The conversation is mid-turn. Wait for it to finish, then move it. | Yes (after the turn) |
+| `HR-MSG-007` | Handoff refused because the destination channel is not enabled in the gateway (4025) | 这个渠道没有启用，先在消息渠道里开启。 | That channel isn't enabled. Turn it on under Messaging first. | No |
+| `HR-MSG-008` | Handoff refused because the destination channel has no home channel (4026); scheduled delivery to it fails for the same reason | 这个渠道还没设默认投递落点，要先在目标聊天里用 /sethome 设置。 | That channel has no delivery target yet. Set one with /sethome in the destination chat. | No |
+| `HR-MSG-009` | Handoff refused because one is already in flight for this conversation (4027) | 已经有一次转移在进行，稍后再试。 | A move is already in flight. Try again shortly. | Yes |
 | `HR-UNKNOWN-001` | Unmapped boundary failure | 出现未知错误，请复制诊断信息协助定位。 | An unknown error occurred. Copy diagnostics to help investigate. | Depends |
+
+
+### Artifact download failures (decision 2026-09-05)
+
+`HR-FILE-001` means an *outgoing* attachment the user picked could not be read. It must not be
+reused for an *incoming* artifact Hermes delivered — that reversed the direction of the reported
+problem. Downloads now map onto `HR-FILE-003`–`HR-FILE-007` at the boundary
+(`data/error/ArtifactErrors.kt`), which keeps a permission problem distinguishable from a transfer
+problem and from "this phone has no viewer".
+
+The Connector logs every rejected `GET /api/files` with its status and reason. It deliberately logs
+only the requested path's extension and length: a refused download previously left no trace on
+either side, so diagnosing one meant reading `FILES_ROOT` by hand, while logging the path itself
+would put the Mac's directory layout into shipped diagnostics.
 
 ## Implementation and review checklist
 

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { parseGatewayLogLevel, type GatewayLogLevel } from "./gateway-log.js";
 
 export interface GatewayConfig {
   port: number;
@@ -22,6 +23,8 @@ export interface GatewayConfig {
   maxSocketBufferedBytes: number;
   lifecycleEventStoreFile: string;
   maxLifecycleEvents: number;
+  /** GATEWAY_LOG_LEVEL: off | error | info (default) | debug. */
+  logLevel: GatewayLogLevel;
 }
 
 export function loadGatewayConfig(env: NodeJS.ProcessEnv): GatewayConfig {
@@ -68,6 +71,7 @@ export function loadGatewayConfig(env: NodeJS.ProcessEnv): GatewayConfig {
           : ".data/lifecycle-events.json"),
     ),
     maxLifecycleEvents: positiveIntEnv(env, "MAX_LIFECYCLE_EVENTS", 10_000, 1_000_000),
+    logLevel: parseGatewayLogLevel(env.GATEWAY_LOG_LEVEL),
   };
 }
 

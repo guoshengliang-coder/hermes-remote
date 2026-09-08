@@ -278,6 +278,17 @@ private fun detachProcessNarration(text: String): Pair<String, String?> {
 
 internal fun ChatMessage.organizedForDisplay(): ChatMessage {
     if (isError) return this
+    if (role == Role.USER) {
+        // Hermes appends its context-compression snapshot to the trailing user turn, so a real
+        // prompt can arrive with pages of scaffolding stapled to it (HG-16). Cut the scaffolding
+        // and keep what the user typed. A turn that was scaffolding ALONE keeps its text: it is
+        // about to become a timeline note, whose expanded body shows the original.
+        //
+        // Attachment context notes are cut the same way and for the same reason, except they can
+        // land on either side of the person's own words (HG-24).
+        val stripped = withoutAttachmentScaffolding(withoutCompressionScaffolding(text))
+        return if (stripped.isBlank() || stripped == text) this else copy(text = stripped)
+    }
     // REST history preserves Hermes tool turns as role="tool"; the domain mapper represents
     // unknown/non-chat roles as SYSTEM. Those turns contain the same untrusted wrappers as live
     // assistant output and must be collapsed too. Leave ordinary system notices untouched.
@@ -359,6 +370,47 @@ internal fun alignMessageIds(history: List<ChatMessage>, current: List<ChatMessa
     return history.map { message ->
         val ids = idsByRole[message.role]
         if (ids != null && ids.hasNext()) message.copy(id = ids.next()) else message
+    }
+}
+
+/**
+ * REST history models less than the live transcript: reasoning and tool results exist only as far
+ * as the gateway sends them, and the in-flight bubble's streaming state never does. A reconcile
+ * may correct and add, but must not delete what it does not model (HG-8, 2026-09-05). A blank
+ * field on the aligned REST row inherits the live row's value by id; a persisted tool call whose
+ * result REST cannot carry keeps the live result; and while the run is still active the tail
+ * assistant keeps the live streaming state so the running indicator survives the swap.
+ */
+internal fun inheritStreamFields(
+    history: List<ChatMessage>,
+    current: List<ChatMessage>,
+    runActive: Boolean,
+): List<ChatMessage> {
+    val liveById = current.associateBy { it.id }
+    val liveStreaming = runActive && current.any { it.role == Role.ASSISTANT && it.isStreaming }
+    val tailAssistant = history.indexOfLast { it.role == Role.ASSISTANT }
+    return history.mapIndexed { index, message ->
+        val live = liveById[message.id]?.takeIf { it.role == message.role }
+        val merged = if (live == null) message else message.copy(
+            thinking = message.thinking.ifBlank { live.thinking },
+            tools = when {
+                message.tools.isEmpty() -> live.tools
+                else -> {
+                    val liveTools = live.tools.associateBy { it.id }
+                    message.tools.map { tool ->
+                        val known = liveTools[tool.id]
+                        if (known == null || tool.output.isNotBlank()) tool else tool.copy(
+                            output = known.output,
+                            command = tool.command ?: known.command,
+                            exitCode = tool.exitCode ?: known.exitCode,
+                            durationMs = tool.durationMs ?: known.durationMs,
+                            todos = tool.todos.ifEmpty { known.todos },
+                        )
+                    }
+                }
+            },
+        )
+        if (liveStreaming && index == tailAssistant) merged.copy(isStreaming = true) else merged
     }
 }
 

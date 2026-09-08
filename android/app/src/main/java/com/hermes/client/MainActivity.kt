@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.AppLanguageProvider
+import com.hermes.client.ui.localization.LanguagePreference
+import com.hermes.client.ui.localization.resolve
 import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.startup.StartupScreen
 import com.hermes.client.ui.startup.StartupReason
@@ -65,6 +67,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var pendingShare: com.hermes.client.share.PendingShareStore
     @Inject lateinit var languages: AppLanguageProvider
     @Inject lateinit var foregroundRecovery: ForegroundRecoveryCoordinator
+    @Inject lateinit var feedbackReporter: com.hermes.client.data.feedback.FeedbackReporter
     private val startupViewModel: StartupViewModel by viewModels()
     private val processColdStart = PROCESS_UI_LAUNCH_CLAIMED.compareAndSet(false, true)
 
@@ -98,7 +101,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val mode by settingsStore.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
             val technical by settingsStore.toolCallTechnical.collectAsState(initial = true)
-            val language by settingsStore.appLanguage.collectAsState(initial = AppLanguage.ZH)
+            val language by settingsStore.appLanguage.collectAsState(
+                initial = LanguagePreference.SYSTEM.resolve(),
+            )
             val dark = when (mode) {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
                 ThemeMode.LIGHT -> false
@@ -130,6 +135,7 @@ class MainActivity : ComponentActivity() {
                         Surface {
                             // If the previous run crashed, show the saved trace first so it can be
                             // shared, then continue into the app once dismissed.
+                            val crashScope = androidx.compose.runtime.rememberCoroutineScope()
                             var report by remember { mutableStateOf(crashReport) }
                             val current = report
                             if (current != null) {
@@ -137,6 +143,54 @@ class MainActivity : ComponentActivity() {
                                     report = current,
                                     onShare = { shareCrash(current) },
                                     onDismiss = { CrashReporter.clear(this@MainActivity); report = null },
+                                    onReport = if (feedbackReporter.isAvailable) {
+                                        {
+                                            // The queue survives this process, so the report is
+                                            // filed even with no network right now; the user is
+                                            // told that and let back into the app immediately
+                                            // rather than being held on a crash screen.
+                                            crashScope.launch {
+                                                val queued = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                                    // The trace goes up twice on purpose. The
+                                                    // description is trimmed to fit the server's
+                                                    // limit and survives even if the upload that
+                                                    // follows the report is refused; the
+                                                    // attachment is the whole file, untrimmed.
+                                                    val whole = com.hermes.client.data.feedback.FeedbackAttachments.snapshot(
+                                                        java.io.File(filesDir, com.hermes.client.data.feedback.FeedbackAttachments.DIRECTORY),
+                                                        "crash",
+                                                        current,
+                                                    )
+                                                    feedbackReporter.enqueue(
+                                                        feedbackReporter.prepare(
+                                                            com.hermes.client.data.feedback.FeedbackPrefill(
+                                                                title = localized(languages.current, "崩溃", "Crash"),
+                                                                description = com.hermes.client.data.feedback.trimCrashReport(current),
+                                                                context = mapOf("entry" to "crash_screen"),
+                                                                attachments = listOfNotNull(whole),
+                                                            ),
+                                                        ),
+                                                    )
+                                                }
+                                                android.widget.Toast.makeText(
+                                                    this@MainActivity,
+                                                    if (queued) {
+                                                        localized(languages.current, "已加入上报队列，联网后自动提交。", "Queued. It will be sent once there's a network.")
+                                                    } else {
+                                                        localized(languages.current, "上报失败，可改用分享。", "Couldn't queue the report. Share it instead.")
+                                                    },
+                                                    android.widget.Toast.LENGTH_LONG,
+                                                ).show()
+                                                if (queued) {
+                                                    CrashReporter.clear(this@MainActivity)
+                                                    report = null
+                                                }
+                                            }
+                                            Unit
+                                        }
+                                    } else {
+                                        null
+                                    },
                                 )
                             } else {
                                 androidx.compose.foundation.layout.Box {

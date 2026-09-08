@@ -5,6 +5,10 @@ import { createStagingSmokeCallbacks } from "../ops/lib/deploy-smoke.mjs";
 import { errorPayload, OpsError } from "../ops/lib/errors.mjs";
 import { auditProductionReadiness } from "../ops/lib/production-audit.mjs";
 import { loadProductionAuditConfig } from "../ops/lib/production-config.mjs";
+import { loadProductionMonitorConfig } from "../ops/lib/production-monitor-config.mjs";
+import { monitorProduction } from "../ops/lib/production-monitor.mjs";
+import { loadLegacyCaptureConfig, loadLegacyRestoreConfig } from "../ops/lib/legacy-recovery-config.mjs";
+import { captureLegacyRecovery, verifyLegacyRecovery } from "../ops/lib/legacy-recovery.mjs";
 import {
   bootstrapStaging,
   createDoctorBundle,
@@ -18,18 +22,37 @@ try {
   const args = parseArguments(command, process.argv.slice(3));
   const deploymentCommand = command === "deploy" || command === "rollback";
   const productionAudit = command === "production-audit";
-  const config = productionAudit
-    ? await loadProductionAuditConfig(args.config)
-    : deploymentCommand
-      ? await loadDeployConfig(args.config)
-      : await loadOpsConfig(args.config);
-  const manifest = await loadBundleManifest(
-    deploymentCommand || productionAudit ? config.targetArtifactManifest : config.artifactManifest,
-    { verifyArchive: command === "preflight" || command === "bootstrap" || deploymentCommand || productionAudit },
-  );
+  const productionMonitor = command === "production-monitor";
+  const legacyCapture = command === "legacy-capture";
+  const legacyRestore = command === "legacy-restore";
+  const config = legacyCapture
+    ? await loadLegacyCaptureConfig(args.config)
+    : legacyRestore
+      ? await loadLegacyRestoreConfig(args.config)
+      : productionMonitor
+        ? await loadProductionMonitorConfig(args.config)
+        : productionAudit
+          ? await loadProductionAuditConfig(args.config)
+          : deploymentCommand
+            ? await loadDeployConfig(args.config)
+            : await loadOpsConfig(args.config);
+  const manifest = legacyCapture || legacyRestore || productionMonitor
+    ? undefined
+    : await loadBundleManifest(
+      deploymentCommand || productionAudit ? config.targetArtifactManifest : config.artifactManifest,
+      { verifyArchive: command === "preflight" || command === "bootstrap" || deploymentCommand || productionAudit },
+    );
 
-  if (productionAudit) {
+  if (legacyCapture) {
+    print(await captureLegacyRecovery(config, { confirmation: args.confirm }));
+  } else if (legacyRestore) {
+    print(await verifyLegacyRecovery(config, { confirmation: args.confirm }));
+  } else if (productionAudit) {
     const result = await auditProductionReadiness(config, manifest, { confirmation: args.confirm });
+    print(result);
+    if (!result.ok) process.exitCode = 1;
+  } else if (productionMonitor) {
+    const result = await monitorProduction(config, { confirmation: args.confirm });
     print(result);
     if (!result.ok) process.exitCode = 1;
   } else if (command === "preflight") {
@@ -59,6 +82,10 @@ try {
         ? "deployment"
       : command === "production-audit"
         ? "promotion"
+      : command === "production-monitor"
+        ? "monitoring"
+      : command === "legacy-capture" || command === "legacy-restore"
+        ? "recovery"
       : command === "status"
         ? "status"
         : "config";
@@ -67,7 +94,7 @@ try {
 }
 
 function parseArguments(selectedCommand, values) {
-  if (!new Set(["preflight", "bootstrap", "status", "doctor", "deploy", "rollback", "production-audit"]).has(selectedCommand)) {
+  if (!new Set(["preflight", "bootstrap", "status", "doctor", "deploy", "rollback", "production-audit", "production-monitor", "legacy-capture", "legacy-restore"]).has(selectedCommand)) {
     throw new OpsError("config", "command_not_supported", "arguments_parse");
   }
   const parsed = {};
@@ -91,6 +118,18 @@ function parseArguments(selectedCommand, values) {
   } else if (selectedCommand === "production-audit") {
     if (!/^production:[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/.test(parsed.confirm ?? "") || parsed.output) {
       throw new OpsError("config", "production_audit_requires_exact_confirmation", "arguments_parse");
+    }
+  } else if (selectedCommand === "production-monitor") {
+    if (!/^production:[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/.test(parsed.confirm ?? "") || parsed.output) {
+      throw new OpsError("config", "production_monitor_requires_exact_confirmation", "arguments_parse");
+    }
+  } else if (selectedCommand === "legacy-capture") {
+    if (!/^production:[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/.test(parsed.confirm ?? "") || parsed.output) {
+      throw new OpsError("config", "legacy_capture_requires_exact_confirmation", "arguments_parse");
+    }
+  } else if (selectedCommand === "legacy-restore") {
+    if (!/^isolated:[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/.test(parsed.confirm ?? "") || parsed.output) {
+      throw new OpsError("config", "legacy_restore_requires_exact_confirmation", "arguments_parse");
     }
   } else if (parsed.confirm) {
     throw new OpsError("config", "confirm_not_supported_for_command", "arguments_parse");

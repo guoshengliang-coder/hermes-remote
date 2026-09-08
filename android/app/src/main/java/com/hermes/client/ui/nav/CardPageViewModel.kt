@@ -2,6 +2,7 @@ package com.hermes.client.ui.nav
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.hermes.client.data.feedback.FeedbackReporter
 import com.hermes.client.data.network.GatewayHealth
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.network.ProfileDto
@@ -55,6 +56,8 @@ class CardPageViewModel @Inject constructor(
     healthMonitor: com.hermes.client.data.network.GatewayHealthMonitor,
     runtimeStore: SessionRuntimeStore,
     private val updateBadge: com.hermes.client.update.UpdateBadge,
+    /** Exposed so the card page can hide its feedback row when this build was not configured. */
+    val feedbackReporter: FeedbackReporter,
 ) : ViewModel() {
     /** Newer release's version name for the update entry row (throttled index precheck). */
     val updateAvailable: StateFlow<String?> = updateBadge.available

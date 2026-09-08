@@ -1,6 +1,7 @@
 package com.hermes.client.data.repository
 
 import com.hermes.client.data.network.HermesRestApi
+import com.hermes.client.data.network.MessageDto
 import com.hermes.client.data.network.SearchResultDto
 import com.hermes.client.data.network.SessionStatsDto
 import com.hermes.client.domain.ChatMessage
@@ -9,9 +10,11 @@ import com.hermes.client.domain.toDomain
 import com.hermes.client.data.auth.AccountRoutingContext
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.ConversationDeviceStore
+import com.hermes.client.domain.isRenderable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 
 /**
  * Mirror the desktop sidebar session list: show interactive, used sessions only. Sessions whose
@@ -26,6 +29,8 @@ private fun Session.isInteractive(): Boolean =
 class SessionRepository(
     private val rest: HermesRestApi,
     private val scope: CoroutineScope,
+    /** Optional disk cache for raw transcript payloads. */
+    private val transcripts: TranscriptStore? = null,
     private val accountSessions: AccountSessionManager? = null,
     private val conversationDevices: ConversationDeviceStore? = null,
 ) {
@@ -85,6 +90,7 @@ class SessionRepository(
         // Coalescing keys. The two list keys are distinct because they are different queries;
         // `activityFeed` keeps cron sessions, so it deliberately does NOT share the list key.
         private const val LIST_ALL_KEY = "sessions:all"
+        private const val BOT_LIST_KEY = "sessions:bots"
         private const val ARCHIVED_ALL_KEY = "sessions:archived"
         private const val HISTORY_KEY_PREFIX = "history:"
     }
@@ -121,6 +127,21 @@ class SessionRepository(
             allProfilesCacheRoute = route
             allProfilesLoaded = true
             loaded
+        }
+    }
+
+    /**
+     * Every non-archived, non-empty session across profiles, WITHOUT the interactive-source
+     * filter. [listAllProfiles] drops messaging sources on purpose — they would flood the Chats
+     * list — so the Bots segment needs its own read of the same endpoint.
+     */
+    suspend fun botSessions(): List<Session> {
+        val context = accountSessions?.routingContext()
+        return coalesced("$BOT_LIST_KEY:${routeKey(context)}") {
+            bindToRoute(
+                rest.profileSessions(deviceId = context?.deviceId).sessions.map { it.toDomain() },
+                context,
+            ).filter { !it.archived && it.messageCount > 0 }
         }
     }
 
@@ -189,21 +210,66 @@ class SessionRepository(
         deviceId: String? = null,
     ): List<ChatMessage> =
         coalesced("$HISTORY_KEY_PREFIX${historyKey(sessionId, profile, deviceId)}") {
-            val loaded = rest.messages(sessionId, profile, deviceId)
-                .filterNot { it.role.lowercase() in INTERNAL_TOOL_ROLES }
-                .mapIndexed { i, dto ->
-                    val m = dto.toDomain()
-                    m.copy(id = "h-$i-${m.id}")
-                }
-            synchronized(historyCache) { historyCache[historyKey(sessionId, profile, deviceId)] = loaded }
+            val key = historyKey(sessionId, profile, deviceId)
+            val raw = rest.messagesRaw(sessionId, profile, deviceId)
+            val loaded = mapHistory(rest.parseMessages(raw))
+            synchronized(historyCache) { historyCache[key] = loaded }
+            // Persisting must not sit between the caller and its transcript: gzip plus a file
+            // write is pure overhead on the path a screen is waiting on. The store's own budget
+            // and failure handling make a dropped write a non-event.
+            transcripts?.let { store -> scope.launch { store.write(key, raw) } }
             loaded
         }
+
+    /**
+     * The transcript a previous app run left on disk, mapped through [mapHistory] — the same
+     * function the network path uses, so a cached transcript renders exactly like a fresh one and
+     * a mapping fix reaches old payloads without a migration.
+     *
+     * Null when nothing is stored, when the payload no longer parses (an app that changed its DTOs
+     * simply refetches), or when it maps to nothing renderable. Populating the memory cache here
+     * means the second open in the same run does not touch the disk either.
+     */
+    suspend fun diskHistory(
+        sessionId: String,
+        profile: String? = null,
+        deviceId: String? = null,
+    ): List<ChatMessage>? {
+        val key = historyKey(sessionId, profile, deviceId)
+        val raw = transcripts?.read(key) ?: return null
+        val loaded = runCatching { mapHistory(rest.parseMessages(raw)) }.getOrNull()
+        if (loaded.isNullOrEmpty()) return null
+        synchronized(historyCache) { historyCache[key] = loaded }
+        return loaded
+    }
+
+    // Tool-result rows never become turns of their own, but they are the only place the
+    // persisted outcome of a call lives: join them back onto the assistant turn's cards
+    // by tool_call_id so a rebuilt timeline matches the one that streamed live.
+    private fun mapHistory(rows: List<MessageDto>): List<ChatMessage> {
+        val toolResults = rows
+            .filter { it.role.lowercase() in INTERNAL_TOOL_ROLES && !it.toolCallId.isNullOrBlank() }
+            .associateBy { it.toolCallId!! }
+        return rows
+            .filterNot { it.role.lowercase() in INTERNAL_TOOL_ROLES }
+            .mapIndexed { i, dto ->
+                val m = dto.toDomain(toolResults)
+                m.copy(id = "h-$i-${m.id}")
+            }
+            // A compaction handoff projected down to nothing is machine scaffolding, not a
+            // turn anyone took. Indices are assigned first so ids stay stable across the drop.
+            .filter { it.isRenderable() }
+    }
 
     fun cachedHistory(sessionId: String, profile: String? = null, deviceId: String? = null): List<ChatMessage>? =
         synchronized(historyCache) { historyCache[historyKey(sessionId, profile, deviceId)] }
 
     private fun historyKey(sessionId: String, profile: String?, deviceId: String?): String =
-        "${deviceId.orEmpty()}/${profile.orEmpty()}/$sessionId"
+        if (deviceId.isNullOrBlank()) {
+            "${profile.orEmpty()}/$sessionId"
+        } else {
+            "$deviceId/${profile.orEmpty()}/$sessionId"
+        }
 
     fun currentDeviceId(): String? = accountSessions?.routingContext()?.deviceId
 

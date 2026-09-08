@@ -42,6 +42,7 @@ const MANIFEST_V1_KEYS = [
   "createdAt",
 ];
 const MANIFEST_V2_KEYS = [...MANIFEST_V1_KEYS, "releaseContract"];
+const MANIFEST_V3_KEYS = [...MANIFEST_V2_KEYS, "containerdImageId"];
 const RELEASE_CONTRACT_KEYS = [
   "manifestVersion",
   "configSchemaVersion",
@@ -264,13 +265,18 @@ export async function loadBundleManifest(manifestPath, { verifyArchive = true } 
       ? MANIFEST_V1_KEYS
       : manifest.schemaVersion === 2
         ? MANIFEST_V2_KEYS
-        : undefined;
+        : manifest.schemaVersion === 3
+          ? MANIFEST_V3_KEYS
+          : undefined;
     if (!manifestKeys || manifest.kind !== "hermes-go-gateway-oci") failArtifact("unsupported_bundle_manifest");
     exactKeys(manifest, manifestKeys, "artifact_manifest");
     token(manifest.serverVersion, /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/, "serverVersion", "artifact");
     token(manifest.sourceCommit, /^[0-9a-f]{40}$/, "sourceCommit", "artifact");
     token(manifest.imageReference, /^hermes-remote-gateway:[A-Za-z0-9._-]+$/, "imageReference", "artifact");
     token(manifest.imageId, /^sha256:[0-9a-f]{64}$/, "imageId", "artifact");
+    if (manifest.schemaVersion === 3) {
+      token(manifest.containerdImageId, /^sha256:[0-9a-f]{64}$/, "containerdImageId", "artifact");
+    }
     if (manifest.architecture !== "amd64") failArtifact("bundle_architecture_must_be_amd64");
     token(manifest.archiveSha256, /^[0-9a-f]{64}$/, "archiveSha256", "artifact");
     if (manifest.archiveFile !== path.basename(manifest.archiveFile)) failArtifact("archive_file_must_be_basename");
@@ -282,7 +288,7 @@ export async function loadBundleManifest(manifestPath, { verifyArchive = true } 
     if (!Number.isFinite(Date.parse(manifest.createdAt)) || !manifest.createdAt.endsWith("Z")) {
       failArtifact("invalid_bundle_created_at");
     }
-    if (manifest.schemaVersion === 2) validateReleaseContract(manifest.releaseContract);
+    if (manifest.schemaVersion >= 2) validateReleaseContract(manifest.releaseContract);
 
     const archivePath = path.join(path.dirname(manifestPath), manifest.archiveFile);
     if (verifyArchive) {
@@ -320,11 +326,24 @@ export function deploymentDigest(config, manifest, inputMaterialFingerprint = ""
 }
 
 export function manifestIdentity(manifest) {
-  const keys = manifest.schemaVersion === 2 ? MANIFEST_V2_KEYS : MANIFEST_V1_KEYS;
+  const keys = manifest.schemaVersion === 3
+    ? MANIFEST_V3_KEYS
+    : manifest.schemaVersion === 2
+      ? MANIFEST_V2_KEYS
+      : MANIFEST_V1_KEYS;
   return keys.reduce((value, key) => ({
     ...value,
     [key]: key === "releaseContract" ? releaseContractIdentity(manifest[key]) : manifest[key],
   }), {});
+}
+
+export function runtimeImageIds(manifest) {
+  const values = [manifest.imageId];
+  if (manifest.schemaVersion === 3) values.push(manifest.containerdImageId);
+  if (values.some((value) => typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/.test(value))) {
+    failArtifact("runtime_image_identity_invalid");
+  }
+  return [...new Set(values)];
 }
 
 export async function sha256File(filePath) {

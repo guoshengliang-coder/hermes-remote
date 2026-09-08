@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "environment": "production",
+  "operator": "replace-with-operator-id",
+  "targetArtifactManifest": "/secure-input/hermes-go/gateway-bundle-manifest.json",
+  "host": {
+    "hostname": "replace-with-production-hostname",
+    "architecture": "amd64"
+  },
+  "paths": {
+    "installRoot": "/opt/hermes-go",
+    "configRoot": "/etc/hermes-go",
+    "stateRoot": "/var/lib/hermes-go",
+    "systemdUnitDirectory": "/etc/systemd/system"
+  },
+  "legacySource": {
+    "serviceName": "hermes-remote-gateway",
+    "containerName": "hermes-remote-gateway-legacy",
+    "gatewayPort": 8444,
+    "stateDirectory": "/var/lib/hermes-remote",
+    "compatibilityVersion": "0.2.0",
+    "identityFiles": [
+      {
+        "path": "/opt/hermes-remote/gateway/package.json",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "path": "/opt/hermes-remote/gateway/dist/index.js",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "recoveryEvidence": "/secure-evidence/hermes-go/legacy-recovery.json"
+  },
+  "slots": {
+    "blue": {
+      "serviceName": "hermes-go-gateway-blue",
+      "containerName": "hermes-go-gateway-blue",
+      "gatewayPort": 8787
+    },
+    "green": {
+      "serviceName": "hermes-go-gateway-green",
+      "containerName": "hermes-go-gateway-green",
+      "gatewayPort": 8788
+    }
+  },
+  "gateway": {
+    "defaultDeviceId": "production-mac",
+    "accountAuthEnabled": false,
+    "accountBindingEnabled": false
+  },
+  "secrets": {
+    "appTokenSource": "/secure-input/hermes-go/app-token",
+    "connectorTokenSource": "/secure-input/hermes-go/connector-token",
+    "internalStatusTokenSource": "/secure-input/hermes-go/internal-status-token"
+  },
+  "database": null,
+  "nginx": {
+    "serverName": "gateway.example.invalid",
+    "listenPort": 443,
+    "certificateSource": "/secure-input/hermes-go/fullchain.pem",
+    "privateKeySource": "/secure-input/hermes-go/privkey.pem",
+    "candidateConfigSource": "/secure-input/hermes-go/hermes-remote-gateway.candidate.conf",
+    "candidateConfigSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "configFile": "/etc/nginx/sites-available/hermes-remote-gateway",
+    "upstreamConfigFile": "/etc/nginx/hermes-go-upstreams/hermes-go-production-upstream.conf"
+  },
+  "deployment": {
+    "drainTimeoutSeconds": 60,
+    "observationSeconds": 30
+  }
+}

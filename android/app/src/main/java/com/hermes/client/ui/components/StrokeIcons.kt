@@ -206,3 +206,129 @@ val PinStrokeIcon: ImageVector by lazy {
         moveTo(12f, 14f); lineTo(12f, 21f)
     }
 }
+
+/**
+ * External-link glyph for inline markdown links: a frame with an arrow leaving its top-right
+ * corner. Rendered next to 17sp body text at ~14dp, so it uses the small-stroke compensation
+ * (DESIGN.md §4.1) — 1.7 would thin out to ~1.0 beside the body weight.
+ */
+val ExternalLinkIcon: ImageVector by lazy {
+    smallStrokeIcon("StrokeExternalLink") {
+        // Frame, open at the top-right where the arrow leaves.
+        moveTo(13f, 4.6f)
+        lineTo(6.4f, 4.6f)
+        arcTo(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 4.6f, y1 = 6.4f)
+        lineTo(4.6f, 17.6f)
+        arcTo(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 6.4f, y1 = 19.4f)
+        lineTo(17.6f, 19.4f)
+        arcTo(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 19.4f, y1 = 17.6f)
+        lineTo(19.4f, 11f)
+        // Arrow out of the corner.
+        moveTo(11.4f, 12.6f)
+        lineTo(19.4f, 4.6f)
+        moveTo(13.8f, 4.6f)
+        lineTo(19.4f, 4.6f)
+        lineTo(19.4f, 10.2f)
+    }
+}
+
+/**
+ * Rounded speech bubble with a tail — the feedback entry on the card page.
+ *
+ * Same construction as that row's neighbours (a rounded rectangle plus one small shape, exactly
+ * like the update glyph's box-and-arrow), so the five icons read as one set at 22dp. The bubble is
+ * left hollow: a chat app already spends filled bubbles on messages, and an outline at this weight
+ * reads as "say something" rather than "a conversation".
+ */
+val FeedbackBubbleIcon: ImageVector by lazy {
+    strokeIcon("StrokeFeedbackBubble") {
+        moveTo(6.5f, 4.5f)
+        lineTo(17.5f, 4.5f)
+        arcTo(2.6f, 2.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 20.1f, y1 = 7.1f)
+        lineTo(20.1f, 14.4f)
+        arcTo(2.6f, 2.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 17.5f, y1 = 17f)
+        lineTo(12.4f, 17f)
+        lineTo(8.2f, 20.2f)
+        lineTo(8.2f, 17f)
+        lineTo(6.5f, 17f)
+        arcTo(2.6f, 2.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 3.9f, y1 = 14.4f)
+        lineTo(3.9f, 7.1f)
+        arcTo(2.6f, 2.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 6.5f, y1 = 4.5f)
+        close()
+    }
+}
+
+// ── Messaging-channel category glyphs ────────────────────────────────────────────────────────
+// Hermes knows 33 platforms. Their brand marks are filled, multi-colour and trademarked, so the
+// list identifies a channel by NAME and uses these to say what KIND of channel it is. Same stroke
+// system as everything else here (docs/DESIGN.md §4.1); no Material glyph is fit for purpose.
+
+private fun PathBuilder.roundedRect(l: Float, t: Float, r: Float, b: Float, rad: Float) {
+    moveTo(l + rad, t)
+    lineTo(r - rad, t)
+    arcTo(rad, rad, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = r, y1 = t + rad)
+    lineTo(r, b - rad)
+    arcTo(rad, rad, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = r - rad, y1 = b)
+    lineTo(l + rad, b)
+    arcTo(rad, rad, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = l, y1 = b - rad)
+    lineTo(l, t + rad)
+    arcTo(rad, rad, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = l + rad, y1 = t)
+    close()
+}
+
+/** Instant messaging: DingTalk, Slack, Telegram, Feishu, WeCom … */
+val ChatChannelIcon: ImageVector by lazy {
+    strokeIcon("StrokeChatChannel") {
+        roundedRect(3.5f, 4.5f, 20.5f, 16f, 3f)
+        // Tail, drawn as its own stroke so the bubble outline stays unbroken.
+        moveTo(8.5f, 16f)
+        lineTo(7.5f, 20f)
+        lineTo(12.5f, 16f)
+    }
+}
+
+/** Mail channels. */
+val MailChannelIcon: ImageVector by lazy {
+    strokeIcon("StrokeMailChannel") {
+        roundedRect(3f, 5f, 21f, 19f, 2.5f)
+        moveTo(3.8f, 6.6f)
+        lineTo(12f, 12.6f)
+        lineTo(20.2f, 6.6f)
+    }
+}
+
+/** SMS and anything else that arrives on a phone number. */
+val SmsChannelIcon: ImageVector by lazy {
+    strokeIcon("StrokeSmsChannel") {
+        roundedRect(6.5f, 2.5f, 17.5f, 21.5f, 2.5f)
+        moveTo(10.5f, 18.6f)
+        lineTo(13.5f, 18.6f)
+    }
+}
+
+/** Push-only channels such as ntfy: they notify, they do not converse. */
+val PushChannelIcon: ImageVector by lazy {
+    strokeIcon("StrokePushChannel") {
+        moveTo(6f, 17f)
+        lineTo(18f, 17f)
+        lineTo(16.4f, 14.6f)
+        lineTo(16.4f, 10.5f)
+        arcTo(4.4f, 4.4f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 7.6f, y1 = 10.5f)
+        lineTo(7.6f, 14.6f)
+        close()
+        moveTo(10.4f, 19.6f)
+        arcTo(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 13.6f, y1 = 19.6f)
+    }
+}
+
+/** Programmatic surfaces: webhooks, the API server, agent-to-agent. */
+val ApiChannelIcon: ImageVector by lazy {
+    strokeIcon("StrokeApiChannel") {
+        moveTo(9f, 8f)
+        lineTo(5f, 12f)
+        lineTo(9f, 16f)
+        moveTo(15f, 8f)
+        lineTo(19f, 12f)
+        lineTo(15f, 16f)
+    }
+}

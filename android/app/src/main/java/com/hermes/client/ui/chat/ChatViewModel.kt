@@ -3,6 +3,7 @@ package com.hermes.client.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.ConnectionState
+import com.hermes.client.data.network.connectionBanner
 import com.hermes.client.data.network.HermesApiException
 import com.hermes.client.data.network.GatewayRpcException
 import com.hermes.client.data.network.ProfileDto
@@ -10,6 +11,7 @@ import com.hermes.client.data.network.str
 import com.hermes.client.data.progress.SessionRuntimeKey
 import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.progress.ManualHistoryResult
+import com.hermes.client.data.progress.isActive
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ChatMediaRepository
 import com.hermes.client.data.repository.ChatFileRepository
@@ -39,7 +41,9 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -47,6 +51,8 @@ import javax.inject.Inject
 import com.hermes.client.ui.localization.LocalizedText
 import com.hermes.client.ui.localization.localizedText
 import com.hermes.client.ui.localization.AppLanguage
+import com.hermes.client.ui.localization.LanguagePreference
+import com.hermes.client.ui.localization.resolve
 import com.hermes.client.ui.localization.localized
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.ConversationDeviceStore
@@ -69,13 +75,21 @@ class ChatViewModel @Inject constructor(
     private val fileRepository: ChatFileRepository,
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
     private val projectPrefs: com.hermes.client.data.repository.ProjectPrefsStore,
+    private val tools: com.hermes.client.data.repository.ToolsRepository,
     private val accountSessions: AccountSessionManager? = null,
     private val conversationDevices: ConversationDeviceStore? = null,
 ) : ViewModel() {
 
-    enum class ConversationRefreshEvent { QUEUED, SUCCEEDED_CHANGED, SUCCEEDED_UNCHANGED, FAILED }
+    /**
+     * RUN_ENDED: the store believed the run active, Hermes said it is not — the stale state was
+     * corrected (the HG-8 exit). STILL_RUNNING: Hermes confirmed the run is live; the elapsed time
+     * is in [lastConfirmedRunElapsedMs]. The other three are the idle-transcript outcomes.
+     */
+    enum class ConversationRefreshEvent { SUCCEEDED_CHANGED, SUCCEEDED_UNCHANGED, FAILED, RUN_ENDED, STILL_RUNNING }
 
     private companion object {
+        /** How long a manual refresh waits for Hermes' session.info after probing an active run. */
+        const val MANUAL_REFRESH_PROBE_SETTLE_MS = 1_500L
         const val LIVE_HANDLE_TIMEOUT_MS = 25_000L
         const val STALE_SESSION_CODE = 4001
     }
@@ -87,6 +101,9 @@ class ChatViewModel @Inject constructor(
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
     private val _refreshEvents = MutableSharedFlow<ConversationRefreshEvent>(extraBufferCapacity = 4)
     val refreshEvents: SharedFlow<ConversationRefreshEvent> = _refreshEvents
+    private val _lastConfirmedRunElapsedMs = MutableStateFlow<Long?>(null)
+    /** Set right before a STILL_RUNNING refresh event: how long the confirmed run has been going. */
+    val lastConfirmedRunElapsedMs: StateFlow<Long?> = _lastConfirmedRunElapsedMs.asStateFlow()
 
     private val _sessionTitle = MutableStateFlow("新会话")
     val sessionTitle: StateFlow<String> = _sessionTitle.asStateFlow()
@@ -162,7 +179,8 @@ class ChatViewModel @Inject constructor(
                 }
         }
     }
-    private var appLanguage: AppLanguage = AppLanguage.ZH
+    private var appLanguage: AppLanguage =
+        LanguagePreference.SYSTEM.resolve()
 
     fun setAppLanguage(language: AppLanguage) {
         val oldNew = localized(appLanguage, "新会话", "New session")
@@ -176,6 +194,21 @@ class ChatViewModel @Inject constructor(
     }
 
     val connectionState: StateFlow<ConnectionState> = chat.connectionState
+
+    /**
+     * What the chat banner should say, or null for "say nothing". An outage shorter than the grace
+     * never reaches the UI: switching away and back is not news, and flashing a banner for it made
+     * a run that never stopped look broken. [connectionState] stays raw for send-enablement.
+     */
+    val connectionBanner: StateFlow<ConnectionState?> = chat.connectionState
+        .connectionBanner()
+        // WhileSubscribed, not Eagerly, and the difference is the whole point: the screen stops
+        // collecting at ON_STOP, so the grace only ever runs while the chat is actually on screen.
+        // Shared eagerly, an outage that began in the background — the socket is closed on purpose
+        // once a backgrounded app goes idle — burned its grace where nobody could see it, and the
+        // first frame back was already "interrupted", which then announced a recovery for a
+        // disconnection the user was never shown. Time the user could not see is not disruption.
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 0), null)
 
     // I1: expose 401 unauthorized so the nav layer can route back to Setup
     private val _unauthorized = MutableStateFlow(false)
@@ -330,14 +363,6 @@ class ChatViewModel @Inject constructor(
         // A manual refresh requested mid-stream waits for the authoritative reply to finish. This
         // collector owns that one deferred request so repeated taps cannot start competing REST
         // swaps or overwrite deltas that have not reached history yet.
-        viewModelScope.launch {
-            _state.map { it.isGenerating }.distinctUntilChanged().collect { generating ->
-                if (!generating && manualRefreshQueued) {
-                    manualRefreshQueued = false
-                    startManualRefresh()
-                }
-            }
-        }
     }
 
     private val _modelSheet = MutableStateFlow(ModelSheetUi())
@@ -364,7 +389,6 @@ class ChatViewModel @Inject constructor(
     private var resumeJob: Job? = null
     private var sendJob: Job? = null
     private var refreshJob: Job? = null
-    private var manualRefreshQueued = false
     private var runtimeKey: SessionRuntimeKey? = null
     private var currentProfile: String? = null
     private var currentDeviceId: String? = null
@@ -383,7 +407,7 @@ class ChatViewModel @Inject constructor(
         requestedProfile: String? = null,
         initialTitle: String? = null,
         isNewSession: Boolean = false,
-        language: AppLanguage = AppLanguage.ZH,
+        language: AppLanguage = LanguagePreference.SYSTEM.resolve(),
         requestedDeviceId: String? = null,
     ) {
         setAppLanguage(language)
@@ -415,7 +439,6 @@ class ChatViewModel @Inject constructor(
         }
         refreshJob?.cancel()
         _refreshing.value = false
-        manualRefreshQueued = false
         sendJob?.cancel()
         resumeJob?.cancel()
         liveHandleGate.completeExceptionally(CancellationException("session changed"))
@@ -451,6 +474,20 @@ class ChatViewModel @Inject constructor(
         _reasoningEffort.value = null
         val cachedHistory = sessions.cachedHistory(id, profile, currentDeviceId)?.map { it.organizedForDisplay() }
         runtimeStore.markHistoryLoading(key, cachedHistory)
+        // The memory cache holds ten transcripts and dies with the process, so with ~200 sessions
+        // a cold open is the normal case, not the exception. Ask the disk in parallel with the
+        // network: whichever answers first ends the skeleton, and acceptCachedHistory stands down
+        // if the network won (docs/DESIGN.md §5.4 rule 4).
+        if (cachedHistory.isNullOrEmpty()) {
+            viewModelScope.launch {
+                val stored = runCatching { sessions.diskHistory(id, profile) }.getOrNull()
+                if (storedSessionId != id || stored.isNullOrEmpty()) return@launch
+                val organized = kotlinx.coroutines.withContext(defaultDispatcher) {
+                    stored.map { it.organizedForDisplay() }
+                }
+                if (storedSessionId == id) runtimeStore.acceptCachedHistory(key, organized)
+            }
+        }
         collectJob?.cancel()
         collectJob = viewModelScope.launch {
             runtimeStore.runtimes
@@ -623,15 +660,13 @@ class ChatViewModel @Inject constructor(
     }
 
     /** Force-sync only the current conversation without reopening its runtime or clearing UI. */
+    /**
+     * The user's "something looks wrong" button. It never queues behind a run the store believes
+     * active: that belief is exactly what may be stale. It asks Hermes first, then refreshes the
+     * transcript, then says which of the two things it found.
+     */
     fun refreshCurrentConversation() {
         if (_refreshing.value) return
-        if (_state.value.isGenerating) {
-            if (!manualRefreshQueued) {
-                manualRefreshQueued = true
-                _refreshEvents.tryEmit(ConversationRefreshEvent.QUEUED)
-            }
-            return
-        }
         startManualRefresh()
     }
 
@@ -647,22 +682,25 @@ class ChatViewModel @Inject constructor(
         refreshJob = viewModelScope.launch {
             _refreshing.value = true
             try {
+                val wasActive = runtimeStore.runtimes.value[key]?.let { it.phase.isActive || it.chat.isGenerating } == true
+                if (wasActive) {
+                    runtimeStore.probe(key, force = true)
+                    // Hermes answers session.resume with session.info{running}; give it a beat to
+                    // land so the outcome reported below is the confirmed one, not the stale one.
+                    withTimeoutOrNull(MANUAL_REFRESH_PROBE_SETTLE_MS) {
+                        runtimeStore.runtimes.map { it[key]?.let { r -> r.phase.isActive || r.chat.isGenerating } }
+                            .first { it != true }
+                    }
+                }
                 val rawHistory = sessions.history(id, profile, currentDeviceId)
                 val organizedHistory = withContext(defaultDispatcher) {
                     rawHistory.map { it.organizedForDisplay() }
                 }
                 // Navigation may have moved to another session while the request was in flight.
                 if (runtimeKey != key || storedSessionId != id) return@launch
-                val result = if (_state.value.isGenerating) {
-                    ManualHistoryResult.BUSY
-                } else {
-                    runtimeStore.acceptManualHistory(key, organizedHistory)
-                }
-                if (result == ManualHistoryResult.BUSY) {
-                    manualRefreshQueued = true
-                    _refreshEvents.emit(ConversationRefreshEvent.QUEUED)
-                    return@launch
-                }
+                val result = runtimeStore.acceptManualHistory(key, organizedHistory)
+                val after = runtimeStore.runtimes.value[key]
+                val stillActive = after?.let { it.phase.isActive || it.chat.isGenerating } == true
                 runtimeStore.markRead(key)
                 // Publish the committed runtime before the success event. The normal runtime
                 // collector will observe the same value, but relying on collector scheduling here
@@ -671,10 +709,14 @@ class ChatViewModel @Inject constructor(
                 // Stable-id rows update in place. Only changed geometry needs a viewport restore;
                 // byte-for-byte identical history must not remount/reparse the transcript.
                 _refreshEvents.emit(
-                    if (result == ManualHistoryResult.CHANGED) {
-                        ConversationRefreshEvent.SUCCEEDED_CHANGED
-                    } else {
-                        ConversationRefreshEvent.SUCCEEDED_UNCHANGED
+                    when {
+                        wasActive && !stillActive -> ConversationRefreshEvent.RUN_ENDED
+                        stillActive -> {
+                            _lastConfirmedRunElapsedMs.value = after?.runStartedAt?.let { System.currentTimeMillis() - it }
+                            ConversationRefreshEvent.STILL_RUNNING
+                        }
+                        result == ManualHistoryResult.CHANGED -> ConversationRefreshEvent.SUCCEEDED_CHANGED
+                        else -> ConversationRefreshEvent.SUCCEEDED_UNCHANGED
                     },
                 )
                 launch {
@@ -737,6 +779,91 @@ class ChatViewModel @Inject constructor(
         runCatching { chat.createSession(profileManager.active.value) }
             .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
             .getOrNull()?.id
+
+    /**
+     * Archives the open conversation. Returns null on success, or the error to show. Carries the
+     * session's OWN profile: the gateway keeps a database per profile and 404s without it, which
+     * would look like "archive silently did nothing" (the same trap the sessions list hit).
+     */
+    suspend fun archiveCurrentSession(): com.hermes.client.data.error.AppError? {
+        val id = storedSessionId.takeIf { it.isNotBlank() }
+            ?: return com.hermes.client.data.error.AppError(
+                com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND,
+                retryable = false, stage = "session_archive",
+            )
+        return runCatching { sessions.archive(id, archived = true, runtimeKey?.profile) }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+            .fold(
+                onSuccess = { null },
+                onFailure = {
+                    com.hermes.client.data.error.AppError(
+                        com.hermes.client.data.error.AppErrorCode.SESSION_ARCHIVE_FAILED,
+                        retryable = true, technicalCause = it.message, stage = "session_archive",
+                    )
+                },
+            )
+    }
+
+    private val _handoffTargets = MutableStateFlow<List<com.hermes.client.data.network.MessagingPlatformDto>>(emptyList())
+    /** Channels this conversation could be moved to: enabled, connected, and with a home chat set. */
+    val handoffTargets: StateFlow<List<com.hermes.client.data.network.MessagingPlatformDto>> = _handoffTargets.asStateFlow()
+
+    fun loadHandoffTargets() = viewModelScope.launch {
+        runCatching { tools.messagingPlatforms(profileManager.active.value) }
+            .onSuccess { platforms ->
+                // Offering a channel that would be refused (disabled, or no home chat) turns a
+                // typed refusal into a dead end the user has to discover by trying.
+                _handoffTargets.value = platforms.filter {
+                    it.enabled && it.configured && !it.homeChannel.isNullOrBlank()
+                }
+            }
+    }
+
+    /**
+     * Moves this conversation to a messaging channel and waits for the gateway's watcher to finish.
+     *
+     * The move is not reversible from here: the channel's current conversation ends, this one is
+     * re-bound to that chat, and it leaves the phone's list because its source becomes the channel.
+     * The caller confirms first (docs/DESIGN.md §5.5).
+     */
+    suspend fun handoffCurrentSession(platform: String): com.hermes.client.data.error.AppError? {
+        val id = storedSessionId.takeIf { it.isNotBlank() }
+            ?: return com.hermes.client.data.error.AppError(
+                com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND,
+                retryable = false, stage = "session_handoff",
+            )
+        val queued = runCatching { chat.requestHandoff(id, platform) }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+        queued.exceptionOrNull()?.let { failure ->
+            val rpc = (failure as? com.hermes.client.data.network.GatewayRpcException)?.code
+            val code = com.hermes.client.data.repository.handoffErrorCode(rpc)
+            return com.hermes.client.data.error.AppError(
+                code,
+                retryable = code == com.hermes.client.data.error.AppErrorCode.HANDOFF_SESSION_BUSY ||
+                    code == com.hermes.client.data.error.AppErrorCode.HANDOFF_IN_FLIGHT ||
+                    code == com.hermes.client.data.error.AppErrorCode.RPC_FAILED,
+                technicalCause = failure.message, stage = "session_handoff",
+            )
+        }
+        // The gateway watcher polls every two seconds and the move runs a full agent turn on the
+        // far side; give it a bounded wait rather than leaving the user on a spinner forever.
+        repeat(30) {
+            kotlinx.coroutines.delay(2_000)
+            val (state, error) = runCatching { chat.handoffState(id) }.getOrNull() ?: (null to null)
+            when (com.hermes.client.data.repository.handoffPhase(state)) {
+                com.hermes.client.data.repository.HandoffPhase.COMPLETED -> return null
+                com.hermes.client.data.repository.HandoffPhase.FAILED ->
+                    return com.hermes.client.data.error.AppError(
+                        com.hermes.client.data.error.AppErrorCode.RPC_FAILED,
+                        retryable = true, technicalCause = error, stage = "session_handoff",
+                    )
+                else -> Unit
+            }
+        }
+        // Still pending after a minute: the row is queued and the watcher owns it, so this is a
+        // "stopped waiting", not a failure — saying it failed could make the user queue a second.
+        return null
+    }
 
     /** A send that raised, kept so the bubble's tap-to-retry can replay it with its attachments. */
     private data class FailedSend(val text: String, val attachments: List<PendingAttachment>, val error: com.hermes.client.data.error.AppError)
