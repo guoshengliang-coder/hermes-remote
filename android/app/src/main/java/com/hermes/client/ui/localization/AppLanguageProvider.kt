@@ -17,11 +17,23 @@ class AppLanguageProvider @Inject constructor(
     settings: SettingsStore,
     scope: CoroutineScope,
 ) {
+    private val preference: StateFlow<LanguagePreference> = settings.languagePreference.stateIn(
+        scope,
+        SharingStarted.Eagerly,
+        LanguagePreference.SYSTEM,
+    )
+
     val language: StateFlow<AppLanguage> = settings.appLanguage.stateIn(
         scope,
         SharingStarted.Eagerly,
-        AppLanguage.ZH,
+        LanguagePreference.SYSTEM.resolve(),
     )
 
-    val current: AppLanguage get() = language.value
+    /**
+     * Resolved at the moment it is read, not when the flow last emitted. A language change in the
+     * phone's own settings does not write to our DataStore, so nothing would re-emit here; a
+     * notification posted after such a change would otherwise keep the old language until the
+     * process died.
+     */
+    val current: AppLanguage get() = preference.value.resolve()
 }

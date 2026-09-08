@@ -51,6 +51,8 @@ import javax.inject.Inject
 import com.hermes.client.ui.localization.LocalizedText
 import com.hermes.client.ui.localization.localizedText
 import com.hermes.client.ui.localization.AppLanguage
+import com.hermes.client.ui.localization.LanguagePreference
+import com.hermes.client.ui.localization.resolve
 import com.hermes.client.ui.localization.localized
 
 @HiltViewModel
@@ -173,7 +175,8 @@ class ChatViewModel @Inject constructor(
                 }
         }
     }
-    private var appLanguage: AppLanguage = AppLanguage.ZH
+    private var appLanguage: AppLanguage =
+        LanguagePreference.SYSTEM.resolve()
 
     fun setAppLanguage(language: AppLanguage) {
         val oldNew = localized(appLanguage, "新会话", "New session")
@@ -399,7 +402,7 @@ class ChatViewModel @Inject constructor(
         requestedProfile: String? = null,
         initialTitle: String? = null,
         isNewSession: Boolean = false,
-        language: AppLanguage = AppLanguage.ZH,
+        language: AppLanguage = LanguagePreference.SYSTEM.resolve(),
     ) {
         setAppLanguage(language)
         // Configuration changes recreate the composition and re-run its LaunchedEffect, while the

@@ -8,6 +8,7 @@ import androidx.compose.ui.test.performClick
 import com.hermes.client.domain.ToolCall
 import com.hermes.client.domain.ToolStatus
 import com.hermes.client.ui.theme.HermesTheme
+import com.hermes.client.ui.InChinese
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -32,7 +33,7 @@ class ToolTimelineCollapseTest {
     )
 
     private fun show(completed: Boolean) {
-        compose.setContent { HermesTheme(darkTheme = false) { ToolTimelineCard(tools, completed = completed, stateKey = "t") } }
+        compose.setContent { InChinese { HermesTheme(darkTheme = false) { ToolTimelineCard(tools, completed = completed, stateKey = "t") } } }
     }
 
     @Test fun a_completed_timeline_first_seen_complete_is_folded_behind_its_summary() {

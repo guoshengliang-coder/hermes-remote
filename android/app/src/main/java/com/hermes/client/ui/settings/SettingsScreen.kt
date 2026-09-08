@@ -39,7 +39,7 @@ fun SettingsScreen(
             HorizontalDivider()
             Entry(localized(language, "外观", "Appearance"), localized(language, "主题、明暗模式和工具调用显示", "Theme, light/dark, tool-call display")) { onNavigate("settings_appearance") }
             HorizontalDivider()
-            Entry(localized(language, "语言", "Language"), localized(language, "简体中文或 English", "Simplified Chinese or English")) { onNavigate("settings_language") }
+            Entry(localized(language, "语言", "Language"), localized(language, "跟随系统、简体中文或 English", "Follow the system, Simplified Chinese or English")) { onNavigate("settings_language") }
             HorizontalDivider()
             Entry(localized(language, "通知", "Notifications"), localized(language, "审批、定时任务和消息提醒", "Approvals, cron, and messaging alerts")) { onNavigate("settings_notifications") }
             HorizontalDivider()
