@@ -15,6 +15,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -241,7 +243,7 @@ fun MessagingScreen(
                     error = state.error!!,
                     onRetry = vm::load,
                 )
-                else -> {
+                else -> Column(Modifier.fillMaxSize()) {
                     val slice = androidx.compose.runtime.remember(state.platforms, filter) {
                         messagingSlice(state.platforms, filter)
                     }
@@ -249,8 +251,9 @@ fun MessagingScreen(
                     val pending = androidx.compose.runtime.remember(state.platforms) {
                         pendingRestartPlatforms(state.platforms)
                     }
-                    LazyColumn(Modifier.fillMaxSize()) {
-                        item(key = "filter") {
+                    // Fixed under the top bar: a filter that scrolls away leaves the reader
+                    // unsure which slice they are looking at (the Chats segments are fixed too).
+
                             val configured = state.platforms.count { it.configured }
                             SingleChoiceSegmentedButtonRow(
                                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
@@ -272,7 +275,7 @@ fun MessagingScreen(
                                     ) { Text(label, maxLines = 1) }
                                 }
                             }
-                        }
+                    LazyColumn(Modifier.fillMaxSize()) {
                         if (sections.isEmpty()) {
                             item(key = "empty") {
                                 com.hermes.client.ui.components.EmptyState(
@@ -313,14 +316,9 @@ fun MessagingScreen(
                                     status = rowStatus,
                                     language = language,
                                     dark = dark,
-                                    testing = state.testing == p.id,
                                     // A configured channel opens its own page; an untouched one
                                     // goes straight to the form, since there is nothing to show yet.
                                     onOpen = { if (p.configured) onOpenChannel(p.id) else onSetup(p.id) },
-                                    onToggle = { enabled ->
-                                        if (p.configured) vm.toggle(p.id, enabled) else onSetup(p.id)
-                                    },
-                                    onTest = { vm.test(p.id) },
                                 )
                                 HorizontalDivider()
                             }
@@ -383,12 +381,23 @@ private fun MessagingRow(
     status: MessagingRowStatus,
     language: com.hermes.client.ui.localization.AppLanguage,
     dark: Boolean,
-    testing: Boolean,
     onOpen: () -> Unit,
-    onToggle: (Boolean) -> Unit,
-    onTest: () -> Unit,
 ) {
     ListItem(
+        leadingContent = {
+            // Kind, not brand: 33 platforms, whose marks are filled, multi-colour and trademarked.
+            Box(
+                Modifier.size(40.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                contentAlignment = androidx.compose.ui.Alignment.Center,
+            ) {
+                Icon(
+                    messagingCategoryIcon(messagingCategory(platform.id)),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        },
         headlineContent = { Text(platform.name ?: platform.id) },
         supportingContent = {
             Column {
@@ -416,18 +425,16 @@ private fun MessagingRow(
                 }
             }
         },
+        // One tap target per row, and it has an arrow (DESIGN §5.1). Test and the enable switch
+        // live on the channel's own page: three tappable regions in one row made it impossible to
+        // tell what a tap would do.
         trailingContent = {
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                if (platform.configured) {
-                    androidx.compose.material3.TextButton(onClick = onTest, enabled = !testing) {
-                        Text(if (testing) l10n("检测中…", "Testing…") else l10n("测试", "Test"))
-                    }
-                }
-                androidx.compose.material3.Switch(
-                    checked = platform.enabled,
-                    onCheckedChange = { onToggle(it) },
-                )
-            }
+            Icon(
+                com.hermes.client.ui.components.ThinChevronIcon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
         },
         modifier = Modifier.clickable { onOpen() },
     )
