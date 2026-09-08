@@ -33,6 +33,8 @@ class HermesContractTest {
                 // Present on messaging-platform rows: the peer or group Hermes is talking to.
                 // Absent on local sessions, hence nullable — but the name is upstream's.
                 "display_name",
+                // `dm` / `group`. Needed because display_name is blank on every DM row.
+                "chat_type",
             ),
             names,
         )

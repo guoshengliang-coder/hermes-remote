@@ -26,8 +26,14 @@ import kotlinx.serialization.Serializable
     val source: String? = null,
     @SerialName("git_branch") val gitBranch: String? = null,
     @SerialName("git_repo_root") val gitRepoRoot: String? = null,
-    /** Who the gateway is talking to on a messaging platform (the DingTalk peer, the group). */
+    /**
+     * Who the gateway is talking to on a messaging platform. Upstream fills this for a group and
+     * leaves it EMPTY for a direct message — measured on a live Hermes, where every `dm` row had
+     * a blank one — so it cannot carry the whole label on its own; see [chatType].
+     */
     @SerialName("display_name") val displayName: String? = null,
+    /** `dm` or `group` on a messaging-platform session; absent on local ones. */
+    @SerialName("chat_type") val chatType: String? = null,
 )
 @Serializable data class SessionListDto(val sessions: List<SessionDto> = emptyList())
 

@@ -29,6 +29,8 @@ data class Session(
     val gitRepoRoot: String? = null,
     /** On a messaging-platform session, the peer or group the conversation is with. */
     val displayName: String? = null,
+    /** `dm` or `group` on a messaging-platform session. */
+    val chatType: String? = null,
 )
 
 data class ToolCall(
