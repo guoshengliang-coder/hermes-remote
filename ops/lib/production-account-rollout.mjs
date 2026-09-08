@@ -361,7 +361,7 @@ async function verifyRollout({ config, releaseConfig, activeSlot, currentManifes
   }).catch(() => null);
   const legacyStatusHealthy = status?.status === "ok"
     || (status?.overall === "ok" && status?.gateway_running === true);
-  if (ready?.status !== "ready" || ready?.checks?.migrations !== "current"
+  if (ready?.status !== "ready" || ready?.checks?.migrations !== "ok"
       || capabilities?.accountAuth?.enabled !== true
       || JSON.stringify(capabilities.accountAuth.providers) !== JSON.stringify(["email_otp"])
       || capabilities.accountAuth.identityManagement !== false

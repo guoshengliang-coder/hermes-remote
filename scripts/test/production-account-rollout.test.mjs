@@ -182,7 +182,7 @@ test("live verification sends the legacy app token through the legacy header", a
   let legacyHealthy = false;
   const fetchImpl = async (url, init = {}) => {
     const pathname = new URL(url).pathname;
-    if (pathname === "/readyz") return jsonResponse({ status: "ready", checks: { migrations: "current" } });
+    if (pathname === "/readyz") return jsonResponse({ status: "ready", checks: { migrations: "ok" } });
     if (pathname === "/v2/capabilities") return jsonResponse(enabledCapabilities());
     if (pathname === "/relay-health") return jsonResponse({ ok: true, connectors: legacyHealthy ? 1 : 0 });
     if (pathname === "/api/status") {
