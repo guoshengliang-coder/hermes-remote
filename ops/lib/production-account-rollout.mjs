@@ -169,6 +169,7 @@ export async function executeProductionAccountRollout(config, options = {}) {
           runner,
           material,
           capabilitiesExposedBefore: hasCapabilitiesLocation(previousNginxConfig.toString("utf8")),
+          emailChallengeExposedBefore: hasEmailChallengeLocation(previousNginxConfig.toString("utf8")),
         });
       } catch (rollbackFailure) {
         rollbackError = rollbackFailure;
@@ -277,6 +278,10 @@ function hasResendWebhookLocation(content) {
   return /^[\t ]*location[\t ]*=[\t ]*\/v2\/webhooks\/resend[\t ]*\{/m.test(content);
 }
 
+function hasEmailChallengeLocation(content) {
+  return /^[\t ]*location[\t ]*=[\t ]*\/v2\/auth\/email\/challenges[\t ]*\{/m.test(content);
+}
+
 export function installEmailAccountNginxInclude(content, releaseConfig, routesPath) {
   if (!satisfiesProductionNginxContract(releaseConfig, content)
       || content.includes(routesPath)
@@ -337,7 +342,7 @@ async function verifyRollout({ config, releaseConfig, activeSlot, currentManifes
     headers: { "x-hermes-session-token": material.appToken },
   }, sleep);
   const rejected = await fetchImpl(`${config.gateway.origin}/api/status`, {
-    headers: { authorization: "Bearer intentionally-invalid-production-rollout-token" },
+    headers: { "x-hermes-session-token": "intentionally-invalid-production-rollout-token" },
     signal: AbortSignal.timeout(3_000),
   }).catch(() => null);
   const webhook = await fetchImpl(`${config.gateway.origin}/v2/webhooks/resend`, {
@@ -435,6 +440,7 @@ async function verifyDisabled({
   runner,
   material,
   capabilitiesExposedBefore,
+  emailChallengeExposedBefore,
 }) {
   const service = `${releaseConfig.slots[activeSlot].serviceName}.service`;
   if (runner.run("systemctl", ["is-active", "--quiet", service], { allowFailure: true }).status !== 0) {
@@ -465,9 +471,12 @@ async function verifyDisabled({
   const capabilitiesDisabled = capabilitiesExposedBefore
     ? capabilities?.accountAuth?.enabled === false
     : capabilitiesResponse?.status === 404;
+  const emailRouteDisabled = emailChallengeExposedBefore
+    ? emailRoute?.status === 503
+    : new Set([404, 405]).has(emailRoute?.status);
   const legacyStatusHealthy = status?.status === "ok"
     || (status?.overall === "ok" && status?.gateway_running === true);
-  if (!capabilitiesDisabled || !legacyStatusHealthy || emailRoute?.status !== 404) {
+  if (!capabilitiesDisabled || !legacyStatusHealthy || !emailRouteDisabled) {
     fail("account_rollout_rollback_smoke_failed", "production_account_rollout_rollback");
   }
 }

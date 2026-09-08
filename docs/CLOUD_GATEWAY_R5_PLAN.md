@@ -203,4 +203,6 @@ schema 15 迁移，安装 `_FILE` 密钥，并只向公网增加 email challenge
 现场关闭态验证发现既有生产站点未公开 capability discovery；后续热修复将该路由纳入窄 include 且避免
 与已存在的精确 location 重复。首次 0.4.3 生产尝试现场发现旧 App Token smoke header、缺失的 Webhook
 location 和原始 404 capability 回滚判定三处阻塞并安全恢复关闭态；0.4.4 修正后，重试预检又发现真实
-Hermes 使用 `overall=ok` / `gateway_running=true` 而非旧 fixture 的 `status=ok`，最终候选升为 0.4.5。
+Hermes 使用 `overall=ok` / `gateway_running=true` 而非旧 fixture 的 `status=ok`；0.4.5 现场重试又证明错误
+账号 Bearer 并不是 legacy 拒绝探针，且原站点对未定义的 email POST 会由发布服务返回 405。0.4.6 因此改为
+验证错误 legacy header，并按上线前是否存在精确 email location 验证 404/405 关闭态，不扩大灰度功能面。
