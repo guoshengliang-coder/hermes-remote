@@ -194,20 +194,26 @@ test("R5-D operator bundle manifest binds one safe archive to the exact source c
   });
   await writeJson(manifestPath, manifest);
   const parsed = await loadProductionBaselineBundleManifest(manifestPath);
-  assert.equal(parsed.schemaVersion, 3);
-  assert.equal(parsed.kind, "hermes-go-production-baseline-bundle-v3");
+  assert.equal(parsed.schemaVersion, 4);
+  assert.equal(parsed.kind, "hermes-go-production-baseline-bundle-v4");
   assert.equal(parsed.sourceCommit, sourceCommit);
   assert.equal(parsed.entrypoint, "scripts/production-baseline.mjs");
   assert.equal(parsed.connectorEntry, "connector/dist/index.js");
   assert.equal(parsed.smokeRuntimeEntry, "ops/lib/production-smoke-runtime.mjs");
   assert.equal(parsed.releaseEntrypoint, "scripts/production-release.mjs");
+  assert.equal(parsed.accountRolloutEntrypoint, "scripts/production-account-rollout.mjs");
+
+  const r5fManifest = { ...manifest, schemaVersion: 3, kind: "hermes-go-production-baseline-bundle-v3" };
+  delete r5fManifest.accountRolloutEntrypoint;
+  await writeJson(manifestPath, r5fManifest);
+  assert.equal((await loadProductionBaselineBundleManifest(manifestPath)).accountRolloutEntrypoint, undefined);
 
   // Schema 2 (R5-D3..R5-E7A) stays readable: the Mac automation still runs from one.
-  const r5dManifest = { ...manifest, schemaVersion: 2, kind: "hermes-go-production-baseline-bundle-v2" };
+  const r5dManifest = { ...r5fManifest, schemaVersion: 2, kind: "hermes-go-production-baseline-bundle-v2" };
   delete r5dManifest.releaseEntrypoint;
   await writeJson(manifestPath, r5dManifest);
   assert.equal((await loadProductionBaselineBundleManifest(manifestPath)).releaseEntrypoint, undefined);
-  await writeJson(manifestPath, { ...manifest, releaseEntrypoint: "scripts/production-baseline.mjs" });
+  await writeJson(manifestPath, { ...r5fManifest, releaseEntrypoint: "scripts/production-baseline.mjs" });
   await assert.rejects(() => loadProductionBaselineBundleManifest(manifestPath), isCode("HR-OPS-014"));
 
   const legacyManifest = { ...r5dManifest };
@@ -233,6 +239,9 @@ test("R5-D operator bundle manifest binds one safe archive to the exact source c
 
 test("the immutable operator bundle carries the R5-E and production monitoring entrypoints", async () => {
   const packager = await readFile("scripts/package-production-baseline-bundle.mjs", "utf8");
+  assert.match(packager, /"scripts\/production-account-rollout\.mjs"/);
+  assert.match(packager, /"ops\/production\.account-rollout\.example\.json"/);
+  assert.match(packager, /"ops\/hermes-go-production-account-rollout-config\.schema\.json"/);
   assert.match(packager, /"scripts\/postgresql-provision\.mjs"/);
   assert.match(packager, /"scripts\/postgresql-recovery\.mjs"/);
   assert.match(packager, /"scripts\/postgresql-automation\.mjs"/);

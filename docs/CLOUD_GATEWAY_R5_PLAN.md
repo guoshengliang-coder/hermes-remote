@@ -192,3 +192,11 @@ R5-D7 合并提交 `833859aa9afe55f09d2fe8663ab0fd1528447ba4` 的 PR、CI、SAST
 R5-F1 的首次生产运行：Gateway 0.4.1 进入 green 槽（run `590d6014-87a9-403a-a2b3-101d3bf4b701`，49 秒，
 站点文件不变，Connector 在线，容器零重启），`previous` 回滚点为 0.4.0-833859aa9afe。生产网关从此有了
 结构化日志；账号、数据库、监控 timer 与 R5-E 自动化均未触碰。R5-F 账号模式晋级仍是独立的 go/no-go。
+
+2026-09-08，R5-F2 代码阶段新增生产邮箱登录灰度入口：Gateway 升至 0.4.2，运维 bundle manifest v4
+显式携带 `scripts/production-account-rollout.mjs`。入口只允许 email OTP + Resend webhook，Google、设备
+绑定、多设备、分享、身份管理、Web session、删除和 Desktop 托管安装全部保持关闭；它从不可变镜像执行
+schema 15 迁移，安装 `_FILE` 密钥，并只向公网增加 email challenge/exchange、refresh、sign-out 与账号读取
+路由。启用后做两轮完整 smoke；任一 live 阶段失败都会恢复原 Gateway 环境和 Nginx 站点、重启并验证
+`accountAuth.enabled=false`，统一返回 `HR-OPS-020`。正式执行仍要求同一 main 提交的 CI/OCI、schema-7
+迁移前异机恢复和明确生产授权；迁移后必须把加密备份循环提升到 schema 15 并再次通过异机恢复。

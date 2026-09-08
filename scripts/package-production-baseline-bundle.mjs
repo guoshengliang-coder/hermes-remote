@@ -59,6 +59,7 @@ try {
   verifyStagedProductionMonitorEntrypoint(temporaryRoot);
   verifyStagedPostgresqlAutomationEntrypoint(temporaryRoot);
   verifyStagedProductionReleaseEntrypoint(temporaryRoot);
+  verifyStagedProductionAccountRolloutEntrypoint(temporaryRoot);
 
   const sourceShort = sourceCommit.slice(0, 12);
   const archiveFile = `Hermes-R5D-Ops-${sourceShort}.tar.gz`;
@@ -146,6 +147,7 @@ async function stageRuntime(root) {
   for (const file of [
     "scripts/production-baseline.mjs",
     "scripts/production-release.mjs",
+    "scripts/production-account-rollout.mjs",
     "scripts/production-monitor.mjs",
     "scripts/postgresql-recovery.mjs",
     "scripts/postgresql-automation.mjs",
@@ -156,6 +158,8 @@ async function stageRuntime(root) {
     "scripts/lib/release-errors.mjs",
     "scripts/lib/gateway-candidate-smoke.mjs",
     "ops/production.monitor.example.json",
+    "ops/production.account-rollout.example.json",
+    "ops/hermes-go-production-account-rollout-config.schema.json",
     "ops/hermesctl-production-monitor-config.schema.json",
     "ops/postgresql-backup-status.schema.json",
     "ops/postgresql.capture-schedule.example.json",
@@ -261,6 +265,27 @@ function verifyStagedProductionReleaseEntrypoint(root) {
       || diagnostic?.code !== "HR-OPS-016"
       || diagnostic?.stage !== "production_release_arguments") {
     fail("production_baseline_bundle_release_entrypoint_invalid");
+  }
+}
+
+function verifyStagedProductionAccountRolloutEntrypoint(root) {
+  const result = spawnSync(process.execPath, ["scripts/production-account-rollout.mjs"], {
+    cwd: root,
+    encoding: "utf8",
+    env: {},
+    maxBuffer: 64 * 1024,
+    timeout: 10_000,
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let diagnostic;
+  try {
+    diagnostic = JSON.parse(String(result.stderr ?? "").trim());
+  } catch {}
+  if (result.error || result.status !== 1 || String(result.stdout ?? "") !== ""
+      || diagnostic?.code !== "HR-OPS-020"
+      || diagnostic?.stage !== "production_account_rollout_arguments") {
+    fail("production_baseline_bundle_account_rollout_entrypoint_invalid");
   }
 }
 

@@ -125,6 +125,13 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "fix_email_dns_and_retry",
   }),
+  productionAccountRollout: Object.freeze({
+    code: "HR-OPS-020",
+    summaryZh: "生产邮箱登录灰度启用未完成，已阻止启用或恢复为账号关闭。请检查灰度阶段后重试。",
+    summaryEn: "The production email-login rollout did not complete. Enablement was blocked or account mode was restored to disabled. Inspect the rollout stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_account_rollout_stage_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;
