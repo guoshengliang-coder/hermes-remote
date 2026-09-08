@@ -499,9 +499,10 @@ signed Resend callback are enabled. Google, binding, multi-device, sharing, iden
 account deletion, and Desktop managed installation remain off. Legacy App and Connector tokens stay accepted.
 The live site gains exact routes only for capability discovery, email challenge/exchange, refresh, sign-out,
 `/v2/account`, and the signed Resend callback; existing exact callback or capability locations are not duplicated. Device, installation, Google and
-Web-account routes remain absent. Gateway 0.4.4 is the corrected rollout candidate: it adds capability discovery
+Web-account routes remain absent. Gateway 0.4.5 is the corrected rollout candidate: it adds capability discovery
 and the Resend callback to the narrow include when the already-managed live site does not expose those routes,
-uses the legacy token header for legacy smoke, and verifies rollback against the site's original capability shape.
+uses the legacy token header for legacy smoke, accepts the deployed Hermes status contract, and verifies rollback
+against the site's original capability shape.
 
 Prepare a root-only `0600` configuration from `ops/production.account-rollout.example.json` and validate it
 against `ops/hermes-go-production-account-rollout-config.schema.json`. All six source files must be distinct,

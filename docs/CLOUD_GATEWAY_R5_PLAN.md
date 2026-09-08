@@ -202,4 +202,5 @@ schema 15 迁移，安装 `_FILE` 密钥，并只向公网增加 email challenge
 迁移前异机恢复和明确生产授权；迁移后必须把加密备份循环提升到 schema 15 并再次通过异机恢复。
 现场关闭态验证发现既有生产站点未公开 capability discovery；后续热修复将该路由纳入窄 include 且避免
 与已存在的精确 location 重复。首次 0.4.3 生产尝试现场发现旧 App Token smoke header、缺失的 Webhook
-location 和原始 404 capability 回滚判定三处阻塞并安全恢复关闭态；修正候选升为 Gateway 0.4.4。
+location 和原始 404 capability 回滚判定三处阻塞并安全恢复关闭态；0.4.4 修正后，重试预检又发现真实
+Hermes 使用 `overall=ok` / `gateway_running=true` 而非旧 fixture 的 `status=ok`，最终候选升为 0.4.5。

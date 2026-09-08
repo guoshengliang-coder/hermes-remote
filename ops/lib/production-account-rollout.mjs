@@ -352,6 +352,8 @@ async function verifyRollout({ config, releaseConfig, activeSlot, currentManifes
     body: "{}",
     signal: AbortSignal.timeout(3_000),
   }).catch(() => null);
+  const legacyStatusHealthy = status?.status === "ok"
+    || (status?.overall === "ok" && status?.gateway_running === true);
   if (ready?.status !== "ready" || ready?.checks?.migrations !== "current"
       || capabilities?.accountAuth?.enabled !== true
       || JSON.stringify(capabilities.accountAuth.providers) !== JSON.stringify(["email_otp"])
@@ -365,7 +367,7 @@ async function verifyRollout({ config, releaseConfig, activeSlot, currentManifes
       || capabilities?.desktopBootstrap !== undefined
       || capabilities?.legacy?.appTokenAccepted !== true
       || capabilities?.legacy?.connectorTokenAccepted !== true
-      || relay?.connectors < 1 || status?.status !== "ok" || rejected?.status !== 401
+      || relay?.connectors < 1 || !legacyStatusHealthy || rejected?.status !== 401
       || !webhook || !new Set([400, 401]).has(webhook.status)
       || !emailRoute || emailRoute.status !== 400) {
     fail("account_rollout_smoke_failed", "production_account_rollout_verify");
@@ -463,7 +465,9 @@ async function verifyDisabled({
   const capabilitiesDisabled = capabilitiesExposedBefore
     ? capabilities?.accountAuth?.enabled === false
     : capabilitiesResponse?.status === 404;
-  if (!capabilitiesDisabled || status?.status !== "ok" || emailRoute?.status !== 404) {
+  const legacyStatusHealthy = status?.status === "ok"
+    || (status?.overall === "ok" && status?.gateway_running === true);
+  if (!capabilitiesDisabled || !legacyStatusHealthy || emailRoute?.status !== 404) {
     fail("account_rollout_rollback_smoke_failed", "production_account_rollout_rollback");
   }
 }

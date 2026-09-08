@@ -185,7 +185,7 @@ test("live verification sends the legacy app token through the legacy header", a
     if (pathname === "/api/status") {
       if (new Headers(init.headers).has("authorization")) return new Response("{}", { status: 401 });
       statusHeaders.push(new Headers(init.headers));
-      return jsonResponse({ status: "ok" });
+      return jsonResponse({ overall: "ok", gateway_running: true });
     }
     if (pathname === "/v2/webhooks/resend") return new Response("{}", { status: 401 });
     if (pathname === "/v2/auth/email/challenges") return new Response("{}", { status: 400 });
@@ -221,7 +221,7 @@ test("rollback accepts the original 404 capability surface and uses the legacy h
     }
     if (pathname === "/api/status") {
       statusHeaders = new Headers(init.headers);
-      return jsonResponse({ status: "ok" });
+      return jsonResponse({ overall: "ok", gateway_running: true });
     }
     if (pathname === "/v2/auth/email/challenges") return new Response("not found", { status: 404 });
     assert.fail(`unexpected URL ${url}`);
