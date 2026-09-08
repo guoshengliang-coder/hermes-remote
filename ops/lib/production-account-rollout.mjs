@@ -69,8 +69,14 @@ export async function executeProductionAccountRollout(config, options = {}) {
   await requireAbsent(journalPath, "account_rollout_journal_exists");
   const material = await inspectMaterial(config, releaseConfig);
   const targets = rolloutTargets(releaseConfig);
-  for (const target of Object.values(targets.secrets)) await requireAbsent(target, "account_rollout_secret_target_exists");
-  await requireAbsent(targets.databaseMigration, "account_rollout_database_target_exists");
+  for (const [sourceName, target] of Object.entries(targets.secrets)) {
+    await requireAbsentOrExact(target, `${material[sourceName]}\n`, "account_rollout_secret_target_drift");
+  }
+  await requireAbsentOrExact(
+    targets.databaseMigration,
+    `${material.accountDatabaseUrlSource}\n`,
+    "account_rollout_database_target_drift",
+  );
   await requireAbsent(targets.nginxRoutes, "account_rollout_nginx_routes_target_exists");
 
   await ensureManagedDirectory(path.dirname(journalPath), 0o700, ownership.host);
@@ -240,10 +246,11 @@ export function installEmailAccountNginxInclude(content, releaseConfig, routesPa
       || !/^\/[A-Za-z0-9._/-]+$/.test(routesPath)) {
     fail("account_rollout_nginx_contract_invalid", "production_account_rollout_preflight");
   }
-  const expression = new RegExp(`(^[\\t ]*server_name[\\t ]+${escapeRegExp(releaseConfig.nginx.serverName)}[\\t ]*;[\\t ]*$)`, "gm");
-  const matches = [...content.matchAll(expression)];
+  const matches = [...content.matchAll(/^[\t ]*server_name[\t ]+([A-Za-z0-9.-]+)[\t ]*;[\t ]*$/gm)]
+    .filter((match) => match[1] === releaseConfig.nginx.serverName);
   if (matches.length !== 1) fail("account_rollout_nginx_server_ambiguous", "production_account_rollout_preflight");
-  return content.replace(expression, `$1\n\n    include ${routesPath};`);
+  const match = matches[0];
+  return `${content.slice(0, match.index)}${match[0]}\n\n    include ${routesPath};${content.slice(match.index + match[0].length)}`;
 }
 
 async function inspectMaterial(config, releaseConfig) {
@@ -422,10 +429,6 @@ function rolloutTargets(releaseConfig) {
   };
 }
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 async function safeSecretFile(filePath) {
   return safeFile(filePath, 8 * 1024, 0o077, "account_rollout_secret_file_unsafe");
 }
@@ -472,6 +475,19 @@ async function requireAbsent(filePath, cause) {
     if (error instanceof OpsError) throw error;
     if (error?.code !== "ENOENT") throw error;
   }
+}
+
+async function requireAbsentOrExact(filePath, expected, cause) {
+  try {
+    const info = await lstat(filePath);
+    if (info.isSymbolicLink() || !info.isFile()) fail(cause, "production_account_rollout_preflight");
+  } catch (error) {
+    if (error instanceof OpsError) throw error;
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  const existing = await safeManagedFile(filePath, 8 * 1024);
+  if (!existing.equals(Buffer.from(expected))) fail(cause, "production_account_rollout_preflight");
 }
 
 function journal({ runId, stage, activeSlot, currentManifest, now, migration = null }) {

@@ -58,6 +58,7 @@ test("the public Nginx include exposes only the email-login session surface", as
   const routesPath = path.join(fixture.releaseConfig.paths.configRoot, "account", "email-login-routes.conf");
   const installed = installEmailAccountNginxInclude(fixture.nginxConfig, fixture.releaseConfig, routesPath);
   assert.equal(installed.includes(`include ${routesPath};`), true);
+  assert.equal(installed.includes("server_name gateway.example.com;"), true);
   assert.throws(() => installEmailAccountNginxInclude(installed, fixture.releaseConfig, routesPath), isCode);
 });
 
@@ -103,6 +104,20 @@ test("a failed post-restart verification restores the exact disabled environment
     renderDeployGatewayEnvironment(fixture.releaseConfig, "green"),
   );
   assert.equal(JSON.parse(await readFile(fixture.journalPath, "utf8")).stage, "rolled_back");
+});
+
+test("a matching protected database URL already installed by R5-E is safely adopted", async (t) => {
+  const fixture = await createFixture(t);
+  const existing = path.join(fixture.releaseConfig.paths.configRoot, "secrets", "account-database-url");
+  await mkdir(path.dirname(existing), { recursive: true });
+  await writeFile(existing, `${fixture.material.accountDatabaseUrlSource}\n`, { mode: 0o600 });
+  const result = await executeProductionAccountRollout(fixture.config, {
+    ...fixture.dependencies,
+    runner: runner([]),
+    verifyRollout: async () => {},
+    verifyEmailDelivery: async () => {},
+  });
+  assert.equal(result.stage, "committed");
 });
 
 test("production rollout error is bilingual, retryable, and registered", async () => {
