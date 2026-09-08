@@ -493,13 +493,14 @@ not touched. Rollback point for the next operation: `--operation rollback` with 
 
 ## Production email-login gray rollout (R5-F2; default off until an authorized run)
 
-Gateway 0.4.2 adds the separately confirmed `scripts/production-account-rollout.mjs` entrypoint in operator
+Gateway 0.4.2 added the separately confirmed `scripts/production-account-rollout.mjs` entrypoint in operator
 bundle schema 4. It is intentionally narrower than the account platform: only email OTP authentication and the
 signed Resend callback are enabled. Google, binding, multi-device, sharing, identity management, Web sessions,
 account deletion, and Desktop managed installation remain off. Legacy App and Connector tokens stay accepted.
 The live site gains exact routes only for capability discovery, email challenge/exchange, refresh, sign-out and
 `/v2/account`; if capability discovery is already present it is not duplicated. Device, installation, Google and
-Web-account routes remain absent.
+Web-account routes remain absent. Gateway 0.4.3 is the first rollout candidate: it adds capability discovery to
+the narrow include when the already-managed live site does not expose that route.
 
 Prepare a root-only `0600` configuration from `ops/production.account-rollout.example.json` and validate it
 against `ops/hermes-go-production-account-rollout-config.schema.json`. All six source files must be distinct,
@@ -514,7 +515,7 @@ node scripts/production-account-rollout.mjs \
   --confirm production:<configured-hostname>
 ```
 
-The command proves the active release is exactly the configured 0.4.2 artifact with database schema contract 15
+The command proves the active release is exactly the configured rollout artifact with database schema contract 15
 and PostgreSQL 18 support; proves the live slot and exact disabled environment; records a private checkpoint;
 runs migrations from the immutable loaded image under the advisory lock; installs protected service secrets;
 adds the narrow Nginx include; runs `nginx -t` and reload; restarts only the active Gateway; and verifies readiness,
@@ -527,7 +528,7 @@ inspect `/var/lib/hermes-go/ops/account-rollout.json` before any retry. Migratio
 so a disabled rollback may retain schema 15 while serving no account endpoint.
 
 Do not run this command until a fresh encrypted schema-7 backup has passed off-host restore using the same release
-contract. After migration, update both scheduled recovery configurations to schema 15 and the 0.4.2 immutable
+contract. After migration, update both scheduled recovery configurations to schema 15 and the active immutable
 artifact, then require a fresh encrypted capture, off-host restore, activation and monitor pass before closing the
 maintenance window. Record the actual run, artifact identities, database generation and gray result below this
 section after production execution.

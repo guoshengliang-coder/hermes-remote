@@ -200,3 +200,5 @@ schema 15 迁移，安装 `_FILE` 密钥，并只向公网增加 email challenge
 路由。启用后做两轮完整 smoke；任一 live 阶段失败都会恢复原 Gateway 环境和 Nginx 站点、重启并验证
 `accountAuth.enabled=false`，统一返回 `HR-OPS-020`。正式执行仍要求同一 main 提交的 CI/OCI、schema-7
 迁移前异机恢复和明确生产授权；迁移后必须把加密备份循环提升到 schema 15 并再次通过异机恢复。
+现场关闭态验证发现既有生产站点未公开 capability discovery；后续热修复将该路由纳入窄 include 且避免
+与已存在的精确 location 重复，并把首个实际灰度候选升为 Gateway 0.4.3。
