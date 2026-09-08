@@ -17,7 +17,10 @@ R5-C4 timer 和首次 R5-E6 异机恢复/状态激活已完成。2026-09-06 又�
 异机恢复调度的生产安装和一次手动完整闭环。2026-09-07 首个 scheduler-triggered 捕获成功，但 Mac 自动
 恢复因 LaunchAgent PATH 无法解析 wrapper 的 `node` 而失败关闭；R5-E7A 随后用 `main 4d2cc6561826`
 受保护制品修复并重放同一代次，异机恢复、schema 7、账号 smoke、状态激活、ack 和后续监控全部通过。
-R5-E 数据库恢复自动化门禁已完成，账号模式正式晋级仍未执行。
+2026-09-09 又以 `main 787bdc917190` 完成 Gateway 0.4.9 常规发布、邮箱 OTP 生产灰度、schema 15 迁移，
+以及迁移后的新一轮加密捕获、Mac PostgreSQL 18 真实恢复、0.4.9 镜像账号 smoke、状态激活和监控复查。
+R5-E 数据库恢复自动化门禁与 R5-F2 邮箱登录灰度均已完成；Google、绑定、多设备分享、身份管理、Web
+账号中心和 Desktop 托管安装仍未启用。
 现有 443 路由、Gateway、发布服务、DERP 和证书必须继续保持健康，后续操作不得改变既有
 Android/Connector 的 URL、Token 与协议。
 
@@ -216,3 +219,10 @@ Hermes 使用 `overall=ok` / `gateway_running=true` 而非旧 fixture 的 `statu
 0.4.8 真实灰度的所有网络探针均通过，但操作器把 Gateway 的正式 readiness 值
 `checks.migrations=ok` 误写成 `current`，因此在一秒内安全回滚。0.4.9 对齐这个既有公开契约，并以真实
 Gateway 返回形状作为回归 fixture；不改变账号 API、数据库或灰度范围。
+
+PR #111 的全部门禁、合并后 CI/SAST/OCI 与手动 R5-D 演练通过后，2026-09-09 的授权生产发布 run
+`438fdbcc-72c0-420d-923d-eac42f57bd29` 将 0.4.9 提升至 green，并保留 0.4.8 blue 回滚点。账号灰度 run
+`0065f70a-a3f9-4348-918a-d22eaad135b5` 随后 committed：公开能力只有 `email_otp`，Resend 隔离地址达到
+final-delivered，Connector 与 legacy token 通道持续健康，green 零重启。迁移后的 schema-15 代次
+`20260908T191154059Z-cecbfc922361` 已在 Mac 用 PostgreSQL 18 和精确 0.4.9 镜像真实恢复、回传证据并激活
+ack；HK 捕获/监控 timer 与 Mac 小时级 LaunchAgent 均已按 schema 15 和新 manifest 更新并通过复查。
