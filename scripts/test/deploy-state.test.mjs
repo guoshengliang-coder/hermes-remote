@@ -42,12 +42,16 @@ test("R4 blue/green templates isolate candidate process, state, and private port
   assert.equal(otherSlot("blue"), "green");
   assert.equal(otherSlot("green"), "blue");
   assert.match(blue, /hermes-go-gateway-blue/);
-  assert.match(blue, /127\.0\.0\.1:8787:8787/);
+  assert.match(blue, /--network host/);
+  assert.equal(blue.includes("--publish"), false);
   assert.match(blue, /gateway-slots\/blue/);
   assert.match(green, /hermes-go-gateway-green/);
-  assert.match(green, /127\.0\.0\.1:8788:8787/);
+  assert.match(green, /--network host/);
+  assert.equal(green.includes("--publish"), false);
   assert.match(green, /gateway-slots\/green/);
   assert.match(blueEnvironment, /ACCOUNT_AUTH_ENABLED=0/);
+  assert.match(blueEnvironment, /^PORT=8787$/m);
+  assert.match(blueEnvironment, /^HOST=127\.0\.0\.1$/m);
   assert.equal(blue.includes("database-secrets"), false);
   assert.equal(green.includes("database-secrets"), false);
   for (const required of ["--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", manifest.imageId]) {

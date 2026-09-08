@@ -499,11 +499,17 @@ signed Resend callback are enabled. Google, binding, multi-device, sharing, iden
 account deletion, and Desktop managed installation remain off. Legacy App and Connector tokens stay accepted.
 The live site gains exact routes only for capability discovery, email challenge/exchange, refresh, sign-out,
 `/v2/account`, and the signed Resend callback; existing exact callback or capability locations are not duplicated. Device, installation, Google and
-Web-account routes remain absent. Gateway 0.4.6 is the corrected rollout candidate: it adds capability discovery
+Web-account routes remain absent. Gateway 0.4.7 is the corrected rollout candidate: it adds capability discovery
 and the Resend callback to the narrow include when the already-managed live site does not expose those routes,
 uses the legacy token header for both healthy and rejected legacy smoke, accepts the deployed Hermes status contract,
 and verifies rollback against the site's original capability and exact email-route shape (including the legacy site's
 405 fallback when no email location existed).
+
+The managed blue/green units use Docker host networking because PostgreSQL remains intentionally bound only to
+the host loopback interface. Each Gateway process itself binds its slot-specific `127.0.0.1` port, so neither the
+Gateway nor PostgreSQL becomes reachable on a public interface and Nginx remains the only public ingress. Do not
+restore bridge-mode `--publish` for an account-enabled release: container loopback would no longer reach the
+host's `127.0.0.1:5432`, and readiness must fail closed with the database unavailable.
 
 Prepare a root-only `0600` configuration from `ops/production.account-rollout.example.json` and validate it
 against `ops/hermes-go-production-account-rollout-config.schema.json`. All six source files must be distinct,

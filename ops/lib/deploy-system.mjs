@@ -11,9 +11,11 @@ export function otherSlot(slot) {
 
 export function renderDeployGatewayEnvironment(config, slot) {
   assertSlot(slot);
+  const selected = config.slots[slot];
+  if (!selected) throw new OpsError("deployment", "candidate_slot_missing", "candidate_template");
   return [
-    "PORT=8787",
-    "HOST=0.0.0.0",
+    `PORT=${selected.gatewayPort}`,
+    "HOST=127.0.0.1",
     "APP_TOKEN_FILE=/run/hermes-go/secrets/app-token",
     "CONNECTOR_TOKEN_FILE=/run/hermes-go/secrets/connector-token",
     "INTERNAL_STATUS_TOKEN_FILE=/run/hermes-go/secrets/internal-status-token",
@@ -43,7 +45,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStartPre=-/usr/bin/docker rm --force ${selected.containerName}
-ExecStart=/usr/bin/docker run --name ${selected.containerName} --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000 --cap-drop=ALL --security-opt=no-new-privileges --memory=256m --cpus=1 --pids-limit=128 --publish 127.0.0.1:${selected.gatewayPort}:8787 --env-file ${environmentPath} --mount type=bind,src=${configRoot}/secrets,dst=/run/hermes-go/secrets,readonly --mount type=bind,src=${statePath},dst=/var/lib/hermes-go --log-driver=local --log-opt max-size=10m --log-opt max-file=3 ${runtimeImageId}
+ExecStart=/usr/bin/docker run --name ${selected.containerName} --read-only --network host --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000 --cap-drop=ALL --security-opt=no-new-privileges --memory=256m --cpus=1 --pids-limit=128 --env-file ${environmentPath} --mount type=bind,src=${configRoot}/secrets,dst=/run/hermes-go/secrets,readonly --mount type=bind,src=${statePath},dst=/var/lib/hermes-go --log-driver=local --log-opt max-size=10m --log-opt max-file=3 ${runtimeImageId}
 ExecStop=/usr/bin/docker stop --time 20 ${selected.containerName}
 Restart=always
 RestartSec=3
