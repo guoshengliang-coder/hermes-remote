@@ -115,7 +115,7 @@ export async function executeProductionAccountRollout(config, options = {}) {
     );
     runner.run("nginx", ["-t"]);
     runner.run("systemctl", ["reload", "nginx.service"]);
-    const nextEnvironment = renderEmailRolloutEnvironment(releaseConfig, config);
+    const nextEnvironment = renderEmailRolloutEnvironment(releaseConfig, config, activeSlot);
     await atomicWrite(environmentPath, nextEnvironment, 0o600, ownership.host);
     await atomicWrite(journalPath, journal({ runId, stage: "environment_installed", activeSlot, currentManifest, now, migration }), 0o600, ownership.host);
     runner.run("systemctl", ["restart", `${service}.service`], { timeout: 90_000 });
@@ -188,10 +188,12 @@ export async function executeProductionAccountRollout(config, options = {}) {
   }
 }
 
-export function renderEmailRolloutEnvironment(releaseConfig, config) {
+export function renderEmailRolloutEnvironment(releaseConfig, config, activeSlot) {
+  const selected = releaseConfig.slots[activeSlot];
+  if (!selected) fail("account_rollout_active_slot_invalid", "production_account_rollout_preflight");
   return [
-    "PORT=8787",
-    "HOST=0.0.0.0",
+    `PORT=${selected.gatewayPort}`,
+    "HOST=127.0.0.1",
     "APP_TOKEN_FILE=/run/hermes-go/secrets/app-token",
     "CONNECTOR_TOKEN_FILE=/run/hermes-go/secrets/connector-token",
     "INTERNAL_STATUS_TOKEN_FILE=/run/hermes-go/secrets/internal-status-token",

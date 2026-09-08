@@ -30,7 +30,9 @@ test("production email-account rollout config is strict, protected, and producti
 
 test("email-only environment keeps every wider account surface off and contains no source secret", async (t) => {
   const fixture = await createFixture(t);
-  const rendered = renderEmailRolloutEnvironment(fixture.releaseConfig, fixture.config);
+  const rendered = renderEmailRolloutEnvironment(fixture.releaseConfig, fixture.config, "green");
+  assert.match(rendered, /^PORT=18788$/m);
+  assert.match(rendered, /^HOST=127\.0\.0\.1$/m);
   for (const required of [
     "ACCOUNT_AUTH_ENABLED=1",
     "ACCOUNT_EMAIL_OTP_ENABLED=1",

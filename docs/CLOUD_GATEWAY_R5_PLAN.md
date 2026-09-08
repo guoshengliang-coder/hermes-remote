@@ -206,3 +206,7 @@ location 和原始 404 capability 回滚判定三处阻塞并安全恢复关闭�
 Hermes 使用 `overall=ok` / `gateway_running=true` 而非旧 fixture 的 `status=ok`；0.4.5 现场重试又证明错误
 账号 Bearer 并不是 legacy 拒绝探针，且原站点对未定义的 email POST 会由发布服务返回 405。0.4.6 因此改为
 验证错误 legacy header，并按上线前是否存在精确 email location 验证 404/405 关闭态，不扩大灰度功能面。
+0.4.6 真实灰度随后暴露最后一个基础设施阻塞：受管服务通过 Docker bridge 发布 loopback 端口，容器内的
+`127.0.0.1:5432` 无法到达主机上仅监听 loopback 的 PostgreSQL，readiness 因此正确返回 database unavailable。
+0.4.7 将受管 blue/green 容器改为 host network，同时让 Gateway 自身只监听各槽配置的 `127.0.0.1` 端口；
+这既保留 Nginx-only 公网边界，又让运行时与迁移容器使用同一条本机 PostgreSQL 安全路径。
