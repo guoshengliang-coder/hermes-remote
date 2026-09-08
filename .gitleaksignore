@@ -18,3 +18,17 @@ fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generi
 fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generic-api-key:320
 fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generic-api-key:397
 fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generic-api-key:493
+
+# Account-platform fixtures added in 0699f14 are inert test values, not credentials.
+# Keep these exclusions fingerprint-specific so future findings still fail CI.
+0699f148f0f8c5999615c0761fcc6250a42d6435:desktop/Tests/HermesGoDesktopCoreTests/DesktopReleaseManifestTests.swift:generic-api-key:77
+0699f148f0f8c5999615c0761fcc6250a42d6435:gateway/src/account-control.test.ts:generic-api-key:325
+0699f148f0f8c5999615c0761fcc6250a42d6435:gateway/src/account-control.test.ts:generic-api-key:365
+0699f148f0f8c5999615c0761fcc6250a42d6435:gateway/src/account-control.test.ts:generic-api-key:378
+0699f148f0f8c5999615c0761fcc6250a42d6435:gateway/src/account-mode.test.ts:generic-api-key:430
+0699f148f0f8c5999615c0761fcc6250a42d6435:gateway/src/account-mode.test.ts:generic-api-key:437
+0699f148f0f8c5999615c0761fcc6250a42d6435:gateway/src/account-identity-http.test.ts:generic-api-key:10
+0699f148f0f8c5999615c0761fcc6250a42d6435:gateway/src/account-sharing-http.test.ts:generic-api-key:9
+0699f148f0f8c5999615c0761fcc6250a42d6435:gateway/src/email-otp-database.integration.test.ts:generic-api-key:227
+0699f148f0f8c5999615c0761fcc6250a42d6435:gateway/src/email-otp-http.test.ts:generic-api-key:15
+0699f148f0f8c5999615c0761fcc6250a42d6435:gateway/src/account-web-session.test.ts:generic-api-key:17
