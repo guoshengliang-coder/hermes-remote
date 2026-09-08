@@ -229,6 +229,22 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.109 changes almost nothing you can see, and changes what happens after something
+  goes wrong. HG-27 arrived with 5,864 diagnostic entries across 31 hours and still could not say
+  why a socket had sat in 「正在连接 Relay…」 for a minute: every silent early-return on the
+  reconnect path left no trace, and a recovery path failing looks exactly like nothing happening.
+  The socket now records the HTTP upgrade completing (which separates "never dialled" from "the
+  Relay took the connection and went quiet" — different faults, different owners), every
+  connection transition including the way back to Connected, which guard stood the handshake
+  watchdog down, who asked for a close and why, and the scheduled reconnect that never ran. When
+  the chat banner rises, one line writes the socket's whole internal state; it never carries the
+  ticket. Paying for those lines, six repeating shapes that were 41% of the buffer are gone —
+  two of them defects: `thinking.delta` had slipped past the streaming filter, and the health
+  probe's "only log changes" check compared a value containing the latency, so it had never
+  suppressed anything. `/api/status` deliberately stays: "the web calls kept working while the
+  socket was stuck" is the contrast that makes a stall readable. Diagnostic logging is now on by
+  default in debug builds, because a stall can only be diagnosed if capture was already running —
+  the switch in 设置 → 诊断 still turns it off and the choice sticks.
 - Version 0.1.108 makes the machine-facing text stop reaching the reader, and gives the two list
   pages the shape the design specifies. The bot transcript no longer decides for itself what a row
   is: it now asks the chat screen the same question the chat screen asks, so the compaction
@@ -693,7 +709,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.108-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.109-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
