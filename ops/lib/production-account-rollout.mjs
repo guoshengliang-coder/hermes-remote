@@ -102,10 +102,13 @@ export async function executeProductionAccountRollout(config, options = {}) {
     }
     await atomicWrite(journalPath, journal({ runId, stage: "secrets_installed", activeSlot, currentManifest, now, migration }), 0o600, ownership.host);
     liveMutationStarted = true;
-    await atomicWrite(targets.nginxRoutes, renderEmailAccountNginxRoutes(), 0o644, ownership.host);
+    const previousNginxText = previousNginxConfig.toString("utf8");
+    await atomicWrite(targets.nginxRoutes, renderEmailAccountNginxRoutes({
+      includeCapabilities: !hasCapabilitiesLocation(previousNginxText),
+    }), 0o644, ownership.host);
     await atomicWrite(
       releaseConfig.nginx.configFile,
-      installEmailAccountNginxInclude(previousNginxConfig.toString("utf8"), releaseConfig, targets.nginxRoutes),
+      installEmailAccountNginxInclude(previousNginxText, releaseConfig, targets.nginxRoutes),
       0o644,
       ownership.host,
     );
@@ -220,8 +223,9 @@ export function renderEmailRolloutEnvironment(releaseConfig, config) {
   ].join("\n");
 }
 
-export function renderEmailAccountNginxRoutes() {
+export function renderEmailAccountNginxRoutes({ includeCapabilities = true } = {}) {
   const paths = [
+    ...(includeCapabilities ? ["/v2/capabilities"] : []),
     "/v2/auth/email/challenges",
     "/v2/auth/email/exchange",
     "/v2/auth/refresh",
@@ -238,6 +242,10 @@ export function renderEmailAccountNginxRoutes() {
     proxy_read_timeout 15s;
     proxy_send_timeout 15s;
 }`).join("\n\n")}\n`;
+}
+
+function hasCapabilitiesLocation(content) {
+  return /^[\t ]*location[\t ]*=[\t ]*\/v2\/capabilities[\t ]*\{/m.test(content);
 }
 
 export function installEmailAccountNginxInclude(content, releaseConfig, routesPath) {

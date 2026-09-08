@@ -497,8 +497,9 @@ Gateway 0.4.2 adds the separately confirmed `scripts/production-account-rollout.
 bundle schema 4. It is intentionally narrower than the account platform: only email OTP authentication and the
 signed Resend callback are enabled. Google, binding, multi-device, sharing, identity management, Web sessions,
 account deletion, and Desktop managed installation remain off. Legacy App and Connector tokens stay accepted.
-The live site gains exact routes only for email challenge/exchange, refresh, sign-out and `/v2/account`; device,
-installation, Google and Web-account routes remain absent.
+The live site gains exact routes only for capability discovery, email challenge/exchange, refresh, sign-out and
+`/v2/account`; if capability discovery is already present it is not duplicated. Device, installation, Google and
+Web-account routes remain absent.
 
 Prepare a root-only `0600` configuration from `ops/production.account-rollout.example.json` and validate it
 against `ops/hermes-go-production-account-rollout-config.schema.json`. All six source files must be distinct,
