@@ -46,10 +46,10 @@ test("email-only environment keeps every wider account surface off and contains 
   for (const secret of Object.values(fixture.material)) assert.equal(rendered.includes(secret), false);
 });
 
-test("the public Nginx include exposes only the email-login session surface", async (t) => {
+test("the public Nginx include exposes only the email-login session and Resend callback surface", async (t) => {
   const fixture = await createFixture(t);
   const routes = renderEmailAccountNginxRoutes();
-  for (const route of ["/v2/capabilities", "email/challenges", "email/exchange", "refresh", "sign-out", "/v2/account"]) {
+  for (const route of ["/v2/capabilities", "email/challenges", "email/exchange", "refresh", "sign-out", "/v2/account", "/v2/webhooks/resend"]) {
     assert.equal(routes.includes(route), true);
   }
   for (const forbidden of ["/v2/devices", "/v2/installations", "/v2/auth/google", "/v2/web/"]) {
@@ -61,6 +61,7 @@ test("the public Nginx include exposes only the email-login session surface", as
   assert.equal(installed.includes("server_name gateway.example.com;"), true);
   assert.throws(() => installEmailAccountNginxInclude(installed, fixture.releaseConfig, routesPath), isCode);
   assert.equal(renderEmailAccountNginxRoutes({ includeCapabilities: false }).includes("/v2/capabilities"), false);
+  assert.equal(renderEmailAccountNginxRoutes({ includeResendWebhook: false }).includes("/v2/webhooks/resend"), false);
 });
 
 test("production email-account rollout migrates, installs protected inputs, and commits only after two verifications", async (t) => {
@@ -147,6 +148,95 @@ test("an existing public capabilities location is not duplicated by the rollout 
     "utf8",
   );
   assert.equal(routes.includes("/v2/capabilities"), false);
+});
+
+test("an existing public Resend webhook location is not duplicated by the rollout include", async (t) => {
+  const fixture = await createFixture(t);
+  await writeFile(
+    fixture.releaseConfig.nginx.configFile,
+    fixture.nginxConfig.replace(
+      "    location /api/",
+      "    location = /v2/webhooks/resend { proxy_pass http://hermes_go_gateway_production; }\n    location /api/",
+    ),
+    { mode: 0o644 },
+  );
+  const result = await executeProductionAccountRollout(fixture.config, {
+    ...fixture.dependencies,
+    runner: runner([]),
+    verifyRollout: async () => {},
+    verifyEmailDelivery: async () => {},
+  });
+  assert.equal(result.stage, "committed");
+  const routes = await readFile(
+    path.join(fixture.releaseConfig.paths.configRoot, "account", "email-login-routes.conf"),
+    "utf8",
+  );
+  assert.equal(routes.includes("/v2/webhooks/resend"), false);
+});
+
+test("live verification sends the legacy app token through the legacy header", async (t) => {
+  const fixture = await createFixture(t);
+  const statusHeaders = [];
+  const fetchImpl = async (url, init = {}) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === "/readyz") return jsonResponse({ status: "ready", checks: { migrations: "current" } });
+    if (pathname === "/v2/capabilities") return jsonResponse(enabledCapabilities());
+    if (pathname === "/relay-health") return jsonResponse({ ok: true, connectors: 1 });
+    if (pathname === "/api/status") {
+      if (new Headers(init.headers).has("authorization")) return new Response("{}", { status: 401 });
+      statusHeaders.push(new Headers(init.headers));
+      return jsonResponse({ status: "ok" });
+    }
+    if (pathname === "/v2/webhooks/resend") return new Response("{}", { status: 401 });
+    if (pathname === "/v2/auth/email/challenges") return new Response("{}", { status: 400 });
+    if (pathname === "/internal/version") return jsonResponse({
+      serverVersion: "0.4.2",
+      sourceCommit: "c".repeat(40),
+    });
+    assert.fail(`unexpected URL ${url}`);
+  };
+  const result = await executeProductionAccountRollout(fixture.config, {
+    ...fixture.dependencies,
+    runner: runner([]),
+    fetchImpl,
+    verifyEmailDelivery: async () => {},
+  });
+  assert.equal(result.stage, "committed");
+  assert.equal(statusHeaders.length, 2);
+  assert.equal(statusHeaders[0].get("x-hermes-session-token"), "legacy-app-token");
+  assert.equal(statusHeaders[0].has("authorization"), false);
+});
+
+test("rollback accepts the original 404 capability surface and uses the legacy header", async (t) => {
+  const fixture = await createFixture(t);
+  let statusHeaders;
+  let capabilityCalls = 0;
+  const fetchImpl = async (url, init = {}) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === "/v2/capabilities") {
+      capabilityCalls += 1;
+      return new Response(capabilityCalls === 1 ? "bad gateway" : "not found", {
+        status: capabilityCalls === 1 ? 502 : 404,
+      });
+    }
+    if (pathname === "/api/status") {
+      statusHeaders = new Headers(init.headers);
+      return jsonResponse({ status: "ok" });
+    }
+    if (pathname === "/v2/auth/email/challenges") return new Response("not found", { status: 404 });
+    assert.fail(`unexpected URL ${url}`);
+  };
+  await assert.rejects(() => executeProductionAccountRollout(fixture.config, {
+    ...fixture.dependencies,
+    runner: runner([]),
+    fetchImpl,
+    verifyRollout: async () => { throw new Error("synthetic_smoke_failure"); },
+    verifyEmailDelivery: async () => assert.fail("delivery must not run after failed smoke"),
+  }), isCode);
+  assert.equal(statusHeaders.get("x-hermes-session-token"), "legacy-app-token");
+  assert.equal(statusHeaders.has("authorization"), false);
+  assert.equal(capabilityCalls, 2);
+  assert.equal(JSON.parse(await readFile(fixture.journalPath, "utf8")).stage, "rolled_back");
 });
 
 test("production rollout error is bilingual, retryable, and registered", async () => {
@@ -257,6 +347,21 @@ function runner(calls) {
 }
 
 function currentOwnership() { return { uid: process.getuid(), gid: process.getgid() }; }
+
+function jsonResponse(value, init = {}) {
+  return new Response(JSON.stringify(value), {
+    ...init,
+    headers: { "content-type": "application/json", ...(init.headers ?? {}) },
+  });
+}
+
+function enabledCapabilities() {
+  return {
+    accountAuth: { enabled: true, providers: ["email_otp"], identityManagement: false, webAccountCenter: false },
+    binding: { enabled: false },
+    legacy: { appTokenAccepted: true, connectorTokenAccepted: true },
+  };
+}
 
 async function writeJson(filePath, value) {
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });

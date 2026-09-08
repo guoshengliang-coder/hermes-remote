@@ -105,6 +105,7 @@ export async function executeProductionAccountRollout(config, options = {}) {
     const previousNginxText = previousNginxConfig.toString("utf8");
     await atomicWrite(targets.nginxRoutes, renderEmailAccountNginxRoutes({
       includeCapabilities: !hasCapabilitiesLocation(previousNginxText),
+      includeResendWebhook: !hasResendWebhookLocation(previousNginxText),
     }), 0o644, ownership.host);
     await atomicWrite(
       releaseConfig.nginx.configFile,
@@ -160,7 +161,15 @@ export async function executeProductionAccountRollout(config, options = {}) {
         runner.run("nginx", ["-t"]);
         runner.run("systemctl", ["reload", "nginx.service"]);
         runner.run("systemctl", ["restart", `${service}.service`], { timeout: 90_000 });
-        await (options.verifyDisabled ?? verifyDisabled)({ releaseConfig, activeSlot, fetchImpl, sleep, runner, material });
+        await (options.verifyDisabled ?? verifyDisabled)({
+          releaseConfig,
+          activeSlot,
+          fetchImpl,
+          sleep,
+          runner,
+          material,
+          capabilitiesExposedBefore: hasCapabilitiesLocation(previousNginxConfig.toString("utf8")),
+        });
       } catch (rollbackFailure) {
         rollbackError = rollbackFailure;
       }
@@ -223,7 +232,10 @@ export function renderEmailRolloutEnvironment(releaseConfig, config) {
   ].join("\n");
 }
 
-export function renderEmailAccountNginxRoutes({ includeCapabilities = true } = {}) {
+export function renderEmailAccountNginxRoutes({
+  includeCapabilities = true,
+  includeResendWebhook = true,
+} = {}) {
   const paths = [
     ...(includeCapabilities ? ["/v2/capabilities"] : []),
     "/v2/auth/email/challenges",
@@ -232,7 +244,7 @@ export function renderEmailAccountNginxRoutes({ includeCapabilities = true } = {
     "/v2/auth/sign-out",
     "/v2/account",
   ];
-  return `${paths.map((accountPath) => `location = ${accountPath} {
+  const accountRoutes = paths.map((accountPath) => `location = ${accountPath} {
     client_max_body_size 16k;
     proxy_pass http://hermes_go_gateway_production;
     proxy_set_header Host $host;
@@ -241,11 +253,28 @@ export function renderEmailAccountNginxRoutes({ includeCapabilities = true } = {
     proxy_connect_timeout 5s;
     proxy_read_timeout 15s;
     proxy_send_timeout 15s;
-}`).join("\n\n")}\n`;
+}`).join("\n\n");
+  const webhookRoute = includeResendWebhook ? `
+
+location = /v2/webhooks/resend {
+    client_max_body_size 64k;
+    proxy_pass http://hermes_go_gateway_production;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_connect_timeout 5s;
+    proxy_read_timeout 15s;
+    proxy_send_timeout 15s;
+}` : "";
+  return `${accountRoutes}${webhookRoute}\n`;
 }
 
 function hasCapabilitiesLocation(content) {
   return /^[\t ]*location[\t ]*=[\t ]*\/v2\/capabilities[\t ]*\{/m.test(content);
+}
+
+function hasResendWebhookLocation(content) {
+  return /^[\t ]*location[\t ]*=[\t ]*\/v2\/webhooks\/resend[\t ]*\{/m.test(content);
 }
 
 export function installEmailAccountNginxInclude(content, releaseConfig, routesPath) {
@@ -305,7 +334,7 @@ async function verifyRollout({ config, releaseConfig, activeSlot, currentManifes
   const capabilities = await fetchJsonRetry(fetchImpl, `${config.gateway.origin}/v2/capabilities`, {}, sleep);
   const relay = await fetchJsonRetry(fetchImpl, `${config.gateway.origin}/relay-health`, {}, sleep);
   const status = await fetchJsonRetry(fetchImpl, `${config.gateway.origin}/api/status`, {
-    headers: { authorization: `Bearer ${material.appToken}` },
+    headers: { "x-hermes-session-token": material.appToken },
   }, sleep);
   const rejected = await fetchImpl(`${config.gateway.origin}/api/status`, {
     headers: { authorization: "Bearer intentionally-invalid-production-rollout-token" },
@@ -396,15 +425,34 @@ function emailCounters(value) {
   return Object.fromEntries(keys.map((key) => [key, counters[key]]));
 }
 
-async function verifyDisabled({ releaseConfig, activeSlot, fetchImpl, sleep, runner, material }) {
+async function verifyDisabled({
+  releaseConfig,
+  activeSlot,
+  fetchImpl,
+  sleep,
+  runner,
+  material,
+  capabilitiesExposedBefore,
+}) {
   const service = `${releaseConfig.slots[activeSlot].serviceName}.service`;
   if (runner.run("systemctl", ["is-active", "--quiet", service], { allowFailure: true }).status !== 0) {
     fail("account_rollout_rollback_service_inactive", "production_account_rollout_rollback");
   }
   const publicOrigin = `https://${releaseConfig.nginx.serverName}`;
-  const capabilities = await fetchJsonRetry(fetchImpl, `${publicOrigin}/v2/capabilities`, {}, sleep);
+  const capabilitiesResponse = await fetchResponseRetry(
+    fetchImpl,
+    `${publicOrigin}/v2/capabilities`,
+    {},
+    sleep,
+  );
+  let capabilities;
+  if (capabilitiesResponse?.ok) {
+    try {
+      capabilities = await capabilitiesResponse.json();
+    } catch {}
+  }
   const status = await fetchJsonRetry(fetchImpl, `https://${releaseConfig.nginx.serverName}/api/status`, {
-    headers: { authorization: `Bearer ${material.appToken}` },
+    headers: { "x-hermes-session-token": material.appToken },
   }, sleep);
   const emailRoute = await fetchImpl(`${publicOrigin}/v2/auth/email/challenges`, {
     method: "POST",
@@ -412,9 +460,23 @@ async function verifyDisabled({ releaseConfig, activeSlot, fetchImpl, sleep, run
     body: "{}",
     signal: AbortSignal.timeout(3_000),
   }).catch(() => null);
-  if (capabilities?.accountAuth?.enabled !== false || status?.status !== "ok" || emailRoute?.status !== 404) {
+  const capabilitiesDisabled = capabilitiesExposedBefore
+    ? capabilities?.accountAuth?.enabled === false
+    : capabilitiesResponse?.status === 404;
+  if (!capabilitiesDisabled || status?.status !== "ok" || emailRoute?.status !== 404) {
     fail("account_rollout_rollback_smoke_failed", "production_account_rollout_rollback");
   }
+}
+
+async function fetchResponseRetry(fetchImpl, url, init, sleep) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      const response = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(3_000) });
+      if (response.ok || response.status === 404) return response;
+    } catch {}
+    if (attempt < 19) await sleep(250);
+  }
+  return null;
 }
 
 async function fetchJsonRetry(fetchImpl, url, init, sleep) {
