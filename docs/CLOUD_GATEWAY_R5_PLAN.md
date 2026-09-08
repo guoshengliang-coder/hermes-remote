@@ -210,3 +210,6 @@ Hermes 使用 `overall=ok` / `gateway_running=true` 而非旧 fixture 的 `statu
 `127.0.0.1:5432` 无法到达主机上仅监听 loopback 的 PostgreSQL，readiness 因此正确返回 database unavailable。
 0.4.7 将受管 blue/green 容器改为 host network，同时让 Gateway 自身只监听各槽配置的 `127.0.0.1` 端口；
 这既保留 Nginx-only 公网边界，又让运行时与迁移容器使用同一条本机 PostgreSQL 安全路径。
+0.4.7 现场确认 readiness 已恢复，但容器重启后 `relay-health` 的第一个 HTTP 200 仍可能报告 Connector 尚未
+重连，而紧随其后的 legacy `/api/status` 已重试成功。0.4.8 将强语义的 legacy status 等待放在 relay 快照前，
+避免把瞬时 `connectors: 0` 固化为失败，同时仍要求最终 relay 至少有一个 Connector。
