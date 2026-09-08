@@ -19,7 +19,14 @@ const MANIFEST_V2_KEYS = Object.freeze([...MANIFEST_V1_KEYS, "smokeRuntimeEntry"
 // readable because the R5-E automation on the Mac still runs from one; they simply cannot be
 // used for a release, which the release runbook checks before upload.
 const MANIFEST_V3_KEYS = Object.freeze([...MANIFEST_V2_KEYS, "releaseEntrypoint"]);
-const MANIFEST_KEYS_BY_SCHEMA = Object.freeze({ 1: MANIFEST_V1_KEYS, 2: MANIFEST_V2_KEYS, 3: MANIFEST_V3_KEYS });
+// Schema 4 carries the separately confirmed, fail-closed production email-account rollout.
+const MANIFEST_V4_KEYS = Object.freeze([...MANIFEST_V3_KEYS, "accountRolloutEntrypoint"]);
+const MANIFEST_KEYS_BY_SCHEMA = Object.freeze({
+  1: MANIFEST_V1_KEYS,
+  2: MANIFEST_V2_KEYS,
+  3: MANIFEST_V3_KEYS,
+  4: MANIFEST_V4_KEYS,
+});
 
 export async function loadProductionBaselineBundleManifest(filePath, {
   verifyArchive = true,
@@ -47,6 +54,9 @@ export async function loadProductionBaselineBundleManifest(filePath, {
     if (raw.schemaVersion >= 3 && raw.releaseEntrypoint !== "scripts/production-release.mjs") {
       fail("bundle_release_entrypoint_invalid");
     }
+    if (raw.schemaVersion >= 4 && raw.accountRolloutEntrypoint !== "scripts/production-account-rollout.mjs") {
+      fail("bundle_account_rollout_entrypoint_invalid");
+    }
     if (verifyArchive) {
       const archivePath = path.join(path.dirname(filePath), raw.archiveFile);
       const archive = await readSafeFile(archivePath, 128 * 1024 * 1024);
@@ -61,8 +71,8 @@ export async function loadProductionBaselineBundleManifest(filePath, {
 
 export function createProductionBaselineBundleManifest({ sourceCommit, createdAt, archiveFile, archiveSha256 }) {
   return {
-    schemaVersion: 3,
-    kind: "hermes-go-production-baseline-bundle-v3",
+    schemaVersion: 4,
+    kind: "hermes-go-production-baseline-bundle-v4",
     sourceCommit,
     createdAt,
     archiveFile,
@@ -71,6 +81,7 @@ export function createProductionBaselineBundleManifest({ sourceCommit, createdAt
     connectorEntry: "connector/dist/index.js",
     smokeRuntimeEntry: "ops/lib/production-smoke-runtime.mjs",
     releaseEntrypoint: "scripts/production-release.mjs",
+    accountRolloutEntrypoint: "scripts/production-account-rollout.mjs",
   };
 }
 

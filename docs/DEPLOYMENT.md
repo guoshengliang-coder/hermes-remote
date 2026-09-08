@@ -420,8 +420,8 @@ monitor timer remains off. R5-D is complete; this does not authorize R5-E or R5-
 
 R5-D can only run once (`activeSlot: null` → blue) and `hermesctl deploy/rollback` stay staging-only, so until
 R5-F1 there was no legitimate way to put a later Gateway version (0.4.1 with the structured logs, and everything
-after it) into production. R5-F1 adds `scripts/production-release.mjs`, carried by the operator bundle (manifest
-schema 3, `releaseEntrypoint`). It takes a private configuration of the same shape as R5-D's (in production
+after it) into production. R5-F1 adds `scripts/production-release.mjs`, introduced by operator-bundle manifest
+schema 3 and retained by schema 4 (`releaseEntrypoint`). It takes a private configuration of the same shape as R5-D's (in production
 `/secure-input/hermes-go/production-release.json`, see the run record below); only `targetArtifactManifest`
 changes per release:
 
@@ -490,6 +490,46 @@ ID), zero restarts, no warning-or-worse lines. The structured log is live: the f
 production. Account and database flags remain disabled; PostgreSQL, the monitor timer and the R5-E automation were
 not touched. Rollback point for the next operation: `--operation rollback` with the 0.4.0 bundle
 (`Hermes-Gateway-0.4.0-833859aa9afe-linux-amd64`) as `targetArtifactManifest`.
+
+## Production email-login gray rollout (R5-F2; default off until an authorized run)
+
+Gateway 0.4.2 adds the separately confirmed `scripts/production-account-rollout.mjs` entrypoint in operator
+bundle schema 4. It is intentionally narrower than the account platform: only email OTP authentication and the
+signed Resend callback are enabled. Google, binding, multi-device, sharing, identity management, Web sessions,
+account deletion, and Desktop managed installation remain off. Legacy App and Connector tokens stay accepted.
+The live site gains exact routes only for email challenge/exchange, refresh, sign-out and `/v2/account`; device,
+installation, Google and Web-account routes remain absent.
+
+Prepare a root-only `0600` configuration from `ops/production.account-rollout.example.json` and validate it
+against `ops/hermes-go-production-account-rollout-config.schema.json`. All six source files must be distinct,
+absolute, outside the managed install/config/state roots and have no group/other permission bits. The Resend key
+must be sending-only, the webhook secret must be the currently active endpoint secret, the sender must end in the
+configured verified subdomain, and the PostgreSQL URL must target loopback port 5432. Then run from the verified,
+immutable schema-4 operator bundle:
+
+```bash
+node scripts/production-account-rollout.mjs \
+  --config /secure-input/hermes-go/production-account-rollout.json \
+  --confirm production:<configured-hostname>
+```
+
+The command proves the active release is exactly the configured 0.4.2 artifact with database schema contract 15
+and PostgreSQL 18 support; proves the live slot and exact disabled environment; records a private checkpoint;
+runs migrations from the immutable loaded image under the advisory lock; installs protected service secrets;
+adds the narrow Nginx include; runs `nginx -t` and reload; restarts only the active Gateway; and verifies readiness,
+schema currency, exact email-only capabilities, Connector continuity, legacy authentication, wrong-token rejection,
+invalid-webhook rejection, a single isolated Resend `delivered@resend.dev` submission with its signed final-delivery
+event observed in protected aggregate metrics, public email-route reachability and release identity twice across the observation window.
+If any live step fails, it restores the exact prior environment and Nginx site, removes the route include, reloads
+Nginx, restarts the Gateway with account mode disabled and verifies that state. `HR-OPS-020` names all failures;
+inspect `/var/lib/hermes-go/ops/account-rollout.json` before any retry. Migration is intentionally forward-only,
+so a disabled rollback may retain schema 15 while serving no account endpoint.
+
+Do not run this command until a fresh encrypted schema-7 backup has passed off-host restore using the same release
+contract. After migration, update both scheduled recovery configurations to schema 15 and the 0.4.2 immutable
+artifact, then require a fresh encrypted capture, off-host restore, activation and monitor pass before closing the
+maintenance window. Record the actual run, artifact identities, database generation and gray result below this
+section after production execution.
 
 ## Edge JSON compression (2026-09-07, authorized)
 

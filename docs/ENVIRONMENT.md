@@ -102,6 +102,12 @@ the provider idempotency key and opaque correlation tags. The API key, webhook s
 key must use protected `_FILE` inputs in hosted environments. No email OTP capability is advertised
 while the flag is off.
 
+The first production gray uses the schema-4 operator bundle's
+`scripts/production-account-rollout.mjs`; do not hand-edit a slot environment or the public Nginx site. That
+entrypoint exposes only email challenge/exchange, token refresh, sign-out, and account-read routes and restores
+both the prior environment and site automatically if verification fails. Its private configuration and six
+source files follow `ops/production.account-rollout.example.json`; the repository example contains no live value.
+
 Create one Resend webhook for `https://<gateway-domain>/v2/webhooks/resend` and subscribe to
 `email.sent`, `email.delivery_delayed`, `email.delivered`, `email.complained`, `email.bounced`,
 `email.failed`, and `email.suppressed`. Copy its `whsec_...` signing secret into the protected file;

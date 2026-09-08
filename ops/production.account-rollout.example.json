@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "environment": "production",
+  "operator": "release-operator",
+  "productionReleaseConfig": "/secure-input/hermes-go/production-release.json",
+  "host": {
+    "hostname": "gateway-prod",
+    "architecture": "amd64"
+  },
+  "database": {
+    "ssl": false,
+    "migrationLockId": 48203175
+  },
+  "gateway": {
+    "origin": "https://gateway.example.com",
+    "emailIssuer": "https://gateway.example.com",
+    "emailFromDomain": "auth.example.com",
+    "trustLoopbackProxy": true
+  },
+  "secrets": {
+    "accountDatabaseUrlSource": "/secure-input/hermes-go/account-database-url",
+    "accountTokenHashKeySource": "/secure-input/hermes-go/account-token-hash-key",
+    "accountEmailOtpHashKeySource": "/secure-input/hermes-go/account-email-otp-hash-key",
+    "resendApiKeySource": "/secure-input/hermes-go/resend-api-key",
+    "resendWebhookSecretSource": "/secure-input/hermes-go/resend-webhook-secret",
+    "emailFromSource": "/secure-input/hermes-go/account-email-from"
+  },
+  "deployment": {
+    "observationSeconds": 30
+  }
+}

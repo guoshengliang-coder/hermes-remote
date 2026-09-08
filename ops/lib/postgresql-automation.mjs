@@ -562,7 +562,9 @@ async function streamRemoteToFile(command, args, target) {
 async function waitForPostgresql(docker, name, role, database, options) {
   const attempts = options.postgresqlReadyAttempts ?? 30;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const result = spawnSync(docker, ["exec", name, "pg_isready", "-U", role, "-d", database], safeSpawn());
+    const result = spawnSync(docker, [
+      "exec", name, "pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", role, "-d", database,
+    ], safeSpawn());
     if (result.status === 0) return;
     await new Promise((resolve) => setTimeout(resolve, options.postgresqlReadyDelayMs ?? 1000));
   }
