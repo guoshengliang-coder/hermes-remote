@@ -194,6 +194,17 @@ private fun BotTranscriptTurn(
     source: String?,
     language: com.hermes.client.ui.localization.AppLanguage,
 ) {
+    // Classification belongs to the chat screen; this renderer only draws. See BotTurnKind.
+    when (botTurnKind(message)) {
+        BotTurnKind.HIDDEN -> return
+        BotTurnKind.NOTE -> {
+            com.hermes.client.ui.chat.timelineNoteFor(message)?.let { note ->
+                com.hermes.client.ui.chat.TimelineNoteRow(note, message)
+            }
+            return
+        }
+        BotTurnKind.TURN -> Unit
+    }
     // The chat screen strips Hermes' compression scaffolding in ChatUiState; this renderer is a
     // second path to the same history and has to do the same, or a turn that arrived with pages of
     // machine text stapled to it shows all of it. Timeline notes are collapsed to nothing here:
