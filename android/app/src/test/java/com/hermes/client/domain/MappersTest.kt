@@ -305,4 +305,50 @@ class MappersTest {
         assertNull(MessageDto(id = 5, role = "user", content = "hi", timestamp = 0.0).toDomain().timestamp)
     }
 
+    // Regression for HG-23. A page fetched into the transcript carried Docusaurus' own header
+    // markup, in which `/docs/img/logo.png` is a root-relative URL on that site — not a path on
+    // the Mac. The old rule ("starts with / and ends in a delivery extension") turned it into an
+    // attachment, and opening it asked the Connector for a file that had never been on the Mac:
+    // refused with 403 and reported as "this file is not inside the directory the Mac allows".
+    // Confirmed against the production Connector log — `status=403 reason=forbidden ext=.png
+    // len=18`, and 18 is exactly the length of /docs/img/logo.png.
+    @Test fun `a website's root-relative url never becomes an attachment`() {
+        val quotedPage = parseMessageContent("[![Hermes Agent](/docs/img/logo.png)\n\n**Hermes Agent**")
+
+        assertEquals(0, quotedPage.images.size)
+        assertEquals(0, quotedPage.files.size)
+
+        val webLink = parseMessageContent("见 [说明](/assets/guide.pdf)")
+        assertEquals(0, webLink.files.size)
+    }
+
+    // The other half of the same rule: a real delivery must still become a card. These are roots
+    // Hermes actually writes to, and losing any of them would cost a working attachment.
+    @Test fun `markdown links to real mac paths still become cards`() {
+        listOf(
+            "/Users/bs/output/report.pdf",
+            "/tmp/report.pdf",
+            "/private/var/folders/xx/T/report.pdf",
+            "/Volumes/Data/report.pdf",
+            "/opt/hermes/report.pdf",
+        ).forEach { path ->
+            val parsed = parseMessageContent("下载：[报告]($path)")
+            assertEquals(path, parsed.files.single().remotePath)
+            assertEquals("下载：报告", parsed.text)
+        }
+
+        val image = parseMessageContent("![图](</Users/bs/output/shot.png>)")
+        assertEquals("/Users/bs/output/shot.png", image.images.single().remotePath)
+    }
+
+    // The guard is deliberately scoped to Markdown links. MEDIA: and @file: are explicit delivery
+    // instructions rather than prose that happens to contain a link, so a path arriving through
+    // them is taken at its word and the Connector stays the authority on whether it is readable.
+    @Test fun `explicit delivery grammars are not filtered by the mac-path guard`() {
+        val media = parseMessageContent("MEDIA:/srv/exports/report.pdf")
+        assertEquals("/srv/exports/report.pdf", media.files.single().remotePath)
+
+        val directive = parseMessageContent("@file:/srv/exports/report.pdf")
+        assertEquals("/srv/exports/report.pdf", directive.files.single().remotePath)
+    }
 }
