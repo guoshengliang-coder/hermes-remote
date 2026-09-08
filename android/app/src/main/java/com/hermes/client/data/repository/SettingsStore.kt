@@ -8,6 +8,8 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import com.hermes.client.ui.localization.AppLanguage
+import com.hermes.client.ui.localization.LanguagePreference
+import com.hermes.client.ui.localization.resolve
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
@@ -27,12 +29,22 @@ class SettingsStore(private val context: Context) {
         runCatching { ThemeMode.valueOf(prefs[themeKey] ?: "SYSTEM") }.getOrDefault(ThemeMode.SYSTEM)
     }
 
-    val appLanguage: Flow<AppLanguage> = context.settingsDataStore.data.map { prefs ->
-        runCatching { AppLanguage.valueOf(prefs[languageKey] ?: "ZH") }.getOrDefault(AppLanguage.ZH)
+    /**
+     * What the user picked. An install that has never opened the language screen has no key, and
+     * follows the phone from here on — there is no migration, so a Chinese phone keeps the Chinese
+     * it already had and an English phone stops being shown Chinese it never asked for (HG-17).
+     * An install that DID pick a language keeps that choice: "ZH" and "EN" are still valid names.
+     */
+    val languagePreference: Flow<LanguagePreference> = context.settingsDataStore.data.map { prefs ->
+        runCatching { LanguagePreference.valueOf(prefs[languageKey] ?: "SYSTEM") }
+            .getOrDefault(LanguagePreference.SYSTEM)
     }
 
-    suspend fun setAppLanguage(language: AppLanguage) {
-        context.settingsDataStore.edit { it[languageKey] = language.name }
+    /** The preference resolved against the phone's locale — the value the UI draws with. */
+    val appLanguage: Flow<AppLanguage> = languagePreference.map { it.resolve() }
+
+    suspend fun setAppLanguage(preference: LanguagePreference) {
+        context.settingsDataStore.edit { it[languageKey] = preference.name }
     }
 
     /** True = show full tool input/output (Technical); false = hide payloads (Product). */

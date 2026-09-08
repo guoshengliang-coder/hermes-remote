@@ -17,7 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.hermes.client.ui.localization.AppLanguage
+import com.hermes.client.ui.localization.LanguagePreference
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 
@@ -26,7 +26,7 @@ fun LanguageScreen(
     onBack: () -> Unit,
     vm: SettingsViewModel = hiltViewModel(),
 ) {
-    val selected by vm.appLanguage.collectAsStateWithLifecycle()
+    val selected by vm.languagePreference.collectAsStateWithLifecycle()
     val language = LocalAppLanguage.current
     Scaffold(
         topBar = {
@@ -44,8 +44,17 @@ fun LanguageScreen(
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            LanguageRow("简体中文", AppLanguage.ZH, selected, vm::setAppLanguage)
-            LanguageRow("English", AppLanguage.EN, selected, vm::setAppLanguage)
+            // Follow-system leads and is the default, the same shape the theme screen already has.
+            // The other two are written in their own language: a reader looking for English does
+            // not read 「英语」 to find it.
+            LanguageRow(
+                localized(language, "跟随系统", "Follow system"),
+                LanguagePreference.SYSTEM,
+                selected,
+                vm::setAppLanguage,
+            )
+            LanguageRow("简体中文", LanguagePreference.ZH, selected, vm::setAppLanguage)
+            LanguageRow("English", LanguagePreference.EN, selected, vm::setAppLanguage)
         }
     }
 }
@@ -53,9 +62,9 @@ fun LanguageScreen(
 @Composable
 private fun LanguageRow(
     label: String,
-    value: AppLanguage,
-    selected: AppLanguage,
-    onSelect: (AppLanguage) -> Unit,
+    value: LanguagePreference,
+    selected: LanguagePreference,
+    onSelect: (LanguagePreference) -> Unit,
 ) {
     ListItem(
         headlineContent = { Text(label) },

@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.AppLanguageProvider
+import com.hermes.client.ui.localization.LanguagePreference
+import com.hermes.client.ui.localization.resolve
 import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.startup.StartupScreen
 import com.hermes.client.ui.startup.StartupReason
@@ -94,7 +96,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val mode by settingsStore.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
             val technical by settingsStore.toolCallTechnical.collectAsState(initial = true)
-            val language by settingsStore.appLanguage.collectAsState(initial = AppLanguage.ZH)
+            val language by settingsStore.appLanguage.collectAsState(
+                initial = LanguagePreference.SYSTEM.resolve(),
+            )
             val dark = when (mode) {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
                 ThemeMode.LIGHT -> false
