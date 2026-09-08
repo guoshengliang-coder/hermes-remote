@@ -2090,11 +2090,16 @@ internal fun AssistantMarkdownBlock(
             searchAnnotator.annotate?.invoke(this, content, child) ?: false
         }
     }
+    // Chinese sentences keep their punctuation inside the emphasis and start the next word right
+    // after it — exactly the shape CommonMark refuses to close — so `**关键问题：…？**有的话` reached
+    // the reader as four literal asterisks. Repaired for display only; copy, share, export and
+    // read-aloud all read the original message text. See CjkEmphasis.kt (HG-24).
+    val renderable = remember(content) { withCjkEmphasisRepaired(content) }
     // The renderer captures LocalUriHandler when it builds the link annotations, so the guarded
     // handler has to be in scope around Markdown() rather than at the tap site.
     CompositionLocalProvider(LocalUriHandler provides rememberSafeUriHandler()) {
     Markdown(
-        content = content,
+        content = renderable,
         annotator = annotator,
         modifier = modifier.onGloballyPositioned { viewport?.updateBlock(anchorKey, it.boundsInWindow()) },
         colors = markdownColor(
