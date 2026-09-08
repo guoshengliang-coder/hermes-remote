@@ -81,6 +81,53 @@ class LifecycleEventRepositoryTest {
         assertEquals(3, cursor.value)
     }
 
+    @Test
+    fun `different account installation scopes keep independent cursors`() = runTest {
+        val operations = mutableListOf<String>()
+        val cursor = FakeCursor(
+            operations,
+            initialByScope = mutableMapOf("account-a" to 7L, "account-b" to 2L),
+        )
+        val accountA = LifecycleEventRepository(
+            FakeSource(page(event("a8", "run.completed"), sequence = 8), operations, "account-a"),
+            cursor,
+        )
+        val accountB = LifecycleEventRepository(
+            FakeSource(page(event("b3", "run.completed"), sequence = 3), operations, "account-b"),
+            cursor,
+        )
+
+        accountA.sync()
+        accountB.sync()
+
+        assertEquals(listOf("fetch:7", "ack:a8", "cursor:8", "fetch:2", "ack:b3", "cursor:3"), operations)
+        assertEquals(8L, cursor.value("account-a"))
+        assertEquals(3L, cursor.value("account-b"))
+    }
+
+    @Test
+    fun `account switch during fetch cannot consume or advance another installation cursor`() = runTest {
+        val operations = mutableListOf<String>()
+        val cursor = FakeCursor(
+            operations,
+            initialByScope = mutableMapOf("account-a" to 7L, "account-b" to 2L),
+        )
+        val source = SwitchingScopeSource(
+            page(event("a8", "run.completed"), sequence = 8),
+            operations,
+        )
+        val repository = LifecycleEventRepository(source, cursor)
+
+        val failure = runCatching {
+            repository.sync { operations += "consume" }
+        }.exceptionOrNull()
+
+        assertTrue(failure?.message?.contains("account changed") == true)
+        assertEquals(listOf("fetch:7"), operations)
+        assertEquals(7L, cursor.value("account-a"))
+        assertEquals(2L, cursor.value("account-b"))
+    }
+
     private fun event(
         id: String,
         kind: String,
@@ -116,11 +163,15 @@ class LifecycleEventRepositoryTest {
     private class FakeCursor(
         private val operations: MutableList<String>,
         initial: Long = 0,
+        private val initialByScope: MutableMap<String, Long> = mutableMapOf(
+            LifecycleEventsSource.LEGACY_CURSOR_SCOPE to initial,
+        ),
     ) : LifecycleEventCursor {
-        var value = initial
-        override suspend fun read(): Long = value
-        override suspend fun write(value: Long) {
-            this.value = maxOf(this.value, value)
+        val value: Long get() = value(LifecycleEventsSource.LEGACY_CURSOR_SCOPE)
+        fun value(scope: String): Long = initialByScope[scope] ?: 0L
+        override suspend fun read(scope: String): Long = value(scope)
+        override suspend fun write(scope: String, value: Long) {
+            initialByScope[scope] = maxOf(value(scope), value)
             operations += "cursor:$value"
         }
     }
@@ -128,7 +179,9 @@ class LifecycleEventRepositoryTest {
     private class FakeSource(
         private val page: LifecycleEventPageDto,
         private val operations: MutableList<String>,
+        private val scope: String = LifecycleEventsSource.LEGACY_CURSOR_SCOPE,
     ) : LifecycleEventsSource {
+        override fun cursorScope(): String = scope
         override suspend fun events(after: Long, limit: Int): LifecycleEventPageDto {
             operations += "fetch:$after"
             return page
@@ -146,6 +199,23 @@ class LifecycleEventRepositoryTest {
     ) : LifecycleEventsSource {
         override suspend fun events(after: Long, limit: Int): LifecycleEventPageDto = pages.removeAt(0)
         override suspend fun markDelivered(eventIds: List<String>) = Unit
+        override suspend fun markRead(eventIds: List<String>) = Unit
+    }
+
+    private class SwitchingScopeSource(
+        private val page: LifecycleEventPageDto,
+        private val operations: MutableList<String>,
+    ) : LifecycleEventsSource {
+        private var scope = "account-a"
+        override fun cursorScope(): String = scope
+        override suspend fun events(after: Long, limit: Int): LifecycleEventPageDto {
+            operations += "fetch:$after"
+            scope = "account-b"
+            return page
+        }
+        override suspend fun markDelivered(eventIds: List<String>) {
+            operations += "ack"
+        }
         override suspend fun markRead(eventIds: List<String>) = Unit
     }
 }

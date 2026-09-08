@@ -72,6 +72,7 @@ struct MenuBarContentView: View {
             case .checking, .signingIn: (.checking, "检查中")
             case .unavailable: (.unavailable, "未开放")
             case .signedOut: (.unavailable, "未登录")
+            case .accountDeletionSubmitted: (.unavailable, "删除已提交")
             }
         }
         return HStack {

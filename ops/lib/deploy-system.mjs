@@ -114,6 +114,12 @@ server {
         ${commonProxyHeaders(75)}
     }
 
+    location = /v2/webhooks/resend {
+        client_max_body_size 64k;
+        proxy_pass http://hermes_go_gateway_staging/v2/webhooks/resend;
+        ${commonProxyHeaders(15)}
+    }
+
     location = /api/ws {
         proxy_pass http://hermes_go_gateway_staging;
         ${webSocketProxyHeaders()}

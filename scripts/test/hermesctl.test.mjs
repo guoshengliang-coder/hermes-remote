@@ -283,6 +283,8 @@ test("rendered staging service is content-addressed, hardened, and keeps TLS awa
   assert.match(nginx, /location = \/relay-health/);
   assert.match(nginx, /ssl_protocols TLSv1\.2 TLSv1\.3/);
   assert.match(nginx, /location = \/api\/ws/);
+  assert.match(nginx, /location = \/v2\/webhooks\/resend \{[\s\S]*?client_max_body_size 64k;/);
+  assert.match(nginx, /proxy_pass http:\/\/127\.0\.0\.1:\d+\/v2\/webhooks\/resend;/);
   assert.match(nginx, /proxy_set_header X-Forwarded-For \$remote_addr/);
   assert.match(nginx, /location \/api\/ \{[\s\S]*?proxy_set_header Connection "";/);
   assert.equal(nginx.includes("/internal/version"), false);
@@ -448,7 +450,7 @@ test("status is layered and doctor writes an exclusive allowlist-only private bu
 
 test("Cloud Ops failures keep stable bilingual codes and redact diagnostic values", async () => {
   const codes = Object.values(OPS_ERROR_DEFINITIONS).map((definition) => definition.code);
-  assert.deepEqual(codes, ["HR-OPS-001", "HR-OPS-002", "HR-OPS-003", "HR-OPS-004", "HR-OPS-005", "HR-OPS-006", "HR-OPS-007", "HR-OPS-008", "HR-OPS-009", "HR-OPS-010"]);
+  assert.deepEqual(codes, ["HR-OPS-001", "HR-OPS-002", "HR-OPS-003", "HR-OPS-004", "HR-OPS-005", "HR-OPS-006", "HR-OPS-007", "HR-OPS-008", "HR-OPS-009", "HR-OPS-010", "HR-OPS-011", "HR-OPS-012"]);
   for (const definition of Object.values(OPS_ERROR_DEFINITIONS)) {
     assert.match(definition.summaryZh, /[\u3400-\u9fff]/);
     assert.match(definition.summaryEn, /^[A-Z]/);

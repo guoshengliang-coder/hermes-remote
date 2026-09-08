@@ -27,6 +27,8 @@ data class Session(
     // Git context resolved server-side, present on project-tree session rows; null otherwise.
     val gitBranch: String? = null,
     val gitRepoRoot: String? = null,
+    /** Account-mode Mac that owns this conversation; null for legacy/unresolved history. */
+    val deviceId: String? = null,
 )
 
 data class ToolCall(

@@ -75,6 +75,25 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     send,
     (routingKey) => connectorRegistry.getByRoutingKey(routingKey),
   );
+  const unsubscribeAccessRevocations = accountRuntime.gatewayControl?.subscribeAccessRevocations?.(
+    (event) => {
+      switch (event.kind) {
+        case "account": webSocketTunnels.revokeAccount(event.accountId); break;
+        case "session": webSocketTunnels.revokeAccountSession(
+          event.accountId,
+          event.sessionId,
+        ); break;
+        case "installation": webSocketTunnels.revokeAccountInstallation(
+          event.accountId,
+          event.installationId,
+        ); break;
+        case "binding": webSocketTunnels.revokeAccountBinding(
+          event.accountId,
+          event.bindingId,
+        ); break;
+      }
+    },
+  );
   const lifecycleMessages = new LifecycleMessageHandler(
     lifecycleEvents,
     accountRuntime.gatewayControl,
@@ -120,6 +139,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     : undefined;
   const httpRouter = new GatewayHttpRouter({
     accountController: accountRuntime.controller,
+    ...(accountRuntime.resendWebhook ? { resendWebhook: accountRuntime.resendWebhook } : {}),
     accountControl: accountRuntime.gatewayControl,
     appToken,
     defaultDeviceId,
@@ -127,8 +147,8 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     connectorRegistry,
     lifecycleEvents,
     httpTunnels,
-    resolveAccountConnector: (authorization) => (
-      appWebSocketAuthorizer.resolveAccountConnector(authorization)
+    resolveAccountConnector: (authorization, deviceId) => (
+      appWebSocketAuthorizer.resolveAccountConnector(authorization, deviceId)
     ),
     sendAccountError: sendAccountHttpError,
     tokensEqual: safeEqual,
@@ -143,6 +163,12 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
         legacyAuth: true,
       },
       readiness: () => accountRuntime.readiness(),
+      ...(accountRuntime.emailDeliveryMetrics
+        ? { emailDeliveryMetrics: () => accountRuntime.emailDeliveryMetrics!() }
+        : {}),
+      ...(accountRuntime.retentionMetrics
+        ? { retentionMetrics: () => accountRuntime.retentionMetrics!() }
+        : {}),
       tokensEqual: safeEqual,
     }),
   });
@@ -174,11 +200,15 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
         socket,
         connector,
         authorization
-          ? () => appWebSocketAuthorizer.resolveAccountConnector(authorization)
+          ? () => appWebSocketAuthorizer.resolveAccountConnector(authorization, connector.deviceId)
           : undefined,
+        authorization ? appWebSocketAuthorizer.consumeAccountAccess(request) : undefined,
       );
     },
-    closeDependencies: () => accountRuntime.close(),
+    closeDependencies: async () => {
+      unsubscribeAccessRevocations?.();
+      await accountRuntime.close();
+    },
     reportFailure,
   });
 

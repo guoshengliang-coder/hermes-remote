@@ -16,7 +16,7 @@ const migrationEnvironment = Object.freeze({
   ACCOUNT_DATABASE_URL: "postgresql://migration_user:migration_password@127.0.0.1/hermes_migration",
   ACCOUNT_DATABASE_SSL: "0",
   ACCOUNT_DATABASE_MIGRATION_LOCK_ID: "741852",
-  ACCOUNT_DATABASE_SCHEMA_VERSION: "7",
+  ACCOUNT_DATABASE_SCHEMA_VERSION: "15",
   ACCOUNT_DATABASE_SUPPORTED_MAJORS: "18",
 });
 
@@ -25,9 +25,9 @@ test("account migrator holds one PostgreSQL session lock and verifies the exact 
   const result = await migrateAccountDatabase({ env: migrationEnvironment, poolFactory: fake.poolFactory });
 
   assert.deepEqual(result, {
-    schemaVersion: 7,
+    schemaVersion: 15,
     postgresqlMajor: 18,
-    appliedMigrations: [1, 2, 3, 4, 5, 6, 7],
+    appliedMigrations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
   });
   assert.equal(fake.queries.filter(({ sql }) => sql.includes("pg_try_advisory_lock")).length, 1);
   assert.equal(fake.queries.filter(({ sql }) => sql.includes("pg_advisory_unlock")).length, 1);
@@ -46,7 +46,7 @@ test("account migrator rejects lock contention before applying SQL", async () =>
 });
 
 test("account migrator rejects a database newer than its release without mutation", async () => {
-  const fake = fakeDatabase({ schemaVersion: 8 });
+  const fake = fakeDatabase({ schemaVersion: 16 });
   await assert.rejects(
     () => migrateAccountDatabase({ env: migrationEnvironment, poolFactory: fake.poolFactory }),
     migrationCode("database_schema_newer_than_release"),
@@ -76,7 +76,7 @@ test("Cloud Ops runs the versioned migration from the target image without expos
       return {
         status: 0,
         stdout: `DATABASE_MIGRATION_OK ${JSON.stringify({
-          schemaVersion: 7,
+          schemaVersion: 15,
           postgresqlMajor: 18,
           appliedMigrations: [],
         })}\n`,
@@ -115,7 +115,7 @@ test("Cloud Ops rejects ambiguous migration result fields", () => {
     run: () => ({
       status: 0,
       stdout: `DATABASE_MIGRATION_OK ${JSON.stringify({
-        schemaVersion: 7,
+        schemaVersion: 15,
         postgresqlMajor: 18,
         appliedMigrations: [],
         unexpected: true,
@@ -151,7 +151,7 @@ test("account migrations are restart-safe and lock-exclusive on disposable Postg
 
   const first = await migrateAccountDatabase({ env });
   const resumed = await migrateAccountDatabase({ env });
-  assert.deepEqual(first.appliedMigrations, [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(first.appliedMigrations, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
   assert.deepEqual(resumed.appliedMigrations, []);
 
   const lockClient = await admin.connect();
@@ -188,6 +188,13 @@ function fakeDatabase({ lockAcquired = true, schemaVersion = 0, failMigration = 
         migrationCount += 1;
         if (migrationCount === failMigration) throw new Error("injected database interruption");
         if (sql.includes("VALUES (true, 7)")) currentSchemaVersion = 7;
+        if (sql.includes("SET version = 8")) currentSchemaVersion = 8;
+        if (sql.includes("SET version = 9")) currentSchemaVersion = 9;
+        if (sql.includes("SET version = 10")) currentSchemaVersion = 10;
+        if (sql.includes("SET version = 11")) currentSchemaVersion = 11;
+        if (sql.includes("SET version = 12")) currentSchemaVersion = 12;
+        if (sql.includes("SET version = 14")) currentSchemaVersion = 14;
+        if (sql.includes("SET version = 15")) currentSchemaVersion = 15;
       }
       return { rows: [] };
     },
@@ -219,7 +226,7 @@ function databaseManifest() {
   return {
     imageId: `sha256:${"d".repeat(64)}`,
     releaseContract: {
-      databaseSchemaVersion: 7,
+      databaseSchemaVersion: 15,
       supportedPostgresqlMajors: [18],
     },
   };

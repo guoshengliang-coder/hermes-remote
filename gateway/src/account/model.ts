@@ -1,8 +1,9 @@
-export type AccountPlatform = "android" | "macos";
-export type InstallationKind = "phone" | "desktop";
+export type AccountPlatform = "android" | "macos" | "web";
+export type InstallationKind = "phone" | "desktop" | "browser";
+export type AccountStatus = "active" | "disabled" | "pending_deletion" | "deleted";
 
 export interface VerifiedExternalIdentity {
-  provider: "google";
+  provider: "google" | "email_otp";
   issuer: string;
   subject: string;
   email?: string;
@@ -43,6 +44,8 @@ export interface IdempotencyMaterial {
   expiresAt: Date;
 }
 
+export type SessionCreationOperation = "auth.google.exchange" | "auth.email.exchange";
+
 export type SessionMutationResult =
   | { status: "completed" | "replayed" }
   | {
@@ -57,7 +60,14 @@ export type SessionMutationResult =
 export type ReauthenticationScope =
   | "connector.replace"
   | "connector.unbind"
-  | "account.revoke_all";
+  | "account.revoke_all"
+  | "account.identity.link"
+  | "account.identity.unlink"
+  | "account.installation.revoke"
+  | "account.delete"
+  | "device.share";
+
+export type ReauthenticationOperation = "auth.reauth.google" | "auth.reauth.email";
 
 export interface ReauthenticationMaterial {
   grantId: string;
@@ -82,6 +92,8 @@ export interface RevokeAllResult {
     | "account_disabled"
     | "idempotency_conflict";
 }
+
+export type AccountDeletionResult = RevokeAllResult;
 
 export interface PublicAccount {
   id: string;
@@ -114,7 +126,7 @@ export type SessionCreationResult =
 export type SessionRotationResult =
   | { status: "rotated" }
   | { status: "replayed"; responseCiphertext: string }
-  | { status: "invalid" | "expired" | "revoked" | "reused" | "account_disabled" | "idempotency_conflict" };
+  | { status: "invalid" | "expired" | "revoked" | "reused" | "account_disabled" | "account_deletion_pending" | "idempotency_conflict" };
 
 export interface AccountPrincipal {
   account: PublicAccount;
@@ -125,7 +137,49 @@ export interface AccountPrincipal {
 
 export type AccessAuthenticationResult =
   | { status: "active"; principal: AccountPrincipal }
-  | { status: "invalid" | "expired" | "revoked" | "account_disabled" };
+  | { status: "invalid" | "expired" | "revoked" | "account_disabled" | "account_deletion_pending" };
+
+export interface PublicExternalIdentity {
+  id: string;
+  provider: VerifiedExternalIdentity["provider"];
+  email?: string;
+  displayName?: string;
+  avatarUrl?: string;
+  verifiedAt: string;
+}
+
+export type IdentityLinkResult =
+  | { status: "linked" | "already_linked"; identity: PublicExternalIdentity }
+  | { status: "replayed"; responseCiphertext: string }
+  | {
+      status:
+        | "identity_conflict"
+        | "invalid_grant"
+        | "expired_grant"
+        | "used_grant"
+        | "session_revoked"
+        | "account_disabled"
+        | "idempotency_conflict";
+    };
+
+export type IdentityUnlinkResult =
+  | {
+      status: "unlinked";
+      identity: PublicExternalIdentity;
+      currentSessionRevoked: boolean;
+    }
+  | { status: "replayed"; responseCiphertext: string }
+  | {
+      status:
+        | "not_found"
+        | "last_identity"
+        | "invalid_grant"
+        | "expired_grant"
+        | "used_grant"
+        | "session_revoked"
+        | "account_disabled"
+        | "idempotency_conflict";
+    };
 
 export interface AccountRepository {
   createSession(
@@ -133,6 +187,7 @@ export interface AccountRepository {
     installation: InstallationInput,
     material: SessionMaterial,
     idempotency: IdempotencyMaterial,
+    operation: SessionCreationOperation,
   ): Promise<SessionCreationResult>;
   rotateSession(
     refreshTokenHash: string,
@@ -148,12 +203,38 @@ export interface AccountRepository {
     identity: VerifiedExternalIdentity,
     material: ReauthenticationMaterial,
     idempotency: IdempotencyMaterial,
+    operation: ReauthenticationOperation,
   ): Promise<ReauthenticationResult>;
+  listExternalIdentities(accountId: string): Promise<PublicExternalIdentity[]>;
+  linkExternalIdentity(
+    accountId: string,
+    installationId: string,
+    currentSessionId: string,
+    identity: VerifiedExternalIdentity,
+    publicIdentity: PublicExternalIdentity,
+    grantTokenHash: string,
+    idempotency: IdempotencyMaterial,
+  ): Promise<IdentityLinkResult>;
+  unlinkExternalIdentity?(
+    accountId: string,
+    installationId: string,
+    currentSessionId: string,
+    identityId: string,
+    grantTokenHash: string,
+    protectResponse: (identity: PublicExternalIdentity, currentSessionRevoked: boolean) => string,
+    idempotency: IdempotencyMaterial,
+  ): Promise<IdentityUnlinkResult>;
   revokeAllSessions(
     accessTokenHash: string,
     grantTokenHash: string,
     idempotency: IdempotencyMaterial,
   ): Promise<RevokeAllResult>;
+  requestAccountDeletion(
+    accessTokenHash: string,
+    grantTokenHash: string,
+    deletionDueAt: Date,
+    idempotency: IdempotencyMaterial,
+  ): Promise<AccountDeletionResult>;
   revokeSession(
     accessTokenHash: string,
     idempotency: IdempotencyMaterial,
@@ -172,8 +253,11 @@ export interface ExternalIdentityVerifier {
 export type RecoveryAction =
   | "retry"
   | "sign_in"
+  | "request_code"
   | "reauthenticate"
   | "verify_and_replace"
+  | "select_device"
+  | "open_sharing"
   | "continue_legacy"
   | "none";
 
@@ -222,7 +306,7 @@ export const accountErrors = {
   reauthenticationRequired: () => new AccountModeError(
     403,
     "HR-AUTH-006",
-    "Verify your Google account again to confirm it's you.",
+    "Verify your sign-in identity again to confirm it's you.",
     false,
     "reauthenticate",
   ),
@@ -230,6 +314,13 @@ export const accountErrors = {
     403,
     "HR-ACCOUNT-001",
     "This Hermes GO account is currently unavailable. Contact support.",
+    false,
+    "none",
+  ),
+  accountDeletionPending: () => new AccountModeError(
+    403,
+    "HR-ACCOUNT-012",
+    "This Hermes GO account is being permanently deleted and can no longer sign in.",
     false,
     "none",
   ),
@@ -260,6 +351,62 @@ export const accountErrors = {
     "Too many sign-in requests. Wait a moment and try again.",
     true,
     "retry",
+  ),
+  invalidEmailCode: () => new AccountModeError(
+    401,
+    "HR-AUTH-009",
+    "The email code is invalid or expired. Request a new code.",
+    false,
+    "request_code",
+  ),
+  emailDeliveryFailed: () => new AccountModeError(
+    503,
+    "HR-AUTH-010",
+    "The sign-in email couldn't be sent. Try again shortly.",
+    true,
+    "retry",
+  ),
+  emailFeatureDisabled: () => new AccountModeError(
+    503,
+    "HR-AUTH-011",
+    "Email sign-in isn't enabled on this Gateway yet. Use another available method or the legacy connection.",
+    false,
+    "sign_in",
+  ),
+  webRequestRejected: () => new AccountModeError(
+    403,
+    "HR-AUTH-012",
+    "This browser request couldn't be verified. Reload the account page and try again.",
+    false,
+    "sign_in",
+  ),
+  identityConflict: () => new AccountModeError(
+    409,
+    "HR-ACCOUNT-008",
+    "That sign-in identity already belongs to another Hermes GO account.",
+    false,
+    "none",
+  ),
+  identityFeatureDisabled: () => new AccountModeError(
+    503,
+    "HR-ACCOUNT-009",
+    "Identity management isn't enabled on this Gateway yet.",
+    false,
+    "none",
+  ),
+  lastIdentityRequired: () => new AccountModeError(
+    409,
+    "HR-ACCOUNT-011",
+    "Keep at least one sign-in identity on this Hermes GO account.",
+    false,
+    "none",
+  ),
+  webSessionFeatureDisabled: () => new AccountModeError(
+    503,
+    "HR-ACCOUNT-010",
+    "Secure Web account sessions aren't enabled on this Gateway yet.",
+    false,
+    "none",
   ),
   idempotencyConflict: () => new AccountModeError(
     409,
@@ -337,5 +484,82 @@ export const accountErrors = {
     "Desktop binding isn't enabled on this Gateway yet. Continue with the legacy connection.",
     false,
     "continue_legacy",
+  ),
+  deviceSelectionRequired: () => new AccountModeError(
+    409,
+    "HR-BIND-009",
+    "Choose which Mac to use before opening this content.",
+    false,
+    "select_device",
+  ),
+  deviceCapacityReached: () => new AccountModeError(
+    409,
+    "HR-BIND-010",
+    "This account already owns the maximum of three Macs. Remove one before adding another.",
+    false,
+    "none",
+  ),
+  deviceNotFound: () => new AccountModeError(
+    404,
+    "HR-BIND-011",
+    "That Mac is no longer available to this account. Choose another device.",
+    false,
+    "select_device",
+  ),
+  sharingFeatureDisabled: () => new AccountModeError(
+    503,
+    "HR-SHARE-001",
+    "Device sharing isn't enabled on this Gateway yet.",
+    false,
+    "none",
+  ),
+  sharingCapacityReached: () => new AccountModeError(
+    409,
+    "HR-SHARE-002",
+    "This Mac already has five people with access. Revoke one before inviting another.",
+    false,
+    "open_sharing",
+  ),
+  sharedDeviceCapacityReached: () => new AccountModeError(
+    409,
+    "HR-SHARE-003",
+    "This account already has access to ten shared Macs. Leave one before accepting another.",
+    false,
+    "open_sharing",
+  ),
+  shareInvitationInvalid: () => new AccountModeError(
+    404,
+    "HR-SHARE-004",
+    "This sharing invitation is invalid or expired. Ask the owner for a new invitation.",
+    false,
+    "none",
+  ),
+  shareEmailMismatch: () => new AccountModeError(
+    403,
+    "HR-SHARE-005",
+    "Sign in with the verified email address that received this invitation.",
+    false,
+    "sign_in",
+  ),
+  wholeDeviceAcknowledgementRequired: () => new AccountModeError(
+    400,
+    "HR-SHARE-006",
+    "Confirm that this share provides access to the whole Hermes device.",
+    false,
+    "none",
+  ),
+  shareConflict: () => new AccountModeError(
+    409,
+    "HR-SHARE-007",
+    "This device is already shared with that account or the invitation is no longer available.",
+    false,
+    "open_sharing",
+  ),
+  shareDeliveryFailed: () => new AccountModeError(
+    503,
+    "HR-SHARE-008",
+    "The sharing invitation email couldn't be sent. Try again shortly.",
+    true,
+    "retry",
   ),
 } as const;

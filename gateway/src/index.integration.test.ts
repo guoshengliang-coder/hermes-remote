@@ -69,6 +69,7 @@ test("Relay durably acknowledges and serves Connector lifecycle events", {
     };
     assert.equal(capabilities.server.version, "0.4.0");
     assert.deepEqual(capabilities.server.protocolVersions, { legacy: 1, accountConnector: 2 });
+    assert.equal((await fetch(`http://127.0.0.1:${port}/account`)).status, 404);
 
     assert.equal((await fetch(`http://127.0.0.1:${port}/internal/version`)).status, 401);
     const versionResponse = await fetch(`http://127.0.0.1:${port}/internal/version`, {

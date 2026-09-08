@@ -2,41 +2,47 @@
 
 ## Trust boundaries
 
-1. Android authenticates to the HK Gateway with an app credential.
+1. Android authenticates to the HK Gateway with either a legacy app credential or a capability-gated
+   Hermes GO account session; those credential families are never mixed.
 2. The macOS Connector authenticates independently and registers a device ID.
 3. The Connector initiates the connection, so the Mac requires no inbound firewall rule.
 4. The Gateway routes opaque structured events and does not need access to Mac files.
 5. Hermes remains reachable only on the Mac's private interface and is never exposed publicly.
 
-## Planned account control plane (not implemented)
+## Default-off account control plane
 
-The account-mode I0 contract adds a provider-neutral Hermes GO account above the existing relay:
+The local account-platform implementation adds a provider-neutral Hermes GO account above the
+existing relay. It remains default-off and is not a statement that production rollout is complete:
 
 ```text
-Google identity -> Hermes GO account -> one active Desktop Connector -> one local Hermes
-                                  \-> independent phone installation A
-                                  \-> independent phone installation B
+verified email OTP -> Hermes GO account -> owned Desktop Connectors (0..3) -> local Hermes services
+                                      \-> shared Desktop Connectors (0..10)
+                                      \-> independent phone/Desktop/browser installations
+
+future Google/Apple identity --explicit link--> same Hermes GO account
 ```
 
-Google proves identity only. The Gateway/account service verifies the platform-specific provider
-proof and issues its own short-lived access plus rotating refresh credentials. Connector
-authentication is independent: the Mac proves possession of a binding-specific private key against a
-short-lived Gateway challenge, so routine background reconnect does not depend on interactive Google
-login.
+The first release verifies a six-digit email challenge and issues its own short-lived access plus
+rotating refresh credentials. Google and Apple remain separately gated future identity providers;
+no provider proof or email text is a resource-ownership key. Connector authentication is independent:
+each Mac proves possession of a binding-specific private key against a short-lived Gateway challenge,
+so routine background reconnect does not depend on email delivery or interactive OAuth login.
 
 The local account backend uses transactional PostgreSQL, separate from the existing legacy
-lifecycle JSON file. It enforces one active Connector binding per account, per-installation phone
-sessions/cursors, atomic replacement, and cross-account isolation. The existing App Token,
-Connector Token, `/api/*`, `/api/ws`, and `/v1/connect` remain available throughout the compatibility
-window. Account routes and Connector control messages are separately versioned under V2/capability
-gates.
+lifecycle JSON file. It transactionally enforces at most three owned Mac slots, independently
+revocable machine credentials, per-installation sessions/cursors, whole-device sharing limits, and
+cross-account isolation. Every device-scoped request resolves the authenticated account plus an
+opaque `device_id`; display names and email addresses never select or authorize a Mac. The existing
+App Token, Connector Token, `/api/*`, `/api/ws`, and `/v1/connect` remain available throughout the
+compatibility window. Account routes and Connector control messages are separately versioned under
+V2/capability gates.
 
 This plan does not modify Hermes. The local Hermes credential stays on the Mac, the Connector remains
 outbound-only, and migration snapshots contain only Hermes GO/Connector-owned state. See
 `ACCOUNT_MODE_API.md`, `ACCOUNT_MODE_SECURITY.md`, `ACCOUNT_MODE_MIGRATION.md`, and
 `ACCOUNT_MODE_TEST_PLAN.md`.
 
-## MVP lifecycle
+## Legacy MVP lifecycle
 
 1. Connector sends `hello(role=connector, deviceId=mac-mini)`.
 2. Android sends `hello(role=app)` and receives device status.
@@ -48,7 +54,8 @@ outbound-only, and migration snapshots contain only Hermes GO/Connector-owned st
 ## Production follow-ups
 
 - Add connection-level rate limiting at the Nginx edge.
-- Replace static MVP credentials with short-lived, device-bound tokens.
+- Complete the gated migration from static MVP credentials to short-lived, installation-bound account
+  sessions and possession-based Connector credentials.
 - Add replay protection, request limits, persisted sessions, and push notifications.
 - Define Hermes-specific event normalization for assistant text, tool calls, tool results, files, and errors.
 

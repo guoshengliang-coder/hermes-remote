@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "environment": "staging",
+  "sendingDomain": "auth.example.com",
+  "records": {
+    "spfTxt": {
+      "name": "send.auth.example.com",
+      "expectedValue": "v=spf1 include:amazonses.com ~all"
+    },
+    "spfMx": {
+      "name": "send.auth.example.com",
+      "exchange": "feedback-smtp.us-east-1.amazonses.com",
+      "priority": 10
+    },
+    "dkimTxt": {
+      "name": "resend._domainkey.auth.example.com",
+      "expectedValue": "p=copy-the-complete-public-key-from-resend"
+    },
+    "dmarcTxt": {
+      "name": "_dmarc.auth.example.com",
+      "minimumPolicy": "none",
+      "requireAggregateReports": true
+    }
+  }
+}

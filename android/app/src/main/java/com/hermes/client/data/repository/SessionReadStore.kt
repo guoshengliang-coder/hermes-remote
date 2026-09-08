@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.map
 
 private val Context.sessionReadDataStore by preferencesDataStore(name = "session_read_state")
 
-/** Device-local unread markers, keyed by profile and session so they survive process restarts. */
+/** Device-local unread markers, keyed by Mac/profile/session so they survive process restarts. */
 class SessionReadStore(private val context: Context) {
     private val unreadKey = stringSetPreferencesKey("unread_sessions")
 
@@ -30,7 +30,9 @@ class SessionReadStore(private val context: Context) {
     }
 
     companion object {
-        fun token(profile: String?, sessionId: String): String =
-            "${profile?.ifBlank { "default" } ?: "default"}/$sessionId"
+        fun token(profile: String?, sessionId: String, deviceId: String? = null): String {
+            val legacy = "${profile?.ifBlank { "default" } ?: "default"}/$sessionId"
+            return deviceId?.takeIf { it.isNotBlank() }?.let { "device:${it.length}:$it/$legacy" } ?: legacy
+        }
     }
 }

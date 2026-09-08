@@ -120,6 +120,7 @@ import com.hermes.client.ui.localization.localizedMessage
 @Composable
 fun ChatScreen(
     sessionId: String,
+    sessionDeviceId: String? = null,
     sessionProfile: String? = null,
     initialTitle: String? = null,
     isNewSession: Boolean = false,
@@ -141,8 +142,15 @@ fun ChatScreen(
             com.hermes.client.data.diagnostics.CrashReporter.breadcrumb("chat", "dispose chat#$safeSession")
         }
     }
-    LaunchedEffect(sessionId, sessionProfile, initialTitle, isNewSession) {
-        vm.open(sessionId, sessionProfile, initialTitle, isNewSession, language)
+    LaunchedEffect(sessionId, sessionDeviceId, sessionProfile, initialTitle, isNewSession) {
+        vm.open(
+            sessionId,
+            sessionProfile,
+            initialTitle,
+            isNewSession,
+            language,
+            requestedDeviceId = sessionDeviceId,
+        )
     }
     LaunchedEffect(language) { vm.setAppLanguage(language) }
     val state by vm.state.collectAsStateWithLifecycle()

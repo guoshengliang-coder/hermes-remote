@@ -55,12 +55,15 @@ class ModelCatalogStoreTest {
         jobs.clear()
     }
 
-    private fun buildStore(): ModelCatalogStore {
+    private fun buildStore(
+        accountSessions: com.hermes.client.data.auth.AccountSessionManager? = null,
+    ): ModelCatalogStore {
         val job = SupervisorJob()
         jobs += job
         return ModelCatalogStore(
             models, profileManager, credentials, connectivity, chatRepo,
             CoroutineScope(job + Dispatchers.Main),
+            accountSessions,
         )
     }
 
@@ -77,6 +80,19 @@ class ModelCatalogStoreTest {
         coVerify(exactly = 0) { models.providers(any()) }
         assertTrue(store.state.value.providers.isEmpty())
         assertFalse(store.state.value.failed)
+    }
+
+    @Test fun loadedAccountDeviceAllowsRefreshWithoutLegacyCredentials() = runTest {
+        every { credentials.load() } returns null
+        val accountSessions = mockk<com.hermes.client.data.auth.AccountSessionManager>()
+        every { accountSessions.hasLoadedConnection() } returns true
+        val store = buildStore(accountSessions)
+
+        store.onForeground()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { models.providers("work") }
+        assertEquals(workCatalog, store.state.value.providers)
     }
 
     @Test fun refresh_is_silent_noop_while_offline() = runTest {

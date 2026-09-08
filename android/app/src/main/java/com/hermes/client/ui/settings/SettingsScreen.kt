@@ -35,7 +35,7 @@ fun SettingsScreen(
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {
-            Entry(localized(language, "服务器与令牌", "Server & token"), localized(language, "本应用连接的网关地址和令牌", "Gateway URL and token this app connects to")) { onNavigate("settings_connection") }
+            Entry(localized(language, "Hermes GO 账号", "Hermes GO account"), localized(language, "邮箱登录与这台手机的会话", "Email sign-in and this phone's session")) { onNavigate("settings_account") }
             HorizontalDivider()
             Entry(localized(language, "外观", "Appearance"), localized(language, "主题、明暗模式和工具调用显示", "Theme, light/dark, tool-call display")) { onNavigate("settings_appearance") }
             HorizontalDivider()

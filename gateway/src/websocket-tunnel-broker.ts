@@ -13,6 +13,12 @@ interface AppTunnel<TConnector extends WebSocketConnector> {
   socket: WebSocket;
   routingKey: string;
   connector: TConnector;
+  accountAccess?: {
+    accountId: string;
+    bindingId: string;
+    installationId: string;
+    sessionId: string;
+  };
 }
 
 type SendWireMessage = (socket: WebSocket, message: WireMessage) => void;
@@ -39,18 +45,35 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
     socket: WebSocket,
     connector: TConnector,
     revalidateConnector?: RevalidateConnector<TConnector>,
+    accountAccess?: {
+      accountId: string;
+      bindingId: string;
+      installationId: string;
+      sessionId: string;
+    },
   ): void {
-    const revalidationTimer = revalidateConnector
-      ? setInterval(() => {
+    const revalidate = revalidateConnector
+      ? () => {
           void revalidateConnector().then((current) => {
             if (current !== connector) socket.close(4403, "account binding changed");
           }).catch(() => socket.close(4403, "account authorization changed"));
+        }
+      : undefined;
+    const revalidationTimer = revalidate
+      ? setInterval(() => {
+          revalidate();
         }, 5_000)
       : undefined;
     revalidationTimer?.unref();
 
     const id = randomUUID();
-    this.tunnels.set(id, { socket, routingKey: connector.routingKey, connector });
+    this.tunnels.set(id, {
+      socket,
+      routingKey: connector.routingKey,
+      connector,
+      ...(accountAccess ? { accountAccess } : {}),
+    });
+    revalidate?.();
     this.send(connector.socket, {
       type: "tunnel.ws.open",
       version: PROTOCOL_VERSION,
@@ -127,6 +150,47 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
       if (tunnel.routingKey !== routingKey) continue;
       this.tunnels.delete(id);
       tunnel.socket.close(1013, "Mac connector disconnected");
+    }
+  }
+
+  revokeAccountBinding(accountId: string, bindingId: string): void {
+    this.closeAccountTunnels(
+      ({ accountId: candidateAccountId, bindingId: candidateBindingId }) => (
+        candidateAccountId === accountId && candidateBindingId === bindingId
+      ),
+      "device access revoked",
+    );
+  }
+
+  revokeAccountInstallation(accountId: string, installationId: string): void {
+    this.closeAccountTunnels(
+      (access) => access.accountId === accountId && access.installationId === installationId,
+      "installation access revoked",
+    );
+  }
+
+  revokeAccountSession(accountId: string, sessionId: string): void {
+    this.closeAccountTunnels(
+      (access) => access.accountId === accountId && access.sessionId === sessionId,
+      "session access revoked",
+    );
+  }
+
+  revokeAccount(accountId: string): void {
+    this.closeAccountTunnels(
+      (access) => access.accountId === accountId,
+      "account access revoked",
+    );
+  }
+
+  private closeAccountTunnels(
+    matches: (access: NonNullable<AppTunnel<TConnector>["accountAccess"]>) => boolean,
+    reason: string,
+  ): void {
+    for (const [id, tunnel] of this.tunnels) {
+      if (!tunnel.accountAccess || !matches(tunnel.accountAccess)) continue;
+      this.tunnels.delete(id);
+      tunnel.socket.close(4403, reason);
     }
   }
 }

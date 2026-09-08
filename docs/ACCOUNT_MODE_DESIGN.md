@@ -1,7 +1,12 @@
 # Hermes GO account-mode client design
 
-Status: product and interaction proposal for review. This document does not authorize deployment or
-change the current Hermes, Connector, Gateway, or Android runtime.
+Status: accepted current interaction contract. Its implementation remains capability-gated; this
+document does not authorize deployment or production enablement.
+
+Rollout update (2026-09-08): the accepted first release is email-code-only and supports explicit
+selection among up to three owned Macs plus shared Macs. Google/Apple remain future providers behind
+independent capabilities; historical Google-first and one-Mac decisions live only in the implementation
+history, not in this shipping interaction contract.
 
 I0 engineering contracts: `ACCOUNT_MODE_API.md`, `ACCOUNT_MODE_SECURITY.md`,
 `ACCOUNT_MODE_MIGRATION.md`, and `ACCOUNT_MODE_TEST_PLAN.md`.
@@ -11,43 +16,49 @@ I0 engineering contracts: `ACCOUNT_MODE_API.md`, `ACCOUNT_MODE_SECURITY.md`,
 The primary onboarding and connection model becomes **account-first**:
 
 ```text
-Google identity -> Hermes GO account -> one active Desktop Connector -> one local Hermes
-                                  \-> phone installation A
-                                  \-> phone installation B
+verified email OTP -> Hermes GO account -> owned Mac A Connector -> local Hermes A
+                                      \-> owned Mac B Connector -> local Hermes B
+                                      \-> phone installation A/B
+                                      \-> Macs shared by another account
 ```
 
-Google authenticates the person; the Hermes GO account service owns the binding. A matching email by
-itself does not connect devices. The service must verify the provider token and map the verified
-provider subject to an internal `account_id`.
+The mail challenge verifies control of the normalized mailbox; the Hermes GO account service owns
+every binding and share. Equal email text from a future OAuth profile does not connect or merge
+accounts. Authorization always resolves a verified external identity to an opaque internal
+`account_id`.
 
-V1 rules:
+First-release rules:
 
-- One account has at most one active Desktop Connector binding.
+- One account has at most three independently revocable owned Desktop Connector bindings.
 - One Desktop Connector reaches one local Hermes instance.
-- Any number of authorized phone installations may share that account and Hermes within bounded
-  connection/rate limits.
+- Authorized phone installations explicitly select one accessible owned/shared Mac when more than
+  one is available; no display name participates in authorization.
+- Whole-device sharing grants fixed `operator` access to one named Mac. A grantee can use that
+  Hermes service but cannot re-share, rotate, unbind, rename, or manage the owner's account.
 - Each phone remains an independent installation: it has its own session, revocation, push token,
   delivery cursor, and local read state.
-- A second Mac never silently replaces the first. Replacement requires recent reauthentication and
-  explicit confirmation.
+- A new Mac consumes a separate owned-device slot and never replaces another Mac merely by signing
+  in. Replacing or rotating an existing binding remains scoped and explicitly confirmed.
 - Hermes source, credentials, configuration, and update process remain untouched.
 
-The account model is deliberately provider-neutral internally. V1 may expose only Google, but stored
-identity is `(provider, issuer, subject)` linked to an internal `account_id`; product data must not use
-an email address as the primary key.
+The account model is provider-neutral internally. Stored identity is `(provider, issuer, subject)`
+linked to an internal `account_id`; the verified email provider uses its canonical mailbox subject,
+while later OAuth providers use their issuer subject. Product relationships never use display email
+as a primary key.
 
 ## 2. Vocabulary boundary
 
 The UI must keep these concepts separate:
 
-- **Hermes GO account**: the Google-backed owner of the Desktop binding and phone installations.
+- **Hermes GO account**: the provider-neutral owner of Desktop bindings, phone/browser installations,
+  and sharing relationships.
 - **Desktop Connector**: the Mac-side background bridge registered to the account.
 - **Hermes identity/profile**: an identity configured inside Hermes and selectable in the Android
   client. Account mode does not replace or rename this existing Hermes concept.
 - **Phone installation**: one app installation authorized under the account. Two phones using the
-  same Google account are still two independently revocable installations.
+  same verified email account are still independently revocable installations.
 
-Avoid the ambiguous standalone label “身份” for the Google account. Use “Hermes GO 账号” and
+Avoid the ambiguous standalone label “身份” for the login account. Use “Hermes GO 账号” and
 “Hermes 身份” explicitly when both appear on the same screen.
 
 ## 3. Desktop client changes
@@ -63,24 +74,23 @@ Devices**:
 4. Account & Devices
 5. Settings
 
-The canonical Android app icon remains the app, sidebar, menu-bar, About, and package icon. Google
-branding appears only on the official sign-in action.
+The canonical Android app icon remains the app, sidebar, menu-bar, About, and package icon. Future
+provider branding may appear only on that provider's official capability-gated action.
 
 ### 3.2 First launch
 
-The first screen has one primary action: **Continue with Google**. Supporting text explains:
+The first screen has email input followed by one primary action: **Send sign-in code**. After a
+challenge is accepted, the same surface requests the six-digit code and offers **Verify and sign in**.
+Supporting text explains:
 
-- this Mac will become the account's one Desktop Connector;
-- phones using the same account will discover it automatically;
-- Google email, contacts, and Drive content are not requested;
+- this Mac can become one of the account's owned Hermes devices;
+- phones using the same verified account will discover it without a Relay URL or App Token;
+- the code is single-use and Hermes GO never asks for the mailbox password;
 - the local Hermes credential never leaves the Mac.
 
-Selecting the action opens the system default browser. If that browser already has one or more
-Google sessions, Google presents those accounts for direct selection and authorization instead of
-asking the user to type the account and password again. Normal first sign-in explicitly permits
-account selection so a browser's incidental default account cannot silently bind the wrong Hermes GO
-account. A returning/re-authentication flow may supply Google's `login_hint` only as a convenience;
-the Gateway still authorizes solely by the verified issuer and subject.
+The challenge metadata and exchange idempotency key may persist in the account-session Keychain so a
+lost response is safely retried; the six-digit code remains only in view memory. Google/Apple controls
+and browser launch are absent from the first-release surface.
 
 After authentication, Desktop runs a read-only preflight before binding:
 
@@ -96,14 +106,26 @@ After authentication, Desktop runs a read-only preflight before binding:
 The normal state contains only information needed to understand ownership and access:
 
 - signed-in account name and masked/normal email;
-- current Desktop binding and last-seen state;
+- all owned Mac bindings, their last-seen state, and an explicit marker for this Mac;
+- all Macs shared with this account, with owner/operator access labels;
 - Connector state;
 - local Hermes reachability and observed version when safely available;
 - authorized phone installations with device name, platform, last seen, and **Remove** action;
+- per-owned-device invite/cancel/revoke controls with the whole-device disclosure and 5/10 limits;
+- **Leave shared device** for operator grants accepted by this account;
 - **Unbind this Mac** as a destructive, confirmed action.
 
-Removing a phone revokes only that installation. Unbinding the Mac revokes its Connector machine
+Removing a phone first re-verifies the current account identity, then revokes only that installation.
+Unbinding the Mac revokes its Connector machine
 credential and stops remote access, but must not delete, edit, stop, or restart Hermes.
+
+Permanent Cloud-account deletion is a different capability-gated danger-zone action. It requires
+typed `DELETE`, explicit acknowledgement, and fresh `account.delete` reauthentication. The UI must
+explain that every Cloud session, binding, and share ends immediately; Cloud personal data is cleaned
+after 30 days; the old account is not recoverable; and local Hermes data on each Mac is never deleted.
+The action is absent while the independent server capability is off. After commit, clients say that
+deletion was “submitted” or is “in progress” until the 30-day cleanup completes; they must not claim
+that Cloud data has already been erased.
 
 ### 3.4 Overview and menu bar
 
@@ -113,8 +135,9 @@ Keep the existing data-path topology:
 Desktop Agent -> Gateway -> local Hermes -> end-to-end check
 ```
 
-Do not add “Google” as a permanent topology node: it is an authentication dependency, not part of
-every Hermes request. Show account state near the page header and in layered diagnostics instead.
+Do not add the email provider or any future OAuth provider as a permanent topology node: authentication
+is not part of every Hermes request. Show account state near the page header and in layered diagnostics
+instead.
 
 The menu bar continues to answer “is it working?” at a glance and adds the current account plus a
 shortcut to Account & Devices. It must distinguish:
@@ -125,18 +148,19 @@ shortcut to Account & Devices. It must distinguish:
 - local Hermes unreachable;
 - binding revoked or replaced.
 
-### 3.5 Second-Mac conflict
+### 3.5 Multiple owned Macs
 
-If another Desktop signs into an already-bound account:
+When another Desktop signs into an account with available capacity:
 
-- show the existing Mac display name and last seen;
-- leave the original binding active;
-- require recent Google reauthentication;
-- explain that replacement revokes the old Connector but does not delete Hermes data;
-- require an explicit **Verify and replace** action;
-- notify existing phone installations after successful replacement.
+- show every existing owned Mac separately and label the local Mac;
+- create/confirm only the local Mac's new binding slot;
+- leave every existing binding and its selected phone traffic active;
+- require phones to select by opaque device ID when several Macs are accessible;
+- reject a fourth owned Mac without revoking or replacing any existing binding.
 
-There is no automatic “latest login wins” behavior.
+Replacing or rotating a binding is a separate scoped operation for the selected Mac. It requires
+recent authentication, names the exact binding being changed, validates proof/health before commit,
+and never deletes Hermes data. There is no automatic “latest login wins” behavior.
 
 ### 3.6 Legacy compatibility
 
@@ -149,17 +173,15 @@ instances in parallel.
 
 ### 4.1 First launch
 
-Replace Relay URL, App Token, and QR as the default setup with one **Continue with Google** action.
-
-Credential Manager first requests Google accounts already authorized for Hermes GO. With exactly
-one eligible credential and no pending consent, Android may use Google's auto-select behavior; with
-multiple eligible accounts it shows the native account chooser. If no previously authorized account
-exists, retry with the filter disabled so the user can choose any Google account already present on
-the phone or add another account. Never select by comparing email strings.
+Replace Relay URL, App Token, and QR as the default setup with **email + six-digit verification
+code**. The first account release has no Google or Apple controls. Challenge metadata and the
+exchange idempotency key survive process death in encrypted storage; the typed code does not enter
+logs or diagnostics. Legacy setup remains one explicit compatibility action.
 
 After sign-in:
 
-- if an active Desktop binding exists, connect automatically and open Sessions;
+- if one accessible Desktop is available, select/probe it and open Sessions; if several owned/shared
+  Macs are available, require an explicit choice rather than selecting by display name;
 - if no Desktop is bound, show “No Desktop connected yet”, the signed-in account, and a passive
   retry/listening state plus instructions to open Hermes Go Desktop;
 - if the binding exists but Connector is offline, preserve the account session and show the specific
@@ -172,13 +194,13 @@ After sign-in:
 Do not redesign chat, sessions, projects, models, cron, updates, or the composer for account mode.
 Their server data still comes from the bound Hermes.
 
-The card page keeps the existing **current Hermes identity** card and changes the existing
-**Remote device** stat cell into the single entry point for the bound Hermes. Its value is the Mac
-display name and its subline summarizes Hermes connectivity. Tapping the cell opens **Remote device**
-details with the Mac, Connector, Hermes, Gateway, end-to-end state, diagnostics, and legacy connection
-tools. There is no separate “Connection & devices” row or Settings entry.
+The card page keeps the existing **current Hermes identity** card and uses the existing
+**Remote device** stat cell as the single device entry. Its value is the selected Mac display name
+and its subline summarizes Hermes connectivity. Tapping opens **Remote devices**, which lists owned
+and shared Macs with access labels, Connector/Hermes/end-to-end state, diagnostics, and legacy
+connection tools. There is no separate “Connection & devices” Settings entry.
 
-Do **not** add the Google account, email, or an account card to the card page: sign-in is normally a
+Do **not** add a Hermes GO account card, email address, or provider identity to the card page: sign-in is normally a
 one-time action and does not deserve permanent space in the frequently used navigation surface. This
 also prevents the Hermes GO account from being confused with Hermes profiles.
 
@@ -192,7 +214,7 @@ Settings changes:
 
 Remote-device details changes:
 
-- show the single bound Mac/Hermes rather than a device picker or device list;
+- show the account's owned and shared Macs and require explicit selection when more than one exists;
 - show Connector, Hermes, Gateway, and end-to-end status as one readable path;
 - link to Diagnostics for actionable failures;
 - put manual URL/Token configuration under **Legacy connection** during migration;
@@ -220,7 +242,7 @@ Phones share Hermes server data but not phone-local state:
 The Android health strip and recovery sheet must state the failed layer, not collapse everything into
 “cannot connect”:
 
-- **Account needs sign-in** -> Continue with Google.
+- **Account needs sign-in** -> enter email and request a new six-digit code.
 - **Gateway unavailable** -> retry/check network.
 - **Desktop Connector offline** -> open Desktop on the Mac; keep account signed in.
 - **Hermes unavailable on Mac** -> inspect Desktop diagnostics; do not request a new login.
@@ -234,13 +256,14 @@ Both clients render the same product states, using platform-native controls:
 
 | State | Desktop | Android |
 | --- | --- | --- |
-| Signed out | Google sign-in | Google sign-in |
-| Account, no binding | Offer to bind this Mac | Wait for Desktop; retry automatically |
+| Signed out | Email plus six-digit code | Email plus six-digit code |
+| Account, no accessible device | Offer to bind this Mac | Wait for an owned/shared Desktop; retry automatically |
 | Bound, healthy | Account/devices and green path status | Open Sessions; show bound Mac as connected |
 | Connector offline | Account healthy, Connector failed | Keep account; show Connector offline |
 | Hermes unreachable | Connector may be healthy; Hermes failed | Keep account; direct user to Desktop diagnostics |
 | Account reauth needed | Reauthenticate management session; machine credential may continue | Reauthenticate this phone session |
-| Second Mac requests binding | Explicit replacement flow | Existing binding remains until confirmed |
+| Additional owned Mac | Add a separate slot when below three; never overwrite another Mac | Existing choices remain; new Mac appears after activation |
+| Shared Mac added/removed | Owner/grantee controls reflect the exact device | Device appears/disappears without affecting owned Macs |
 | Phone revoked | Remove it from device list | Return that phone to sign-in only |
 | Desktop replaced | Old machine shows revoked | Phones switch only after server commits the new binding |
 
@@ -249,24 +272,18 @@ warnings never override current reachability.
 
 ## 6. Authentication and token design visible to clients
 
-- macOS uses the system browser, PKCE S256, state, and a loopback callback on an ephemeral
-  `127.0.0.1` port for the installed-app flow.
-- macOS reuses browser-side Google sessions only through Google's own account chooser/consent page;
-  Hermes GO never reads browser cookies, passwords, or a local Chrome profile.
-- Android uses Credential Manager Sign in with Google, preferring previously authorized accounts
-  and allowing auto-select only when Google reports exactly one action-free credential.
-- The backend verifies provider signature, issuer, audience, and expiry, then issues Hermes GO
-  credentials.
+- Desktop and Android request an email challenge bound to the platform and stable client installation,
+  then exchange the six-digit code with a caller-stable idempotency key.
+- The backend normalizes and verifies the mailbox challenge, enforces expiry/attempt/cooldown/rate
+  limits, and only then issues Hermes GO credentials.
+- Challenge and retry metadata may use protected platform storage; the typed code never enters durable
+  storage, logs, diagnostics, or crash reports.
 - Desktop stores an account management session and an independently revocable, device-bound
   Connector credential/key pair in Keychain.
 - Android stores its own refresh/session material in encrypted platform storage.
-- Google access tokens are never used as Gateway App Tokens or Connector credentials.
-- Interactive Google sign-in bootstraps or reauthenticates access; it is not required for every
-  background reconnect.
-
-References: [Google OAuth for installed apps](https://developers.google.com/identity/protocols/oauth2/native-app),
-[Google backend ID-token verification](https://developers.google.com/identity/sign-in/android/backend-auth),
-and [Android Credential Manager Sign in with Google](https://developer.android.com/identity/sign-in/credential-manager-siwg).
+- No mailbox password or provider access token becomes a Gateway App Token or Connector credential.
+- The retained future Google implementation uses system-browser PKCE on macOS and Credential Manager
+  on Android, but remains absent unless its independent provider capability is explicitly enabled.
 
 ## 7. Migration design
 
@@ -287,14 +304,18 @@ Hermes sessions and files do not migrate because they remain on the same Hermes 
 Design and implementation are not complete until these cases are automated where possible and run on
 real devices where required:
 
-- same Google account on Desktop and phone connects without URL, Token, or QR input;
+- the same verified email account on Desktop and phone discovers accessible Macs without URL, Token,
+  or QR input;
 - phone signed in before Desktop transitions from “no Desktop” to connected without reinstalling;
 - two physical phones connect to the same Hermes and can be revoked independently;
 - logging out phone A leaves phone B and the Desktop Connector working;
 - per-installation notification cursor and local read state do not leak between phones;
-- a second Mac cannot steal the binding without reauthentication and explicit confirmation;
-- failed Mac replacement leaves the original Connector active;
-- successful replacement revokes the old machine credential and does not modify Hermes;
+- three owned Macs remain independently usable; a concurrent fourth is rejected without affecting
+  existing Connectors;
+- binding replacement/rotation affects only its selected Mac, and failure leaves the old generation
+  active;
+- an owner can share one whole Mac with account B, then revoke only B without affecting either
+  account's other Macs;
 - provider/backend temporary outage does not unnecessarily stop an already-authorized Connector;
 - account, Gateway, Connector, Hermes, and end-to-end failures render as distinct states;
 - tokens, auth codes, cookies, and provider responses are absent from UI, logs, diagnostics, and crash
@@ -311,12 +332,14 @@ The executable backlog, estimates, dependencies, exit gates, release sequence, a
 checkpoints are maintained in `ACCOUNT_MODE_IMPLEMENTATION_PLAN.md`.
 
 1. Account protocol, threat model, provider-neutral data model, and new error codes.
-2. Backend Google verification plus Hermes GO session/refresh credentials.
-3. macOS sign-in and Account & Devices UI without Connector takeover.
-4. Android sign-in and no-binding/healthy/offline state shell.
-5. One-account/one-Connector binding, phone installation registration, revoke, and replacement.
+2. Backend email OTP verification plus Hermes GO session/refresh credentials; retain Google behind
+   its independent future-provider flag.
+3. macOS email sign-in and Account & Devices UI without Connector takeover.
+4. Android email sign-in and no-device/selection/healthy/offline state shell.
+5. Up-to-three owned Connector bindings, phone installation registration, explicit device selection,
+   revoke, scoped replacement, and whole-device sharing.
 6. Legacy-to-account migration with Connector validation and rollback.
-7. Two-phone, second-Mac, restart, failure, security, and accessibility release gates.
+7. Two-phone, multi-Mac/share, restart, failure, security, and accessibility release gates.
 
 This order keeps the existing Connector and Hermes path intact until the account control plane is
 independently testable.

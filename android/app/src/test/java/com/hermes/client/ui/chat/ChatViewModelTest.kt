@@ -18,6 +18,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -108,7 +109,10 @@ class ChatViewModelTest {
     // Real store over the mocked ModelRepository so cache semantics are exercised for real.
     private var catalogStore: com.hermes.client.data.repository.ModelCatalogStore? = null
 
-    private fun buildVm(): ChatViewModel {
+    private fun buildVm(
+        accountSessions: com.hermes.client.data.auth.AccountSessionManager? = null,
+        conversationDevices: com.hermes.client.data.auth.ConversationDeviceStore? = null,
+    ): ChatViewModel {
         val runtimeJob = SupervisorJob()
         runtimeJobs += runtimeJob
         val runtimeStore = SessionRuntimeStore(
@@ -125,7 +129,67 @@ class ChatViewModelTest {
             chatRepo, sessionRepo, store, reasoningPresetStore, profileRepo, profileManager,
             favoritesStore, pendingShareStore, tts, promptStore, configRepo, runtimeStore,
             mediaRepo, fileRepo, mainDispatcherRule.dispatcher, projectPrefs,
+            accountSessions, conversationDevices,
         )
+    }
+
+    @Test fun opening_account_conversation_routes_to_its_original_mac_without_changing_default() = runTest {
+        val manager = mockk<com.hermes.client.data.auth.AccountSessionManager>()
+        val affinity = mockk<com.hermes.client.data.auth.ConversationDeviceStore>(relaxed = true)
+        every { manager.session } returns MutableStateFlow(
+            com.hermes.client.data.auth.AccountSession(
+                baseUrl = "https://relay.example",
+                accountId = "account-1",
+                installationId = "phone-1",
+                installationDisplayName = "Pixel",
+                accessToken = "hga",
+                accessExpiresAt = "2099-01-01T00:00:00Z",
+                refreshToken = "hgr",
+                refreshExpiresAt = "2099-02-01T00:00:00Z",
+                selectedDeviceId = "mac-default",
+            ),
+        )
+        every { manager.routeToDevice("mac-history") } returns true
+        val vm = buildVm(manager, affinity)
+
+        vm.open("session-1", requestedDeviceId = "mac-history")
+        advanceUntilIdle()
+
+        verify { affinity.bind("account-1", null, "session-1", "mac-history") }
+        verify(exactly = 1) { manager.routeToDevice("mac-history") }
+        verify(exactly = 1) { chatRepo.reconnect() }
+        coVerify { sessionRepo.history("session-1", null, "mac-history") }
+        coVerify { sessionRepo.list(null, "mac-history") }
+    }
+
+    @Test fun revoked_conversation_device_surfaces_the_registered_binding_error() = runTest {
+        val manager = mockk<com.hermes.client.data.auth.AccountSessionManager>()
+        every { manager.session } returns MutableStateFlow(
+            com.hermes.client.data.auth.AccountSession(
+                baseUrl = "https://relay.example",
+                accountId = "account-1",
+                installationId = "phone-1",
+                installationDisplayName = "Pixel",
+                accessToken = "hga",
+                accessExpiresAt = "2099-01-01T00:00:00Z",
+                refreshToken = "hgr",
+                refreshExpiresAt = "2099-02-01T00:00:00Z",
+                selectedDeviceId = "mac-default",
+            ),
+        )
+        every { manager.routeToDevice("mac-revoked") } returns true
+        coEvery { sessionRepo.history("session-revoked", null, "mac-revoked") } throws
+            com.hermes.client.data.network.HermesApiException(
+                code = 404,
+                message = "HR-BIND-011",
+                errorCode = "HR-BIND-011",
+            )
+        val vm = buildVm(manager, mockk(relaxed = true))
+
+        vm.open("session-revoked", requestedDeviceId = "mac-revoked")
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.historyError?.contains("HR-BIND-011") == true)
     }
 
     // The chat subtitle follows the gateway's session.info (cwd/branch) — the workspace the

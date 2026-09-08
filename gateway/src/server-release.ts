@@ -4,6 +4,8 @@ import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { sendJson } from "./http-utils.js";
+import type { AccountEmailDeliveryMetrics } from "./account/postgres-email-delivery-metrics.js";
+import type { AccountRetentionMetrics } from "./account/account-retention.js";
 
 export interface ServerReleaseManifest {
   manifestVersion: 1 | 2;
@@ -53,6 +55,8 @@ export class ServerReleaseController {
     internalStatusToken?: string;
     capabilities: ServerCapabilities;
     readiness(): Promise<GatewayReadiness>;
+    emailDeliveryMetrics?(): Promise<AccountEmailDeliveryMetrics>;
+    retentionMetrics?(): AccountRetentionMetrics;
     tokensEqual(actual: string, expected: string): boolean;
   }) {}
 
@@ -74,7 +78,9 @@ export class ServerReleaseController {
       );
       return true;
     }
-    if (url.pathname !== "/internal/version") return false;
+    if (url.pathname !== "/internal/version"
+        && url.pathname !== "/internal/account-email-metrics"
+        && url.pathname !== "/internal/account-retention") return false;
     if (request.method !== "GET" || !this.options.internalStatusToken) {
       sendJson(response, 404, { error: "not_found" });
       return true;
@@ -85,6 +91,22 @@ export class ServerReleaseController {
       : "";
     if (!token || !this.options.tokensEqual(token, this.options.internalStatusToken)) {
       sendJson(response, 401, { error: "unauthorized" });
+      return true;
+    }
+    if (url.pathname === "/internal/account-email-metrics") {
+      if (!this.options.emailDeliveryMetrics) {
+        sendJson(response, 404, { error: "not_found" });
+        return true;
+      }
+      sendJson(response, 200, await this.options.emailDeliveryMetrics());
+      return true;
+    }
+    if (url.pathname === "/internal/account-retention") {
+      if (!this.options.retentionMetrics) {
+        sendJson(response, 404, { error: "not_found" });
+        return true;
+      }
+      sendJson(response, 200, this.options.retentionMetrics());
       return true;
     }
     const { files, manifestVersion, ...release } = this.options.manifest;

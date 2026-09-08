@@ -41,13 +41,32 @@ struct AccountDevicesView: View {
     @EnvironmentObject private var model: DesktopViewModel
     @State private var legacyExpanded = false
     @State private var phoneToRemove: ManagedAccountInstallation?
+    @State private var phoneVerificationCode = ""
+    @State private var phoneVerificationChallenge: DesktopEmailVerificationChallenge?
+    @State private var accountEmail = ""
+    @State private var accountCode = ""
+    @State private var accountEmailChallenge: DesktopEmailVerificationChallenge?
+    @State private var shareDevice: AccountDevice?
+    @State private var shareEmail = ""
+    @State private var shareAcknowledged = false
+    @State private var shareVerificationCode = ""
+    @State private var shareVerificationChallenge: DesktopEmailVerificationChallenge?
+    @State private var invitationInput = ""
+    @State private var invitationAcknowledged = false
+    @State private var grantToRevoke: DeviceAccessGrant?
+    @State private var sharedDeviceToLeave: AccountDevice?
+    @State private var isAccountDeletionPresented = false
+    @State private var accountDeletionConfirmation = ""
+    @State private var accountDeletionAcknowledged = false
+    @State private var accountDeletionCode = ""
+    @State private var accountDeletionChallenge: DesktopEmailVerificationChallenge?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 PageHeader(
                     title: "账号与设备",
-                    subtitle: "同一 Google 账号下的手机会连接到这一台 Desktop 和它所服务的 Hermes。"
+                    subtitle: "一个账号可管理多台 Mac；当前选择只影响接下来打开的新内容。"
                 ) {
                     Button {
                         Task { await model.refreshAccount() }
@@ -87,23 +106,63 @@ struct AccountDevicesView: View {
             }
             .padding(34)
         }
-        .confirmationDialog(
-            "移除这台手机？",
-            isPresented: Binding(
-                get: { phoneToRemove != nil },
-                set: { if !$0 { phoneToRemove = nil } }
-            ),
-            presenting: phoneToRemove
-        ) { phone in
-            Button("移除 \(phone.displayName)", role: .destructive) {
-                Task {
-                    await model.revokePhone(phone.id)
-                    phoneToRemove = nil
+        .sheet(item: $phoneToRemove, onDismiss: {
+            phoneVerificationChallenge = nil
+            phoneVerificationCode = ""
+        }) { phone in
+            phoneRevocationSheet(phone)
+        }
+        .sheet(item: $shareDevice) { device in
+            shareInvitationSheet(device)
+        }
+        .sheet(isPresented: $isAccountDeletionPresented, onDismiss: resetAccountDeletion) {
+            accountDeletionSheet
+        }
+        .sheet(item: Binding(
+            get: { model.managedBootstrapPreparation },
+            set: { value in
+                if value == nil, model.managedBootstrapOperation == .awaitingConfirmation {
+                    Task { await model.cancelManagedBootstrapConfirmation() }
                 }
             }
-            Button("取消", role: .cancel) { phoneToRemove = nil }
-        } message: { phone in
-            Text("只会撤销 \(phone.displayName) 这一个安装；其他手机、Desktop、Connector 和 Hermes 不受影响。")
+        )) { preparation in
+            managedBootstrapConfirmationSheet(preparation)
+        }
+        .confirmationDialog(
+            "撤销整台设备的共享权限？",
+            isPresented: Binding(
+                get: { grantToRevoke != nil },
+                set: { if !$0 { grantToRevoke = nil } }
+            ),
+            presenting: grantToRevoke
+        ) { grant in
+            Button("立即撤销 \(grant.granteeEmailHint)", role: .destructive) {
+                Task {
+                    await model.revokeDeviceShare(deviceID: grant.deviceId, grantID: grant.id)
+                    grantToRevoke = nil
+                }
+            }
+            Button("取消", role: .cancel) { grantToRevoke = nil }
+        } message: { _ in
+            Text("该账号正在使用的此设备会话将失效；不会删除 Mac 上的 Hermes 数据。")
+        }
+        .confirmationDialog(
+            "退出这台共享 Mac？",
+            isPresented: Binding(
+                get: { sharedDeviceToLeave != nil },
+                set: { if !$0 { sharedDeviceToLeave = nil } }
+            ),
+            presenting: sharedDeviceToLeave
+        ) { device in
+            Button("退出 \(device.desktopDisplayName)", role: .destructive) {
+                Task {
+                    await model.leaveSharedDevice(deviceID: device.deviceId)
+                    sharedDeviceToLeave = nil
+                }
+            }
+            Button("取消", role: .cancel) { sharedDeviceToLeave = nil }
+        } message: { _ in
+            Text("退出后当前账号将无法再访问这台 Hermes；设备所有者和 Mac 本身不受影响。")
         }
     }
 
@@ -126,11 +185,13 @@ struct AccountDevicesView: View {
             )
         case .signedOut, .needsSignIn:
             signedOutCard
+        case .accountDeletionSubmitted:
+            accountDeletionSubmittedCard
         case .signingIn:
             statusCard(
                 symbol: "person.crop.circle.badge.clock",
-                title: "正在等待 Google 授权",
-                detail: "请在系统默认浏览器中选择账号，然后返回 Hermes Go Desktop。"
+                title: "正在验证账号",
+                detail: "正在安全验证邮箱验证码，请稍候。"
             )
         case .signedIn(let dashboard):
             signedInContent(dashboard)
@@ -142,7 +203,7 @@ struct AccountDevicesView: View {
             AppLogoView(size: 52)
             Text("使用 Hermes GO 账号连接")
                 .font(.system(size: 22, weight: .bold))
-            Text("登录后，这台 Mac 可以查看账号绑定和已授权手机。Google 会在默认浏览器中显示账号选择器；Hermes GO 不读取浏览器资料。")
+            Text("输入邮箱后，我们会发送一封包含六位验证码的邮件。首次验证会自动创建账号，以后使用同一邮箱即可登录。")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -151,14 +212,88 @@ struct AccountDevicesView: View {
                 accountBenefit("本机 Hermes 凭据不会上传", symbol: "lock.shield")
                 accountBenefit("本阶段不会停止或替换旧 Connector", symbol: "arrow.triangle.2.circlepath")
             }
-            Button("使用 Google 账号继续") {
-                Task { await model.signInAccount() }
+            if let challenge = accountEmailChallenge {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("验证码已发送至 \(challenge.email)")
+                        .font(.system(size: 12, weight: .semibold))
+                    TextField("六位验证码", text: $accountCode)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 360)
+                    HStack {
+                        Button("更换邮箱") {
+                            accountEmailChallenge = nil
+                            accountCode = ""
+                        }
+                        .buttonStyle(.bordered)
+                        Button("重新发送") {
+                            Task {
+                                if let next = await model.requestEmailSignInCode(email: challenge.email) {
+                                    accountEmailChallenge = next
+                                    accountCode = ""
+                                }
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        Button("验证并登录") {
+                            Task {
+                                if await model.completeEmailSignIn(
+                                    challenge: challenge,
+                                    code: accountCode
+                                ) {
+                                    accountEmail = ""
+                                    accountCode = ""
+                                    accountEmailChallenge = nil
+                                }
+                            }
+                        }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .disabled(!isSixDigitCode(accountCode) || model.isAccountOperationInProgress)
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    TextField("name@example.com", text: $accountEmail)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 360)
+                    Button("发送登录验证码") {
+                        Task {
+                            if let challenge = await model.requestEmailSignInCode(email: accountEmail) {
+                                accountEmailChallenge = challenge
+                                accountEmail = challenge.email
+                            }
+                        }
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(
+                        accountEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || model.isAccountOperationInProgress
+                    )
+                }
             }
-            .buttonStyle(PrimaryButtonStyle())
-            .disabled(model.isAccountOperationInProgress)
-            .accessibilityHint("将在系统默认浏览器中打开 Google 账号选择器")
+            Text("验证码仅用于本次登录，请勿转发。Hermes GO 不会通过邮件索要你的密码。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
         }
         .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hermesCard()
+    }
+
+    private var accountDeletionSubmittedCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("云端账号删除已提交", systemImage: "checkmark.shield")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(Color.hermesBlue)
+            Text("云端访问已立即停止，个人数据将在 30 天期限后清理。Mac 上的 Hermes 数据仍保留在本机。")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("使用其他邮箱账号") {
+                Task { await model.refreshAccount() }
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .hermesCard()
     }
@@ -169,14 +304,568 @@ struct AccountDevicesView: View {
             accountCard(dashboard)
             bindingCard(dashboard.binding)
         }
+        bootstrapPlanCard(model.bootstrapPlan)
+        if let issue = model.managedBootstrapIssue {
+            accountIssueCard(issue)
+        }
+        if !dashboard.devices.isEmpty {
+            devicesCard(dashboard)
+        }
+        if dashboard.supportsDeviceSharing {
+            sharingCard(dashboard)
+        }
         phonesCard(dashboard.phones)
+    }
+
+    private func bootstrapPlanCard(_ plan: DesktopBootstrapPlan) -> some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack {
+                Label("本机安装预检", systemImage: bootstrapSymbol(plan.readiness))
+                    .font(.system(size: 16, weight: .bold))
+                Spacer()
+                Text(plan.canBegin ? "可开始" : "只读预检")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(plan.canBegin ? Color.hermesBlue : .secondary)
+            }
+            Text(plan.titleChinese)
+                .font(.system(size: 15, weight: .semibold))
+            Text(plan.detailChinese)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if !plan.steps.isEmpty {
+                Divider()
+                ForEach(plan.steps) { step in
+                    HStack(spacing: 9) {
+                        Image(systemName: step.changesMachine ? "circle" : "checkmark.circle")
+                            .foregroundStyle(step.changesMachine ? .secondary : Color.hermesBlue)
+                            .frame(width: 16)
+                        Text(step.titleChinese)
+                            .font(.system(size: 11))
+                        Spacer()
+                        if step.changesMachine {
+                            Text("执行前确认")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            managedBootstrapAction(plan)
+        }
+        .padding(20)
+        .hermesCard()
+    }
+
+    @ViewBuilder
+    private func managedBootstrapAction(_ plan: DesktopBootstrapPlan) -> some View {
+        switch model.managedBootstrapOperation {
+        case .preparing:
+            Divider()
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("正在下载并验证签名安装包；尚未修改安装或服务")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        case .awaitingConfirmation:
+            Divider()
+            Label("安装包已验证，等待你的明确确认", systemImage: "checkmark.shield")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.hermesBlue)
+        case .committing:
+            Divider()
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("正在安装、启动并验证；请保持 Desktop 打开")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        case .recovering:
+            Divider()
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("正在恢复上次中断的操作，不会开始第二次安装")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        case .completed(let releaseVersion, let cleanupPending):
+            Divider()
+            HStack {
+                Label("Hermes Go \(releaseVersion) 已连接", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.hermesBlue)
+                Spacer()
+                if cleanupPending {
+                    Button("重试清理") {
+                        Task { await model.retryManagedBootstrapCleanup() }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        case .idle, .failed:
+            if plan.canBegin {
+                Divider()
+                HStack {
+                    Text("第一步只写入私有临时缓存，不会停止或启动任何服务。")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("下载并验证安装包") {
+                        Task { await model.prepareManagedBootstrap() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(model.isManagedBootstrapBusy)
+                }
+            }
+        }
+    }
+
+    private func managedBootstrapConfirmationSheet(
+        _ preparation: DesktopManagedBootstrapPreparation
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Label("安装包签名已验证", systemImage: "checkmark.shield.fill")
+                .font(.system(size: 19, weight: .bold))
+                .foregroundStyle(Color.hermesBlue)
+            Text("Hermes Go \(preparation.releaseVersion)")
+                .font(.system(size: 15, weight: .semibold))
+            Text("继续后会安装受管 Hermes Server 与 Connector、写入两个用户级自动启动项、绑定当前账号，并短暂重启这两个服务。模型服务凭据和 Hermes 数据仍只保存在这台 Mac。")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(preparation.confirmationText)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+
+            if model.managedBootstrapOperation == .committing {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("正在执行并验证，失败时会在提交前自动恢复。")
+                        .font(.system(size: 12))
+                }
+            } else {
+                HStack {
+                    Button("取消") {
+                        Task { await model.cancelManagedBootstrapConfirmation() }
+                    }
+                    .keyboardShortcut(.cancelAction)
+                    Spacer()
+                    Button("安装并连接") {
+                        Task { await model.confirmManagedBootstrap() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+        .padding(26)
+        .frame(width: 540)
+        .interactiveDismissDisabled(model.managedBootstrapOperation == .committing)
+    }
+
+    private func bootstrapSymbol(_ readiness: DesktopBootstrapReadiness) -> String {
+        switch readiness {
+        case .checking: "ellipsis.circle"
+        case .existingServicePreserved: "checkmark.shield"
+        case .existingServiceNeedsAttention: "exclamationmark.shield"
+        case .waitingForSignedRelease: "signature"
+        case .readyForManagedInstall: "shippingbox.and.arrow.backward"
+        case .managedInstallActive: "checkmark.circle.fill"
+        }
+    }
+
+    private func devicesCard(_ dashboard: AccountDashboard) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("可使用的 Mac")
+                        .font(.system(size: 17, weight: .bold))
+                    Text(dashboard.supportsDeviceSharing
+                        ? "自有 \(dashboard.ownedDevices.count) / \(dashboard.maxOwnedDevices) 台 · 他人共享 \(dashboard.sharedDevices.count) / \(dashboard.maxSharedDevices) 台"
+                        : "已连接 \(dashboard.ownedDevices.count) / \(dashboard.maxOwnedDevices) 台")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let selected = dashboard.selectedDevice {
+                    Text("当前使用：\(selected.desktopDisplayName)")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.hermesBlue)
+                }
+            }
+            .padding(.bottom, 12)
+
+            ForEach(Array(dashboard.devices.enumerated()), id: \.element.id) { index, device in
+                if index > 0 { Divider() }
+                HStack(spacing: 12) {
+                    Image(systemName: device.deviceId == dashboard.localDeviceID
+                        ? "desktopcomputer.and.macbook"
+                        : "desktopcomputer")
+                        .foregroundStyle(Color.hermesBlue)
+                        .frame(width: 25)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 7) {
+                            Text(device.desktopDisplayName)
+                                .font(.system(size: 13, weight: .semibold))
+                            if device.deviceId == dashboard.localDeviceID {
+                                deviceBadge("本机")
+                            }
+                            if device.access == "operator" {
+                                deviceBadge("他人共享")
+                            }
+                            if device.isDefault {
+                                deviceBadge("账号默认")
+                            }
+                        }
+                        Text(deviceStatus(device))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if dashboard.selectedDeviceID == device.deviceId {
+                        Label("正在使用", systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color.hermesBlue)
+                    } else {
+                        Button("切换") {
+                            Task { await model.selectDevice(device.deviceId) }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(model.isAccountOperationInProgress)
+                    }
+                    if !device.isDefault {
+                        Button("设为默认") {
+                            Task { await model.selectDefaultDevice(device.deviceId) }
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(model.isAccountOperationInProgress)
+                    }
+                    if device.access == "owner", dashboard.supportsDeviceSharing {
+                        Button("共享") {
+                            shareEmail = ""
+                            shareAcknowledged = false
+                            shareVerificationCode = ""
+                            shareVerificationChallenge = nil
+                            shareDevice = device
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(model.isAccountOperationInProgress)
+                    } else if device.access == "operator" {
+                        Button("退出共享", role: .destructive) { sharedDeviceToLeave = device }
+                            .buttonStyle(.borderless)
+                            .disabled(model.isAccountOperationInProgress)
+                    }
+                }
+                .frame(minHeight: 62)
+            }
+
+            Text("切换只保存在这台 Desktop；“账号默认”会同步给同账号的其他新会话。已有会话仍固定使用创建时的 Mac。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .padding(.top, 12)
+        }
+        .padding(20)
+        .hermesCard()
+    }
+
+    private func sharingCard(_ dashboard: AccountDashboard) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Label("整台设备共享", systemImage: "person.2.badge.gearshape")
+                    .font(.system(size: 17, weight: .bold))
+                Spacer()
+                Text("每台最多 5 个账号")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            Label(
+                "被邀请者可访问这台 Hermes 暴露的现有会话、文件和模型配置。当前不是项目或文件夹级权限。",
+                systemImage: "exclamationmark.shield"
+            )
+            .font(.system(size: 12))
+            .foregroundStyle(.orange)
+            .fixedSize(horizontal: false, vertical: true)
+
+            ForEach(dashboard.ownedDevices) { device in
+                let sharing = dashboard.deviceShares[device.deviceId]
+                VStack(alignment: .leading, spacing: 9) {
+                    HStack {
+                        Text(device.desktopDisplayName)
+                            .font(.system(size: 13, weight: .semibold))
+                        Spacer()
+                        Button("邀请账号") {
+                            shareEmail = ""
+                            shareAcknowledged = false
+                            shareVerificationCode = ""
+                            shareVerificationChallenge = nil
+                            shareDevice = device
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(model.isAccountOperationInProgress)
+                    }
+                    if let sharing {
+                        ForEach(sharing.invitations) { invitation in
+                            HStack {
+                                Label("等待 \(invitation.targetEmailHint) 接受", systemImage: "envelope.badge")
+                                    .font(.system(size: 11))
+                                Spacer()
+                                Button("取消邀请", role: .destructive) {
+                                    Task {
+                                        await model.cancelShareInvitation(
+                                            deviceID: device.deviceId,
+                                            invitationID: invitation.id
+                                        )
+                                    }
+                                }
+                                .buttonStyle(.borderless)
+                                .disabled(model.isAccountOperationInProgress)
+                            }
+                        }
+                        ForEach(sharing.grants) { grant in
+                            HStack {
+                                Label("已共享给 \(grant.granteeEmailHint)", systemImage: "person.crop.circle.badge.checkmark")
+                                    .font(.system(size: 11))
+                                Spacer()
+                                Button("撤销", role: .destructive) { grantToRevoke = grant }
+                                    .buttonStyle(.borderless)
+                                    .disabled(model.isAccountOperationInProgress)
+                            }
+                        }
+                        if sharing.invitations.isEmpty && sharing.grants.isEmpty {
+                            Text("尚未共享给其他账号。")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(12)
+                .background(Color.primary.opacity(0.035))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+
+            Divider()
+            Text("接受别人发来的邀请")
+                .font(.system(size: 13, weight: .semibold))
+            TextField("粘贴邮件中的完整邀请链接或 hsi_ 邀请码", text: $invitationInput)
+                .textFieldStyle(.roundedBorder)
+            Toggle(
+                "我理解此账号将能访问该 Hermes 暴露的整台设备内容",
+                isOn: $invitationAcknowledged
+            )
+            .font(.system(size: 11))
+            Button("接受邀请") {
+                let input = invitationInput
+                Task {
+                    if await model.acceptShareInvitation(input, acknowledged: invitationAcknowledged) {
+                        invitationInput = ""
+                        invitationAcknowledged = false
+                    }
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(
+                invitationInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !invitationAcknowledged
+                    || model.isAccountOperationInProgress
+            )
+        }
+        .padding(20)
+        .hermesCard()
+    }
+
+    private func shareInvitationSheet(_ device: AccountDevice) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("共享 \(device.desktopDisplayName)")
+                .font(.system(size: 20, weight: .bold))
+            Text("输入对方账号的已验证邮箱。发送邀请前，我们会向你当前账号的邮箱发送六位验证码，以确认是你本人操作。")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            TextField("name@example.com", text: $shareEmail)
+                .textFieldStyle(.roundedBorder)
+                .disabled(shareVerificationChallenge != nil)
+            VStack(alignment: .leading, spacing: 7) {
+                Label("对方可能看到现有会话和消息", systemImage: "text.bubble")
+                Label("对方可能访问 Hermes 暴露的文件", systemImage: "folder")
+                Label("对方可能看到模型与服务配置元数据", systemImage: "gearshape.2")
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            Toggle(
+                "我确认这是整台 Hermes 设备的访问权限",
+                isOn: $shareAcknowledged
+            )
+            .font(.system(size: 12, weight: .semibold))
+            .disabled(shareVerificationChallenge != nil)
+            if let verification = shareVerificationChallenge {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("身份验证码已发送至 \(verification.email)")
+                        .font(.system(size: 12, weight: .semibold))
+                    TextField("六位验证码", text: $shareVerificationCode)
+                        .textFieldStyle(.roundedBorder)
+                    Button("重新发送身份验证码") {
+                        Task {
+                            if let next = await model.requestShareInvitationVerification(
+                                deviceID: device.deviceId
+                            ) {
+                                shareVerificationChallenge = next
+                                shareVerificationCode = ""
+                            }
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(model.isAccountOperationInProgress)
+                }
+            }
+            HStack {
+                Button("取消") {
+                    shareDevice = nil
+                    shareVerificationChallenge = nil
+                    shareVerificationCode = ""
+                }
+                    .buttonStyle(.bordered)
+                Spacer()
+                if let verification = shareVerificationChallenge {
+                    Button("验证并发送邀请") {
+                        let email = shareEmail
+                        Task {
+                            if await model.createShareInvitation(
+                                deviceID: device.deviceId,
+                                email: email,
+                                acknowledged: shareAcknowledged,
+                                verification: verification,
+                                verificationCode: shareVerificationCode
+                            ) {
+                                shareDevice = nil
+                                shareEmail = ""
+                                shareAcknowledged = false
+                                shareVerificationCode = ""
+                                shareVerificationChallenge = nil
+                            }
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(
+                        !isSixDigitCode(shareVerificationCode)
+                            || model.isAccountOperationInProgress
+                    )
+                } else {
+                    Button("发送身份验证码") {
+                        Task {
+                            shareVerificationChallenge = await model.requestShareInvitationVerification(
+                                deviceID: device.deviceId
+                            )
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(
+                        shareEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || !shareAcknowledged
+                            || model.isAccountOperationInProgress
+                    )
+                }
+            }
+        }
+        .padding(24)
+        .frame(width: 470)
+    }
+
+    private func phoneRevocationSheet(_ phone: ManagedAccountInstallation) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("移除 \(phone.displayName)？")
+                .font(.system(size: 20, weight: .bold))
+            Text("为确认是你本人，我们会向当前账号邮箱发送六位验证码。验证成功后，只撤销这台手机的账号登录；其他手机、Desktop、Connector 和 Hermes 不受影响。")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let verification = phoneVerificationChallenge {
+                Text("身份验证码已发送至 \(verification.email)")
+                    .font(.system(size: 12, weight: .semibold))
+                TextField("六位验证码", text: $phoneVerificationCode)
+                    .textFieldStyle(.roundedBorder)
+                Button("重新发送身份验证码") {
+                    Task {
+                        if let next = await model.requestPhoneRevocationVerification(id: phone.id) {
+                            phoneVerificationChallenge = next
+                            phoneVerificationCode = ""
+                        }
+                    }
+                }
+                .buttonStyle(.borderless)
+                .disabled(model.isAccountOperationInProgress)
+            }
+            HStack {
+                Button("取消") {
+                    phoneToRemove = nil
+                    phoneVerificationChallenge = nil
+                    phoneVerificationCode = ""
+                }
+                .buttonStyle(.bordered)
+                Spacer()
+                if let verification = phoneVerificationChallenge {
+                    Button("验证并移除", role: .destructive) {
+                        Task {
+                            if await model.revokePhone(
+                                phone.id,
+                                verification: verification,
+                                verificationCode: phoneVerificationCode
+                            ) {
+                                phoneToRemove = nil
+                                phoneVerificationChallenge = nil
+                                phoneVerificationCode = ""
+                            }
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!isSixDigitCode(phoneVerificationCode) || model.isAccountOperationInProgress)
+                } else {
+                    Button("发送身份验证码") {
+                        Task {
+                            phoneVerificationChallenge = await model.requestPhoneRevocationVerification(
+                                id: phone.id
+                            )
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isAccountOperationInProgress)
+                }
+            }
+        }
+        .padding(24)
+        .frame(width: 470)
+    }
+
+    private func deviceBadge(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(Color.hermesBlue)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.hermesBlue.opacity(0.09))
+            .clipShape(Capsule())
+    }
+
+    private func deviceStatus(_ device: AccountDevice) -> String {
+        let connector = device.connector.online ? "Connector 在线" : "Connector 离线"
+        let hermes = switch device.hermes.reachable {
+        case .some(true): "Hermes 可访问"
+        case .some(false): "Hermes 不可访问"
+        case .none: "Hermes 未确认"
+        }
+        return "\(connector) · \(hermes)"
     }
 
     private func accountCard(_ dashboard: AccountDashboard) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Label("Hermes GO 账号", systemImage: "person.crop.circle.fill")
                 .font(.system(size: 16, weight: .bold))
-            Text(dashboard.session.account.displayName ?? "Google 账号")
+            Text(dashboard.session.account.displayName ?? dashboard.session.account.email ?? "Hermes GO 账号")
                 .font(.system(size: 20, weight: .bold))
             if let email = dashboard.session.account.email {
                 Text(email)
@@ -191,14 +880,102 @@ struct AccountDevicesView: View {
                 Task { await model.signOutAccount() }
             }
             .buttonStyle(.bordered)
-            .disabled(model.isAccountOperationInProgress)
+            .disabled(model.isAccountOperationInProgress || model.isManagedBootstrapAccountLocked)
             Text("退出账号管理不会解绑、停止或重新配置 Connector。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+            if dashboard.accountDeletionEnabled {
+                Divider()
+                Text("危险操作")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.red)
+                Text("永久删除会立即撤销所有登录、Connector 绑定与共享权限，并在 30 天后清理云端个人信息；不会删除 Mac 上的本地 Hermes 数据。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("永久删除云端账号", role: .destructive) {
+                    isAccountDeletionPresented = true
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.isAccountOperationInProgress)
+            }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .hermesCard()
+    }
+
+    private var accountDeletionSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("永久删除云端账号", systemImage: "exclamationmark.triangle.fill")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(.red)
+            Text("提交后将立即退出所有设备、撤销 Connector 与共享权限。30 天后删除云端身份和账号资料；Mac 上的 Hermes 数据仍保留在本机。原账号无法恢复。")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            TextField("输入 DELETE", text: $accountDeletionConfirmation)
+                .textFieldStyle(.roundedBorder)
+            Toggle("我理解这是永久操作，无法撤销", isOn: $accountDeletionAcknowledged)
+                .toggleStyle(.checkbox)
+            if let challenge = accountDeletionChallenge {
+                Text("最终验证码已发送至 \(challenge.email)")
+                    .font(.system(size: 12, weight: .semibold))
+                TextField("六位验证码", text: $accountDeletionCode)
+                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    Button("取消", role: .cancel) { isAccountDeletionPresented = false }
+                        .buttonStyle(.bordered)
+                    Button("永久删除", role: .destructive) {
+                        Task {
+                            if await model.deleteAccount(
+                                verification: challenge,
+                                verificationCode: accountDeletionCode,
+                                acknowledgedPermanentCloudDeletion: accountDeletionAcknowledged
+                            ) {
+                                isAccountDeletionPresented = false
+                            }
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(
+                        accountDeletionConfirmation != "DELETE"
+                            || !accountDeletionAcknowledged
+                            || !isSixDigitCode(accountDeletionCode)
+                            || model.isAccountOperationInProgress
+                    )
+                }
+            } else {
+                HStack {
+                    Button("取消", role: .cancel) { isAccountDeletionPresented = false }
+                        .buttonStyle(.bordered)
+                    Button("发送最终验证码", role: .destructive) {
+                        Task {
+                            accountDeletionChallenge = await model.requestAccountDeletionVerification()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(
+                        accountDeletionConfirmation != "DELETE"
+                            || !accountDeletionAcknowledged
+                            || model.isAccountOperationInProgress
+                    )
+                }
+            }
+        }
+        .padding(24)
+        .frame(width: 480)
+    }
+
+    private func resetAccountDeletion() {
+        accountDeletionConfirmation = ""
+        accountDeletionAcknowledged = false
+        accountDeletionCode = ""
+        accountDeletionChallenge = nil
+    }
+
+    private func isSixDigitCode(_ value: String) -> Bool {
+        value.count == 6 && value.allSatisfy { $0.isASCII && $0.isNumber }
     }
 
     private func bindingCard(_ binding: AccountBindingSnapshot) -> some View {
@@ -261,7 +1038,11 @@ struct AccountDevicesView: View {
                                 .lineLimit(1)
                         }
                         Spacer()
-                        Button("移除", role: .destructive) { phoneToRemove = phone }
+                        Button("移除", role: .destructive) {
+                            phoneVerificationChallenge = nil
+                            phoneVerificationCode = ""
+                            phoneToRemove = phone
+                        }
                             .buttonStyle(.bordered)
                             .disabled(phone.status != "active" || model.isAccountOperationInProgress)
                     }
@@ -528,6 +1309,7 @@ struct SettingsView: View {
         switch model.accountState {
         case .signedIn: "已登录"
         case .signedOut: "未登录"
+        case .accountDeletionSubmitted: "删除已提交"
         case .needsSignIn: "需要重新登录"
         case .checking, .signingIn: "正在检查"
         case .unavailable: "账号模式未开放"

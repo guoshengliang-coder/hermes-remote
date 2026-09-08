@@ -129,7 +129,8 @@ export class GatewayServer<TConnector> {
         return;
       }
 
-      if (url.pathname === "/api/ws") {
+      if (url.pathname === "/api/ws"
+          || /^\/v2\/devices\/[^/]+\/ws$/.test(url.pathname)) {
         void this.options.authorizeAppWebSocket(request, url).then((connector) => {
           if (this.options.atWebSocketCapacity()) {
             rejectUpgrade(socket, 503, "Tunnel capacity reached");

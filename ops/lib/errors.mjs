@@ -69,6 +69,20 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "resolve_production_gates_and_retry",
   }),
+  emailAcceptance: Object.freeze({
+    code: "HR-OPS-011",
+    summaryZh: "Staging 邮件发送或最终投递验收未完成，请检查邮件配置、Webhook 和聚合指标后重试。",
+    summaryEn: "Staging email submission or final-delivery acceptance did not complete. Check mail configuration, the webhook, and aggregate metrics before retrying.",
+    retryable: true,
+    recoveryAction: "inspect_email_delivery_and_retry",
+  }),
+  emailDomain: Object.freeze({
+    code: "HR-OPS-012",
+    summaryZh: "邮件域名的 SPF、DKIM、DMARC 公共记录尚未通过验收，请修正 DNS 后重试。",
+    summaryEn: "The mail domain's public SPF, DKIM, and DMARC records did not pass acceptance. Fix DNS and retry.",
+    retryable: true,
+    recoveryAction: "fix_email_dns_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;

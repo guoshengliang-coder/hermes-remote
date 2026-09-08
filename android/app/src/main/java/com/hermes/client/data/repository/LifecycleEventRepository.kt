@@ -34,17 +34,22 @@ class LifecycleEventRepository(
 ) {
     private val mutex = Mutex()
     private val _activeSessions = MutableStateFlow<Set<LifecycleSessionKey>>(emptySet())
+    private val activeSessionsByScope = mutableMapOf<String, Set<LifecycleSessionKey>>()
     val activeSessions: StateFlow<Set<LifecycleSessionKey>> = _activeSessions.asStateFlow()
 
     suspend fun sync(
         consume: suspend (List<LifecycleEventDto>) -> Unit = {},
     ): LifecycleSyncResult = mutex.withLock {
-        var cursor = cursorStore.read()
+        val scope = source.cursorScope()
+        _activeSessions.value = activeSessionsByScope[scope].orEmpty()
+        var cursor = cursorStore.read(scope)
         var processed = 0
         var moreAvailable = false
 
         repeat(MAX_PAGES_PER_SYNC) {
+            check(source.cursorScope() == scope) { "Lifecycle account changed during inbox sync" }
             val page = source.events(cursor, PAGE_SIZE)
+            check(source.cursorScope() == scope) { "Lifecycle account changed during inbox fetch" }
             require(page.nextCursor >= cursor) { "Relay lifecycle cursor moved backwards" }
             val records = page.events.sortedBy { it.sequence }
             require(!page.hasMore || records.isNotEmpty()) { "Relay lifecycle page made no progress" }
@@ -61,12 +66,14 @@ class LifecycleEventRepository(
                 record.event
             }
             if (events.isNotEmpty()) {
-                reduce(events)
+                reduce(scope, events)
                 consume(events)
+                check(source.cursorScope() == scope) { "Lifecycle account changed before inbox acknowledgement" }
                 source.markDelivered(events.map { it.eventId })
+                check(source.cursorScope() == scope) { "Lifecycle account changed during inbox acknowledgement" }
             }
             cursor = page.nextCursor
-            cursorStore.write(cursor)
+            cursorStore.write(scope, cursor)
             processed += events.size
             moreAvailable = page.hasMore
             if (!page.hasMore) return@withLock LifecycleSyncResult(
@@ -85,8 +92,8 @@ class LifecycleEventRepository(
         )
     }
 
-    private fun reduce(events: List<LifecycleEventDto>) {
-        val next = _activeSessions.value.toMutableSet()
+    private fun reduce(scope: String, events: List<LifecycleEventDto>) {
+        val next = activeSessionsByScope[scope].orEmpty().toMutableSet()
         for (event in events) {
             // Connector events omit the profile for Hermes' default identity. Session rows use the
             // explicit "default" label, so normalize here as well to keep active-session state and
@@ -101,7 +108,8 @@ class LifecycleEventRepository(
                 "run.completed", "run.interrupted", "run.unknown" -> next -= key
             }
         }
-        _activeSessions.value = next
+        activeSessionsByScope[scope] = next
+        if (source.cursorScope() == scope) _activeSessions.value = next
     }
 
     private companion object {

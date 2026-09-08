@@ -110,6 +110,16 @@ private fun repairMessage(failure: StartupFailure, language: com.hermes.client.u
             "App Token 或登录凭据无效，请修改后测试连接。（${failure.code}）",
             "The App Token or login credentials were rejected. Update them and test the connection. (${failure.code})",
         )
+        StartupFailure.ACCOUNT_AUTHENTICATION_FAILED -> localized(
+            language,
+            "账号登录已失效，请返回账号页重新登录。（${failure.code}）",
+            "The account session expired. Return to the account page and sign in again. (${failure.code})",
+        )
+        StartupFailure.ACCOUNT_DEVICE_UNAVAILABLE -> localized(
+            language,
+            "当前 Mac 已不可用，请返回远程设备页重新选择。（${failure.code}）",
+            "The current Mac is unavailable. Return to Remote devices and choose another. (${failure.code})",
+        )
         StartupFailure.INVALID_URL -> localized(
             language,
             "Relay 地址无效或不是兼容的服务，请修改后测试连接。（${failure.code}）",

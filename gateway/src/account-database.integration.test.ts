@@ -20,6 +20,7 @@ test("PostgreSQL sessions survive restart and refresh reuse revokes the family a
   await admin.query(`CREATE SCHEMA "${schema}"`);
   let repository: PostgresAccountRepository | undefined;
   try {
+    const codec = new TokenCodec("integration-test-key-with-at-least-thirty-two-bytes");
     const migrationFiles = (await readdir(resolve("migrations")))
       .filter((name) => /^\d{3}_[a-z0-9_]+\.sql$/.test(name))
       .sort();
@@ -30,7 +31,7 @@ test("PostgreSQL sessions survive restart and refresh reuse revokes the family a
         options: `-c search_path=${schema}`,
       });
       await pool.query("SELECT 1");
-      return new PostgresAccountRepository(pool);
+      return new PostgresAccountRepository(pool, codec);
     };
 
     repository = await createRepository();
@@ -51,7 +52,6 @@ test("PostgreSQL sessions survive restart and refresh reuse revokes the family a
       email: "person@example.invalid",
       displayName: "Integration Test",
     };
-    const codec = new TokenCodec("integration-test-key-with-at-least-thirty-two-bytes");
     const clientInstallationId = randomUUID();
     let service = new AccountService(
       { verify: async () => identity },
@@ -182,6 +182,7 @@ test("PostgreSQL sessions survive restart and refresh reuse revokes the family a
       "account_audit_events",
       "connector_bindings",
       "connector_replacement_requests",
+      "email_otp_challenges",
     ]) {
       const rows = await admin.query<{ row: string }>(
         `SELECT row_to_json(t)::text AS row FROM "${schema}"."${table}" t`,

@@ -76,6 +76,7 @@ internal fun chatRoute(target: ChatLaunch, encode: (String) -> String = { Uri.en
     append("chat/")
     append(encode(target.sessionId))
     val query = buildList {
+        target.deviceId?.takeIf { it.isNotBlank() }?.let { add("device=${encode(it)}") }
         target.profile?.takeIf { it.isNotBlank() }?.let { add("profile=${encode(it)}") }
         target.title?.takeIf { it.isNotBlank() }?.let { add("title=${encode(it)}") }
         if (target.isNew) add("new=true")
@@ -97,13 +98,31 @@ internal fun shouldPopCompletedRepair(
     expectedCompletion >= 0L &&
     actualCompletion >= expectedCompletion
 
+internal fun isAccountSetupRepair(failure: StartupFailure?): Boolean =
+    failure == StartupFailure.ACCOUNT_AUTHENTICATION_FAILED ||
+        failure == StartupFailure.ACCOUNT_DELETION_COMMITTED ||
+        failure == StartupFailure.ACCOUNT_DEVICE_UNAVAILABLE
+
+internal fun shouldReplaceStackWithSetup(
+    hasConfig: Boolean,
+    route: String?,
+    setupRepairInProgress: Boolean,
+    accountRepairRequested: Boolean,
+): Boolean = !hasConfig &&
+    !setupRepairInProgress &&
+    !accountRepairRequested &&
+    route != null &&
+    route != "setup" &&
+    route != "legacy_setup"
+
 /**
  * Root navigation host. The session list is the ONLY main screen; everything else is either a
  * pushed screen (chat, cron, settings, archived — back arrow) or lives on the card page, a
  * modal drawer opened from the list's avatar. The drawer is the app's single profile-switch
  * point. First-launch gating: when [hasConfig] is false the start destination is "setup".
  *
- * onUnauthorized clears the back stack and routes to "setup" so an expired token forces re-entry.
+ * onUnauthorized pushes "setup" over the current stack so an expired token forces re-entry while
+ * a successful repair can return to the interrupted destination.
  *
  * [deepLinkRoute], when non-null, is navigated to once (keyed by value) — used to jump straight
  * to a session when the activity is launched or resumed from a tapped notification.
@@ -117,9 +136,11 @@ fun HermesNav(
     deepLinkRoute: String? = null,
     onDeepLinkConsumed: () -> Unit = {},
     configurationRepair: StartupFailure? = null,
+    accountSetupRepairRequired: Boolean = false,
     repairCompletion: Long = 0L,
     onConnectionConfigurationSaved: () -> Unit = {},
     onInitialConfigurationSaved: () -> Unit = {},
+    onAccountSignedOut: () -> Boolean = { true },
     onDestinationChanged: (StartupDestination) -> Unit = {},
     foregroundRecovery: ForegroundRecoveryCoordinator? = null,
 ) {
@@ -131,6 +152,7 @@ fun HermesNav(
     // Set on a fresh successful pairing; the sheet itself no-ops if it was already shown once.
     var showNotificationOnboarding by rememberSaveable { mutableStateOf(false) }
     var pendingSetupCompletion by rememberSaveable { mutableStateOf<Long?>(null) }
+    var setupRepairInProgress by rememberSaveable { mutableStateOf(false) }
 
     fun openCanonicalChat(route: String) {
         CrashReporter.breadcrumb("nav", "open ${diagnosticRoute(route)}")
@@ -159,6 +181,13 @@ fun HermesNav(
     val backStackEntry by nav.currentBackStackEntryAsState()
     val route = backStackEntry?.destination?.route
 
+    val accountRepairRequested = isAccountSetupRepair(configurationRepair) || accountSetupRepairRequired
+    LaunchedEffect(hasConfig, route, setupRepairInProgress, accountRepairRequested) {
+        if (shouldReplaceStackWithSetup(hasConfig, route, setupRepairInProgress, accountRepairRequested)) {
+            nav.navigate("setup") { popUpTo(0) { inclusive = true } }
+        }
+    }
+
     LaunchedEffect(route, backStackEntry?.arguments) {
         CrashReporter.breadcrumb("nav", "destination ${route ?: "unknown"}")
         val destination = when {
@@ -170,6 +199,7 @@ fun HermesNav(
                 if (id.isBlank()) StartupDestination.Static else StartupDestination.Chat(
                     sessionId = id,
                     profile = backStackEntry?.arguments?.getString("profile"),
+                    deviceId = backStackEntry?.arguments?.getString("device"),
                 )
             }
             else -> StartupDestination.Static
@@ -177,11 +207,21 @@ fun HermesNav(
         onDestinationChanged(destination)
     }
 
-    LaunchedEffect(configurationRepair) {
-        configurationRepair?.let { failure ->
-            nav.navigate(
-                "settings_connection?repair=${failure.name}&completion=${repairCompletion + 1}",
-            ) { launchSingleTop = true }
+    LaunchedEffect(configurationRepair, accountSetupRepairRequired) {
+        if (accountSetupRepairRequired) {
+            setupRepairInProgress = true
+            nav.navigate("setup") { launchSingleTop = true }
+        } else {
+            configurationRepair?.let { failure ->
+                if (isAccountSetupRepair(failure)) {
+                    setupRepairInProgress = true
+                    nav.navigate("setup") { launchSingleTop = true }
+                } else {
+                    nav.navigate(
+                        "settings_connection?repair=${failure.name}&completion=${repairCompletion + 1}",
+                    ) { launchSingleTop = true }
+                }
+            }
         }
     }
     val expectedRepairCompletion = backStackEntry?.arguments?.getLong("completion", -1L) ?: -1L
@@ -192,10 +232,14 @@ fun HermesNav(
     }
     LaunchedEffect(route, repairCompletion, pendingSetupCompletion) {
         val expected = pendingSetupCompletion
-        if (route == "setup" && expected != null && repairCompletion >= expected) {
+        if ((route == "setup" || route == "legacy_setup") && expected != null && repairCompletion >= expected) {
             pendingSetupCompletion = null
-            showNotificationOnboarding = true
-            nav.navigate("sessions") { popUpTo("setup") { inclusive = true } }
+            val restorePrevious = setupRepairInProgress
+            setupRepairInProgress = false
+            showNotificationOnboarding = !restorePrevious
+            if (!restorePrevious || !nav.popBackStack("setup", inclusive = true)) {
+                nav.navigate("sessions") { popUpTo(nav.graph.startDestinationId) { inclusive = true } }
+            }
         }
     }
 
@@ -218,7 +262,8 @@ fun HermesNav(
     }
 
     val onUnauthorized: () -> Unit = {
-        nav.navigate("setup") { popUpTo(0) { inclusive = true } }
+        setupRepairInProgress = true
+        nav.navigate("setup") { launchSingleTop = true }
     }
     // Pushed screens navigate "up"; their top-bar nav icon (formerly the drawer hamburger) is a
     // back arrow wired to this.
@@ -292,6 +337,17 @@ fun HermesNav(
                 modifier = contentModifier,
             ) {
             composable("setup") {
+                com.hermes.client.ui.account.AccountDevicesScreen(
+                    onBack = null,
+                    onOpenLegacy = { nav.navigate("legacy_setup") { launchSingleTop = true } },
+                    onOpenDiagnostics = { nav.navigate("settings_diagnostics") { launchSingleTop = true } },
+                    onConnected = {
+                        pendingSetupCompletion = repairCompletion + 1L
+                        onInitialConfigurationSaved()
+                    },
+                )
+            }
+            composable("legacy_setup") {
                 SetupScreen(
                     onSaved = {
                         pendingSetupCompletion = repairCompletion + 1L
@@ -329,8 +385,9 @@ fun HermesNav(
 
             // ---- Pushed screens (back arrow) ----
             composable(
-                route = "chat/{id}?profile={profile}&title={title}&new={new}&q={q}",
+                route = "chat/{id}?device={device}&profile={profile}&title={title}&new={new}&q={q}",
                 arguments = listOf(
+                    navArgument("device") { type = NavType.StringType; nullable = true; defaultValue = null },
                     navArgument("profile") { type = NavType.StringType; nullable = true; defaultValue = null },
                     navArgument("title") { type = NavType.StringType; nullable = true; defaultValue = null },
                     navArgument("new") { type = NavType.BoolType; defaultValue = false },
@@ -357,6 +414,7 @@ fun HermesNav(
                 }
                 ChatScreen(
                     sessionId = entry.arguments?.getString("id") ?: "",
+                    sessionDeviceId = entry.arguments?.getString("device"),
                     sessionProfile = entry.arguments?.getString("profile"),
                     initialTitle = entry.arguments?.getString("title"),
                     isNewSession = entry.arguments?.getBoolean("new") ?: false,
@@ -435,6 +493,24 @@ fun HermesNav(
             composable("app_update") { AppUpdateScreen(onBack = { nav.popBackStack() }) }
             composable("settings_appearance") { AppearanceScreen(onBack = { nav.popBackStack() }) }
             composable("settings_language") { LanguageScreen(onBack = { nav.popBackStack() }) }
+            composable("settings_account") {
+                com.hermes.client.ui.account.AccountDevicesScreen(
+                    onBack = { nav.popBackStack() },
+                    accountOnly = true,
+                    onSignedOut = {
+                        if (!onAccountSignedOut()) {
+                            nav.navigate("setup") { popUpTo(0) { inclusive = true } }
+                        }
+                    },
+                )
+            }
+            composable("remote_devices") {
+                com.hermes.client.ui.account.AccountDevicesScreen(
+                    onBack = { nav.popBackStack() },
+                    onOpenLegacy = { nav.navigate("settings_connection") { launchSingleTop = true } },
+                    onOpenDiagnostics = { nav.navigate("settings_diagnostics") { launchSingleTop = true } },
+                )
+            }
             composable("settings_notifications") {
                 com.hermes.client.ui.settings.NotificationsScreen(onBack = { nav.popBackStack() })
             }

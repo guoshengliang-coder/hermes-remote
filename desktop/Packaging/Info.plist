@@ -30,6 +30,22 @@
   <string>https://mrlgs.net</string>
   <key>HermesGoGoogleMacOSClientID</key>
   <string></string>
+  <key>HermesGoManagedBootstrapEnabled</key>
+  <false/>
+  <key>HermesGoDesktopReleaseManifestURL</key>
+  <string></string>
+  <key>HermesGoDesktopReleaseArtifactOrigin</key>
+  <string></string>
+  <key>HermesGoDesktopReleaseChannel</key>
+  <string></string>
+  <key>HermesGoDesktopReleaseArchitecture</key>
+  <string></string>
+  <key>HermesGoDesktopReleaseSigningKeyID</key>
+  <string></string>
+  <key>HermesGoDesktopReleaseSigningPublicKey</key>
+  <string></string>
+  <key>HermesGoDesktopHermesRuntimeContract</key>
+  <string></string>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSPrincipalClass</key>

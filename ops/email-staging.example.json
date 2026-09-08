@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "environment": "staging",
+  "accountApiUrl": "http://127.0.0.1:8787/",
+  "internalStatusUrl": "http://127.0.0.1:8787/",
+  "internalStatusTokenSource": "/secure-input/hermes-go/internal-status-token"
+}

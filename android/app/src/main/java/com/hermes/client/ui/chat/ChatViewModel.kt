@@ -48,6 +48,8 @@ import com.hermes.client.ui.localization.LocalizedText
 import com.hermes.client.ui.localization.localizedText
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.data.auth.AccountSessionManager
+import com.hermes.client.data.auth.ConversationDeviceStore
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
@@ -67,6 +69,8 @@ class ChatViewModel @Inject constructor(
     private val fileRepository: ChatFileRepository,
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
     private val projectPrefs: com.hermes.client.data.repository.ProjectPrefsStore,
+    private val accountSessions: AccountSessionManager? = null,
+    private val conversationDevices: ConversationDeviceStore? = null,
 ) : ViewModel() {
 
     enum class ConversationRefreshEvent { QUEUED, SUCCEEDED_CHANGED, SUCCEEDED_UNCHANGED, FAILED }
@@ -363,13 +367,14 @@ class ChatViewModel @Inject constructor(
     private var manualRefreshQueued = false
     private var runtimeKey: SessionRuntimeKey? = null
     private var currentProfile: String? = null
+    private var currentDeviceId: String? = null
     private var liveHandleGate = CompletableDeferred<String>()
     private val resumeMutex = Mutex()
 
     /** Reconciles this visible transcript and live handle before the warm-start overlay exits. */
     suspend fun recoverForForeground(): Boolean {
         val id = storedSessionId.takeIf { it.isNotBlank() } ?: return false
-        val key = runtimeKey ?: SessionRuntimeKey(currentProfile, id)
+        val key = runtimeKey ?: SessionRuntimeKey(currentProfile, id, currentDeviceId)
         return runtimeStore.recoverVisibleSession(key)
     }
 
@@ -379,6 +384,7 @@ class ChatViewModel @Inject constructor(
         initialTitle: String? = null,
         isNewSession: Boolean = false,
         language: AppLanguage = AppLanguage.ZH,
+        requestedDeviceId: String? = null,
     ) {
         setAppLanguage(language)
         // Configuration changes recreate the composition and re-run its LaunchedEffect, while the
@@ -388,8 +394,16 @@ class ChatViewModel @Inject constructor(
         // session change still follows the complete path below.
         val requested = requestedProfile?.ifBlank { null }
         val profile = requested ?: if (storedSessionId == id) currentProfile else profileManager.active.value
+        val account = accountSessions?.session?.value
+        val resolvedDevice = requestedDeviceId?.takeIf { it.isNotBlank() }
+            ?: account?.let { conversationDevices?.resolve(it.accountId, profile, id) }
+            ?: account?.selectedDeviceId
+        if (account != null && resolvedDevice != null) {
+            conversationDevices?.bind(account.accountId, profile, id, resolvedDevice)
+            if (accountSessions.routeToDevice(resolvedDevice)) chat.reconnect()
+        }
         val existingKey = runtimeKey
-        if (storedSessionId == id && existingKey == SessionRuntimeKey(profile, id) && collectJob?.isActive == true) {
+        if (storedSessionId == id && existingKey == SessionRuntimeKey(profile, id, resolvedDevice) && collectJob?.isActive == true) {
             runtimeStore.setVisible(existingKey, true)
             if (!initialTitle.isNullOrBlank()) {
                 val fallback = if (isNewSession) localized(language, "新会话", "New session")
@@ -410,10 +424,11 @@ class ChatViewModel @Inject constructor(
         sessionId = id
         storedSessionId = id
         currentProfile = profile
-        val key = runtimeStore.register(id, profile)
+        currentDeviceId = resolvedDevice
+        val key = runtimeStore.register(id, profile, resolvedDevice)
         runtimeKey = key
         runtimeStore.setVisible(key, true)
-        val cachedMeta = sessions.cachedSession(id, profile)
+        val cachedMeta = sessions.cachedSession(id, profile, currentDeviceId)
         val fallbackTitle = if (isNewSession) localized(language, "新会话", "New session") else localized(language, "会话", "Chat")
         _sessionTitle.value = when {
             !initialTitle.isNullOrBlank() -> displaySessionTitle(initialTitle, fallbackTitle)
@@ -434,7 +449,7 @@ class ChatViewModel @Inject constructor(
         }
         _explicitSessionOverride.value = false
         _reasoningEffort.value = null
-        val cachedHistory = sessions.cachedHistory(id, profile)?.map { it.organizedForDisplay() }
+        val cachedHistory = sessions.cachedHistory(id, profile, currentDeviceId)?.map { it.organizedForDisplay() }
         runtimeStore.markHistoryLoading(key, cachedHistory)
         collectJob?.cancel()
         collectJob = viewModelScope.launch {
@@ -455,7 +470,7 @@ class ChatViewModel @Inject constructor(
         // "新会话" until Hermes emits session.title after the first prompt.
         viewModelScope.launch {
             val meta = runCatching {
-                sessions.list(profile).firstOrNull { it.id == id }
+                sessions.list(profile, currentDeviceId).firstOrNull { it.id == id }
             }.getOrNull()
             if (storedSessionId == id && meta != null) {
                 _sessionTitle.value = displaySessionTitle(meta.title, fallbackTitle)
@@ -468,7 +483,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             val requestStartedAt = System.currentTimeMillis()
             try {
-                val rawHistory = sessions.history(id, profile)
+                val rawHistory = sessions.history(id, profile, currentDeviceId)
                 val organizedHistory = kotlinx.coroutines.withContext(defaultDispatcher) {
                     rawHistory.map { it.organizedForDisplay() }
                 }
@@ -484,9 +499,22 @@ class ChatViewModel @Inject constructor(
             } catch (e: HermesApiException) {
                 com.hermes.client.data.diagnostics.DebugLog.log("error", "history($id) failed: ${e.code} ${e.message}")
                 if (e.code == 401) { _unauthorized.value = true; return@launch }
+                val message = if (e.errorCode == "HR-BIND-011") {
+                    localized(
+                        appLanguage,
+                        "此 Mac 已无法由当前账号使用，请选择其他设备。（HR-BIND-011）",
+                        "That Mac is no longer available to this account. Choose another device. (HR-BIND-011)",
+                    )
+                } else {
+                    localized(
+                        appLanguage,
+                        "无法加载历史消息（HR-RPC-001）",
+                        "Couldn't load message history (HR-RPC-001)",
+                    )
+                }
                 runtimeStore.historyFailed(
                     key,
-                    localized(appLanguage, "无法加载历史消息（HR-RPC-001）", "Couldn't load message history (HR-RPC-001)"),
+                    message,
                 )
             } catch (e: Exception) {
                 // Keep a cached/live transcript visible if history refresh fails.
@@ -582,7 +610,7 @@ class ChatViewModel @Inject constructor(
                             // Some gateway versions omit session_id on title events. Never apply that
                             // unscoped title directly: re-read this session's own metadata instead.
                             val meta = runCatching {
-                                sessions.list(profile).firstOrNull { it.id == storedSessionId }
+                                sessions.list(profile, currentDeviceId).firstOrNull { it.id == storedSessionId }
                             }.getOrNull()
                             if (this@ChatViewModel.storedSessionId == id && meta != null) {
                                 _sessionTitle.value = displaySessionTitle(meta.title, fallbackTitle)
@@ -619,7 +647,7 @@ class ChatViewModel @Inject constructor(
         refreshJob = viewModelScope.launch {
             _refreshing.value = true
             try {
-                val rawHistory = sessions.history(id, profile)
+                val rawHistory = sessions.history(id, profile, currentDeviceId)
                 val organizedHistory = withContext(defaultDispatcher) {
                     rawHistory.map { it.organizedForDisplay() }
                 }
@@ -651,7 +679,7 @@ class ChatViewModel @Inject constructor(
                 )
                 launch {
                     val metadata = runCatching {
-                        sessions.list(profile).firstOrNull { it.id == id }
+                        sessions.list(profile, currentDeviceId).firstOrNull { it.id == id }
                     }.getOrNull()
                     if (runtimeKey == key && metadata != null) {
                         val fallback = localized(appLanguage, "会话", "Chat")

@@ -69,6 +69,42 @@ class HermesGatewayClientTest {
             """{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{}}}"""
     }
 
+    @Test fun localAccountRepairGateStopsEndpointBackoffUntilExplicitReconnect() = runTest {
+        val okHttp = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
+        var resolutions = 0
+        val firstResolution = CompletableDeferred<Unit>()
+        val client = HermesGatewayClient(
+            okHttp = okHttp,
+            json = json,
+            scope = testScope,
+            backoff = BackoffPolicy(baseMs = 10, maxMs = 10),
+        ) {
+            resolutions += 1
+            firstResolution.complete(Unit)
+            throw GatewayEndpointException("account device selection required", retryable = false)
+        }
+        try {
+            client.connect()
+            withContext(Dispatchers.Default) {
+                withTimeout(5_000) { firstResolution.await() }
+                kotlinx.coroutines.delay(100)
+            }
+
+            assertEquals(1, resolutions)
+            assertTrue(client.connectionState.value is ConnectionState.Disconnected)
+
+            client.reconnectNow()
+            withContext(Dispatchers.Default) {
+                withTimeout(5_000) {
+                    while (resolutions < 2) kotlinx.coroutines.delay(10)
+                }
+            }
+            assertEquals(2, resolutions)
+        } finally {
+            tearDownClient(client, okHttp)
+        }
+    }
+
     @Test fun call_resolves_with_matching_reply() = runTest {
         // Server sends gateway.ready on open, then echoes a result for whatever id the client sent.
         serverRule.server.enqueue(
@@ -101,6 +137,161 @@ class HermesGatewayClientTest {
             assertFalse(upgrade.target.contains("token="))
         } finally {
             tearDownClient(client, okHttp)
+        }
+    }
+
+    @Test fun account_websocket_sends_bearer_without_legacy_header_or_query_token() = runTest {
+        serverRule.server.enqueue(
+            MockResponse.Builder().webSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onOpen(webSocket: WebSocket, response: Response) {
+                        webSocket.send(GATEWAY_READY_FRAME)
+                    }
+                },
+            ).build(),
+        )
+        val base = serverRule.server.url("/v2/devices/mac-1/ws").toString().replace("http", "ws")
+        val okHttp = OkHttpClient.Builder()
+            .readTimeout(10, TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                chain.proceed(
+                    chain.request().newBuilder()
+                        .header("Cookie", "legacy-dashboard=session")
+                        .header("X-Test-Client", "legacy")
+                        .build(),
+                )
+            }
+            .build()
+        val accountOkHttp = OkHttpClient.Builder()
+            .readTimeout(10, TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                chain.proceed(
+                    chain.request().newBuilder()
+                        .header("X-Test-Client", "account")
+                        .build(),
+                )
+            }
+            .build()
+        val client = HermesGatewayClient(okHttp, json, testScope, accountOkHttp = accountOkHttp) {
+            GatewayWebSocketEndpoint(base, bearerToken = "hga_secret")
+        }
+        try {
+            client.connect()
+            withContext(Dispatchers.Default) {
+                withTimeout(5_000) {
+                    while (client.connectionState.value !is ConnectionState.Connected) {
+                        kotlinx.coroutines.delay(10)
+                    }
+                }
+            }
+            val upgrade = serverRule.server.takeRequest(5, TimeUnit.SECONDS)!!
+            assertEquals("Bearer hga_secret", upgrade.headers["Authorization"])
+            assertEquals(null, upgrade.headers["X-Hermes-Session-Token"])
+            assertEquals(null, upgrade.headers["Cookie"])
+            assertEquals("account", upgrade.headers["X-Test-Client"])
+            assertFalse(upgrade.target.contains("token="))
+        } finally {
+            tearDownClient(client, okHttp)
+            accountOkHttp.dispatcher.executorService.shutdown()
+            accountOkHttp.dispatcher.executorService.awaitTermination(5, TimeUnit.SECONDS)
+            accountOkHttp.connectionPool.evictAll()
+        }
+    }
+
+    @Test fun terminalAccountHandshakeRejectionStopsBackoffAndReportsTheStatus() = runTest {
+        assertTrue(isTerminalAccountHandshakeStatus(401))
+        assertTrue(isTerminalAccountHandshakeStatus(404))
+        assertFalse(isTerminalAccountHandshakeStatus(403))
+        assertFalse(isTerminalAccountHandshakeStatus(null))
+
+        serverRule.server.enqueue(MockResponse.Builder().code(401).build())
+        val base = serverRule.server.url("/v2/devices/mac-1/ws").toString().replace("http", "ws")
+        val okHttp = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
+        val accountOkHttp = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
+        val rejected = CompletableDeferred<Pair<Int, String?>>()
+        val client = HermesGatewayClient(
+            okHttp = okHttp,
+            json = json,
+            scope = testScope,
+            backoff = BackoffPolicy(baseMs = 10, maxMs = 10),
+            accountOkHttp = accountOkHttp,
+            onAccountHandshakeRejected = { status, deviceId -> rejected.complete(status to deviceId) },
+        ) {
+            GatewayWebSocketEndpoint(
+                base,
+                bearerToken = "hga_revoked",
+                accountDeviceId = "mac-1",
+            )
+        }
+        try {
+            client.connect()
+            val status = withContext(Dispatchers.Default) {
+                withTimeout(5_000) { rejected.await() }
+            }
+            assertEquals(401 to "mac-1", status)
+            withContext(Dispatchers.Default) { kotlinx.coroutines.delay(100) }
+            assertEquals(ConnectionState.Disconnected, client.connectionState.value)
+            assertEquals(1, serverRule.server.requestCount)
+        } finally {
+            tearDownClient(client, okHttp)
+            accountOkHttp.dispatcher.executorService.shutdown()
+            accountOkHttp.dispatcher.executorService.awaitTermination(5, TimeUnit.SECONDS)
+            accountOkHttp.connectionPool.evictAll()
+        }
+    }
+
+    @Test fun accountAuthorizationCloseGetsOnlyOneClassificationReconnect() = runTest {
+        serverRule.server.enqueue(
+            MockResponse.Builder().webSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onOpen(webSocket: WebSocket, response: Response) {
+                        webSocket.send(GATEWAY_READY_FRAME)
+                        webSocket.close(4403, "account authorization changed")
+                    }
+                },
+            ).build(),
+        )
+        // A transiently failed classification handshake must stop here rather than starting an
+        // unbounded authorization-retry loop. Foreground/manual recovery can initiate a new cycle.
+        serverRule.server.enqueue(MockResponse.Builder().code(503).build())
+        val base = serverRule.server.url("/v2/devices/mac-1/ws").toString().replace("http", "ws")
+        val okHttp = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
+        val accountOkHttp = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
+        val rejected = java.util.concurrent.CopyOnWriteArrayList<Pair<Int, String?>>()
+        val client = HermesGatewayClient(
+            okHttp = okHttp,
+            json = json,
+            scope = testScope,
+            backoff = BackoffPolicy(baseMs = 10, maxMs = 10),
+            accountOkHttp = accountOkHttp,
+            onAccountHandshakeRejected = { status, deviceId -> rejected += status to deviceId },
+        ) {
+            GatewayWebSocketEndpoint(
+                base,
+                bearerToken = "hga_access",
+                accountDeviceId = "mac-1",
+            )
+        }
+        try {
+            client.connect()
+            withContext(Dispatchers.Default) {
+                withTimeout(5_000) {
+                    while (serverRule.server.requestCount < 2 ||
+                        client.connectionState.value != ConnectionState.Disconnected
+                    ) {
+                        kotlinx.coroutines.delay(10)
+                    }
+                }
+                kotlinx.coroutines.delay(100)
+            }
+
+            assertEquals(2, serverRule.server.requestCount)
+            assertTrue(rejected.isEmpty())
+        } finally {
+            tearDownClient(client, okHttp)
+            accountOkHttp.dispatcher.executorService.shutdown()
+            accountOkHttp.dispatcher.executorService.awaitTermination(5, TimeUnit.SECONDS)
+            accountOkHttp.connectionPool.evictAll()
         }
     }
 

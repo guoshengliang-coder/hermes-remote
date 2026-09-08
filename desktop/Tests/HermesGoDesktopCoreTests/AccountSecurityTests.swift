@@ -48,6 +48,18 @@ final class AccountSecurityTests: XCTestCase {
         XCTAssertEqual(record.account.displayName, "Liang")
         XCTAssertNil(record.pendingRefreshIdempotencyKey)
         XCTAssertNil(record.pendingOperationIdempotencyKeys)
+        XCTAssertNil(record.pendingReauthenticationGrants)
+    }
+
+    func testAccountAndInvitationCredentialsAreRedactedWithoutCallerHints() {
+        let source = "access=hga_access refresh=hgr_refresh grant=hgg_grant invite=hsi_invitation"
+        let redacted = SecretRedactor.redact(source)
+
+        XCTAssertFalse(redacted.contains("hga_access"))
+        XCTAssertFalse(redacted.contains("hgr_refresh"))
+        XCTAssertFalse(redacted.contains("hgg_grant"))
+        XCTAssertFalse(redacted.contains("hsi_invitation"))
+        XCTAssertEqual(redacted.components(separatedBy: "<redacted>").count - 1, 4)
     }
 
     func testMachineIdentityRejectsInvalidInstallationIdentifier() {

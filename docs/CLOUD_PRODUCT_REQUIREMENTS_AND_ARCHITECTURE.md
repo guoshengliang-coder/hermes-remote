@@ -3,6 +3,10 @@
 状态：V1 产品与架构基线，供评审和后续实施拆解使用。本文不授权生产部署、服务重启、
 账号模式启用或现有 Connector 替换。
 
+首版调整（2026-09-08）：当前可交付基线使用邮箱 + 六位验证码，Google/Apple 延后为独立能力；
+一个账号最多拥有三台 Mac，并可访问其他账号按整台设备共享的 Mac。下文已按该基线修订，历史的
+Google-first、单 Mac 和“第二台即替换”约束不再是当前产品合同。
+
 关联文档：
 
 - `ARCHITECTURE.md`：现有 Relay、Connector 与 Hermes 数据路径；
@@ -29,7 +33,7 @@ Hermes GO Cloud 是封闭运营、由唯一服务提供方部署和维护的轻�
 
 1. **安全连接通道**：在 Android 与 Mac 上的 Desktop Connector 之间转发 HTTPS/WSS
    请求和实时事件，保持 Mac 主动出站、Hermes 不暴露公网的安全边界；
-2. **账号控制面**：保存用户身份、客户端安装实例、唯一 Mac 绑定、可迁移的轻量配置、
+2. **账号控制面**：保存用户身份、客户端安装实例、多台 Mac 绑定与共享关系、可迁移的轻量配置、
    生命周期游标和必要审计信息，让用户登录、换手机和换 Mac 时可以恢复正确关系。
 
 Hermes GO Cloud 不是聊天内容云存储、文件同步服务、Hermes 托管服务或通用云盘。完整
@@ -55,12 +59,15 @@ V1 只有一方部署和运营，不开源，也不提供用户自助部署：
 
 ### 2.1 V1 目标
 
-- 用户在 Android 和 Hermes Go Desktop 登录同一 Google 账号后，自动发现并连接同一个
-  Mac/Hermes，不再以 URL、App Token 或二维码作为默认入口；
-- 一个 Hermes GO 账号最多绑定一台活跃 Desktop Connector，多台手机安装实例可独立授权、
-  撤销和消费通知；
+- 用户在 Android 和 Hermes Go Desktop 验证同一邮箱账号后，自动发现可访问的 Mac/Hermes，
+  不再以 URL、App Token 或二维码作为默认入口；
+- 一个 Hermes GO 账号最多拥有三台活跃 Desktop Connector；多台手机安装实例可独立授权、
+  撤销、选择设备和消费通知；
+- 设备所有者可把一整台 Mac/Hermes 共享给另一个已验证邮箱账号，并单独撤销；被共享账号不得
+  转授、替换绑定或取得所有者管理权限；
 - 用户换手机后可以恢复账号、Mac 绑定关系和允许同步的轻量偏好，不迁移本机敏感凭证；
-- 用户换 Mac 时必须经过最近重新认证和显式替换，旧 Connector 在新绑定提交前继续工作；
+- 用户新增 Mac 时占用独立设备槽且不得影响旧 Connector；同一 Mac 的绑定替换/轮换必须经过
+  最近重新认证和显式确认，旧 generation 在新绑定提交前继续工作；
 - Gateway 只转发实时业务数据，不长期保存聊天正文、流式输出或文件；
 - 账号及绑定数据进入 PostgreSQL，具备事务一致性、备份、恢复和迁移能力；
 - 服务端可以由内部工具重复安装、版本化部署、健康检查、升级和回滚；
@@ -74,8 +81,8 @@ V1 只有一方部署和运营，不开源，也不提供用户自助部署：
 - 不托管或同步完整 Hermes 会话内容；
 - 不存储用户 Mac 文件、聊天附件或 Hermes 输出文件；
 - 不把 Hermes 本地密码、Cookie、Session Token 或 Connector 私钥上传到 Cloud；
-- 不支持一个账号绑定多台活跃 Mac 或多个 Hermes 实例；
-- 不支持团队、组织、成员邀请、角色和共享 Hermes；
+- 不支持超过三台自有 Mac、共享所有权转移或共享账号再次转授；
+- 不支持团队/组织目录、管理员角色或批量成员管理；首版只支持账号到整台设备的固定 operator 共享；
 - 不提供 Web 管理控制台；
 - 不提供第三方自助部署或自助运维；
 - 不要求 Redis、Kafka、Elasticsearch、Kubernetes 或微服务拆分；
@@ -121,7 +128,7 @@ V1 只有一方部署和运营，不开源，也不提供用户自助部署：
 | 角色 | 需求 | 权限边界 |
 | --- | --- | --- |
 | 普通用户 | 登录、连接 Mac、换手机、管理本机登录 | 无服务器运维权限 |
-| Desktop 用户 | 绑定或替换当前 Mac、查看和撤销手机 | 只能管理自己的账号和绑定 |
+| Desktop 用户 | 添加/维护自己的 Mac、管理手机及整机共享 | 只能管理自己的账号和自有绑定；共享设备只有 operator 权限 |
 | 内部运营人员 | 查看服务状态、发布、回滚、备份、恢复 | 通过受控内部运维通道操作 |
 | 开发/发布人员 | 构建、测试并生成签名服务端制品 | 不默认拥有生产 Secret 或数据库访问权 |
 | 官网访客 | 查看产品、价格、下载和帮助 | 无账号数据权限 |
@@ -132,32 +139,32 @@ V1 只有一方部署和运营，不开源，也不提供用户自助部署：
 
 #### 首次建立连接
 
-1. 用户在 Hermes Go Desktop 使用 Google 登录；
-2. Cloud 验证 Google 身份并创建或定位内部 `account_id`；
+1. 用户在 Hermes Go Desktop 输入邮箱并完成六位验证码验证；
+2. Cloud 验证邮箱挑战并创建或定位内部 `account_id`；
 3. Desktop 生成本机 Connector 密钥，提交公钥和绑定申请；
 4. Connector 完成密钥持有证明和 Hermes/端到端健康验证；
-5. Cloud 原子激活该账号的唯一 Connector 绑定；
+5. Cloud 原子激活该账号的一台独立 Connector 绑定；
 6. 用户在 Android 登录同一账号；
 7. Android 注册为独立安装实例并自动发现已绑定 Mac；
 8. Android 通过 Gateway 与该 Connector 建立 Hermes 连接。
 
 #### 更换手机
 
-1. 新手机使用同一 Google 账号登录；
+1. 新手机使用同一已验证邮箱账号登录；
 2. Cloud 创建新的 `phone_installation` 和独立会话；
 3. 新手机恢复允许同步的账号偏好并连接现有 Mac；
 4. 旧手机保持独立登录，直至用户在 Desktop 或旧手机主动撤销；
 5. 撤销旧手机不得影响新手机或 Connector。
 
-#### 更换 Mac
+#### 新增或维护 Mac
 
-1. 新 Mac 登录已经存在绑定的账号；
-2. Cloud 返回绑定冲突，不自动替换旧 Mac；
-3. 用户完成最近 Google 重新认证并显式确认替换；
-4. 新 Connector 完成密钥持有证明和健康检查；
-5. Cloud 在一个事务中激活新绑定并撤销旧机器凭证；
-6. 任何提交前失败都保留旧 Connector；
-7. 新 Mac 重新配置本地 Hermes 凭证，该凭证不从 Cloud 恢复。
+1. 新 Mac 登录已有账号；
+2. 账号未达到三台自有设备上限时，Cloud 分配新设备槽，不替换或中断旧 Mac；
+3. 新 Connector 完成密钥持有证明和健康检查后，只激活自己的绑定；
+4. 达到上限时返回稳定容量错误，由用户明确移除一台旧设备后再试，不得自动选择替换目标；
+5. 同一 Mac 的凭证轮换/绑定替换需要最近重新认证、明确目标和显式确认；
+6. 任何提交前失败都保留该 Mac 的旧 generation 以及其他 Mac 的 Connector；
+7. 每台新 Mac 单独配置本地 Hermes 凭证，该凭证不从 Cloud 恢复。
 
 #### 服务升级
 
@@ -174,16 +181,17 @@ V1 只有一方部署和运营，不开源，也不提供用户自助部署：
 
 ### 4.1 身份与账号
 
-- `HC-ACCOUNT-001` Cloud 必须验证 Google 证明的签名、issuer、audience、有效期和适用的
-  nonce，并按 `(provider, issuer, subject)` 映射内部账号；邮箱不得作为授权主键。
-- `HC-ACCOUNT-002` Cloud 必须签发自己的短期 Access Token 和轮换 Refresh Token；Google
-  Token 不得直接成为 App 或 Connector 凭证。
+- `HC-ACCOUNT-001` 首版 Cloud 必须验证邮箱挑战的规范化 subject、用途、平台、安装实例、
+  有效期、尝试次数和单次消费，并按 `(provider, issuer, subject)` 映射内部账号；未来 OAuth
+  证明另行验证签名、issuer、audience、有效期和 nonce。展示邮箱不得成为业务授权主键。
+- `HC-ACCOUNT-002` Cloud 必须签发自己的短期 Access Token 和轮换 Refresh Token；邮箱验证码
+  或未来 Provider Token 不得直接成为 App 或 Connector 凭证。
 - `HC-ACCOUNT-003` 每个客户端会话必须可以独立刷新、退出和撤销；Refresh Token 重放必须
   撤销对应 Token family。
 - `HC-ACCOUNT-004` Cloud 必须支持当前账号信息读取、账号禁用和全部会话撤销。
 - `HC-ACCOUNT-005` 账号删除应进入可审计状态机，立即撤销访问，再按既定保留期清除个人
   资料、头像、安装实例和非必要审计关联。
-- `HC-ACCOUNT-006` Google 临时不可用不得中断已授权 Connector 的正常后台重连。
+- `HC-ACCOUNT-006` 邮件服务或未来 OAuth Provider 临时不可用不得中断已授权 Connector 的正常后台重连。
 
 ### 4.2 手机安装实例
 
@@ -196,14 +204,28 @@ V1 只有一方部署和运营，不开源，也不提供用户自助部署：
 
 ### 4.3 Desktop Connector 绑定
 
-- `HC-BIND-001` 一个账号最多有一个活跃 Connector 绑定，必须由数据库约束和事务保证。
+- `HC-BIND-001` 一个账号最多有三台自有活跃或待激活 Connector 设备槽，必须由账号级数据库锁、
+  唯一约束和事务容量检查保证；同一安装的密钥轮换不得额外占槽。
 - `HC-BIND-002` 首次绑定必须先处于 pending，只有密钥持有证明与所需健康检查均通过后才能
   原子激活。
-- `HC-BIND-003` 第二台 Mac 不得静默覆盖现有绑定；替换需要最近重新认证、单次确认和完整
-  健康验证。
+- `HC-BIND-003` 新 Mac 不得静默覆盖任何现有绑定；达到容量时必须显式移除目标设备。同一 Mac
+  的替换/轮换需要最近重新认证、单次确认和完整健康验证。
 - `HC-BIND-004` Connector 私钥只保存在 Mac；Cloud 只保存公钥、指纹、代次和撤销状态。
-- `HC-BIND-005` Connector 日常重连使用机器凭证，不依赖交互式 Google 登录。
+- `HC-BIND-005` Connector 日常重连使用机器凭证，不依赖邮箱验证码或交互式 OAuth 登录。
 - `HC-BIND-006` Connector 替换、解绑和凭证轮换不得修改 Hermes 源码、配置、数据或凭证。
+
+### 4.3.1 整台设备共享
+
+- `HC-SHARE-001` 所有者只能按一台明确的自有绑定发出邀请；邀请绑定目标规范化邮箱、72 小时
+  到期、单次消费，并要求最近验证及“整台 Hermes”范围确认。
+- `HC-SHARE-002` 接受后只产生固定 `operator` 权限：可使用该设备的 Hermes 会话、文件和配置
+  能力，但不得共享、替换、解绑、改默认归属或管理所有者账号。
+- `HC-SHARE-003` 每台自有设备最多共享给五个账号，每个账号最多接收十台共享设备；容量检查和
+  插入必须在排序锁下事务完成。
+- `HC-SHARE-004` 所有者撤销、接收方退出或账号删除必须立即终止对应 REST/WSS 权限，不得影响
+  设备所有者、其他被共享账号、Connector 或 Mac 本地 Hermes 数据。
+- `HC-SHARE-005` 邀请邮箱提示只允许脱敏展示；原始 token、验证码、grant、邮箱哈希和 Provider
+  响应不得进入普通日志、诊断或客户端持久化。
 
 ### 4.4 通道与路由
 
@@ -229,7 +251,7 @@ V1 只有一方部署和运营，不开源，也不提供用户自助部署：
   V1 不保存原始大图。
 - `HC-PROFILE-003` V1 头像建议为最大 `256 x 256` 的 WebP，编码后上限 `256 KiB`，存储在
   独立 PostgreSQL 表的 `bytea` 字段中，并使用内容哈希/版本作为 ETag。
-- `HC-PROFILE-004` Google 头像 URL 只能作为导入来源，不能成为永久授权数据或唯一展示依赖；
+- `HC-PROFILE-004` 未来 Google 头像 URL 只能在对应 Provider 启用后作为导入来源，不能成为永久授权数据或唯一展示依赖；
   下载必须限制域名、重定向、内容类型、字节数和解码像素数。
 - `HC-PROFILE-005` 可扩展偏好使用有上限、有 `schemaVersion` 的 `jsonb`；安全和高频查询字段
   使用明确列，不允许无限增长的任意 JSON。
@@ -330,7 +352,7 @@ V1 只有一方部署和运营，不开源，也不提供用户自助部署：
   用户确认后才创建诊断报告。
 - `HC-DIAG-002` 自动异常上报必须有明确的用户授权/隐私设置，只上传崩溃或严重错误所需的最小
   envelope；支持采样、去重、速率限制和下次启动补传。
-- `HC-DIAG-003` 客户端必须在上传前移除 Token、Cookie、Authorization、Google proof、邮箱、
+- `HC-DIAG-003` 客户端必须在上传前移除 Token、Cookie、Authorization、OTP/OAuth proof、邮箱、
   Prompt、回复内容、工具输出、文件内容和不必要的本机绝对路径；服务端再次执行脱敏检查。
 - `HC-DIAG-004` 诊断包使用短期单次上传凭证、大小上限、SHA-256 和压缩炸弹防护；上传后先进入
   quarantine，验证通过才标记为可供支持人员读取。
@@ -403,7 +425,7 @@ Gateway 重启可以丢弃这些状态，客户端和 Connector 必须通过自�
 - Hermes 本地用户名、密码、Cookie、Session Token；
 - Connector 私钥；
 - 用户 Mac 文件、附件正文和输出文件；
-- Google 密码、浏览器 Cookie 或长期 Google Access Token；
+- 邮箱密码、OTP、Provider proof、浏览器 Cookie 或长期 OAuth Access Token；
 - 未脱敏诊断、Authorization header 和签名下载 URL。
 - 银行卡号、CVV、网银凭据及支付服务商禁止落库的敏感支付数据。
 - 产品统计事件中的 Prompt、回复、工具输出、附件名称、文件路径、邮箱、昵称和任意自由文本。
@@ -420,7 +442,7 @@ Gateway 重启可以丢弃这些状态，客户端和 Connector 必须通过自�
 | 安全审计事件 | 180 天 |
 | 幂等记录 | 按操作风险保留 24 小时至 30 天 |
 | 已替换头像 | 新头像提交成功后延迟 7 天清理 |
-| 账号删除数据 | 立即撤销访问，30 天内完成常规清理；法定留存除外 |
+| 账号删除数据 | 立即撤销访问；固定 30 天期限到达后执行有界清理；回执期限和备份义务按 `ACCOUNT_DELETION_REVIEW.md` 审批 |
 | 原始产品事件 | 90 天；账号删除时删除或不可逆匿名化 |
 | 日级聚合指标 | 最长 25 个月，且不得反推出单个用户 |
 | 用户主动诊断包 | 默认 14 天；关联未结支持工单时最多 30 天 |
@@ -457,7 +479,7 @@ Android                         Hermes Go Desktop
 Desktop Connector --> localhost/private Hermes
 ```
 
-Google 只参与交互式身份验证，不位于每次业务请求的数据通道中。
+邮件服务只参与挑战投递，未来 OAuth Provider 只参与交互式身份验证；二者都不位于每次业务请求的数据通道中。
 
 ### 6.2 商业化演进架构
 
@@ -512,8 +534,8 @@ V1 采用 **模块化单体 Gateway + 单 PostgreSQL**：
 
 #### Hermes GO Gateway
 
-- Google proof 验证与 Hermes GO Token 签发；
-- 账号、安装实例、Connector 绑定和撤销；
+- 邮箱 OTP 验证与 Hermes GO Token 签发；Google/Apple 验证保持独立的未来 Provider 边界；
+- 账号、安装实例、多 Connector 绑定、整机共享和撤销；
 - Connector challenge/proof 与 `/v2/connect`；
 - account-aware REST/WSS 路由；
 - Legacy 兼容入口；
@@ -525,7 +547,7 @@ V1 采用 **模块化单体 Gateway + 单 PostgreSQL**：
 #### PostgreSQL
 
 - 账号控制面的唯一权威数据源；
-- 事务保证一账号一活跃 Connector、单次替换、Token 轮换和跨账号隔离；
+- 事务保证三台自有设备上限、单设备替换、共享容量、Token 轮换和跨账号隔离；
 - 保存小体量头像 `bytea`，避免 V1 引入额外对象存储；
 - 通过显式迁移、定时备份和恢复演练保障数据完整性。
 
@@ -660,7 +682,7 @@ Android/Desktop
 CDN 优先用于静态、可验证和可缓存内容：官网资源、公开图片、文档、APK/DMG 以及带内容哈希的
 前端 bundle。用户头像如需 CDN，使用私有源站和短期签名/鉴权缓存策略。以下请求不进入公共缓存：
 
-- Google proof exchange、Token refresh 和 Web Session；
+- 邮箱 challenge/exchange、未来 OAuth proof exchange、Token refresh 和 Web Session；
 - 账号、设备、订阅、账单和权益；
 - Connector/Android WebSocket；
 - 支付 Webhook；
@@ -1103,7 +1125,7 @@ V1 最少告警：
 ### 11.1 信任边界
 
 - Android、Desktop 管理会话、Connector 和内部运维身份是不同主体；
-- Google 只证明用户身份，Hermes GO Cloud 自己做授权；
+- 邮箱 OTP 或未来 OAuth Provider 只证明对应外部身份，Hermes GO Cloud 自己做授权；
 - Connector 机器认证与交互账号登录分离；
 - 所有跨账号资源访问由服务端从认证上下文约束；
 - Mac 上 Hermes 凭证永不进入 Cloud；
@@ -1149,7 +1171,8 @@ V1 最少告警：
 
 ### 12.2 容量与限制
 
-- 一账号最多一台活跃 Connector；
+- 一账号最多三台自有活跃或待激活 Connector 设备槽，并最多接收十台共享设备；
+- 每台自有设备最多五个被共享账号；这些上限必须由事务容量检查保证，不能只靠 UI；
 - 手机安装实例、并发连接、请求速率和事件数量设置可配置上限；
 - 头像最大 256 KiB；偏好 JSON 设置严格字节上限；
 - 文件流继续使用现有有界分块和背压，不因用户数增加而把完整文件装入 Gateway 内存；
@@ -1199,7 +1222,8 @@ V1 最少告警：
 - Android、Desktop、Connector 最低/当前版本兼容；
 - Connector 休眠、断网、Gateway 重启和数据库短暂不可用恢复；
 - 两手机独立登录与撤销；
-- 第二 Mac 冲突及替换失败回滚；
+- 三台自有 Mac 的独立路由、第四台并发拒绝及单设备替换失败回滚；
+- 两账号整机邀请/接受/撤销/退出和活跃连接立即失效；
 - 生产同路径回滚演练；
 - 指标、日志、告警和诊断包脱敏检查；
 - 统计离线补发/重复事件/迟到事件、后台聚合一致性和诊断对象越权访问检查。
@@ -1227,7 +1251,7 @@ V1 最少告警：
 | C3 | 安全升级与回滚 | `deploy/rollback`、迁移锁、蓝绿切换 | 注入每个失败点均能恢复旧服务 |
 | C4 | 数据收敛 | Lifecycle JSON 迁 PostgreSQL、头像/偏好 | PostgreSQL 成为控制面唯一权威存储 |
 | C5 | 备份与可观测性 | off-host 备份、告警、运维诊断包 | 达到内测 RPO/RTO 并完成恢复演练 |
-| C6 | 分阶段生产启用 | account/binding capability 灰度 | 两手机、第二 Mac、重启和回滚门禁通过 |
+| C6 | 分阶段生产启用 | account/binding/share capability 灰度 | 两手机、三台自有 Mac、两账号共享、重启和回滚门禁通过 |
 | C7 | 产品统计与诊断 | Analytics schema/worker、统计后台、诊断上报 | 指标口径、无内容审计、权限、上传和清理通过 |
 | C8 | 官网与商业化控制面 | Website、Web BFF、Billing Adapter、Entitlement | 购买、续费、取消、账单、Webhook 与宽限策略通过 |
 | C9 | CDN 与区域化 | CDN、discovery、home region、节点归属和故障迁移 | 延迟收益、缓存安全、无双活和回退门禁通过 |
@@ -1240,22 +1264,24 @@ V1 最少告警：
 
 产品和架构 V1 完成必须同时满足：
 
-1. Android 和 Desktop 使用同一 Google 账号可发现同一绑定，无需默认输入 URL/Token；
-2. 一个账号的一台活跃 Connector 约束在并发竞争下仍成立；
+1. Android 和 Desktop 使用同一已验证邮箱账号可发现所有可访问设备，无需默认输入 URL/Token；
+2. 一个账号最多三台自有 Connector 的约束在并发竞争下仍成立，第四台失败且不影响前三台；
 3. 两台真实手机可以独立登录、接收事件、退出和撤销；
 4. 换手机恢复安全资料和允许同步的偏好，不获得 Mac 本地 Secret；
-5. 第二台 Mac 未确认前不能影响旧 Connector，失败替换自动保留旧绑定；
-6. Gateway/数据库重启后 Connector 和客户端自动恢复；
-7. Cloud 不持久化完整聊天内容、流式正文、Hermes 凭证和用户文件；
-8. 生命周期数据从 JSON 文件迁至 PostgreSQL，并按安装实例隔离游标；
-9. 标准化头像可保存、缓存、更新和删除，原图/EXIF 不进入持久存储；
-10. 全新 staging 主机可由内部工具重复 bootstrap，无需手工改源码；
-11. 从上一个稳定 Server 版本升级成功，且每个受测失败点均能恢复旧路由和程序；
-12. PostgreSQL 备份可以在新环境恢复，并通过账号、绑定和端到端 smoke；
-13. capability 与兼容矩阵允许 Server、Android、Desktop、Connector 独立发布；
-14. 日志、错误、指标和诊断包通过 Secret/个人信息脱敏检查；
-15. 当前 Legacy 客户端在迁移窗口内保持兼容；
-16. 生产启用和部署仍需独立、明确授权，不由代码合并自动触发。
+5. 新增 Mac 不替换旧 Connector；同一设备替换未确认前不影响旧 generation，失败自动保留旧绑定；
+6. 账号 B 可使用 A 明确共享的一台 Mac，A 撤销后 B 的对应 REST/WSS 立即失效且其他设备不受影响；
+7. Gateway/数据库重启后 Connector 和客户端自动恢复；
+8. Cloud 不持久化完整聊天内容、流式正文、Hermes 凭证和用户文件；
+9. 生命周期数据从 JSON 文件迁至 PostgreSQL，并按安装实例隔离游标；
+10. 标准化头像可保存、缓存、更新和删除，原图/EXIF 不进入持久存储；
+11. 全新 staging 主机可由内部工具重复 bootstrap，无需手工改源码；
+12. 从上一个稳定 Server 版本升级成功，且每个受测失败点均能恢复旧路由和程序；
+13. PostgreSQL 备份可以在新环境恢复，并通过账号、绑定和端到端 smoke；永久账号删除启用前还需
+    通过 `ACCOUNT_DELETION_REVIEW.md` 的旧备份删除义务重放演练；
+14. capability 与兼容矩阵允许 Server、Android、Desktop、Connector 独立发布；
+15. 日志、错误、指标和诊断包通过 Secret/个人信息脱敏检查；
+16. 当前 Legacy 客户端在迁移窗口内保持兼容；
+17. 生产启用和部署仍需独立、明确授权，不由代码合并自动触发。
 
 ### 15.1 C7 产品统计与诊断验收
 

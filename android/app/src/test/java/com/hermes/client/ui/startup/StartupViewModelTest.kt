@@ -2,6 +2,9 @@ package com.hermes.client.ui.startup
 
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.auth.AccountSession
+import com.hermes.client.data.auth.AccountSessionManager
+import com.hermes.client.data.auth.AccountTransportMode
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.ConnectivityChecker
 import com.hermes.client.data.network.GatewayProbeResult
@@ -63,7 +66,7 @@ class StartupViewModelTest {
 
     @After fun tearDown() = Dispatchers.resetMain()
 
-    private fun vm() = StartupViewModel(
+    private fun vm(accountSessions: AccountSessionManager? = null) = StartupViewModel(
         credentials,
         connectivity,
         chat,
@@ -74,6 +77,173 @@ class StartupViewModelTest {
         viewModes,
         runtimes,
         foregroundRecovery,
+        accountSessions,
+    )
+
+    @Test fun accountModeColdStartUsesBearerRoutedStatusInsteadOfLegacyProbe() = runTest {
+        every { credentials.load() } returns null
+        val accountSessions = mockk<AccountSessionManager>()
+        every { accountSessions.session } returns MutableStateFlow(accountSession())
+        every { accountSessions.requiresAccountReauthentication() } returns false
+        every { accountSessions.transportMode() } returns AccountTransportMode.ACCOUNT
+        coEvery { rest.gatewayStatus() } returns com.hermes.client.data.network.GatewayStatusDto(
+            version = "test",
+            gatewayRunning = true,
+        )
+        val vm = vm(accountSessions)
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+
+        verify(exactly = 1) { chat.connect() }
+        coVerify(exactly = 1) { rest.gatewayStatus() }
+        coVerify(exactly = 0) { rest.probeStatusFor(any(), any()) }
+    }
+
+    @Test fun persistedAccountReauthenticationGateBlocksLegacyColdStartFallback() = runTest {
+        every { credentials.load() } returns config
+        val accountSessions = mockk<AccountSessionManager>(relaxed = true)
+        every { accountSessions.session } returns MutableStateFlow(null)
+        every { accountSessions.requiresAccountReauthentication() } returns true
+        every { accountSessions.transportMode() } returns AccountTransportMode.REAUTHENTICATION_REQUIRED
+        val vm = vm(accountSessions)
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+
+        val repair = vm.state.value as StartupUiState.RepairRequired
+        assertEquals(StartupFailure.ACCOUNT_AUTHENTICATION_FAILED, repair.failure)
+        coVerify(exactly = 0) { rest.probeStatusFor(any(), any()) }
+        coVerify(exactly = 0) { rest.gatewayStatus() }
+        verify(exactly = 0) { chat.connect() }
+    }
+
+    @Test fun committedAccountDeletionBlocksLegacyColdStartFallback() = runTest {
+        every { credentials.load() } returns config
+        val accountSessions = mockk<AccountSessionManager>(relaxed = true)
+        every { accountSessions.session } returns MutableStateFlow(null)
+        every { accountSessions.transportMode() } returns AccountTransportMode.ACCOUNT_DELETION_COMMITTED
+        val vm = vm(accountSessions)
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+
+        val repair = vm.state.value as StartupUiState.RepairRequired
+        assertEquals(StartupFailure.ACCOUNT_DELETION_COMMITTED, repair.failure)
+        coVerify(exactly = 0) { rest.probeStatusFor(any(), any()) }
+        coVerify(exactly = 0) { rest.gatewayStatus() }
+        verify(exactly = 0) { chat.connect() }
+    }
+
+    @Test fun revokedAccountDeviceClearsOnlySelectionAndRoutesToDevicePicker() = runTest {
+        every { credentials.load() } returns null
+        val accountSessions = mockk<AccountSessionManager>(relaxed = true)
+        every { accountSessions.session } returns MutableStateFlow(accountSession())
+        every { accountSessions.transportMode() } returns AccountTransportMode.ACCOUNT
+        coEvery { rest.gatewayStatus() } throws com.hermes.client.data.network.HermesApiException(
+            code = 404,
+            message = "HR-BIND-011",
+            errorCode = "HR-BIND-011",
+        )
+        val vm = vm(accountSessions)
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+
+        val repair = vm.state.value as StartupUiState.RepairRequired
+        assertEquals(StartupFailure.ACCOUNT_DEVICE_UNAVAILABLE, repair.failure)
+        verify(exactly = 1) { accountSessions.clearDeviceSelection() }
+        verify(exactly = 0) { chat.connect() }
+    }
+
+    @Test fun accountRefreshRateLimitRemainsRetryableInsteadOfForcingSignIn() = runTest {
+        every { credentials.load() } returns null
+        val accountSessions = mockk<AccountSessionManager>(relaxed = true)
+        every { accountSessions.session } returns MutableStateFlow(accountSession())
+        every { accountSessions.transportMode() } returns AccountTransportMode.ACCOUNT
+        coEvery { rest.gatewayStatus() } throws com.hermes.client.data.network.AccountApiException(
+            statusCode = 429,
+            errorCode = "HR-AUTH-007",
+            retryable = true,
+            recoveryAction = "retry",
+        )
+        val vm = vm(accountSessions)
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+
+        val failed = vm.state.value as StartupUiState.Failed
+        assertEquals(StartupFailure.ACCOUNT_RATE_LIMITED, failed.failure)
+        verify(exactly = 0) { accountSessions.clearLocal() }
+        coVerify(exactly = 0) { rest.probeStatusFor(any(), any()) }
+    }
+
+    @Test fun accountConnectorOfflinePreservesItsStableRecoveryCode() = runTest {
+        every { credentials.load() } returns null
+        val accountSessions = mockk<AccountSessionManager>(relaxed = true)
+        every { accountSessions.session } returns MutableStateFlow(accountSession())
+        every { accountSessions.transportMode() } returns AccountTransportMode.ACCOUNT
+        coEvery { rest.gatewayStatus() } throws com.hermes.client.data.network.HermesApiException(
+            code = 503,
+            message = "HR-CONN-005",
+            errorCode = "HR-CONN-005",
+        )
+        val vm = vm(accountSessions)
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+
+        val failed = vm.state.value as StartupUiState.Failed
+        assertEquals(StartupFailure.CONNECTOR_OFFLINE, failed.failure)
+        assertEquals("HR-CONN-005", failed.failure.code)
+    }
+
+    @Test fun disabledAccountIsNotMisreportedAsAnExpiredLogin() = runTest {
+        every { credentials.load() } returns null
+        val accountSessions = mockk<AccountSessionManager>(relaxed = true)
+        every { accountSessions.session } returns MutableStateFlow(accountSession())
+        every { accountSessions.transportMode() } returns AccountTransportMode.ACCOUNT
+        coEvery { rest.gatewayStatus() } throws com.hermes.client.data.network.HermesApiException(
+            code = 403,
+            message = "HR-ACCOUNT-001",
+            errorCode = "HR-ACCOUNT-001",
+        )
+        val vm = vm(accountSessions)
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+
+        val failed = vm.state.value as StartupUiState.Failed
+        assertEquals(StartupFailure.ACCOUNT_UNAVAILABLE, failed.failure)
+    }
+
+    @Test fun signedInAccountWithoutAMacBlocksRetainedLegacyCredentialsAtColdStart() = runTest {
+        every { credentials.load() } returns config
+        val accountSessions = mockk<AccountSessionManager>(relaxed = true)
+        every { accountSessions.session } returns MutableStateFlow(accountSession().copy(selectedDeviceId = null))
+        every { accountSessions.transportMode() } returns AccountTransportMode.DEVICE_SELECTION_REQUIRED
+        val vm = vm(accountSessions)
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+
+        val repair = vm.state.value as StartupUiState.RepairRequired
+        assertEquals(StartupFailure.ACCOUNT_DEVICE_UNAVAILABLE, repair.failure)
+        coVerify(exactly = 0) { rest.probeStatusFor(any(), any()) }
+        coVerify(exactly = 0) { rest.gatewayStatus() }
+        verify(exactly = 0) { chat.connect() }
+    }
+
+    private fun accountSession() = AccountSession(
+        baseUrl = "https://relay.example",
+        accountId = "account-1",
+        installationId = "installation-1",
+        installationDisplayName = "Pixel",
+        accessToken = "hga",
+        accessExpiresAt = "2099-01-01T00:00:00Z",
+        refreshToken = "hgr",
+        refreshExpiresAt = "2099-02-01T00:00:00Z",
+        selectedDeviceId = "mac-1",
     )
 
     @Test fun firstLaunchWithoutConfigurationSkipsStartupScreen() = runTest {

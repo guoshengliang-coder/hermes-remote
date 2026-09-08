@@ -77,6 +77,18 @@ class SessionNotificationProjectorTest {
         assertFalse(notificationIdFor(key) in Notif.RESERVED_IDS)
     }
 
+    @Test fun account_device_is_part_of_notification_identity_route_and_actions() {
+        val deviceKey = SessionRuntimeKey("work", "stored-1", "office/mac 1")
+        val spec = projectSessionNotification(
+            input(SessionRunPhase.WAITING_APPROVAL, approval = approval(), key = deviceKey),
+            on,
+        )!!
+
+        assertEquals("chat/stored-1?device=office%2Fmac%201&profile=work", spec.route)
+        assertTrue(spec.actions.all { it.deviceId == "office/mac 1" })
+        assertNotEquals(notificationIdFor(key), notificationIdFor(deviceKey))
+    }
+
     @Test fun running_card_is_a_silent_ongoing_progress_card_with_tool_step_and_chronometer() {
         val spec = projectSessionNotification(
             input(SessionRunPhase.USING_TOOL, toolName = "terminal", todoDone = 3, todoTotal = 7, runStartedAt = 500L),

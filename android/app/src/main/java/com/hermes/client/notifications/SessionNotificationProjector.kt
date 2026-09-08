@@ -62,7 +62,7 @@ fun projectSessionNotification(
         channelId = Notif.CHANNEL_ATTENTION,
         title = title,
         body = "",
-        route = notificationChatRoute(key.sessionId, key.profile),
+        route = notificationChatRoute(key.sessionId, key.profile, key.deviceId),
         groupKey = Notif.GROUP_SESSIONS,
         kind = kind,
         sessionKey = key,
@@ -72,7 +72,7 @@ fun projectSessionNotification(
         publicTitle = title,
     )
     fun action(label: String, action: String, extra: NotifAction.() -> NotifAction = { this }) =
-        NotifAction(label, action, live, key.sessionId, key.profile).extra()
+        NotifAction(label, action, live, key.sessionId, key.profile, deviceId = key.deviceId).extra()
 
     val spec = when (kind) {
         NotificationKind.RUNNING -> {

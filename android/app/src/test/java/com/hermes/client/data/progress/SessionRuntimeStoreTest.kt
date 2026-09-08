@@ -5,6 +5,7 @@ import com.hermes.client.data.network.LifecycleEventDto
 import com.hermes.client.data.network.ServerEvent
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ProfileManager
+import com.hermes.client.data.repository.SessionReadStore
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import io.mockk.every
@@ -51,11 +52,12 @@ class SessionRuntimeStoreTest {
         kind: String,
         sessionId: String = "external",
         profile: String? = "personal",
+        deviceId: String = "mac-mini",
     ) = LifecycleEventDto(
         type = "session.lifecycle",
         version = 1,
         eventId = "event-$kind-$sessionId",
-        deviceId = "mac-mini",
+        deviceId = deviceId,
         profile = profile,
         runtimeSessionId = "runtime-$sessionId",
         storedSessionId = sessionId,
@@ -108,7 +110,7 @@ class SessionRuntimeStoreTest {
         fixture.store.applyObservedLifecycle(observed)
 
         assertEquals(
-            SessionRuntimeKey("artist", "stored-42"),
+            SessionRuntimeKey("artist", "stored-42", "mac-mini"),
             fixture.store.notificationTarget("runtime-stored-42"),
         )
     }
@@ -423,7 +425,7 @@ class SessionRuntimeStoreTest {
 
     @Test fun observed_external_run_updates_list_state_without_becoming_phone_owned() = runTest {
         val (store, _) = fixture()
-        val key = SessionRuntimeKey("personal", "external")
+        val key = SessionRuntimeKey("personal", "external", "mac-mini")
 
         store.applyObservedLifecycle(lifecycle("run.started"))
         assertEquals(SessionRunPhase.THINKING, store.runtimes.value.getValue(key).phase)
@@ -435,7 +437,21 @@ class SessionRuntimeStoreTest {
 
         store.applyObservedLifecycle(lifecycle("run.completed"))
         assertEquals(SessionRunPhase.COMPLETED_UNREAD, store.runtimes.value.getValue(key).phase)
-        assertTrue("personal/external" in store.unreadTokens.value)
+        assertTrue(SessionReadStore.token("personal", "external", "mac-mini") in store.unreadTokens.value)
+    }
+
+    @Test fun equal_session_ids_from_different_macs_keep_separate_runtime_state() = runTest {
+        val (store, _) = fixture()
+
+        store.applyObservedLifecycle(lifecycle("run.started", sessionId = "same", deviceId = "mac-a"))
+        store.applyObservedLifecycle(lifecycle("run.completed", sessionId = "same", deviceId = "mac-b"))
+
+        assertEquals(SessionRunPhase.THINKING, store.runtimes.value.getValue(
+            SessionRuntimeKey("personal", "same", "mac-a"),
+        ).phase)
+        assertEquals(SessionRunPhase.COMPLETED_UNREAD, store.runtimes.value.getValue(
+            SessionRuntimeKey("personal", "same", "mac-b"),
+        ).phase)
     }
 
     @Test fun profileless_completion_finishes_and_reconciles_the_default_profile_runtime() = runTest {

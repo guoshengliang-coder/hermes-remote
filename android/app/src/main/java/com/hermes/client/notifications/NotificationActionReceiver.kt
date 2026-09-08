@@ -8,6 +8,7 @@ import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.ui.chat.ApprovalChoice
+import com.hermes.client.data.auth.AccountSessionManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -48,11 +49,13 @@ class NotificationActionReceiver : BroadcastReceiver() {
     @Inject lateinit var chat: ChatRepository
     @Inject lateinit var runtimes: SessionRuntimeStore
     @Inject lateinit var notifications: SessionNotificationCoordinator
+    @Inject lateinit var accountSessions: AccountSessionManager
 
     override fun onReceive(context: Context, intent: Intent) {
         val storedId = intent.getStringExtra(Notif.EXTRA_STORED_SESSION_ID)
             ?: intent.getStringExtra(Notif.EXTRA_SESSION_ID) ?: return
-        val key = runtimes.key(storedId, intent.getStringExtra(Notif.EXTRA_PROFILE))
+        val deviceId = intent.getStringExtra(Notif.EXTRA_DEVICE_ID)
+        val key = runtimes.key(storedId, intent.getStringExtra(Notif.EXTRA_PROFILE), deviceId)
         val ra = receiverActionFor(intent.action)
         if (ra is ReceiverAction.Unknown) return
         if (ra is ReceiverAction.Dismissed) {
@@ -75,6 +78,9 @@ class NotificationActionReceiver : BroadcastReceiver() {
         val questionId = intent.getStringExtra(Notif.EXTRA_QUESTION_ID)?.takeIf { it.isNotBlank() }
 
         notifications.markActionPending(key)
+        if (!deviceId.isNullOrBlank() && accountSessions.routeToDevice(deviceId)) {
+            chat.reconnect()
+        }
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {

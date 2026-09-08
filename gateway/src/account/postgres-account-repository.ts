@@ -2,27 +2,38 @@ import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import {
   accountErrors,
+  type AccountStatus,
   type AccessAuthenticationResult,
+  type AccountDeletionResult,
   type AccountPrincipal,
   type AccountRepository,
+  type IdempotencyMaterial,
+  type IdentityLinkResult,
+  type IdentityUnlinkResult,
   type InstallationInput,
   type PublicAccount,
+  type PublicExternalIdentity,
   type PublicInstallation,
-  type IdempotencyMaterial,
   type ReauthenticationMaterial,
+  type ReauthenticationOperation,
   type ReauthenticationResult,
   type RevokeAllResult,
   type RotationMaterial,
   type SessionCreationResult,
+  type SessionCreationOperation,
   type SessionMaterial,
   type SessionMutationResult,
   type SessionRotationResult,
   type VerifiedExternalIdentity,
 } from "./model.js";
+import { publishAccountAccessRevocation } from "./postgres-access-revocation-bus.js";
+import { normalizeEmailAddress } from "./email-otp.js";
+import { TokenCodec } from "./token-codec.js";
 
 interface IdentityRow extends QueryResultRow {
+  id: string;
   account_id: string;
-  account_status: "active" | "disabled";
+  account_status: AccountStatus;
   email: string | null;
   display_name: string | null;
   avatar_url: string | null;
@@ -30,8 +41,8 @@ interface IdentityRow extends QueryResultRow {
 
 interface InstallationRow extends QueryResultRow {
   id: string;
-  kind: "phone" | "desktop";
-  platform: "android" | "macos";
+  kind: "phone" | "desktop" | "browser";
+  platform: "android" | "macos" | "web";
   display_name: string;
 }
 
@@ -47,7 +58,7 @@ interface RefreshRow extends QueryResultRow {
   client_installation_id: string;
   installation_revoked_at: Date | null;
   account_id: string;
-  account_status: "active" | "disabled";
+  account_status: AccountStatus;
 }
 
 interface AccessRow extends QueryResultRow {
@@ -56,13 +67,13 @@ interface AccessRow extends QueryResultRow {
   access_expires_at: Date;
   session_revoked_at: Date | null;
   account_id: string;
-  account_status: "active" | "disabled";
+  account_status: AccountStatus;
   account_email: string | null;
   account_display_name: string | null;
   account_avatar_url: string | null;
   installation_id: string;
-  installation_kind: "phone" | "desktop";
-  installation_platform: "android" | "macos";
+  installation_kind: "phone" | "desktop" | "browser";
+  installation_platform: "android" | "macos" | "web";
   installation_display_name: string;
   installation_revoked_at: Date | null;
 }
@@ -75,7 +86,7 @@ interface GrantRow extends QueryResultRow {
   expires_at: Date;
   used_at: Date | null;
   revoked_at: Date | null;
-  account_status: "active" | "disabled";
+  account_status: AccountStatus;
   current_session_revoked_at: Date | null;
 }
 
@@ -86,8 +97,8 @@ interface IdempotencySessionRow extends QueryResultRow {
   session_revoked_at: Date | null;
   installation_revoked_at: Date | null;
   installation_id: string;
-  installation_kind: "phone" | "desktop";
-  installation_platform: "android" | "macos";
+  installation_kind: "phone" | "desktop" | "browser";
+  installation_platform: "android" | "macos" | "web";
   installation_display_name: string;
   response_refresh_used_at: Date | null;
   response_refresh_revoked_at: Date | null;
@@ -100,7 +111,7 @@ interface MutationAccessRow extends QueryResultRow {
   access_expires_at: Date;
   session_revoked_at: Date | null;
   account_id: string;
-  account_status: "active" | "disabled";
+  account_status: AccountStatus;
   installation_id: string;
   installation_revoked_at: Date | null;
 }
@@ -111,21 +122,35 @@ interface MutationIdempotencyRow extends QueryResultRow {
   expires_at: Date;
 }
 
+interface ExternalIdentityRow extends QueryResultRow {
+  id: string;
+  account_id: string;
+  provider: "google" | "email_otp";
+  email: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+  last_verified_at: Date;
+}
+
 export class PostgresAccountRepository implements AccountRepository {
-  constructor(private readonly pool: Pool) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly tokens: TokenCodec,
+  ) {}
 
   async createSession(
     identity: VerifiedExternalIdentity,
     installation: InstallationInput,
     material: SessionMaterial,
     idempotency: IdempotencyMaterial,
+    operation: SessionCreationOperation,
   ): Promise<SessionCreationResult> {
     return this.transaction(async (client) => {
       const lockKey = advisoryLockKey(identity.provider, identity.issuer, identity.subject);
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [lockKey]);
 
       const existing = await client.query<IdentityRow>(
-        `SELECT i.account_id, a.status AS account_status, i.email, i.display_name, i.avatar_url
+        `SELECT i.id, i.account_id, a.status AS account_status, i.email, i.display_name, i.avatar_url
            FROM external_identities i
            JOIN accounts a ON a.id = i.account_id
           WHERE i.provider = $1 AND i.issuer = $2 AND i.subject = $3
@@ -134,22 +159,26 @@ export class PostgresAccountRepository implements AccountRepository {
       );
 
       let accountId: string;
+      let externalIdentityId: string;
       if (existing.rowCount === 0) {
         accountId = randomUUID();
+        externalIdentityId = randomUUID();
         await client.query("INSERT INTO accounts (id) VALUES ($1)", [accountId]);
         await client.query(
           `INSERT INTO external_identities
              (id, account_id, provider, issuer, subject, email, display_name, avatar_url)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
           [
-            randomUUID(), accountId, identity.provider, identity.issuer, identity.subject,
+            externalIdentityId, accountId, identity.provider, identity.issuer, identity.subject,
             identity.email ?? null, identity.displayName ?? null, identity.avatarUrl ?? null,
           ],
         );
       } else {
         const row = existing.rows[0];
+        if (row.account_status === "pending_deletion") throw accountErrors.accountDeletionPending();
         if (row.account_status !== "active") throw accountErrors.accountDisabled();
         accountId = row.account_id;
+        externalIdentityId = row.id;
         await client.query(
           `UPDATE external_identities
               SET email = COALESCE($4, email),
@@ -166,7 +195,7 @@ export class PostgresAccountRepository implements AccountRepository {
 
       await client.query(
         "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-        [advisoryLockKey(accountId, "auth.google.exchange", idempotency.key)],
+        [advisoryLockKey(accountId, operation, idempotency.key)],
       );
       const replay = await client.query<IdempotencySessionRow>(
         `SELECT d.request_hash,
@@ -186,9 +215,9 @@ export class PostgresAccountRepository implements AccountRepository {
            JOIN installations i ON i.id = s.installation_id
            LEFT JOIN refresh_tokens r ON r.id = d.refresh_token_id
           WHERE d.account_id = $1
-            AND d.operation = 'auth.google.exchange'
-            AND d.idempotency_key = $2`,
-        [accountId, idempotency.key],
+            AND d.operation = $2
+            AND d.idempotency_key = $3`,
+        [accountId, operation, idempotency.key],
       );
       if ((replay.rowCount ?? 0) > 0) {
         const saved = replay.rows[0];
@@ -236,11 +265,12 @@ export class PostgresAccountRepository implements AccountRepository {
 
       await client.query(
         `INSERT INTO account_sessions
-           (id, account_id, installation_id, refresh_family_id, access_token_hash, access_expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+           (id, account_id, installation_id, external_identity_id, refresh_family_id,
+            access_token_hash, access_expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [
-          material.sessionId, accountId, installationRow.id, material.refreshFamilyId,
-          material.accessTokenHash, material.accessExpiresAt,
+          material.sessionId, accountId, installationRow.id, externalIdentityId,
+          material.refreshFamilyId, material.accessTokenHash, material.accessExpiresAt,
         ],
       );
       await client.query(
@@ -256,14 +286,14 @@ export class PostgresAccountRepository implements AccountRepository {
         `INSERT INTO account_idempotency_records
            (id, account_id, session_id, refresh_token_id, operation, idempotency_key, request_hash,
             response_ciphertext, expires_at)
-         VALUES ($1, $2, $3, $4, 'auth.google.exchange', $5, $6, $7, $8)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           randomUUID(), accountId, material.sessionId, material.refreshTokenId,
-          idempotency.key, idempotency.requestHash,
+          operation, idempotency.key, idempotency.requestHash,
           idempotency.responseCiphertext, idempotency.expiresAt,
         ],
       );
-      await audit(client, accountId, installationRow.id, "auth.google.exchange", {
+      await audit(client, accountId, installationRow.id, operation, {
         platform: installation.platform,
       });
 
@@ -312,7 +342,11 @@ export class PostgresAccountRepository implements AccountRepository {
 
       if (row.account_status !== "active") {
         await revokeFamily(client, row.family_id);
-        return { status: "account_disabled" };
+        return {
+          status: row.account_status === "pending_deletion"
+            ? "account_deletion_pending"
+            : "account_disabled",
+        };
       }
       if (row.client_installation_id !== clientInstallationId) return { status: "invalid" };
       if (row.refresh_revoked_at || row.session_revoked_at || row.installation_revoked_at) {
@@ -425,7 +459,13 @@ export class PostgresAccountRepository implements AccountRepository {
       );
       if (found.rowCount === 0) return { status: "invalid" };
       const row = found.rows[0];
-      if (row.account_status !== "active") return { status: "account_disabled" };
+      if (row.account_status !== "active") {
+        return {
+          status: row.account_status === "pending_deletion"
+            ? "account_deletion_pending"
+            : "account_disabled",
+        };
+      }
       if (row.session_revoked_at || row.installation_revoked_at) return { status: "revoked" };
       if (row.access_expires_at.getTime() <= Date.now()) return { status: "expired" };
 
@@ -445,9 +485,10 @@ export class PostgresAccountRepository implements AccountRepository {
     identity: VerifiedExternalIdentity,
     material: ReauthenticationMaterial,
     idempotency: IdempotencyMaterial,
+    reauthenticationOperation: ReauthenticationOperation,
   ): Promise<ReauthenticationResult> {
     return this.transaction(async (client) => {
-      const account = await client.query<{ status: "active" | "disabled" }>(
+      const account = await client.query<{ status: AccountStatus }>(
         "SELECT status FROM accounts WHERE id = $1 FOR UPDATE",
         [accountId],
       );
@@ -477,7 +518,7 @@ export class PostgresAccountRepository implements AccountRepository {
       );
       if (installation.rowCount === 0) return { status: "session_revoked" };
 
-      const operation = `auth.reauth.google:${material.scope}`;
+      const operation = `${reauthenticationOperation}:${material.scope}`;
       await client.query(
         "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
         [advisoryLockKey(accountId, operation, idempotency.key)],
@@ -546,8 +587,351 @@ export class PostgresAccountRepository implements AccountRepository {
       );
       await audit(client, accountId, installationId, "auth.reauthenticated", {
         scope: material.scope,
+        provider: identity.provider,
       });
       return { status: "created" };
+    });
+  }
+
+  async listExternalIdentities(accountId: string): Promise<PublicExternalIdentity[]> {
+    const result = await this.pool.query<ExternalIdentityRow>(
+      `SELECT id, account_id, provider, email, display_name, avatar_url, last_verified_at
+         FROM external_identities
+        WHERE account_id = $1
+        ORDER BY created_at, id`,
+      [accountId],
+    );
+    return result.rows.map(publicExternalIdentity);
+  }
+
+  async linkExternalIdentity(
+    accountId: string,
+    installationId: string,
+    currentSessionId: string,
+    identity: VerifiedExternalIdentity,
+    publicIdentity: PublicExternalIdentity,
+    grantTokenHash: string,
+    idempotency: IdempotencyMaterial,
+  ): Promise<IdentityLinkResult> {
+    return this.transaction(async (client) => {
+      const sessionOwner = await client.query<{ account_id: string }>(
+        `SELECT account_id FROM account_sessions WHERE id = $1 AND installation_id = $2`,
+        [currentSessionId, installationId],
+      );
+      if (sessionOwner.rows[0]?.account_id !== accountId) return { status: "session_revoked" };
+
+      // Keep the same lock order as session creation: external identity first, account/session second.
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+        advisoryLockKey(identity.provider, identity.issuer, identity.subject),
+      ]);
+      const access = await client.query<{
+        account_status: AccountStatus;
+        access_expires_at: Date;
+        session_revoked_at: Date | null;
+        installation_revoked_at: Date | null;
+      }>(
+        `SELECT a.status AS account_status,
+                s.access_expires_at,
+                s.revoked_at AS session_revoked_at,
+                i.revoked_at AS installation_revoked_at
+           FROM account_sessions s
+           JOIN accounts a ON a.id = s.account_id
+           JOIN installations i ON i.id = s.installation_id
+          WHERE s.id = $1 AND s.account_id = $2 AND i.id = $3
+          FOR UPDATE OF s, a, i`,
+        [currentSessionId, accountId, installationId],
+      );
+      if (access.rowCount !== 1) return { status: "session_revoked" };
+
+      const operation = `account.identity.link:${identity.provider}`;
+      await lockMutation(client, accountId, operation, idempotency.key);
+      const replay = await client.query<{
+        session_id: string | null;
+        request_hash: string;
+        response_ciphertext: string;
+        expires_at: Date;
+      }>(
+        `SELECT session_id, request_hash, response_ciphertext, expires_at
+           FROM account_idempotency_records
+          WHERE account_id = $1 AND operation = $2 AND idempotency_key = $3`,
+        [accountId, operation, idempotency.key],
+      );
+      if ((replay.rowCount ?? 0) > 0) {
+        const saved = replay.rows[0];
+        if (saved.session_id !== currentSessionId
+            || saved.request_hash !== idempotency.requestHash
+            || saved.expires_at.getTime() <= Date.now()) {
+          return { status: "idempotency_conflict" };
+        }
+        return { status: "replayed", responseCiphertext: saved.response_ciphertext };
+      }
+
+      const current = access.rows[0];
+      if (current.account_status !== "active") return { status: "account_disabled" };
+      if (current.session_revoked_at || current.installation_revoked_at
+          || current.access_expires_at.getTime() <= Date.now()) {
+        return { status: "session_revoked" };
+      }
+
+      const existing = await client.query<ExternalIdentityRow>(
+        `SELECT id, account_id, provider, email, display_name, avatar_url, last_verified_at
+           FROM external_identities
+          WHERE provider = $1 AND issuer = $2 AND subject = $3
+          FOR UPDATE`,
+        [identity.provider, identity.issuer, identity.subject],
+      );
+      if ((existing.rowCount ?? 0) > 0) {
+        const saved = existing.rows[0];
+        return saved.account_id === accountId
+          ? { status: "already_linked", identity: publicExternalIdentity(saved) }
+          : { status: "identity_conflict" };
+      }
+
+      const grant = await client.query<GrantRow>(
+        `SELECT g.id AS grant_id,
+                g.account_id,
+                g.installation_id,
+                g.scope,
+                g.expires_at,
+                g.used_at,
+                g.revoked_at,
+                a.status AS account_status,
+                s.revoked_at AS current_session_revoked_at
+           FROM reauthentication_grants g
+           JOIN accounts a ON a.id = g.account_id
+           JOIN account_sessions s
+             ON s.id = g.session_id
+            AND s.account_id = g.account_id
+            AND s.installation_id = g.installation_id
+          WHERE g.token_hash = $1
+            AND g.account_id = $2
+            AND g.installation_id = $3
+            AND g.session_id = $4
+          FOR UPDATE OF g, a, s`,
+        [grantTokenHash, accountId, installationId, currentSessionId],
+      );
+      if (grant.rowCount !== 1) return { status: "invalid_grant" };
+      const recent = grant.rows[0];
+      if (recent.account_status !== "active") return { status: "account_disabled" };
+      if (recent.scope !== "account.identity.link" || recent.revoked_at
+          || recent.current_session_revoked_at) return { status: "invalid_grant" };
+      if (recent.used_at) return { status: "used_grant" };
+      if (recent.expires_at.getTime() <= Date.now()) {
+        await client.query(
+          "UPDATE reauthentication_grants SET revoked_at = now() WHERE id = $1",
+          [recent.grant_id],
+        );
+        return { status: "expired_grant" };
+      }
+
+      await client.query(
+        `INSERT INTO external_identities
+           (id, account_id, provider, issuer, subject, email, display_name, avatar_url,
+            created_at, last_verified_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+        [
+          publicIdentity.id, accountId, identity.provider, identity.issuer, identity.subject,
+          identity.email ?? null, identity.displayName ?? null, identity.avatarUrl ?? null,
+          new Date(publicIdentity.verifiedAt),
+        ],
+      );
+      await client.query(
+        "UPDATE reauthentication_grants SET used_at = now() WHERE id = $1",
+        [recent.grant_id],
+      );
+      await client.query(
+        `INSERT INTO account_idempotency_records
+           (id, account_id, session_id, reauthentication_grant_id, operation, idempotency_key,
+            request_hash, response_ciphertext, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          randomUUID(), accountId, currentSessionId, recent.grant_id, operation,
+          idempotency.key, idempotency.requestHash, idempotency.responseCiphertext,
+          idempotency.expiresAt,
+        ],
+      );
+      await audit(client, accountId, installationId, "account.identity.linked", {
+        provider: identity.provider,
+        identityId: publicIdentity.id,
+      });
+      return { status: "linked", identity: publicIdentity };
+    });
+  }
+
+  async unlinkExternalIdentity(
+    accountId: string,
+    installationId: string,
+    currentSessionId: string,
+    identityId: string,
+    grantTokenHash: string,
+    protectResponse: (identity: PublicExternalIdentity, currentSessionRevoked: boolean) => string,
+    idempotency: IdempotencyMaterial,
+  ): Promise<IdentityUnlinkResult> {
+    return this.transaction(async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+        `account.identity.mutate:${accountId}`,
+      ]);
+      const access = await client.query<{
+        account_status: AccountStatus;
+        access_expires_at: Date;
+        session_revoked_at: Date | null;
+        installation_revoked_at: Date | null;
+      }>(
+        `SELECT a.status AS account_status,
+                s.access_expires_at,
+                s.revoked_at AS session_revoked_at,
+                i.revoked_at AS installation_revoked_at
+           FROM account_sessions s
+           JOIN accounts a ON a.id = s.account_id
+           JOIN installations i ON i.id = s.installation_id
+          WHERE s.id = $1 AND s.account_id = $2 AND i.id = $3
+          FOR UPDATE OF s, i`,
+        [currentSessionId, accountId, installationId],
+      );
+      if (access.rowCount !== 1) return { status: "session_revoked" };
+
+      const operation = "account.identity.unlink";
+      await lockMutation(client, accountId, operation, idempotency.key);
+      const replay = await client.query<{
+        session_id: string | null;
+        request_hash: string;
+        response_ciphertext: string;
+        expires_at: Date;
+      }>(
+        `SELECT session_id, request_hash, response_ciphertext, expires_at
+           FROM account_idempotency_records
+          WHERE account_id = $1 AND operation = $2 AND idempotency_key = $3`,
+        [accountId, operation, idempotency.key],
+      );
+      if ((replay.rowCount ?? 0) > 0) {
+        const saved = replay.rows[0];
+        if (saved.session_id !== currentSessionId
+            || saved.request_hash !== idempotency.requestHash
+            || saved.expires_at.getTime() <= Date.now()) {
+          return { status: "idempotency_conflict" };
+        }
+        return { status: "replayed", responseCiphertext: saved.response_ciphertext };
+      }
+
+      const current = access.rows[0];
+      if (current.account_status !== "active") return { status: "account_disabled" };
+      if (current.session_revoked_at || current.installation_revoked_at
+          || current.access_expires_at.getTime() <= Date.now()) {
+        return { status: "session_revoked" };
+      }
+
+      const identities = await client.query<ExternalIdentityRow>(
+        `SELECT id, account_id, provider, email, display_name, avatar_url, last_verified_at
+           FROM external_identities
+          WHERE account_id = $1
+          ORDER BY created_at, id
+          FOR UPDATE`,
+        [accountId],
+      );
+      const target = identities.rows.find(({ id }) => id === identityId);
+      if (!target) return { status: "not_found" };
+      if (identities.rows.length <= 1) return { status: "last_identity" };
+
+      const grant = await client.query<GrantRow>(
+        `SELECT g.id AS grant_id,
+                g.account_id,
+                g.installation_id,
+                g.scope,
+                g.expires_at,
+                g.used_at,
+                g.revoked_at,
+                a.status AS account_status,
+                s.revoked_at AS current_session_revoked_at
+           FROM reauthentication_grants g
+           JOIN accounts a ON a.id = g.account_id
+           JOIN account_sessions s
+             ON s.id = g.session_id
+            AND s.account_id = g.account_id
+            AND s.installation_id = g.installation_id
+          WHERE g.token_hash = $1
+            AND g.account_id = $2
+            AND g.installation_id = $3
+            AND g.session_id = $4
+          FOR UPDATE OF g, s`,
+        [grantTokenHash, accountId, installationId, currentSessionId],
+      );
+      if (grant.rowCount !== 1) return { status: "invalid_grant" };
+      const recent = grant.rows[0];
+      if (recent.account_status !== "active") return { status: "account_disabled" };
+      if (recent.scope !== "account.identity.unlink" || recent.revoked_at
+          || recent.current_session_revoked_at) return { status: "invalid_grant" };
+      if (recent.used_at) return { status: "used_grant" };
+      if (recent.expires_at.getTime() <= Date.now()) {
+        await client.query(
+          "UPDATE reauthentication_grants SET revoked_at = now() WHERE id = $1",
+          [recent.grant_id],
+        );
+        return { status: "expired_grant" };
+      }
+
+      const revoked = await client.query<{ id: string; refresh_family_id: string }>(
+        `UPDATE account_sessions
+            SET revoked_at = COALESCE(revoked_at, now())
+          WHERE account_id = $1
+            AND external_identity_id = $2
+          RETURNING id, refresh_family_id`,
+        [accountId, identityId],
+      );
+      const revokedSessionIds = revoked.rows.map(({ id }) => id);
+      const revokedFamilies = revoked.rows.map(({ refresh_family_id }) => refresh_family_id);
+      if (revokedFamilies.length > 0) {
+        await client.query(
+          `UPDATE refresh_tokens
+              SET revoked_at = COALESCE(revoked_at, now())
+            WHERE family_id = ANY($1::uuid[])`,
+          [revokedFamilies],
+        );
+      }
+      if (revokedSessionIds.length > 0) {
+        await client.query(
+          `UPDATE reauthentication_grants
+              SET revoked_at = COALESCE(revoked_at, now())
+            WHERE session_id = ANY($1::uuid[])
+              AND id <> $2`,
+          [revokedSessionIds, recent.grant_id],
+        );
+      }
+      await client.query(
+        "UPDATE reauthentication_grants SET used_at = now() WHERE id = $1",
+        [recent.grant_id],
+      );
+
+      const identity = publicExternalIdentity(target);
+      const currentSessionRevoked = revokedSessionIds.includes(currentSessionId);
+      const responseCiphertext = protectResponse(identity, currentSessionRevoked);
+      await client.query(
+        `INSERT INTO account_idempotency_records
+           (id, account_id, session_id, reauthentication_grant_id, operation, idempotency_key,
+            request_hash, response_ciphertext, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          randomUUID(), accountId, currentSessionId, recent.grant_id, operation,
+          idempotency.key, idempotency.requestHash, responseCiphertext, idempotency.expiresAt,
+        ],
+      );
+      await client.query(
+        "DELETE FROM external_identities WHERE id = $1 AND account_id = $2",
+        [identityId, accountId],
+      );
+      await audit(client, accountId, installationId, "account.identity.unlinked", {
+        provider: identity.provider,
+        identityId,
+        sessionsRevoked: String(revokedSessionIds.length),
+        currentSessionRevoked: String(currentSessionRevoked),
+      });
+      for (const sessionId of revokedSessionIds) {
+        await publishAccountAccessRevocation(client, {
+          kind: "session",
+          accountId,
+          sessionId,
+        });
+      }
+      return { status: "unlinked", identity, currentSessionRevoked };
     });
   }
 
@@ -641,6 +1025,228 @@ export class PostgresAccountRepository implements AccountRepository {
         idempotency,
       );
       await audit(client, access.account_id, access.installation_id, "auth.revoke_all", {});
+      await publishAccountAccessRevocation(client, {
+        kind: "account",
+        accountId: access.account_id,
+      });
+      return { status: "completed" };
+    });
+  }
+
+  async requestAccountDeletion(
+    accessTokenHash: string,
+    grantTokenHash: string,
+    deletionDueAt: Date,
+    idempotency: IdempotencyMaterial,
+  ): Promise<AccountDeletionResult> {
+    return this.transaction(async (client) => {
+      const receiptKeyHash = this.tokens.hashContext(
+        `account-deletion-receipt-v1\u0000${idempotency.key}`,
+      );
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+        `account.delete.receipt:${receiptKeyHash}`,
+      ]);
+      const durableReceipt = await client.query<{ request_hash: string }>(
+        `SELECT request_hash FROM account_deletion_receipts
+          WHERE idempotency_key_hash = $1`,
+        [receiptKeyHash],
+      );
+      if ((durableReceipt.rowCount ?? 0) > 0) {
+        return durableReceipt.rows[0].request_hash.trim() === idempotency.requestHash
+          ? { status: "replayed" }
+          : { status: "idempotency_conflict" };
+      }
+      const access = await loadMutationAccess(client, accessTokenHash);
+      if (!access) return { status: "invalid" };
+      await lockMutation(client, access.account_id, "account.delete", idempotency.key);
+      const replay = await loadMutationReplay(
+        client,
+        access.account_id,
+        access.session_id,
+        "account.delete",
+        idempotency,
+      );
+      if (replay) return replay;
+      if (access.account_status !== "active") return { status: "account_disabled" };
+      if (access.session_revoked_at || access.installation_revoked_at) return { status: "revoked" };
+      if (access.access_expires_at.getTime() <= Date.now()) return { status: "expired" };
+
+      const found = await client.query<GrantRow>(
+        `SELECT g.id AS grant_id,
+                g.account_id,
+                g.installation_id,
+                g.scope,
+                g.expires_at,
+                g.used_at,
+                g.revoked_at,
+                a.status AS account_status,
+                s.revoked_at AS current_session_revoked_at
+           FROM reauthentication_grants g
+           JOIN accounts a ON a.id = g.account_id
+           JOIN account_sessions s
+             ON s.id = g.session_id
+            AND s.id = $4
+            AND s.account_id = g.account_id
+            AND s.installation_id = g.installation_id
+          WHERE g.token_hash = $1
+            AND g.account_id = $2
+            AND g.installation_id = $3
+          FOR UPDATE OF g, a, s`,
+        [grantTokenHash, access.account_id, access.installation_id, access.session_id],
+      );
+      if ((found.rowCount ?? 0) === 0) return { status: "invalid" };
+      const grant = found.rows[0];
+      if (grant.account_id !== access.account_id
+          || grant.installation_id !== access.installation_id
+          || grant.scope !== "account.delete"
+          || grant.revoked_at
+          || grant.current_session_revoked_at) return { status: "invalid" };
+      if (grant.account_status !== "active") return { status: "account_disabled" };
+      if (grant.used_at) return { status: "used" };
+      if (grant.expires_at.getTime() <= Date.now()) {
+        await client.query(
+          "UPDATE reauthentication_grants SET revoked_at = now() WHERE id = $1",
+          [grant.grant_id],
+        );
+        return { status: "expired" };
+      }
+
+      const identityEmails = await client.query<{
+        provider: "google" | "email_otp";
+        subject: string;
+        email: string | null;
+      }>(
+        "SELECT provider, subject, email FROM external_identities WHERE account_id = $1",
+        [access.account_id],
+      );
+      const deletionSharingEmailHashes = [...new Set(identityEmails.rows.flatMap(({ email }) => {
+        if (!email) return [];
+        try {
+          const normalized = normalizeEmailAddress(email);
+          return [this.tokens.hashContext(`device-share-email-v1\u0000${normalized}`)];
+        } catch {
+          return [];
+        }
+      }))].sort();
+      const deletionOtpEmailHashes = [...new Set(identityEmails.rows.flatMap(({ provider, subject }) => (
+        provider === "email_otp" && /^[0-9a-f]{64}$/.test(subject) ? [subject] : []
+      )))].sort();
+      const deletionHashes = [
+        ...deletionSharingEmailHashes.map((emailLookupHash) => ({
+          kind: "device_share" as const,
+          emailLookupHash,
+          lockKey: `device-share-email:${emailLookupHash}`,
+        })),
+        ...deletionOtpEmailHashes.map((emailLookupHash) => ({
+          kind: "email_otp" as const,
+          emailLookupHash,
+          lockKey: `email-otp:email:${emailLookupHash}`,
+        })),
+      ].sort((left, right) => left.lockKey.localeCompare(right.lockKey));
+      for (const deletionHash of deletionHashes) {
+        await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [deletionHash.lockKey]);
+        await client.query(
+          `INSERT INTO account_deletion_email_hashes (account_id, hash_kind, email_lookup_hash)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (account_id, hash_kind, email_lookup_hash) DO NOTHING`,
+          [access.account_id, deletionHash.kind, deletionHash.emailLookupHash],
+        );
+      }
+      await client.query(
+        `UPDATE email_otp_challenges
+            SET invalidated_at = COALESCE(invalidated_at, now())
+          WHERE trim(email_lookup_hash) = ANY($1::text[])
+            AND consumed_at IS NULL`,
+        [deletionOtpEmailHashes],
+      );
+
+      const revokedShares = await client.query<{
+        binding_id: string;
+        grantee_account_id: string;
+      }>(
+        `UPDATE device_access_grants
+            SET status = CASE WHEN owner_account_id = $1 THEN 'revoked' ELSE 'left' END,
+                revoked_at = CASE WHEN owner_account_id = $1 THEN now() ELSE revoked_at END,
+                left_at = CASE WHEN grantee_account_id = $1 THEN now() ELSE left_at END,
+                authorization_generation = authorization_generation + 1
+          WHERE status = 'active'
+            AND (owner_account_id = $1 OR grantee_account_id = $1)
+          RETURNING binding_id, grantee_account_id`,
+        [access.account_id],
+      );
+      await client.query(
+        `UPDATE device_share_invitations
+            SET status = 'cancelled', cancelled_at = now()
+          WHERE status = 'pending'
+            AND (owner_account_id = $1 OR trim(target_email_lookup_hash) = ANY($2::text[]))`,
+        [access.account_id, deletionSharingEmailHashes],
+      );
+      await client.query(
+        `UPDATE connector_bindings
+            SET status = 'revoked', revoked_at = COALESCE(revoked_at, now()), connector_online = false
+          WHERE account_id = $1 AND status IN ('active', 'pending')`,
+        [access.account_id],
+      );
+      await client.query("DELETE FROM account_device_preferences WHERE account_id = $1", [access.account_id]);
+      await client.query(
+        `UPDATE refresh_tokens r
+            SET revoked_at = COALESCE(r.revoked_at, now())
+           FROM account_sessions s
+          WHERE r.session_id = s.id AND s.account_id = $1`,
+        [access.account_id],
+      );
+      await client.query(
+        `UPDATE account_sessions
+            SET revoked_at = COALESCE(revoked_at, now())
+          WHERE account_id = $1`,
+        [access.account_id],
+      );
+      await client.query(
+        `UPDATE installations
+            SET revoked_at = COALESCE(revoked_at, now())
+          WHERE account_id = $1`,
+        [access.account_id],
+      );
+      await client.query("UPDATE reauthentication_grants SET used_at = now() WHERE id = $1", [grant.grant_id]);
+      await client.query(
+        `UPDATE reauthentication_grants
+            SET revoked_at = COALESCE(revoked_at, now())
+          WHERE account_id = $1 AND id <> $2 AND used_at IS NULL`,
+        [access.account_id, grant.grant_id],
+      );
+      await saveMutationReplay(
+        client,
+        access.account_id,
+        access.session_id,
+        "account.delete",
+        idempotency,
+      );
+      await client.query(
+        `INSERT INTO account_deletion_receipts (idempotency_key_hash, request_hash)
+         VALUES ($1, $2)`,
+        [receiptKeyHash, idempotency.requestHash],
+      );
+      await audit(client, access.account_id, access.installation_id, "account.deletion.requested", {});
+      await client.query(
+        `UPDATE accounts
+            SET status = 'pending_deletion',
+                deletion_requested_at = $2::timestamptz - interval '30 days',
+                deletion_due_at = $2,
+                updated_at = now()
+          WHERE id = $1 AND status = 'active'`,
+        [access.account_id, deletionDueAt],
+      );
+      for (const share of revokedShares.rows) {
+        await publishAccountAccessRevocation(client, {
+          kind: "binding",
+          accountId: share.grantee_account_id,
+          bindingId: share.binding_id,
+        });
+      }
+      await publishAccountAccessRevocation(client, {
+        kind: "account",
+        accountId: access.account_id,
+      });
       return { status: "completed" };
     });
   }
@@ -674,6 +1280,11 @@ export class PostgresAccountRepository implements AccountRepository {
         idempotency,
       );
       await audit(client, access.account_id, access.installation_id, "auth.sign_out", {});
+      await publishAccountAccessRevocation(client, {
+        kind: "session",
+        accountId: access.account_id,
+        sessionId: access.session_id,
+      });
       return { status: "completed" };
     });
   }
@@ -813,6 +1424,17 @@ function publicInstallation(row: InstallationRow): PublicInstallation {
     kind: row.kind,
     platform: row.platform,
     displayName: row.display_name,
+  };
+}
+
+function publicExternalIdentity(row: ExternalIdentityRow): PublicExternalIdentity {
+  return {
+    id: row.id,
+    provider: row.provider,
+    ...(row.email ? { email: row.email } : {}),
+    ...(row.display_name ? { displayName: row.display_name } : {}),
+    ...(row.avatar_url ? { avatarUrl: row.avatar_url } : {}),
+    verifiedAt: row.last_verified_at.toISOString(),
   };
 }
 

@@ -44,6 +44,8 @@ import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.ProjectPrefsStore
 import com.hermes.client.data.repository.RecentSearchesStore
 import com.hermes.client.data.repository.SessionRepository
+import com.hermes.client.data.repository.ChatRepository
+import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.domain.Session
 import com.hermes.client.ui.chat.ChatLaunch
 import com.hermes.client.ui.components.SearchField
@@ -78,6 +80,7 @@ data class MessageHit(
     val lastActiveMs: Long?,
     val archived: Boolean,
     val projectLabel: String?,
+    val deviceId: String? = null,
 )
 
 /** Lifecycle of the message (gateway) section — docs/DESIGN.md §5.2 搜索页, six states. */
@@ -125,6 +128,8 @@ class SearchViewModel @Inject constructor(
     projectPrefs: ProjectPrefsStore,
     pinStore: com.hermes.client.data.repository.PinStore,
     private val recentStore: RecentSearchesStore,
+    private val accountSessions: AccountSessionManager? = null,
+    private val chat: ChatRepository? = null,
 ) : ViewModel() {
     companion object {
         const val MIN_MESSAGE_QUERY = 2
@@ -156,6 +161,7 @@ class SearchViewModel @Inject constructor(
     private var searchJob: Job? = null
 
     init {
+        restoreSelectedRoute()
         live = scoped(sessions.cachedAllProfiles())
         applyFilter()
         refresh()
@@ -180,7 +186,10 @@ class SearchViewModel @Inject constructor(
     fun refresh() = viewModelScope.launch { refreshNow() }
 
     /** Refreshes the visible search source before the warm-start overlay is removed. */
-    suspend fun recoverForForeground(): Boolean = refreshNow()
+    suspend fun recoverForForeground(): Boolean {
+        restoreSelectedRoute()
+        return refreshNow()
+    }
 
     private suspend fun refreshNow(): Boolean {
         val active = profileManager.active.value
@@ -299,6 +308,7 @@ class SearchViewModel @Inject constructor(
                 val session = sessionFor(dto.sessionId)
                 MessageHit(
                     sessionId = dto.sessionId,
+                    deviceId = session?.deviceId ?: sessions.currentDeviceId(),
                     profile = session?.profile ?: profileManager.active.value,
                     title = session?.title ?: dto.title?.ifBlank { null } ?: dto.sessionId,
                     snippet = centerSnippet(dto.snippet, q),
@@ -323,6 +333,10 @@ class SearchViewModel @Inject constructor(
         val q = _state.value.query.trim()
         if (q.isEmpty()) return
         viewModelScope.launch { recentStore.push(profileManager.active.value, q) }
+    }
+
+    private fun restoreSelectedRoute() {
+        if (accountSessions?.restoreSelectedDeviceRoute() == true) chat?.reconnect() else chat?.connect()
     }
 
     /** Ensure the tapped session's profile is active before the chat opens (same as the list). */
@@ -375,7 +389,15 @@ fun SearchScreen(
         if (session != null) {
             openExisting(session)
         } else {
-            onOpen(ChatLaunch.searchHit(hit.sessionId, profile = hit.profile, title = hit.title, query = query))
+            onOpen(
+                ChatLaunch.searchHit(
+                    hit.sessionId,
+                    profile = hit.profile,
+                    title = hit.title,
+                    query = query,
+                    deviceId = hit.deviceId,
+                ),
+            )
         }
     }
 
@@ -425,7 +447,11 @@ fun SearchScreen(
                             match = m,
                             query = query,
                             defaultProjectPath = defaultProjectPath,
-                            pinned = com.hermes.client.data.repository.PinStore.token(m.session.profile, m.session.id) in pinnedTokens,
+                            pinned = com.hermes.client.data.repository.PinStore.token(
+                                m.session.profile,
+                                m.session.id,
+                                m.session.deviceId,
+                            ) in pinnedTokens,
                             onClick = { openExisting(m.session) },
                         )
                         HorizontalDivider()

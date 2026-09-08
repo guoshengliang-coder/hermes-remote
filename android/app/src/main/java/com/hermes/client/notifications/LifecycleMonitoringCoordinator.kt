@@ -7,6 +7,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.network.HermesGatewayClient
 import com.hermes.client.data.auth.CredentialStore
+import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.repository.LifecycleEventRepository
 import com.hermes.client.data.repository.NotificationSettings
@@ -50,6 +51,7 @@ class LifecycleMonitoringCoordinator @Inject constructor(
     private val gatewayClient: HermesGatewayClient,
     private val credentials: CredentialStore,
     private val appScope: CoroutineScope,
+    private val accountSessions: AccountSessionManager? = null,
 ) {
     private val started = AtomicBoolean(false)
     private val foreground = MutableStateFlow(false)
@@ -93,7 +95,9 @@ class LifecycleMonitoringCoordinator @Inject constructor(
                         // retained Activity/ViewModel is not recreated when the user comes back,
                         // so foreground ownership must explicitly restore the singleton client.
                         // connect() is idempotent and will not duplicate an already-live socket.
-                        if (credentials.load() != null) gatewayClient.connect()
+                        if (credentials.load() != null || accountSessions?.hasLoadedConnection() == true) {
+                            gatewayClient.connect()
+                        }
                         GatewayConnectionService.stop(context)
                         LifecycleEventJobScheduler.cancel(context)
                         pollUntilModeChanges(decision.prefs, FOREGROUND_POLL_MS, appInForeground = true)

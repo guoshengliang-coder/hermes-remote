@@ -234,6 +234,7 @@ class HermesNotifier(
         intent.putExtra(Notif.EXTRA_SESSION_ID, a.sessionId)
         intent.putExtra(Notif.EXTRA_STORED_SESSION_ID, a.storedSessionId)
         intent.putExtra(Notif.EXTRA_PROFILE, a.profile)
+        intent.putExtra(Notif.EXTRA_DEVICE_ID, a.deviceId)
         intent.putExtra(Notif.EXTRA_NOTIF_ID, notifId)
         intent.putExtra(Notif.EXTRA_REQUEST_ID, a.requestId.orEmpty())
         intent.putExtra(Notif.EXTRA_QUESTION_ID, a.questionId.orEmpty())
@@ -269,6 +270,7 @@ class HermesNotifier(
         intent.action = Notif.ACTION_DISMISSED
         intent.putExtra(Notif.EXTRA_STORED_SESSION_ID, key.sessionId)
         intent.putExtra(Notif.EXTRA_PROFILE, key.profile)
+        intent.putExtra(Notif.EXTRA_DEVICE_ID, key.deviceId)
         intent.putExtra(Notif.EXTRA_NOTIF_ID, spec.id)
         intent.putExtra(Notif.EXTRA_KIND, spec.kind?.name)
         return PendingIntent.getBroadcast(

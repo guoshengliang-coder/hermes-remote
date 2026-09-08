@@ -4,6 +4,7 @@ import { mkdir, open, readdir, realpath, stat, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, extname, isAbsolute, resolve, sep } from "node:path";
 import {
+  ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
   encodeWireMessage,
   parseWireMessage,
@@ -16,6 +17,10 @@ import {
   type WireMessage,
 } from "@hermes-remote/protocol";
 import { randomUUID } from "node:crypto";
+import {
+  AccountConnectorAuthenticator,
+  loadAccountConnectorCredential,
+} from "./account-connector.js";
 import {
   HermesSessionObserver,
   type ObserverSocket,
@@ -30,9 +35,17 @@ for (const level of ["log", "warn", "error"] as const) {
   console[level] = (...args: unknown[]) => original(new Date().toISOString(), ...args);
 }
 
-const gatewayUrl = process.env.GATEWAY_URL ?? "ws://127.0.0.1:8787/v1/connect";
-const connectorToken = requireSecret("CONNECTOR_TOKEN");
-const deviceId = process.env.DEVICE_ID ?? "mac-mini";
+const connectorMode = connectorModeFromEnvironment();
+const gatewayUrl = process.env.GATEWAY_URL
+  ?? (connectorMode === "account" ? "ws://127.0.0.1:8787/v2/connect" : "ws://127.0.0.1:8787/v1/connect");
+const connectorToken = connectorMode === "legacy" ? requireSecret("CONNECTOR_TOKEN") : undefined;
+const accountCredential = connectorMode === "account"
+  ? loadAccountConnectorCredential(requireEnvironment("ACCOUNT_CONNECTOR_CREDENTIAL_FILE"))
+  : undefined;
+const accountAuthenticator = accountCredential
+  ? new AccountConnectorAuthenticator(accountCredential, gatewayUrl)
+  : undefined;
+let deviceId = process.env.DEVICE_ID ?? "mac-mini";
 const hermesMode = process.env.HERMES_MODE ?? "mock";
 const hermesBaseUrl = (process.env.HERMES_BASE_URL ?? "http://127.0.0.1:9119").replace(/\/$/, "");
 const hermesChatUrl = process.env.HERMES_CHAT_URL ?? `${hermesBaseUrl}/api/chat`;
@@ -89,13 +102,17 @@ function connect(): void {
 
   socket.on("open", () => {
     retryMs = 1_000;
-    socket.send(encodeWireMessage({
-      type: "hello",
-      version: PROTOCOL_VERSION,
-      role: "connector",
-      deviceId,
-      token: connectorToken,
-    }));
+    if (accountAuthenticator) {
+      socket.send(encodeWireMessage(accountAuthenticator.identify()));
+    } else {
+      socket.send(encodeWireMessage({
+        type: "hello",
+        version: PROTOCOL_VERSION,
+        role: "connector",
+        deviceId,
+        token: connectorToken!,
+      }));
+    }
 
     // A Mac sleep/wake or network switch can leave a TCP socket looking OPEN locally after the
     // Relay has already discarded it. Without an application heartbeat the Connector then stays
@@ -136,6 +153,37 @@ function connect(): void {
 
 async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<void> {
   const message = parseWireMessage(raw);
+  if (accountAuthenticator) {
+    switch (message.type) {
+      case "connector.challenge":
+        sendControl(socket, accountAuthenticator.authenticate(message));
+        return;
+      case "connector.preflight.request": {
+        const result = await accountConnectorPreflight();
+        sendControl(socket, {
+          type: "connector.preflight.result",
+          version: ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
+          requestId: message.requestId,
+          hermesReachable: result.reachable,
+          ...(result.version ? { hermesVersion: result.version } : {}),
+        });
+        return;
+      }
+      case "connector.ready":
+        accountAuthenticator.requireReady(message);
+        deviceId = message.deviceId;
+        controlAuthenticated = message.routingEnabled;
+        console.log(`Connected to gateway as ${deviceId} in account mode (${message.bindingStatus})`);
+        if (message.routingEnabled) startLifecycleObserver();
+        else setTimeout(() => socket.close(1012, "pending binding activation"), 250);
+        return;
+      case "error":
+        throw new Error(`Gateway rejected account Connector (${message.code})`);
+      default:
+        if (!controlAuthenticated) throw new Error("Unexpected account Connector handshake message");
+        break;
+    }
+  }
   switch (message.type) {
     case "hello_ack":
       console.log(`Connected to gateway as ${message.deviceId}`);
@@ -807,7 +855,10 @@ const hermesAuth = new HermesAuth({
 });
 
 connect();
-if (sessionObserverEnabled) {
+if (connectorMode === "legacy") startLifecycleObserver();
+
+function startLifecycleObserver(): void {
+  if (!sessionObserverEnabled || lifecycleObserver) return;
   lifecycleObserver = new HermesSessionObserver({
     deviceId,
     profile: process.env.HERMES_PROFILE,
@@ -829,6 +880,46 @@ if (sessionObserverEnabled) {
   void lifecycleObserver.start().catch((error) => {
     console.error("Unable to start Hermes lifecycle observer", safeError(error));
   });
+}
+
+async function accountConnectorPreflight(): Promise<{ reachable: boolean; version?: string }> {
+  try {
+    const response = await hermesAuth.request("/api/status", { method: "GET" });
+    if (!response.ok) return { reachable: false };
+    const body = await boundedResponseBody(response, 64 * 1024);
+    if (!body) return { reachable: true };
+    const value = JSON.parse(body) as unknown;
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      const version = (value as Record<string, unknown>).version;
+      if (typeof version === "string" && version.length <= 64
+          && !/[\u0000-\u001f\u007f]/.test(version)) {
+        return { reachable: true, version };
+      }
+    }
+    return { reachable: true };
+  } catch {
+    return { reachable: false };
+  }
+}
+
+async function boundedResponseBody(response: Response, maximumBytes: number): Promise<string> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maximumBytes) throw new Error("Hermes status response too large");
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maximumBytes) {
+      await reader.cancel();
+      throw new Error("Hermes status response too large");
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 function shutdown(signal: string): void {
@@ -866,6 +957,20 @@ function requireSecret(name: string): string {
   const file = process.env[`${name}_FILE`];
   const value = process.env[name] ?? (file ? readFileSync(file, "utf8").trim() : undefined);
   if (!value || value.length < 8) throw new Error(`${name} must contain at least 8 characters`);
+  return value;
+}
+
+function requireEnvironment(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`HR-MIGRATE-001 ${name} is required`);
+  return value;
+}
+
+function connectorModeFromEnvironment(): "legacy" | "account" {
+  const value = process.env.CONNECTOR_MODE ?? "legacy";
+  if (value !== "legacy" && value !== "account") {
+    throw new Error("HR-MIGRATE-001 CONNECTOR_MODE must be legacy or account");
+  }
   return value;
 }
 

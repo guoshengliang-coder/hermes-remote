@@ -143,6 +143,17 @@ export function renderNginxConfig(config) {
         proxy_send_timeout 75s;
     }
 
+    location = /v2/webhooks/resend {
+        client_max_body_size 64k;
+        proxy_pass ${gateway}/v2/webhooks/resend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 15s;
+        proxy_send_timeout 15s;
+    }
+
     location = /api/ws {
         proxy_pass ${gateway};
         proxy_http_version 1.1;

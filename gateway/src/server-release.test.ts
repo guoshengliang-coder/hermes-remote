@@ -21,7 +21,7 @@ test("generated release manifest matches protocol constants and verifies every b
   assert.equal(manifest.manifestVersion, 2);
   assert.equal(manifest.protocolVersions.legacy, PROTOCOL_VERSION);
   assert.equal(manifest.protocolVersions.accountConnector, ACCOUNT_CONNECTOR_PROTOCOL_VERSION);
-  assert.equal(manifest.databaseSchemaVersion, 7);
+  assert.equal(manifest.databaseSchemaVersion, 15);
   assert.equal(manifest.minimumSourceVersion, "0.2.0");
   assert.equal(manifest.maintenanceRequired, true);
   assert.equal(manifest.rollbackSupported, true);
@@ -86,6 +86,34 @@ test("release endpoints separate liveness, readiness, and protected build metada
       legacyAuth: true,
     },
     readiness: async () => readiness,
+    emailDeliveryMetrics: async () => ({
+      observedAt: "2026-09-07T12:00:00.000Z",
+      windowStartedAt: "2026-09-07T11:00:00.000Z",
+      windowSeconds: 3600,
+      emailOtp: { requested: 9, providerAccepted: 7, providerFailed: 1, pending: 1, finalDelivered: 6, finalHardFailed: 1, finalDelayed: 1, verified: 5 },
+      deviceShare: { requested: 4, providerAccepted: 3, providerFailed: 1, pending: 0, finalDelivered: 2, finalHardFailed: 1, finalDelayed: 0, invitationAccepted: 2 },
+    }),
+    retentionMetrics: () => ({
+      observedAt: "2026-09-07T12:00:00.000Z",
+      running: false,
+      lastAttemptAt: "2026-09-07T11:00:00.000Z",
+      lastSuccessAt: "2026-09-07T11:00:01.000Z",
+      lastFailureAt: null,
+      deletedSinceStart: {
+        idempotencyRecords: 3,
+        emailWebhookReceipts: 2,
+        emailOtpChallenges: 1,
+        deviceShareInvitations: 1,
+        connectorReplacementRequests: 1,
+        reauthenticationGrants: 2,
+        refreshTokens: 4,
+        accountSessions: 1,
+        lifecycleEvents: 7,
+        auditEvents: 2,
+        accountDeletionRows: 12,
+        accountsAnonymized: 1,
+      },
+    }),
     tokensEqual: (actual, expected) => actual === expected,
   });
 
@@ -128,6 +156,60 @@ test("release endpoints separate liveness, readiness, and protected build metada
   assert.equal(body.sourceCommit, manifest.sourceCommit);
   assert.equal(body.files, undefined);
   assert.equal(body.artifactFileCount, Object.keys(manifest.files).length);
+
+  const unauthorizedMetrics = new MemoryResponse();
+  await controller.handle(
+    request("GET", "Bearer wrong-internal-token"),
+    unauthorizedMetrics.asResponse(),
+    url("/internal/account-email-metrics"),
+  );
+  assert.equal(unauthorizedMetrics.status, 401);
+
+  const metrics = new MemoryResponse();
+  await controller.handle(
+    request("GET", "Bearer internal-status-token"),
+    metrics.asResponse(),
+    url("/internal/account-email-metrics"),
+  );
+  assert.equal(metrics.status, 200);
+  assert.deepEqual(metrics.json(), {
+    observedAt: "2026-09-07T12:00:00.000Z",
+    windowStartedAt: "2026-09-07T11:00:00.000Z",
+    windowSeconds: 3600,
+    emailOtp: { requested: 9, providerAccepted: 7, providerFailed: 1, pending: 1, finalDelivered: 6, finalHardFailed: 1, finalDelayed: 1, verified: 5 },
+    deviceShare: { requested: 4, providerAccepted: 3, providerFailed: 1, pending: 0, finalDelivered: 2, finalHardFailed: 1, finalDelayed: 0, invitationAccepted: 2 },
+  });
+  assert.equal(JSON.stringify(metrics.json()).includes("recipient"), false);
+
+  const retention = new MemoryResponse();
+  await controller.handle(
+    request("GET", "Bearer internal-status-token"),
+    retention.asResponse(),
+    url("/internal/account-retention"),
+  );
+  assert.equal(retention.status, 200);
+  assert.deepEqual(retention.json(), {
+    observedAt: "2026-09-07T12:00:00.000Z",
+    running: false,
+    lastAttemptAt: "2026-09-07T11:00:00.000Z",
+    lastSuccessAt: "2026-09-07T11:00:01.000Z",
+    lastFailureAt: null,
+    deletedSinceStart: {
+      idempotencyRecords: 3,
+      emailWebhookReceipts: 2,
+      emailOtpChallenges: 1,
+      deviceShareInvitations: 1,
+      connectorReplacementRequests: 1,
+      reauthenticationGrants: 2,
+      refreshTokens: 4,
+      accountSessions: 1,
+      lifecycleEvents: 7,
+      auditEvents: 2,
+      accountDeletionRows: 12,
+      accountsAnonymized: 1,
+    },
+  });
+  assert.equal(JSON.stringify(retention.json()).includes("accountId"), false);
 });
 
 function request(method: string, authorization?: string): IncomingMessage {

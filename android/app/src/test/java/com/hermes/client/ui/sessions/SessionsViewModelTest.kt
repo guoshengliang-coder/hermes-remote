@@ -57,8 +57,9 @@ class SessionsViewModelTest {
         messageCount = 1, profile = profile, workspace = "No workspace", source = "hermes-dispatch",
     )
 
-    private fun buildVm() = SessionsViewModel(
+    private fun buildVm(accountSessions: com.hermes.client.data.auth.AccountSessionManager? = null) = SessionsViewModel(
         sessionRepo, chatRepo, profileManager, pinStore, viewModeStore, runtimeStore, toolsRepo, projectPrefs,
+        accountSessions,
     )
 
     private fun repoSession(id: String, repo: String?, profile: String = "personal") = Session(
@@ -433,6 +434,23 @@ class SessionsViewModelTest {
         assertEquals("s1", result?.id)
         assertFalse(result!!.fellBackToDefault)
         coVerify { projectPrefs.setDefaultProjectPath("/Users/me/") }
+    }
+
+    @Test fun create_restores_selected_mac_and_returns_that_device_affinity() = runTest {
+        val accountSessions = mockk<com.hermes.client.data.auth.AccountSessionManager>()
+        every { accountSessions.restoreSelectedDeviceRoute() } returns true
+        every { sessionRepo.currentDeviceId() } returns "mac-default"
+        coEvery { chatRepo.createSession("personal", null) } returns
+            com.hermes.client.data.repository.CreatedSession("s-device", "/Users/me/")
+        val vm = buildVm(accountSessions)
+        advanceUntilIdle()
+
+        val result = vm.createSession()
+
+        assertEquals("mac-default", result?.deviceId)
+        io.mockk.verify { accountSessions.restoreSelectedDeviceRoute() }
+        io.mockk.verify { chatRepo.reconnect() }
+        io.mockk.verify { sessionRepo.bindConversation("personal", "s-device", "mac-default") }
     }
 
     @Test fun moveToProject_maps_gateway_refusals_to_registered_errors() = runTest {

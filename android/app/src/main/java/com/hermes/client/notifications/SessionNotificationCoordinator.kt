@@ -107,7 +107,7 @@ class SessionNotificationCoordinator @Inject constructor(
             prefs = prefs,
             language = languages.current,
             showProfile = profiles.list.value.size > 1,
-            titleOf = { key -> sessions.cachedSession(key.sessionId, key.profile)?.title },
+            titleOf = { key -> sessions.cachedSession(key.sessionId, key.profile, key.deviceId)?.title },
             actionStates = actionStates.value,
             dismissed = dismissed,
         )

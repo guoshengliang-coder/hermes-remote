@@ -61,6 +61,8 @@ struct OverviewView: View {
             "账号模式未开放"
         case .signedOut:
             "未登录账号"
+        case .accountDeletionSubmitted:
+            "云端账号删除已提交"
         }
     }
 
