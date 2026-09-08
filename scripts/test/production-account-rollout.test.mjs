@@ -183,7 +183,9 @@ test("live verification sends the legacy app token through the legacy header", a
     if (pathname === "/v2/capabilities") return jsonResponse(enabledCapabilities());
     if (pathname === "/relay-health") return jsonResponse({ ok: true, connectors: 1 });
     if (pathname === "/api/status") {
-      if (new Headers(init.headers).has("authorization")) return new Response("{}", { status: 401 });
+      if (new Headers(init.headers).get("x-hermes-session-token") !== "legacy-app-token") {
+        return new Response("{}", { status: 401 });
+      }
       statusHeaders.push(new Headers(init.headers));
       return jsonResponse({ overall: "ok", gateway_running: true });
     }
@@ -207,7 +209,7 @@ test("live verification sends the legacy app token through the legacy header", a
   assert.equal(statusHeaders[0].has("authorization"), false);
 });
 
-test("rollback accepts the original 404 capability surface and uses the legacy header", async (t) => {
+test("rollback accepts original absent account routes and uses the legacy header", async (t) => {
   const fixture = await createFixture(t);
   let statusHeaders;
   let capabilityCalls = 0;
@@ -223,7 +225,7 @@ test("rollback accepts the original 404 capability surface and uses the legacy h
       statusHeaders = new Headers(init.headers);
       return jsonResponse({ overall: "ok", gateway_running: true });
     }
-    if (pathname === "/v2/auth/email/challenges") return new Response("not found", { status: 404 });
+    if (pathname === "/v2/auth/email/challenges") return new Response("method not allowed", { status: 405 });
     assert.fail(`unexpected URL ${url}`);
   };
   await assert.rejects(() => executeProductionAccountRollout(fixture.config, {
