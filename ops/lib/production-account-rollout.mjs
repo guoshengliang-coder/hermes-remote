@@ -339,10 +339,10 @@ async function verifyRollout({ config, releaseConfig, activeSlot, currentManifes
   const loopback = `http://127.0.0.1:${releaseConfig.slots[activeSlot].gatewayPort}`;
   const ready = await fetchJsonRetry(fetchImpl, `${loopback}/readyz`, {}, sleep);
   const capabilities = await fetchJsonRetry(fetchImpl, `${config.gateway.origin}/v2/capabilities`, {}, sleep);
-  const relay = await fetchJsonRetry(fetchImpl, `${config.gateway.origin}/relay-health`, {}, sleep);
   const status = await fetchJsonRetry(fetchImpl, `${config.gateway.origin}/api/status`, {
     headers: { "x-hermes-session-token": material.appToken },
   }, sleep);
+  const relay = await fetchJsonRetry(fetchImpl, `${config.gateway.origin}/relay-health`, {}, sleep);
   const rejected = await fetchImpl(`${config.gateway.origin}/api/status`, {
     headers: { "x-hermes-session-token": "intentionally-invalid-production-rollout-token" },
     signal: AbortSignal.timeout(3_000),

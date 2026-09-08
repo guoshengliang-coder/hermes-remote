@@ -179,16 +179,18 @@ test("an existing public Resend webhook location is not duplicated by the rollou
 test("live verification sends the legacy app token through the legacy header", async (t) => {
   const fixture = await createFixture(t);
   const statusHeaders = [];
+  let legacyHealthy = false;
   const fetchImpl = async (url, init = {}) => {
     const pathname = new URL(url).pathname;
     if (pathname === "/readyz") return jsonResponse({ status: "ready", checks: { migrations: "current" } });
     if (pathname === "/v2/capabilities") return jsonResponse(enabledCapabilities());
-    if (pathname === "/relay-health") return jsonResponse({ ok: true, connectors: 1 });
+    if (pathname === "/relay-health") return jsonResponse({ ok: true, connectors: legacyHealthy ? 1 : 0 });
     if (pathname === "/api/status") {
       if (new Headers(init.headers).get("x-hermes-session-token") !== "legacy-app-token") {
         return new Response("{}", { status: 401 });
       }
       statusHeaders.push(new Headers(init.headers));
+      legacyHealthy = true;
       return jsonResponse({ overall: "ok", gateway_running: true });
     }
     if (pathname === "/v2/webhooks/resend") return new Response("{}", { status: 401 });
