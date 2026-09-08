@@ -49,7 +49,7 @@ test("email-only environment keeps every wider account surface off and contains 
 test("the public Nginx include exposes only the email-login session surface", async (t) => {
   const fixture = await createFixture(t);
   const routes = renderEmailAccountNginxRoutes();
-  for (const route of ["email/challenges", "email/exchange", "refresh", "sign-out", "/v2/account"]) {
+  for (const route of ["/v2/capabilities", "email/challenges", "email/exchange", "refresh", "sign-out", "/v2/account"]) {
     assert.equal(routes.includes(route), true);
   }
   for (const forbidden of ["/v2/devices", "/v2/installations", "/v2/auth/google", "/v2/web/"]) {
@@ -60,6 +60,7 @@ test("the public Nginx include exposes only the email-login session surface", as
   assert.equal(installed.includes(`include ${routesPath};`), true);
   assert.equal(installed.includes("server_name gateway.example.com;"), true);
   assert.throws(() => installEmailAccountNginxInclude(installed, fixture.releaseConfig, routesPath), isCode);
+  assert.equal(renderEmailAccountNginxRoutes({ includeCapabilities: false }).includes("/v2/capabilities"), false);
 });
 
 test("production email-account rollout migrates, installs protected inputs, and commits only after two verifications", async (t) => {
@@ -81,6 +82,10 @@ test("production email-account rollout migrates, installs protected inputs, and 
   assert.equal(verifications, 2);
   assert.equal(calls.filter((call) => call.args[0] === "restart").length, 1);
   assert.match(await readFile(fixture.environmentPath, "utf8"), /^ACCOUNT_AUTH_ENABLED=1$/m);
+  assert.match(
+    await readFile(path.join(fixture.releaseConfig.paths.configRoot, "account", "email-login-routes.conf"), "utf8"),
+    /location = \/v2\/capabilities/,
+  );
   const journal = JSON.parse(await readFile(fixture.journalPath, "utf8"));
   assert.equal(journal.stage, "committed");
   assert.equal(journal.databaseSchemaVersion, 15);
@@ -118,6 +123,30 @@ test("a matching protected database URL already installed by R5-E is safely adop
     verifyEmailDelivery: async () => {},
   });
   assert.equal(result.stage, "committed");
+});
+
+test("an existing public capabilities location is not duplicated by the rollout include", async (t) => {
+  const fixture = await createFixture(t);
+  await writeFile(
+    fixture.releaseConfig.nginx.configFile,
+    fixture.nginxConfig.replace(
+      "    location /api/",
+      "    location = /v2/capabilities { proxy_pass http://hermes_go_gateway_production; }\n    location /api/",
+    ),
+    { mode: 0o644 },
+  );
+  const result = await executeProductionAccountRollout(fixture.config, {
+    ...fixture.dependencies,
+    runner: runner([]),
+    verifyRollout: async () => {},
+    verifyEmailDelivery: async () => {},
+  });
+  assert.equal(result.stage, "committed");
+  const routes = await readFile(
+    path.join(fixture.releaseConfig.paths.configRoot, "account", "email-login-routes.conf"),
+    "utf8",
+  );
+  assert.equal(routes.includes("/v2/capabilities"), false);
 });
 
 test("production rollout error is bilingual, retryable, and registered", async () => {
