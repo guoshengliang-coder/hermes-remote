@@ -55,4 +55,32 @@ class CronSectionsTest {
             assertTrue(cronGroupTitle(it).en.isNotBlank())
         }
     }
+
+    /** 节奏或落点 · 上次结果 — the grammar the three lists share. */
+    @Test fun the_subline_reads_rhythm_target_then_outcome() {
+        assertEquals(
+            "每天 08:30  ·  投递到 钉钉",
+            cronSublineText("每天 08:30", "dingtalk", CronRowStatus.OK, AppLanguage.ZH),
+        )
+        assertEquals(
+            "每 10 分钟  ·  只存不发  ·  上次失败",
+            cronSublineText("每 10 分钟", null, CronRowStatus.FAILED, AppLanguage.ZH),
+        )
+        assertEquals(
+            "每天 09:30  ·  投递到 Slack  ·  未送达",
+            cronSublineText("每天 09:30", "slack", CronRowStatus.UNDELIVERED, AppLanguage.ZH),
+        )
+    }
+
+    /** A healthy row says nothing about its last run, so the failing one has no competition. */
+    @Test fun a_healthy_row_does_not_announce_success() {
+        val zh = cronSublineText("每天 08:30", "local", CronRowStatus.OK, AppLanguage.ZH)
+        assertTrue("成功" !in zh)
+        assertEquals("Daily 08:30  ·  Saved only", cronSublineText("Daily 08:30", "local", CronRowStatus.OK, AppLanguage.EN))
+    }
+
+    @Test fun an_absent_schedule_does_not_leave_a_dangling_separator() {
+        assertEquals("只存不发  ·  已暂停", cronSublineText("—", null, CronRowStatus.PAUSED, AppLanguage.ZH))
+        assertEquals("只存不发", cronSublineText("", null, CronRowStatus.OK, AppLanguage.ZH))
+    }
 }

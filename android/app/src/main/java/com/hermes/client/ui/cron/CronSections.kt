@@ -1,7 +1,9 @@
 package com.hermes.client.ui.cron
 
 import com.hermes.client.data.network.CronJobDto
+import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.LocalizedText
+import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.localization.localizedText
 
 /** A section of the scheduled-jobs list, in render order. */
@@ -48,4 +50,32 @@ fun cronDeliveryText(deliver: String?): LocalizedText = when (val target = deliv
         "投递到 ${com.hermes.client.ui.sessions.botSourceLabel(target)}",
         "Delivered to ${com.hermes.client.ui.sessions.botSourceLabel(target)}",
     )
+}
+
+/**
+ * The row's second line: rhythm, where the result goes, and how it went last time — the same
+ * grammar the Chats and channels lists use (`节奏或落点 · 上次结果`).
+ *
+ * A healthy job says nothing about its last run: "每天 08:30 · 投递到 钉钉" already tells the reader
+ * everything, and appending 上次成功 to every healthy row turns the outcome into noise that the one
+ * failing row then has to compete with.
+ */
+fun cronSublineText(
+    scheduleText: String,
+    deliver: String?,
+    status: CronRowStatus,
+    language: AppLanguage,
+): String {
+    val outcome = when (status) {
+        CronRowStatus.FAILED -> localized(language, "上次失败", "last run failed")
+        CronRowStatus.UNDELIVERED -> localized(language, "未送达", "not delivered")
+        CronRowStatus.OVERDUE -> localized(language, "已逾期", "overdue")
+        CronRowStatus.PAUSED -> localized(language, "已暂停", "paused")
+        CronRowStatus.OK -> null
+    }
+    return listOfNotNull(
+        scheduleText.takeIf { it.isNotBlank() && it != "—" },
+        cronDeliveryText(deliver).resolve(language),
+        outcome,
+    ).joinToString("  ·  ")
 }

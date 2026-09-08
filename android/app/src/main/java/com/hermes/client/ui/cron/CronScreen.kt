@@ -102,7 +102,26 @@ fun CronScreen(
                     }
                     val sections = remember(state.jobs, nowMs) { cronSections(state.jobs, nowMs) }
                     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+                    val needsYou = sections.firstOrNull { it.group == CronGroup.NEEDS_YOU }?.jobs?.size ?: 0
                     LazyColumn(Modifier.fillMaxSize()) {
+                      // Same HealthStrip the home screen uses. Without it a long list makes the
+                      // reader scroll to find out whether anything is wrong at all.
+                      if (needsYou > 0) {
+                        item(key = "health") {
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.errorContainer)
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    l10n("$needsYou 个任务需要处理", "$needsYou job(s) need attention"),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                            }
+                        }
+                      }
                       sections.forEach { section ->
                         item(key = "hdr-${section.group.name}") {
                             Text(
@@ -115,16 +134,10 @@ fun CronScreen(
                         items(section.jobs, key = { it.id }) { job ->
                             val rowStatus = cronRowStatus(job, nowMs)
                             ListItem(
-                                // No leading icon: the Chats and channels lists carry none either,
-                                // and DESIGN §4.1 bars Material's filled set from this icon system —
-                                // ErrorOutline / CheckCircle / PauseCircleOutline all came from it.
-                                // Status now reads from the dot beside the name, on StatusColors.
-                                overlineContent = {
-                                    Text(
-                                        job.scheduleText + "  ·  " + cronDeliveryText(job.deliver).resolve(language),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
+                                // No leading icon and no overline: the Chats and channels lists
+                                // carry neither, and DESIGN §4.1 bars Material's filled set from
+                                // this icon system (ErrorOutline / CheckCircle / PauseCircleOutline
+                                // all came from it). Status reads from the dot beside the name.
                                 headlineContent = {
                                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                                         Text(
@@ -150,13 +163,14 @@ fun CronScreen(
                                     }
                                 },
                                 supportingContent = {
-                                    val next = job.nextRunAt?.let { l10n("下次：", "Next: ") + com.hermes.client.ui.util.formatIso(it) }
-                                    // Prompt snippet is only useful here when the headline is the name; when the job is
-                                    // unnamed the headline already shows the prompt (via cronDisplayName), so don't repeat it.
-                                    val fallback = job.name?.takeIf { it.isNotBlank() }?.let {
-                                        job.prompt?.replace("\n", " ")?.trim()?.take(100)
-                                    }
-                                    Text(next ?: fallback.orEmpty())
+                                    // 节奏或落点 · 上次结果 — the row grammar the three lists share.
+                                    // The exact next-run timestamp lives on the detail screen: in a
+                                    // list, "每 10 分钟" plus "上次失败" is what decides whether to look.
+                                    Text(
+                                        cronSublineText(job.scheduleText, job.deliver, rowStatus, language),
+                                        maxLines = 2,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    )
                                 },
                                 trailingContent = {
                                     Box {
