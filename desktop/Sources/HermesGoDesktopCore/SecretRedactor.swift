@@ -10,11 +10,15 @@ public enum SecretRedactor {
     private static let queryPattern = try! NSRegularExpression(
         pattern: #"(?i)([?&](?:token|ticket|password)=)([^&#\s]+)"#
     )
+    private static let accountCredentialPattern = try! NSRegularExpression(
+        pattern: #"\b(?:hga|hgr|hgg|hsi)_[A-Za-z0-9_-]+\b"#
+    )
 
     public static func redact(_ text: String, knownSecrets: [String] = []) -> String {
         var result = replace(headerPattern, in: text, template: "$1$2<redacted>")
         result = replace(environmentPattern, in: result, template: "$1$2<redacted>")
         result = replace(queryPattern, in: result, template: "$1<redacted>")
+        result = replace(accountCredentialPattern, in: result, template: "<redacted>")
 
         for secret in knownSecrets.filter({ $0.count >= 4 }).sorted(by: { $0.count > $1.count }) {
             result = result.replacingOccurrences(of: secret, with: "<redacted>")

@@ -7,6 +7,9 @@ import com.hermes.client.data.network.SessionStatsDto
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Session
 import com.hermes.client.domain.toDomain
+import com.hermes.client.data.auth.AccountRoutingContext
+import com.hermes.client.data.auth.AccountSessionManager
+import com.hermes.client.data.auth.ConversationDeviceStore
 import com.hermes.client.domain.isRenderable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -26,14 +29,14 @@ private fun Session.isInteractive(): Boolean =
 class SessionRepository(
     private val rest: HermesRestApi,
     private val scope: CoroutineScope,
-    /**
-     * Absent means "no disk cache", which is a real configuration rather than a degraded one:
-     * unit tests that only exercise the network path construct the repository without it.
-     */
+    /** Optional disk cache for raw transcript payloads. */
     private val transcripts: TranscriptStore? = null,
+    private val accountSessions: AccountSessionManager? = null,
+    private val conversationDevices: ConversationDeviceStore? = null,
 ) {
     @Volatile private var allProfilesCache: List<Session> = emptyList()
     @Volatile private var allProfilesLoaded: Boolean = false
+    @Volatile private var allProfilesCacheRoute: String? = null
     private val historyCache = object : LinkedHashMap<String, List<ChatMessage>>(12, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<ChatMessage>>?): Boolean =
             size > 10
@@ -92,8 +95,19 @@ class SessionRepository(
         private const val HISTORY_KEY_PREFIX = "history:"
     }
 
-    suspend fun list(profile: String? = null): List<Session> =
-        rest.sessions(limit = 50, offset = 0, profile = profile).map { it.toDomain() }
+    suspend fun list(profile: String? = null, deviceId: String? = null): List<Session> {
+        val defaultContext = accountSessions?.routingContext()
+        val context = if (!deviceId.isNullOrBlank() && defaultContext != null) {
+            defaultContext.copy(deviceId = deviceId)
+        } else {
+            defaultContext
+        }
+        return bindToRoute(
+            rest.sessions(limit = 50, offset = 0, profile = profile, deviceId = context?.deviceId)
+                .map { it.toDomain() },
+            context,
+        )
+    }
 
     /**
      * All non-archived sessions across every profile, each tagged with its true profile.
@@ -101,12 +115,19 @@ class SessionRepository(
      * sessions screen. The endpoint already excludes archived; the filter is defensive.
      * [isInteractive] hides cron + empty sessions so the counts match the desktop dashboard.
      */
-    suspend fun listAllProfiles(): List<Session> = coalesced(LIST_ALL_KEY) {
-        val loaded = rest.profileSessions().sessions.map { it.toDomain() }
-            .filter { !it.archived && it.isInteractive() }
-        allProfilesCache = loaded
-        allProfilesLoaded = true
-        loaded
+    suspend fun listAllProfiles(): List<Session> {
+        val context = accountSessions?.routingContext()
+        val route = routeKey(context)
+        return coalesced("$LIST_ALL_KEY:$route") {
+            val loaded = bindToRoute(
+                rest.profileSessions(deviceId = context?.deviceId).sessions.map { it.toDomain() },
+                context,
+            ).filter { !it.archived && it.isInteractive() }
+            allProfilesCache = loaded
+            allProfilesCacheRoute = route
+            allProfilesLoaded = true
+            loaded
+        }
     }
 
     /**
@@ -114,19 +135,28 @@ class SessionRepository(
      * filter. [listAllProfiles] drops messaging sources on purpose — they would flood the Chats
      * list — so the Bots segment needs its own read of the same endpoint.
      */
-    suspend fun botSessions(): List<Session> = coalesced(BOT_LIST_KEY) {
-        rest.profileSessions().sessions.map { it.toDomain() }
-            .filter { !it.archived && it.messageCount > 0 }
+    suspend fun botSessions(): List<Session> {
+        val context = accountSessions?.routingContext()
+        return coalesced("$BOT_LIST_KEY:${routeKey(context)}") {
+            bindToRoute(
+                rest.profileSessions(deviceId = context?.deviceId).sessions.map { it.toDomain() },
+                context,
+            ).filter { !it.archived && it.messageCount > 0 }
+        }
     }
 
-    fun cachedAllProfiles(): List<Session> = allProfilesCache
+    fun cachedAllProfiles(): List<Session> =
+        if (allProfilesCacheRoute == routeKey(accountSessions?.routingContext())) allProfilesCache else emptyList()
 
     /** Distinguishes a successfully loaded empty list from a list that has not been fetched yet. */
-    fun hasLoadedAllProfiles(): Boolean = allProfilesLoaded
+    fun hasLoadedAllProfiles(): Boolean = allProfilesLoaded &&
+        allProfilesCacheRoute == routeKey(accountSessions?.routingContext())
 
-    fun cachedSession(sessionId: String, profile: String? = null): Session? =
+    fun cachedSession(sessionId: String, profile: String? = null, deviceId: String? = null): Session? =
         allProfilesCache.firstOrNull {
-            it.id == sessionId && (profile.isNullOrBlank() || it.profile == profile)
+            it.id == sessionId &&
+                (profile.isNullOrBlank() || it.profile == profile) &&
+                (deviceId.isNullOrBlank() || it.deviceId == deviceId)
         }
 
     /**
@@ -134,30 +164,54 @@ class SessionRepository(
      * scheduled run's actual output (which the gateway stores as a real `source="cron"` session)
      * is openable straight from the activity feed. Still drops archived + empty sessions.
      */
-    suspend fun activityFeed(): List<Session> =
-        rest.profileSessions().sessions.map { it.toDomain() }
+    suspend fun activityFeed(): List<Session> {
+        val context = accountSessions?.routingContext()
+        return bindToRoute(
+            rest.profileSessions(deviceId = context?.deviceId).sessions.map { it.toDomain() },
+            context,
+        )
             .filter { !it.archived && it.messageCount > 0 }
+    }
 
     /** All archived sessions across every profile (the cross-profile archived view). */
-    suspend fun archivedAllProfiles(): List<Session> = coalesced(ARCHIVED_ALL_KEY) {
-        rest.profileSessions(archivedOnly = true).sessions.map { it.toDomain() }
-            .filter { it.archived && it.isInteractive() }
+    suspend fun archivedAllProfiles(): List<Session> {
+        val context = accountSessions?.routingContext()
+        return coalesced("$ARCHIVED_ALL_KEY:${routeKey(context)}") {
+            bindToRoute(
+                rest.profileSessions(
+                    archivedOnly = true,
+                    deviceId = context?.deviceId,
+                ).sessions.map { it.toDomain() },
+                context,
+            ).filter { it.archived && it.isInteractive() }
+        }
     }
     suspend fun stats(profile: String? = null): SessionStatsDto = rest.sessionStats(profile)
     /** Message-content search over the same interactive sources the list shows. */
     suspend fun search(query: String, profile: String? = null): List<SearchResultDto> =
-        rest.searchSessions(query, profile, excludeSources = EXCLUDED_SOURCES)
+        rest.searchSessions(
+            query,
+            profile,
+            excludeSources = EXCLUDED_SOURCES,
+            deviceId = accountSessions?.routingContext()?.deviceId,
+        )
     suspend fun archived(profile: String? = null): List<Session> =
-        rest.archivedSessions(profile).map { it.toDomain() }
+        accountSessions?.routingContext().let { context ->
+            bindToRoute(rest.archivedSessions(profile, context?.deviceId).map { it.toDomain() }, context)
+        }
     // Tool/function turns are model context, not conversation turns. Their payload format is not
     // stable (untrusted wrappers, command result JSON, escaped markdown, skill documents, etc.),
     // so trying to recognize individual payload shapes will always leak the next variant. Remove
     // these roles at the data boundary and render only user/assistant/system conversation history.
     // Live tool activity still appears through tool.start/tool.complete as compact status cards.
-    suspend fun history(sessionId: String, profile: String? = null): List<ChatMessage> =
-        coalesced("$HISTORY_KEY_PREFIX${historyKey(sessionId, profile)}") {
-            val key = historyKey(sessionId, profile)
-            val raw = rest.messagesRaw(sessionId, profile)
+    suspend fun history(
+        sessionId: String,
+        profile: String? = null,
+        deviceId: String? = null,
+    ): List<ChatMessage> =
+        coalesced("$HISTORY_KEY_PREFIX${historyKey(sessionId, profile, deviceId)}") {
+            val key = historyKey(sessionId, profile, deviceId)
+            val raw = rest.messagesRaw(sessionId, profile, deviceId)
             val loaded = mapHistory(rest.parseMessages(raw))
             synchronized(historyCache) { historyCache[key] = loaded }
             // Persisting must not sit between the caller and its transcript: gzip plus a file
@@ -176,8 +230,12 @@ class SessionRepository(
      * simply refetches), or when it maps to nothing renderable. Populating the memory cache here
      * means the second open in the same run does not touch the disk either.
      */
-    suspend fun diskHistory(sessionId: String, profile: String? = null): List<ChatMessage>? {
-        val key = historyKey(sessionId, profile)
+    suspend fun diskHistory(
+        sessionId: String,
+        profile: String? = null,
+        deviceId: String? = null,
+    ): List<ChatMessage>? {
+        val key = historyKey(sessionId, profile, deviceId)
         val raw = transcripts?.read(key) ?: return null
         val loaded = runCatching { mapHistory(rest.parseMessages(raw)) }.getOrNull()
         if (loaded.isNullOrEmpty()) return null
@@ -203,18 +261,49 @@ class SessionRepository(
             .filter { it.isRenderable() }
     }
 
-    fun cachedHistory(sessionId: String, profile: String? = null): List<ChatMessage>? =
-        synchronized(historyCache) { historyCache[historyKey(sessionId, profile)] }
+    fun cachedHistory(sessionId: String, profile: String? = null, deviceId: String? = null): List<ChatMessage>? =
+        synchronized(historyCache) { historyCache[historyKey(sessionId, profile, deviceId)] }
 
-    private fun historyKey(sessionId: String, profile: String?): String =
-        "${profile.orEmpty()}/$sessionId"
+    private fun historyKey(sessionId: String, profile: String?, deviceId: String?): String =
+        if (deviceId.isNullOrBlank()) {
+            "${profile.orEmpty()}/$sessionId"
+        } else {
+            "$deviceId/${profile.orEmpty()}/$sessionId"
+        }
+
+    fun currentDeviceId(): String? = accountSessions?.routingContext()?.deviceId
+
+    fun bindConversation(profile: String?, sessionId: String, deviceId: String? = currentDeviceId()) {
+        val account = accountSessions?.session?.value ?: return
+        val device = deviceId?.takeIf { it.isNotBlank() } ?: return
+        conversationDevices?.bind(account.accountId, profile, sessionId, device)
+    }
+
+    private fun bindToRoute(items: List<Session>, context: AccountRoutingContext?): List<Session> {
+        if (context == null) return items
+        return items.map { session ->
+            conversationDevices?.bind(context.accountId, session.profile, session.id, context.deviceId)
+            session.copy(deviceId = context.deviceId)
+        }
+    }
+
+    private fun routeKey(context: AccountRoutingContext?): String =
+        context?.let { "${it.accountId}:${it.deviceId}" } ?: "legacy"
 
     // All mutations carry the session's profile so the gateway hits the right per-profile DB
     // (otherwise the call 404s and the change silently no-ops).
-    suspend fun rename(sessionId: String, title: String, profile: String?) =
-        rest.patchSession(sessionId, title = title, profile = profile)
-    suspend fun archive(sessionId: String, archived: Boolean, profile: String?) =
-        rest.patchSession(sessionId, archived = archived, profile = profile)
-    suspend fun delete(sessionId: String, profile: String?) = rest.deleteSession(sessionId, profile)
+    suspend fun rename(sessionId: String, title: String, profile: String?, deviceId: String? = null) =
+        rest.patchSession(sessionId, title = title, profile = profile, deviceId = deviceId)
+    suspend fun archive(
+        sessionId: String,
+        archived: Boolean,
+        profile: String?,
+        deviceId: String? = null,
+    ) = rest.patchSession(sessionId, archived = archived, profile = profile, deviceId = deviceId)
+    suspend fun delete(sessionId: String, profile: String?, deviceId: String? = null) {
+        rest.deleteSession(sessionId, profile, deviceId)
+        val account = accountSessions?.session?.value ?: return
+        conversationDevices?.remove(account.accountId, profile, sessionId)
+    }
 
 }

@@ -39,4 +39,12 @@ class ChatRouteTest {
         val route = chatRoute(ChatLaunch.new("n1").copy(initialQuery = "x"), encode)
         assertEquals("chat/<n1>?new=true&q=<x>", route)
     }
+
+    @Test fun account_conversation_route_carries_opaque_device_before_profile() {
+        val route = chatRoute(
+            ChatLaunch.unknown("s1", profile = "personal", deviceId = "office/mac 1"),
+            encode,
+        )
+        assertEquals("chat/<s1>?device=<office/mac 1>&profile=<personal>", route)
+    }
 }

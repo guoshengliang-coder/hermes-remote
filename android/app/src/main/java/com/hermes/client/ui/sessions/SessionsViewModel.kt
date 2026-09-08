@@ -17,6 +17,7 @@ import com.hermes.client.domain.Project
 import com.hermes.client.domain.Session
 import com.hermes.client.data.error.AppError
 import com.hermes.client.data.error.AppErrorCode
+import com.hermes.client.data.auth.AccountSessionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -62,6 +63,7 @@ class SessionsViewModel @Inject constructor(
     private val runtimeStore: SessionRuntimeStore,
     private val tools: com.hermes.client.data.repository.ToolsRepository,
     private val projectPrefs: ProjectPrefsStore,
+    private val accountSessions: AccountSessionManager? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(
         SessionsUiState(
@@ -78,8 +80,10 @@ class SessionsViewModel @Inject constructor(
     fun runtimeFor(
         session: Session,
         values: Map<SessionRuntimeKey, SessionRuntime> = runtimes.value,
-    ): SessionRuntime? = values[SessionRuntimeKey(session.profile, session.id)]
-        ?: values.values.firstOrNull { it.key.sessionId == session.id }
+    ): SessionRuntime? = values[SessionRuntimeKey(session.profile, session.id, session.deviceId)]
+        ?: values.values.firstOrNull {
+            it.key.sessionId == session.id && (session.deviceId == null || it.key.deviceId == session.deviceId)
+        }
 
     /** The active profile, shown as a subtitle so the tenant context is always visible. */
     val activeProfile: StateFlow<String?> = profileManager.active
@@ -121,7 +125,7 @@ class SessionsViewModel @Inject constructor(
 
     /** True if [session] is pinned, keyed by the session's own profile. Unread pins pin nothing. */
     fun isPinned(session: Session, tokens: Set<String>? = pinnedTokens.value): Boolean =
-        PinStore.token(session.profile, session.id) in tokens.orEmpty()
+        PinStore.token(session.profile, session.id, session.deviceId) in tokens.orEmpty()
 
     /**
      * Bumped when the user pins a session, so the list can bring the 已置顶 section into view.
@@ -182,7 +186,7 @@ class SessionsViewModel @Inject constructor(
     }
 
     fun unarchive(session: Session) = viewModelScope.launch {
-        runCatching { sessions.archive(session.id, archived = false, session.profile) }
+        runCatching { sessions.archive(session.id, archived = false, session.profile, session.deviceId) }
             .onSuccess { loadArchived(); refresh() }
     }
 
@@ -257,7 +261,7 @@ class SessionsViewModel @Inject constructor(
     }
 
     init {
-        chat.connect()
+        restoreSelectedRoute()
         viewModelScope.launch { profileManager.refresh() }
         viewModelScope.launch { restoreScopeId = projectPrefs.projectScope.first() }
         // The list is scoped to the active profile (like the desktop, one tenant at a time), so it
@@ -318,6 +322,12 @@ class SessionsViewModel @Inject constructor(
                 refreshOnce()
             } while (handlingVersion != refreshVersion)
         }
+    }
+
+    /** Returning to the list ends any chat-specific Mac route and restores the selected Mac. */
+    fun onVisible() {
+        restoreSelectedRoute()
+        refresh()
     }
 
     private suspend fun refreshOnce() {
@@ -393,48 +403,50 @@ class SessionsViewModel @Inject constructor(
     }
 
     /** Refreshes whichever Chats segment is actually visible while the warm-start gate is up. */
-    suspend fun recoverForForeground(): Boolean = when (viewModeStore.mode.first()) {
-        // Bot conversations come from the same cross-profile fetch the Chats list already does.
-        ViewMode.SESSIONS, ViewMode.BOTS -> {
-            refreshOnce()
-            !_state.value.unauthorized && _state.value.error == null
-        }
-        ViewMode.PROJECTS -> try {
-            // A launch/profile refresh may still be rebuilding the same tree. Cancel it before
-            // the gate performs its authoritative refresh, otherwise the older response can land
-            // last and reveal stale project contents after recovery completes.
-            projectTreeJob?.cancel()
-            val active = profileManager.active.value
-            val all = sessions.listAllProfiles()
-            val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
-            val tree = deriveProjectsFromSessions(scoped, defaultProjectPath.value)
-            val openProjectId = _projects.value.scope?.id
-            _projects.value = ProjectsUiState(
-                tree = tree,
-                scope = openProjectId?.let { id -> tree.firstOrNull { it.id == id } },
-            )
-            true
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            _projects.value = ProjectsUiState(
-                error = AppError(AppErrorCode.RPC_FAILED, true, error.message, "projects_recovery"),
-            )
-            false
-        }
-        ViewMode.ARCHIVED -> try {
-            val active = profileManager.active.value
-            val all = sessions.archivedAllProfiles()
-            val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
-            _archived.value = ArchivedUiState(sessions = scoped)
-            true
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            _archived.value = ArchivedUiState(
-                error = AppError(AppErrorCode.RPC_FAILED, true, error.message, "archived_recovery"),
-            )
-            false
+    suspend fun recoverForForeground(): Boolean {
+        restoreSelectedRoute()
+        return when (viewModeStore.mode.first()) {
+            ViewMode.SESSIONS, ViewMode.BOTS -> {
+                refreshOnce()
+                !_state.value.unauthorized && _state.value.error == null
+            }
+            ViewMode.PROJECTS -> try {
+                // A launch/profile refresh may still be rebuilding the same tree. Cancel it before
+                // the gate performs its authoritative refresh, otherwise the older response can land
+                // last and reveal stale project contents after recovery completes.
+                projectTreeJob?.cancel()
+                val active = profileManager.active.value
+                val all = sessions.listAllProfiles()
+                val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
+                val tree = deriveProjectsFromSessions(scoped, defaultProjectPath.value)
+                val openProjectId = _projects.value.scope?.id
+                _projects.value = ProjectsUiState(
+                    tree = tree,
+                    scope = openProjectId?.let { id -> tree.firstOrNull { it.id == id } },
+                )
+                true
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _projects.value = ProjectsUiState(
+                    error = AppError(AppErrorCode.RPC_FAILED, true, error.message, "projects_recovery"),
+                )
+                false
+            }
+            ViewMode.ARCHIVED -> try {
+                val active = profileManager.active.value
+                val all = sessions.archivedAllProfiles()
+                val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
+                _archived.value = ArchivedUiState(sessions = scoped)
+                true
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _archived.value = ArchivedUiState(
+                    error = AppError(AppErrorCode.RPC_FAILED, true, error.message, "archived_recovery"),
+                )
+                false
+            }
         }
     }
 
@@ -464,7 +476,11 @@ class SessionsViewModel @Inject constructor(
     }
 
     /** Outcome of [createSession]: the durable id, and whether a requested project folder was refused. */
-    data class CreateResult(val id: String, val fellBackToDefault: Boolean)
+    data class CreateResult(
+        val id: String,
+        val fellBackToDefault: Boolean,
+        val deviceId: String? = null,
+    )
 
     /**
      * Creates a session in [cwd] (a project folder) or, when null, in the gateway's launch
@@ -474,6 +490,7 @@ class SessionsViewModel @Inject constructor(
      * Returns null if creation failed (so the UI doesn't crash).
      */
     suspend fun createSession(cwd: String? = null): CreateResult? {
+        restoreSelectedRoute()
         val created = runCatching { chat.createSession(profileManager.active.value, cwd) }
             // runCatching also catches CancellationException — rethrow it so cancelling the caller
             // isn't swallowed and mistaken for a failed creation.
@@ -481,10 +498,16 @@ class SessionsViewModel @Inject constructor(
             .getOrNull() ?: return null
         if (cwd.isNullOrBlank()) {
             created.cwd?.let { projectPrefs.setDefaultProjectPath(it) }
-            return CreateResult(created.id, fellBackToDefault = false)
+            sessions.bindConversation(profileManager.active.value, created.id)
+            return CreateResult(created.id, fellBackToDefault = false, deviceId = sessions.currentDeviceId())
         }
         val fellBack = created.cwd != null && !isDefaultProjectPath(created.cwd, cwd)
-        return CreateResult(created.id, fellBackToDefault = fellBack)
+        sessions.bindConversation(profileManager.active.value, created.id)
+        return CreateResult(created.id, fellBackToDefault = fellBack, deviceId = sessions.currentDeviceId())
+    }
+
+    private fun restoreSelectedRoute() {
+        if (accountSessions?.restoreSelectedDeviceRoute() == true) chat.reconnect() else chat.connect()
     }
 
     /**
@@ -503,7 +526,7 @@ class SessionsViewModel @Inject constructor(
                     // completed-unread run. The user just acted on this session, so clear it —
                     // once now and once after the event has had time to land.
                     val key = runtimeStore.runtimes.value.keys.firstOrNull { it.sessionId == session.id }
-                        ?: SessionRuntimeKey(session.profile, session.id)
+                        ?: SessionRuntimeKey(session.profile, session.id, session.deviceId)
                     runtimeStore.markRead(key)
                     viewModelScope.launch { delay(750L); runtimeStore.markRead(key) }
                     refresh()
@@ -515,17 +538,19 @@ class SessionsViewModel @Inject constructor(
     }
 
     fun rename(session: Session, title: String) = viewModelScope.launch {
-        runCatching { sessions.rename(session.id, title, session.profile) }.onSuccess { refresh() }
+        runCatching { sessions.rename(session.id, title, session.profile, session.deviceId) }.onSuccess { refresh() }
     }
 
     fun archive(session: Session) = viewModelScope.launch {
         // Archiving removes it from the active list — must carry the session's profile or the
         // gateway 404s (wrong per-profile DB) and the session never disappears.
-        runCatching { sessions.archive(session.id, archived = true, session.profile) }.onSuccess { refresh() }
+        runCatching {
+            sessions.archive(session.id, archived = true, session.profile, session.deviceId)
+        }.onSuccess { refresh() }
     }
 
     fun delete(session: Session) = viewModelScope.launch {
-        runCatching { sessions.delete(session.id, session.profile) }.onSuccess { refresh() }
+        runCatching { sessions.delete(session.id, session.profile, session.deviceId) }.onSuccess { refresh() }
     }
 
     /** Pin/unpin keyed by the session's OWN profile, so it works regardless of the active one. */
@@ -533,7 +558,7 @@ class SessionsViewModel @Inject constructor(
         // Pinning lifts the row into a section above wherever the reader is standing; without the
         // reveal it simply vanishes from under their finger (HG-11). Unpinning moves it back down
         // into its recency group, which needs no chase.
-        if (pinStore.toggle(PinStore.token(session.profile, session.id))) {
+        if (pinStore.toggle(PinStore.token(session.profile, session.id, session.deviceId))) {
             _pinRevealRequests.value += 1
         }
     }

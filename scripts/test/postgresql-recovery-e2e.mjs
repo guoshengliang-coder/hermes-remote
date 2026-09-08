@@ -37,6 +37,14 @@ if (![sourceContainerId, restoreContainerId].every((value) => /^[a-f0-9]{12,64}$
   throw new Error("postgres_container_id_invalid");
 }
 if (sourceContainerId === restoreContainerId) throw new Error("postgres_containers_must_differ");
+const targetManifest = JSON.parse(await readFile(process.env.R5E_TARGET_MANIFEST, "utf8"));
+const databaseSchemaVersion = targetManifest.releaseContract?.databaseSchemaVersion;
+if (!Number.isSafeInteger(databaseSchemaVersion) || databaseSchemaVersion <= 0) {
+  throw new Error("target_database_schema_version_invalid");
+}
+if (!targetManifest.releaseContract.supportedPostgresqlMajors?.includes(18)) {
+  throw new Error("target_postgresql_major_unsupported");
+}
 
 const base = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-r5e-e2e-")));
 try {
@@ -81,7 +89,7 @@ try {
       ACCOUNT_DATABASE_URL: sourceUrl,
       ACCOUNT_DATABASE_SSL: "0",
       ACCOUNT_DATABASE_MIGRATION_LOCK_ID: "948501337",
-      ACCOUNT_DATABASE_SCHEMA_VERSION: "7",
+      ACCOUNT_DATABASE_SCHEMA_VERSION: String(databaseSchemaVersion),
       ACCOUNT_DATABASE_SUPPORTED_MAJORS: "18",
     },
   });
@@ -121,7 +129,7 @@ try {
     databaseUrlFile: sourceDatabaseUrlFile, recipientCertificate,
     backupRoot: sourceGenerations, latestDescriptorFile: path.join(sourceGenerations, "latest-ready.json"),
     activeStatusFile, maximumEncryptedBytes: 1024 * 1024 * 1024, retentionCount: 14,
-    postgresqlMajorVersion: 18, databaseSchemaVersion: 7,
+    postgresqlMajorVersion: 18, databaseSchemaVersion,
   };
   const systemRunner = createCommandRunner({ timeoutMs: 120_000 });
   const runner = {
@@ -161,7 +169,7 @@ try {
     dockerPath: "/usr/bin/docker", opensslPath: "/usr/bin/openssl",
     postgresqlImage: `postgres:18-alpine@sha256:${"a".repeat(64)}`,
     maximumEncryptedBytes: 1024 * 1024 * 1024, retentionCount: 30,
-    postgresqlMajorVersion: 18, databaseSchemaVersion: 7,
+    postgresqlMajorVersion: 18, databaseSchemaVersion,
   };
   let restored;
   const remote = {
@@ -183,7 +191,7 @@ try {
         recipientCertificate, recipientPrivateKey, databaseUrlFile: restoreDatabaseUrlFile,
         imageDatabaseUrlFile, targetArtifactManifest: config.targetArtifactManifest,
         evidenceFile: paths.evidenceFile, statusFile: paths.statusFile,
-        offHostStorageId: config.offHostStorageId, postgresqlMajorVersion: 18, databaseSchemaVersion: 7,
+        offHostStorageId: config.offHostStorageId, postgresqlMajorVersion: 18, databaseSchemaVersion,
       }, { confirmation: "isolated:github-r5e-source", hostname: "github-r5e-restore", runner });
     },
   });
@@ -210,7 +218,7 @@ try {
   const candidateStatus = await loadPostgresqlBackupStatus(statusFile);
   if (evidence.artifactSha256 !== descriptor.archiveSha256
       || candidateStatus.offHostSha256 !== descriptor.archiveSha256
-      || restored.subject.databaseSchemaVersion !== 7) {
+      || restored.subject.databaseSchemaVersion !== databaseSchemaVersion) {
     throw new Error("recovery_evidence_binding_invalid");
   }
   const activeStatus = await loadPostgresqlBackupStatus(activeStatusFile);
@@ -242,7 +250,7 @@ try {
   if (names.some((name) => /\.dump$|\.sql$|plaintext/i.test(name))) throw new Error("plaintext_backup_found");
   process.stdout.write(`POSTGRESQL_RECOVERY_E2E_OK ${JSON.stringify({
     postgresqlMajorVersion: 18,
-    databaseSchemaVersion: 7,
+    databaseSchemaVersion,
     encryptedBytes: descriptor.archiveBytes,
     verifiedChecks: restored.verifiedChecks,
     accountRowsRestored: accountCount.rows[0].count,

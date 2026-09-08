@@ -1,6 +1,8 @@
 package com.hermes.client.data.network
 
 import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.auth.AccountSessionManager
+import com.hermes.client.data.auth.AccountTransportMode
 import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -22,13 +24,19 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import java.util.concurrent.TimeUnit
 import java.io.File
 
-class HermesApiException(val code: Int, message: String) : Exception(message)
+class HermesApiException(
+    val code: Int,
+    message: String,
+    /** Stable structured account error, when the response follows the shared error envelope. */
+    val errorCode: String? = null,
+) : Exception(message)
 data class UploadedArtifact(val path: String, val name: String, val sizeBytes: Long)
 
 /** Result of the lightweight startup/settings status probe. */
 sealed interface GatewayProbeResult {
     data object Reachable : GatewayProbeResult
     data class Unauthorized(val statusCode: Int) : GatewayProbeResult
+    data class AccountDeviceUnavailable(val errorCode: String) : GatewayProbeResult
     data class ServerFailure(val statusCode: Int, val errorCode: String? = null) : GatewayProbeResult
     data class InvalidEndpoint(val statusCode: Int) : GatewayProbeResult
     data class Unreachable(val cause: String?) : GatewayProbeResult
@@ -37,8 +45,29 @@ sealed interface GatewayProbeResult {
 class HermesRestApi(
     private val okHttp: OkHttpClient,
     private val json: Json,
+    private val accountSessionManager: AccountSessionManager? = null,
+    private val accountOkHttp: OkHttpClient? = null,
     private val configProvider: () -> GatewayConfig?,
 ) {
+    private data class AccountRequestContext(val deviceId: String?)
+
+    private val accountRestOkHttp = accountOkHttp?.newBuilder()
+        ?.addInterceptor { chain ->
+            val request = chain.request()
+            val response = chain.proceed(request)
+            val context = request.tag(AccountRequestContext::class.java)
+            if (context != null && !response.isSuccessful) {
+                val stableCode = runCatching {
+                    json.decodeFromString<AccountErrorEnvelopeDto>(
+                        response.peekBody(16L * 1_024L).string(),
+                    ).error.code
+                }.getOrNull()
+                accountSessionManager?.handleRestRejection(response.code, stableCode, context.deviceId)
+            }
+            response
+        }
+        ?.build()
+
     private companion object {
         const val REST_TIMEOUT_SECONDS = 20L
         /** A quiet poll is only worth a line once it stops being quick. */
@@ -64,7 +93,37 @@ class HermesRestApi(
     private fun config(): GatewayConfig =
         configProvider() ?: throw HermesApiException(0, "no gateway configured")
 
-    private fun builder(path: String): Request.Builder {
+    private suspend fun builder(path: String, deviceIdOverride: String? = null): Request.Builder {
+        if (path.startsWith("/api/mobile/events")) {
+            accountSessionManager?.accountControlConnection()?.let { account ->
+                com.hermes.client.data.diagnostics.DebugLog.setTokenToRedact(account.bearer)
+                return Request.Builder()
+                    .url("${account.baseUrl.trimEnd('/')}$path")
+                    .header("Authorization", "Bearer ${account.bearer}")
+                    .tag(AccountRequestContext::class.java, AccountRequestContext(deviceId = null))
+            }
+            if (accountSessionManager?.requiresAccountReauthentication() == true) {
+                throw HermesApiException(401, "HR-AUTH-003", errorCode = "HR-AUTH-003")
+            }
+        }
+        if (path.startsWith("/api/")) {
+            accountSessionManager?.connection(deviceIdOverride)?.let { account ->
+                com.hermes.client.data.diagnostics.DebugLog.setTokenToRedact(account.bearer)
+                val device = java.net.URLEncoder.encode(account.deviceId, Charsets.UTF_8.name())
+                    .replace("+", "%20")
+                val routedPath = "/v2/devices/$device/api/${path.removePrefix("/api/")}"
+                return Request.Builder()
+                    .url("${account.baseUrl.trimEnd('/')}$routedPath")
+                    .header("Authorization", "Bearer ${account.bearer}")
+                    .tag(AccountRequestContext::class.java, AccountRequestContext(account.deviceId))
+            }
+            if (accountSessionManager?.requiresAccountReauthentication() == true) {
+                throw HermesApiException(401, "HR-AUTH-003", errorCode = "HR-AUTH-003")
+            }
+            if (accountSessionManager?.transportMode() == AccountTransportMode.DEVICE_SELECTION_REQUIRED) {
+                throw HermesApiException(409, "HR-BIND-009", errorCode = "HR-BIND-009")
+            }
+        }
         val cfg = config().let { it.copy(baseUrl = normalizeGatewayBaseUrl(it.baseUrl)) }
         // Keep the diagnostic log's redaction current with whatever token is active, so a
         // shared log can never contain the session token in plain text.
@@ -76,14 +135,25 @@ class HermesRestApi(
         return b
     }
 
+    /**
+     * Account bearer traffic uses a client with no legacy dashboard cookie jar/authenticator.
+     * This keeps the two authentication modes unambiguous even when they share a hostname.
+     */
+    private fun clientFor(request: Request): OkHttpClient =
+        if (request.header("Authorization")?.startsWith("Bearer ") == true) {
+            checkNotNull(accountRestOkHttp) { "account transport client unavailable" }
+        } else {
+            okHttp
+        }
+
+    /** The shared clients have no REST-wide deadline; every REST call gets one here. */
+    private fun restCall(request: Request): Call = clientFor(request).newCall(request).apply {
+        timeout().timeout(REST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+    }
+
     /** High-frequency polls whose successful, fast outcome carries no information. */
     private fun isQuietPath(path: String): Boolean =
         QUIET_PATH_PREFIXES.any { path.startsWith(it) }
-
-    /** The shared client has no read timeout for WebSockets; every REST call gets a deadline. */
-    private fun restCall(request: Request): Call = okHttp.newCall(request).apply {
-        timeout().timeout(REST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-    }
 
     /**
      * One log line per call instead of two, and none at all for a quiet poll.
@@ -98,8 +168,8 @@ class HermesRestApi(
      * Transport failures are now logged too. Previously a timed-out call left only the opening
      * line and no outcome at all, which reads exactly like a request that never returned.
      */
-    private suspend fun getRaw(path: String): String = withContext(Dispatchers.IO) {
-        val call = restCall(builder(path).get().build())
+    private suspend fun getRaw(path: String, deviceIdOverride: String? = null): String = withContext(Dispatchers.IO) {
+        val call = restCall(builder(path, deviceIdOverride).get().build())
         // The shared client deliberately has no read timeout because WebSockets are long-lived.
         // A per-call deadline is essential for REST, otherwise a stalled Relay/Connector request
         // leaves a Compose loading screen spinning forever.
@@ -121,7 +191,14 @@ class HermesRestApi(
                 com.hermes.client.data.diagnostics.DebugLog.log("rest") {
                     "GET $path ← ${resp.code} (${elapsed}ms) ${body.take(200)}"
                 }
-                throw HermesApiException(resp.code, body.ifBlank { "HTTP ${resp.code}" })
+                val stableCode = runCatching {
+                    json.decodeFromString<AccountErrorEnvelopeDto>(body).error.code
+                }.getOrNull()
+                throw HermesApiException(
+                    code = resp.code,
+                    message = stableCode ?: body.ifBlank { "HTTP ${resp.code}" },
+                    errorCode = stableCode,
+                )
             }
             if (!isQuietPath(path) || elapsed >= SLOW_REQUEST_MS) {
                 com.hermes.client.data.diagnostics.DebugLog.log("rest") {
@@ -137,7 +214,10 @@ class HermesRestApi(
      * has to survive the trip out of [getRaw] — decoding is split off here so that a cached
      * payload and a fresh one go through exactly the same parser (see [TranscriptStore]).
      */
-    private suspend inline fun <reified T> get(path: String): T = json.decodeFromString(getRaw(path))
+    private suspend inline fun <reified T> get(
+        path: String,
+        deviceIdOverride: String? = null,
+    ): T = json.decodeFromString(getRaw(path, deviceIdOverride))
 
     /**
      * T10b: test connectivity using explicitly supplied credentials WITHOUT reading from
@@ -189,10 +269,20 @@ class HermesRestApi(
      *  The production edge maps the gateway's /health to /relay-health (bare /health belongs to
      *  the release server there); a direct gateway connection only has /health. Try the edge
      *  path first, then fall back. */
-    suspend fun relayHealth(): RelayHealthDto =
-        runCatching { get<RelayHealthDto>("/relay-health") }.getOrNull()
+    suspend fun relayHealth(): RelayHealthDto {
+        accountSessionManager?.session?.value?.let { account ->
+            account.selectedDeviceId?.let { deviceId ->
+                return RelayHealthDto(
+                    ok = true,
+                    connectors = 1,
+                    devices = listOf(RelayDeviceDto(account.selectedDeviceName ?: deviceId, online = true)),
+                )
+            }
+        }
+        return runCatching { get<RelayHealthDto>("/relay-health") }.getOrNull()
             ?.takeIf { it.ok }
             ?: get("/health")
+    }
 
     /** Durable Relay-owned lifecycle inbox; available even while the Mac Connector is offline. */
     suspend fun lifecycleEvents(after: Long, limit: Int = 100): LifecycleEventPageDto {
@@ -227,9 +317,15 @@ class HermesRestApi(
             }
         }
 
-    suspend fun sessions(limit: Int, offset: Int, profile: String? = null): List<SessionDto> =
+    suspend fun sessions(
+        limit: Int,
+        offset: Int,
+        profile: String? = null,
+        deviceId: String? = null,
+    ): List<SessionDto> =
         get<SessionListDto>(
             "/api/sessions?limit=$limit&offset=$offset&order=recent${profileParam(profile)}",
+            deviceId,
         ).sessions
 
     /**
@@ -238,15 +334,30 @@ class HermesRestApi(
      * pass [archivedOnly] to fetch only archived sessions (`?archived=only`). One page of
      * [limit] covers current volume (no offset paging in MVP).
      */
-    suspend fun profileSessions(limit: Int = 500, archivedOnly: Boolean = false): ProfileSessionsDto =
-        get("/api/profiles/sessions?limit=$limit&order=recent${if (archivedOnly) "&archived=only" else ""}")
+    suspend fun profileSessions(
+        limit: Int = 500,
+        archivedOnly: Boolean = false,
+        deviceId: String? = null,
+    ): ProfileSessionsDto = get(
+        "/api/profiles/sessions?limit=$limit&order=recent${if (archivedOnly) "&archived=only" else ""}",
+        deviceId,
+    )
 
-    suspend fun messages(sessionId: String, profile: String? = null): List<MessageDto> =
-        parseMessages(messagesRaw(sessionId, profile))
+    suspend fun messages(
+        sessionId: String,
+        profile: String? = null,
+        deviceId: String? = null,
+    ): List<MessageDto> = parseMessages(messagesRaw(sessionId, profile, deviceId))
 
     /** The transcript payload as it came off the wire, for [TranscriptStore] to keep. */
-    suspend fun messagesRaw(sessionId: String, profile: String? = null): String =
-        getRaw("/api/sessions/$sessionId/messages${profileParam(profile, first = true)}")
+    suspend fun messagesRaw(
+        sessionId: String,
+        profile: String? = null,
+        deviceId: String? = null,
+    ): String = getRaw(
+        "/api/sessions/$sessionId/messages${profileParam(profile, first = true)}",
+        deviceId,
+    )
 
     /** Parses a transcript payload, whether it arrived just now or came back off the disk. */
     fun parseMessages(raw: String): List<MessageDto> =
@@ -260,7 +371,8 @@ class HermesRestApi(
         onProgress: (downloaded: Long, total: Long?) -> Unit = { _, _ -> },
     ): File = withContext(Dispatchers.IO) {
         val encoded = java.net.URLEncoder.encode(path, "UTF-8")
-        val call = okHttp.newCall(builder("/api/files?path=$encoded").get().build()).apply {
+        val request = builder("/api/files?path=$encoded").get().build()
+        val call = clientFor(request).newCall(request).apply {
             timeout().timeout(10, TimeUnit.MINUTES)
         }
         try {
@@ -301,7 +413,7 @@ class HermesRestApi(
             val request = builder("/api/files/upload?name=$encodedName")
                 .post(bytes.toRequestBody(mimeType.toMediaTypeOrNull()))
                 .build()
-            okHttp.newCall(request).apply {
+            clientFor(request).newCall(request).apply {
                 timeout().timeout(10, TimeUnit.MINUTES)
             }.execute().use { response ->
                 val body = response.body.string()
@@ -367,6 +479,7 @@ class HermesRestApi(
         title: String? = null,
         archived: Boolean? = null,
         profile: String? = null,
+        deviceId: String? = null,
     ) = withContext(Dispatchers.IO) {
         val obj: JsonObject = buildJsonObject {
             if (title != null) put("title", title)
@@ -375,15 +488,19 @@ class HermesRestApi(
         }
         val payload = json.encodeToString(JsonObject.serializer(), obj)
             .toRequestBody("application/json".toMediaType())
-        restCall(builder("/api/sessions/$sessionId").patch(payload).build()).execute().use { resp ->
+        restCall(builder("/api/sessions/$sessionId", deviceId).patch(payload).build()).execute().use { resp ->
             if (!resp.isSuccessful) throw HermesApiException(resp.code, "update session failed")
         }
     }
 
     /** Delete a session. [profile] (query param) scopes it to the right per-profile DB. */
-    suspend fun deleteSession(sessionId: String, profile: String? = null) = withContext(Dispatchers.IO) {
+    suspend fun deleteSession(
+        sessionId: String,
+        profile: String? = null,
+        deviceId: String? = null,
+    ) = withContext(Dispatchers.IO) {
         val path = "/api/sessions/$sessionId${profileParam(profile, first = true)}"
-        restCall(builder(path).delete().build()).execute().use { resp ->
+        restCall(builder(path, deviceId).delete().build()).execute().use { resp ->
             if (!resp.isSuccessful) throw HermesApiException(resp.code, "delete session failed")
         }
     }
@@ -401,16 +518,21 @@ class HermesRestApi(
         query: String,
         profile: String? = null,
         excludeSources: Collection<String> = emptyList(),
+        deviceId: String? = null,
     ): List<SearchResultDto> {
         val q = java.net.URLEncoder.encode(buildSearchQuery(query), "UTF-8")
         val exclude = excludeSources.filter { it.isNotBlank() }.joinToString(",")
         val excludeParam = if (exclude.isEmpty()) "" else "&exclude_sources=${java.net.URLEncoder.encode(exclude, "UTF-8")}"
-        return get<SearchResultsDto>("/api/sessions/search?q=$q&limit=30$excludeParam${profileParam(profile)}").results
+        return get<SearchResultsDto>(
+            "/api/sessions/search?q=$q&limit=30$excludeParam${profileParam(profile)}",
+            deviceId,
+        ).results
     }
 
-    suspend fun archivedSessions(profile: String? = null): List<SessionDto> =
+    suspend fun archivedSessions(profile: String? = null, deviceId: String? = null): List<SessionDto> =
         get<SessionListDto>(
             "/api/sessions?archived=only&limit=50&order=recent${profileParam(profile)}",
+            deviceId,
         ).sessions
 
     suspend fun cronJobs(profile: String? = null): List<CronJobDto> =

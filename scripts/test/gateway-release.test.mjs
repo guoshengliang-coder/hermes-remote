@@ -14,7 +14,7 @@ test("Gateway release contract stays aligned with package and protocol versions"
     protocolSource,
     new RegExp(`ACCOUNT_CONNECTOR_PROTOCOL_VERSION = ${contract.protocolVersions.accountConnector}`),
   );
-  assert.equal(contract.databaseSchemaVersion, 7);
+  assert.equal(contract.databaseSchemaVersion, 15);
   assert.equal(contract.minimumSourceVersion, "0.2.0");
   assert.equal(contract.maintenanceRequired, true);
   assert.equal(contract.rollbackSupported, true);
@@ -40,6 +40,9 @@ test("Gateway image build context is allowlisted and release packaging fails clo
   assert.equal(dockerignore.includes("!environment.md"), false);
 
   const dockerfile = await readFile("deploy/Dockerfile.gateway", "utf8");
+  const edge = await readFile("deploy/hermes-edge.nginx.conf.template", "utf8");
+  assert.match(edge, /location = \/v2\/webhooks\/resend \{[\s\S]*?client_max_body_size 64k;/);
+  assert.match(edge, /proxy_pass https:\/\/hermes_gateway_tls\/v2\/webhooks\/resend;/);
   assert.match(dockerfile, /FROM node:22-alpine@sha256:[0-9a-f]{64} AS build/);
   assert.match(dockerfile, /FROM node:22-alpine@sha256:[0-9a-f]{64}\nWORKDIR \/app/);
   for (const required of [

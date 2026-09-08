@@ -459,6 +459,36 @@ private fun FailureGroup(
             "连接凭据无效，请检查设置。",
             "The connection credentials are invalid. Check settings.",
         )
+        StartupFailure.ACCOUNT_AUTHENTICATION_FAILED -> localized(
+            language,
+            "账号登录已失效，请重新登录。",
+            "Your account session expired. Sign in again.",
+        )
+        StartupFailure.ACCOUNT_RATE_LIMITED -> localized(
+            language,
+            "登录请求过于频繁，请稍候再试。",
+            "Too many sign-in requests. Wait a moment and try again.",
+        )
+        StartupFailure.ACCOUNT_UNAVAILABLE -> localized(
+            language,
+            "此 Hermes GO 账号当前不可用，请联系支持。",
+            "This Hermes GO account is currently unavailable. Contact support.",
+        )
+        StartupFailure.ACCOUNT_SERVICE_UNAVAILABLE -> localized(
+            language,
+            "账号服务暂时不可用，请稍后重试。",
+            "The account service is temporarily unavailable. Try again shortly.",
+        )
+        StartupFailure.ACCOUNT_DELETION_COMMITTED -> localized(
+            language,
+            "此 Hermes GO 云端账号的删除已提交；Mac 上的本地数据仍保留。",
+            "Cloud account deletion was submitted; local data on your Mac remains.",
+        )
+        StartupFailure.ACCOUNT_DEVICE_UNAVAILABLE -> localized(
+            language,
+            "当前 Mac 已不可用，请重新选择设备。",
+            "The current Mac is no longer available. Choose another device.",
+        )
     }
     Spacer(Modifier.height(if (compact) 20.dp else 36.dp))
     Text(

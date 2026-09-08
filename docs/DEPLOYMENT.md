@@ -112,6 +112,69 @@ For the unified standard-port deployment, run `scripts/deploy-edge-router.sh` as
 configuration for rollback, keeps `/health` and `/releases/*` on the release service, and routes
 `/api/*` plus `/v1/connect` to the Gateway without redirects.
 
+The edge and staging templates expose exactly `/v2/webhooks/resend` for the provider-authenticated
+transactional-email callback, with a 64 KiB edge body limit and short upstream timeouts. They do not
+make the remaining account API public. Keep `ACCOUNT_RESEND_WEBHOOK_ENABLED=0` until the schema-15
+migration and protected `ACCOUNT_RESEND_WEBHOOK_SECRET_FILE` are present; the disabled Gateway route
+returns the ordinary account not-found response. Enabling this route or any account flag in a live
+environment remains a separately authorized deployment operation.
+
+### Email-provider staging acceptance
+
+Before deploying the mail-enabled candidate, copy `ops/email-domain.example.json` to a protected
+operator directory. Copy the exact SPF TXT, Return-Path MX, and DKIM TXT values shown by Resend;
+do not assume the example's AWS region or default Return-Path. Configure DMARC at
+`_dmarc.<sending-domain>` with `p=none` plus an aggregate-report mailbox for the initial monitored
+rollout. The following gate performs public DNS reads only. It has no credential field, makes no
+Resend API call, and never changes DNS:
+
+```bash
+npm run ops:email-domain -- \
+  --config /secure-input/hermes-go/email-domain.json
+```
+
+All four checks—`spf_txt`, `spf_mx`, `dkim_txt`, and `dmarc_txt`—must pass. The checker joins
+standards-compliant split TXT chunks, rejects multiple SPF records or multiple Return-Path MX
+targets, enforces the configured minimum DMARC policy, and does not echo record contents or the
+DMARC reporting mailbox. An incomplete audit returns `HR-OPS-018`. A pass proves the reviewed
+records are publicly visible; additionally wait for Resend's dashboard to show the domain verified
+and use message headers during physical acceptance to confirm `spf=pass`, `dkim=pass`, and
+`dmarc=pass`.
+
+After deploying schema 15 and enabling email OTP plus the signed webhook on an isolated staging
+Gateway, copy `ops/email-staging.example.json` to a protected operator directory and point both URLs
+at the Gateway's loopback listener when running on the staging host. The internal-status URL is
+intentionally restricted to loopback, and its token source must be a regular `0600` file. Start with
+the read-only gate; it sends no email:
+
+```bash
+npm run ops:email-staging -- preflight \
+  --config /secure-input/hermes-go/email-staging.json
+```
+
+The mutation gate accepts only Resend's official `delivered@resend.dev` and `bounced@resend.dev`
+test classes, generates no account, and never prints a mailbox, challenge ID, or status token. It
+requires an exact confirmation bound to `accountApiUrl`'s hostname. Run one case at a time in an
+otherwise idle staging environment so the one-hour aggregate delta belongs only to this probe:
+
+```bash
+npm run ops:email-staging -- exercise \
+  --config /secure-input/hermes-go/email-staging.json \
+  --case delivered \
+  --confirm staging:127.0.0.1
+
+npm run ops:email-staging -- exercise \
+  --config /secure-input/hermes-go/email-staging.json \
+  --case bounced \
+  --confirm staging:127.0.0.1
+```
+
+The delivered case requires exactly one new request, provider acceptance, and verified final
+delivery. The bounced case requires exactly one new request, provider acceptance, and verified hard
+failure. The latter also exercises unused-OTP invalidation. Any timeout, concurrent metric delta, or
+configuration/provider/Webhook failure returns `HR-OPS-017`. These commands do not deploy, reload,
+restart, or modify production.
+
 ## R3 staging-only Cloud Ops
 
 The R3 internal tool installs a verified Gateway OCI bundle only on a new controlled staging host.
@@ -180,6 +243,13 @@ identity digest, while database evidence is bound to the exact schema and Postgr
 must differ and restore verification must be no older than 30 days. R5-A defines and consumes this evidence but does not yet create it: only the isolated
 R5-B capture/restore tooling and its produced output may satisfy the production gate. A hand-written manifest is
 not deployment evidence.
+
+This generic PostgreSQL restore evidence is deliberately **not** sufficient to enable permanent
+account deletion. It does not prove that a deletion committed after the backup timestamp is replayed
+before restored data becomes reachable. Keep `ACCOUNT_DELETION_ENABLED=0` after any restore and in
+every staging/production promotion until the separately approved recovery design and the older-backup
+drill in `ACCOUNT_DELETION_REVIEW.md` both exist. A normal `account_smoke` pass must never be used as a
+substitute for that deletion-obligation evidence.
 
 See `CLOUD_GATEWAY_R5_PLAN.md`. Running the audit on the HK host still requires explicit read-only production
 authorization. Resolving any blocker is a separate mutating operation and needs another approval.
@@ -499,3 +569,10 @@ A cold start that moved ~862 KB now moves ~200 KB, 118 KB of which is the untouc
 `/api/mobile/events` are not compressed — a WebSocket is a `101` upgrade and an empty poll body is 77 B, below
 `gzip_min_length`; their access-log numbers move for unrelated reasons and must not be read as a compression
 ratio. The owner confirmed the app renders normally after a cold start and a session open.
+
+After account mode starts, query `GET /internal/account-retention` only through the protected
+loopback operations path. The first attempt may remain null for 60 seconds. Thereafter, alert on
+`lastFailureAt` newer than `lastSuccessAt` (`HR-OPS-019`) or on a missing success across more than two
+six-hour intervals. Deleted totals are process-local and may reset after a restart; they are evidence
+of activity, not durable accounting. Do not publish this endpoint through Nginx or treat a cleanup
+failure as authorization to restart/deploy—the scheduler preserves login availability and retries.

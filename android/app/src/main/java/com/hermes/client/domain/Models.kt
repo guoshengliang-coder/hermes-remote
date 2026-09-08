@@ -27,6 +27,8 @@ data class Session(
     // Git context resolved server-side, present on project-tree session rows; null otherwise.
     val gitBranch: String? = null,
     val gitRepoRoot: String? = null,
+    /** Account-mode Mac that owns this conversation; null for legacy/unresolved history. */
+    val deviceId: String? = null,
     /** On a messaging-platform session, the peer or group the conversation is with. */
     val displayName: String? = null,
     /** `dm` or `group` on a messaging-platform session. */

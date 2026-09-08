@@ -2,6 +2,16 @@ import AppKit
 import Foundation
 import HermesGoDesktopCore
 
+enum DesktopManagedBootstrapOperation: Equatable {
+    case idle
+    case preparing
+    case awaitingConfirmation
+    case committing
+    case recovering
+    case completed(releaseVersion: String, cleanupPending: Bool)
+    case failed
+}
+
 @MainActor
 final class DesktopViewModel: ObservableObject {
     @Published private(set) var health: DesktopHealthSnapshot = .checking
@@ -17,18 +27,27 @@ final class DesktopViewModel: ObservableObject {
     @Published private(set) var accountState: DesktopAccountState = .checking
     @Published private(set) var accountIssue: DesktopIssue?
     @Published private(set) var isAccountOperationInProgress = false
+    @Published private(set) var bootstrapPlan: DesktopBootstrapPlan = .checking
+    @Published private(set) var managedBootstrapOperation: DesktopManagedBootstrapOperation = .idle
+    @Published private(set) var managedBootstrapPreparation: DesktopManagedBootstrapPreparation?
+    @Published private(set) var managedBootstrapIssue: DesktopIssue?
 
     private let inspector = LegacyConnectorInspector(runner: SystemCommandRunner())
     private let prober = HTTPHealthProber()
     private let profileStore: any ConnectionProfileStoring
     private let accountController: DesktopAccountController
+    private let managedBootstrapConfiguration: DesktopManagedBootstrapConfigurationState
+    private let managedBootstrapRuntime: DesktopManagedBootstrapRuntime?
+    private let managedRecoveryRuntime: DesktopManagedRecoveryRuntime?
     private var monitorTask: Task<Void, Never>?
 
     init(profileStore: any ConnectionProfileStoring = KeychainConnectionProfileStore()) {
         self.profileStore = profileStore
         let configuration = DesktopAccountConfiguration.load()
+        let bootstrapConfiguration = DesktopManagedBootstrapConfigurationState.load()
+        managedBootstrapConfiguration = bootstrapConfiguration
         let oauth = configuration.googleClientID.map { GoogleOAuthFlow(clientID: $0) }
-        accountController = DesktopAccountController(
+        let controller = DesktopAccountController(
             api: AccountAPIClient(gatewayURL: configuration.gatewayURL),
             sessionStore: KeychainAccountSessionStore(),
             machineIdentityStore: KeychainConnectorMachineIdentityStore(),
@@ -37,6 +56,27 @@ final class DesktopViewModel: ObservableObject {
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
                 ?? "development"
         )
+        accountController = controller
+        let managedPaths = try? DesktopManagedBootstrapPaths.currentUser()
+        if let managedPaths {
+            managedRecoveryRuntime = try? DesktopManagedRecoveryRuntime(
+                account: controller,
+                paths: managedPaths
+            )
+        } else {
+            managedRecoveryRuntime = nil
+        }
+        if case .configured(let releaseConfiguration) = bootstrapConfiguration,
+           let managedPaths {
+            managedBootstrapRuntime = try? DesktopManagedBootstrapRuntime(
+                releaseConfiguration: releaseConfiguration,
+                accountGatewayURL: configuration.gatewayURL,
+                account: controller,
+                paths: managedPaths
+            )
+        } else {
+            managedBootstrapRuntime = nil
+        }
         do {
             if let profile = try profileStore.load() {
                 connectionProfile = profile
@@ -83,6 +123,7 @@ final class DesktopViewModel: ObservableObject {
         guard monitorTask == nil else { return }
         monitorTask = Task { [weak self] in
             await self?.refreshAccount(bootstrap: true)
+            await self?.recoverManagedBootstrapAfterRestart()
             var cycle = 0
             while !Task.isCancelled {
                 await self?.refresh()
@@ -96,7 +137,7 @@ final class DesktopViewModel: ObservableObject {
     }
 
     func refreshAccount(bootstrap: Bool = false) async {
-        guard !isAccountOperationInProgress else { return }
+        guard !isAccountOperationInProgress, !isManagedBootstrapAccountLocked else { return }
         if bootstrap { accountState = .checking }
         do {
             let state: DesktopAccountState
@@ -118,7 +159,7 @@ final class DesktopViewModel: ObservableObject {
     }
 
     func signInAccount() async {
-        guard !isAccountOperationInProgress else { return }
+        guard !isAccountOperationInProgress, !isManagedBootstrapAccountLocked else { return }
         isAccountOperationInProgress = true
         accountIssue = nil
         accountState = .signingIn
@@ -140,13 +181,92 @@ final class DesktopViewModel: ObservableObject {
         }
     }
 
-    func revokePhone(_ id: String) async {
-        guard !isAccountOperationInProgress else { return }
+    func requestEmailSignInCode(
+        email: String
+    ) async -> DesktopEmailVerificationChallenge? {
+        guard !isAccountOperationInProgress, !isManagedBootstrapAccountLocked else { return nil }
         isAccountOperationInProgress = true
         accountIssue = nil
         defer { isAccountOperationInProgress = false }
         do {
-            applyAccountState(try await accountController.revokePhone(id: id))
+            return try await accountController.requestEmailSignInCode(email: email)
+        } catch let error as AccountClientError {
+            accountIssue = DesktopIssue.account(error)
+        } catch {
+            accountIssue = DesktopIssue(
+                code: .accountServiceUnavailable,
+                technicalCause: String(describing: error)
+            )
+        }
+        return nil
+    }
+
+    @discardableResult
+    func completeEmailSignIn(
+        challenge: DesktopEmailVerificationChallenge,
+        code: String
+    ) async -> Bool {
+        guard !isAccountOperationInProgress, !isManagedBootstrapAccountLocked else { return false }
+        isAccountOperationInProgress = true
+        accountIssue = nil
+        defer { isAccountOperationInProgress = false }
+        do {
+            applyAccountState(try await accountController.completeEmailSignIn(
+                challenge: challenge,
+                code: code
+            ))
+            return true
+        } catch let error as AccountClientError {
+            accountIssue = DesktopIssue.account(error)
+        } catch {
+            accountIssue = DesktopIssue(
+                code: .accountServiceUnavailable,
+                technicalCause: String(describing: error)
+            )
+        }
+        return false
+    }
+
+    func requestPhoneRevocationVerification(
+        id: String
+    ) async -> DesktopEmailVerificationChallenge? {
+        guard !isAccountOperationInProgress, !isManagedBootstrapAccountLocked else { return nil }
+        isAccountOperationInProgress = true
+        accountIssue = nil
+        defer { isAccountOperationInProgress = false }
+        do {
+            return try await accountController.requestPhoneRevocationVerification(id: id)
+        } catch let error as AccountClientError {
+            accountIssue = DesktopIssue.account(error)
+        } catch {
+            accountIssue = DesktopIssue(
+                code: .accountServiceUnavailable,
+                technicalCause: String(describing: error)
+            )
+        }
+        return nil
+    }
+
+    @discardableResult
+    func revokePhone(
+        _ id: String,
+        verification: DesktopEmailVerificationChallenge,
+        verificationCode: String
+    ) async -> Bool {
+        await performAccountOperation {
+            try await self.accountController.revokePhone(
+                id: id,
+                verification: verification,
+                verificationCode: verificationCode
+            )
+        }
+    }
+
+    func selectDevice(_ id: String) async {
+        guard !isAccountOperationInProgress, !isManagedBootstrapAccountLocked else { return }
+        accountIssue = nil
+        do {
+            applyAccountState(try await accountController.selectDevice(id: id))
         } catch let error as AccountClientError {
             accountIssue = DesktopIssue.account(error)
         } catch {
@@ -157,8 +277,95 @@ final class DesktopViewModel: ObservableObject {
         }
     }
 
+    func selectDefaultDevice(_ id: String) async {
+        guard !isAccountOperationInProgress, !isManagedBootstrapAccountLocked else { return }
+        isAccountOperationInProgress = true
+        accountIssue = nil
+        defer { isAccountOperationInProgress = false }
+        do {
+            applyAccountState(try await accountController.selectDefaultDevice(id: id))
+        } catch let error as AccountClientError {
+            accountIssue = DesktopIssue.account(error)
+        } catch {
+            accountIssue = DesktopIssue(
+                code: .accountServiceUnavailable,
+                technicalCause: String(describing: error)
+            )
+        }
+    }
+
+    @discardableResult
+    func createShareInvitation(
+        deviceID: String,
+        email: String,
+        acknowledged: Bool,
+        verification: DesktopEmailVerificationChallenge,
+        verificationCode: String
+    ) async -> Bool {
+        await performAccountOperation {
+            try await self.accountController.createShareInvitation(
+                deviceID: deviceID,
+                email: email,
+                acknowledgedWholeDeviceAccess: acknowledged,
+                verification: verification,
+                verificationCode: verificationCode
+            )
+        }
+    }
+
+    func requestShareInvitationVerification(
+        deviceID: String
+    ) async -> DesktopEmailVerificationChallenge? {
+        guard !isAccountOperationInProgress, !isManagedBootstrapAccountLocked else { return nil }
+        isAccountOperationInProgress = true
+        accountIssue = nil
+        defer { isAccountOperationInProgress = false }
+        do {
+            return try await accountController.requestShareInvitationVerification(deviceID: deviceID)
+        } catch let error as AccountClientError {
+            accountIssue = DesktopIssue.account(error)
+        } catch {
+            accountIssue = DesktopIssue(
+                code: .accountServiceUnavailable,
+                technicalCause: String(describing: error)
+            )
+        }
+        return nil
+    }
+
+    func cancelShareInvitation(deviceID: String, invitationID: String) async {
+        _ = await performAccountOperation {
+            try await self.accountController.cancelShareInvitation(
+                deviceID: deviceID,
+                invitationID: invitationID
+            )
+        }
+    }
+
+    func revokeDeviceShare(deviceID: String, grantID: String) async {
+        _ = await performAccountOperation {
+            try await self.accountController.revokeDeviceShare(deviceID: deviceID, grantID: grantID)
+        }
+    }
+
+    func leaveSharedDevice(deviceID: String) async {
+        _ = await performAccountOperation {
+            try await self.accountController.leaveSharedDevice(deviceID: deviceID)
+        }
+    }
+
+    @discardableResult
+    func acceptShareInvitation(_ input: String, acknowledged: Bool) async -> Bool {
+        await performAccountOperation {
+            try await self.accountController.acceptShareInvitation(
+                token: input,
+                acknowledgedWholeDeviceAccess: acknowledged
+            )
+        }
+    }
+
     func signOutAccount() async {
-        guard !isAccountOperationInProgress else { return }
+        guard !isAccountOperationInProgress, !isManagedBootstrapAccountLocked else { return }
         isAccountOperationInProgress = true
         accountIssue = nil
         defer { isAccountOperationInProgress = false }
@@ -174,7 +381,42 @@ final class DesktopViewModel: ObservableObject {
         }
     }
 
+    func requestAccountDeletionVerification() async -> DesktopEmailVerificationChallenge? {
+        guard !isAccountOperationInProgress, !isManagedBootstrapAccountLocked else { return nil }
+        isAccountOperationInProgress = true
+        accountIssue = nil
+        defer { isAccountOperationInProgress = false }
+        do {
+            return try await accountController.requestAccountDeletionVerification()
+        } catch let error as AccountClientError {
+            accountIssue = DesktopIssue.account(error)
+        } catch {
+            accountIssue = DesktopIssue(
+                code: .accountServiceUnavailable,
+                technicalCause: String(describing: error)
+            )
+        }
+        return nil
+    }
+
+    @discardableResult
+    func deleteAccount(
+        verification: DesktopEmailVerificationChallenge,
+        verificationCode: String,
+        acknowledgedPermanentCloudDeletion: Bool
+    ) async -> Bool {
+        await performAccountOperation {
+            try await self.accountController.deleteAccount(
+                verification: verification,
+                verificationCode: verificationCode,
+                acknowledgedPermanentCloudDeletion: acknowledgedPermanentCloudDeletion
+            )
+        }
+    }
+
     private func applyAccountState(_ state: DesktopAccountState) {
+        let previousAccountID = currentAccountID(accountState)
+        let nextAccountID = currentAccountID(state)
         accountState = state
         switch state {
         case .unavailable:
@@ -184,6 +426,44 @@ final class DesktopViewModel: ObservableObject {
         default:
             accountIssue = nil
         }
+        if previousAccountID != nextAccountID {
+            bootstrapPlan = .checking
+            if managedBootstrapPreparation == nil, !isManagedBootstrapBusy {
+                managedBootstrapOperation = .idle
+                managedBootstrapIssue = nil
+            }
+            Task { [weak self] in
+                _ = await self?.refreshManagedBootstrapPreflight()
+            }
+        }
+    }
+
+    private func currentAccountID(_ state: DesktopAccountState) -> String? {
+        if case .signedIn(let dashboard) = state { return dashboard.session.account.id }
+        return nil
+    }
+
+    private func performAccountOperation(
+        _ operation: () async throws -> DesktopAccountState
+    ) async -> Bool {
+        guard !isAccountOperationInProgress, !isManagedBootstrapAccountLocked else { return false }
+        isAccountOperationInProgress = true
+        accountIssue = nil
+        defer { isAccountOperationInProgress = false }
+        do {
+            applyAccountState(try await operation())
+            return true
+        } catch let error as GoogleOAuthError {
+            accountIssue = DesktopIssue.oauth(error)
+        } catch let error as AccountClientError {
+            accountIssue = DesktopIssue.account(error)
+        } catch {
+            accountIssue = DesktopIssue(
+                code: .accountServiceUnavailable,
+                technicalCause: String(describing: error)
+            )
+        }
+        return false
     }
 
     func refresh() async {
@@ -266,6 +546,270 @@ final class DesktopViewModel: ObservableObject {
             ],
             checkedAt: checkedAt
         )
+        let serverRuntimeContract: String? = switch accountState {
+        case .signedIn(let dashboard): dashboard.desktopBootstrapRuntimeContract
+        default: nil
+        }
+        let managedInstallation = await inspectManagedBootstrapInstallation()
+        bootstrapPlan = DesktopBootstrapPlanner.plan(
+            legacy: observation,
+            hermesReachable: hermesResult.level == .healthy || hermesResult.level == .degraded,
+            managedInstallAvailability: DesktopManagedBootstrapAvailability.evaluate(
+                configuration: effectiveManagedBootstrapConfiguration,
+                serverRuntimeContract: serverRuntimeContract
+            ),
+            managedInstallation: managedInstallation
+        )
+        applyManagedBootstrapInstallation(managedInstallation)
+    }
+
+    func prepareManagedBootstrap() async {
+        guard !isManagedBootstrapBusy else { return }
+        managedBootstrapIssue = nil
+        managedBootstrapOperation = .preparing
+        guard let runtime = managedBootstrapRuntime else {
+            failManagedBootstrap(DesktopManagedBootstrapExecutorError.notPrepared)
+            return
+        }
+
+        let preflight = await refreshManagedBootstrapPreflight()
+        guard preflight.plan.canBegin else {
+            failManagedBootstrap(DesktopMigrationCoordinatorError.invalidStartingState)
+            return
+        }
+        do {
+            managedBootstrapPreparation = try await runtime.executor.prepare(
+                manifestURL: runtime.manifestURL,
+                workspaceRoot: runtime.workspaceRoot,
+                runID: UUID().uuidString.lowercased()
+            )
+            managedBootstrapOperation = .awaitingConfirmation
+        } catch {
+            failManagedBootstrap(error)
+        }
+    }
+
+    func cancelManagedBootstrapConfirmation() async {
+        guard managedBootstrapOperation == .awaitingConfirmation,
+              let preparation = managedBootstrapPreparation,
+              let runtime = managedBootstrapRuntime
+        else { return }
+        do {
+            try await runtime.executor.cancel(preparation)
+            managedBootstrapPreparation = nil
+            managedBootstrapIssue = nil
+            managedBootstrapOperation = .idle
+        } catch {
+            failManagedBootstrap(error)
+        }
+    }
+
+    func confirmManagedBootstrap() async {
+        guard managedBootstrapOperation == .awaitingConfirmation,
+              let preparation = managedBootstrapPreparation,
+              let runtime = managedBootstrapRuntime
+        else { return }
+
+        let preflight = await refreshManagedBootstrapPreflight()
+        guard preflight.plan.canBegin else {
+            do { try await runtime.executor.cancel(preparation) }
+            catch { failManagedBootstrap(error); return }
+            managedBootstrapPreparation = nil
+            failManagedBootstrap(DesktopMigrationCoordinatorError.invalidStartingState)
+            return
+        }
+
+        managedBootstrapIssue = nil
+        managedBootstrapOperation = .committing
+        do {
+            let outcome = try await runtime.executor.commit(
+                preparation,
+                configuration: runtime.commitConfiguration,
+                legacy: preflight.legacy,
+                confirmation: preparation.confirmationText
+            )
+            managedBootstrapPreparation = outcome.cleanupRetry
+            managedBootstrapOperation = .completed(
+                releaseVersion: outcome.migration.releaseVersion,
+                cleanupPending: !outcome.temporaryWorkspaceRemoved
+            )
+            if !outcome.temporaryWorkspaceRemoved {
+                managedBootstrapIssue = DesktopIssue(code: .migrationCleanupPending)
+            }
+            await refreshAccount()
+            await refresh()
+        } catch {
+            let terminalState = try? managedRecoveryRuntime?.journal.load()?.state
+            managedBootstrapPreparation = nil
+            managedBootstrapOperation = .failed
+            managedBootstrapIssue = DesktopIssue.migration(error, terminalState: terminalState)
+        }
+    }
+
+    func retryManagedBootstrapCleanup() async {
+        guard case .completed(let releaseVersion, cleanupPending: true) = managedBootstrapOperation,
+              let preparation = managedBootstrapPreparation,
+              let runtime = managedBootstrapRuntime
+        else { return }
+        do {
+            try await runtime.executor.retryCleanup(preparation)
+            managedBootstrapPreparation = nil
+            managedBootstrapIssue = nil
+            managedBootstrapOperation = .completed(
+                releaseVersion: releaseVersion,
+                cleanupPending: false
+            )
+        } catch {
+            managedBootstrapIssue = DesktopIssue(
+                code: .migrationCleanupPending,
+                technicalCause: String(describing: error)
+            )
+        }
+    }
+
+    var isManagedBootstrapBusy: Bool {
+        switch managedBootstrapOperation {
+        case .preparing, .committing, .recovering: true
+        default: false
+        }
+    }
+
+    var isManagedBootstrapAccountLocked: Bool {
+        switch managedBootstrapOperation {
+        case .preparing, .awaitingConfirmation, .committing, .recovering: true
+        case .completed(_, cleanupPending: true): true
+        default: false
+        }
+    }
+
+    private var effectiveManagedBootstrapConfiguration: DesktopManagedBootstrapConfigurationState {
+        if case .configured = managedBootstrapConfiguration, managedBootstrapRuntime == nil {
+            return .invalid
+        }
+        return managedBootstrapConfiguration
+    }
+
+    private func refreshManagedBootstrapPreflight() async -> (
+        legacy: LegacyConnectorSnapshot,
+        plan: DesktopBootstrapPlan
+    ) {
+        let inspector = self.inspector
+        let observation = await Task.detached(priority: .userInitiated) {
+            inspector.inspect()
+        }.value
+        let statusURL = URL(
+            string: "/api/status",
+            relativeTo: DesktopHermesRuntimeContract.serveV1.baseURL
+        )!.absoluteURL
+        let hermes = await prober.probeHermes(statusURL)
+        let managedInstallation = await inspectManagedBootstrapInstallation()
+        let plan = DesktopBootstrapPlanner.plan(
+            legacy: observation,
+            hermesReachable: hermes.level == .healthy || hermes.level == .degraded,
+            managedInstallAvailability: DesktopManagedBootstrapAvailability.evaluate(
+                configuration: effectiveManagedBootstrapConfiguration,
+                serverRuntimeContract: currentDesktopBootstrapRuntimeContract
+            ),
+            managedInstallation: managedInstallation
+        )
+        legacy = observation
+        bootstrapPlan = plan
+        applyManagedBootstrapInstallation(managedInstallation)
+        return (observation, plan)
+    }
+
+    private var currentDesktopBootstrapRuntimeContract: String? {
+        if case .signedIn(let dashboard) = accountState {
+            return dashboard.desktopBootstrapRuntimeContract
+        }
+        return nil
+    }
+
+    private func inspectManagedBootstrapInstallation() async
+        -> DesktopManagedBootstrapInstallationStatus {
+        guard let runtime = managedRecoveryRuntime else { return .absent }
+        let installation = await Task.detached(priority: .utility) {
+            (try? runtime.inspectInstallation()) ?? .inconsistent
+        }.value
+        guard case .signedIn(let dashboard) = accountState else { return installation }
+        return installation.scopedToCurrentAccount(
+            bindingID: dashboard.binding.binding?.id,
+            bindingGeneration: dashboard.binding.binding?.generation
+        )
+    }
+
+    private func applyManagedBootstrapInstallation(
+        _ installation: DesktopManagedBootstrapInstallationStatus
+    ) {
+        guard managedBootstrapPreparation == nil else { return }
+        switch installation {
+        case .active(let releaseVersion, _, _):
+            managedBootstrapOperation = .completed(
+                releaseVersion: releaseVersion,
+                cleanupPending: false
+            )
+            managedBootstrapIssue = nil
+        case .attentionRequired, .inconsistent:
+            if managedBootstrapOperation != .recovering {
+                managedBootstrapOperation = .failed
+                if managedBootstrapIssue == nil {
+                    managedBootstrapIssue = DesktopIssue(
+                        code: installation == .attentionRequired
+                            ? .migrationRollbackFailed
+                            : .migrationConnectorMismatch
+                    )
+                }
+            }
+        case .absent:
+            if case .completed = managedBootstrapOperation {
+                managedBootstrapOperation = .failed
+                managedBootstrapIssue = DesktopIssue(code: .migrationConnectorMismatch)
+            }
+        case .interrupted:
+            break
+        }
+    }
+
+    private func recoverManagedBootstrapAfterRestart() async {
+        guard let runtime = managedRecoveryRuntime else { return }
+        let inspector = self.inspector
+        let observation = await Task.detached(priority: .utility) {
+            inspector.inspect()
+        }.value
+        let installation = await inspectManagedBootstrapInstallation()
+        guard case .interrupted(let runID, _) = installation else {
+            applyManagedBootstrapInstallation(installation)
+            return
+        }
+        managedBootstrapOperation = .recovering
+        managedBootstrapIssue = nil
+        do {
+            let recovered = try await runtime.recoverInterrupted(
+                legacy: observation,
+                runID: runID
+            )
+            let refreshed = await inspectManagedBootstrapInstallation()
+            applyManagedBootstrapInstallation(refreshed)
+            if recovered == .legacyActive || recovered == .cleanUninstalled {
+                managedBootstrapOperation = .idle
+            } else if refreshed == .attentionRequired || refreshed == .inconsistent {
+                managedBootstrapOperation = .failed
+                managedBootstrapIssue = DesktopIssue(
+                    code: refreshed == .attentionRequired
+                        ? .migrationRollbackFailed
+                        : .migrationConnectorMismatch
+                )
+            }
+        } catch {
+            let terminalState = try? runtime.journal.load()?.state
+            managedBootstrapOperation = .failed
+            managedBootstrapIssue = DesktopIssue.migration(error, terminalState: terminalState)
+        }
+    }
+
+    private func failManagedBootstrap(_ error: Error) {
+        managedBootstrapOperation = .failed
+        managedBootstrapIssue = DesktopIssue.migration(error, terminalState: nil)
     }
 
     func saveConnectionProfile() async {

@@ -11,6 +11,7 @@ import com.hermes.client.domain.Session
  */
 data class ChatLaunch(
     val sessionId: String,
+    val deviceId: String? = null,
     val profile: String? = null,
     val title: String? = null,
     val isNew: Boolean = false,
@@ -23,26 +24,36 @@ data class ChatLaunch(
     companion object {
         fun existing(session: Session, initialQuery: String? = null) = ChatLaunch(
             sessionId = session.id,
+            deviceId = session.deviceId,
             profile = session.profile,
             title = session.title,
             initialQuery = initialQuery?.takeIf { it.isNotBlank() },
         )
 
-        fun unknown(sessionId: String, profile: String? = null) = ChatLaunch(
+        fun unknown(sessionId: String, profile: String? = null, deviceId: String? = null) = ChatLaunch(
             sessionId = sessionId,
+            deviceId = deviceId,
             profile = profile,
         )
 
         /** A message hit from the gateway search: enough context to open without a lookup. */
-        fun searchHit(sessionId: String, profile: String?, title: String?, query: String) = ChatLaunch(
+        fun searchHit(
+            sessionId: String,
+            profile: String?,
+            title: String?,
+            query: String,
+            deviceId: String? = null,
+        ) = ChatLaunch(
             sessionId = sessionId,
+            deviceId = deviceId,
             profile = profile,
             title = title?.takeIf { it.isNotBlank() },
             initialQuery = query.takeIf { it.isNotBlank() },
         )
 
-        fun new(sessionId: String, profile: String? = null) = ChatLaunch(
+        fun new(sessionId: String, profile: String? = null, deviceId: String? = null) = ChatLaunch(
             sessionId = sessionId,
+            deviceId = deviceId,
             profile = profile,
             isNew = true,
         )

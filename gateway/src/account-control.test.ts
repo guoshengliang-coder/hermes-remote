@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { test } from "node:test";
 import { AccountHttpController } from "./account/account-http-controller.js";
 import { AccountControlService } from "./account/account-control-service.js";
 import { AccountService } from "./account/account-service.js";
 import type {
   AccountControlRepository,
+  AccountDevice,
+  AccountInstallationRevocationResult,
   ActiveBinding,
   BindingCandidate,
   BindingProofMaterial,
@@ -17,7 +21,6 @@ import type {
   CreateReplacementResult,
   CurrentInstallationRevocationResult,
   ManagedInstallation,
-  RevokeInstallationResult,
   UnbindResult,
 } from "./account/account-control-model.js";
 import {
@@ -25,6 +28,7 @@ import {
   canonicalConnectorChallenge,
 } from "./account/connector-proof-coordinator.js";
 import type { AccountPrincipal, IdempotencyMaterial } from "./account/model.js";
+import { accountErrors } from "./account/model.js";
 import { TokenCodec } from "./account/token-codec.js";
 
 const HASH_KEY = "control-test-key-that-is-more-than-thirty-two-bytes";
@@ -37,6 +41,10 @@ test("AccountControlService limits management and binding creation to the curren
   const phone = principal("phone");
   await assert.rejects(
     service.listInstallations(phone),
+    (error: unknown) => errorCode(error) === "HR-ACCOUNT-007",
+  );
+  await assert.rejects(
+    service.listInstallations(principal("browser")),
     (error: unknown) => errorCode(error) === "HR-ACCOUNT-007",
   );
   assert.deepEqual(await service.listLifecycleEvents(phone, 0, 20), {
@@ -178,8 +186,69 @@ test("AccountControlService hashes scoped grants and permits current-phone retry
   assert.equal(repository.currentAccessTokenHash, codec.hashAccessToken(accessToken));
 });
 
-test("account control HTTP routes expose replacement, unbind, and current-phone revocation", async () => {
+test("multi-device service requires explicit selection and preserves a chosen default", async () => {
   const repository = new FakeControlRepository();
+  repository.devices = [
+    accountDevice(),
+    {
+      ...accountDevice(),
+      id: "20000000-0000-4000-8000-000000000002",
+      deviceId: "hermes-20000000-0000-4000-8000-000000000002",
+      generation: 2,
+      desktopDisplayName: "Office Mac mini",
+      isDefault: false,
+    },
+  ];
+  const service = new AccountControlService(
+    repository,
+    new TokenCodec(HASH_KEY),
+    () => new Date("2026-09-02T04:00:00.000Z"),
+    3,
+  );
+
+  await assert.rejects(
+    service.getBinding(principal("phone")),
+    (error: unknown) => errorCode(error) === "HR-BIND-009",
+  );
+  assert.equal(
+    (await service.resolveDevice(principal("phone"), repository.devices[1].deviceId)).id,
+    repository.devices[1].id,
+  );
+  await assert.rejects(
+    service.resolveDevice(principal("phone"), "missing-device"),
+    (error: unknown) => errorCode(error) === "HR-BIND-011",
+  );
+  const selected = await service.selectDefaultDevice(
+    principal("phone"),
+    repository.devices[1].deviceId,
+    "01ad901e-87d2-4fc7-825e-6408d4e0e7e8",
+  );
+  assert.equal(selected.isDefault, true);
+  assert.equal(repository.selectedDefaultDeviceId, repository.devices[1].deviceId);
+});
+
+test("multi-device errors have stable recovery metadata and bilingual registry entries", async () => {
+  const cases = [
+    [accountErrors.deviceSelectionRequired(), "HR-BIND-009", false, "select_device"],
+    [accountErrors.deviceCapacityReached(), "HR-BIND-010", false, "none"],
+    [accountErrors.deviceNotFound(), "HR-BIND-011", false, "select_device"],
+  ] as const;
+  const registry = await readFile(resolve("../docs/ERROR_HANDLING.md"), "utf8");
+  for (const [error, code, retryable, recoveryAction] of cases) {
+    assert.equal(error.code, code);
+    assert.equal(error.retryable, retryable);
+    assert.equal(error.recoveryAction, recoveryAction);
+    assert.equal(error.message.length > 0, true);
+    const registryLine = registry.split("\n").find((line) => line.includes(`\`${code}\``));
+    assert(registryLine);
+    assert.match(registryLine, /[\u3400-\u9fff]/);
+    assert.match(registryLine, /[A-Za-z]/);
+  }
+});
+
+test("account control HTTP routes enforce recent authentication for managed phone revocation", async () => {
+  const repository = new FakeControlRepository();
+  repository.devices = [accountDevice()];
   const codec = new TokenCodec(HASH_KEY);
   const control = new AccountControlService(repository, codec);
   const accountService = {
@@ -188,6 +257,8 @@ test("account control HTTP routes expose replacement, unbind, and current-phone 
   const controller = new AccountHttpController(true, accountService, {
     controlEnabled: true,
     controlService: control,
+    identityManagementEnabled: true,
+    multiDeviceEnabled: true,
   });
   const grant = codec.issueReauthenticationGrant();
   const createResponse = new MemoryResponse();
@@ -244,6 +315,72 @@ test("account control HTTP routes expose replacement, unbind, and current-phone 
     new URL("http://localhost/v2/installations/current"),
   );
   assert.equal(currentResponse.status, 204);
+
+  const targetPhoneID = "879d7035-9ba5-456f-979a-98ab28ae89ec";
+  const missingGrantResponse = new MemoryResponse();
+  await controller.handle(
+    memoryRequest("DELETE", {
+      authorization: "Bearer test-access",
+      "content-type": "application/json",
+      "idempotency-key": "af3fc248-47ea-45b4-976a-aaef1fb6127e",
+    }, JSON.stringify({})),
+    missingGrantResponse.asServerResponse(),
+    new URL(`http://localhost/v2/installations/${targetPhoneID}`),
+  );
+  assert.equal(missingGrantResponse.status, 400);
+  assert.equal(
+    (missingGrantResponse.json() as { error: { code: string } }).error.code,
+    "HR-ACCOUNT-004",
+  );
+  assert.equal(repository.revokedAccountInstallationID, undefined);
+
+  const managedPhoneResponse = new MemoryResponse();
+  await controller.handle(
+    memoryRequest("DELETE", {
+      authorization: "Bearer test-access",
+      "content-type": "application/json",
+      "idempotency-key": "85d92f97-4404-4713-97f4-30a33da91997",
+    }, JSON.stringify({ grant })),
+    managedPhoneResponse.asServerResponse(),
+    new URL(`http://localhost/v2/installations/${targetPhoneID}`),
+  );
+  assert.equal(managedPhoneResponse.status, 204);
+  assert.equal(repository.revokedAccountInstallationID, targetPhoneID);
+  assert.equal(repository.accountInstallationGrantHash, codec.hashReauthenticationGrant(grant));
+  assert.equal(repository.accountInstallationRequiredKind, "phone");
+
+  const devicesResponse = new MemoryResponse();
+  await controller.handle(
+    memoryRequest("GET", { authorization: "Bearer test-access" }),
+    devicesResponse.asServerResponse(),
+    new URL("http://localhost/v2/devices"),
+  );
+  assert.equal(devicesResponse.status, 200);
+  assert.equal((devicesResponse.json() as { items: AccountDevice[] }).items[0].deviceId, accountDevice().deviceId);
+
+  const defaultResponse = new MemoryResponse();
+  await controller.handle(
+    memoryRequest("POST", {
+      authorization: "Bearer test-access",
+      "idempotency-key": "21c6fca5-356e-4346-bfa8-b67ecdd2e09c",
+    }),
+    defaultResponse.asServerResponse(),
+    new URL(`http://localhost/v2/devices/${accountDevice().deviceId}/select-default`),
+  );
+  assert.equal(defaultResponse.status, 200);
+  assert.equal((defaultResponse.json() as { device: AccountDevice }).device.isDefault, true);
+
+  const removeResponse = new MemoryResponse();
+  await controller.handle(
+    memoryRequest("DELETE", {
+      authorization: "Bearer test-access",
+      "content-type": "application/json",
+      "idempotency-key": "ab52c266-e53e-4a77-9875-5adfc2f4d07d",
+    }, JSON.stringify({ grant })),
+    removeResponse.asServerResponse(),
+    new URL(`http://localhost/v2/devices/${accountDevice().deviceId}`),
+  );
+  assert.equal(removeResponse.status, 204);
 });
 
 class FakeControlRepository implements AccountControlRepository {
@@ -254,6 +391,11 @@ class FakeControlRepository implements AccountControlRepository {
   currentAccessTokenHash?: string;
   replacementGrantHash?: string;
   unbindGrantHash?: string;
+  revokedAccountInstallationID?: string;
+  accountInstallationGrantHash?: string;
+  accountInstallationRequiredKind?: ManagedInstallation["kind"];
+  devices: AccountDevice[] = [];
+  selectedDefaultDeviceId?: string;
 
   async revokeCurrentPhoneInstallation(
     accessTokenHash: string,
@@ -267,16 +409,40 @@ class FakeControlRepository implements AccountControlRepository {
     return [];
   }
 
-  async revokePhoneInstallation(
+  async revokeAccountInstallation(
     _principal: AccountPrincipal,
-    _targetInstallationId: string,
+    targetInstallationId: string,
+    grantTokenHash: string,
     _idempotency: IdempotencyMaterial,
-  ): Promise<RevokeInstallationResult> {
+    requiredKind?: ManagedInstallation["kind"],
+  ): Promise<AccountInstallationRevocationResult> {
+    this.revokedAccountInstallationID = targetInstallationId;
+    this.accountInstallationGrantHash = grantTokenHash;
+    this.accountInstallationRequiredKind = requiredKind;
     return { status: "completed" };
   }
 
   async getBinding(_principal: AccountPrincipal): Promise<BindingState> {
     return { state: "no_binding" };
+  }
+
+  async listDevices(_principal: AccountPrincipal): Promise<AccountDevice[]> {
+    return this.devices;
+  }
+
+  async getDevice(_principal: AccountPrincipal, deviceId: string): Promise<AccountDevice | undefined> {
+    return this.devices.find((device) => device.deviceId === deviceId);
+  }
+
+  async selectDefaultDevice(
+    _principal: AccountPrincipal,
+    deviceId: string,
+  ): Promise<{ status: "completed"; device: AccountDevice } | { status: "not_found" }> {
+    this.selectedDefaultDeviceId = deviceId;
+    const device = this.devices.find((candidate) => candidate.deviceId === deviceId);
+    return device
+      ? { status: "completed", device: { ...device, isDefault: true } }
+      : { status: "not_found" };
   }
 
   async createPendingBinding(
@@ -334,6 +500,14 @@ class FakeControlRepository implements AccountControlRepository {
     return { status: "completed" };
   }
 
+  async unbindDevice(
+    _principal: AccountPrincipal,
+    deviceId: string,
+  ): Promise<UnbindResult> {
+    this.devices = this.devices.filter((device) => device.deviceId !== deviceId);
+    return { status: "completed" };
+  }
+
   async loadBindingProofMaterial(
     _bindingId: string,
     _generation: number,
@@ -376,17 +550,21 @@ class FakeControlRepository implements AccountControlRepository {
   }
 }
 
-function principal(kind: "phone" | "desktop"): AccountPrincipal {
+function principal(kind: "phone" | "desktop" | "browser"): AccountPrincipal {
+  const desktop = kind === "desktop";
+  const browser = kind === "browser";
   return {
     account: { id: "account-1" },
     installation: {
-      id: kind === "desktop" ? DESKTOP_ID : "b5791214-1583-4737-a809-b3f2f03b3c61",
+      id: desktop
+        ? DESKTOP_ID
+        : browser ? "8c4b5ac1-40c0-4ace-a8f4-10f65fdf13c4" : "b5791214-1583-4737-a809-b3f2f03b3c61",
       kind,
-      platform: kind === "desktop" ? "macos" : "android",
-      displayName: kind === "desktop" ? "Mac mini" : "Phone",
+      platform: desktop ? "macos" : browser ? "web" : "android",
+      displayName: desktop ? "Mac mini" : browser ? "Web browser" : "Phone",
     },
-    sessionId: kind === "desktop" ? "session-desktop" : "session-phone",
-    refreshFamilyId: kind === "desktop" ? "family-desktop" : "family-phone",
+    sessionId: desktop ? "session-desktop" : browser ? "session-browser" : "session-phone",
+    refreshFamilyId: desktop ? "family-desktop" : browser ? "family-browser" : "family-phone",
   };
 }
 
@@ -416,6 +594,10 @@ function activeBinding(): ActiveBinding {
     gateway: { latencyMs: 1 },
     endToEnd: { healthy: true },
   };
+}
+
+function accountDevice(): AccountDevice {
+  return { ...activeBinding(), access: "owner", isDefault: true };
 }
 
 function errorCode(error: unknown): unknown {

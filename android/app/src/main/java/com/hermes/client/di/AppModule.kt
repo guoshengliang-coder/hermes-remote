@@ -3,13 +3,20 @@ package com.hermes.client.di
 import android.content.Context
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.EncryptedCredentialStore
+import com.hermes.client.data.auth.AccountSessionStore
+import com.hermes.client.data.auth.AccountSessionManager
+import com.hermes.client.data.auth.AccountTransportMode
+import com.hermes.client.data.auth.AccountClock
+import com.hermes.client.data.auth.ConversationDeviceStore
 import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import com.hermes.client.data.feedback.FeedbackReporter
 import com.hermes.client.data.feedback.MissionGoFeedbackReporter
 import com.hermes.client.data.network.GatedAuth
+import com.hermes.client.data.network.AccountApi
 import com.hermes.client.data.network.GatedAuthenticator
 import com.hermes.client.data.network.HermesGatewayClient
 import com.hermes.client.data.network.GatewayWebSocketEndpoint
+import com.hermes.client.data.network.GatewayEndpointException
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.network.RelayDns
 import com.hermes.client.data.repository.ChatRepository
@@ -41,6 +48,10 @@ import javax.inject.Qualifier
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
 annotation class UpdateHttpClient
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class AccountHttpClient
 
 /**
  * WebSocket ping cadence, which OkHttp also uses as the pong deadline: no pong within one interval
@@ -113,6 +124,23 @@ object AppModule {
     @UpdateHttpClient
     fun provideUpdateHttpClient(): OkHttpClient = createUpdateHttpClient()
 
+    /** No legacy authenticator/cookies: account requests must never inherit dashboard credentials. */
+    @Provides
+    @Singleton
+    @AccountHttpClient
+    fun provideAccountHttpClient(): OkHttpClient = OkHttpClient.Builder()
+        .dns(RelayDns())
+        .build()
+
+    @Provides
+    @Singleton
+    fun provideAccountApi(@AccountHttpClient client: OkHttpClient, json: Json): AccountApi =
+        AccountApi(client, json)
+
+    @Provides
+    @Singleton
+    fun provideAccountClock(): AccountClock = AccountClock.SYSTEM
+
     @Provides
     @Singleton
     fun provideUpdateRepository(
@@ -123,8 +151,25 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideCredentialStore(@ApplicationContext context: Context): CredentialStore =
+    fun provideEncryptedCredentialStore(@ApplicationContext context: Context): EncryptedCredentialStore =
         EncryptedCredentialStore(context)
+
+    @Provides
+    @Singleton
+    fun provideCredentialStore(store: EncryptedCredentialStore): CredentialStore = store
+
+    @Provides
+    @Singleton
+    fun provideAccountSessionStore(store: EncryptedCredentialStore): AccountSessionStore = store
+
+    @Provides
+    @Singleton
+    fun provideConversationDeviceStore(store: EncryptedCredentialStore): ConversationDeviceStore = store
+
+    @Provides
+    @Singleton
+    fun provideAccountSessionManager(store: AccountSessionStore, api: AccountApi): AccountSessionManager =
+        AccountSessionManager(store, api)
 
     @Provides
     @Singleton
@@ -134,26 +179,50 @@ object AppModule {
     @Singleton
     fun provideHermesGatewayClient(
         okHttp: OkHttpClient,
+        @AccountHttpClient accountOkHttp: OkHttpClient,
         json: Json,
         scope: CoroutineScope,
         store: CredentialStore,
         gatedAuth: GatedAuth,
+        accountSessions: AccountSessionManager,
     ): HermesGatewayClient = HermesGatewayClient(
         okHttp = okHttp,
+        accountOkHttp = accountOkHttp,
         json = json,
         scope = scope,
+        onAccountHandshakeRejected = accountSessions::handleTransportHandshakeRejection,
         // Gated mode mints a fresh single-use WS ticket per connect; loopback mode appends the
         // session token. The ticket POST goes through the authenticated client, so a missing
         // session is recovered (401 → login → retry) before the socket opens.
         wsEndpointProvider = {
-            val stored = store.load() ?: error("no gateway configured")
-            val cfg = stored.copy(baseUrl = normalizeGatewayBaseUrl(stored.baseUrl))
-            if (cfg.isGated) {
-                val ticket = withContext(Dispatchers.IO) { gatedAuth.wsTicket(okHttp) }
-                    ?: error("ws ticket unavailable")
-                GatewayWebSocketEndpoint("${cfg.wsBase}?ticket=$ticket")
-            } else {
-                GatewayWebSocketEndpoint(cfg.wsBase, cfg.token)
+            when (accountSessions.transportMode()) {
+                AccountTransportMode.ACCOUNT -> {
+                    val account = accountSessions.transportConnection()
+                        ?: throw GatewayEndpointException("account connection unavailable", retryable = false)
+                    com.hermes.client.data.diagnostics.DebugLog.setTokenToRedact(account.bearer)
+                    GatewayWebSocketEndpoint(
+                        url = "${account.baseUrl.trimEnd('/')}/v2/devices/${encodePathSegment(account.deviceId)}/ws",
+                        bearerToken = account.bearer,
+                        accountDeviceId = account.deviceId,
+                    )
+                }
+                AccountTransportMode.DEVICE_SELECTION_REQUIRED ->
+                    throw GatewayEndpointException("account device selection required", retryable = false)
+                AccountTransportMode.REAUTHENTICATION_REQUIRED ->
+                    throw GatewayEndpointException("account sign-in required", retryable = false)
+                AccountTransportMode.ACCOUNT_DELETION_COMMITTED ->
+                    throw GatewayEndpointException("account deletion committed", retryable = false)
+                AccountTransportMode.LEGACY -> {
+                    val stored = store.load() ?: error("no gateway configured")
+                    val cfg = stored.copy(baseUrl = normalizeGatewayBaseUrl(stored.baseUrl))
+                    if (cfg.isGated) {
+                        val ticket = withContext(Dispatchers.IO) { gatedAuth.wsTicket(okHttp) }
+                            ?: error("ws ticket unavailable")
+                        GatewayWebSocketEndpoint("${cfg.wsBase}?ticket=$ticket")
+                    } else {
+                        GatewayWebSocketEndpoint(cfg.wsBase, cfg.token)
+                    }
+                }
             }
         },
     )
@@ -162,13 +231,20 @@ object AppModule {
     @Singleton
     fun provideHermesRestApi(
         okHttp: OkHttpClient,
+        @AccountHttpClient accountOkHttp: OkHttpClient,
         json: Json,
         store: CredentialStore,
+        accountSessions: AccountSessionManager,
     ): HermesRestApi = HermesRestApi(
         okHttp = okHttp,
+        accountOkHttp = accountOkHttp,
         json = json,
+        accountSessionManager = accountSessions,
         configProvider = { store.load() },
     )
+
+    private fun encodePathSegment(value: String): String =
+        java.net.URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20")
 
     @Provides
     @Singleton
@@ -201,6 +277,7 @@ object AppModule {
         readStore: com.hermes.client.data.repository.SessionReadStore,
         sessions: SessionRepository,
         media: com.hermes.client.data.repository.ChatMediaRepository,
+        accountSessions: AccountSessionManager,
     ): com.hermes.client.data.progress.SessionRuntimeStore =
         com.hermes.client.data.progress.SessionRuntimeStore(
             chat,
@@ -209,6 +286,7 @@ object AppModule {
             readStore,
             sessions,
             media,
+            accountSessions = accountSessions,
             watchdogEnabled = true,
         )
 
@@ -239,9 +317,17 @@ object AppModule {
     fun provideSessionRepository(
         rest: HermesRestApi,
         scope: CoroutineScope,
+        accountSessions: AccountSessionManager,
+        conversationDevices: ConversationDeviceStore,
         transcripts: com.hermes.client.data.repository.TranscriptStore,
     ): SessionRepository =
-        SessionRepository(rest, scope, transcripts)
+        SessionRepository(
+            rest = rest,
+            scope = scope,
+            accountSessions = accountSessions,
+            conversationDevices = conversationDevices,
+            transcripts = transcripts,
+        )
 
     @Provides
     @Singleton

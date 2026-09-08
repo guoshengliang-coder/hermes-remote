@@ -3,6 +3,8 @@ package com.hermes.client.ui.startup
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.auth.CredentialStore
+import com.hermes.client.data.auth.AccountSessionManager
+import com.hermes.client.data.auth.AccountTransportMode
 import com.hermes.client.data.auth.GatewayConfig
 import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import com.hermes.client.data.diagnostics.DebugLog
@@ -42,6 +44,12 @@ enum class StartupFailure(val code: String) {
     CONFIGURATION_FAILED("HR-CONFIG-001"),
     INVALID_URL("HR-CONFIG-003"),
     AUTHENTICATION_FAILED("HR-AUTH-001"),
+    ACCOUNT_AUTHENTICATION_FAILED("HR-AUTH-003"),
+    ACCOUNT_RATE_LIMITED("HR-AUTH-007"),
+    ACCOUNT_UNAVAILABLE("HR-ACCOUNT-001"),
+    ACCOUNT_SERVICE_UNAVAILABLE("HR-ACCOUNT-002"),
+    ACCOUNT_DELETION_COMMITTED("HR-ACCOUNT-012"),
+    ACCOUNT_DEVICE_UNAVAILABLE("HR-BIND-011"),
 }
 
 enum class StartupPhase(val progress: Float) {
@@ -57,7 +65,7 @@ sealed interface StartupDestination {
     data object Sessions : StartupDestination
     data object Search : StartupDestination
     data object Models : StartupDestination
-    data class Chat(val sessionId: String, val profile: String?) : StartupDestination
+    data class Chat(val sessionId: String, val profile: String?, val deviceId: String? = null) : StartupDestination
     data object Static : StartupDestination
 }
 
@@ -98,6 +106,7 @@ class StartupViewModel @Inject constructor(
     private val viewModes: ViewModeStore,
     private val runtimes: SessionRuntimeStore,
     private val foregroundRecovery: ForegroundRecoveryCoordinator,
+    private val accountSessions: AccountSessionManager? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow<StartupUiState>(StartupUiState.Hidden)
     val state: StateFlow<StartupUiState> = _state.asStateFlow()
@@ -137,7 +146,7 @@ class StartupViewModel @Inject constructor(
                     connection !is ConnectionState.Connected &&
                     _state.value is StartupUiState.Hidden &&
                     attemptJob?.isActive != true &&
-                    runCatching { credentials.load() }.getOrNull() != null
+                    hasConnectionConfiguration()
                 ) {
                     startAttempt(StartupReason.CONNECTION_RECOVERY, HOT_START_DEBOUNCE_MS)
                 }
@@ -156,6 +165,11 @@ class StartupViewModel @Inject constructor(
     /** Called once from Activity.onCreate. Configuration changes are not process-cold starts. */
     fun onActivityCreated(processColdStart: Boolean) {
         if (!processColdStart) return
+        if (requireAccountRepair(StartupReason.COLD_START)) return
+        if (hasAccountConnection()) {
+            startAttempt(StartupReason.COLD_START, debounceMs = 0L)
+            return
+        }
         val config = loadConfiguration(StartupReason.COLD_START) ?: return
         if (!isUsableConfiguration(config, StartupReason.COLD_START)) return
         startAttempt(StartupReason.COLD_START, debounceMs = 0L)
@@ -166,11 +180,14 @@ class StartupViewModel @Inject constructor(
         appForeground = true
         if (attemptJob?.isActive == true) return
         if (_state.value is StartupUiState.RepairRequired) return
-        val config = loadConfiguration(StartupReason.CONNECTION_RECOVERY) ?: run {
-            _state.value = StartupUiState.Hidden
-            return
+        if (requireAccountRepair(StartupReason.CONNECTION_RECOVERY)) return
+        if (!hasAccountConnection()) {
+            val config = loadConfiguration(StartupReason.CONNECTION_RECOVERY) ?: run {
+                _state.value = StartupUiState.Hidden
+                return
+            }
+            if (!isUsableConfiguration(config, StartupReason.CONNECTION_RECOVERY)) return
         }
-        if (!isUsableConfiguration(config, StartupReason.CONNECTION_RECOVERY)) return
         val failed = _state.value as? StartupUiState.Failed
         if (chat.connectionState.value is ConnectionState.Connected && connectivity.isOnline()) {
             if (failed != null) {
@@ -195,11 +212,14 @@ class StartupViewModel @Inject constructor(
         if (_state.value is StartupUiState.RepairRequired) return
         val failed = _state.value as? StartupUiState.Failed
         val reason = failed?.reason ?: StartupReason.CONNECTION_RECOVERY
-        val config = loadConfiguration(reason) ?: run {
-            _state.value = StartupUiState.Hidden
-            return
+        if (requireAccountRepair(reason)) return
+        if (!hasAccountConnection()) {
+            val config = loadConfiguration(reason) ?: run {
+                _state.value = StartupUiState.Hidden
+                return
+            }
+            if (!isUsableConfiguration(config, reason)) return
         }
-        if (!isUsableConfiguration(config, reason)) return
         startAttempt(
             reason = reason,
             debounceMs = 0L,
@@ -265,12 +285,13 @@ class StartupViewModel @Inject constructor(
                     async { delay(MINIMUM_COLD_START_MS) }
                 } else null
 
-                val config = loadConfiguration(reason) ?: run {
+                val accountMode = hasAccountConnection()
+                val config = if (accountMode) null else loadConfiguration(reason) ?: run {
                     minimumDisplay?.cancel()
                     _state.value = StartupUiState.Hidden
                     return@coroutineScope
                 }
-                if (!isUsableConfiguration(config, reason)) {
+                if (!accountMode && !isUsableConfiguration(checkNotNull(config), reason)) {
                     minimumDisplay?.cancel()
                     return@coroutineScope
                 }
@@ -284,11 +305,22 @@ class StartupViewModel @Inject constructor(
                 val connectivitySaysOffline = !connectivity.isOnline()
 
                 _state.value = StartupUiState.Loading(reason, StartupPhase.AUTHENTICATION)
-                when (val probe = rest.probeStatusFor(config.baseUrl, config.token)) {
+                val probe = if (accountMode) probeAccountConnection()
+                    else checkNotNull(config).let { rest.probeStatusFor(it.baseUrl, it.token) }
+                when (probe) {
                     GatewayProbeResult.Reachable -> Unit
                     is GatewayProbeResult.Unauthorized -> {
                         minimumDisplay?.cancel()
-                        requireConfigurationRepair(reason, StartupFailure.AUTHENTICATION_FAILED)
+                        requireConfigurationRepair(
+                            reason,
+                            if (accountMode) StartupFailure.ACCOUNT_AUTHENTICATION_FAILED
+                            else StartupFailure.AUTHENTICATION_FAILED,
+                        )
+                        return@coroutineScope
+                    }
+                    is GatewayProbeResult.AccountDeviceUnavailable -> {
+                        minimumDisplay?.cancel()
+                        requireConfigurationRepair(reason, StartupFailure.ACCOUNT_DEVICE_UNAVAILABLE)
                         return@coroutineScope
                     }
                     is GatewayProbeResult.InvalidEndpoint -> {
@@ -300,10 +332,12 @@ class StartupViewModel @Inject constructor(
                         minimumDisplay?.cancel()
                         fail(
                             reason,
-                            if (probe.errorCode == "device_offline") {
-                                StartupFailure.CONNECTOR_OFFLINE
-                            } else {
-                                StartupFailure.CONNECTION_FAILED
+                            when (probe.errorCode) {
+                                "device_offline", "HR-CONN-005" -> StartupFailure.CONNECTOR_OFFLINE
+                                "HR-AUTH-007" -> StartupFailure.ACCOUNT_RATE_LIMITED
+                                "HR-ACCOUNT-001" -> StartupFailure.ACCOUNT_UNAVAILABLE
+                                "HR-ACCOUNT-002" -> StartupFailure.ACCOUNT_SERVICE_UNAVAILABLE
+                                else -> StartupFailure.CONNECTION_FAILED
                             },
                         )
                         return@coroutineScope
@@ -413,6 +447,53 @@ class StartupViewModel @Inject constructor(
         null
     }
 
+    private fun hasAccountConnection(): Boolean =
+        accountSessions?.transportMode() == AccountTransportMode.ACCOUNT
+
+    private fun requireAccountRepair(reason: StartupReason): Boolean {
+        val failure = when (accountSessions?.transportMode()) {
+            AccountTransportMode.REAUTHENTICATION_REQUIRED -> StartupFailure.ACCOUNT_AUTHENTICATION_FAILED
+            AccountTransportMode.DEVICE_SELECTION_REQUIRED -> StartupFailure.ACCOUNT_DEVICE_UNAVAILABLE
+            AccountTransportMode.ACCOUNT_DELETION_COMMITTED -> StartupFailure.ACCOUNT_DELETION_COMMITTED
+            else -> return false
+        }
+        requireConfigurationRepair(reason, failure)
+        return true
+    }
+
+    private fun hasConnectionConfiguration(): Boolean =
+        accountSessions?.transportMode()?.let { it != AccountTransportMode.LEGACY } == true ||
+            runCatching { credentials.load() }.getOrNull() != null
+
+    private suspend fun probeAccountConnection(): GatewayProbeResult = try {
+        rest.gatewayStatus()
+        GatewayProbeResult.Reachable
+    } catch (error: com.hermes.client.data.network.AccountApiException) {
+        if (error.statusCode == 401 || error.errorCode in ACCOUNT_SESSION_FAILURE_CODES) {
+            GatewayProbeResult.Unauthorized(error.statusCode)
+        } else {
+            GatewayProbeResult.ServerFailure(error.statusCode, error.errorCode)
+        }
+    } catch (error: com.hermes.client.data.network.HermesApiException) {
+        when (error.code) {
+            401, 403 -> if (error.errorCode == "HR-ACCOUNT-001") {
+                GatewayProbeResult.ServerFailure(error.code, error.errorCode)
+            } else {
+                GatewayProbeResult.Unauthorized(error.code)
+            }
+            404 -> if (error.errorCode == "HR-BIND-011") {
+                accountSessions?.clearDeviceSelection()
+                GatewayProbeResult.AccountDeviceUnavailable(error.errorCode)
+            } else {
+                GatewayProbeResult.InvalidEndpoint(error.code)
+            }
+            in 500..599 -> GatewayProbeResult.ServerFailure(error.code, error.errorCode)
+            else -> GatewayProbeResult.InvalidEndpoint(error.code)
+        }
+    } catch (error: Exception) {
+        GatewayProbeResult.Unreachable(error.javaClass.simpleName)
+    }
+
     private fun isUsableConfiguration(config: GatewayConfig, reason: StartupReason): Boolean {
         if (runCatching { normalizeGatewayBaseUrl(config.baseUrl) }.isFailure) {
             requireConfigurationRepair(reason, StartupFailure.INVALID_URL)
@@ -455,12 +536,17 @@ class StartupViewModel @Inject constructor(
             true
         }
         is StartupDestination.Chat -> runtimes.recoverVisibleSession(
-            SessionRuntimeKey(destination.profile ?: profiles.active.value, destination.sessionId),
+            SessionRuntimeKey(
+                destination.profile ?: profiles.active.value,
+                destination.sessionId,
+                destination.deviceId,
+            ),
         )
         StartupDestination.Static -> true
     }
 
     internal companion object {
+        private val ACCOUNT_SESSION_FAILURE_CODES = setOf("HR-AUTH-003", "HR-AUTH-004", "HR-AUTH-005")
         // A dropped socket is normally self-healing: HermesGatewayClient reconnects on its own
         // 500ms→10s backoff. Waiting out that first window before running a recovery pass means a
         // routine blip costs nothing at all — no /api/status probe, no destination recovery, no

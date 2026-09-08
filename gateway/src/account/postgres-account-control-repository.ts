@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { type Pool, type PoolClient, type QueryResultRow } from "pg";
-import type { AccountPrincipal, IdempotencyMaterial } from "./model.js";
+import type { AccountPrincipal, AccountStatus, IdempotencyMaterial } from "./model.js";
 import { PROTOCOL_VERSION, type SessionLifecycleEvent } from "@hermes-remote/protocol";
 import type {
   AccountControlRepository,
+  AccountDevice,
+  AccountSecurityInstallation,
+  AccountInstallationRevocationResult,
   ActiveBinding,
   BindingCandidate,
   BindingProofMaterial,
@@ -14,11 +17,13 @@ import type {
   CreateReplacementResult,
   CurrentInstallationRevocationResult,
   ManagedInstallation,
+  PublicAccountAuditEvent,
   ReplacementRequest,
-  RevokeInstallationResult,
+  SelectDefaultDeviceResult,
   UnbindResult,
 } from "./account-control-model.js";
 import type { LifecycleEventPage } from "../lifecycle-event-store.js";
+import { publishAccountAccessRevocation } from "./postgres-access-revocation-bus.js";
 
 interface BindingRow extends QueryResultRow {
   id: string;
@@ -73,10 +78,10 @@ interface MutationAccessRow extends QueryResultRow {
   access_expires_at: Date;
   session_revoked_at: Date | null;
   account_id: string;
-  account_status: "active" | "disabled";
+  account_status: AccountStatus;
   installation_id: string;
-  installation_kind: "phone" | "desktop";
-  installation_platform: "android" | "macos";
+  installation_kind: "phone" | "desktop" | "browser";
+  installation_platform: "android" | "macos" | "web";
   installation_revoked_at: Date | null;
 }
 
@@ -96,21 +101,35 @@ interface AccountLifecycleRow extends QueryResultRow {
   read_at: Date | null;
 }
 
+interface AccountAuditRow extends QueryResultRow {
+  id: string;
+  event_type: string;
+  occurred_at: Date;
+  installation_id: string | null;
+  installation_kind: "phone" | "desktop" | "browser" | null;
+  installation_platform: "android" | "macos" | "web" | null;
+  installation_display_name: string | null;
+}
+
 export class PostgresAccountControlRepository implements AccountControlRepository {
   constructor(
     private readonly pool: Pool,
     private readonly maxAccountLifecycleEvents = 10_000,
+    private readonly maxOwnedDevices = 1,
   ) {
     if (!Number.isSafeInteger(maxAccountLifecycleEvents) || maxAccountLifecycleEvents < 1) {
       throw new Error("maxAccountLifecycleEvents must be a positive safe integer");
+    }
+    if (!Number.isSafeInteger(maxOwnedDevices) || maxOwnedDevices < 1 || maxOwnedDevices > 3) {
+      throw new Error("maxOwnedDevices must be an integer between 1 and 3");
     }
   }
 
   async listInstallations(principal: AccountPrincipal): Promise<ManagedInstallation[]> {
     const result = await this.pool.query<{
       id: string;
-      kind: "phone" | "desktop";
-      platform: "android" | "macos";
+      kind: "phone" | "desktop" | "browser";
+      platform: "android" | "macos" | "web";
       display_name: string;
       last_seen_at: Date;
       revoked_at: Date | null;
@@ -132,17 +151,86 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
     }));
   }
 
-  async revokePhoneInstallation(
+  async listAccountInstallations(
+    principal: AccountPrincipal,
+  ): Promise<AccountSecurityInstallation[]> {
+    const result = await this.pool.query<{
+      id: string;
+      kind: "phone" | "desktop" | "browser";
+      platform: "android" | "macos" | "web";
+      display_name: string;
+      created_at: Date;
+      last_seen_at: Date;
+      active_session_count: string;
+    }>(
+      `SELECT i.id, i.kind, i.platform, i.display_name, i.created_at, i.last_seen_at,
+              count(s.id) FILTER (WHERE s.revoked_at IS NULL) AS active_session_count
+         FROM installations i
+         LEFT JOIN account_sessions s ON s.installation_id = i.id
+        WHERE i.account_id = $1 AND i.revoked_at IS NULL
+        GROUP BY i.id
+        ORDER BY (i.id = $2) DESC, i.last_seen_at DESC, i.id`,
+      [principal.account.id, principal.installation.id],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      platform: row.platform,
+      displayName: row.display_name,
+      createdAt: row.created_at.toISOString(),
+      lastSeenAt: row.last_seen_at.toISOString(),
+      status: "active",
+      current: row.id === principal.installation.id,
+      activeSessionCount: Number(row.active_session_count),
+    }));
+  }
+
+  async listAccountAuditEvents(
+    principal: AccountPrincipal,
+    limit: number,
+  ): Promise<PublicAccountAuditEvent[]> {
+    const result = await this.pool.query<AccountAuditRow>(
+      `SELECT e.id, e.event_type, e.occurred_at, i.id AS installation_id,
+              i.kind AS installation_kind, i.platform AS installation_platform,
+              i.display_name AS installation_display_name
+         FROM account_audit_events e
+         LEFT JOIN installations i
+           ON i.id = e.installation_id AND i.account_id = e.account_id
+        WHERE e.account_id = $1
+        ORDER BY e.occurred_at DESC, e.id DESC
+        LIMIT $2`,
+      [principal.account.id, limit],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      eventType: row.event_type,
+      occurredAt: row.occurred_at.toISOString(),
+      ...(row.installation_id && row.installation_kind && row.installation_platform
+        && row.installation_display_name ? {
+          actorInstallation: {
+            id: row.installation_id,
+            kind: row.installation_kind,
+            platform: row.installation_platform,
+            displayName: row.installation_display_name,
+          },
+        } : {}),
+    }));
+  }
+
+  async revokeAccountInstallation(
     principal: AccountPrincipal,
     targetInstallationId: string,
+    grantTokenHash: string,
     idempotency: IdempotencyMaterial,
-  ): Promise<RevokeInstallationResult> {
+    requiredKind?: ManagedInstallation["kind"],
+  ): Promise<AccountInstallationRevocationResult> {
     return this.transaction(async (client) => {
       await lockAccountControl(client, principal.account.id);
+      const operation = "account.installation.revoke";
       const replay = await loadIdempotency(
         client,
         principal.account.id,
-        "installation.revoke",
+        operation,
         idempotency.key,
       );
       if (replay) {
@@ -150,45 +238,56 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
           ? { status: "replayed" }
           : { status: "idempotency_conflict" };
       }
-
-      if (!await lockAuthorizedDesktop(client, principal)) return { status: "authorization_failed" };
-
-      const target = await client.query<{
-        id: string;
-        kind: "phone" | "desktop";
-        revoked_at: Date | null;
-      }>(
-        `SELECT id, kind, revoked_at
+      if (!await lockAuthorizedAccountInstallation(client, principal)) {
+        return { status: "authorization_failed" };
+      }
+      if (targetInstallationId === principal.installation.id) {
+        return { status: "current_installation" };
+      }
+      const target = await client.query<{ id: string; kind: ManagedInstallation["kind"] }>(
+        `SELECT id, kind
            FROM installations
-          WHERE id = $1 AND account_id = $2
+          WHERE id = $1 AND account_id = $2 AND revoked_at IS NULL
           FOR UPDATE`,
         [targetInstallationId, principal.account.id],
       );
-      if ((target.rowCount ?? 0) === 0) return { status: "not_found" };
-      if (target.rows[0].kind !== "phone") return { status: "invalid_target" };
+      if ((target.rowCount ?? 0) !== 1) return { status: "not_found" };
+      if (requiredKind && target.rows[0].kind !== requiredKind) {
+        return { status: "invalid_target" };
+      }
 
-      await client.query(
-        `UPDATE refresh_tokens r
-            SET revoked_at = COALESCE(r.revoked_at, now())
-           FROM account_sessions s
-          WHERE r.session_id = s.id AND s.installation_id = $1`,
-        [targetInstallationId],
+      const grant = await client.query<GrantRow>(
+        `SELECT id, scope, expires_at, used_at, revoked_at
+           FROM reauthentication_grants
+          WHERE token_hash = $1
+            AND account_id = $2
+            AND installation_id = $3
+            AND session_id = $4
+          FOR UPDATE`,
+        [
+          grantTokenHash,
+          principal.account.id,
+          principal.installation.id,
+          principal.sessionId,
+        ],
       );
+      const recent = grant.rows[0];
+      if (!recent || recent.scope !== "account.installation.revoke"
+          || recent.used_at || recent.revoked_at) {
+        return { status: "reauthentication_failed" };
+      }
+      if (recent.expires_at.getTime() <= Date.now()) {
+        await client.query(
+          "UPDATE reauthentication_grants SET revoked_at = now() WHERE id = $1",
+          [recent.id],
+        );
+        return { status: "reauthentication_failed" };
+      }
+
+      await revokeInstallationAccess(client, targetInstallationId);
       await client.query(
-        `UPDATE account_sessions
-            SET revoked_at = COALESCE(revoked_at, now())
-          WHERE installation_id = $1`,
-        [targetInstallationId],
-      );
-      await client.query(
-        `UPDATE reauthentication_grants
-            SET revoked_at = COALESCE(revoked_at, now())
-          WHERE installation_id = $1 AND used_at IS NULL`,
-        [targetInstallationId],
-      );
-      await client.query(
-        "UPDATE installations SET revoked_at = COALESCE(revoked_at, now()) WHERE id = $1",
-        [targetInstallationId],
+        "UPDATE reauthentication_grants SET used_at = now() WHERE id = $1",
+        [recent.id],
       );
       await saveIdempotency(
         client,
@@ -196,11 +295,20 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
         principal.sessionId,
         null,
         null,
-        "installation.revoke",
+        operation,
         idempotency,
       );
-      await audit(client, principal.account.id, principal.installation.id, "installation.revoked", {
-        targetInstallationId,
+      await audit(
+        client,
+        principal.account.id,
+        principal.installation.id,
+        "account.installation.revoked",
+        { targetInstallationId },
+      );
+      await publishAccountAccessRevocation(client, {
+        kind: "installation",
+        accountId: principal.account.id,
+        installationId: targetInstallationId,
       });
       return { status: "completed" };
     });
@@ -243,6 +351,11 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
         idempotency,
       );
       await audit(client, access.account_id, access.installation_id, "installation.revoked.current", {});
+      await publishAccountAccessRevocation(client, {
+        kind: "installation",
+        accountId: access.account_id,
+        installationId: access.installation_id,
+      });
       return { status: "completed" };
     });
   }
@@ -266,10 +379,16 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
     }
     const active = await this.pool.query<BindingRow>(
       `${bindingSelect}
-        WHERE account_id = $1 AND status = 'active'
+        WHERE account_id = $1
+          AND status = 'active'
+          ${this.maxOwnedDevices > 1 && principal.installation.kind === "desktop"
+            ? "AND desktop_installation_id = $2"
+            : ""}
         ORDER BY generation DESC
         LIMIT 1`,
-      [principal.account.id],
+      this.maxOwnedDevices > 1 && principal.installation.kind === "desktop"
+        ? [principal.account.id, principal.installation.id]
+        : [principal.account.id],
     );
     if ((active.rowCount ?? 0) > 0) {
       if (principal.installation.kind === "desktop"
@@ -317,6 +436,96 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
       : { state: "no_binding" };
   }
 
+  async listDevices(principal: AccountPrincipal): Promise<AccountDevice[]> {
+    const result = await this.pool.query<BindingRow & { is_default: boolean }>(
+      `SELECT ${bindingColumns},
+              (connector_bindings.id = (
+                SELECT p.default_binding_id
+                  FROM account_device_preferences p
+                 WHERE p.account_id = connector_bindings.account_id
+              )) AS is_default
+         FROM connector_bindings
+        WHERE connector_bindings.account_id = $1
+          AND connector_bindings.status = 'active'
+        ORDER BY is_default DESC, connector_bindings.activated_at ASC, connector_bindings.id ASC`,
+      [principal.account.id],
+    );
+    return result.rows.map((row) => accountDevice(row, row.is_default));
+  }
+
+  async getDevice(principal: AccountPrincipal, deviceId: string): Promise<AccountDevice | undefined> {
+    const result = await this.pool.query<BindingRow & { is_default: boolean }>(
+      `SELECT ${bindingColumns},
+              (connector_bindings.id = (
+                SELECT p.default_binding_id
+                  FROM account_device_preferences p
+                 WHERE p.account_id = connector_bindings.account_id
+              )) AS is_default
+         FROM connector_bindings
+        WHERE connector_bindings.account_id = $1
+          AND connector_bindings.device_id = $2
+          AND connector_bindings.status = 'active'`,
+      [principal.account.id, deviceId],
+    );
+    const row = result.rows[0];
+    return row ? accountDevice(row, row.is_default) : undefined;
+  }
+
+  async selectDefaultDevice(
+    principal: AccountPrincipal,
+    deviceId: string,
+    idempotency: IdempotencyMaterial,
+  ): Promise<SelectDefaultDeviceResult> {
+    return this.transaction(async (client) => {
+      await lockAccountControl(client, principal.account.id);
+      const replay = await loadIdempotency(
+        client,
+        principal.account.id,
+        "device.default.select",
+        idempotency.key,
+      );
+      if (replay) {
+        if (!replayMatches(replay, principal.sessionId, idempotency)
+            || !replay.connector_binding_id) {
+          return { status: "idempotency_conflict" };
+        }
+        const saved = await loadBinding(client, replay.connector_binding_id);
+        return saved?.status === "active" && saved.account_id === principal.account.id
+          ? { status: "replayed", device: accountDevice(saved, true) }
+          : { status: "not_found" };
+      }
+      const found = await client.query<BindingRow>(
+        `${bindingSelect}
+          WHERE account_id = $1 AND device_id = $2 AND status = 'active'
+          FOR UPDATE`,
+        [principal.account.id, deviceId],
+      );
+      if ((found.rowCount ?? 0) !== 1) return { status: "not_found" };
+      const binding = found.rows[0];
+      await client.query(
+        `INSERT INTO account_device_preferences (account_id, default_binding_id)
+         VALUES ($1, $2)
+         ON CONFLICT (account_id) DO UPDATE
+           SET default_binding_id = EXCLUDED.default_binding_id, updated_at = now()`,
+        [principal.account.id, binding.id],
+      );
+      await saveIdempotency(
+        client,
+        principal.account.id,
+        principal.sessionId,
+        binding.id,
+        null,
+        "device.default.select",
+        idempotency,
+      );
+      await audit(client, principal.account.id, principal.installation.id, "device.default.selected", {
+        bindingId: binding.id,
+        deviceId: binding.device_id,
+      });
+      return { status: "completed", device: accountDevice(binding, true) };
+    });
+  }
+
   async createPendingBinding(
     principal: AccountPrincipal,
     input: {
@@ -356,11 +565,23 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
       );
       const existing = await client.query(
         `SELECT 1 FROM connector_bindings
-          WHERE account_id = $1 AND status IN ('pending', 'active')
+          WHERE account_id = $1
+            AND desktop_installation_id = $2
+            AND status IN ('pending', 'active')
           LIMIT 1`,
-        [principal.account.id],
+        [principal.account.id, principal.installation.id],
       );
       if ((existing.rowCount ?? 0) > 0) return { status: "conflict" };
+      const occupied = await client.query<{ count: string }>(
+        `SELECT COUNT(DISTINCT desktop_installation_id)::text AS count
+           FROM connector_bindings
+          WHERE account_id = $1
+            AND status IN ('pending', 'active')`,
+        [principal.account.id],
+      );
+      if (Number(occupied.rows[0].count) >= this.maxOwnedDevices) {
+        return { status: this.maxOwnedDevices === 1 ? "conflict" : "capacity_reached" };
+      }
       const nextGeneration = await client.query<{ generation: number }>(
         `SELECT COALESCE(MAX(generation), 0)::integer + 1 AS generation
            FROM connector_bindings
@@ -450,8 +671,10 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
         return { status: "proof_required" };
       }
       const active = await client.query(
-        "SELECT 1 FROM connector_bindings WHERE account_id = $1 AND status = 'active' LIMIT 1",
-        [principal.account.id],
+        `SELECT 1 FROM connector_bindings
+          WHERE account_id = $1 AND desktop_installation_id = $2 AND status = 'active'
+          LIMIT 1`,
+        [principal.account.id, principal.installation.id],
       );
       if ((active.rowCount ?? 0) > 0) return { status: "conflict" };
 
@@ -461,6 +684,12 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
           WHERE id = $1
           RETURNING ${bindingColumns}`,
         [bindingId],
+      );
+      await client.query(
+        `INSERT INTO account_device_preferences (account_id, default_binding_id)
+         VALUES ($1, $2)
+         ON CONFLICT (account_id) DO NOTHING`,
+        [principal.account.id, bindingId],
       );
       await saveIdempotency(
         client,
@@ -520,18 +749,26 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
       const existingRequest = await client.query(
         `SELECT 1
            FROM connector_replacement_requests
-          WHERE account_id = $1 AND status = 'pending'
+          WHERE account_id = $1
+            AND status = 'pending'
+            ${this.maxOwnedDevices > 1 ? "AND requesting_installation_id = $2" : ""}
           LIMIT 1`,
-        [principal.account.id],
+        this.maxOwnedDevices > 1
+          ? [principal.account.id, principal.installation.id]
+          : [principal.account.id],
       );
       if ((existingRequest.rowCount ?? 0) > 0) return { status: "conflict" };
 
       const active = await client.query<BindingRow>(
         `${bindingSelect}
-          WHERE account_id = $1 AND status = 'active'
+          WHERE account_id = $1
+            AND status = 'active'
+            ${this.maxOwnedDevices > 1 ? "AND desktop_installation_id = $2" : ""}
           LIMIT 1
           FOR UPDATE`,
-        [principal.account.id],
+        this.maxOwnedDevices > 1
+          ? [principal.account.id, principal.installation.id]
+          : [principal.account.id],
       );
       if ((active.rowCount ?? 0) === 0) return { status: "not_found" };
       const grant = await loadGrant(
@@ -684,6 +921,12 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
       );
       if ((activated.rowCount ?? 0) !== 1) throw new Error("replacement candidate activation failed");
       await client.query(
+        `UPDATE account_device_preferences
+            SET default_binding_id = $2, updated_at = now()
+          WHERE account_id = $1 AND default_binding_id = $3`,
+        [principal.account.id, candidate.id, previous.id],
+      );
+      await client.query(
         `UPDATE connector_replacement_requests
             SET status = 'consumed', consumed_at = now()
           WHERE id = $1`,
@@ -744,9 +987,13 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
 
       const pendingRequests = await client.query<ReplacementRow>(
         `${replacementSelect}
-          WHERE account_id = $1 AND status = 'pending'
+          WHERE account_id = $1
+            AND status = 'pending'
+            ${this.maxOwnedDevices > 1 ? "AND previous_binding_id = $2" : ""}
           FOR UPDATE`,
-        [principal.account.id],
+        this.maxOwnedDevices > 1
+          ? [principal.account.id, active.rows[0].id]
+          : [principal.account.id],
       );
       for (const request of pendingRequests.rows) {
         await client.query(
@@ -768,6 +1015,21 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
           WHERE id = $1`,
         [active.rows[0].id],
       );
+      await client.query(
+        `DELETE FROM account_device_preferences
+          WHERE account_id = $1 AND default_binding_id = $2`,
+        [principal.account.id, active.rows[0].id],
+      );
+      await client.query(
+        `INSERT INTO account_device_preferences (account_id, default_binding_id)
+         SELECT $1, id
+           FROM connector_bindings
+          WHERE account_id = $1 AND status = 'active'
+          ORDER BY activated_at ASC, id ASC
+          LIMIT 1
+         ON CONFLICT (account_id) DO NOTHING`,
+        [principal.account.id],
+      );
       await client.query("UPDATE reauthentication_grants SET used_at = now() WHERE id = $1", [grant.id]);
       await saveIdempotency(
         client,
@@ -781,6 +1043,96 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
       await audit(client, principal.account.id, principal.installation.id, "connector.binding.revoked", {
         bindingId: active.rows[0].id,
         generation: String(active.rows[0].generation),
+      });
+      return { status: "completed" };
+    });
+  }
+
+  async unbindDevice(
+    principal: AccountPrincipal,
+    deviceId: string,
+    grantTokenHash: string,
+    idempotency: IdempotencyMaterial,
+  ): Promise<UnbindResult> {
+    return this.transaction(async (client) => {
+      await lockAccountControl(client, principal.account.id);
+      const replay = await loadIdempotency(
+        client,
+        principal.account.id,
+        "device.unbind",
+        idempotency.key,
+      );
+      if (replay) {
+        return replayMatches(replay, principal.sessionId, idempotency)
+          ? { status: "replayed" }
+          : { status: "idempotency_conflict" };
+      }
+      const active = await client.query<BindingRow>(
+        `${bindingSelect}
+          WHERE account_id = $1 AND device_id = $2 AND status = 'active'
+          FOR UPDATE`,
+        [principal.account.id, deviceId],
+      );
+      if ((active.rowCount ?? 0) !== 1) return { status: "not_found" };
+      const grant = await loadGrant(client, principal, grantTokenHash, "connector.unbind");
+      if (!grant) return { status: "reauthentication_failed" };
+      const binding = active.rows[0];
+
+      const pendingRequests = await client.query<ReplacementRow>(
+        `${replacementSelect}
+          WHERE account_id = $1 AND previous_binding_id = $2 AND status = 'pending'
+          FOR UPDATE`,
+        [principal.account.id, binding.id],
+      );
+      for (const request of pendingRequests.rows) {
+        await client.query(
+          `UPDATE connector_replacement_requests
+              SET status = 'cancelled', cancelled_at = now()
+            WHERE id = $1`,
+          [request.id],
+        );
+        await client.query(
+          `UPDATE connector_bindings
+              SET status = 'revoked', revoked_at = now(), connector_online = false
+            WHERE id = $1 AND status = 'pending'`,
+          [request.candidate_binding_id],
+        );
+      }
+      await client.query(
+        `UPDATE connector_bindings
+            SET status = 'revoked', revoked_at = now(), connector_online = false
+          WHERE id = $1`,
+        [binding.id],
+      );
+      await client.query(
+        `DELETE FROM account_device_preferences
+          WHERE account_id = $1 AND default_binding_id = $2`,
+        [principal.account.id, binding.id],
+      );
+      await client.query(
+        `INSERT INTO account_device_preferences (account_id, default_binding_id)
+         SELECT $1, id
+           FROM connector_bindings
+          WHERE account_id = $1 AND status = 'active'
+          ORDER BY activated_at ASC, id ASC
+          LIMIT 1
+         ON CONFLICT (account_id) DO NOTHING`,
+        [principal.account.id],
+      );
+      await client.query("UPDATE reauthentication_grants SET used_at = now() WHERE id = $1", [grant.id]);
+      await saveIdempotency(
+        client,
+        principal.account.id,
+        principal.sessionId,
+        binding.id,
+        null,
+        "device.unbind",
+        idempotency,
+      );
+      await audit(client, principal.account.id, principal.installation.id, "device.unbound", {
+        bindingId: binding.id,
+        deviceId: binding.device_id,
+        generation: String(binding.generation),
       });
       return { status: "completed" };
     });
@@ -1137,6 +1489,14 @@ function activeBinding(row: BindingRow): ActiveBinding {
   };
 }
 
+function accountDevice(row: BindingRow, isDefault: boolean): AccountDevice {
+  return {
+    ...activeBinding(row),
+    access: "owner",
+    isDefault: Boolean(isDefault),
+  };
+}
+
 function replacementView(
   row: ReplacementRow,
   previous: BindingRow,
@@ -1308,6 +1668,28 @@ async function lockAuthorizedDesktop(
         AND i.revoked_at IS NULL
         AND s.id = $3
         AND s.revoked_at IS NULL
+      FOR UPDATE OF a, i, s`,
+    [principal.account.id, principal.installation.id, principal.sessionId],
+  );
+  return (authorized.rowCount ?? 0) === 1;
+}
+
+async function lockAuthorizedAccountInstallation(
+  client: PoolClient,
+  principal: AccountPrincipal,
+): Promise<boolean> {
+  const authorized = await client.query(
+    `SELECT 1
+       FROM accounts a
+       JOIN installations i ON i.account_id = a.id
+       JOIN account_sessions s ON s.installation_id = i.id AND s.account_id = a.id
+      WHERE a.id = $1
+        AND a.status = 'active'
+        AND i.id = $2
+        AND i.revoked_at IS NULL
+        AND s.id = $3
+        AND s.revoked_at IS NULL
+        AND s.access_expires_at > now()
       FOR UPDATE OF a, i, s`,
     [principal.account.id, principal.installation.id, principal.sessionId],
   );

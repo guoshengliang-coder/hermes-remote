@@ -18,6 +18,10 @@ import { loadProductionEvidence } from "../../ops/lib/production-config.mjs";
 import { loadPostgresqlBackupStatus } from "../../ops/lib/production-monitor-config.mjs";
 import { OPS_ERROR_DEFINITIONS, createOpsError } from "../../ops/lib/errors.mjs";
 
+const databaseSchemaVersion = JSON.parse(
+  await readFile("gateway/release-contract.json", "utf8"),
+).databaseSchemaVersion;
+
 test("R5-E passes PostgreSQL credentials through split libpq environment fields", () => {
   const environment = postgresqlEnvironment(
     "postgresql://migration%2Duser:p%40ss%3Aword@127.0.0.1:5433/hermes%2Drestore",
@@ -311,7 +315,7 @@ async function createFixture(t) {
     schemaVersion: 1, environment: "production", operator: "test-operator",
     sourceHostname: "prod-host", serviceName: "postgresql", databaseUrlFile,
     recipientCertificate, archiveFile, manifestFile, maximumEncryptedBytes: 1024 * 1024,
-    postgresqlMajorVersion: 18, databaseSchemaVersion: 7,
+    postgresqlMajorVersion: 18, databaseSchemaVersion,
   };
   const restore = {
     schemaVersion: 2, environment: "isolated-restore", operator: "test-operator",
@@ -320,7 +324,7 @@ async function createFixture(t) {
     targetArtifactManifest,
     evidenceFile: path.join(recovery, "restore.evidence.json"),
     statusFile: path.join(recovery, "backup.status.json"),
-    offHostStorageId: "mac-recovery-store", postgresqlMajorVersion: 18, databaseSchemaVersion: 7,
+    offHostStorageId: "mac-recovery-store", postgresqlMajorVersion: 18, databaseSchemaVersion,
   };
   const activation = {
     schemaVersion: 1, environment: "production", operator: "test-operator",
@@ -341,7 +345,7 @@ async function capture(fixture) {
 }
 
 function facts() {
-  return { postgresqlMajorVersion: 18, databaseSchemaVersion: 7 };
+  return { postgresqlMajorVersion: 18, databaseSchemaVersion };
 }
 
 function healthyRunner() {

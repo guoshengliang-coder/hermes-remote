@@ -34,6 +34,11 @@ cleanup_host() {
 }
 
 start_emulator() {
+  if [ ! -x "$EMU" ]; then
+    echo "Android Emulator binary not found at $EMU" >&2
+    echo "Install the Android SDK Emulator package or set ANDROID_HOME to the SDK that contains it." >&2
+    exit 1
+  fi
   cleanup_host
   # Rule 2: capped memory, no snapshots.
   nohup "$EMU" -avd "$AVD" -no-snapshot -no-boot-anim -memory 2048 > "$LOG" 2>&1 &
@@ -45,9 +50,16 @@ start_emulator() {
       pkill -9 -f qemu-system 2>/dev/null || true
       exit 1
     fi
-    if [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
-      echo "BOOTED"
-      "$ADB" reverse tcp:8787 tcp:8787 >/dev/null 2>&1 || true
+    # Never use an unqualified `adb shell` here: a connected physical phone may already report
+    # boot_completed=1 and would make this script falsely claim the emulator is ready. Resolve and
+    # target exactly one emulator serial for every guest-side operation.
+    emulator_serials="$("$ADB" devices | awk '$1 ~ /^emulator-/ && $2 == "device" { print $1 }')"
+    emulator_count="$(printf '%s\n' "$emulator_serials" | awk 'NF { count += 1 } END { print count + 0 }')"
+    emulator_serial="$(printf '%s\n' "$emulator_serials" | awk 'NF { print; exit }')"
+    if [ "$emulator_count" -eq 1 ] &&
+       [ "$("$ADB" -s "$emulator_serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
+      echo "BOOTED $emulator_serial"
+      "$ADB" -s "$emulator_serial" reverse tcp:8787 tcp:8787 >/dev/null 2>&1 || true
       exit 0
     fi
     sleep 6

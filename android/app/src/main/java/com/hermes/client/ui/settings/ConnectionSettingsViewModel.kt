@@ -89,6 +89,10 @@ class ConnectionSettingsViewModel @Inject constructor(
                     "App Token 无效或已失效（HR-AUTH-001）",
                     "The App Token is invalid or expired (HR-AUTH-001)",
                 )
+                is GatewayProbeResult.AccountDeviceUnavailable -> localizedText(
+                    "当前 Mac 已不可用，请重新选择设备（HR-BIND-011）",
+                    "The current Mac is unavailable. Choose another device (HR-BIND-011)",
+                )
                 is GatewayProbeResult.InvalidEndpoint -> localizedText(
                     "Relay 地址不是兼容的服务（HR-CONFIG-003）",
                     "The Relay URL isn't a compatible service (HR-CONFIG-003)",

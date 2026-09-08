@@ -1,7 +1,7 @@
 # Hermes GO legacy-to-account migration and rollback
 
-Status: I0 state-machine contract. Implementation belongs to I5 and is disabled until earlier account
-and client gates pass.
+Status: I0 contract with a local E4-B Desktop/Connector implementation. Real signed artifacts,
+notarization, target-Mac evidence, and rollout remain disabled gates.
 
 ## 1. Compatibility objective
 
@@ -33,6 +33,7 @@ server acceptance.
 Durable local state uses these states:
 
 ```text
+clean_uninstalled -> preflight
 legacy_active
   -> preflight
   -> account_staged
@@ -42,7 +43,7 @@ legacy_active
   -> commit_pending
   -> account_active
 
-any state before account_active -> rolling_back -> legacy_active
+any state before account_active -> rolling_back -> legacy_active | clean_uninstalled
 ```
 
 Rules:
@@ -86,11 +87,14 @@ simultaneously. The accepted sequence is:
 1. Stage account configuration/key while legacy remains active.
 2. Request a bounded maintenance transition from Desktop and mark `candidate_starting` durably.
 3. Stop only the exact resolved legacy Connector through its owned launchd label; verify its PID exits.
-4. Start the candidate with staged account credentials; verify exactly one process.
-5. Complete `/v2/connect` challenge authentication against the pending binding.
-6. Probe local Hermes and account-mode end-to-end routing.
-7. If healthy, atomically activate the binding/mapping at Gateway.
-8. Reconnect/verify the committed generation, persist `account_active`, then age the rollback snapshot
+4. Start the exact managed Hermes Server LaunchAgent and require both a new process-specific ready
+   marker and a healthy loopback probe.
+5. Only then start the candidate Connector with staged account credentials; verify exactly one
+   Connector process.
+6. Complete `/v2/connect` challenge authentication against the pending binding.
+7. Probe account-mode end-to-end routing.
+8. If healthy, atomically activate the binding/mapping at Gateway.
+9. Reconnect/verify the committed generation, persist `account_active`, then age the rollback snapshot
    according to the documented retention.
 
 The maintenance window is visible to phones as Connector reconnecting, not as Hermes failure.
@@ -101,7 +105,7 @@ Before remote commit, any timeout, process mismatch, authentication failure, loc
 failure, end-to-end failure, power-loss recovery uncertainty, or unexpected file ownership triggers:
 
 1. set `rolling_back` durably;
-2. stop only the exact candidate process if present;
+2. stop only the exact candidate Connector and managed Hermes Server labels if present, in that order;
 3. revoke/cancel the pending binding/key generation;
 4. restore the narrow Connector-owned snapshot atomically;
 5. start the exact legacy launchd service;
@@ -151,6 +155,7 @@ On every Desktop launch, migration recovery reads durable state before starting 
 Connector:
 
 - `legacy_active`: observe/start only the configured legacy service under existing policy;
+- `clean_uninstalled`: leave both Connector labels stopped until the user starts a new confirmed install;
 - pre-commit intermediate state: prefer rollback to last known-good legacy unless the recorded remote
   commit is proven complete;
 - `commit_pending`: query the binding generation; if old is active, roll back; if new is active,

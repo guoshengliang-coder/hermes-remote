@@ -52,11 +52,15 @@ test("account V2 Connector isolates routing, health, and per-phone lifecycle rec
     const phoneA2 = randomUUID();
     const phoneB = randomUUID();
     const desktopA = randomUUID();
+    const desktopA2 = randomUUID();
     const sessionA = randomUUID();
     const sessionA2 = randomUUID();
     const sessionB = randomUUID();
     const bindingId = randomUUID();
+    const bindingId2 = randomUUID();
+    const shareGrantId = randomUUID();
     const sharedDeviceId = "shared-device";
+    const secondDeviceId = "second-account-device";
     const tokenKey = "routing-integration-key-with-at-least-thirty-two-bytes";
     const codec = new TokenCodec(tokenKey);
     const accessA = codec.issueAccessToken();
@@ -66,6 +70,10 @@ test("account V2 Connector isolates routing, health, and per-phone lifecycle rec
     const publicDer = publicKey.export({ format: "der", type: "spki" });
     const rawPublicKey = publicDer.subarray(publicDer.byteLength - 32);
     const fingerprint = createHash("sha256").update(rawPublicKey).digest("hex");
+    const secondKeys = generateKeyPairSync("ed25519");
+    const secondPublicDer = secondKeys.publicKey.export({ format: "der", type: "spki" });
+    const secondRawPublicKey = secondPublicDer.subarray(secondPublicDer.byteLength - 32);
+    const secondFingerprint = createHash("sha256").update(secondRawPublicKey).digest("hex");
 
     await setup.query(
       "INSERT INTO accounts (id) VALUES ($1), ($2)",
@@ -78,8 +86,9 @@ test("account V2 Connector isolates routing, health, and per-phone lifecycle rec
          ($1, $2, $1, 'phone', 'android', 'Phone A', 'test'),
          ($3, $2, $3, 'phone', 'android', 'Phone A2', 'test'),
          ($4, $5, $4, 'phone', 'android', 'Phone B', 'test'),
-         ($6, $2, $6, 'desktop', 'macos', 'Mac mini', 'test')`,
-      [phoneA, accountA, phoneA2, phoneB, accountB, desktopA],
+         ($6, $2, $6, 'desktop', 'macos', 'Mac mini', 'test'),
+         ($7, $2, $7, 'desktop', 'macos', 'Second Mac mini', 'test')`,
+      [phoneA, accountA, phoneA2, phoneB, accountB, desktopA, desktopA2],
     );
     await setup.query(
       `INSERT INTO account_sessions
@@ -116,6 +125,14 @@ test("account V2 Connector isolates routing, health, and per-phone lifecycle rec
         DEFAULT_DEVICE_ID: sharedDeviceId,
         ACCOUNT_AUTH_ENABLED: "1",
         ACCOUNT_BINDING_ENABLED: "1",
+        ACCOUNT_MULTI_DEVICE_ENABLED: "1",
+        ACCOUNT_DEVICE_SHARING_ENABLED: "1",
+        ACCOUNT_RESEND_WEBHOOK_ENABLED: "1",
+        ACCOUNT_RESEND_WEBHOOK_SECRET: `whsec_${Buffer.from("routing-resend-webhook-secret-32bytes").toString("base64")}`,
+        ACCOUNT_IDENTITY_MANAGEMENT_ENABLED: "1",
+        ACCOUNT_RESEND_API_KEY: "re_test_routing_only",
+        ACCOUNT_EMAIL_FROM: "Hermes GO <test@example.invalid>",
+        ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN: "https://accounts.example.invalid",
         ACCOUNT_DATABASE_URL: scopedDatabaseUrl.toString(),
         ACCOUNT_TOKEN_HASH_KEY: tokenKey,
         ACCOUNT_GOOGLE_ANDROID_CLIENT_ID: "routing-android-client",
@@ -247,6 +264,162 @@ test("account V2 Connector isolates routing, health, and per-phone lifecycle rec
     assert.equal(binding.state, "bound");
     assert.equal(binding.binding.connector.online, true);
     assert.deepEqual(binding.binding.hermes, { reachable: true, version: "integration-hermes" });
+
+    await setup.query(
+      `INSERT INTO connector_bindings
+         (id, account_id, desktop_installation_id, display_name, device_id, public_key,
+          key_algorithm, public_key_fingerprint, generation, status, activated_at)
+       VALUES ($1, $2, $3, 'Second Mac mini', $4, $5, 'Ed25519', $6, 2, 'active', now())`,
+      [bindingId2, accountA, desktopA2, secondDeviceId, secondRawPublicKey, secondFingerprint],
+    );
+    const secondConnector = await openSocket(`ws://127.0.0.1:${port}/v2/connect`);
+    sockets.push(secondConnector);
+    secondConnector.send(encodeWireMessage({
+      type: "connector.identify",
+      version: ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
+      bindingId: bindingId2,
+      generation: 2,
+      publicKeyFingerprint: secondFingerprint,
+    }));
+    const secondChallenge = await nextMessage(secondConnector, "connector.challenge");
+    secondConnector.send(encodeWireMessage({
+      type: "connector.authenticate",
+      version: ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
+      bindingId: bindingId2,
+      generation: 2,
+      publicKeyFingerprint: secondFingerprint,
+      connectionNonce: secondChallenge.connectionNonce,
+      signature: sign(
+        null,
+        canonicalConnectorChallenge(origin, secondChallenge),
+        secondKeys.privateKey,
+      ).toString("base64url"),
+    }));
+    const secondPreflight = await nextMessage(secondConnector, "connector.preflight.request");
+    secondConnector.send(encodeWireMessage({
+      type: "connector.preflight.result",
+      version: ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
+      requestId: secondPreflight.requestId,
+      hermesReachable: true,
+      hermesVersion: "integration-hermes-second",
+    }));
+    await nextMessage(secondConnector, "connector.ready");
+    attachMockConnector(secondConnector, "account-second");
+
+    const devicesResponse = await fetch(`${origin}/v2/devices`, {
+      headers: { authorization: `Bearer ${accessA}` },
+    });
+    assert.equal(devicesResponse.status, 200);
+    assert.equal((await devicesResponse.json() as { items: unknown[] }).items.length, 2);
+
+    const singularBindingResponse = await fetch(`${origin}/v2/connector-binding`, {
+      headers: { authorization: `Bearer ${accessA}` },
+    });
+    assert.equal(singularBindingResponse.status, 409);
+    assert.equal(
+      (await singularBindingResponse.json() as { error: { code: string } }).error.code,
+      "HR-BIND-009",
+    );
+    const implicitDeviceResponse = await fetch(`${origin}/api/status`, {
+      headers: { authorization: `Bearer ${accessA}` },
+    });
+    assert.equal(implicitDeviceResponse.status, 409);
+    assert.equal(
+      (await implicitDeviceResponse.json() as { error: { code: string } }).error.code,
+      "HR-BIND-009",
+    );
+
+    const firstExplicitResponse = await fetch(
+      `${origin}/v2/devices/${sharedDeviceId}/api/status?source=explicit`,
+      { headers: { authorization: `Bearer ${accessA}` } },
+    );
+    assert.equal(firstExplicitResponse.status, 200);
+    assert.equal(await firstExplicitResponse.text(), "account:/api/status?source=explicit");
+    const secondExplicitResponse = await fetch(
+      `${origin}/v2/devices/${secondDeviceId}/api/status`,
+      { headers: { authorization: `Bearer ${accessA}` } },
+    );
+    assert.equal(secondExplicitResponse.status, 200);
+    assert.equal(await secondExplicitResponse.text(), "account-second:/api/status");
+
+    const crossAccountDeviceResponse = await fetch(
+      `${origin}/v2/devices/${secondDeviceId}/api/status`,
+      { headers: { authorization: `Bearer ${accessB}` } },
+    );
+    assert.equal(crossAccountDeviceResponse.status, 404);
+    assert.equal(
+      (await crossAccountDeviceResponse.json() as { error: { code: string } }).error.code,
+      "HR-BIND-011",
+    );
+
+    await setup.query(
+      `INSERT INTO device_access_grants
+         (id, binding_id, owner_account_id, grantee_account_id, grantee_email_hint)
+       VALUES ($1, $2, $3, $4, 'g***@example.invalid')`,
+      [shareGrantId, bindingId2, accountA, accountB],
+    );
+    const granteeDevicesResponse = await fetch(`${origin}/v2/devices`, {
+      headers: { authorization: `Bearer ${accessB}` },
+    });
+    assert.equal(granteeDevicesResponse.status, 200);
+    const granteeDevices = await granteeDevicesResponse.json() as {
+      items: Array<{ deviceId: string; access: string }>;
+    };
+    assert.deepEqual(granteeDevices.items.map(({ deviceId, access }) => ({ deviceId, access })), [
+      { deviceId: secondDeviceId, access: "operator" },
+    ]);
+    const sharedRestResponse = await fetch(
+      `${origin}/v2/devices/${secondDeviceId}/api/status?source=grantee`,
+      { headers: { authorization: `Bearer ${accessB}` } },
+    );
+    assert.equal(sharedRestResponse.status, 200);
+    assert.equal(await sharedRestResponse.text(), "account-second:/api/status?source=grantee");
+
+    const granteeSocket = await openSocket(
+      `ws://127.0.0.1:${port}/v2/devices/${secondDeviceId}/ws`,
+      { authorization: `Bearer ${accessB}` },
+    );
+    sockets.push(granteeSocket);
+    const granteeEcho = nextRawMessage(granteeSocket);
+    granteeSocket.send("hello-shared");
+    assert.equal(await granteeEcho, "account-second:hello-shared");
+    const granteeClosed = nextClose(granteeSocket);
+    const revokeResponse = await fetch(
+      `${origin}/v2/devices/${secondDeviceId}/shares/${shareGrantId}`,
+      {
+        method: "DELETE",
+        headers: {
+          authorization: `Bearer ${accessA}`,
+          "idempotency-key": randomUUID(),
+        },
+      },
+    );
+    assert.equal(revokeResponse.status, 204);
+    assert.deepEqual(await granteeClosed, { code: 4403, reason: "device access revoked" });
+    const revokedRestResponse = await fetch(
+      `${origin}/v2/devices/${secondDeviceId}/api/status`,
+      { headers: { authorization: `Bearer ${accessB}` } },
+    );
+    assert.equal(revokedRestResponse.status, 404);
+    assert.equal(
+      (await revokedRestResponse.json() as { error: { code: string } }).error.code,
+      "HR-BIND-011",
+    );
+
+    const explicitSocket = await openSocket(
+      `ws://127.0.0.1:${port}/v2/devices/${secondDeviceId}/ws`,
+      { authorization: `Bearer ${accessA}` },
+    );
+    sockets.push(explicitSocket);
+    const explicitEcho = new Promise<string>((resolveEcho, reject) => {
+      const timer = setTimeout(() => reject(new Error("timed out waiting for explicit WebSocket echo")), 2_000);
+      explicitSocket.once("message", (data) => {
+        clearTimeout(timer);
+        resolveEcho(data.toString());
+      });
+    });
+    explicitSocket.send("hello-second");
+    assert.equal(await explicitEcho, "account-second:hello-second");
 
     const lifecycleEvent = {
       type: "session.lifecycle" as const,
@@ -392,6 +565,26 @@ function openSocket(url: string, headers?: Record<string, string>): Promise<WebS
     const socket = new WebSocket(url, { headers });
     socket.once("open", () => resolveSocket(socket));
     socket.once("error", reject);
+  });
+}
+
+function nextRawMessage(socket: WebSocket): Promise<string> {
+  return new Promise((resolveMessage, reject) => {
+    const timer = setTimeout(() => reject(new Error("timed out waiting for WebSocket message")), 2_000);
+    socket.once("message", (raw) => {
+      clearTimeout(timer);
+      resolveMessage(raw.toString());
+    });
+  });
+}
+
+function nextClose(socket: WebSocket): Promise<{ code: number; reason: string }> {
+  return new Promise((resolveClose, reject) => {
+    const timer = setTimeout(() => reject(new Error("timed out waiting for WebSocket close")), 2_000);
+    socket.once("close", (code, reason) => {
+      clearTimeout(timer);
+      resolveClose({ code, reason: reason.toString() });
+    });
   });
 }
 

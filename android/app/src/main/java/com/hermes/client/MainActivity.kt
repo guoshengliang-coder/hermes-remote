@@ -22,6 +22,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.hermes.client.data.auth.CredentialStore
+import com.hermes.client.data.auth.AccountSessionManager
+import com.hermes.client.data.auth.AccountTransportMode
+import com.hermes.client.ui.chat.ChatLaunch
+import com.hermes.client.ui.nav.chatRoute
 import com.hermes.client.data.diagnostics.CrashReporter
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SettingsStore
@@ -55,6 +59,7 @@ import kotlinx.coroutines.withContext
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     @Inject lateinit var credentialStore: CredentialStore
+    @Inject lateinit var accountSessions: AccountSessionManager
     @Inject lateinit var settingsStore: SettingsStore
     @Inject lateinit var profileManager: ProfileManager
     @Inject lateinit var profileIdentityStore: com.hermes.client.data.repository.ProfileIdentityStore
@@ -91,7 +96,7 @@ class MainActivity : ComponentActivity() {
             intent?.data = null
         }
         handleShare(intent)
-        val initiallyHasConfig = runCatching { credentialStore.load() }.getOrNull() != null
+        val initiallyHasConfig = hasConnectionConfiguration()
         val crashReport = CrashReporter.read(this)
         setContent {
             val mode by settingsStore.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
@@ -119,6 +124,7 @@ class MainActivity : ComponentActivity() {
             val identities by profileIdentityStore.identities.collectAsState(initial = emptyMap())
             val startupState by startupViewModel.state.collectAsState()
             val repairCompletion by startupViewModel.repairCompletion.collectAsState()
+            val accountSession by accountSessions.session.collectAsState()
             CompositionLocalProvider(
                 LocalAppLanguage provides language,
                 com.hermes.client.ui.components.LocalProfileIdentities provides identities,
@@ -189,6 +195,16 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 androidx.compose.foundation.layout.Box {
                                     var hasConfig by remember { mutableStateOf(initiallyHasConfig) }
+                                    androidx.compose.runtime.LaunchedEffect(accountSession) {
+                                        hasConfig = hasConnectionConfiguration()
+                                        when (accountSessions.transportMode()) {
+                                            AccountTransportMode.DEVICE_SELECTION_REQUIRED,
+                                            AccountTransportMode.REAUTHENTICATION_REQUIRED,
+                                            AccountTransportMode.ACCOUNT_DELETION_COMMITTED -> chat.disconnect()
+                                            AccountTransportMode.ACCOUNT,
+                                            AccountTransportMode.LEGACY -> Unit
+                                        }
+                                    }
                                     val deepLinkRoute by pendingRoute
                                     val coldGateVisible = when (val currentStartup = startupState) {
                                         is StartupUiState.Loading -> currentStartup.reason == StartupReason.COLD_START
@@ -217,11 +233,22 @@ class MainActivity : ComponentActivity() {
                                             deepLinkRoute = deepLinkRoute,
                                             onDeepLinkConsumed = { pendingRoute.value = null },
                                             configurationRepair = (startupState as? StartupUiState.RepairRequired)?.failure,
+                                            accountSetupRepairRequired =
+                                                accountSessions.transportMode() ==
+                                                    AccountTransportMode.REAUTHENTICATION_REQUIRED ||
+                                                    accountSessions.transportMode() ==
+                                                    AccountTransportMode.DEVICE_SELECTION_REQUIRED ||
+                                                    accountSessions.transportMode() ==
+                                                    AccountTransportMode.ACCOUNT_DELETION_COMMITTED,
                                             repairCompletion = repairCompletion,
                                             onConnectionConfigurationSaved = startupViewModel::onConfigurationSaved,
                                             onInitialConfigurationSaved = {
                                                 hasConfig = true
                                                 startupViewModel.onInitialConfigurationSaved()
+                                            },
+                                            onAccountSignedOut = {
+                                                hasConfig = runCatching { credentialStore.load() }.getOrNull() != null
+                                                hasConfig
                                             },
                                             onDestinationChanged = startupViewModel::onActiveDestinationChanged,
                                             foregroundRecovery = foregroundRecovery,
@@ -282,15 +309,19 @@ class MainActivity : ComponentActivity() {
 
     /** Create a fresh chat and navigate to it (widget "New chat" / hermes://new). No-op if unconfigured. */
     private fun openNewChat() {
-        if (credentialStore.load() == null) return
+        if (!hasConnectionConfiguration()) return
         if (!newChatInFlight.compareAndSet(false, true)) return // a create is already running — ignore repeat taps
         lifecycleScope.launch {
             try {
                 runCatching {
-                    chat.connect() // idempotent; a cold start has no socket yet
+                    prepareNewConversationTransport()
                     profileManager.refresh() // load active profile so the session isn't orphaned to default
                     chat.createSession(profileManager.active.value).id
-                }.onSuccess { id -> pendingRoute.value = "chat/$id?new=true" }
+                }.onSuccess { id ->
+                    pendingRoute.value = chatRoute(
+                        ChatLaunch.new(id, profileManager.active.value, accountSessions.routingContext()?.deviceId),
+                    )
+                }
                     .onFailure { e ->
                         if (e is kotlinx.coroutines.CancellationException) throw e
                         android.widget.Toast.makeText(
@@ -336,7 +367,7 @@ class MainActivity : ComponentActivity() {
         intent?.removeExtra(Intent.EXTRA_SUBJECT)
         intent?.removeExtra(Intent.EXTRA_STREAM)
 
-        if (credentialStore.load() == null) return
+        if (!hasConnectionConfiguration()) return
 
         lifecycleScope.launch {
             var b64: String? = null
@@ -367,7 +398,7 @@ class MainActivity : ComponentActivity() {
             }
             // connect() first — a cold-start share has no open socket yet, and createSession()
             // would otherwise fail after the ready-gate timeout. connect() is idempotent.
-            chat.connect()
+            prepareNewConversationTransport()
             runCatching {
                 // Load the active profile before creating: on a cold-start share nothing has called
                 // refresh() yet (that normally happens when SessionsViewModel inits), so active would
@@ -387,7 +418,9 @@ class MainActivity : ComponentActivity() {
                             attachmentName = attachmentName,
                         ),
                     )
-                    pendingRoute.value = "chat/$id"
+                    pendingRoute.value = chatRoute(
+                        ChatLaunch.new(id, profileManager.active.value, accountSessions.routingContext()?.deviceId),
+                    )
                 }
                 .onFailure { e ->
                     if (e is kotlinx.coroutines.CancellationException) throw e
@@ -402,5 +435,20 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         val PROCESS_UI_LAUNCH_CLAIMED = java.util.concurrent.atomic.AtomicBoolean(false)
+    }
+
+    private fun hasConnectionConfiguration(): Boolean =
+        when (accountSessions.transportMode()) {
+            AccountTransportMode.ACCOUNT -> true
+            AccountTransportMode.LEGACY ->
+                runCatching { credentialStore.load() }.getOrNull() != null
+            AccountTransportMode.DEVICE_SELECTION_REQUIRED,
+            AccountTransportMode.REAUTHENTICATION_REQUIRED,
+            AccountTransportMode.ACCOUNT_DELETION_COMMITTED -> false
+        }
+
+    /** New navigation always starts on the selected/default Mac, never a chat's transient route. */
+    private fun prepareNewConversationTransport() {
+        if (accountSessions.restoreSelectedDeviceRoute()) chat.reconnect() else chat.connect()
     }
 }

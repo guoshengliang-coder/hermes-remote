@@ -97,6 +97,20 @@ class StartupScreenTest {
         assertEquals(1, retries)
     }
 
+    @Test fun accountRateLimitKeepsItsLocalizedStableCode() {
+        show(StartupUiState.Failed(StartupReason.COLD_START, StartupFailure.ACCOUNT_RATE_LIMITED))
+        advance(600)
+        compose.onNodeWithText("登录请求过于频繁，请稍候再试。").assertIsDisplayed()
+        compose.onNodeWithText("HR-AUTH-007").assertIsDisplayed()
+    }
+
+    @Test fun disabledAccountKeepsItsLocalizedStableCode() {
+        show(StartupUiState.Failed(StartupReason.COLD_START, StartupFailure.ACCOUNT_UNAVAILABLE))
+        advance(600)
+        compose.onNodeWithText("此 Hermes GO 账号当前不可用，请联系支持。").assertIsDisplayed()
+        compose.onNodeWithText("HR-ACCOUNT-001").assertIsDisplayed()
+    }
+
     @Test fun versionLineNamesVersionAndChannel() {
         show(StartupUiState.Loading(StartupReason.COLD_START, StartupPhase.NETWORK), dark = true)
         advance(600)

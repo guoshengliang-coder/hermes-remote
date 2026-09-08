@@ -904,7 +904,7 @@ fun ChatMessageList(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    localized(language, "历史消息暂时无法加载，连接恢复后会自动更新。", "History is temporarily unavailable and will update after reconnecting."),
+                    state.historyError,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

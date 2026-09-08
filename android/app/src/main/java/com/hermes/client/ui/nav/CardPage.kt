@@ -218,9 +218,7 @@ fun CardPage(
                         onValueOverflow = { if (statValueSp > 13f) statValueSp -= 1f },
                         onSubOverflow = { if (statSubSp > 11f) statSubSp -= 1f },
                         subColor = if (state.deviceId == null) MaterialTheme.colorScheme.error else muted,
-                        // No device page of its own yet; the relay/token screen is the honest
-                        // destination for "where is this device configured" until one exists.
-                        onClick = { onNavigate("settings_connection") },
+                        onClick = { onNavigate("remote_devices") },
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }

@@ -151,7 +151,7 @@ fun SessionsScreen(
                         val error = AppError(AppErrorCode.PROJECT_FELL_BACK_TO_DEFAULT, retryable = false, stage = "session_create")
                         Toast.makeText(context, error.localizedMessage(language), Toast.LENGTH_LONG).show()
                     }
-                    onOpen(ChatLaunch.new(created.id, activeProfile))
+                    onOpen(ChatLaunch.new(created.id, activeProfile, created.deviceId))
                 }
             } finally {
                 creatingSession = false
@@ -191,7 +191,7 @@ fun SessionsScreen(
     // a session created or updated while in a chat never appears until a profile switch or app
     // restart. Mirrors the same ON_RESUME refresh used by CronScreen.
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-        vm.refresh()
+        vm.onVisible()
     }
 
     // First entry into a real project: a one-time notice that the FAB now creates there. Keyed on
@@ -519,7 +519,7 @@ fun SessionsScreen(
                             )
                         else -> {
                             val isPinned = { s: Session ->
-                                com.hermes.client.data.repository.PinStore.token(s.profile, s.id) in pins
+                                com.hermes.client.data.repository.PinStore.token(s.profile, s.id, s.deviceId) in pins
                             }
                             // Sessions blocked on the user jump the whole order — then pins,
                             // then plain recency.
@@ -553,7 +553,7 @@ fun SessionsScreen(
                                             SessionRow(
                                                 session = s, isPinned = isPinned(s), defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
-                                                unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
+                                                unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -577,7 +577,7 @@ fun SessionsScreen(
                                             SessionRow(
                                                 session = s, isPinned = true, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
-                                                unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
+                                                unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -600,7 +600,7 @@ fun SessionsScreen(
                                             SessionRow(
                                                 session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
-                                                unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
+                                                unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -623,7 +623,7 @@ fun SessionsScreen(
                                             SessionRow(
                                                 session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
-                                                unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
+                                                unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -646,7 +646,7 @@ fun SessionsScreen(
                                             SessionRow(
                                                 session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
-                                                unread = SessionReadStore.token(s.profile, s.id) in unreadTokens,
+                                                unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },

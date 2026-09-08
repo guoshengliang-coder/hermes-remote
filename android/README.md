@@ -8,7 +8,56 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 
 - Application ID: `com.hermes.remote`
 - Default Relay: `https://mrlgs.net` (standard HTTPS/WSS port 443)
-- Setup requires only the Relay URL and a dedicated App Token; Mac credentials never enter the app.
+- Default setup uses Hermes GO email + six-digit verification code when the Gateway advertises that
+  capability. The previous Relay URL + App Token + QR setup remains under the explicit Legacy
+  connection entry; Mac credentials never enter the app.
+- Account access/refresh material and the random per-install installation ID use encrypted storage
+  separate from legacy credentials. Selecting an owned or shared Mac commits the cloud default and
+  passes an explicit-device end-to-end probe before REST/WebSocket switch to bearer authentication.
+- Email-code challenges use the server's absolute expiry and resend deadlines: Android restores only
+  a still-valid encrypted challenge after process death, never persists the entered code, disables
+  early resend, and clears locally expired or malformed challenges before verification.
+- Retry on an account error repeats the failed send, exchange, device refresh, or Mac-selection
+  operation; it does not silently substitute a generic page refresh.
+- Durable lifecycle notifications use the Relay-owned account endpoint with the phone Bearer rather
+  than a selected-Mac route. Their local cursor is hashed and isolated per Gateway/account/phone
+  installation, while the existing legacy cursor remains compatible.
+- Startup preserves account error intent: only invalid session families require sign-in; rate
+  limiting, disabled accounts, service outages, and an offline Connector keep their own stable codes.
+- Unexpected account invalidation persists a reauthentication gate across restart and blocks REST,
+  lifecycle, WebSocket, share, and new-chat fallback to retained legacy credentials. Successful
+  account login, explicit phone sign-out, or explicitly opening Legacy connection releases it.
+- Connection mode itself is encrypted and explicit: a signed-in account with no selected Mac cannot
+  silently use a retained App Token for REST, WebSocket, startup, or new chats. Opening Legacy
+  connection enables compatibility mode across restart; choosing an account Mac or logging in again
+  returns transport to account mode. Local sign-in/device gates stop WebSocket backoff until a new
+  explicit or foreground recovery cycle.
+- Reauthentication retains only the previous account Gateway origin, never its credentials, and
+  prefers it over an unrelated legacy Relay. Repair screens preserve the current navigation stack
+  and return to the interrupted chat/page after account and Mac readiness succeed.
+- Runtime account WebSocket rejection no longer retries forever: `401` requires sign-in, while `404`
+  retires only the rejected Mac. Losing a historical/shared Mac preserves the still-valid default
+  selection. Gateway 4403 closes are acknowledged and receive only one classification retry;
+  operation-scoped `HR-AUTH-006` never destroys the account session.
+- Account-routed Hermes REST responses are classified centrally: session-family invalidation opens
+  the persistent sign-in repair, explicit `HR-BIND-011` repairs only the request's Mac route, and an
+  ordinary `404` or `HR-AUTH-006` leaves the valid account/default route intact.
+- Authenticated account/device management calls use the same classifier and immediately stop a stale
+  active route when sign-in or Mac selection must be repaired. Recent-auth `HR-AUTH-006` keeps the
+  current account transport and shows its registered bilingual explanation.
+- Settings exposes permanent Cloud-account deletion only when the independent capability is on.
+  Android requires exact `DELETE`, a separate acknowledgement, and a fresh code sent to the current
+  account email; it encrypts the challenge/grant/replay keys but never the typed confirmation or OTP.
+  An ambiguous DELETE is replayed with the exact key after restart. Once committed, a durable local
+  terminal gate blocks silent App Token fallback, explains the 30-day Cloud cleanup and preserved
+  Mac data, and can be left only by explicitly choosing another email account or Legacy connection.
+- Account conversations persist their originating Mac per account/profile/session. Lists, search,
+  and new chats use the selected Mac; reopening history, startup recovery, and notification actions
+  explicitly return to the original Mac without changing that default.
+- When a signed-in account has no Mac yet, the Remote devices page automatically discovers while it
+  remains visible and connects the first sole Desktop after the normal default/probe gate succeeds.
+- If the selected Mac is later removed, a sole remaining Mac can take over through the same gate;
+  ambiguous choices stop the stale route and wait for the user instead of choosing silently.
 - Calm mint/neutral visual system with a floating, full-width composer inspired by WorkBuddy's layout language.
 - Real Markdown rendering, readable JSON output normalization, and collapsed tool-result cards.
 - Camera, photo picker, voice input, saved prompts, sessions, and model selection remain available.

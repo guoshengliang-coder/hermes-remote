@@ -12,6 +12,30 @@ export interface ManagedInstallation extends PublicInstallation {
   current: boolean;
 }
 
+export interface AccountSecurityInstallation extends ManagedInstallation {
+  createdAt: string;
+  activeSessionCount: number;
+}
+
+export interface PublicAccountAuditEvent {
+  id: string;
+  eventType: string;
+  occurredAt: string;
+  actorInstallation?: PublicInstallation;
+}
+
+export type AccountInstallationRevocationResult =
+  | { status: "completed" | "replayed" }
+  | {
+      status:
+        | "not_found"
+        | "current_installation"
+        | "invalid_target"
+        | "authorization_failed"
+        | "reauthentication_failed"
+        | "idempotency_conflict";
+    };
+
 export interface BindingCandidate {
   id: string;
   generation: number;
@@ -34,6 +58,11 @@ export interface ActiveBinding {
   hermes: { reachable: boolean | null; version?: string };
   gateway: { latencyMs?: number };
   endToEnd: { healthy: boolean | null; checkedAt?: string };
+}
+
+export interface AccountDevice extends ActiveBinding {
+  access: "owner" | "operator";
+  isDefault: boolean;
 }
 
 export interface ReplacementRequest {
@@ -65,7 +94,13 @@ export interface BindingProofMaterial {
 export type CreateBindingResult =
   | { status: "created"; binding: BindingCandidate }
   | { status: "replayed"; binding: BindingCandidate }
-  | { status: "conflict" | "installation_invalid" | "idempotency_conflict" };
+  | {
+      status:
+        | "capacity_reached"
+        | "conflict"
+        | "installation_invalid"
+        | "idempotency_conflict";
+    };
 
 export type ConfirmBindingResult =
   | { status: "activated"; binding: ActiveBinding }
@@ -77,12 +112,6 @@ export type ConfirmBindingResult =
         | "proof_required"
         | "conflict"
         | "idempotency_conflict";
-    };
-
-export type RevokeInstallationResult =
-  | { status: "completed" | "replayed" }
-  | {
-      status: "not_found" | "invalid_target" | "authorization_failed" | "idempotency_conflict";
     };
 
 export type CreateReplacementResult =
@@ -130,22 +159,42 @@ export type CurrentInstallationRevocationResult =
         | "idempotency_conflict";
     };
 
+export type SelectDefaultDeviceResult =
+  | { status: "completed" | "replayed"; device: AccountDevice }
+  | { status: "not_found" | "idempotency_conflict" };
+
 export type AccountLifecycleIngestResult =
   | { status: "stored" | "duplicate" }
   | { status: "binding_invalid" | "event_id_conflict" };
 
 export interface AccountControlRepository {
   listInstallations(principal: AccountPrincipal): Promise<ManagedInstallation[]>;
-  revokePhoneInstallation(
-    principal: AccountPrincipal,
-    targetInstallationId: string,
-    idempotency: IdempotencyMaterial,
-  ): Promise<RevokeInstallationResult>;
   revokeCurrentPhoneInstallation(
     accessTokenHash: string,
     idempotency: IdempotencyMaterial,
   ): Promise<CurrentInstallationRevocationResult>;
+  listAccountInstallations?(
+    principal: AccountPrincipal,
+  ): Promise<AccountSecurityInstallation[]>;
+  revokeAccountInstallation?(
+    principal: AccountPrincipal,
+    targetInstallationId: string,
+    grantTokenHash: string,
+    idempotency: IdempotencyMaterial,
+    requiredKind?: ManagedInstallation["kind"],
+  ): Promise<AccountInstallationRevocationResult>;
+  listAccountAuditEvents?(
+    principal: AccountPrincipal,
+    limit: number,
+  ): Promise<PublicAccountAuditEvent[]>;
   getBinding(principal: AccountPrincipal): Promise<BindingState>;
+  listDevices(principal: AccountPrincipal): Promise<AccountDevice[]>;
+  getDevice(principal: AccountPrincipal, deviceId: string): Promise<AccountDevice | undefined>;
+  selectDefaultDevice(
+    principal: AccountPrincipal,
+    deviceId: string,
+    idempotency: IdempotencyMaterial,
+  ): Promise<SelectDefaultDeviceResult>;
   createPendingBinding(
     principal: AccountPrincipal,
     input: {
@@ -185,6 +234,12 @@ export interface AccountControlRepository {
   ): Promise<ConfirmReplacementResult>;
   unbindConnector(
     principal: AccountPrincipal,
+    grantTokenHash: string,
+    idempotency: IdempotencyMaterial,
+  ): Promise<UnbindResult>;
+  unbindDevice(
+    principal: AccountPrincipal,
+    deviceId: string,
     grantTokenHash: string,
     idempotency: IdempotencyMaterial,
   ): Promise<UnbindResult>;

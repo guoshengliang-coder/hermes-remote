@@ -6,15 +6,19 @@ import {
 } from "./model.js";
 import type {
   AccountControlRepository,
+  AccountDevice,
+  AccountSecurityInstallation,
   ActiveBinding,
   BindingCandidate,
   BindingState,
   ManagedInstallation,
+  PublicAccountAuditEvent,
   ReplacementRequest,
 } from "./account-control-model.js";
 import { ProtectedResponseCodec } from "./protected-response-codec.js";
 import { TokenCodec } from "./token-codec.js";
 import type { LifecycleEventPage } from "../lifecycle-event-store.js";
+import type { AccountDeviceAccessRepository } from "./account-sharing-model.js";
 
 const PENDING_BINDING_LIFETIME_MS = 10 * 60 * 1_000;
 const MUTATION_IDEMPOTENCY_LIFETIME_MS = 24 * 60 * 60 * 1_000;
@@ -26,7 +30,12 @@ export class AccountControlService {
     private readonly repository: AccountControlRepository,
     private readonly tokens: TokenCodec,
     private readonly now: () => Date = () => new Date(),
+    private readonly maxOwnedDevices = 1,
+    private readonly sharedAccess?: AccountDeviceAccessRepository,
   ) {
+    if (!Number.isSafeInteger(maxOwnedDevices) || maxOwnedDevices < 1 || maxOwnedDevices > 3) {
+      throw new Error("maxOwnedDevices must be an integer between 1 and 3");
+    }
     this.protectedResponses = new ProtectedResponseCodec(
       tokens.deriveSubkey("account-control-idempotency-response-v1"),
     );
@@ -35,32 +44,6 @@ export class AccountControlService {
   async listInstallations(principal: AccountPrincipal): Promise<ManagedInstallation[]> {
     requireDesktop(principal);
     return this.repository.listInstallations(principal);
-  }
-
-  async revokePhoneInstallation(
-    principal: AccountPrincipal,
-    targetInstallationId: string,
-    idempotencyKey: string,
-  ): Promise<void> {
-    requireDesktop(principal);
-    const idempotency = this.mutationIdempotency(
-      "installation.revoke",
-      idempotencyKey,
-      `${principal.sessionId}\u0000${targetInstallationId}`,
-    );
-    const result = await this.repository.revokePhoneInstallation(
-      principal,
-      targetInstallationId,
-      idempotency,
-    );
-    switch (result.status) {
-      case "completed":
-      case "replayed": return;
-      case "not_found": throw accountErrors.resourceNotFound();
-      case "invalid_target": throw accountErrors.invalidRequest("Only phone installations can be revoked here.");
-      case "authorization_failed": throw accountErrors.sessionRevoked();
-      case "idempotency_conflict": throw accountErrors.idempotencyConflict();
-    }
   }
 
   async revokeCurrentPhoneInstallation(
@@ -88,8 +71,140 @@ export class AccountControlService {
     }
   }
 
+  async listAccountInstallations(
+    principal: AccountPrincipal,
+  ): Promise<AccountSecurityInstallation[]> {
+    if (!this.repository.listAccountInstallations) throw accountErrors.identityFeatureDisabled();
+    return this.repository.listAccountInstallations(principal);
+  }
+
+  async revokeAccountInstallation(
+    principal: AccountPrincipal,
+    targetInstallationId: string,
+    grant: string,
+    idempotencyKey: string,
+    requiredKind?: ManagedInstallation["kind"],
+  ): Promise<void> {
+    if (!this.repository.revokeAccountInstallation) throw accountErrors.identityFeatureDisabled();
+    if (targetInstallationId === principal.installation.id) {
+      throw accountErrors.invalidRequest("The current installation must sign out itself.");
+    }
+    const grantTokenHash = this.tokens.hashReauthenticationGrant(grant);
+    if (!grantTokenHash) throw accountErrors.reauthenticationRequired();
+    const result = await this.repository.revokeAccountInstallation(
+      principal,
+      targetInstallationId,
+      grantTokenHash,
+      this.mutationIdempotency(
+        "account.installation.revoke",
+        idempotencyKey,
+        [
+          principal.sessionId,
+          targetInstallationId,
+          grantTokenHash,
+          requiredKind ?? "any",
+        ].join("\u0000"),
+      ),
+      requiredKind,
+    );
+    switch (result.status) {
+      case "completed":
+      case "replayed": return;
+      case "not_found": throw accountErrors.resourceNotFound();
+      case "invalid_target": throw accountErrors.invalidRequest(
+        "Only phone installations can be revoked here.",
+      );
+      case "current_installation": throw accountErrors.invalidRequest(
+        "The current installation must sign out itself.",
+      );
+      case "authorization_failed": throw accountErrors.sessionRevoked();
+      case "reauthentication_failed": throw accountErrors.reauthenticationRequired();
+      case "idempotency_conflict": throw accountErrors.idempotencyConflict();
+    }
+  }
+
+  async revokeManagedPhoneInstallation(
+    principal: AccountPrincipal,
+    targetInstallationId: string,
+    grant: string,
+    idempotencyKey: string,
+  ): Promise<void> {
+    requireDesktop(principal);
+    await this.revokeAccountInstallation(
+      principal,
+      targetInstallationId,
+      grant,
+      idempotencyKey,
+      "phone",
+    );
+  }
+
+  async listAccountAuditEvents(
+    principal: AccountPrincipal,
+    limit = 50,
+  ): Promise<PublicAccountAuditEvent[]> {
+    if (!this.repository.listAccountAuditEvents) throw accountErrors.identityFeatureDisabled();
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+      throw accountErrors.invalidRequest("limit must be an integer between 1 and 100.");
+    }
+    return this.repository.listAccountAuditEvents(principal, limit);
+  }
+
   async getBinding(principal: AccountPrincipal): Promise<BindingState> {
+    if (this.maxOwnedDevices > 1 && principal.installation.kind === "phone") {
+      const devices = await this.repository.listDevices(principal);
+      if (devices.length > 1) throw accountErrors.deviceSelectionRequired();
+    }
     return this.repository.getBinding(principal);
+  }
+
+  async listDevices(principal: AccountPrincipal): Promise<AccountDevice[]> {
+    const owned = await this.repository.listDevices(principal);
+    if (!this.sharedAccess) return owned;
+    const shared = await this.sharedAccess.listSharedDevices(principal);
+    return [...owned, ...shared].sort((left, right) => {
+      if (left.isDefault !== right.isDefault) return left.isDefault ? -1 : 1;
+      if (left.access !== right.access) return left.access === "owner" ? -1 : 1;
+      return left.deviceId.localeCompare(right.deviceId);
+    });
+  }
+
+  async getDevice(principal: AccountPrincipal, deviceId: string): Promise<AccountDevice> {
+    validateDeviceId(deviceId);
+    const device = await this.repository.getDevice(principal, deviceId)
+      ?? await this.sharedAccess?.getSharedDevice(principal, deviceId);
+    if (!device) throw accountErrors.deviceNotFound();
+    return device;
+  }
+
+  async selectDefaultDevice(
+    principal: AccountPrincipal,
+    deviceId: string,
+    idempotencyKey: string,
+  ): Promise<AccountDevice> {
+    validateDeviceId(deviceId);
+    const mutation = this.mutationIdempotency(
+      "device.default.select",
+      idempotencyKey,
+      [principal.account.id, principal.sessionId, deviceId].join("\u0000"),
+    );
+    const result = this.sharedAccess
+      ? await this.sharedAccess.selectAccessibleDefaultDevice(principal, deviceId, mutation)
+      : await this.repository.selectDefaultDevice(principal, deviceId, mutation);
+    switch (result.status) {
+      case "completed":
+      case "replayed": return result.device;
+      case "not_found": throw accountErrors.deviceNotFound();
+      case "idempotency_conflict": throw accountErrors.idempotencyConflict();
+    }
+  }
+
+  async resolveDevice(principal: AccountPrincipal, deviceId?: string): Promise<AccountDevice> {
+    if (deviceId) return this.getDevice(principal, deviceId);
+    const devices = await this.listDevices(principal);
+    if (devices.length === 0) throw accountErrors.bindingMissing();
+    if (devices.length !== 1) throw accountErrors.deviceSelectionRequired();
+    return devices[0];
   }
 
   async listLifecycleEvents(
@@ -160,6 +275,7 @@ export class AccountControlService {
     switch (result.status) {
       case "created": return result.binding;
       case "replayed": return result.binding;
+      case "capacity_reached": throw accountErrors.deviceCapacityReached();
       case "conflict": throw accountErrors.bindingConflict();
       case "installation_invalid": throw accountErrors.desktopRequired();
       case "idempotency_conflict": throw accountErrors.idempotencyConflict();
@@ -320,6 +436,39 @@ export class AccountControlService {
     }
   }
 
+  async unbindDevice(
+    principal: AccountPrincipal,
+    input: { deviceId: string; grant: string; idempotencyKey: string },
+  ): Promise<void> {
+    validateDeviceId(input.deviceId);
+    const grantTokenHash = this.tokens.hashReauthenticationGrant(input.grant);
+    if (!grantTokenHash) throw accountErrors.reauthenticationRequired();
+    const result = await this.repository.unbindDevice(
+      principal,
+      input.deviceId,
+      grantTokenHash,
+      this.mutationIdempotency(
+        "device.unbind",
+        input.idempotencyKey,
+        [
+          principal.account.id,
+          principal.installation.id,
+          principal.sessionId,
+          input.deviceId,
+          grantTokenHash,
+        ].join("\u0000"),
+      ),
+    );
+    switch (result.status) {
+      case "completed":
+      case "replayed": return;
+      case "not_found": throw accountErrors.deviceNotFound();
+      case "reauthentication_failed": throw accountErrors.reauthenticationRequired();
+      case "installation_invalid": throw accountErrors.sessionRevoked();
+      case "idempotency_conflict": throw accountErrors.idempotencyConflict();
+    }
+  }
+
   private mutationIdempotency(operation: string, key: string, requestIdentity: string): IdempotencyMaterial {
     return {
       key,
@@ -334,6 +483,12 @@ export class AccountControlService {
     const tokenHash = match ? this.tokens.hashAccessToken(match[1]) : undefined;
     if (!tokenHash) throw accountErrors.sessionExpired();
     return tokenHash;
+  }
+}
+
+function validateDeviceId(deviceId: string): void {
+  if (deviceId.length < 1 || deviceId.length > 128 || /[\u0000-\u001f\u007f]/.test(deviceId)) {
+    throw accountErrors.invalidRequest("deviceId contains unsupported characters.");
   }
 }
 

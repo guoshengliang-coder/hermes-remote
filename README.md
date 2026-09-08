@@ -13,7 +13,7 @@ The repository contains the first relay MVP:
 - `android/` — Kotlin/Compose client derived from the pinned `adebnar/hermes-android` GPLv3 base
 - `gateway/` — public HK relay with app/connector authentication, a Hermes-compatible facade, and a durable mobile event inbox
 - `connector/` — outbound-only macOS agent with Basic Auth, Cookie, WS Ticket, REST/WebSocket forwarding, and read-only task lifecycle observation
-- `desktop/` — native macOS menu-bar GUI; the local I3-A alpha adds default-off Google account management while safely observing the existing Connector and retaining legacy pairing
+- `desktop/` — native macOS menu-bar GUI plus a default-off signed bootstrap/migration core; the current packaged UI still safely observes the existing Connector and retains legacy pairing
 - `protocol/` — shared wire-message types and validation
 - `deploy/` — Docker and macOS launchd templates
 - `docs/` — architecture, intake checklist, and local smoke test
@@ -44,7 +44,7 @@ The first Hermes Go Desktop slice is documented in `docs/DESKTOP_PHASE0.md`. Its
 contract, and concept images live alongside the existing system; it does not modify Hermes or start a
 second Connector.
 
-The accepted Google-account onboarding, one-account/one-Connector rule, multi-phone client behavior,
+The historical Google-account onboarding, one-account/one-Connector rule, multi-phone client behavior,
 legacy migration, and shared acceptance matrix are documented in `docs/ACCOUNT_MODE_DESIGN.md`.
 The corresponding work breakdown, dependencies, estimates, test gates, and staged rollout are in
 `docs/ACCOUNT_MODE_IMPLEMENTATION_PLAN.md`.
@@ -57,6 +57,31 @@ The completed local I2 binding, V2 Connector, account-aware routing, and multi-p
 `docs/ACCOUNT_MODE_I2_TEST_RECORD.md`.
 The local I3-A Desktop account-client slice and its remaining live OAuth/binding gates are recorded in
 `docs/ACCOUNT_MODE_I3_TEST_RECORD.md`.
+The accepted next-stage account expansion—an email-code-only first release, up to three owned Macs,
+whole-device sharing, a Web account center, and clean-Mac Desktop bootstrap—is specified in
+`docs/ACCOUNT_PLATFORM_EXPANSION.md`. It extends the existing local account baseline without enabling
+production features or changing Android until its later adoption gate. Google and Apple are deferred
+providers; the existing Google implementation remains behind an independent default-off flag.
+The Desktop E4-B signed-release, atomic-install, LaunchAgent, and rollback contract is documented in
+`docs/DESKTOP_RELEASE_MANIFEST.md`; local automated evidence is in `docs/DESKTOP_E4_TEST_RECORD.md`.
+The default-off E5 whole-device sharing implementation and its remaining live-provider, interactive
+Web, multi-node, and physical acceptance gates are recorded in `docs/ACCOUNT_MODE_E5_TEST_RECORD.md`.
+The default-off E6 secure Web-session foundation, first same-origin interactive account-center
+slice, and remaining physical/staging gates are recorded in
+`docs/ACCOUNT_MODE_E6_WEB_SESSION_TEST_RECORD.md`.
+Credential-free mail-domain DNS audit and explicitly confirmed Resend staging delivery probes are
+available through `npm run ops:email-domain` and `npm run ops:email-staging`; neither command deploys
+or enables account mode.
+The local E7 email-first Desktop flow, scoped phone-removal reauthentication, replay safety, and
+remaining live-mail/packaged-device gates are recorded in
+`docs/ACCOUNT_MODE_E7_DESKTOP_TEST_RECORD.md`.
+The local E8 Android email-code, explicit owned/shared-Mac selection, transport-isolation, and
+conversation-affinity evidence is recorded in `docs/ACCOUNT_MODE_E8_ANDROID_TEST_RECORD.md`.
+The default-off E9 permanent Cloud-account deletion state machine, Web/Desktop confirmation,
+cross-account sharing cleanup, and remaining privacy/physical/deployment gates are recorded in
+`docs/ACCOUNT_MODE_E9_TEST_RECORD.md`.
+The product/privacy/support sign-off surface is `docs/ACCOUNT_DELETION_REVIEW.md`; it must be complete
+before any account-deletion rollout flag is enabled.
 The behavior-preserving Cloud Gateway modularization and its staged release gates are tracked in
 `docs/CLOUD_GATEWAY_REFACTOR_PLAN.md`.
 The staging-only R3 Cloud Ops command contract and its completed ephemeral deployment-test gates are documented in
@@ -76,7 +101,12 @@ and deployment of the daily capture/hourly off-host recovery loop. R5-E7A repair
 LaunchAgent issue found by the first scheduled cycle; that generation's restore, activation, acknowledgement,
 and following production monitor passed. Account enablement remains disabled pending the separate R5-F go/no-go.
 
-For the Android base, configure the public Gateway URL and the Gateway `APP_TOKEN` in token mode. The public token terminates in Hong Kong; the separate local Hermes credential exists only on the Mac Connector.
+Android now contains a capability-gated email-code account path beside the existing Relay URL +
+`APP_TOKEN` mode. Account mode stores its own encrypted phone session, selects owned/shared Macs by
+opaque device ID, and sends only the Hermes GO bearer to the public Gateway. Legacy credentials are
+kept separately for compatibility and rollback; the Mac Hermes credential remains only on the Mac
+Connector. Each conversation also retains its originating Mac, so changing the default device affects
+new conversations without silently moving or merging existing history.
 
 ## Security baseline
 
@@ -86,6 +116,7 @@ For the Android base, configure the public Gateway URL and the Gateway `APP_TOKE
 - Secrets are supplied through environment variables and are excluded from Git.
 - Pull requests run gitleaks plus Semgrep Community Edition in a digest-pinned, read-only CI job;
   Semgrep telemetry is disabled and the job receives no repository secrets.
-- The MVP is single-user and single-Mac by design; multi-user authorization is deferred.
+- The deployed legacy MVP remains single-user and single-Mac; capability-gated multi-device and
+  sharing work is local-only until its separate rollout gates pass.
 - Attachment uploads are capped and stored transiently on the Mac; output files stream with
   acknowledged backpressure instead of crossing the control channel as one oversized message.

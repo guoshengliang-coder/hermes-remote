@@ -11,8 +11,8 @@ private val Context.pinDataStore by preferencesDataStore(name = "pinned_sessions
 
 /**
  * Device-local pinned-session store. The gateway has no pin API, so pins live on the phone
- * only (they do not sync to the desktop app). Keyed by "<profile>/<sessionId>" so a pin is
- * scoped to the profile it was made in.
+ * only (they do not sync to the desktop app). Account-mode pins include the owning Mac so equal
+ * profile/session IDs on different Macs cannot collide.
  */
 class PinStore(private val context: Context) {
     private val key = stringSetPreferencesKey("pinned")
@@ -33,6 +33,9 @@ class PinStore(private val context: Context) {
     }
 
     companion object {
-        fun token(profile: String?, sessionId: String) = "${profile ?: "default"}/$sessionId"
+        fun token(profile: String?, sessionId: String, deviceId: String? = null): String {
+            val legacy = "${profile ?: "default"}/$sessionId"
+            return deviceId?.takeIf { it.isNotBlank() }?.let { "device:${it.length}:$it/$legacy" } ?: legacy
+        }
     }
 }

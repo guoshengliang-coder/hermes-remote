@@ -4,6 +4,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.hermes.client.data.auth.CredentialStore
+import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.ConnectivityChecker
 import com.hermes.client.data.network.ModelProviderDto
@@ -42,6 +43,7 @@ class ModelCatalogStore @Inject constructor(
     private val connectivity: ConnectivityChecker,
     private val chat: ChatRepository,
     private val appScope: CoroutineScope,
+    private val accountSessions: AccountSessionManager? = null,
 ) {
     /** What the ACTIVE profile's picker should render right now. */
     data class ActiveCatalog(
@@ -127,7 +129,7 @@ class ModelCatalogStore @Inject constructor(
      */
     fun refresh(force: Boolean = false) {
         val profile = profileManager.active.value
-        if (credentials.load() == null) return
+        if (credentials.load() == null && accountSessions?.hasLoadedConnection() != true) return
         if (!connectivity.isOnline()) return
         if (!force && cache.value.containsKey(profile)) {
             val last = synchronized(lastSuccessAt) { lastSuccessAt[profile] }

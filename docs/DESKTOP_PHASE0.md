@@ -61,6 +61,123 @@ I3-A does not create/confirm a binding, request replacement, unbind, migrate cre
 second Connector, or mutate Hermes. Live Google OAuth, production capability enablement, real
 Keychain restart, and target-Mac UI inspection remain separate gates.
 
+The current release sequence supersedes Google-first onboarding. E7 now provides the local
+email challenge/code login and email recent reauthentication path; the Google implementation remains
+dormant behind the server provider flag and an absent Desktop client ID. I3-A is retained as local
+historical evidence, not as the email-first shipping UI.
+
+## E7 email-first Desktop account client — local only
+
+- The signed-out screen exposes email plus six-digit code as its only account action.
+- Challenge requests bind to the stable macOS client installation identity; exchange uses a stable
+  per-challenge idempotency key and validates that the returned installation is this macOS Desktop.
+- Whole-device invitations require a second code sent to the signed-in account email and exchange it
+  for the scoped `device.share` grant. Lost reauthentication and invitation responses reuse persisted
+  idempotency state without persisting the code.
+- Removing another phone requires the same owner-email proof for an
+  `account.installation.revoke` grant. The Gateway accepts only a phone target, and Desktop retains
+  the grant plus exact mutation key only long enough to recover a lost response.
+- `HR-AUTH-009` through `HR-AUTH-011` have bilingual Desktop copy, retryability, and recovery actions.
+- `HR-ACCOUNT-009` has bilingual Desktop copy when identity management is not enabled.
+- Google OAuth code remains available only for future provider work and has no first-release UI entry.
+
+The default-off account-lifecycle slice adds capability-gated permanent Cloud-account deletion to
+Desktop. The danger sheet requires typed `DELETE`, an explicit permanence acknowledgement, and a
+fresh email code exchanged for `account.delete`. Ambiguous delete responses reuse Keychain-held
+grant/idempotency material; success clears only the account management session and leaves the Mac
+machine identity, Connector installation, and local Hermes data intact. The current process then
+shows a truthful `Cloud account deletion submitted` terminal state instead of treating submission as
+completed erasure or immediately returning to sign-in. A later fresh launch has no retained account
+credential and therefore starts signed out. This does not enable the production flag or exercise any
+real account.
+
+This slice does not enable the production flag, configure transactional mail, revoke arbitrary account
+installation kinds, or prove delivery/resend behavior against a live provider.
+
+## E4-A multi-device and Bootstrap preflight — local only
+
+The first E4 slice adopts the E3 discovery contract without changing the compatibility boundary:
+
+- capability-gated `GET /v2/devices` discovery and `POST .../select-default` support;
+- a per-account, Desktop-local current Mac selection with deterministic fallback to the account
+  default when a saved device disappears;
+- crash-safe persisted idempotency for cloud default changes;
+- owned-Mac status rows distinguishing the local Mac, current selection, and account default;
+- a read-only Bootstrap plan that detects clean, running-existing, stopped-existing, and inconsistent
+  Connector states and shows every future machine-changing step;
+- fail-closed behavior that preserves an existing Connector and never enables a clean install until
+  a signed release source is available.
+
+E4-A performs no download, filesystem mutation, LaunchAgent registration, process start/stop, binding
+creation, or production capability change. Those operations require the signed-manifest verifier,
+atomic rollback executor, account-mode Connector v2 implementation, user confirmation, and clean-Mac
+evidence in later E4 slices.
+
+## E4-B signed bootstrap and migration core — local only
+
+The local core now contains the later-slice safety path while the packaged UI remains disabled:
+
+- strict Ed25519 manifest verification with pinned public keys, expiry, compatibility, exact-field,
+  origin, filename, size, and checksum rules;
+- redirect-free, bounded manifest/artifact downloads and streaming SHA-256 verification;
+- tar preflight rejecting traversal, duplicate members, links, devices, and FIFOs before extraction;
+- ordered release acquisition that creates a private UUID workspace, verifies and extracts the exact
+  Hermes Server plus Connector pair, and removes partial downloads/extractions on any failure;
+- one managed-bootstrap executor that passes only the acquired manifest/sources into migration,
+  attempts temporary cleanup after every migration result, preserves the original migration failure
+  when safe, and never mislabels post-commit cleanup trouble as a rollback;
+- private staging and immutable version directories with atomic `current` activation/rollback;
+- separate exact-label managed Hermes and Connector user LaunchAgents; Hermes starts first, proves a
+  fresh bounded ready marker plus loopback health, and Connector cannot start after a Hermes timeout;
+- account Connector credentials written separately at mode `0600`, with no legacy Token or Hermes
+  password in the LaunchAgent;
+- account-mode Connector v2 challenge proof and local Hermes preflight;
+- crash-safe binding create/confirm idempotency, durable migration state, exact-label user launchd
+  control, one-Connector enforcement, automatic pre-commit rollback, and restart recovery;
+- fail-closed manual-attention behavior when remote commit status cannot be proven.
+
+This is not a release enablement. No real signing key/artifact URL is embedded, no LaunchAgent is
+written by the current UI, no real process is stopped or started, and no production flag is changed.
+See `DESKTOP_RELEASE_MANIFEST.md` and `DESKTOP_E4_TEST_RECORD.md`.
+
+The next local E4-C gate now has a strict dual-sided readiness contract. The packaged app must contain
+the complete signed-release configuration and `hermes-serve-v1`; Gateway must independently advertise
+the same contract behind its rollout flag, which remains
+`ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED=0`. The official loopback
+`hermes serve` arguments, `HERMES_HOME` boundary, readiness line, and port-conflict line are frozen in
+the core, but the packaged UI still performs no install or process mutation.
+
+## E4-D default-off packaged orchestration — local only
+
+The packaged source now connects the readiness card to the core without enabling the default build.
+When and only when both rollout gates match, a clean Mac can first download, verify, and unpack the
+signed release into a private cache. This preparation phase cannot write credentials or LaunchAgents,
+start/stop services, create a binding, or activate a release. It returns the exact signed version and
+release-specific confirmation for a second native sheet. Commit re-runs the clean-machine preflight,
+derives both executable paths from the verified manifest, and then enters the existing journaled
+migration. A foreign/stale preparation or wrong confirmation cannot invoke migration.
+
+Any responder already reachable on reserved port 9119 blocks clean install, including an authenticated
+Hermes response. After success, the UI recognizes only an `account_active` journal plus both exact
+managed LaunchAgents as active. Intermediate journals enter restart recovery before another install;
+unknown/mismatched state fails closed. Temporary cleanup failure retains a cleanup-only retry and uses
+`HR-MIGRATE-005`. The production/default plist and Gateway flag remain off, so this source connection
+does not authorize a real download, installation, process change, or rollout.
+
+Observation and interrupted-run recovery are deliberately independent of the new-install rollout
+configuration. Turning off downloads after a machine is installed therefore does not orphan its
+managed services. Active state must also match the current account's exact binding ID and generation;
+signing into another account cannot claim or overwrite the first account's managed Mac.
+
+The local E5 UI contract is also default-off. When advertised by a development Gateway, Account &
+Devices separates owned and shared Macs and exposes whole-device invite/accept/cancel/revoke/leave
+controls. E7 replaces the invitation's browser flow with an email code for a scoped `device.share`
+grant and applies the same pattern with `account.installation.revoke` when removing another phone;
+ambiguous-request recovery material stays in the account-session Keychain record while each code
+stays only in UI memory. No live mail
+provider, production account, installed Connector, LaunchAgent, or Hermes process is touched by the
+local automated tests. Secure Web cookie sessions and CSRF remain a separate gate.
+
 ### I3-A local verification — 2026-09-02
 
 - All 38 Desktop core tests passed, including a real ephemeral IPv4-loopback callback, PKCE/state/

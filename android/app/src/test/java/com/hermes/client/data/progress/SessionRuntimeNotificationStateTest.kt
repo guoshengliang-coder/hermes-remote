@@ -234,7 +234,7 @@ class SessionRuntimeNotificationStateTest {
     @Test fun observed_run_start_uses_the_event_time_as_the_run_start() = runTest {
         val f = fixture()
         f.store.applyObservedLifecycle(lifecycle("run.started", "ext", "2026-08-31T08:30:00.000Z"))
-        val runtime = f.store.runtimes.value.getValue(SessionRuntimeKey("personal", "ext"))
+        val runtime = f.store.runtimes.value.getValue(SessionRuntimeKey("personal", "ext", "mac-mini"))
         assertEquals(java.time.Instant.parse("2026-08-31T08:30:00.000Z").toEpochMilli(), runtime.runStartedAt)
         assertEquals(runtime.runStartedAt, runtime.occurredAt)
         assertEquals("Observed title", runtime.title)

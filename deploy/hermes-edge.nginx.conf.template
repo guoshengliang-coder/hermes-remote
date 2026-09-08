@@ -82,6 +82,22 @@ server {
         proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
     }
 
+    # Provider-authenticated callback only; the remaining account surface stays separately gated.
+    location = /v2/webhooks/resend {
+        client_max_body_size 64k;
+        proxy_pass https://hermes_gateway_tls/v2/webhooks/resend;
+        proxy_set_header Host mrlgs.net;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 15s;
+        proxy_send_timeout 15s;
+        proxy_ssl_server_name on;
+        proxy_ssl_name mrlgs.net;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+    }
+
     # APK index and files are proxied, never redirected to a non-standard port.
     location / {
         proxy_pass https://hermes_releases_tls;

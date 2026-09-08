@@ -11,13 +11,17 @@ import type {
   AccessAuthenticationResult,
   AccountPrincipal,
   AccountRepository,
+  IdentityLinkResult,
   InstallationInput,
   IdempotencyMaterial,
+  PublicExternalIdentity,
   RotationMaterial,
   ReauthenticationMaterial,
+  ReauthenticationOperation,
   ReauthenticationResult,
   RevokeAllResult,
   SessionCreationResult,
+  SessionCreationOperation,
   SessionMaterial,
   SessionMutationResult,
   SessionRotationResult,
@@ -27,6 +31,7 @@ import { TokenCodec } from "./account/token-codec.js";
 
 const HASH_KEY = "test-only-key-that-is-more-than-thirty-two-bytes";
 const INSTALLATION_ID = "fdaed25e-f143-4e3c-b92b-0d881df13630";
+const RESEND_WEBHOOK_SECRET = `whsec_${Buffer.from("account-mode-resend-webhook-secret").toString("base64")}`;
 
 test("TokenCodec issues typed opaque tokens and only accepts their exact format", () => {
   const codec = new TokenCodec(HASH_KEY);
@@ -36,10 +41,15 @@ test("TokenCodec issues typed opaque tokens and only accepts their exact format"
   assert.match(access, /^hga_[A-Za-z0-9_-]{43}$/);
   assert.match(refresh, /^hgr_[A-Za-z0-9_-]{43}$/);
   const grant = codec.issueReauthenticationGrant();
+  const invitation = codec.issueShareInvitationToken("invitation-id");
   assert.match(grant, /^hgg_[A-Za-z0-9_-]{43}$/);
+  assert.match(invitation, /^hsi_[A-Za-z0-9_-]{43}$/);
   assert.match(codec.hashAccessToken(access) ?? "", /^[a-f0-9]{64}$/);
   assert.match(codec.hashRefreshToken(refresh) ?? "", /^[a-f0-9]{64}$/);
   assert.match(codec.hashReauthenticationGrant(grant) ?? "", /^[a-f0-9]{64}$/);
+  assert.match(codec.hashShareInvitationToken(invitation) ?? "", /^[a-f0-9]{64}$/);
+  assert.equal(codec.issueShareInvitationToken("invitation-id"), invitation);
+  assert.notEqual(codec.issueShareInvitationToken("other-id"), invitation);
   assert.equal(codec.hashAccessToken(refresh), undefined);
   assert.equal(codec.hashRefreshToken(`${refresh}x`), undefined);
   assert.notEqual(codec.hashAccessToken(access), new TokenCodec(`${HASH_KEY}-other`).hashAccessToken(access));
@@ -107,6 +117,32 @@ test("GoogleIdentityVerifier binds the exact platform audience and client nonce"
 
   await assert.rejects(
     verifier.verify({ platform: "android", idToken: "provider-proof", nonce: "wrong-nonce-value" }),
+    (error: unknown) => isErrorCode(error, "HR-AUTH-002"),
+  );
+});
+
+test("GoogleIdentityVerifier uses a distinct Web OAuth audience and fails closed when absent", async () => {
+  let receivedAudience: string | string[] | undefined;
+  const client = {
+    verifyIdToken: async (options: { audience?: string | string[] }) => {
+      receivedAudience = options.audience;
+      return {
+        getPayload: () => ({
+          iss: "https://accounts.google.com",
+          sub: "web-subject",
+          nonce: "1234567890abcdef",
+        }),
+      } as never;
+    },
+  };
+  await new GoogleIdentityVerifier(
+    { android: "android-client", macos: "macos-client", web: "web-client" },
+    client,
+  ).verify({ platform: "web", idToken: "proof", nonce: "1234567890abcdef" });
+  assert.equal(receivedAudience, "web-client");
+  await assert.rejects(
+    new GoogleIdentityVerifier({ android: "android-client", macos: "macos-client" }, client)
+      .verify({ platform: "web", idToken: "proof", nonce: "1234567890abcdef" }),
     (error: unknown) => isErrorCode(error, "HR-AUTH-002"),
   );
 });
@@ -305,6 +341,24 @@ test("reauthentication grants are identity-bound, operation-scoped, and required
   });
   assert.deepEqual(replayedProof, proof);
 
+  for (const scope of ["account.identity.unlink", "account.installation.revoke"] as const) {
+    repository.reauthenticationMode = "created";
+    const scopedIdempotencyKey = randomUUID();
+    const scopedProof = await service.reauthenticateGoogle(principal, {
+      idToken: "fresh-google-proof",
+      nonce: "1234567890abcdef",
+      scope,
+      idempotencyKey: scopedIdempotencyKey,
+    });
+    repository.reauthenticationMode = "replayed";
+    assert.deepEqual(await service.reauthenticateGoogle(principal, {
+      idToken: "fresh-google-proof",
+      nonce: "1234567890abcdef",
+      scope,
+      idempotencyKey: scopedIdempotencyKey,
+    }), scopedProof);
+  }
+
   const accessToken = codec.issueAccessToken();
   const revokeKey = "2934eb72-d10c-4f5f-ad4c-a02ba40228e6";
   await service.revokeAllSessions(`Bearer ${accessToken}`, proof.grant, revokeKey);
@@ -326,11 +380,394 @@ test("reauthentication grants are identity-bound, operation-scoped, and required
     service.revokeAllSessions(`Bearer ${accessToken}`, "not-a-grant", randomUUID()),
     (error: unknown) => isErrorCode(error, "HR-AUTH-006"),
   );
+
+  repository.reauthenticationMode = "created";
+  const deletionProof = await service.reauthenticateGoogle(principal, {
+    idToken: "fresh-google-proof",
+    nonce: "1234567890abcdef",
+    scope: "account.delete",
+    idempotencyKey: randomUUID(),
+  });
+  const deletionKey = randomUUID();
+  await assert.rejects(
+    service.requestAccountDeletion(
+      `Bearer ${accessToken}`,
+      deletionProof.grant,
+      deletionKey,
+      false,
+    ),
+    (error: unknown) => isErrorCode(error, "HR-ACCOUNT-004"),
+  );
+  await service.requestAccountDeletion(
+    `Bearer ${accessToken}`,
+    deletionProof.grant,
+    deletionKey,
+    true,
+  );
+  assert.equal(repository.deletionCall?.accessTokenHash, codec.hashAccessToken(accessToken));
+  assert.equal(repository.deletionCall?.deletionDueAt.toISOString(), "2026-10-02T04:00:00.000Z");
+  assert.equal(repository.deletionCall?.idempotency.key, deletionKey);
+});
+
+test("email reauthentication and explicit identity linking use one scoped grant and safe replay", async () => {
+  const repository = new FakeAccountRepository();
+  const codec = new TokenCodec(HASH_KEY);
+  const service = new AccountService(
+    { verify: async () => verifiedIdentity() },
+    repository,
+    codec,
+    () => new Date("2026-09-07T04:00:00.000Z"),
+  );
+  const principal = testPrincipal();
+  const emailIdentity: VerifiedExternalIdentity = {
+    provider: "email_otp",
+    issuer: "https://mrlgs.net",
+    subject: "e".repeat(64),
+    email: "person@example.com",
+  };
+  const reauthentication = await service.reauthenticateEmailIdentity(principal, emailIdentity, {
+    scope: "account.identity.link",
+    idempotencyKey: "a7be8434-d225-4a4d-b4c6-dce4519e726f",
+  });
+  assert.equal(repository.reauthenticationOperation, "auth.reauth.email");
+  assert.equal(reauthentication.scope, "account.identity.link");
+
+  const linkInput = {
+    grant: reauthentication.grant,
+    idempotencyKey: "70de6e6b-2799-4bda-86a7-2d0f17ae3db9",
+  };
+  const linked = await service.linkEmailIdentity(principal, emailIdentity, linkInput);
+  assert.equal(linked.provider, "email_otp");
+  assert.equal(linked.email, "person@example.com");
+  assert.match(linked.id, /^[0-9a-f-]{36}$/);
+  assert(repository.identityLinkIdempotency);
+  assert.equal(
+    repository.identityLinkIdempotency.responseCiphertext.includes("person@example.com"),
+    false,
+  );
+
+  repository.identityLinkResult = {
+    status: "replayed",
+    responseCiphertext: repository.identityLinkIdempotency.responseCiphertext,
+  };
+  assert.deepEqual(await service.linkEmailIdentity(principal, emailIdentity, linkInput), linked);
+
+  repository.identityLinkResult = { status: "identity_conflict" };
+  await assert.rejects(
+    service.linkEmailIdentity(principal, emailIdentity, {
+      ...linkInput,
+      idempotencyKey: randomUUID(),
+    }),
+    (error: unknown) => isErrorCode(error, "HR-ACCOUNT-008"),
+  );
 });
 
 test("default-off account runtime needs no account secrets", async () => {
-  const runtime = createAccountRuntime({ ACCOUNT_AUTH_ENABLED: "0" });
+  const runtime = createAccountRuntime({
+    ACCOUNT_AUTH_ENABLED: "0",
+    ACCOUNT_EMAIL_OTP_ENABLED: "1",
+  });
+  assert.equal(runtime.accountAuthEnabled, false);
+  assert.equal(runtime.googleAuthEnabled, false);
+  assert.equal(runtime.emailOtpEnabled, false);
   await runtime.close();
+});
+
+test("account retention day settings are bounded and do not connect eagerly", async () => {
+  const base = {
+    ACCOUNT_AUTH_ENABLED: "1",
+    ACCOUNT_DATABASE_URL: "postgresql://127.0.0.1:1/not-connected-by-this-test",
+    ACCOUNT_TOKEN_HASH_KEY: "account-token-test-key-with-at-least-thirty-two-bytes",
+  };
+  assert.throws(() => createAccountRuntime({
+    ...base,
+    ACCOUNT_LIFECYCLE_RETENTION_DAYS: "0",
+  }), /ACCOUNT_LIFECYCLE_RETENTION_DAYS must be an integer between 1 and 3650/);
+  assert.throws(() => createAccountRuntime({
+    ...base,
+    ACCOUNT_AUDIT_RETENTION_DAYS: "3651",
+  }), /ACCOUNT_AUDIT_RETENTION_DAYS must be an integer between 1 and 3650/);
+
+  const runtime = createAccountRuntime({
+    ...base,
+    ACCOUNT_LIFECYCLE_RETENTION_DAYS: "1",
+    ACCOUNT_AUDIT_RETENTION_DAYS: "3650",
+  });
+  await runtime.close();
+});
+
+test("account deletion stays default-off and requires identity management plus a provider", () => {
+  const base = {
+    ACCOUNT_AUTH_ENABLED: "1",
+    ACCOUNT_DELETION_ENABLED: "1",
+    ACCOUNT_DATABASE_URL: "postgresql://127.0.0.1:1/not-connected-by-this-test",
+    ACCOUNT_TOKEN_HASH_KEY: "account-token-test-key-with-at-least-thirty-two-bytes",
+  };
+  assert.throws(() => createAccountRuntime(base), /ACCOUNT_DELETION_ENABLED requires/);
+  assert.throws(() => createAccountRuntime({
+    ...base,
+    ACCOUNT_IDENTITY_MANAGEMENT_ENABLED: "1",
+  }), /ACCOUNT_DELETION_ENABLED requires/);
+});
+
+test("multi-device runtime fails closed unless binding control is enabled", () => {
+  assert.throws(() => createAccountRuntime({
+    ACCOUNT_AUTH_ENABLED: "1",
+    ACCOUNT_MULTI_DEVICE_ENABLED: "1",
+    ACCOUNT_DATABASE_URL: "postgresql://127.0.0.1:1/not-connected-by-this-test",
+    ACCOUNT_TOKEN_HASH_KEY: "account-token-test-key-with-at-least-thirty-two-bytes",
+    ACCOUNT_GOOGLE_ANDROID_CLIENT_ID: "android-client-id",
+    ACCOUNT_GOOGLE_MACOS_CLIENT_ID: "macos-client-id",
+  }), /ACCOUNT_MULTI_DEVICE_ENABLED requires ACCOUNT_BINDING_ENABLED=1/);
+});
+
+test("device sharing is independently default-off and fails closed without its prerequisites", async () => {
+  const base = {
+    ACCOUNT_AUTH_ENABLED: "1",
+    ACCOUNT_DATABASE_URL: "postgresql://127.0.0.1:1/not-connected-by-this-test",
+    ACCOUNT_TOKEN_HASH_KEY: "account-token-test-key-with-at-least-thirty-two-bytes",
+    ACCOUNT_GOOGLE_ANDROID_CLIENT_ID: "android-client-id",
+    ACCOUNT_GOOGLE_MACOS_CLIENT_ID: "macos-client-id",
+  };
+  assert.throws(() => createAccountRuntime({
+    ...base,
+    ACCOUNT_DEVICE_SHARING_ENABLED: "1",
+    ACCOUNT_RESEND_WEBHOOK_ENABLED: "1",
+    ACCOUNT_RESEND_WEBHOOK_SECRET: RESEND_WEBHOOK_SECRET,
+  }), /ACCOUNT_DEVICE_SHARING_ENABLED requires/);
+
+  const runtime = createAccountRuntime({
+    ...base,
+    ACCOUNT_BINDING_ENABLED: "1",
+    ACCOUNT_MULTI_DEVICE_ENABLED: "1",
+    ACCOUNT_IDENTITY_MANAGEMENT_ENABLED: "1",
+    ACCOUNT_DEVICE_SHARING_ENABLED: "1",
+    ACCOUNT_RESEND_WEBHOOK_ENABLED: "1",
+    ACCOUNT_RESEND_WEBHOOK_SECRET: RESEND_WEBHOOK_SECRET,
+    ACCOUNT_GATEWAY_ORIGIN: "https://mrlgs.net",
+    ACCOUNT_RESEND_API_KEY: "re_test_sending_only_key",
+    ACCOUNT_EMAIL_FROM: "Hermes GO <login@auth.mrlgs.net>",
+    ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN: "https://mrlgs.net",
+  });
+  try {
+    assert.equal(runtime.sharingEnabled, true);
+    const response = new MemoryResponse();
+    await runtime.controller.handle(
+      memoryRequest("GET"),
+      response.asServerResponse(),
+      new URL("http://localhost/v2/capabilities"),
+    );
+    assert.deepEqual((response.json() as { binding: unknown }).binding, {
+      enabled: true,
+      replacement: true,
+      maxActiveConnectorsPerAccount: 3,
+      supportsDeviceSelection: true,
+      supportsDeviceSharing: true,
+      maxSharedDevices: 10,
+      maxGranteesPerDevice: 5,
+    });
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("email OTP runtime is independently configured and advertised without connecting eagerly", async () => {
+  assert.throws(() => createAccountRuntime({
+    ACCOUNT_AUTH_ENABLED: "1",
+    ACCOUNT_EMAIL_OTP_ENABLED: "1",
+    ACCOUNT_DATABASE_URL: "postgresql://127.0.0.1:1/not-connected-by-this-test",
+    ACCOUNT_TOKEN_HASH_KEY: "account-token-test-key-with-at-least-thirty-two-bytes",
+  }), /ACCOUNT_RESEND_WEBHOOK_ENABLED=1/);
+  const runtime = createAccountRuntime({
+    ACCOUNT_AUTH_ENABLED: "1",
+    ACCOUNT_EMAIL_OTP_ENABLED: "1",
+    ACCOUNT_RESEND_WEBHOOK_ENABLED: "1",
+    ACCOUNT_RESEND_WEBHOOK_SECRET: RESEND_WEBHOOK_SECRET,
+    ACCOUNT_IDENTITY_MANAGEMENT_ENABLED: "1",
+    ACCOUNT_DELETION_ENABLED: "1",
+    ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED: "1",
+    ACCOUNT_DATABASE_URL: "postgresql://127.0.0.1:1/not-connected-by-this-test",
+    ACCOUNT_TOKEN_HASH_KEY: "account-token-test-key-with-at-least-thirty-two-bytes",
+    ACCOUNT_EMAIL_OTP_HASH_KEY: "email-otp-test-key-with-at-least-thirty-two-bytes",
+    ACCOUNT_EMAIL_OTP_ISSUER: "https://mrlgs.net",
+    ACCOUNT_RESEND_API_KEY: "re_test_sending_only_key",
+    ACCOUNT_EMAIL_FROM: "Hermes GO <login@auth.mrlgs.net>",
+  });
+  try {
+    assert.equal(runtime.accountAuthEnabled, true);
+    assert.equal(runtime.googleAuthEnabled, false);
+    assert.equal(runtime.emailOtpEnabled, true);
+    assert.equal(runtime.identityManagementEnabled, true);
+    assert.equal(runtime.webAccountCenterEnabled, true);
+    const response = new MemoryResponse();
+    await runtime.controller.handle(
+      memoryRequest("GET"),
+      response.asServerResponse(),
+      new URL("http://localhost/v2/capabilities"),
+    );
+    assert.deepEqual(
+      (response.json() as { accountAuth: { providers: string[] } }).accountAuth.providers,
+      ["email_otp"],
+    );
+    assert.deepEqual(
+      (response.json() as { accountAuth: unknown }).accountAuth,
+      {
+        enabled: true,
+        providers: ["email_otp"],
+        android: true,
+        macos: true,
+        identityManagement: true,
+        accountDeletion: true,
+        webAccountCenter: true,
+      },
+    );
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("secure Web sessions are independently default-off and require their complete HTTPS boundary", async () => {
+  const base = {
+    ACCOUNT_AUTH_ENABLED: "1",
+    ACCOUNT_EMAIL_OTP_ENABLED: "1",
+    ACCOUNT_RESEND_WEBHOOK_ENABLED: "1",
+    ACCOUNT_RESEND_WEBHOOK_SECRET: RESEND_WEBHOOK_SECRET,
+    ACCOUNT_IDENTITY_MANAGEMENT_ENABLED: "1",
+    ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED: "1",
+    ACCOUNT_DATABASE_URL: "postgresql://127.0.0.1:1/not-connected-by-this-test",
+    ACCOUNT_TOKEN_HASH_KEY: "account-token-test-key-with-at-least-thirty-two-bytes",
+    ACCOUNT_EMAIL_OTP_HASH_KEY: "email-otp-test-key-with-at-least-thirty-two-bytes",
+    ACCOUNT_EMAIL_OTP_ISSUER: "https://mrlgs.net",
+    ACCOUNT_RESEND_API_KEY: "re_test_sending_only_key",
+    ACCOUNT_EMAIL_FROM: "Hermes GO <login@auth.mrlgs.net>",
+  };
+  assert.throws(() => createAccountRuntime({
+    ...base,
+    ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED: "0",
+    ACCOUNT_WEB_SESSION_ENABLED: "1",
+  }), /ACCOUNT_WEB_SESSION_ENABLED requires/);
+  assert.throws(() => createAccountRuntime({
+    ...base,
+    ACCOUNT_WEB_SESSION_ENABLED: "1",
+    ACCOUNT_WEB_ORIGIN: "http:\/\/accounts.example.test",
+  }), /ACCOUNT_WEB_ORIGIN must be an exact HTTPS origin/);
+
+  const runtime = createAccountRuntime({
+    ...base,
+    ACCOUNT_WEB_SESSION_ENABLED: "1",
+    ACCOUNT_WEB_ORIGIN: "https://accounts.example.test",
+  });
+  try {
+    assert.equal(runtime.webSessionEnabled, true);
+    assert.equal(runtime.googleAuthEnabled, false);
+    const response = new MemoryResponse();
+    await runtime.controller.handle(
+      memoryRequest("GET"),
+      response.asServerResponse(),
+      new URL("http://localhost/v2/capabilities"),
+    );
+    assert.equal(
+      (response.json() as { accountAuth: { webSessions?: boolean } }).accountAuth.webSessions,
+      true,
+    );
+    assert.deepEqual(
+      (response.json() as { accountAuth: { providers: string[] } }).accountAuth.providers,
+      ["email_otp"],
+    );
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("Google authentication is an independently default-off deferred provider", async () => {
+  const base = {
+    ACCOUNT_AUTH_ENABLED: "1",
+    ACCOUNT_DATABASE_URL: "postgresql://127.0.0.1:1/not-connected-by-this-test",
+    ACCOUNT_TOKEN_HASH_KEY: "account-token-test-key-with-at-least-thirty-two-bytes",
+  };
+  assert.throws(() => createAccountRuntime({
+    ...base,
+    ACCOUNT_GOOGLE_AUTH_ENABLED: "1",
+  }), /ACCOUNT_GOOGLE_ANDROID_CLIENT_ID/);
+  assert.throws(() => createAccountRuntime({
+    ...base,
+    ACCOUNT_GOOGLE_AUTH_ENABLED: "1",
+    ACCOUNT_GOOGLE_ANDROID_CLIENT_ID: "android-client-id",
+  }), /ACCOUNT_GOOGLE_MACOS_CLIENT_ID/);
+  assert.throws(() => createAccountRuntime({
+    ...base,
+    ACCOUNT_GOOGLE_AUTH_ENABLED: "1",
+    ACCOUNT_GOOGLE_ANDROID_CLIENT_ID: "android-client-id",
+    ACCOUNT_GOOGLE_MACOS_CLIENT_ID: "macos-client-id",
+    ACCOUNT_EMAIL_OTP_ENABLED: "1",
+    ACCOUNT_RESEND_WEBHOOK_ENABLED: "1",
+    ACCOUNT_RESEND_WEBHOOK_SECRET: RESEND_WEBHOOK_SECRET,
+    ACCOUNT_IDENTITY_MANAGEMENT_ENABLED: "1",
+    ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED: "1",
+    ACCOUNT_WEB_SESSION_ENABLED: "1",
+    ACCOUNT_EMAIL_OTP_HASH_KEY: "email-otp-test-key-with-at-least-thirty-two-bytes",
+    ACCOUNT_EMAIL_OTP_ISSUER: "https://mrlgs.net",
+    ACCOUNT_RESEND_API_KEY: "re_test_sending_only_key",
+    ACCOUNT_EMAIL_FROM: "Hermes GO <login@auth.mrlgs.net>",
+  }), /ACCOUNT_GOOGLE_WEB_CLIENT_ID/);
+
+  const runtime = createAccountRuntime({
+    ...base,
+    ACCOUNT_GOOGLE_AUTH_ENABLED: "1",
+    ACCOUNT_GOOGLE_ANDROID_CLIENT_ID: "android-client-id",
+    ACCOUNT_GOOGLE_MACOS_CLIENT_ID: "macos-client-id",
+  });
+  try {
+    assert.equal(runtime.googleAuthEnabled, true);
+    const capabilitiesResponse = new MemoryResponse();
+    await runtime.controller.handle(
+      memoryRequest("GET"),
+      capabilitiesResponse.asServerResponse(),
+      new URL("http://localhost/v2/capabilities"),
+    );
+    assert.deepEqual(
+      (capabilitiesResponse.json() as { accountAuth: { providers: string[] } }).accountAuth.providers,
+      ["google"],
+    );
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("disabled Google provider is omitted from capabilities and its exchange route", async () => {
+  let verificationCalls = 0;
+  const controller = new AccountHttpController(
+    true,
+    new AccountService(
+      { verify: async () => { verificationCalls += 1; return verifiedIdentity(); } },
+      new FakeAccountRepository(),
+      new TokenCodec(HASH_KEY),
+    ),
+    { emailOtpEnabled: true, googleAuthEnabled: false },
+  );
+  const capabilitiesResponse = new MemoryResponse();
+  await controller.handle(
+    memoryRequest("GET"),
+    capabilitiesResponse.asServerResponse(),
+    new URL("http://localhost/v2/capabilities"),
+  );
+  assert.deepEqual(
+    (capabilitiesResponse.json() as { accountAuth: { providers: string[] } }).accountAuth.providers,
+    ["email_otp"],
+  );
+
+  const exchangeResponse = new MemoryResponse();
+  await controller.handle(
+    memoryRequest("POST", { "content-type": "application/json" }, "{}"),
+    exchangeResponse.asServerResponse(),
+    new URL("http://localhost/v2/auth/google/exchange"),
+  );
+  assert.equal(exchangeResponse.status, 404);
+  assert.equal(
+    (exchangeResponse.json() as { error: { code: string } }).error.code,
+    "HR-ACCOUNT-004",
+  );
+  assert.equal(verificationCalls, 0);
 });
 
 test("default-off HTTP surface advertises legacy compatibility and rejects account exchange", async () => {
@@ -344,7 +781,14 @@ test("default-off HTTP surface advertises legacy compatibility and rejects accou
   assert.equal(capabilitiesResponse.status, 200);
   assert.deepEqual(capabilitiesResponse.json(), {
     version: 1,
-    accountAuth: { enabled: false, providers: ["google"], android: true, macos: true },
+    accountAuth: {
+      enabled: false,
+      providers: [],
+      android: true,
+      macos: true,
+      identityManagement: false,
+      webAccountCenter: false,
+    },
     binding: { enabled: false, replacement: false, maxActiveConnectorsPerAccount: 1 },
     legacy: { appTokenAccepted: true, connectorTokenAccepted: true },
   });
@@ -380,6 +824,82 @@ test("binding capability is advertised only by its independent rollout flag", as
   assert.deepEqual(body.legacy, { appTokenAccepted: true, connectorTokenAccepted: true });
 });
 
+test("Desktop managed install is default-off and advertises only the frozen runtime contract", async () => {
+  const defaultResponse = new MemoryResponse();
+  await new AccountHttpController(true, undefined, { controlEnabled: true }).handle(
+    memoryRequest("GET"),
+    defaultResponse.asServerResponse(),
+    new URL("http://localhost/v2/capabilities"),
+  );
+  assert.equal(
+    Object.hasOwn(defaultResponse.json() as object, "desktopBootstrap"),
+    false,
+  );
+
+  const enabledResponse = new MemoryResponse();
+  await new AccountHttpController(true, undefined, {
+    controlEnabled: true,
+    desktopManagedInstallEnabled: true,
+  }).handle(
+    memoryRequest("GET"),
+    enabledResponse.asServerResponse(),
+    new URL("http://localhost/v2/capabilities"),
+  );
+  assert.deepEqual(
+    (enabledResponse.json() as { desktopBootstrap?: unknown }).desktopBootstrap,
+    { runtimeContract: "hermes-serve-v1" },
+  );
+
+  assert.throws(() => createAccountRuntime({
+    ACCOUNT_AUTH_ENABLED: "1",
+    ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED: "1",
+    ACCOUNT_DATABASE_URL: "postgresql://127.0.0.1:1/not-connected-by-this-test",
+    ACCOUNT_TOKEN_HASH_KEY: "account-token-test-key-with-at-least-thirty-two-bytes",
+  }), /ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED requires ACCOUNT_BINDING_ENABLED=1/);
+
+  const runtime = createAccountRuntime({
+    ACCOUNT_AUTH_ENABLED: "1",
+    ACCOUNT_BINDING_ENABLED: "1",
+    ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED: "1",
+    ACCOUNT_GATEWAY_ORIGIN: "https://mrlgs.net",
+    ACCOUNT_DATABASE_URL: "postgresql://127.0.0.1:1/not-connected-by-this-test",
+    ACCOUNT_TOKEN_HASH_KEY: "account-token-test-key-with-at-least-thirty-two-bytes",
+  });
+  try {
+    const runtimeResponse = new MemoryResponse();
+    await runtime.controller.handle(
+      memoryRequest("GET"),
+      runtimeResponse.asServerResponse(),
+      new URL("http://localhost/v2/capabilities"),
+    );
+    assert.deepEqual(
+      (runtimeResponse.json() as { desktopBootstrap?: unknown }).desktopBootstrap,
+      { runtimeContract: "hermes-serve-v1" },
+    );
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("multi-device capability is independently default-off and advertises the owned-device limit", async () => {
+  const response = new MemoryResponse();
+  await new AccountHttpController(true, undefined, {
+    controlEnabled: true,
+    multiDeviceEnabled: true,
+  }).handle(
+    memoryRequest("GET"),
+    response.asServerResponse(),
+    new URL("http://localhost/v2/capabilities"),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual((response.json() as { binding: unknown }).binding, {
+    enabled: true,
+    replacement: true,
+    maxActiveConnectorsPerAccount: 3,
+    supportsDeviceSelection: true,
+  });
+});
+
 test("enabled HTTP surface validates and exchanges bounded JSON without legacy credentials", async () => {
   const repository = new FakeAccountRepository();
   const service = new AccountService(
@@ -387,7 +907,7 @@ test("enabled HTTP surface validates and exchanges bounded JSON without legacy c
     repository,
     new TokenCodec(HASH_KEY),
   );
-  const controller = new AccountHttpController(true, service);
+  const controller = new AccountHttpController(true, service, { googleAuthEnabled: true });
   const response = new MemoryResponse();
   await controller.handle(
     memoryRequest(
@@ -471,6 +991,62 @@ test("sign-out and revoke-all require retry keys and return no credential body",
   assert.equal(revokeAll.body, "");
 });
 
+test("native account deletion is default-off and requires an explicit permanent-deletion acknowledgement", async () => {
+  const repository = new FakeAccountRepository();
+  const codec = new TokenCodec(HASH_KEY);
+  const service = new AccountService(
+    { verify: async () => verifiedIdentity() },
+    repository,
+    codec,
+  );
+  const accessToken = codec.issueAccessToken();
+  const grant = codec.issueReauthenticationGrant();
+  const headers = {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+    "idempotency-key": randomUUID(),
+  };
+
+  const hidden = new MemoryResponse();
+  await new AccountHttpController(true, service).handle(
+    memoryRequest("DELETE", headers, JSON.stringify({
+      grant,
+      acknowledgedPermanentCloudDeletion: true,
+    })),
+    hidden.asServerResponse(),
+    new URL("http://localhost/v2/account"),
+  );
+  assert.equal(hidden.status, 404);
+  assert.equal(Boolean(repository.deletionCall), false);
+
+  const controller = new AccountHttpController(true, service, { accountDeletionEnabled: true });
+  const missingAcknowledgement = new MemoryResponse();
+  await controller.handle(
+    memoryRequest("DELETE", headers, JSON.stringify({ grant })),
+    missingAcknowledgement.asServerResponse(),
+    new URL("http://localhost/v2/account"),
+  );
+  assert.equal(missingAcknowledgement.status, 400);
+  assert.equal(
+    (missingAcknowledgement.json() as { error: { code: string } }).error.code,
+    "HR-ACCOUNT-004",
+  );
+  assert.equal(Boolean(repository.deletionCall), false);
+
+  const deleted = new MemoryResponse();
+  await controller.handle(
+    memoryRequest("DELETE", headers, JSON.stringify({
+      grant,
+      acknowledgedPermanentCloudDeletion: true,
+    })),
+    deleted.asServerResponse(),
+    new URL("http://localhost/v2/account"),
+  );
+  assert.equal(deleted.status, 204);
+  assert.equal(deleted.body, "");
+  assert.equal(repository.deletionCall?.accessTokenHash, codec.hashAccessToken(accessToken));
+});
+
 test("account HTTP failures redact provider proofs and storage error details", async () => {
   const repository = new FakeAccountRepository();
   repository.createError = new Error("database-password=storage-secret");
@@ -479,7 +1055,7 @@ test("account HTTP failures redact provider proofs and storage error details", a
     repository,
     new TokenCodec(HASH_KEY),
   );
-  const controller = new AccountHttpController(true, service);
+  const controller = new AccountHttpController(true, service, { googleAuthEnabled: true });
   const response = new MemoryResponse();
   const captured: unknown[][] = [];
   const originalConsoleError = console.error;
@@ -523,6 +1099,7 @@ test("Google exchange rate limiting is enforced per bounded source bucket", asyn
       new FakeAccountRepository(),
       new TokenCodec(HASH_KEY),
     ),
+    { googleAuthEnabled: true },
   );
   for (let index = 0; index < 11; index += 1) {
     const response = new MemoryResponse();
@@ -558,6 +1135,7 @@ test("Google exchange limiter fails closed at its bounded source capacity", asyn
       new FakeAccountRepository(),
       new TokenCodec(HASH_KEY),
     ),
+    { googleAuthEnabled: true },
   );
   for (let index = 0; index < 10_001; index += 1) {
     const response = new MemoryResponse();
@@ -582,12 +1160,14 @@ class FakeAccountRepository implements AccountRepository {
   rotationResult: SessionRotationResult = { status: "rotated" };
   refreshIdempotencyMaterial?: IdempotencyMaterial;
   sessionIdempotencyMaterial?: IdempotencyMaterial;
+  sessionCreationOperation?: SessionCreationOperation;
   sessionCreationMode: "created" | "replayed" | "revoked" | "idempotency_conflict" = "created";
   savedSessionResponseCiphertext?: string;
   accessResult: AccessAuthenticationResult = { status: "invalid" };
   reauthenticationMode: "created" | "replayed" | "identity_mismatch" | "account_disabled" | "session_revoked" | "idempotency_conflict" = "created";
   reauthenticationMaterial?: ReauthenticationMaterial;
   reauthenticationIdempotency?: IdempotencyMaterial;
+  reauthenticationOperation?: ReauthenticationOperation;
   savedReauthenticationResponseCiphertext?: string;
   revokeAllStatus: RevokeAllResult["status"] = "completed";
   revokeAllCall?: {
@@ -595,19 +1175,31 @@ class FakeAccountRepository implements AccountRepository {
     grantTokenHash: string;
     idempotency: IdempotencyMaterial;
   };
+  deletionStatus: RevokeAllResult["status"] = "completed";
+  deletionCall?: {
+    accessTokenHash: string;
+    grantTokenHash: string;
+    deletionDueAt: Date;
+    idempotency: IdempotencyMaterial;
+  };
   signOutStatus: SessionMutationResult = { status: "completed" };
   revokedAccessTokenHash?: string;
   signOutIdempotency?: IdempotencyMaterial;
+  identities: PublicExternalIdentity[] = [];
+  identityLinkResult?: IdentityLinkResult;
+  identityLinkIdempotency?: IdempotencyMaterial;
 
   async createSession(
     _identity: VerifiedExternalIdentity,
     installation: InstallationInput,
     material: SessionMaterial,
     idempotency: IdempotencyMaterial,
+    operation: SessionCreationOperation,
   ): Promise<SessionCreationResult> {
     if (this.createError) throw this.createError;
     this.createdMaterial = material;
     this.sessionIdempotencyMaterial = idempotency;
+    this.sessionCreationOperation = operation;
     if (this.sessionCreationMode === "revoked" || this.sessionCreationMode === "idempotency_conflict") {
       return { status: this.sessionCreationMode };
     }
@@ -659,9 +1251,11 @@ class FakeAccountRepository implements AccountRepository {
     _identity: VerifiedExternalIdentity,
     material: ReauthenticationMaterial,
     idempotency: IdempotencyMaterial,
+    operation: ReauthenticationOperation,
   ): Promise<ReauthenticationResult> {
     this.reauthenticationMaterial = material;
     this.reauthenticationIdempotency = idempotency;
+    this.reauthenticationOperation = operation;
     if (this.reauthenticationMode === "replayed") {
       assert(this.savedReauthenticationResponseCiphertext);
       return {
@@ -675,6 +1269,23 @@ class FakeAccountRepository implements AccountRepository {
     return { status: this.reauthenticationMode };
   }
 
+  async listExternalIdentities(_accountId: string): Promise<PublicExternalIdentity[]> {
+    return this.identities;
+  }
+
+  async linkExternalIdentity(
+    _accountId: string,
+    _installationId: string,
+    _currentSessionId: string,
+    _identity: VerifiedExternalIdentity,
+    publicIdentity: PublicExternalIdentity,
+    _grantTokenHash: string,
+    idempotency: IdempotencyMaterial,
+  ): Promise<IdentityLinkResult> {
+    this.identityLinkIdempotency = idempotency;
+    return this.identityLinkResult ?? { status: "linked", identity: publicIdentity };
+  }
+
   async revokeAllSessions(
     accessTokenHash: string,
     grantTokenHash: string,
@@ -682,6 +1293,16 @@ class FakeAccountRepository implements AccountRepository {
   ): Promise<RevokeAllResult> {
     this.revokeAllCall = { accessTokenHash, grantTokenHash, idempotency };
     return { status: this.revokeAllStatus };
+  }
+
+  async requestAccountDeletion(
+    accessTokenHash: string,
+    grantTokenHash: string,
+    deletionDueAt: Date,
+    idempotency: IdempotencyMaterial,
+  ): Promise<RevokeAllResult> {
+    this.deletionCall = { accessTokenHash, grantTokenHash, deletionDueAt, idempotency };
+    return { status: this.deletionStatus };
   }
 
   async revokeSession(

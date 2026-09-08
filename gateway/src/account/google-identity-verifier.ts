@@ -12,7 +12,7 @@ export class GoogleIdentityVerifier implements ExternalIdentityVerifier {
   private readonly client: OAuthVerifier;
 
   constructor(
-    private readonly audiences: Record<AccountPlatform, string>,
+    private readonly audiences: Record<"android" | "macos", string> & { web?: string },
     client: OAuthVerifier = new OAuth2Client(),
   ) {
     this.client = client;
@@ -24,9 +24,11 @@ export class GoogleIdentityVerifier implements ExternalIdentityVerifier {
     nonce: string;
   }): Promise<VerifiedExternalIdentity> {
     try {
+      const audience = this.audiences[input.platform];
+      if (!audience) throw new Error("missing_audience");
       const ticket = await this.client.verifyIdToken({
         idToken: input.idToken,
-        audience: this.audiences[input.platform],
+        audience,
       });
       const payload = ticket.getPayload();
       if (!payload) throw new Error("missing_payload");

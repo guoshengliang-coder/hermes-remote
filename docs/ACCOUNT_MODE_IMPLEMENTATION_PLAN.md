@@ -1,10 +1,21 @@
 # Hermes GO account-mode implementation plan
 
-Status: accepted implementation plan. I0, I1, and the local I2 backend gate are complete. The local
-I3-A Desktop account-client slice is complete; I3-B destructive management/reauth states are next.
-Estimates are
-engineering effort, not release promises.
+Status: historical baseline implementation plan through I3-A. The accepted current release outcome
+is restated in section 1, while implementation progress after I3-A is tracked in
+`ACCOUNT_PLATFORM_EXPANSION.md` and the E5-E9 test records. Estimates are engineering effort, not
+release promises.
 No production deployment, Connector replacement, or Hermes change is authorized by this document.
+
+Expansion note: this plan preserves the original Google-only, one-active-Mac V1 implementation
+history. The accepted forward plan for email OTP, multiple owned Macs, cross-account device sharing,
+the Web account center, and Desktop clean-machine bootstrap is
+`ACCOUNT_PLATFORM_EXPANSION.md`. Those additions are capability-gated and do not retroactively alter
+the completed I0-I3A evidence.
+
+Rollout update (2026-09-07): the original Google-first release order in this historical plan is
+superseded. The first account release uses email OTP only; Google and Apple move to a later provider
+milestone. Existing Google work is retained behind `ACCOUNT_GOOGLE_AUTH_ENABLED=0` and is not an
+email-first release dependency or acceptance gate.
 
 Progress: **I0 and the local I1 backend gate completed on 2026-09-02**. The API/data contract, threat model,
 migration state machine, error registry, test plan, and sanitized fixtures are present. The local I1
@@ -39,27 +50,32 @@ Related design: `ACCOUNT_MODE_DESIGN.md`.
 
 ## 1. Outcome and fixed boundaries
 
-The release is complete when a user can sign into Hermes Go Desktop and Android with the same Google
-account, automatically reach the one bound Hermes, use more than one phone independently, diagnose
-the connection by layer, and migrate from the current Token flow without breaking existing clients.
+The current release is complete when a user can sign into Hermes Go Desktop and Android with the
+same verified email account, discover and explicitly select among up to three owned Macs plus Macs
+shared by other accounts, use more than one phone independently, diagnose the connection by layer,
+and migrate from the current Token flow without breaking existing clients. Google and Apple are not
+part of this release gate.
 
 Fixed boundaries:
 
 - Do not modify Hermes source, configuration, data files, credentials, or update process.
-- One Hermes GO account has at most one active Desktop Connector binding in V1.
+- One Hermes GO account has at most three owned active or live-pending Desktop Connector device slots.
 - One Connector reaches one local Hermes; multiple phones may use that same binding.
-- Android has no separate “Connection & devices” entry. The existing **Remote device** stat is the
-  entry to the single Hermes and its connection details.
+- A phone routes only through an accessible opaque device ID. Whole-device sharing grants fixed
+  operator access and never transfers ownership or management rights.
+- Android has no duplicate “Connection & devices” entry. The existing **Remote device** stat opens
+  the accessible-device picker/detail flow; a sole accessible Mac may be selected automatically.
 - Android account management lives only in Settings except when sign-in or recovery is required.
-- Desktop owns account-wide phone listing/revocation and Connector replacement.
+- Desktop owns account-wide phone listing/revocation, per-device Connector maintenance, and
+  whole-device sharing management for owned Macs.
 - Existing App Token/QR clients remain functional through the compatibility window.
 - A source change never implies production deployment. Deployment remains separately authorized.
 
-Out of scope for V1:
+Out of scope for the email-first release:
 
-- multiple Hermes instances or multiple Connectors under one account;
-- family/team sharing, roles, invitations, or delegated administration;
-- Google Drive, Gmail, contacts, or other Google data access;
+- more than three owned Mac/Hermes devices per account;
+- organizations, ownership transfer, custom roles, shared-device re-delegation, or bulk administration;
+- Google/Apple sign-in and Google Drive, Gmail, contacts, or other provider data access;
 - a web management console;
 - remote restart, upgrade, or configuration changes to Hermes;
 - cross-device collaborative control of one interactive approval;
@@ -166,8 +182,8 @@ Work items:
   activate it atomically only while the account is still unbound.
 - `AM-2003` Implement get-binding, bind, request-replacement, confirm-replacement, list phones,
   revoke phone, and revoke this-phone operations.
-- `AM-2004` Require recent reauthentication for Connector replacement and destructive account-wide
-  revocation.
+- `AM-2004` Require recent reauthentication for Connector replacement, managed removal of another
+  phone, and destructive account-wide revocation.
 - `AM-2005` Make Gateway REST/WSS routing account-aware while preserving request ownership and
   preventing cross-account/cross-installation leakage.
 - `AM-2006` Split lifecycle delivery cursor, notification acknowledgement, and device activity by
@@ -230,27 +246,26 @@ Tests:
 Exit gate: Desktop can manage the account and proposed binding safely, but the existing production
 Connector is still untouched.
 
-## 7. I4 — Android account client and single remote-device entry
+## 7. I4 — Android email account client and remote-device entry
 
 Goal: make same-account login the simple path while retaining the complete existing Hermes product.
 
 Work items:
 
-- `AM-4001` Add Credential Manager Sign in with Google and exchange the result for Hermes GO
-  credentials. Try previously authorized accounts first, permit Google's one-credential auto-select,
-  and fall back to the all-on-device account chooser when no authorized credential exists.
+- `AM-4001` Add email + six-digit code sign-in and exchange the verified challenge for Hermes GO
+  credentials. Keep Google and Apple controls absent until their later provider milestone.
 - `AM-4002` Add encrypted account/installation session storage, refresh rotation, sign-out-this-phone,
   and invalid-session recovery.
-- `AM-4003` Replace default URL/Token/QR onboarding with Google sign-in; keep legacy setup available
+- `AM-4003` Replace default URL/Token/QR onboarding with email-code sign-in; keep legacy setup available
   through compatibility navigation.
 - `AM-4004` Implement startup states: signed out, account with no Desktop, binding offline, healthy,
   reauth needed, and phone revoked.
 - `AM-4005` Keep the existing Hermes identity card unchanged. Make the existing Remote device stat
-  clickable and show the Mac name plus Hermes connection summary.
-- `AM-4006` Add one Remote device detail screen showing the single Mac, Connector, Hermes, Gateway,
-  and end-to-end state, plus Diagnostics and Legacy connection. Do not add a device picker or a
+  clickable and show the selected Mac name plus Hermes connection summary.
+- `AM-4006` Add one Remote devices screen listing owned and shared Macs, Connector/Hermes/end-to-end
+  state, explicit selection, Diagnostics, and Legacy connection. Do not add a second
   “Connection & devices” setting.
-- `AM-4007` Put only the Google account and this-phone session management in Settings. Do not repeat
+- `AM-4007` Put only the email account and this-phone session management in Settings. Do not repeat
   the remote-device state there.
 - `AM-4008` Keep chat, sessions, projects, models, cron, files, updates, and composer behavior
   unchanged apart from their authenticated transport.
@@ -258,17 +273,24 @@ Work items:
   installation; keep local read presentation local.
 - `AM-4010` Update localized errors, TalkBack semantics, large-font/dark-mode screenshots,
   `DESIGN.md`, and Android tests.
+- `AM-4011` Add capability-gated permanent Cloud-account deletion with typed acknowledgement,
+  current-email OTP reauthentication, encrypted exact-request recovery, and a terminal transport
+  gate that never activates retained Legacy credentials without an explicit user choice.
 
 Tests:
 
-- Credential Manager with zero, one, and multiple authorized Google accounts; auto-select
-  eligibility; all-account fallback; account switching; cancel and provider error;
+- email challenge cooldown, delivery failure, valid/invalid/expired code, lost-response replay,
+  account switching, and process-death restoration;
 - sign in after fresh install and migrate after an existing Token install;
 - phone signs in before Desktop, then becomes connected without reinstalling;
-- Remote device stat navigation and healthy/offline/Hermes-unreachable details;
+- Remote device stat navigation, owned/shared device selection, and healthy/offline/Hermes-unreachable details;
 - account appears in Settings but not on Sessions, chat, or card page during healthy operation;
 - phone session expiry does not delete unrelated local preferences;
 - phone A sign-out does not affect phone B;
+- account deletion stays absent while its capability is off; when on, require exact confirmation
+  and `account.delete` email reauthentication, persist the final replay key before DELETE, recover a
+  lost response after process death, treat `HR-ACCOUNT-012` as committed, preserve local Mac data,
+  and block silent Legacy fallback after completion;
 - unit, navigation, screenshot, accessibility, process-death, and Android baseline build tests.
 
 Exit gate: Android account mode is usable against the I2 backend, and legacy configuration still

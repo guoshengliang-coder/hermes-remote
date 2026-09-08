@@ -47,6 +47,34 @@ fi
 if [ -n "${HERMES_GO_GOOGLE_MACOS_CLIENT_ID:-}" ]; then
   plutil -replace HermesGoGoogleMacOSClientID -string "$HERMES_GO_GOOGLE_MACOS_CLIENT_ID" "$app/Contents/Info.plist"
 fi
+if [ -n "${HERMES_GO_MANAGED_BOOTSTRAP_ENABLED:-}" ]; then
+  case "$HERMES_GO_MANAGED_BOOTSTRAP_ENABLED" in
+    0) plutil -replace HermesGoManagedBootstrapEnabled -bool false "$app/Contents/Info.plist" ;;
+    1) plutil -replace HermesGoManagedBootstrapEnabled -bool true "$app/Contents/Info.plist" ;;
+    *) echo "HERMES_GO_MANAGED_BOOTSTRAP_ENABLED must be 0 or 1." >&2; exit 1 ;;
+  esac
+fi
+if [ -n "${HERMES_GO_DESKTOP_RELEASE_MANIFEST_URL:-}" ]; then
+  plutil -replace HermesGoDesktopReleaseManifestURL -string "$HERMES_GO_DESKTOP_RELEASE_MANIFEST_URL" "$app/Contents/Info.plist"
+fi
+if [ -n "${HERMES_GO_DESKTOP_RELEASE_ARTIFACT_ORIGIN:-}" ]; then
+  plutil -replace HermesGoDesktopReleaseArtifactOrigin -string "$HERMES_GO_DESKTOP_RELEASE_ARTIFACT_ORIGIN" "$app/Contents/Info.plist"
+fi
+if [ -n "${HERMES_GO_DESKTOP_RELEASE_CHANNEL:-}" ]; then
+  plutil -replace HermesGoDesktopReleaseChannel -string "$HERMES_GO_DESKTOP_RELEASE_CHANNEL" "$app/Contents/Info.plist"
+fi
+if [ -n "${HERMES_GO_DESKTOP_RELEASE_ARCHITECTURE:-}" ]; then
+  plutil -replace HermesGoDesktopReleaseArchitecture -string "$HERMES_GO_DESKTOP_RELEASE_ARCHITECTURE" "$app/Contents/Info.plist"
+fi
+if [ -n "${HERMES_GO_DESKTOP_RELEASE_SIGNING_KEY_ID:-}" ]; then
+  plutil -replace HermesGoDesktopReleaseSigningKeyID -string "$HERMES_GO_DESKTOP_RELEASE_SIGNING_KEY_ID" "$app/Contents/Info.plist"
+fi
+if [ -n "${HERMES_GO_DESKTOP_RELEASE_SIGNING_PUBLIC_KEY:-}" ]; then
+  plutil -replace HermesGoDesktopReleaseSigningPublicKey -string "$HERMES_GO_DESKTOP_RELEASE_SIGNING_PUBLIC_KEY" "$app/Contents/Info.plist"
+fi
+if [ -n "${HERMES_GO_DESKTOP_HERMES_RUNTIME_CONTRACT:-}" ]; then
+  plutil -replace HermesGoDesktopHermesRuntimeContract -string "$HERMES_GO_DESKTOP_HERMES_RUNTIME_CONTRACT" "$app/Contents/Info.plist"
+fi
 
 iconset="$build_root/AppIcon.iconset"
 rm -rf "$iconset"

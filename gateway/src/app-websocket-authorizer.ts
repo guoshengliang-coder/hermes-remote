@@ -15,6 +15,13 @@ interface AppWebSocketAuthorizerOptions {
 }
 
 export class AppWebSocketAuthorizer {
+  private readonly accountAccess = new WeakMap<IncomingMessage, {
+    accountId: string;
+    bindingId: string;
+    installationId: string;
+    sessionId: string;
+  }>();
+
   constructor(private readonly options: AppWebSocketAuthorizerOptions) {}
 
   async authorize(request: IncomingMessage, url: URL): Promise<GatewayPeer> {
@@ -24,10 +31,18 @@ export class AppWebSocketAuthorizer {
     if (authorization) {
       if (headerLegacyToken || queryLegacyToken || url.searchParams.has("device_id")) {
         throw accountErrors.invalidRequest(
-          "Account WebSockets cannot include legacy credentials or select a device in the URL.",
+          "Account WebSockets cannot include legacy credentials or legacy device query parameters.",
         );
       }
-      return this.resolveAccountConnector(authorization);
+      return this.resolveAccountConnector(
+        authorization,
+        accountWebSocketDeviceId(url.pathname),
+        request,
+      );
+    }
+
+    if (accountWebSocketDeviceId(url.pathname)) {
+      throw accountErrors.sessionExpired();
     }
 
     const token = queryLegacyToken ?? headerLegacyToken;
@@ -48,21 +63,57 @@ export class AppWebSocketAuthorizer {
     return connector;
   }
 
-  async resolveAccountConnector(authorization: string): Promise<GatewayPeer> {
+  async resolveAccountConnector(
+    authorization: string,
+    deviceId?: string,
+    request?: IncomingMessage,
+  ): Promise<GatewayPeer> {
     const control = this.options.accountControl;
     if (!control) throw accountErrors.featureDisabled();
     const principal = await control.authenticate(authorization);
-    const state = await control.getBinding(principal);
-    if (state.state !== "bound") throw accountErrors.bindingMissing();
-    const binding = state.binding;
+    const binding = await control.resolveDevice(principal, deviceId);
     const connector = this.options.connectorRegistry.getAccount(binding.id);
     if (!connector
-        || connector.accountId !== principal.account.id
+        || connector.binding?.id !== binding.id
+        || connector.accountId !== connector.binding.accountId
         || connector.binding?.generation !== binding.generation
         || connector.binding.publicKeyFingerprint !== binding.publicKeyFingerprint
         || connector.socket.readyState !== WebSocket.OPEN) {
       throw accountErrors.connectorOffline();
     }
+    if (request) {
+      this.accountAccess.set(request, {
+        accountId: principal.account.id,
+        bindingId: binding.id,
+        installationId: principal.installation.id,
+        sessionId: principal.sessionId,
+      });
+    }
     return connector;
+  }
+
+  consumeAccountAccess(request: IncomingMessage): {
+    accountId: string;
+    bindingId: string;
+    installationId: string;
+    sessionId: string;
+  } | undefined {
+    const access = this.accountAccess.get(request);
+    this.accountAccess.delete(request);
+    return access;
+  }
+}
+
+function accountWebSocketDeviceId(pathname: string): string | undefined {
+  const match = /^\/v2\/devices\/([^/]+)\/ws$/.exec(pathname);
+  if (!match) return undefined;
+  try {
+    const deviceId = decodeURIComponent(match[1]);
+    if (deviceId.length < 1 || deviceId.length > 128 || /[\u0000-\u001f\u007f]/.test(deviceId)) {
+      throw new Error("invalid_device_id");
+    }
+    return deviceId;
+  } catch {
+    throw accountErrors.invalidRequest("deviceId is invalid.");
   }
 }

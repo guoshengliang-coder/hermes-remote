@@ -23,7 +23,7 @@ Gateway 代码迭代。总体方向保持模块化单体；在真实容量或多
 | R4 安全升级 | 对应 Cloud C3 | 显式迁移锁、候选实例、蓝绿切换、排空和回滚 | 每个注入失败点都能恢复旧路由与旧程序，生产同路径演练通过 |
 | R5 数据收敛 | 对应 Cloud C4 | Legacy 生命周期 JSON 迁 PostgreSQL、资料/偏好存储接口 | PostgreSQL 成为控制面唯一权威存储，迁移可重复且可回滚 |
 | R6 可观测与恢复 | 对应 Cloud C5 | 指标、告警、off-host 备份、恢复和诊断包 | 达到内测 RPO/RTO，完成新环境恢复演练与脱敏审计 |
-| R7 灰度启用 | 对应 Cloud C6 | account/binding capability 灰度和兼容门禁 | 两手机、第二 Mac、旧客户端、重启及回滚验收全部通过 |
+| R7 灰度启用 | 对应 Cloud C6 | email account/binding/share capability 灰度和兼容门禁 | 两手机、三台自有 Mac/第四台拒绝、两账号共享、旧客户端、重启及回滚验收全部通过 |
 
 产品统计、官网/商业化、CDN 与区域化继续按 Cloud C7-C9 单独立项，不能提前耦合到 R0-R7 的
 实时 Relay 热路径。

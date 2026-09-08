@@ -30,10 +30,15 @@ import kotlin.math.pow
 
 class GatewayRpcException(val code: Int, message: String) : Exception(message)
 
+/** Endpoint resolution can fail terminally on a local account-repair gate, without network retry. */
+class GatewayEndpointException(message: String, val retryable: Boolean) : Exception(message)
+
 /** WebSocket URL plus optional header authentication. Long-lived tokens never enter URLs/logs. */
 data class GatewayWebSocketEndpoint(
     val url: String,
     val sessionToken: String? = null,
+    val bearerToken: String? = null,
+    val accountDeviceId: String? = null,
 )
 
 data class BackoffPolicy(
@@ -45,6 +50,7 @@ data class BackoffPolicy(
         min(maxMs, (baseMs * factor.pow(attempt)).toLong())
 }
 
+internal fun isTerminalAccountHandshakeStatus(status: Int?): Boolean = status == 401 || status == 404
 private const val HANDSHAKE_TIMEOUT_MS = 20_000L
 
 open class HermesGatewayClient(
@@ -53,6 +59,9 @@ open class HermesGatewayClient(
     private val scope: CoroutineScope,
     private val backoff: BackoffPolicy = BackoffPolicy(),
     private val rpcTimeoutMs: Long = 60_000L,
+    private val accountOkHttp: OkHttpClient? = null,
+    /** Called only for terminal account-mode WebSocket handshake responses. */
+    private val onAccountHandshakeRejected: (Int, String?) -> Unit = { _, _ -> },
     /**
      * How long a socket may sit open without `gateway.ready` before it is torn down and retried
      * (HG-19). Injectable so tests do not have to wait out the real value.
@@ -88,6 +97,7 @@ open class HermesGatewayClient(
 
     @Volatile private var ws: WebSocket? = null
     @Volatile protected var manuallyClosed = false
+    @Volatile private var accountAuthorizationClassificationPending = false
     private val attempt = AtomicInteger(0)
     // Monotonic socket generation. Each openSocket() bumps it; a socket's callbacks are
     // ignored once a newer socket has been opened, so an in-flight backoff reopen can never
@@ -156,6 +166,7 @@ open class HermesGatewayClient(
 
     private companion object {
         const val READY_TIMEOUT_MS = 15_000L
+        const val ACCOUNT_AUTHORIZATION_CHANGED_CLOSE_CODE = 4403
 
         /**
          * Streaming increments, too frequent to record: one line each would push everything else
@@ -239,7 +250,11 @@ open class HermesGatewayClient(
                 wsEndpointProvider()
             } catch (e: Exception) {
                 DebugLog.log("ws", "ws url/ticket failed (gen=$gen): ${e.message}")
-                onSocketClosed(gen, e.message ?: "ws url failed")
+                onSocketClosed(
+                    gen,
+                    e.message ?: "ws url failed",
+                    retry = (e as? GatewayEndpointException)?.retryable ?: true,
+                )
                 return@launch
             }
             // The URL carries the single-use ticket as a query parameter, so only the fact is
@@ -253,15 +268,37 @@ open class HermesGatewayClient(
                     if (manuallyClosed) "closed by the app" else "superseded by gen=${generation.get()}")
                 return@launch
             }
+            val hasLegacyToken = !endpoint.sessionToken.isNullOrBlank()
+            val hasBearerToken = !endpoint.bearerToken.isNullOrBlank()
+            if (hasLegacyToken && hasBearerToken) {
+                DebugLog.log("ws", "refusing ambiguous websocket authentication (gen=$gen)")
+                onSocketClosed(gen, "ambiguous websocket authentication")
+                return@launch
+            }
             val request = Request.Builder()
                 .url(endpoint.url)
                 .apply {
                     endpoint.sessionToken?.takeIf { it.isNotBlank() }?.let {
                         header("X-Hermes-Session-Token", it)
                     }
+                    endpoint.bearerToken?.takeIf { it.isNotBlank() }?.let {
+                        header("Authorization", "Bearer $it")
+                    }
                 }
                 .build()
-            ws = okHttp.newWebSocket(request, makeListener(gen))
+            val socketClient = if (hasBearerToken) {
+                accountOkHttp ?: run {
+                    DebugLog.log("ws", "account transport client unavailable (gen=$gen)")
+                    onSocketClosed(gen, "account transport unavailable")
+                    return@launch
+                }
+            } else {
+                okHttp
+            }
+            ws = socketClient.newWebSocket(
+                request,
+                makeListener(gen, hasBearerToken, endpoint.accountDeviceId),
+            )
         }
     }
 
@@ -273,13 +310,18 @@ open class HermesGatewayClient(
     fun reconnectNow() {
         DebugLog.log("ws", "reconnectNow() forcing a fresh socket")
         manuallyClosed = false
+        accountAuthorizationClassificationPending = false
         attempt.set(0)
         val old = ws
         openSocket()
         old?.cancel()
     }
 
-    private fun makeListener(gen: Int) = object : WebSocketListener() {
+    private fun makeListener(
+        gen: Int,
+        accountTransport: Boolean,
+        accountDeviceId: String?,
+    ) = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             // Do NOT set state to Connected here. Wait for gateway.ready event.
             // Do NOT reset the attempt counter here either.
@@ -307,6 +349,7 @@ open class HermesGatewayClient(
                     is RpcEvent -> {
                         // Handle gateway.ready: flip to Connected and open the readiness gate.
                         if (msg.event.type == "gateway.ready") {
+                            accountAuthorizationClassificationPending = false
                             attempt.set(0)
                             lastReadyAtMs = System.currentTimeMillis()
                             handshakeWatchdog?.cancel()
@@ -329,15 +372,42 @@ open class HermesGatewayClient(
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-            onSocketClosed(gen, t.message ?: "connection failed")
+            if (gen != generation.get()) {
+                response?.close()
+                return
+            }
+            val status = response?.code
+            response?.close()
+            val terminalAccountRejection = accountTransport && isTerminalAccountHandshakeStatus(status)
+            if (terminalAccountRejection) {
+                accountAuthorizationClassificationPending = false
+                runCatching { onAccountHandshakeRejected(requireNotNull(status), accountDeviceId) }
+                    .onFailure { DebugLog.log("ws", "account rejection handler failed: ${it.javaClass.simpleName}") }
+                onSocketClosed(gen, "account handshake rejected ($status)", retry = false)
+            } else if (accountTransport && accountAuthorizationClassificationPending) {
+                accountAuthorizationClassificationPending = false
+                onSocketClosed(gen, "account authorization classification failed", retry = false)
+            } else {
+                onSocketClosed(gen, t.message ?: "connection failed")
+            }
+        }
+
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            // OkHttp requires the peer receiving a graceful close to acknowledge it before
+            // onClosed is delivered. Without this, Gateway-initiated revocation could remain
+            // half-closed and never enter the classification/recovery path below.
+            webSocket.close(code, reason)
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            if (gen == generation.get() && accountTransport && code == ACCOUNT_AUTHORIZATION_CHANGED_CLOSE_CODE) {
+                accountAuthorizationClassificationPending = true
+            }
             onSocketClosed(gen, reason.ifBlank { "closed" })
         }
     }
 
-    protected open fun onSocketClosed(gen: Int, reason: String) {
+    protected open fun onSocketClosed(gen: Int, reason: String, retry: Boolean = true) {
         // A newer socket has superseded this one (e.g. reconnectNow()) — ignore its death.
         if (gen != generation.get()) return
         // One death per socket. The handshake watchdog both cancels the socket and reports it
@@ -352,7 +422,7 @@ open class HermesGatewayClient(
         readyGate.completeExceptionally(GatewayRpcException(0, reason))
         failAllPending(reason)
         connectingSinceMs = 0L
-        if (manuallyClosed) {
+        if (manuallyClosed || !retry) {
             _state.value = ConnectionState.Disconnected
             return
         }
@@ -436,6 +506,7 @@ open class HermesGatewayClient(
     fun close(reason: String = "unspecified") {
         DebugLog.log("ws", "close() requested: $reason (manuallyClosed $manuallyClosed → true)")
         manuallyClosed = true
+        accountAuthorizationClassificationPending = false
         connectingSinceMs = 0L
         // Fail any call() awaiting readiness so it throws immediately rather than hanging.
         readyGate.completeExceptionally(GatewayRpcException(0, "client closing"))
@@ -449,6 +520,7 @@ open class HermesGatewayClient(
     internal fun cancelNow() {
         DebugLog.log("ws", "cancelNow() (manuallyClosed $manuallyClosed → true)")
         manuallyClosed = true
+        accountAuthorizationClassificationPending = false
         connectingSinceMs = 0L
         readyGate.completeExceptionally(GatewayRpcException(0, "client cancelled"))
         ws?.cancel()

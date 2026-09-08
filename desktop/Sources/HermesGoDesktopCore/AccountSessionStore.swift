@@ -21,6 +21,17 @@ public enum AccountSecretStoreError: Error, Equatable, Sendable {
     case keychain(OSStatus)
 }
 
+public struct AccountConnectorCredentialPayload: Equatable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
+    public let data: Data
+
+    public init(data: Data) {
+        self.data = data
+    }
+
+    public var description: String { "AccountConnectorCredentialPayload(<redacted>)" }
+    public var debugDescription: String { description }
+}
+
 public struct ConnectorMachineIdentity: Equatable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
     public let clientInstallationID: String
     private let privateKeyData: Data
@@ -64,6 +75,30 @@ public struct ConnectorMachineIdentity: Equatable, Sendable, CustomStringConvert
 
     public func sign(_ message: Data) throws -> Data {
         try Curve25519.Signing.PrivateKey(rawRepresentation: privateKeyData).signature(for: message)
+    }
+
+    public func accountConnectorCredential(
+        bindingID: String,
+        generation: Int,
+        expectedFingerprint: String
+    ) throws -> AccountConnectorCredentialPayload {
+        guard let bindingUUID = UUID(uuidString: bindingID),
+              (1...2_147_483_647).contains(generation),
+              expectedFingerprint == connectorPublicKeyFingerprint
+        else { throw AccountSecretStoreError.invalidMachineIdentity }
+        let record = StoredAccountConnectorCredential(
+            schemaVersion: 1,
+            bindingId: bindingUUID.uuidString.lowercased(),
+            generation: generation,
+            publicKeyFingerprint: connectorPublicKeyFingerprint,
+            privateKey: privateKeyData.base64URLEncodedString()
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(record) else {
+            throw AccountSecretStoreError.encoding
+        }
+        return AccountConnectorCredentialPayload(data: data)
     }
 
     public var description: String {
@@ -144,6 +179,14 @@ public struct KeychainConnectorMachineIdentityStore: ConnectorMachineIdentitySto
 private struct StoredMachineIdentity: Codable {
     let clientInstallationID: String
     let privateKeyData: Data
+}
+
+private struct StoredAccountConnectorCredential: Codable {
+    let schemaVersion: Int
+    let bindingId: String
+    let generation: Int
+    let publicKeyFingerprint: String
+    let privateKey: String
 }
 
 private extension ConnectorMachineIdentity {

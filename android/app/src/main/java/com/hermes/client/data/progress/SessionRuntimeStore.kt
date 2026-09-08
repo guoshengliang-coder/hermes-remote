@@ -12,6 +12,7 @@ import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SessionReadStore
 import com.hermes.client.data.repository.SessionRepository
+import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import com.hermes.client.ui.chat.ChatUiState
@@ -33,7 +34,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineStart
 import java.util.concurrent.ConcurrentHashMap
 
-data class SessionRuntimeKey(val profile: String?, val sessionId: String)
+data class SessionRuntimeKey(
+    val profile: String?,
+    val sessionId: String,
+    /** Opaque account-mode Mac route; null for legacy sessions. */
+    val deviceId: String? = null,
+)
 
 enum class ManualHistoryResult { CHANGED, UNCHANGED, BUSY }
 
@@ -167,6 +173,7 @@ class SessionRuntimeStore(
     private val readStore: SessionReadStore? = null,
     private val sessionRepository: SessionRepository? = null,
     private val mediaRepository: ChatMediaRepository? = null,
+    private val accountSessions: AccountSessionManager? = null,
     /** Wall clock, injectable so staleness and expiry can be driven by a test. */
     private val clock: () -> Long = { System.currentTimeMillis() },
     /**
@@ -236,9 +243,13 @@ class SessionRuntimeStore(
                 if (current is ConnectionState.Reconnecting || current is ConnectionState.Error ||
                     current is ConnectionState.Disconnected
                 ) {
+                    val activeDevice = accountSessions?.transportRoutingContext()?.deviceId
                     _runtimes.update { map ->
                         map.mapValues { (_, runtime) ->
-                            if (runtime.phase.isActive && runtime.phase != SessionRunPhase.RECONNECTING) {
+                            if (runtime.phase.isActive &&
+                                runtime.phase != SessionRunPhase.RECONNECTING &&
+                                (runtime.key.deviceId == null || runtime.key.deviceId == activeDevice)
+                            ) {
                                 runtime.copy(
                                     phase = SessionRunPhase.RECONNECTING,
                                     phaseBeforeReconnect = runtime.phase,
@@ -279,11 +290,11 @@ class SessionRuntimeStore(
         }
     }
 
-    fun key(sessionId: String, profile: String?): SessionRuntimeKey =
-        SessionRuntimeKey(profile?.ifBlank { null }, sessionId)
+    fun key(sessionId: String, profile: String?, deviceId: String? = null): SessionRuntimeKey =
+        SessionRuntimeKey(profile?.ifBlank { null }, sessionId, deviceId?.ifBlank { null })
 
-    fun register(sessionId: String, profile: String?): SessionRuntimeKey {
-        val key = key(sessionId, profile)
+    fun register(sessionId: String, profile: String?, deviceId: String? = null): SessionRuntimeKey {
+        val key = key(sessionId, profile, deviceId)
         aliases[sessionId] = key
         _runtimes.update { map ->
             if (key in map) map else pruneIdleRuntimes(
@@ -302,7 +313,7 @@ class SessionRuntimeStore(
             runtime.hasActiveWork ||
                 runtime.phase.isTerminalVerdict ||
                 runtime.key in visible ||
-                SessionReadStore.token(runtime.key.profile, runtime.key.sessionId) in _unreadTokens.value
+                SessionReadStore.token(runtime.key.profile, runtime.key.sessionId, runtime.key.deviceId) in _unreadTokens.value
         }.mapTo(mutableSetOf()) { it.key }
         val recentIdle = map.values.asSequence()
             .filter { it.key !in protected }
@@ -475,6 +486,9 @@ class SessionRuntimeStore(
      */
     suspend fun recoverVisibleSession(key: SessionRuntimeKey): Boolean {
         val repository = sessionRepository ?: return false
+        if (key.deviceId != null && accountSessions?.routeToDevice(key.deviceId) == true) {
+            chatRepository.reconnect()
+        }
         val runtime = _runtimes.value[key] ?: SessionRuntime(key)
         val expectation = expectationFor(runtime).let { expected ->
             if (runtime.phase == SessionRunPhase.RECONNECTING || runtime.chat.isGenerating) {
@@ -485,7 +499,7 @@ class SessionRuntimeStore(
         for (delayMs in FOREGROUND_RECOVERY_DELAYS_MS) {
             if (delayMs > 0L) delay(delayMs)
             try {
-                val history = repository.history(key.sessionId, key.profile)
+                val history = repository.history(key.sessionId, key.profile, key.deviceId)
                     .map { it.organizedForDisplay() }
                 accepted = acceptReconciledHistory(key, history, expectation)
                 if (accepted) break
@@ -533,7 +547,7 @@ class SessionRuntimeStore(
      * the transcript now shows the outcome (docs/DESIGN.md §5.2, decision 2026-09-02).
      */
     fun markRead(key: SessionRuntimeKey) {
-        val token = SessionReadStore.token(key.profile, key.sessionId)
+        val token = SessionReadStore.token(key.profile, key.sessionId, key.deviceId)
         _unreadTokens.update { it - token }
         _runtimes.update { map ->
             val current = map[key] ?: return@update map
@@ -545,7 +559,7 @@ class SessionRuntimeStore(
     }
 
     private fun markUnread(key: SessionRuntimeKey) {
-        val token = SessionReadStore.token(key.profile, key.sessionId)
+        val token = SessionReadStore.token(key.profile, key.sessionId, key.deviceId)
         _unreadTokens.update { it + token }
         if (readStore != null) readPersistenceQueue.trySend(token to true)
     }
@@ -948,14 +962,16 @@ class SessionRuntimeStore(
      */
     private fun observedLifecycleKey(event: LifecycleEventDto): SessionRuntimeKey {
         val profile = event.profile?.trim()?.ifBlank { null }
-        val candidates = _runtimes.value.keys.filter { it.sessionId == event.storedSessionId }
+        val candidates = _runtimes.value.keys.filter {
+            it.sessionId == event.storedSessionId && (it.deviceId == null || it.deviceId == event.deviceId)
+        }
         if (profile != null) {
             candidates.firstOrNull { it.profile == profile }?.let { return it }
         } else {
             candidates.singleOrNull()?.let { return it }
             candidates.firstOrNull { it.profile == null || it.profile == DEFAULT_PROFILE }?.let { return it }
         }
-        return key(event.storedSessionId, profile)
+        return key(event.storedSessionId, profile, event.deviceId)
     }
 
     private fun updateRuntime(
@@ -1189,7 +1205,7 @@ class SessionRuntimeStore(
                 for (delayMs in HISTORY_RECONCILE_DELAYS_MS) {
                     delay(delayMs)
                     val history = try {
-                        repository.history(key.sessionId, key.profile).map { it.organizedForDisplay() }
+                        repository.history(key.sessionId, key.profile, key.deviceId).map { it.organizedForDisplay() }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
@@ -1309,6 +1325,7 @@ class SessionRuntimeStore(
     }
 
     private suspend fun refreshProcesses(key: SessionRuntimeKey) {
+        if (!isCurrentDeviceRoute(key)) return
         val runtime = _runtimes.value[key] ?: return
         val handle = runtime.liveHandle ?: return
         runCatching { chatRepository.listProcesses(handle) }
@@ -1352,7 +1369,9 @@ class SessionRuntimeStore(
     }
 
     private suspend fun resumeRunningSessions() {
-        val candidates = _runtimes.value.values.filter { it.phase == SessionRunPhase.RECONNECTING }
+        val candidates = _runtimes.value.values.filter {
+            it.phase == SessionRunPhase.RECONNECTING && isCurrentDeviceRoute(it.key)
+        }
         candidates.forEach { runtime ->
             runCatching { chatRepository.resume(runtime.key.sessionId, runtime.key.profile) }
                 .onSuccess { handle ->
@@ -1371,6 +1390,9 @@ class SessionRuntimeStore(
                 }
         }
     }
+
+    private fun isCurrentDeviceRoute(key: SessionRuntimeKey): Boolean =
+        key.deviceId == null || key.deviceId == accountSessions?.transportRoutingContext()?.deviceId
 
     private companion object {
         const val PROCESS_POLL_MS = 5_000L

@@ -29,10 +29,63 @@ The current automated suite covers:
 - PKCE S256, cryptographic state/nonce, provider cancellation, state mismatch rejection, and a real
   ephemeral `127.0.0.1` loopback callback;
 - account HTTP paths/headers, bounded responses, stable error mapping, and diagnostic redaction;
+- email sign-in challenge/exchange paths, normalized email, stable installation identity and
+  exchange idempotency, macOS session validation, and bilingual `HR-AUTH-009` through
+  `HR-AUTH-011` recovery contracts;
 - separate account-session and Connector-machine identity stores, Ed25519 challenge signing, access
   refresh, and persisted idempotency-key reuse after a lost refresh response;
-- signed-in dashboard reduction, two-phone listing, one-phone removal, and Desktop-only sign-out
-  without deleting the machine identity.
+- signed-in dashboard reduction, two-phone listing, current-account-email reauthentication before
+  one-phone removal, rejection of non-phone targets, and Desktop-only sign-out without deleting the
+  machine identity;
+- bounded phone-revocation request bodies, scoped `account.installation.revoke` grants,
+  Keychain-preserved exact retry after a lost response, and bilingual `HR-ACCOUNT-009` mapping;
+- capability-gated permanent Cloud deletion, exact `DELETE /v2/account` body/headers,
+  `account.delete` email reauthentication, explicit acknowledgement, Keychain-preserved exact retry
+  after a lost response, account-session removal on success, and Connector machine-identity
+  preservation;
+- capability-gated whole-device sharing routes and decoding, owned/operator device separation,
+  owner-only share lookups, exact disclosure acknowledgement, invite-link validation, bilingual
+  `HR-SHARE-001` through `HR-SHARE-008` mapping, and credential redaction;
+- fresh-email-code `device.share` reauthentication plus Keychain-preserved idempotency/grant recovery
+  after lost reauthentication or invitation responses, without persisting the six-digit code;
+- strict signed Desktop manifest parsing, pinned Ed25519 keys, tamper/expiry/origin/architecture and
+  unknown-field rejection;
+- redirect-free bounded downloads, exact size and streaming SHA-256 artifact validation;
+- tar member preflight, including traversal/link/special-file rejection before extraction;
+- private credential/LaunchAgent writes, immutable release staging, atomic activation and rollback;
+- a rolled-back, app-marked inactive release can be atomically replaced by a freshly verified
+  same-version retry, while active, unmarked, mismatched, or unsafe directories remain immutable;
+- acquisition ordering and lifecycle: private roots exist before verifier pinning, both signed
+  components are required, digest/extraction failures remove only the current UUID workspace, and
+  explicit discard preserves the parent workspace;
+- managed-bootstrap preparation performs acquisition only and returns the exact signed release plus
+  confirmation; commit rejects wrong or foreign preparations, while cancel and terminal paths discard
+  the private workspace;
+- launch configuration is derived from verified manifest entrypoints, the managed layout, frozen
+  runtime, and HTTPS account origin rather than caller-supplied executable paths;
+- committed cleanup trouble retains a one-purpose retry handle, maps to `HR-MIGRATE-005`, and neither
+  claims rollback nor offers a second install;
+- exact legacy/account user LaunchAgent labels, duplicate-Connector prevention, health-gated binding
+  confirmation, lost-response idempotency, automatic rollback, ambiguous-commit stop, and restart
+  recovery;
+- signed Hermes entrypoint-only plist generation, separate exact Hermes/Connector labels, Hermes-first
+  startup, process-specific post-checkpoint ready evidence plus loopback health, bounded/symlink-safe
+  log reads, Connector suppression on Hermes timeout, and reverse-order rollback;
+- default-off packaged bootstrap configuration, strict HTTPS/key/channel/architecture validation,
+  exact `hermes-serve-v1` loopback arguments and sentinels, absent/mismatched Gateway capability
+  rejection, and readiness only when both gates match;
+- an existing responder on reserved port 9119, including 401/403, blocks clean install;
+- restart inspection recognizes only an `account_active` journal plus both exact managed LaunchAgents
+  as active; intermediate journals recover before a second install and mismatches fail closed;
+- existing-install observation/recovery remains available when new-install rollout is disabled, and
+  active state must match the current account's exact binding ID/generation before it is claimed;
+- bilingual `HR-MIGRATE-001` through `HR-MIGRATE-005` terminal-state mapping.
+
+Remaining email-first release acceptance requires live-provider tests for resend/cooldown, expiry,
+account-existence-neutral delivery behavior, packaged-UI inspection proving that an `email_otp`-only
+Gateway exposes no Google action, and a packaged two-phone run proving the verification sheet and
+selective revocation. The deterministic E7 transport/controller/error and retry cases are now
+automated.
 
 Every new phase-0 behavior requires a regression test when its boundary is deterministic. User-visible
 error codes additionally require localization, retryability, recovery-action, and redaction tests under
@@ -59,9 +112,16 @@ the project-wide `ERROR_HANDLING.md` contract.
 | QR reveal | Real QR is hidden by default and carries an explicit long-lived-token warning | Local + target UI verified 2026-09-02; Android scan pending |
 | End-to-end success | Saved App Token reaches Gateway → Connector → Hermes through `/api/status` | Pending target production-token check |
 | Account mode disabled | Account & Devices reports unavailable and legacy connection remains usable | Automated core behavior; packaged UI inspection pending |
+| Email account login | Email challenge and six-digit exchange create/restore only the Desktop management session | Controller/API automated; live delivery and packaged UI pending |
 | Browser OAuth loopback | Listener binds an ephemeral `127.0.0.1` port and rejects mismatched state | Automated locally; live Google client pending |
 | Account session restart | Keychain session refreshes without changing the Connector machine identity | In-memory/store contract automated; packaged Keychain run pending |
-| Two account phones | Account & Devices lists both and removes only the selected installation | Controller/API automated; live backend and physical phones pending |
+| Two account phones | Account & Devices lists both; owner-email verification removes only the selected phone | Controller/API/PostgreSQL automated; packaged UI and physical phones pending |
+| Whole-device sharing off | No share controls appear and existing device selection remains unchanged | Automated core behavior; packaged UI pending |
+| Owner invites account | Explicit sessions/files/config warning and fresh owner-email verification precede mail request | Controller/API automated; live mail/two-account run pending |
+| Recipient accepts invite | Pasted link requires exact token + acknowledgement and creates operator access only | Parser/API automated; two-account physical run pending |
+| Owner revokes / recipient leaves | Matching access and live stream end; owner, other grantees, Connector, and Hermes continue | Gateway automated; packaged Desktop and multi-node run pending |
+| Account deletion off | No Desktop danger-zone action appears and the route is not called | Core/API automated; packaged UI pending |
+| Permanent account deletion | Typed `DELETE`, acknowledgement, and fresh email code precede immediate Cloud logout; success and recovered ambiguous completion land on “deletion submitted”; the explicit other-email exit reaches an empty sign-in flow, while local Hermes remains intact | Core/API/PostgreSQL automated; disposable packaged-account and privacy review pending |
 
 The first real-app check verified that the ad-hoc app launches and remains running. The target Mac run
 then verified the installed DMG against a live legacy Connector without changing its PID, launch count,
@@ -83,3 +143,8 @@ Managed Agent takeover must not ship until automated and real-machine tests prov
 3. the new Agent receives `hello_ack` and passes local/end-to-end checks;
 4. failure stops the new Agent and restores the old service;
 5. the phone retains its URL, token, sessions, and history after takeover and rollback.
+
+Items 1–4 now have injected local core tests. They are not considered target-Mac verified: the
+packaged UI path is compiled but hidden in the default-off build, and no real signed/notarized
+artifact has exercised it. Item 5 and the physical clean-install/upgrade/interruption matrix remain
+manual gates.

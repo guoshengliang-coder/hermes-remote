@@ -60,6 +60,7 @@ data class NotifAction(
     val requestId: String? = null,
     val questionId: String? = null,
     val answer: String? = null,
+    val deviceId: String? = null,
 )
 
 /** Progress bar for the running card. [shortText] is the API 36+ status-bar chip text. */
@@ -112,10 +113,19 @@ data class NotificationSummary(val waiting: Int, val running: Int, val finished:
  * WebSocket events may carry a short-lived runtime handle; callers must resolve that handle before
  * invoking this helper whenever [SessionRuntimeStore] already knows the mapping.
  */
-internal fun notificationChatRoute(sessionId: String, profile: String? = null): String {
+internal fun notificationChatRoute(
+    sessionId: String,
+    profile: String? = null,
+    deviceId: String? = null,
+): String {
     val id = encodeNotificationRouteValue(sessionId)
-    val selectedProfile = profile?.takeIf { it.isNotBlank() } ?: return "chat/$id"
-    return "chat/$id?profile=${encodeNotificationRouteValue(selectedProfile)}"
+    val query = buildList {
+        deviceId?.takeIf { it.isNotBlank() }
+            ?.let { add("device=${encodeNotificationRouteValue(it)}") }
+        profile?.takeIf { it.isNotBlank() }
+            ?.let { add("profile=${encodeNotificationRouteValue(it)}") }
+    }
+    return if (query.isEmpty()) "chat/$id" else "chat/$id?${query.joinToString("&")}"
 }
 
 private fun encodeNotificationRouteValue(value: String): String =
@@ -127,7 +137,7 @@ private fun encodeNotificationRouteValue(value: String): String =
  * reserved ids owned by the service, the group summary, or the update notification.
  */
 fun notificationIdFor(key: SessionRuntimeKey): Int {
-    var id = ("session:" + key.profile.orEmpty() + ":" + key.sessionId).hashCode()
+    var id = ("session:" + key.deviceId.orEmpty() + ":" + key.profile.orEmpty() + ":" + key.sessionId).hashCode()
     while (id in Notif.RESERVED_IDS) id++
     return id
 }
@@ -203,6 +213,7 @@ object Notif {
     const val EXTRA_SESSION_ID = "session_id"
     const val EXTRA_STORED_SESSION_ID = "stored_session_id"
     const val EXTRA_PROFILE = "profile"
+    const val EXTRA_DEVICE_ID = "device_id"
     const val EXTRA_NOTIF_ID = "notif_id"
     const val EXTRA_REQUEST_ID = "request_id"
     const val EXTRA_QUESTION_ID = "question_id"

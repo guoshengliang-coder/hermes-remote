@@ -5,14 +5,20 @@ import com.hermes.client.data.network.MessageDto
 import com.hermes.client.data.network.ProfileSessionsDto
 import com.hermes.client.data.network.SessionDto
 import com.hermes.client.domain.Role
+import com.hermes.client.data.auth.AccountRoutingContext
+import com.hermes.client.data.auth.AccountSessionManager
+import com.hermes.client.data.auth.ConversationDeviceStore
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -138,5 +144,83 @@ class SessionRepositoryTest {
         release.complete(Unit)
         assertEquals(listOf("keep-tui"), first.await().map { it.id })
         assertEquals(listOf("keep-tui"), second.await().map { it.id })
+    }
+
+    @Test fun account_session_rows_are_bound_to_the_mac_that_returned_them() = runTest {
+        val manager = mockk<AccountSessionManager>()
+        val affinity = mockk<ConversationDeviceStore>(relaxed = true)
+        var route = AccountRoutingContext("account-1", "mac-1")
+        every { manager.routingContext() } answers { route }
+        val accountRepo = SessionRepository(
+            rest = rest,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            accountSessions = manager,
+            conversationDevices = affinity,
+        )
+        coEvery { rest.profileSessions(any(), false, "mac-1") } returns ProfileSessionsDto(
+            sessions = listOf(dto("session-1", "tui", 2)),
+        )
+        coEvery { rest.profileSessions(any(), false, "mac-2") } returns ProfileSessionsDto(
+            sessions = listOf(dto("session-1", "tui", 2)),
+        )
+
+        val first = accountRepo.listAllProfiles().single()
+        assertEquals("mac-1", first.deviceId)
+        verify { affinity.bind("account-1", "personal", "session-1", "mac-1") }
+
+        route = AccountRoutingContext("account-1", "mac-2")
+        assertTrue(accountRepo.cachedAllProfiles().isEmpty())
+        val second = accountRepo.listAllProfiles().single()
+        assertEquals("mac-2", second.deviceId)
+    }
+
+    @Test fun history_uses_its_conversation_device_instead_of_the_current_default() = runTest {
+        val manager = mockk<AccountSessionManager>()
+        every { manager.routingContext() } returns AccountRoutingContext("account-1", "mac-default")
+        val accountRepo = SessionRepository(
+            rest = rest,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            accountSessions = manager,
+            conversationDevices = mockk(relaxed = true),
+        )
+        coEvery { rest.messagesRaw("session-2", "personal", "mac-history") } returns
+            """{"messages":[{"id":1,"role":"assistant","content":"from historical Mac"}]}"""
+        every { rest.parseMessages(any()) } returns listOf(
+            MessageDto(1, "assistant", "from historical Mac"),
+        )
+
+        val history = accountRepo.history("session-2", "personal", "mac-history")
+
+        assertEquals("from historical Mac", history.single().text)
+    }
+
+    @Test fun delete_routes_to_the_row_mac_and_removes_its_persisted_affinity() = runTest {
+        val manager = mockk<AccountSessionManager>()
+        val affinity = mockk<ConversationDeviceStore>(relaxed = true)
+        every { manager.session } returns MutableStateFlow(
+            com.hermes.client.data.auth.AccountSession(
+                baseUrl = "https://gateway.example",
+                accountId = "account-1",
+                installationId = "install-1",
+                installationDisplayName = "Pixel",
+                accessToken = "access",
+                accessExpiresAt = "2099-01-01T00:00:00Z",
+                refreshToken = "refresh",
+                refreshExpiresAt = "2099-02-01T00:00:00Z",
+                selectedDeviceId = "mac-default",
+            ),
+        )
+        val accountRepo = SessionRepository(
+            rest = rest,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            accountSessions = manager,
+            conversationDevices = affinity,
+        )
+        coEvery { rest.deleteSession("session-2", "personal", "mac-history") } returns Unit
+
+        accountRepo.delete("session-2", "personal", "mac-history")
+
+        coVerify { rest.deleteSession("session-2", "personal", "mac-history") }
+        verify { affinity.remove("account-1", "personal", "session-2") }
     }
 }
