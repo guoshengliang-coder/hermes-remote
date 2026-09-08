@@ -548,6 +548,34 @@ artifact, then require a fresh encrypted capture, off-host restore, activation a
 maintenance window. Record the actual run, artifact identities, database generation and gray result below this
 section after production execution.
 
+### 2026-09-09 authorized production result
+
+PR #111 merged as `main 787bdc9171901316cbe89cfd6d35de9bc371da0c` after the Node/PostgreSQL/network,
+encrypted off-host recovery, OCI, Semgrep and Gitleaks gates passed; the post-merge CI/SAST/OCI runs and manual R5-D
+run `34265477115` also passed. The immutable Gateway 0.4.9 archive SHA-256 was
+`16329f00c0d9f44d651d00fa0bc9c0309ec55f242e2f3d2a1ad0cdc98f760d5d`, with containerd image ID
+`sha256:3f85f33beaece61953dc6ebccd745e54df176d4ad04f7c6e5bc7b19d3e0fde9a`; the matching operator archive SHA-256
+was `692f1e6647185553ca6a6d3a60c7992d005cd4b5fca389689af40d4a281149b5`.
+
+Authorized production release run `438fdbcc-72c0-420d-923d-eac42f57bd29` committed 0.4.9 to green, retaining
+0.4.8 `ebc31545e599` on blue as the rollback point. Authorized account rollout run
+`0065f70a-a3f9-4348-918a-d22eaad135b5` then committed PostgreSQL 18/schema 15 and email OTP. Its isolated Resend
+acceptance reached the signed final-delivered metric. Final public capabilities expose only `email_otp` for Android
+and macOS; Google, binding/replacement, identity management, Web account center and Desktop bootstrap remain off.
+Readiness reports config/database/migrations/PostgreSQL healthy, the legacy authenticated status and one online
+Connector remain healthy, malformed challenge/webhook probes fail closed, and the green service has zero restarts.
+
+The required post-migration recovery cycle produced generation
+`20260908T191154059Z-cecbfc922361` (87,632 encrypted bytes), restored it on the Mac into disposable PostgreSQL 18,
+verified schema 15 with the exact 0.4.9 image, returned evidence/status, and activated the production ack. The first
+capture safely rejected a `0440` runtime URL copy; the capture configuration was instead pointed at the existing
+root-only `0600` protected source. The first Mac attempt safely rejected the absent target image; loading the exact
+manifest-bound image allowed the same generation to complete without weakening identity checks. Scheduled configs
+now require schema 15 and the 0.4.9 manifest. A stale extra LaunchAgent positional argument found during the
+transition was removed; the reloaded hourly job completed idempotently with exit code 0 and left no recovery
+container. The production monitor's expected schema was advanced from 7 to 15 and its immediate rerun passed host,
+disk and fresh encrypted off-host backup checks. Both HK timers remain enabled and active.
+
 ## Edge JSON compression (2026-09-07, authorized)
 
 Nothing on the path compressed anything. Hermes returns no `Content-Encoding` even when asked for gzip, the
