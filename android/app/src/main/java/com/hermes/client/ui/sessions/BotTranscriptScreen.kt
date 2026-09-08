@@ -198,7 +198,12 @@ private fun BotTranscriptTurn(
     // second path to the same history and has to do the same, or a turn that arrived with pages of
     // machine text stapled to it shows all of it. Timeline notes are collapsed to nothing here:
     // this is a read-only record, and a turn that was ONLY scaffolding is not something anyone said.
-    val body = com.hermes.client.ui.chat.withoutCompressionScaffolding(message.text).trim()
+    //
+    // Attachment notes matter more on this screen than anywhere else: files reach Hermes through
+    // the other platform, so a turn here is likelier to carry one than a turn typed on the phone.
+    val body = com.hermes.client.ui.chat.withoutAttachmentScaffolding(
+        com.hermes.client.ui.chat.withoutCompressionScaffolding(message.text),
+    ).trim()
     if (body.isBlank()) return
     if (message.role == Role.USER) {
         Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {

@@ -283,7 +283,10 @@ internal fun ChatMessage.organizedForDisplay(): ChatMessage {
         // prompt can arrive with pages of scaffolding stapled to it (HG-16). Cut the scaffolding
         // and keep what the user typed. A turn that was scaffolding ALONE keeps its text: it is
         // about to become a timeline note, whose expanded body shows the original.
-        val stripped = withoutCompressionScaffolding(text)
+        //
+        // Attachment context notes are cut the same way and for the same reason, except they can
+        // land on either side of the person's own words (HG-24).
+        val stripped = withoutAttachmentScaffolding(withoutCompressionScaffolding(text))
         return if (stripped.isBlank() || stripped == text) this else copy(text = stripped)
     }
     // REST history preserves Hermes tool turns as role="tool"; the domain mapper represents

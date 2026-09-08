@@ -118,6 +118,14 @@ not something the person said, and the app renders them as one-line timeline not
 | `[PRIOR CONTEXT — for reference only; not a new message]` | `agent/context_compressor.py` `_MERGED_PRIOR_CONTEXT_HEADER` | Context-compaction carrier. Projected by `domain/CompactionCarrier.kt`, see §5. |
 | `[CONTEXT COMPACTION …` / `[CONTEXT SUMMARY]` | same file | Pure handoff; the turn is dropped when nothing real is merged in. |
 | `[Skills pruned during compression — reload before acting on these tasks]` | `agent/conversation_compression.py` `_PRUNED_SKILL_RELOAD_NOTICE_HEADER` | Only ever appended after the header above (`todo_snapshot = f"{todo_snapshot}\n\n{_reload_notice}"`), never alone, so cutting at that header removes both. |
+| `[The user sent a document: …]`, `[The user sent a text document: …]` | `gateway/run.py` `_build_document_context_note`, composed in `gateway/run_inbound.py` `_prepend_inbound_document_notes` | Attachment context note. See the attachment hazard below. |
+| `[The user sent an audio file attachment: …]`, `[The user sent a video attachment: …]` | `gateway/run_inbound.py` `_prepend_inbound_media_file_notes` | Same family, same shape. |
+| `[The user sent a voice message: /path (duration: …)]` | `gateway/run_inbound.py`, the branch taken when STT is disabled | Same family. |
+| `[User sent an image: …]` / `[User sent audio: …]` / `[User sent a video: …]` / `[User sent a file: …]` | `gateway/run.py` `_build_media_placeholder` | Emitted for a media-only event that was queued while the agent was busy. |
+
+**Not in this family:** `[The user sent an image~ Here's what I can see: …]` and the sticker notes
+(`gateway/run.py`) carry the vision pipeline's *description* of what arrived. That description is
+the transcript's only account of the image, so it is content, not scaffolding, and is left alone.
 
 **Hazard — the compression snapshot is not always its own message.** Upstream folds it into the
 trailing *real* user turn whenever a standalone insertion would create consecutive user messages
@@ -126,6 +134,14 @@ appended to the trailing user turn"). Upstream distinguishes the two cases with
 `_todo_snapshot_is_only_content`, and so must we: `withoutCompressionScaffolding` cuts at the
 marker and keeps whatever the user typed; only a turn left empty becomes a note. Matching the
 marker as a whole-message prefix and hiding the message would delete real user text.
+
+**Hazard — an attachment note can sit on either side of what the person typed.** Upstream only
+ever prepends it (`message_text = f"{context_note}\n\n{message_text}"`), but the production store
+holds both orders: of the DingTalk turns carrying one, most begin with the note and at least one
+has it *after* the caption. The cause was not traced — most likely the platform delivers caption
+and attachment as separate events that are then merged. So `withoutAttachmentScaffolding`
+(`ui/chat/TimelineNote.kt`) removes each occurrence wherever it appears rather than matching a
+prefix; a prefix match leaves the note on screen in exactly the reported case (HG-24).
 
 Mirrored constant: `COMPRESSION_SNAPSHOT_HEADER` in `ui/chat/TimelineNote.kt` is a hand-copy of
 `TODO_INJECTION_HEADER`. Upstream renaming or rewording it silently returns this app to rendering
