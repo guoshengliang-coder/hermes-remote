@@ -69,7 +69,7 @@ class ChatRepository(private val client: HermesGatewayClient) {
     val connectionState: StateFlow<ConnectionState> get() = client.connectionState
 
     fun connect() = client.connect()
-    fun disconnect() = client.close()
+    fun disconnect() = client.close("chat repository disconnect")
 
     /** Force an immediate reconnect, skipping the backoff wait (user tapped "Retry"). */
     fun reconnect() = client.reconnectNow()

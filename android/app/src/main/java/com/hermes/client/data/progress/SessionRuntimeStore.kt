@@ -387,10 +387,10 @@ class SessionRuntimeStore(
                 onFailure = { error ->
                     if (error is CancellationException) throw error
                     val failures = probeFailures.merge(key, 1, Int::plus) ?: 1
-                    DebugLog.log("session", "probe ${key.sessionId} failed ($failures): ${error.message}")
+                    DebugLog.log("session", "probe s=${key.sessionId} failed ($failures): ${error.message}")
                     val silentFor = now - runtime.lastEventAt
                     if (failures >= PROBE_FAILURES_BEFORE_GIVING_UP && silentFor > ACTIVE_RUN_HARD_CAP_MS) {
-                        DebugLog.log("session", "probe ${key.sessionId}: silent ${silentFor / 60_000} min and unreachable, marking interrupted")
+                        DebugLog.log("session", "probe s=${key.sessionId}: silent ${silentFor / 60_000} min and unreachable, marking interrupted")
                         markUnconfirmed(key)
                         probeFailures.remove(key)
                         ProbeResult.GAVE_UP
@@ -489,11 +489,11 @@ class SessionRuntimeStore(
                     .map { it.organizedForDisplay() }
                 accepted = acceptReconciledHistory(key, history, expectation)
                 if (accepted) break
-                DebugLog.log("history", "foreground recovery ${key.sessionId} waiting for complete history")
+                DebugLog.log("history", "foreground recovery s=${key.sessionId} waiting for complete history")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                DebugLog.log("history", "foreground recovery ${key.sessionId} failed: ${error.message}")
+                DebugLog.log("history", "foreground recovery s=${key.sessionId} failed: ${error.message}")
             }
         }
         if (!accepted) return false
@@ -509,7 +509,7 @@ class SessionRuntimeStore(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            DebugLog.log("session", "foreground resume ${key.sessionId} failed: ${error.message}")
+            DebugLog.log("session", "foreground resume s=${key.sessionId} failed: ${error.message}")
             null
         }
         if (handle != null) bindLiveHandle(key, handle)
@@ -521,7 +521,7 @@ class SessionRuntimeStore(
                 acceptHydratedImages(key, media.hydrateMessages(committed, key.profile))
             }.onFailure { error ->
                 if (error is CancellationException) throw error
-                DebugLog.log("media", "foreground hydration ${key.sessionId} failed: ${error.message}")
+                DebugLog.log("media", "foreground hydration s=${key.sessionId} failed: ${error.message}")
             }
         }
         return true
@@ -1193,7 +1193,7 @@ class SessionRuntimeStore(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
-                        DebugLog.log("history", "reconcile ${key.sessionId} failed: ${error.message}")
+                        DebugLog.log("history", "reconcile s=${key.sessionId} failed: ${error.message}")
                         continue
                     }
                     val accepted = acceptReconciledHistory(key, history, expectation)
@@ -1363,7 +1363,7 @@ class SessionRuntimeStore(
                     // Resume can race a task completing while the socket was down. Do not invent
                     // an interruption: lifecycle sync and authoritative history decide whether it
                     // finished, is still running, or genuinely stopped.
-                    DebugLog.log("session", "resume after reconnect ${runtime.key.sessionId} failed: ${error.message}")
+                    DebugLog.log("session", "resume after reconnect s=${runtime.key.sessionId} failed: ${error.message}")
                     scheduleHistoryReconciliation(
                         runtime.key,
                         expectationFor(runtime).copy(lastAssistantText = ""),

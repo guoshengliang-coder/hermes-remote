@@ -57,9 +57,19 @@ class LifecycleMonitoringCoordinator @Inject constructor(
     fun start() {
         if (!started.compareAndSet(false, true)) return
         ProcessLifecycleOwner.get().lifecycle.addObserver(LifecycleEventObserver { _, event ->
+            // "Hot start" is the axis every socket question turns on — Doze, a refused foreground
+            // service, the background grace timer — and it used to leave no trace at all, so the
+            // word had no corresponding line and had to be inferred from a CONNECTION_RECOVERY
+            // ladder appearing.
             when (event) {
-                Lifecycle.Event.ON_START -> foreground.value = true
-                Lifecycle.Event.ON_STOP -> foreground.value = false
+                Lifecycle.Event.ON_START -> {
+                    DebugLog.log("lifecycle", "app foregrounded")
+                    foreground.value = true
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    DebugLog.log("lifecycle", "app backgrounded")
+                    foreground.value = false
+                }
                 else -> Unit
             }
         })
@@ -87,6 +97,10 @@ class LifecycleMonitoringCoordinator @Inject constructor(
                 // thing that restores the socket when the app comes back — a crash here would
                 // silently disable background connectivity for the rest of the process.
                 try {
+                    // A normal FOREGROUND → IDLE_BACKGROUND move closes the socket 45s later and
+                    // used to print nothing, leaving `socket closed: client closing` as the only
+                    // evidence and no cause anywhere near it.
+                    DebugLog.log("lifecycle", "monitoring mode ${decision.mode}")
                     apply(decision)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -106,7 +120,7 @@ class LifecycleMonitoringCoordinator @Inject constructor(
                 // a broken connection. collectLatest cancels this grace period immediately
                 // if the app returns to the foreground.
                 delay(BACKGROUND_SOCKET_GRACE_MS)
-                gatewayClient.close()
+                gatewayClient.close("notifications disabled")
             }
             LifecycleMonitoringMode.FOREGROUND -> {
                 // IDLE_BACKGROUND deliberately closes the socket for battery life. A
@@ -129,7 +143,7 @@ class LifecycleMonitoringCoordinator @Inject constructor(
                     DebugLog.log("lifecycle", "no foreground service; holding the socket on a lease")
                     delay(UNPROTECTED_ACTIVE_GRACE_MS)
                     DebugLog.log("lifecycle", "unprotected keep-alive lease expired; closing")
-                    gatewayClient.close()
+                    gatewayClient.close("keep-alive lease expired")
                 }
             }
             LifecycleMonitoringMode.IDLE_BACKGROUND -> {
@@ -138,7 +152,7 @@ class LifecycleMonitoringCoordinator @Inject constructor(
                 // Keep a short lease for ordinary app switching. If foreground/active work
                 // arrives during the delay, collectLatest cancels before close().
                 delay(BACKGROUND_SOCKET_GRACE_MS)
-                gatewayClient.close()
+                gatewayClient.close("app idle in the background")
             }
         }
     }

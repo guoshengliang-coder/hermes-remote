@@ -41,6 +41,44 @@ class HermesRestApiLifecycleTest {
         )
     }
 
+    /**
+     * The session-list and platform refreshes were 70 of the 500 buffered entries in the HG-27
+     * report, saying nothing a failure would not say louder. They now follow the rule the inbox
+     * poll already followed (DESIGN.md §5.15).
+     */
+    @Test fun a_quick_successful_session_list_refresh_writes_no_diagnostic_line() = runTest {
+        DebugLog.setEnabled(true)
+        DebugLog.clear()
+        serverRule.server.enqueue(MockResponse.Builder().code(200).body("""{"sessions":[]}""").build())
+
+        runCatching { api(serverRule.server).profileSessions() }
+
+        assertTrue(
+            "a quiet refresh must not be logged, got ${DebugLog.entries.value}",
+            DebugLog.entries.value.none { it.category == "rest" },
+        )
+    }
+
+    /**
+     * `/api/status` deliberately stays loud. "REST kept answering 200 while the socket was
+     * wedged" is the contrast that made HG-27 readable, and once the health monitor stops
+     * re-reporting an unchanged tier it is the only line still carrying it.
+     */
+    @Test fun the_status_probe_is_never_quieted() = runTest {
+        DebugLog.setEnabled(true)
+        DebugLog.clear()
+        serverRule.server.enqueue(
+            MockResponse.Builder().code(200).body("""{"version":"1","gateway_running":true}""").build(),
+        )
+
+        runCatching { api(serverRule.server).gatewayStatus() }
+
+        assertTrue(
+            "the status probe must stay in the log, got ${DebugLog.entries.value}",
+            DebugLog.entries.value.any { it.category == "rest" && it.message.contains("/api/status") },
+        )
+    }
+
     @Test fun a_failing_inbox_poll_is_still_logged() = runTest {
         DebugLog.setEnabled(true)
         DebugLog.clear()

@@ -122,13 +122,31 @@ class GatewayHealthMonitor(
             val next = evaluate()
             // Only transitions: the probe runs every 30s in the foreground and the answer is
             // usually the same one as last time.
-            if (next != _health.value) {
+            //
+            // Comparing the values themselves never suppressed a single line, because Healthy
+            // carries latencyMs and that differs on every probe. 18 of the 500 entries in the
+            // HG-27 report were "healthy(201ms) → healthy(236ms)" — a state change that was not
+            // one. Compare the tier; keep the latency in the line that does get written, where
+            // it is still worth reading.
+            if (tier(next) != tier(_health.value)) {
                 DebugLog.log("health", "${describe(_health.value)} → ${describe(next)}")
             }
             _health.value = next
         } finally {
             probeGuard.unlock()
         }
+    }
+
+    /**
+     * What counts as a change worth a line: the kind of health, not the millisecond it measured.
+     * [GatewayHealth.Healthy.latencyMs] moves on every probe and would make every probe a
+     * "transition".
+     */
+    private fun tier(health: GatewayHealth): String = when (health) {
+        is GatewayHealth.Healthy -> "healthy(running=${health.running})"
+        is GatewayHealth.GatewayUnreachable -> "unreachable(${health.detail})"
+        GatewayHealth.DeviceOffline -> "device-offline"
+        GatewayHealth.Unknown -> "unknown"
     }
 
     private fun describe(health: GatewayHealth): String = when (health) {

@@ -1,6 +1,7 @@
 package com.hermes.client.data.repository
 
 import android.content.Context
+import com.hermes.client.BuildConfig
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -16,7 +17,21 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 private val Context.settingsDataStore by preferencesDataStore(name = "app_settings")
 
 /** Device-local app preferences: theme mode and tool-call display verbosity. */
-class SettingsStore(private val context: Context) {
+class SettingsStore(
+    private val context: Context,
+    /**
+     * Default for the diagnostic-logging toggle when the user has never touched it.
+     *
+     * True in debug builds, which is what every APK handed to a tester currently is
+     * (`scripts/package-debug-apk.sh` → `Hermes-Remote-<version>-debug.apk`). A stall like HG-27
+     * is only diagnosable if capture was already running when it happened, and asking the user to
+     * have switched it on beforehand means the first occurrence is always lost. Release builds
+     * keep the off-by-default privacy decision (DESIGN.md §5.15).
+     *
+     * Injectable so both defaults can be tested from one variant.
+     */
+    private val debugLoggingDefault: Boolean = BuildConfig.DEBUG,
+) {
     private val themeKey = stringPreferencesKey("theme_mode")
     private val toolDisplayKey = stringPreferencesKey("tool_call_display") // "product" | "technical"
     private val debugLoggingKey = booleanPreferencesKey("debug_logging")
@@ -62,8 +77,12 @@ class SettingsStore(private val context: Context) {
         context.settingsDataStore.edit { it[toolDisplayKey] = if (technical) "technical" else "product" }
     }
 
-    /** Diagnostic logging toggle (Settings → Diagnostics). Off by default. */
-    val debugLogging: Flow<Boolean> = context.settingsDataStore.data.map { it[debugLoggingKey] ?: false }
+    /**
+     * Diagnostic logging toggle (Settings → Diagnostics). Defaults to [debugLoggingDefault]; an
+     * explicit choice by the user always wins over it, in both directions.
+     */
+    val debugLogging: Flow<Boolean> =
+        context.settingsDataStore.data.map { resolveDebugLogging(it[debugLoggingKey], debugLoggingDefault) }
 
     val usageRangeDays: Flow<Int> = context.settingsDataStore.data.map { prefs ->
         prefs[usageRangeKey]?.toIntOrNull()?.takeIf { it in USAGE_RANGE_CHOICES } ?: 30
@@ -81,3 +100,12 @@ class SettingsStore(private val context: Context) {
 
 /** The only windows the usage page offers. Upstream clamps `days` to 1-365 regardless. */
 val USAGE_RANGE_CHOICES = listOf(7, 30, 90)
+
+/**
+ * Whether diagnostic capture runs, given what the user stored and what this build defaults to.
+ *
+ * Separated out because the mistake it guards against is easy to make and invisible once made:
+ * an explicit choice must win over the default in BOTH directions, so capture switched off in a
+ * debug build has to stay off across restarts rather than being turned back on by the default.
+ */
+internal fun resolveDebugLogging(stored: Boolean?, default: Boolean): Boolean = stored ?: default

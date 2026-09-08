@@ -56,7 +56,7 @@ class LifecycleMonitoringCoordinatorTest {
 
         val gateway = mockk<HermesGatewayClient>(relaxed = true)
         var closes = 0
-        every { gateway.close() } answers {
+        every { gateway.close(any()) } answers {
             closes += 1
             // Stand in for any step that can blow up mid-decision (a refused foreground-service
             // start, a JobScheduler or keystore failure): the first one throws, later ones do not.
@@ -89,7 +89,7 @@ class LifecycleMonitoringCoordinatorTest {
         advanceTimeBy(60_000)
         runCurrent()
 
-        verify(atLeast = 2) { gateway.close() }
+        verify(atLeast = 2) { gateway.close(any()) }
     }
 
     /**
@@ -135,11 +135,11 @@ class LifecycleMonitoringCoordinatorTest {
         runCurrent()
         advanceTimeBy(4 * 60_000)
         runCurrent()
-        verify(exactly = 0) { gateway.close() }
+        verify(exactly = 0) { gateway.close(any()) }
 
         advanceTimeBy(2 * 60_000)
         runCurrent()
-        verify(exactly = 1) { gateway.close() }
+        verify(exactly = 1) { gateway.close("keep-alive lease expired") }
     }
 
     @After fun tearDown() = unmockkAll()

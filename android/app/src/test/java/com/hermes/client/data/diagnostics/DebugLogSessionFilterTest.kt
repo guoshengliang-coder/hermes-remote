@@ -12,6 +12,28 @@ class DebugLogSessionFilterTest {
     @Before fun setUp() { DebugLog.detachStore(); DebugLog.setEnabled(true); DebugLog.clear() }
     @After fun tearDown() { DebugLog.setEnabled(false); DebugLog.clear() }
 
+    /**
+     * The filter keys on `s=` / `session=`, and eight failure lines in SessionRuntimeStore used to
+     * carry a bare id instead — probe failures, reconcile failures, foreground-recovery failures.
+     * A line the regex cannot see is treated as process-wide context, so it survived into every
+     * session's export and named none of them. The lines that most need attributing were the ones
+     * that were not.
+     */
+    @Test fun a_failure_line_is_attributed_to_its_session_only_when_the_id_is_marked() {
+        assertTrue(
+            "the marked form must be attributed",
+            DebugLog.mentionsSession("probe s=aaa111 failed (2): timeout", "aaa111"),
+        )
+        assertFalse(
+            "a bare id is invisible to the filter — this is the trap the prefix avoids",
+            DebugLog.mentionsSession("probe aaa111 failed (2): timeout", "aaa111"),
+        )
+        assertFalse(
+            "and a bare id makes the line look process-wide",
+            DebugLog.namesAnySession("probe aaa111 failed (2): timeout"),
+        )
+    }
+
     @Test fun sessionIdsAreCollectedMostRecentFirst() {
         DebugLog.log("phase", "s=20260905_102612_6d5fd4 IDLE→SUBMITTING cause=prompt")
         DebugLog.log("ws", "event message.start session=20260905_163901_c12694")

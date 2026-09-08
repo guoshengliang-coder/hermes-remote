@@ -99,6 +99,9 @@ class MissionGoFeedbackReporter private constructor(
      * than threading a sequence number through the log for a cosmetic gain.
      */
     private fun attachDiagnosticSnapshot() {
+        // Write the connection snapshot before reading the ring, so a report filed for something
+        // that never raised the chat banner still carries the socket's state at that moment.
+        DebugLog.captureSnapshot()
         val entries = DebugLog.entries.value
         if (entries.isEmpty()) return
         val fresh = entries.filter { it.timeMillis > lastAttachedAtMillis }.takeLast(LOG_ENTRY_LIMIT)

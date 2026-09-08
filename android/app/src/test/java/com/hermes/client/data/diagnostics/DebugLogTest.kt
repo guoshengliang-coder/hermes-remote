@@ -35,6 +35,51 @@ class DebugLogTest {
 
     private fun logDir(): File = File(temp.root, "diagnostics")
 
+    /**
+     * The snapshot exists because HG-27 could not be explained from scattered lines: a socket
+     * generation with no ready, no close and no watchdog line, and no way to tell which guard had
+     * sent the watchdog home. One line at the moment the user notices answers all of it.
+     */
+    @Test fun a_registered_snapshot_is_written_on_demand() {
+        DebugLog.setStateSnapshot { "state=Connecting gen=17 manuallyClosed=false" }
+        try {
+            DebugLog.captureSnapshot()
+            val line = DebugLog.entries.value.single()
+            assertEquals("ws", line.category)
+            assertTrue(line.message, line.message.startsWith("snapshot state=Connecting gen=17"))
+        } finally {
+            DebugLog.setStateSnapshot(null)
+        }
+    }
+
+    @Test fun a_snapshot_writes_nothing_when_no_source_is_registered() {
+        DebugLog.setStateSnapshot(null)
+        DebugLog.captureSnapshot()
+        assertTrue(DebugLog.entries.value.isEmpty())
+    }
+
+    @Test fun a_snapshot_writes_nothing_while_logging_is_off() {
+        DebugLog.setStateSnapshot { "state=Connecting" }
+        try {
+            DebugLog.setEnabled(false)
+            DebugLog.captureSnapshot()
+            assertTrue(DebugLog.entries.value.isEmpty())
+        } finally {
+            DebugLog.setStateSnapshot(null)
+        }
+    }
+
+    /** A snapshot source that throws must not take the report down with it. */
+    @Test fun a_snapshot_source_that_fails_is_swallowed() {
+        DebugLog.setStateSnapshot { error("boom") }
+        try {
+            DebugLog.captureSnapshot()
+            assertTrue(DebugLog.entries.value.isEmpty())
+        } finally {
+            DebugLog.setStateSnapshot(null)
+        }
+    }
+
     @Test fun disabled_log_is_a_noop() {
         DebugLog.clear()
         DebugLog.setEnabled(false)
