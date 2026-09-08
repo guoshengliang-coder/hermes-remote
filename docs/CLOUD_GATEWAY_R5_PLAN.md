@@ -213,3 +213,6 @@ Hermes 使用 `overall=ok` / `gateway_running=true` 而非旧 fixture 的 `statu
 0.4.7 现场确认 readiness 已恢复，但容器重启后 `relay-health` 的第一个 HTTP 200 仍可能报告 Connector 尚未
 重连，而紧随其后的 legacy `/api/status` 已重试成功。0.4.8 将强语义的 legacy status 等待放在 relay 快照前，
 避免把瞬时 `connectors: 0` 固化为失败，同时仍要求最终 relay 至少有一个 Connector。
+0.4.8 真实灰度的所有网络探针均通过，但操作器把 Gateway 的正式 readiness 值
+`checks.migrations=ok` 误写成 `current`，因此在一秒内安全回滚。0.4.9 对齐这个既有公开契约，并以真实
+Gateway 返回形状作为回归 fixture；不改变账号 API、数据库或灰度范围。
