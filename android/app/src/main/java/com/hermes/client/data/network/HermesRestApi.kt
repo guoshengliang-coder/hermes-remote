@@ -43,6 +43,21 @@ class HermesRestApi(
         const val REST_TIMEOUT_SECONDS = 20L
         /** A quiet poll is only worth a line once it stops being quick. */
         const val SLOW_REQUEST_MS = 1_000L
+
+        /**
+         * Refreshes whose quick, successful outcome says nothing the rest of the log does not.
+         * They were 70 of the 500 buffered entries in the HG-27 report, competing for a byte
+         * budget with the lines that explain a failure.
+         *
+         * `/api/status` is deliberately NOT here. "REST kept answering 200 while the socket was
+         * wedged" is the contrast that made HG-27 diagnosable, and once the health monitor stops
+         * re-reporting an unchanged state it is the only line still carrying it.
+         */
+        val QUIET_PATH_PREFIXES = listOf(
+            "/api/mobile/events",
+            "/api/profiles/sessions",
+            "/api/messaging/platforms",
+        )
         const val CONNECTION_TEST_TIMEOUT_SECONDS = 12L
     }
 
@@ -62,7 +77,8 @@ class HermesRestApi(
     }
 
     /** High-frequency polls whose successful, fast outcome carries no information. */
-    private fun isQuietPath(path: String): Boolean = path.startsWith("/api/mobile/events")
+    private fun isQuietPath(path: String): Boolean =
+        QUIET_PATH_PREFIXES.any { path.startsWith(it) }
 
     /** The shared client has no read timeout for WebSockets; every REST call gets a deadline. */
     private fun restCall(request: Request): Call = okHttp.newCall(request).apply {

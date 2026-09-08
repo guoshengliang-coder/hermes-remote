@@ -98,14 +98,26 @@ class GatedAuth(
             .url("${cfg.baseUrl.trimEnd('/')}/api/auth/ws-ticket")
             .post(ByteArray(0).toRequestBody(null))
             .build()
+        // This call used to say nothing whatsoever — not the request, not the status, not a
+        // timeout, not an empty ticket — so a ticket POST that hung looked identical to a socket
+        // that never dialled. The ticket itself is never logged: it is single-use, but it is a
+        // credential and it travels in the URL.
         return runCatching {
             client.newCall(req).apply { timeout().timeout(AUTH_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
                 .execute().use { resp ->
-                if (!resp.isSuccessful) return null
+                if (!resp.isSuccessful) {
+                    DebugLog.log("ws", "ws ticket refused: HTTP ${resp.code}")
+                    return null
+                }
                 val body = resp.body?.string().orEmpty()
-                json.parseToJsonElement(body).jsonObject["ticket"]?.jsonPrimitive?.content
+                val ticket = json.parseToJsonElement(body).jsonObject["ticket"]?.jsonPrimitive?.content
+                DebugLog.log("ws", if (ticket.isNullOrBlank()) "ws ticket missing from response" else "ws ticket minted")
+                ticket
             }
-        }.getOrNull()
+        }.getOrElse { error ->
+            DebugLog.log("ws", "ws ticket failed: ${error.javaClass.simpleName}: ${error.message}")
+            null
+        }
     }
 
     /**

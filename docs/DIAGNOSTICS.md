@@ -42,11 +42,22 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 | `cause=lifecycle:run.completed` | 完成信号走了 inbox 补投 | socket 没听到时 |
 | `cause=probe:gave-up` / `cause=reconnect` | 兜底探测 / 重连恢复 | 见 §5.4 |
 | `[lifecycle] run.completed s=<id> late=124s` | inbox 事件比发生时刻晚了多久（手机时钟 − Mac 时钟） | 26% 的完成 >30s |
-| `[history] reconcile s=<id> rejected: assistantTurns 0<1` | 对账为何拒绝某次快照 | 阶梯每一档 |
+| `[history] reconcile s=<id>: N messages, accepted=false` | 对账为何拒绝某次快照 | 阶梯每一档 |
 | `[event] buffered … / replaying N buffered event(s)` | 别名未建立时事件被缓冲、随后重放 | Mac 端发起的运行 |
-| `[session] probe <id> failed (n)` | 探测失败次数 | 网络差 / Mac 失联 |
+| `[session] probe s=<id> failed (n)` | 探测失败次数 | 网络差 / Mac 失联 |
 | `[ws] opening socket (gen=N)` / `socket closed (gen=N): …` | socket 生死 | 每次重连 |
-| `[ws] handshake timeout (gen=N): no gateway.ready in 20000ms` | socket 接上了但网关始终没发 `gateway.ready`，看门狗把它拆掉重连 | 见下 |
+| `[ws] socket upgraded (gen=N)` | HTTP 升级完成，此后在等 `gateway.ready` | 每次连接 |
+| `[ws] state A → B` | 连接状态每一次转换，**含恢复方向** | 每次变化 |
+| `[ws] snapshot state=… gen=… manuallyClosed=… readyGate=… watchdog=… socket=… connectingFor=… sinceReady=…` | 横幅升起或提交报告时，socket 内部状态的全量读数 | 只在异常时 |
+| `[error] handshake timeout (gen=N): no gateway.ready in 20000ms` | socket 接上了但网关始终没发 `gateway.ready`，看门狗把它拆掉重连 | 见下 |
+| `[ws] handshake watchdog skipped (gen=N): <原因>` | 看门狗到点却没动手，以及是哪条 guard 拦下的 | 罕见；出现即异常 |
+| `[ws] ws ticket minted` / `ws ticket refused: HTTP …` / `ws ticket failed: …` | 网关票据环节（票面本身永不入日志） | gated 模式每次连接 |
+| `[ws] ws endpoint discarded (gen=N): <原因>` | 票据拿到时这一代已经作废 | 竞态 |
+| `[ws] reconnect scheduled in Nms (gen=N, attempt=N)` | 退避已排期 | 每次断开 |
+| `[ws] reconnect dropped (gen=N): <原因>` | **排期的重连没有执行，以及为什么** | 见下 |
+| `[ws] close() requested: <理由>` / `cancelNow()` | App 主动关闭，以及是哪一个调用方 | 退后台 / 关通知 |
+| `[lifecycle] app foregrounded` / `app backgrounded` | 前后台切换 | 每次 |
+| `[lifecycle] monitoring mode <MODE>` | 保活策略每次选定的模式 | 每次变化 |
 
 **握手停滞（HG-19）**：`Connecting` 只有两个出口——收到 `gateway.ready`，或 socket 死掉。曾经有
 第三种情形无人处理：socket 建立了、既不完成握手也不关闭。表现是横幅一直「正在连接 Relay…」、每个
@@ -54,7 +65,21 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 与 WS 控制通道不同路），只有强杀 App 能脱身。0.1.105 起有 20 秒握手看门狗自动拆掉重连。
 
 排查时的判据：找 `opening socket (gen=N)` 之后**既没有 `gateway.ready` 也没有 `socket closed`** 的
-那个 gen——那就是停滞的 socket。看到 `handshake timeout` 说明看门狗已经接管，不再需要重启。
+那个 gen——那就是停滞的 socket。它后面有没有 `socket upgraded` 决定了责任方：有，是网关接了升级
+然后不出声；没有，是这一端根本没拨通（再往前看 `ws ticket …` 那几行，票据环节卡住是同一种沉默）。
+
+看到 `handshake timeout` 说明看门狗接管了这一次。**这不等于问题结束**：看门狗只是让 `Connecting`
+循环起来，网关一直不出声时横幅仍然一直是「正在连接 Relay…」。
+
+**看门狗自己没出声怎么办（HG-27）**：如果那个 gen 后面连 `handshake timeout` 都没有，说明看门狗
+没有动手，去找 `handshake watchdog skipped (gen=N)` —— 它会写明是哪条 guard 拦下的。两条都没有，
+就是协程体没跑到，这时 `[ws] snapshot` 那一行（横幅升起时写的）给出当时的全部内部状态。
+HG-27 就停在这里：那一版还没有这些行，四处缺陷叠加，只能靠杀进程脱身。
+
+**连接停下来了但没人说为什么**：`reconnect scheduled in Nms` 之后应当出现下一个
+`opening socket`。若换来的是 `reconnect dropped`，那一行会说明是 App 主动关闭（对应前面的
+`close() requested: …`，多半是退到后台，属正常省电）还是被更新的一代顶掉。两者都没有、日志就此
+停住，才是真的异常。
 
 判读：
 - 列表卡「思考中」但没有任何 `→COMPLETED_UNREAD` / `→IDLE` 行 → 终止信号一条都没到，去第 2 问。

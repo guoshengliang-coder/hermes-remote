@@ -65,4 +65,8 @@ fun Flow<ConnectionState>.connectionBanner(
             "banner",
             if (banner == null) "hidden" else "showing ${banner::class.simpleName}",
         )
+        // The instant the user starts perceiving the problem is the instant worth a full reading
+        // of the socket's internals. Nothing fires here while the connection is healthy, so this
+        // costs nothing in the ordinary case.
+        if (banner != null) DebugLog.captureSnapshot()
     }

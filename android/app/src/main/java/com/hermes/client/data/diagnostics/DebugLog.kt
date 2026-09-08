@@ -149,6 +149,33 @@ object DebugLog {
     }
 
     /**
+     * Source of the one-line connection snapshot written by [captureSnapshot]. Registered by the
+     * gateway client, which is the only object that can see all of that state at once.
+     */
+    @Volatile private var stateSnapshot: (() -> String)? = null
+
+    /** Register the connection snapshot source; null clears it (tests, and teardown). */
+    fun setStateSnapshot(provider: (() -> String)?) {
+        stateSnapshot = provider
+    }
+
+    /**
+     * Write the registered snapshot, if there is one.
+     *
+     * Called where a reader needs the whole internal state at once rather than reassembled from
+     * scattered lines: when the chat banner rises, and when a report is captured. HG-27 is the
+     * argument for it — a generation with no `gateway.ready`, no `socket closed` and no watchdog
+     * line at all, and nothing in the log could say which of the watchdog's three guards had
+     * returned early. Costs nothing while logging is off, and nothing while the connection is
+     * healthy either: neither moment arrives then.
+     */
+    fun captureSnapshot() {
+        if (!enabled) return
+        val line = runCatching { stateSnapshot?.invoke() }.getOrNull() ?: return
+        log("ws", "snapshot $line")
+    }
+
+    /**
      * Lazy form for anything on a hot path: the message is neither built nor allocated unless
      * logging is on. Use it for per-event or per-update lines; the eager overload is fine for
      * lines that fire a few times per run.
