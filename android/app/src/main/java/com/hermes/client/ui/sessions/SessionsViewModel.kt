@@ -24,7 +24,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -157,10 +156,7 @@ class SessionsViewModel @Inject constructor(
         viewModelScope.launch { projectPrefs.markIntroSeen(projectId) }
     }
 
-    // Project scope persisted from the previous launch; consumed by the first tree build.
-    private var restoreScopeId: String? = null
-
-    /** Archived sessions for the ARCHIVED segment (scoped to the active profile). */
+    /** Archived sessions for the Archived page (scoped to the active profile). */
     data class ArchivedUiState(
         val sessions: List<Session> = emptyList(),
         val loading: Boolean = false,
@@ -229,9 +225,10 @@ class SessionsViewModel @Inject constructor(
                 val all = sessions.listAllProfiles()
                 val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
                 val derived = deriveProjectsFromSessions(scoped, defaultProjectPath.value)
-                // Keep (or restore) the drilled-in project by id so a rebuild never kicks the
-                // user back to the overview — and a cold launch lands where they left off.
-                val scopeId = _projects.value.scope?.id ?: restoreScopeId.also { restoreScopeId = null }
+                // Keep the drilled-in project by id so a rebuild never kicks the user back to
+                // the overview. Within a run only: Projects is a pushed page now, so a cold launch
+                // deliberately opens on the overview (docs/DESIGN.md §5.3, 2026-09-09).
+                val scopeId = _projects.value.scope?.id
                 _projects.value = _projects.value.copy(
                     loading = false,
                     tree = derived,
@@ -251,19 +248,16 @@ class SessionsViewModel @Inject constructor(
     /** Drill into a project. Derived projects already carry all their sessions — no fetch needed. */
     fun enterProject(project: Project) {
         _projects.value = _projects.value.copy(scope = project)
-        viewModelScope.launch { projectPrefs.setProjectScope(project.id) }
     }
 
     /** Return to the project overview. */
     fun exitProject() {
         _projects.value = _projects.value.copy(scope = null)
-        viewModelScope.launch { projectPrefs.setProjectScope(null) }
     }
 
     init {
         restoreSelectedRoute()
         viewModelScope.launch { profileManager.refresh() }
-        viewModelScope.launch { restoreScopeId = projectPrefs.projectScope.first() }
         // The list is scoped to the active profile (like the desktop, one tenant at a time), so it
         // reloads whenever the selected profile changes — including the first value once it loads.
         // The derived project tree is scoped the same way, so rebuild it too when it was loaded.
@@ -271,8 +265,8 @@ class SessionsViewModel @Inject constructor(
             profileManager.active.collect {
                 refresh()
                 refreshCronAlerts()
-                if (_projects.value.tree.isNotEmpty() || viewMode.value == ViewMode.PROJECTS) loadProjectTree()
-                if (viewMode.value == ViewMode.ARCHIVED) loadArchived()
+                if (_projects.value.tree.isNotEmpty()) loadProjectTree()
+                if (_archived.value.sessions.isNotEmpty()) loadArchived()
             }
         }
         // The gateway auto-titles a new chat after its first message and pushes a `session.title`
@@ -286,20 +280,6 @@ class SessionsViewModel @Inject constructor(
                     else -> false
                 }
                 if (shouldRefresh) scheduleEventRefresh()
-            }
-        }
-        // Fetch the project tree whenever Projects becomes the active view without a loaded tree.
-        // Covers both the toggle tap AND a cold launch restored into Projects mode (persisted) —
-        // the launch case previously never called loadProjectTree, so Projects showed a spurious
-        // "No projects" until the user toggled.
-        viewModelScope.launch {
-            viewModeStore.mode.collect { mode ->
-                if (mode == ViewMode.PROJECTS && _projects.value.tree.isEmpty() && !_projects.value.loading) {
-                    loadProjectTree()
-                }
-                if (mode == ViewMode.ARCHIVED && _archived.value.sessions.isEmpty() && !_archived.value.loading) {
-                    loadArchived()
-                }
             }
         }
     }
@@ -402,51 +382,57 @@ class SessionsViewModel @Inject constructor(
         // failed, and the session history alone can still justify showing it.
     }
 
-    /** Refreshes whichever Chats segment is actually visible while the warm-start gate is up. */
+    /** Refreshes the Chats list while the warm-start gate is up. Both segments read it. */
     suspend fun recoverForForeground(): Boolean {
         restoreSelectedRoute()
-        return when (viewModeStore.mode.first()) {
-            ViewMode.SESSIONS, ViewMode.BOTS -> {
-                refreshOnce()
-                !_state.value.unauthorized && _state.value.error == null
-            }
-            ViewMode.PROJECTS -> try {
-                // A launch/profile refresh may still be rebuilding the same tree. Cancel it before
-                // the gate performs its authoritative refresh, otherwise the older response can land
-                // last and reveal stale project contents after recovery completes.
-                projectTreeJob?.cancel()
-                val active = profileManager.active.value
-                val all = sessions.listAllProfiles()
-                val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
-                val tree = deriveProjectsFromSessions(scoped, defaultProjectPath.value)
-                val openProjectId = _projects.value.scope?.id
-                _projects.value = ProjectsUiState(
-                    tree = tree,
-                    scope = openProjectId?.let { id -> tree.firstOrNull { it.id == id } },
-                )
-                true
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                _projects.value = ProjectsUiState(
-                    error = AppError(AppErrorCode.RPC_FAILED, true, error.message, "projects_recovery"),
-                )
-                false
-            }
-            ViewMode.ARCHIVED -> try {
-                val active = profileManager.active.value
-                val all = sessions.archivedAllProfiles()
-                val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
-                _archived.value = ArchivedUiState(sessions = scoped)
-                true
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                _archived.value = ArchivedUiState(
-                    error = AppError(AppErrorCode.RPC_FAILED, true, error.message, "archived_recovery"),
-                )
-                false
-            }
+        refreshOnce()
+        return !_state.value.unauthorized && _state.value.error == null
+    }
+
+    /** Warm-start recovery for the Projects page. */
+    suspend fun recoverProjectsForForeground(): Boolean {
+        restoreSelectedRoute()
+        return try {
+            // A launch/profile refresh may still be rebuilding the same tree. Cancel it before
+            // the gate performs its authoritative refresh, otherwise the older response can land
+            // last and reveal stale project contents after recovery completes.
+            projectTreeJob?.cancel()
+            val active = profileManager.active.value
+            val all = sessions.listAllProfiles()
+            val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
+            val tree = deriveProjectsFromSessions(scoped, defaultProjectPath.value)
+            val openProjectId = _projects.value.scope?.id
+            _projects.value = ProjectsUiState(
+                tree = tree,
+                scope = openProjectId?.let { id -> tree.firstOrNull { it.id == id } },
+            )
+            true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _projects.value = ProjectsUiState(
+                error = AppError(AppErrorCode.RPC_FAILED, true, error.message, "projects_recovery"),
+            )
+            false
+        }
+    }
+
+    /** Warm-start recovery for the Archived page. */
+    suspend fun recoverArchivedForForeground(): Boolean {
+        restoreSelectedRoute()
+        return try {
+            val active = profileManager.active.value
+            val all = sessions.archivedAllProfiles()
+            val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
+            _archived.value = ArchivedUiState(sessions = scoped)
+            true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _archived.value = ArchivedUiState(
+                error = AppError(AppErrorCode.RPC_FAILED, true, error.message, "archived_recovery"),
+            )
+            false
         }
     }
 

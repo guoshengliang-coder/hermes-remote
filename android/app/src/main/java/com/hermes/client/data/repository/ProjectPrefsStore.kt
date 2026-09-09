@@ -19,19 +19,16 @@ private val Context.projectPrefsDataStore by preferencesDataStore(name = "projec
  *   `session.create` issued WITHOUT a cwd. Lets the derived project list fold sessions that live
  *   in that folder into the default project, and lets the picker move a session back to it.
  * - [introSeen]: ids of projects whose "sessions created here join <project>" snackbar was shown.
- * - [projectScope]: the project the Projects segment was left drilled into, restored on launch.
  */
 class ProjectPrefsStore(private val context: Context) {
     private val defaultPathKey = stringPreferencesKey("default_project_path")
     private val introSeenKey = stringSetPreferencesKey("intro_seen")
-    private val scopeKey = stringPreferencesKey("project_scope")
 
     private val prefs = context.projectPrefsDataStore.data
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
 
     val defaultProjectPath: Flow<String?> = prefs.map { it[defaultPathKey]?.ifBlank { null } }
     val introSeen: Flow<Set<String>> = prefs.map { it[introSeenKey].orEmpty() }
-    val projectScope: Flow<String?> = prefs.map { it[scopeKey]?.ifBlank { null } }
 
     suspend fun setDefaultProjectPath(path: String?) {
         context.projectPrefsDataStore.edit { p ->
@@ -42,11 +39,5 @@ class ProjectPrefsStore(private val context: Context) {
 
     suspend fun markIntroSeen(projectId: String) {
         context.projectPrefsDataStore.edit { p -> p[introSeenKey] = p[introSeenKey].orEmpty() + projectId }
-    }
-
-    suspend fun setProjectScope(projectId: String?) {
-        context.projectPrefsDataStore.edit { p ->
-            if (projectId.isNullOrBlank()) p.remove(scopeKey) else p[scopeKey] = projectId
-        }
     }
 }

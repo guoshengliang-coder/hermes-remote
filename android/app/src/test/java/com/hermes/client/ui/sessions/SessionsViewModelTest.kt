@@ -38,19 +38,20 @@ class SessionsViewModelTest {
     private val toolsRepo = mockk<com.hermes.client.data.repository.ToolsRepository>(relaxed = true)
     private val projectPrefs = mockk<com.hermes.client.data.repository.ProjectPrefsStore>(relaxed = true)
     private val defaultPathFlow = MutableStateFlow<String?>(null)
+    // Controllable so tests can switch tenants and watch the scoped lists follow.
+    private val activeProfileFlow = MutableStateFlow<String?>("personal")
     // Controllable so tests can flip the persisted view mode (drives the VM's launch/toggle load).
     private val modeFlow = MutableStateFlow(ViewMode.SESSIONS)
 
     @Before fun setUp() {
         Dispatchers.setMain(StandardTestDispatcher())
         every { chatRepo.events } returns kotlinx.coroutines.flow.MutableSharedFlow()
-        every { profileManager.active } returns MutableStateFlow<String?>("personal")
+        every { profileManager.active } returns activeProfileFlow
         every { pinStore.pinned } returns MutableStateFlow<Set<String>>(emptySet())
         every { viewModeStore.mode } returns modeFlow
         every { runtimeStore.runtimes } returns MutableStateFlow(emptyMap())
         every { projectPrefs.defaultProjectPath } returns defaultPathFlow
         every { projectPrefs.introSeen } returns MutableStateFlow<Set<String>>(emptySet())
-        every { projectPrefs.projectScope } returns MutableStateFlow<String?>(null)
     }
 
     private fun session(id: String, title: String, profile: String = "personal") = Session(
@@ -108,9 +109,9 @@ class SessionsViewModelTest {
         assertNull(vm.switchFailed.value)
     }
 
-    // Ported from the deleted ArchivedSessionsViewModelTest: the ARCHIVED segment loads the
+    // Ported from the deleted ArchivedSessionsViewModelTest: the Archived page loads the
     // active profile's archived sessions, and unarchive re-pulls both lists.
-    @Test fun archived_segment_loads_scoped_list_and_unarchive_reloads() = runTest {
+    @Test fun archived_page_loads_scoped_list_and_unarchive_reloads() = runTest {
         coEvery { sessionRepo.listAllProfiles() } returns emptyList()
         coEvery { sessionRepo.archivedAllProfiles() } returns listOf(
             session("x", "Old chat", profile = "personal"),
@@ -339,10 +340,10 @@ class SessionsViewModelTest {
         val vm = buildVm()
         advanceUntilIdle()
 
-        vm.setViewMode(ViewMode.PROJECTS)
+        vm.setViewMode(ViewMode.BOTS)
         advanceUntilIdle()
 
-        io.mockk.coVerify { viewModeStore.set(ViewMode.PROJECTS) }
+        io.mockk.coVerify { viewModeStore.set(ViewMode.BOTS) }
     }
 
     @Test fun projects_derive_only_from_the_active_profiles_sessions() = runTest {
@@ -355,7 +356,7 @@ class SessionsViewModelTest {
         val vm = buildVm()
         advanceUntilIdle()
 
-        modeFlow.value = ViewMode.PROJECTS // persisted mode flips to Projects
+        vm.loadProjectTree() // what opening the Projects page does
         advanceUntilIdle()
 
         // The default project is always derived (first); the other tenant's repo is absent.
@@ -365,17 +366,57 @@ class SessionsViewModelTest {
         )
     }
 
-    // Regression: a cold launch restored into Projects mode must build the tree, not show a
-    // spurious "No projects". Previously only a toggle tap loaded it.
-    @Test fun projects_build_on_cold_launch_when_persisted_mode_is_projects() = runTest {
+    // A profile switch rebuilds a tree that has already been loaded, so returning to the
+    // Projects page after switching tenants never shows the previous tenant's folders. An
+    // untouched tree is left alone — the page fetches for itself when it is opened.
+    @Test fun profile_switch_rebuilds_an_already_loaded_tree() = runTest {
         coEvery { sessionRepo.listAllProfiles() } returns listOf(
             repoSession("x", "/u/andrew/personal/inbound", profile = "personal"),
         )
-        modeFlow.value = ViewMode.PROJECTS // persisted as Projects before the VM is even built
+        val vm = buildVm()
+        advanceUntilIdle()
+        assertTrue(vm.projectsState.value.tree.isEmpty()) // nobody opened Projects yet
+
+        vm.loadProjectTree()
+        advanceUntilIdle()
+        assertEquals(listOf(DEFAULT_PROJECT_ID, "/u/andrew/personal/inbound"), vm.projectsState.value.tree.map { it.id })
+
+        coEvery { sessionRepo.listAllProfiles() } returns listOf(
+            repoSession("y", "/u/andrew/work/acme", profile = "work"),
+        )
+        activeProfileFlow.value = "work"
+        advanceUntilIdle()
+        assertEquals(listOf(DEFAULT_PROJECT_ID, "/u/andrew/work/acme"), vm.projectsState.value.tree.map { it.id })
+    }
+
+    // The Chats list recovers the same way in either segment — Bots reads the same
+    // cross-profile list and filters it client-side.
+    @Test fun foregroundRecoveryRefreshesTheListInEitherSegment() = runTest {
+        modeFlow.value = ViewMode.BOTS
+        coEvery { sessionRepo.listAllProfiles() } returns listOf(session("s1", "Hi"))
         val vm = buildVm()
         advanceUntilIdle()
 
-        assertEquals(listOf(DEFAULT_PROJECT_ID, "/u/andrew/personal/inbound"), vm.projectsState.value.tree.map { it.id })
+        coEvery { sessionRepo.listAllProfiles() } returns listOf(session("s1", "Hi"), session("s2", "There"))
+        assertTrue(vm.recoverForForeground())
+        assertEquals(setOf("s1", "s2"), vm.state.value.sessions.map { it.id }.toSet())
+    }
+
+    @Test fun foregroundRecoveryRefreshesTheArchiveAndReportsFailure() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        coEvery { sessionRepo.archivedAllProfiles() } returns listOf(
+            session("x", "Old chat", profile = "personal"),
+            session("y", "Other tenant", profile = "work"),
+        )
+        val vm = buildVm()
+        advanceUntilIdle()
+
+        assertTrue(vm.recoverArchivedForForeground())
+        assertEquals(listOf("x"), vm.archivedState.value.sessions.map { it.id })
+
+        coEvery { sessionRepo.archivedAllProfiles() } throws RuntimeException("net down")
+        assertFalse(vm.recoverArchivedForForeground())
+        assertTrue(vm.archivedState.value.error != null)
     }
 
     @Test fun loadProjectTree_sets_error_on_failure() = runTest {
@@ -416,11 +457,12 @@ class SessionsViewModelTest {
     }
 
     @Test fun foregroundRecoveryKeepsTheOpenProjectAndRefreshesItsSessions() = runTest {
-        modeFlow.value = ViewMode.PROJECTS
         coEvery { sessionRepo.listAllProfiles() } returns listOf(
             repoSession("s1", "/u/andrew/p"),
         )
         val vm = buildVm()
+        advanceUntilIdle()
+        vm.loadProjectTree()
         advanceUntilIdle()
         vm.enterProject(vm.projectsState.value.tree.single { it.id != DEFAULT_PROJECT_ID })
 
@@ -428,7 +470,7 @@ class SessionsViewModelTest {
             repoSession("s1", "/u/andrew/p"),
             repoSession("s2", "/u/andrew/p"),
         )
-        assertTrue(vm.recoverForForeground())
+        assertTrue(vm.recoverProjectsForForeground())
 
         assertEquals("/u/andrew/p", vm.projectsState.value.scope?.id)
         val ids = vm.projectsState.value.scope?.repos?.single()?.lanes?.single()?.sessions

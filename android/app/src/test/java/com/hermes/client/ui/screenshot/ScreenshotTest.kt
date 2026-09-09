@@ -593,42 +593,47 @@ class ScreenshotTest {
         compose.onRoot().captureRoboImage("screenshots/smoke.png", roborazziOptions = options)
     }
 
-    // ── Chats segments: the Bots tab takes the row from three labels to four, and the tightest
-    // case (English at fontScale 1.3) is the one that would otherwise only surface on a device.
-    private fun tabs(bots: Boolean, zh: Boolean) = buildList {
-        add(com.hermes.client.ui.sessions.ViewMode.SESSIONS to if (zh) "会话" else "Chats")
-        add(com.hermes.client.ui.sessions.ViewMode.PROJECTS to if (zh) "项目" else "Projects")
-        if (bots) add(com.hermes.client.ui.sessions.ViewMode.BOTS to if (zh) "机器人" else "Bots")
-        add(com.hermes.client.ui.sessions.ViewMode.ARCHIVED to if (zh) "已归档" else "Archive")
-    }
+    // ── Chats top bar and segments. The four-segment squeeze is gone (Projects and Archive
+    // moved to the overflow menu), so what needs pinning now is the CENTRED title against an
+    // avatar on the left and two actions on the right — the imbalance that only shows on a device.
+    private fun tabs(zh: Boolean) =
+        com.hermes.client.ui.sessions.chatsSegmentModes(showBots = true).map {
+            it to when (it) {
+                com.hermes.client.ui.sessions.ViewMode.SESSIONS -> if (zh) "会话" else "Chats"
+                com.hermes.client.ui.sessions.ViewMode.BOTS -> if (zh) "机器人" else "Bots"
+            }
+        }
 
-    @Test fun segmentsThreeZh() = snap("segments-3-zh") {
+    @Test fun segmentsTwoZh() = snap("segments-2-zh") {
         com.hermes.client.ui.sessions.ChatsSegmentedRow(
-            tabs(bots = false, zh = true), com.hermes.client.ui.sessions.ViewMode.SESSIONS, {},
+            tabs(zh = true), com.hermes.client.ui.sessions.ViewMode.SESSIONS, {},
         )
     }
 
-    @Test fun segmentsFourZh() = snap("segments-4-zh") {
+    @Test fun segmentsTwoEnLargeFontDark() = snap("segments-2-en-fs13-dark", darkTheme = true, fontScale = 1.3f) {
         com.hermes.client.ui.sessions.ChatsSegmentedRow(
-            tabs(bots = true, zh = true), com.hermes.client.ui.sessions.ViewMode.BOTS, {},
+            tabs(zh = false), com.hermes.client.ui.sessions.ViewMode.BOTS, {},
         )
     }
 
-    @Test fun segmentsFourZhLargeFont() = snap("segments-4-zh-fs13", fontScale = 1.3f) {
-        com.hermes.client.ui.sessions.ChatsSegmentedRow(
-            tabs(bots = true, zh = true), com.hermes.client.ui.sessions.ViewMode.BOTS, {},
-        )
-    }
+    private fun topBar(language: com.hermes.client.ui.localization.AppLanguage) =
+        @androidx.compose.runtime.Composable {
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.hermes.client.ui.localization.LocalAppLanguage provides language,
+            ) {
+                com.hermes.client.ui.sessions.ChatsTopBar(
+                    activeProfile = "default",
+                    onOpenCard = {},
+                    onOpenSearch = {},
+                    onOpenProjects = {},
+                    onOpenArchived = {},
+                )
+            }
+        }
 
-    @Test fun segmentsFourEnLargeFont() = snap("segments-4-en-fs13", fontScale = 1.3f) {
-        com.hermes.client.ui.sessions.ChatsSegmentedRow(
-            tabs(bots = true, zh = false), com.hermes.client.ui.sessions.ViewMode.BOTS, {},
-        )
-    }
+    @Test fun chatsTopBarZh() =
+        snap("chats-topbar-zh") { topBar(com.hermes.client.ui.localization.AppLanguage.ZH)() }
 
-    @Test fun segmentsFourEnLargeFontDark() = snap("segments-4-en-fs13-dark", darkTheme = true, fontScale = 1.3f) {
-        com.hermes.client.ui.sessions.ChatsSegmentedRow(
-            tabs(bots = true, zh = false), com.hermes.client.ui.sessions.ViewMode.BOTS, {},
-        )
-    }
+    @Test fun chatsTopBarEnLargeFont() =
+        snap("chats-topbar-en-fs13", fontScale = 1.3f) { topBar(com.hermes.client.ui.localization.AppLanguage.EN)() }
 }

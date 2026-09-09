@@ -68,6 +68,13 @@ class BotSessionsTest {
         assertTrue(showBotsTab(configuredChannelCount = 0, botSessionCount = 4))
     }
 
+    /** Without a channel there is only ONE batch of chats, so the row is absent entirely — the
+     *  Chats screen is then a plain list (docs/DESIGN.md §5.16). */
+    @Test fun the_segment_row_is_empty_without_bots_and_two_wide_with_them() {
+        assertTrue(chatsSegmentModes(showBots = false).isEmpty())
+        assertEquals(listOf(ViewMode.SESSIONS, ViewMode.BOTS), chatsSegmentModes(showBots = true))
+    }
+
     @Test fun bot_sources_stay_inside_the_excluded_set() {
         assertTrue(SessionRepository.EXCLUDED_SOURCES.containsAll(BOT_SOURCES))
     }

@@ -156,13 +156,15 @@ fun HermesNav(
     var pendingSetupCompletion by rememberSaveable { mutableStateOf<Long?>(null) }
     var setupRepairInProgress by rememberSaveable { mutableStateOf(false) }
 
-    fun openCanonicalChat(route: String) {
+    // A chat is a LEAF of the hub it was opened from — Chats, Projects or Archived — never
+    // another layer on top of a previous chat/search/detail destination. That keeps back
+    // deterministic (one press returns to the list you were browsing, and browsing a project's
+    // chats does not bounce you home each time), and normalizes stacks restored after process
+    // death. [anchor] names that hub; it must be on the back stack.
+    fun openCanonicalChat(route: String, anchor: String = "sessions") {
         CrashReporter.breadcrumb("nav", "open ${diagnosticRoute(route)}")
         nav.navigate(route) {
-            // A chat is a leaf of the single Sessions root, never another layer on top of a
-            // previous chat/search/detail destination. This also normalizes stacks restored after
-            // process death and makes system back deterministic: one press always returns home.
-            popUpTo("sessions") { inclusive = false }
+            popUpTo(anchor) { inclusive = false }
             launchSingleTop = true
             restoreState = false
         }
@@ -270,9 +272,19 @@ fun HermesNav(
     // Pushed screens navigate "up"; their top-bar nav icon (formerly the drawer hamburger) is a
     // back arrow wired to this.
     val back: () -> Unit = { nav.popBackStack() }
-    val backToSessions: () -> Unit = {
-        CrashReporter.breadcrumb("nav", "chat back -> sessions")
-        if (!nav.popBackStack("sessions", inclusive = false)) {
+    // Back out of a chat, to the LIST it was opened from. The chat sits directly on its hub
+    // (see openCanonicalChat), so the entry beneath it is that hub — Chats, Projects or
+    // Archived. This is the chat's top-bar arrow AND its system-back handler AND where it goes
+    // after archiving or moving a conversation away, so all three must agree. A stack restored
+    // without a hub beneath falls back to a fresh Chats root.
+    val backToList: () -> Unit = {
+        val hub = nav.previousBackStackEntry?.destination?.route
+        CrashReporter.breadcrumb("nav", "chat back -> ${hub ?: "sessions"}")
+        val landed = when (hub) {
+            "projects", "archived" -> nav.popBackStack()
+            else -> nav.popBackStack("sessions", inclusive = false)
+        }
+        if (!landed) {
             nav.navigate("sessions") {
                 popUpTo(nav.graph.startDestinationId) { inclusive = true }
                 launchSingleTop = true
@@ -369,12 +381,41 @@ fun HermesNav(
                     onOpen = openChat,
                     onOpenCard = openCard,
                     onOpenSearch = { nav.navigate("search") { launchSingleTop = true } },
+                    onOpenProjects = { push("projects") },
+                    onOpenArchived = { push("archived") },
                     onOpenCron = { push("cron") },
                     onOpenMessaging = { push("messaging") },
                     onOpenBotSession = { id, profile ->
                         push("bot_transcript/$id?profile=${profile.orEmpty()}")
                     },
                     onUnauthorized = onUnauthorized,
+                )
+            }
+            // Projects and Archived SHARE the Chats ViewModel, deliberately: it owns the socket
+            // restore, the event collector and the cross-profile session list, and a second
+            // instance would silently duplicate all of it. Never `hiltViewModel()` here.
+            composable("projects") { entry ->
+                val vm: SessionsViewModel = hiltViewModel(remember(entry) { nav.getBackStackEntry("sessions") })
+                DisposableEffect(foregroundRecovery, vm) {
+                    foregroundRecovery?.register("projects") { vm.recoverProjectsForForeground() }
+                    onDispose { foregroundRecovery?.unregister("projects") }
+                }
+                com.hermes.client.ui.sessions.ProjectsScreen(
+                    vm = vm,
+                    onBack = back,
+                    onOpen = { target -> openCanonicalChat(chatRoute(target), anchor = "projects") },
+                )
+            }
+            composable("archived") { entry ->
+                val vm: SessionsViewModel = hiltViewModel(remember(entry) { nav.getBackStackEntry("sessions") })
+                DisposableEffect(foregroundRecovery, vm) {
+                    foregroundRecovery?.register("archived") { vm.recoverArchivedForForeground() }
+                    onDispose { foregroundRecovery?.unregister("archived") }
+                }
+                com.hermes.client.ui.sessions.ArchivedScreen(
+                    vm = vm,
+                    onBack = back,
+                    onOpen = { target -> openCanonicalChat(chatRoute(target), anchor = "archived") },
                 )
             }
             composable(
@@ -426,7 +467,7 @@ fun HermesNav(
                     isNewSession = entry.arguments?.getBoolean("new") ?: false,
                     initialQuery = entry.arguments?.getString("q"),
                     vm = vm,
-                    onMenu = backToSessions,
+                    onMenu = backToList,
                     onSearchAll = { q -> nav.navigate("search?q=${Uri.encode(q)}") { launchSingleTop = true } },
                     onNewChat = { id ->
                         openCanonicalChat(chatRoute(ChatLaunch.new(id)))

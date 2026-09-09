@@ -18,8 +18,6 @@ import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SessionRepository
-import com.hermes.client.data.repository.ViewModeStore
-import com.hermes.client.ui.sessions.ViewMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -103,7 +101,6 @@ class StartupViewModel @Inject constructor(
     private val profiles: ProfileManager,
     private val rest: HermesRestApi,
     private val models: ModelRepository,
-    private val viewModes: ViewModeStore,
     private val runtimes: SessionRuntimeStore,
     private val foregroundRecovery: ForegroundRecoveryCoordinator,
     private val accountSessions: AccountSessionManager? = null,
@@ -515,16 +512,10 @@ class StartupViewModel @Inject constructor(
         foregroundRecovery.recoverActive() ?: recoverActiveDestinationFallback()
 
     private suspend fun recoverActiveDestinationFallback(): Boolean = when (val destination = activeDestination) {
-        StartupDestination.Sessions -> when (viewModes.mode.first()) {
-            ViewMode.ARCHIVED -> {
-                sessions.archivedAllProfiles()
-                true
-            }
-            // Bots reads the same cross-profile list, then filters by source client-side.
-            ViewMode.SESSIONS, ViewMode.PROJECTS, ViewMode.BOTS -> {
-                sessions.listAllProfiles()
-                true
-            }
+        // Both segments read the same cross-profile list; Bots filters by source client-side.
+        StartupDestination.Sessions -> {
+            sessions.listAllProfiles()
+            true
         }
         StartupDestination.Search -> {
             sessions.listAllProfiles()

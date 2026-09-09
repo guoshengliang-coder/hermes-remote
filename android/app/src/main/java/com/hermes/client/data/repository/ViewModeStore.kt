@@ -22,10 +22,10 @@ class ViewModeStore(private val context: Context) {
         // instead of crashing the Chats screen.
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
         .map { prefs ->
+            // Installs upgraded from the four-segment layout have "PROJECTS"/"ARCHIVED" persisted
+            // here; the else branch lands them on the session list, so no migration is needed.
             when (prefs[key]) {
-                ViewMode.PROJECTS.name -> ViewMode.PROJECTS
                 ViewMode.BOTS.name -> ViewMode.BOTS
-                ViewMode.ARCHIVED.name -> ViewMode.ARCHIVED
                 else -> ViewMode.SESSIONS
             }
         }
