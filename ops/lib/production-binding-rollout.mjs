@@ -70,7 +70,7 @@ export async function executeProductionBindingRollout(config, options = {}) {
   if (!satisfiesProductionNginxContract(releaseConfig, previousNginxText)) {
     fail("binding_rollout_nginx_contract_invalid", "production_binding_rollout_preflight");
   }
-  await requireCommittedEmailRollout(releaseConfig, currentManifest);
+  await requireCommittedEmailRollout(releaseConfig);
 
   const material = {
     appToken: (await safeSecretFile(releaseConfig.secrets.appTokenSource)).toString("utf8").trim(),
@@ -271,14 +271,14 @@ async function verifyCommon({ config, releaseConfig, activeSlot, currentManifest
   }
 }
 
-async function requireCommittedEmailRollout(releaseConfig, currentManifest) {
+async function requireCommittedEmailRollout(releaseConfig) {
   const value = JSON.parse((await safeManagedFile(
     path.join(releaseConfig.paths.stateRoot, "ops", "account-rollout.json"),
     64 * 1024,
   )).toString("utf8"));
   if (value?.kind !== "hermes-go-production-account-rollout-v1" || value?.stage !== "committed"
-      || value.serverVersion !== currentManifest.serverVersion || value.sourceCommit !== currentManifest.sourceCommit
-      || value.databaseSchemaVersion !== 15) {
+      || !/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/.test(value?.serverVersion ?? "")
+      || !/^[0-9a-f]{40}$/.test(value?.sourceCommit ?? "") || value.databaseSchemaVersion !== 15) {
     fail("binding_rollout_email_checkpoint_invalid", "production_binding_rollout_preflight");
   }
 }

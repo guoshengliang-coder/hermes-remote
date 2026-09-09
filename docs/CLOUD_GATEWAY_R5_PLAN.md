@@ -262,7 +262,8 @@ SHA-256 为 `53176188f59ac271c3d2fa574d109eadeb70839e85b482aeb7d95303d606a5d4`�
 Desktop 托管安装均未启用。生产监控复跑通过，最近异机加密备份的本地/异机哈希与 87,632 字节一致。
 
 0.4.14 代码阶段增加 R5-F3 单 Mac 绑定灰度入口。运维 bundle schema v5 固定
-`scripts/production-binding-rollout.mjs`，入口只接受上述 committed 邮箱态和同一活动制品，安装独立的
+`scripts/production-binding-rollout.mjs`，入口只接受首次 committed 邮箱 checkpoint、当前 schema-15
+活动制品和由常规发版逐代保留的现场精确邮箱态，安装独立的
 binding/V2 WebSocket Nginx include，并仅把 `ACCOUNT_BINDING_ENABLED` 与
 `ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED` 切为 `1`。两轮门禁要求 schema 15/PostgreSQL 18 readiness、
 邮箱-only provider、单 Mac 上限、`hermes-serve-v1`、未认证 binding 为 401、公开 WebSocket 101、legacy
