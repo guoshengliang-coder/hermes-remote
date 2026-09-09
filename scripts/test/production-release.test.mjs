@@ -13,6 +13,7 @@ import { loadManagedBaselineConfig } from "../../ops/lib/managed-baseline-config
 import { renderEmailRolloutEnvironment } from "../../ops/lib/production-account-rollout.mjs";
 import {
   inspectProductionReleaseEnvironment,
+  renderBindingRolloutEnvironment,
   renderProductionReleaseEnvironment,
 } from "../../ops/lib/production-release-environment.mjs";
 import {
@@ -101,6 +102,23 @@ test("R5-F1 preserves the exact email-only runtime while changing only the candi
   );
 });
 
+test("R5-F1 recognizes and preserves the exact single-Mac binding runtime", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  await writeEmailEnvironment(config, "blue");
+  const email = await inspectProductionReleaseEnvironment(config, "blue");
+  const bindingEnvironment = renderBindingRolloutEnvironment(config, "blue", email);
+  await writeFile(environmentPath(config, "blue"), bindingEnvironment, { mode: 0o600 });
+  const inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  assert.equal(inspected.mode, "email_binding");
+  const candidate = renderProductionReleaseEnvironment(config, "green", inspected);
+  assert.match(candidate, /^PORT=18788$/m);
+  assert.match(candidate, /^ACCOUNT_BINDING_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_MULTI_DEVICE_ENABLED=0$/m);
+  assert.match(candidate, /^ACCOUNT_DEVICE_SHARING_ENABLED=0$/m);
+});
+
 test("R5-F1 rejects email-mode schema changes and post-admission environment drift", async (t) => {
   const fixture = await createFixture(t);
   const config = await loadManagedBaselineConfig(fixture.configPath);
@@ -166,6 +184,42 @@ test("R5-F1 email smoke requires the narrow public and disabled private binding 
       }
       return new Response("{}", { status: 401 });
     }),
+    (error) => error?.technicalCause === "production_release_email_capabilities_invalid",
+  );
+});
+
+test("R5-F1 binding smoke requires singular binding and the managed runtime contract", async () => {
+  const requests = [];
+  const fetchImpl = async (url) => {
+    requests.push(new URL(url).pathname);
+    const pathname = new URL(url).pathname;
+    if (pathname === "/v2/capabilities") return jsonResponse(bindingCapabilities());
+    if (pathname === "/v2/account" || pathname === "/v2/connector-binding") {
+      return new Response("{}", { status: 401 });
+    }
+    assert.fail(`unexpected URL ${url}`);
+  };
+  await verifyPreservedEmailSurface(
+    { gatewayUrl: "https://gateway.example.com", publicRoute: true },
+    fetchImpl,
+    { bindingEnabled: true },
+  );
+  assert.deepEqual(requests, ["/v2/capabilities", "/v2/account", "/v2/connector-binding"]);
+
+  await assert.rejects(
+    () => verifyPreservedEmailSurface(
+      { gatewayUrl: "https://gateway.example.com", publicRoute: true },
+      async (url) => {
+        const pathname = new URL(url).pathname;
+        if (pathname === "/v2/capabilities") {
+          const value = bindingCapabilities();
+          value.desktopBootstrap.runtimeContract = "other-contract";
+          return jsonResponse(value);
+        }
+        return new Response("{}", { status: 401 });
+      },
+      { bindingEnabled: true },
+    ),
     (error) => error?.technicalCause === "production_release_email_capabilities_invalid",
   );
 });
@@ -770,6 +824,14 @@ function emailCapabilities() {
     },
     binding: { enabled: false, replacement: false, maxActiveConnectorsPerAccount: 1 },
     legacy: { appTokenAccepted: true, connectorTokenAccepted: true },
+  };
+}
+
+function bindingCapabilities() {
+  return {
+    ...emailCapabilities(),
+    binding: { enabled: true, replacement: true, maxActiveConnectorsPerAccount: 1 },
+    desktopBootstrap: { runtimeContract: "hermes-serve-v1" },
   };
 }
 

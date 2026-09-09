@@ -601,15 +601,50 @@ non-default internal port and waits for Docker `healthy`. Binding rollout remain
 released through the normal versioned blue/green path and the replacement container reports `healthy`; do not
 weaken or bypass the health gate.
 
-The routine production release path now accepts only two exact active-slot environments: the original account-off
-managed baseline, or the committed email-OTP-only rollout. In email mode it copies the allowlisted environment to
-the candidate while changing only the slot `PORT`, requires the source and target manifests to declare the same
+The routine production release path now accepts only three exact active-slot environments: the original account-off
+managed baseline, the committed email-OTP-only rollout, or the later committed single-Mac binding rollout. In either
+account mode it copies the allowlisted environment to the candidate while changing only the slot `PORT`, requires
+the source and target manifests to declare the same
 database schema, re-hashes the active environment before the source is stopped, and checks both candidate and
-public capabilities. Email must remain the sole provider; binding, multi-device, sharing, identity management, Web
-sessions, account deletion, Google and Desktop managed install must remain absent or disabled. Any extra field,
-permission drift, changed value, schema change or wider advertised surface aborts before traffic movement. A
+public capabilities. Email must remain the sole provider; binding and Desktop managed install must preserve their
+exact prior state, while multi-device, sharing, identity management, Web sessions, account deletion and Google must
+remain absent or disabled. Any extra field, permission drift, changed value, schema change or wider advertised
+surface aborts before traffic movement. A
 schema-changing account release still requires the dedicated migration/restore workflow; the routine release must
 not be used to bypass it.
+
+## Production single-Mac binding gray rollout (R5-F3; code gate only)
+
+Gateway 0.4.14 adds a second, separately confirmed transition after R5-F2. It does not migrate the database or add
+another identity provider. It requires the exact committed email-rollout journal and active release, then enables
+only Connector binding and Desktop managed-install capability. The account continues to own at most one active Mac;
+multi-device selection, sharing, identity management, Web sessions, deletion, and Google remain disabled. Legacy App
+and Connector tokens stay accepted throughout the test window.
+
+Prepare a root-only `0600` configuration from `ops/production.binding-rollout.example.json`, validate it against
+`ops/hermes-go-production-binding-rollout-config.schema.json`, and run only from the matching immutable schema-5
+operator bundle:
+
+```bash
+node scripts/production-binding-rollout.mjs \
+  --config /secure-input/hermes-go/production-binding-rollout.json \
+  --confirm production:<configured-hostname>
+```
+
+The operator proves the email-only runtime and committed R5-F2 checkpoint before mutation. It adds an independent
+Nginx include for `/v2/connector-binding`, its child routes, and the exact `/v2/connect` WebSocket; runs `nginx -t`;
+restarts only the active Gateway; and verifies twice that readiness is schema 15/PostgreSQL 18, email remains the
+only provider, binding is singular, Desktop advertises `hermes-serve-v1`, unauthenticated binding is 401, the public
+WebSocket upgrades with 101, the legacy Hermes route remains healthy, and release identity is unchanged. Any live
+failure restores the previous environment and Nginx file byte-for-byte, removes the binding include, restarts the
+Gateway in email-only mode, and verifies public/private binding are again 404/503 and WebSocket is absent.
+`HR-OPS-021` names all failures; inspect `/var/lib/hermes-go/ops/binding-rollout.json` before retrying.
+
+Do not execute this transition until the 0.4.14 PR and post-merge CI/OCI/manual gates pass, the signed Desktop
+component manifest is hosted at its exact HTTPS paths, and the target Mac has a configured Desktop build. After the
+operator commits, perform one explicit target-Mac migration while the legacy Connector rollback point is healthy.
+Record artifact identities, the binding run ID, target-Mac journal, account binding generation, and rollback evidence
+in this section. Source merge or artifact upload alone does not authorize capability enablement.
 
 ## Edge JSON compression (2026-09-07, authorized)
 

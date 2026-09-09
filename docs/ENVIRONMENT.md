@@ -205,6 +205,14 @@ effective only when `ACCOUNT_AUTH_ENABLED=1` and remains `0` until
 the binding, account-aware routing, Connector V2 handshake, and rollback gates pass. It never
 changes or disables the legacy `/v1/connect` or App/Connector Token paths.
 
+The first production binding gray must use the immutable operator bundle's
+`scripts/production-binding-rollout.mjs`; do not hand-edit the live slot environment or Nginx site.
+It accepts only the already-committed email-only runtime, enables binding plus
+`ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED`, keeps the owned-Mac limit at one, and exposes only the
+singular binding HTTP tree and `/v2/connect` WebSocket. Multi-device, sharing, identity management,
+Web, deletion, and Google remain off. A failed live check restores the exact email-only environment
+and Nginx bytes and returns `HR-OPS-021`.
+
 `ACCOUNT_MULTI_DEVICE_ENABLED` is the independent, default-off E3 switch and requires
 `ACCOUNT_BINDING_ENABLED=1`. When off, the transactional ownership limit and advertised capability
 remain one active Connector. When on, one account may reserve/activate at most three owned Macs;
