@@ -250,13 +250,17 @@ async function verifyCommon({ config, releaseConfig, activeSlot, currentManifest
     fail("binding_rollout_service_inactive", "production_binding_rollout_verify");
   }
   const loopback = `http://127.0.0.1:${releaseConfig.slots[activeSlot].gatewayPort}`;
-  await verifyPreservedEmailSurface({ gatewayUrl: config.gateway.origin, publicRoute: true }, fetchImpl, { bindingEnabled });
-  await verifyPreservedEmailSurface({ gatewayUrl: loopback, publicRoute: false }, fetchImpl, { bindingEnabled });
   const readiness = await fetchJsonRetry(fetchImpl, `${loopback}/readyz`, {}, sleep);
   if (readiness?.status !== "ready" || readiness?.checks?.database !== "ok"
       || readiness?.checks?.migrations !== "ok" || readiness?.checks?.postgresql !== "supported") {
     fail("binding_rollout_readiness_invalid", "production_binding_rollout_verify");
   }
+  await verifyPreservedEmailSurfaceRetry(
+    { gatewayUrl: config.gateway.origin, publicRoute: true }, fetchImpl, { bindingEnabled }, sleep,
+  );
+  await verifyPreservedEmailSurfaceRetry(
+    { gatewayUrl: loopback, publicRoute: false }, fetchImpl, { bindingEnabled }, sleep,
+  );
   const status = await fetchJsonRetry(fetchImpl, `${config.gateway.origin}/api/status`, {
     headers: { "x-hermes-session-token": material.appToken },
   }, sleep);
@@ -269,6 +273,20 @@ async function verifyCommon({ config, releaseConfig, activeSlot, currentManifest
   if (version?.serverVersion !== currentManifest.serverVersion || version?.sourceCommit !== currentManifest.sourceCommit) {
     fail("binding_rollout_release_identity_mismatch", "production_binding_rollout_verify");
   }
+}
+
+async function verifyPreservedEmailSurfaceRetry(request, fetchImpl, options, sleep) {
+  let lastError;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      await verifyPreservedEmailSurface(request, fetchImpl, options);
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < 19) await sleep(250);
+  }
+  throw lastError;
 }
 
 async function requireCommittedEmailRollout(releaseConfig) {

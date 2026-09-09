@@ -640,6 +640,9 @@ only provider, binding is singular, Desktop advertises `hermes-serve-v1`, unauth
 WebSocket upgrades with 101, the legacy Hermes route remains healthy, and release identity is unchanged. Any live
 failure restores the previous environment and Nginx file byte-for-byte, removes the binding include, restarts the
 Gateway in email-only mode, and verifies public/private binding are again 404/503 and WebSocket is absent.
+Each post-restart verification waits first for bounded loopback readiness and then retries the preserved public and
+private account surface for bounded Nginx/Gateway convergence; a transient startup 502/503 is not treated as a
+binding failure while a persistent mismatch still fails closed.
 `HR-OPS-021` names all failures; inspect `/var/lib/hermes-go/ops/binding-rollout.json` before retrying.
 
 Do not execute this transition until the 0.4.14 PR and post-merge CI/OCI/manual gates pass, the signed Desktop
