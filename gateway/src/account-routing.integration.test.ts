@@ -114,6 +114,7 @@ test("account V2 Connector isolates routing, health, and per-phone lifecycle rec
     const origin = `http://127.0.0.1:${port}`;
     const appToken = "routing-legacy-app-token";
     const connectorToken = "routing-legacy-connector-token";
+    const internalStatusToken = "routing-internal-status-token";
     child = spawn(process.execPath, ["dist/index.js"], {
       cwd: process.cwd(),
       env: {
@@ -122,6 +123,7 @@ test("account V2 Connector isolates routing, health, and per-phone lifecycle rec
         PORT: String(port),
         APP_TOKEN: appToken,
         CONNECTOR_TOKEN: connectorToken,
+        INTERNAL_STATUS_TOKEN: internalStatusToken,
         DEFAULT_DEVICE_ID: sharedDeviceId,
         ACCOUNT_AUTH_ENABLED: "1",
         ACCOUNT_BINDING_ENABLED: "1",
@@ -190,6 +192,23 @@ test("account V2 Connector isolates routing, health, and per-phone lifecycle rec
     }));
     const ready = await nextMessage(accountConnector, "connector.ready");
     assert.equal(ready.routingEnabled, true);
+
+    const firstConnectorStatusResponse = await fetch(`${origin}/internal/account-connectors`, {
+      headers: { authorization: `Bearer ${internalStatusToken}` },
+    });
+    assert.equal(firstConnectorStatusResponse.status, 200);
+    const firstConnectorStatus = await firstConnectorStatusResponse.json() as {
+      legacyOnline: number;
+      accountOnline: number;
+      connectors: Array<{ bindingId: string; deviceId: string; generation: number; connectedAt: string }>;
+    };
+    assert.equal(firstConnectorStatus.legacyOnline, 0);
+    assert.equal(firstConnectorStatus.accountOnline, 1);
+    assert.deepEqual(
+      firstConnectorStatus.connectors.map(({ bindingId: id, deviceId, generation }) => ({ id, deviceId, generation })),
+      [{ id: bindingId, deviceId: sharedDeviceId, generation: 1 }],
+    );
+    assert.equal(Number.isFinite(Date.parse(firstConnectorStatus.connectors[0]?.connectedAt ?? "")), true);
 
     const unauthenticated = await openSocket(`ws://127.0.0.1:${port}/v2/connect`);
     sockets.push(unauthenticated);
@@ -305,6 +324,26 @@ test("account V2 Connector isolates routing, health, and per-phone lifecycle rec
     }));
     await nextMessage(secondConnector, "connector.ready");
     attachMockConnector(secondConnector, "account-second");
+
+    const connectorStatusResponse = await fetch(`${origin}/internal/account-connectors`, {
+      headers: { authorization: `Bearer ${internalStatusToken}` },
+    });
+    assert.equal(connectorStatusResponse.status, 200);
+    const connectorStatus = await connectorStatusResponse.json() as {
+      legacyOnline: number;
+      accountOnline: number;
+      connectors: Array<{ bindingId: string; deviceId: string; generation: number }>;
+    };
+    assert.equal(connectorStatus.legacyOnline, 1);
+    assert.equal(connectorStatus.accountOnline, 2);
+    const connectorRows = new Map(connectorStatus.connectors.map((item) => [item.bindingId, item]));
+    assert.deepEqual(
+      [...connectorRows.entries()].map(([id, { deviceId, generation }]) => ({ id, deviceId, generation })),
+      [
+        { id: bindingId, deviceId: sharedDeviceId, generation: 1 },
+        { id: bindingId2, deviceId: secondDeviceId, generation: 2 },
+      ].sort((left, right) => left.id.localeCompare(right.id)),
+    );
 
     const devicesResponse = await fetch(`${origin}/v2/devices`, {
       headers: { authorization: `Bearer ${accessA}` },

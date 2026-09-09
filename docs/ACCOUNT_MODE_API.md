@@ -488,6 +488,20 @@ identifier. A null `lastAttemptAt` is normal during the 60-second startup delay.
 the scheduler retries on its next six-hour interval. This endpoint also remains absent from public
 Nginx routing.
 
+### Internal live-Connector snapshot
+
+Authenticated loopback operations may call `GET /internal/account-connectors` with the same
+`INTERNAL_STATUS_TOKEN`. It reports the independently counted legacy and account-mode live
+connections. Each account-mode row contains only its binding UUID, public device ID, binding
+generation, and the time the current WebSocket was registered. It never returns an account ID,
+installation ID, email address, credential, public key, Hermes content, or network address.
+
+`connectedAt` is a connection-age signal, not a durable last-seen record. The authenticated
+`GET /v2/devices` account view remains the source of truth for persisted `lastSeenAt` and end-to-end
+health. A zero `accountOnline` value while a migrated Desktop claims `account_active` is a rollout
+failure; an expected legacy Connector does not make account mode healthy merely because
+`legacyOnline` is nonzero. This endpoint must remain absent from public Nginx routing.
+
 ### `POST /v2/auth/revoke-all`
 
 Requires the current access token, an `Idempotency-Key` UUID, and a fresh `account.revoke_all`
