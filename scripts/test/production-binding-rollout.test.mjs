@@ -82,18 +82,32 @@ test("live surface verification pins readiness, legacy continuity, routes, and W
   const fixture = await createFixture(t);
   const calls = [];
   let bindingEnabled = true;
+  let ready = false;
+  let publicCapabilityAttempts = 0;
+  let transientPublicFailures = 1;
   const fetchImpl = async (url, init = {}) => {
     const parsed = new URL(url);
-    if (parsed.pathname === "/v2/capabilities") return jsonResponse(capabilities(bindingEnabled));
+    if (parsed.pathname === "/v2/capabilities") {
+      if (parsed.protocol === "https:") {
+        publicCapabilityAttempts += 1;
+        if (!ready || transientPublicFailures-- > 0) {
+          return new Response("starting", { status: 503 });
+        }
+      }
+      return ready ? jsonResponse(capabilities(bindingEnabled)) : new Response("starting", { status: 503 });
+    }
     if (parsed.pathname === "/v2/account") return new Response("{}", { status: 401 });
     if (parsed.pathname === "/v2/connector-binding") {
       if (bindingEnabled) return new Response("{}", { status: 401 });
       return new Response("{}", { status: parsed.protocol === "https:" ? 404 : 503 });
     }
-    if (parsed.pathname === "/readyz") return jsonResponse({
-      status: "ready",
-      checks: { database: "ok", migrations: "ok", postgresql: "supported" },
-    });
+    if (parsed.pathname === "/readyz") {
+      ready = true;
+      return jsonResponse({
+        status: "ready",
+        checks: { database: "ok", migrations: "ok", postgresql: "supported" },
+      });
+    }
     if (parsed.pathname === "/api/status") {
       assert.equal(new Headers(init.headers).get("x-hermes-session-token"), "legacy-app-token");
       return jsonResponse({ overall: "ok", gateway_running: true });
@@ -118,8 +132,12 @@ test("live surface verification pins readiness, legacy continuity, routes, and W
     material: { appToken: "legacy-app-token", internalStatusToken: "internal-status-token" },
   };
   await verifyBindingSurface({ ...request, probeWebSocket: async () => true });
+  assert.equal(publicCapabilityAttempts, 2);
   bindingEnabled = false;
+  ready = false;
+  transientPublicFailures = 1;
   await verifyEmailOnlySurface({ ...request, probeWebSocket: async () => false });
+  assert.equal(publicCapabilityAttempts, 4);
 });
 
 test("a failed binding verification restores exact email-only environment and Nginx", async (t) => {
