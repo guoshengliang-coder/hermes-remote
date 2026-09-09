@@ -106,6 +106,18 @@ public struct HTTPHealthProber {
         self.session = session
     }
 
+    static func loopbackDirect() -> HTTPHealthProber {
+        HTTPHealthProber(session: URLSession(configuration: loopbackDirectConfiguration()))
+    }
+
+    static func loopbackDirectConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        // A system HTTP/PAC proxy may otherwise receive requests for 127.0.0.1. Candidate
+        // readiness must prove the process on this Mac, never a proxy response or timeout.
+        configuration.connectionProxyDictionary = [:]
+        return configuration
+    }
+
     public func probeRelay(_ url: URL) async -> ProbeResult {
         await probe(url, kind: .relay)
     }

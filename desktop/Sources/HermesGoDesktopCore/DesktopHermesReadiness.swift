@@ -43,7 +43,11 @@ public struct DesktopHermesCandidateReadinessChecker: DesktopHermesCandidateRead
     private static let maximumNewLogBytes: UInt64 = 64 * 1024
     private let prober: HTTPHealthProber
 
-    public init(prober: HTTPHealthProber = HTTPHealthProber()) {
+    public init() {
+        prober = .loopbackDirect()
+    }
+
+    public init(prober: HTTPHealthProber) {
         self.prober = prober
     }
 
