@@ -50,6 +50,9 @@ pass, and the legacy connection remains available. Local evidence and remaining 
 - Existing legacy installs and any unknown service on loopback port 9119 remain read-only. A clean
   Mac can reach managed Bootstrap only in an explicitly configured build against a matching Gateway;
   the default packaged app cannot download or install anything.
+- The app declares macOS local-network ATS access so its `URLSession` health probes can reach the
+  pinned loopback Hermes endpoint on macOS 14 and later. Public HTTP remains disallowed; the exception
+  does not enable arbitrary network or WebView loads.
 - Managed takeover requires exact user confirmation and never runs the legacy and account Connector
   labels together.
 - Download/verification occurs before the exact version confirmation and cannot mutate installation,

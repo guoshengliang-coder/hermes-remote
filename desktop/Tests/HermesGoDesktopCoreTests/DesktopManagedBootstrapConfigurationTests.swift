@@ -3,6 +3,23 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopManagedBootstrapConfigurationTests: XCTestCase {
+    func testPackagedAppAllowsLocalHealthChecksWithoutDisablingPublicATS() throws {
+        let desktopRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let plistURL = desktopRoot.appendingPathComponent("Packaging/Info.plist")
+        let data = try Data(contentsOf: plistURL)
+        let object = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        )
+        let ats = try XCTUnwrap(object["NSAppTransportSecurity"] as? [String: Any])
+
+        XCTAssertEqual(ats["NSAllowsLocalNetworking"] as? Bool, true)
+        XCTAssertNil(ats["NSAllowsArbitraryLoads"])
+        XCTAssertNil(ats["NSAllowsArbitraryLoadsInWebContent"])
+    }
+
     func testRuntimeContractFreezesOfficialLoopbackServeInterface() {
         let contract = DesktopHermesRuntimeContract.serveV1
 
