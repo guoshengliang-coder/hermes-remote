@@ -16,7 +16,7 @@ const manifest = {
 };
 
 test("candidate base waits for Docker healthy after HTTP readiness", async () => {
-  const dockerStatuses = ["starting", "healthy"];
+  const dockerStatuses = [...Array(74).fill("starting"), "healthy"];
   const sleeps = [];
   await verifyCandidateBase(config, manifest, "green", "internal-token", {
     fetchImpl: healthyGateway,
@@ -24,7 +24,8 @@ test("candidate base waits for Docker healthy after HTTP readiness", async () =>
     sleep: async (milliseconds) => sleeps.push(milliseconds),
   });
   assert.deepEqual(dockerStatuses, []);
-  assert.deepEqual(sleeps, [1_000]);
+  assert.equal(sleeps.length, 74);
+  assert(sleeps.every((milliseconds) => milliseconds === 1_000));
 });
 
 test("candidate base rejects Docker unhealthy even when HTTP is ready", async () => {
@@ -43,7 +44,7 @@ test("candidate base rejects a container without a usable health status", async 
   await assert.rejects(
     () => verifyCandidateBase(config, manifest, "green", "internal-token", {
       fetchImpl: healthyGateway,
-      runner: dockerRunner(Array(45).fill("absent")),
+      runner: dockerRunner(Array(75).fill("absent")),
       sleep: async () => {},
     }),
     (error) => error?.technicalCause === "candidate_container_health_timeout=absent"

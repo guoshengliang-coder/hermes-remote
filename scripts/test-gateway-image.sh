@@ -122,7 +122,7 @@ if [ "$gateway_ready" -ne 1 ]; then
 fi
 
 container_healthy=0
-for _ in $(seq 1 45); do
+for _ in $(seq 1 75); do
   container_health=$(docker container inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}absent{{end}}' "$container_name" 2>/dev/null || true)
   case "$container_health" in
     healthy) container_healthy=1; break ;;

@@ -463,6 +463,11 @@ links, `committed`. **The Nginx site file is never rewritten by a release** — 
 and a failure after the live slot stopped restores that slot, the upstream, the release links and the
 lifecycle state, then re-verifies the public route (`HR-OPS-016`).
 
+Candidate admission first requires successful loopback liveness, readiness and version probes, then waits up
+to 75 seconds for Docker's independent health state. The wider bound covers the image's 10-second start period
+and two 30-second scheduler intervals on a loaded host; `unhealthy` still fails immediately, and `starting` at
+the deadline remains a hard failure before any traffic switch.
+
 `--operation rollback` is the same machine pointed at the release behind `previous`; the configuration's
 `targetArtifactManifest` must name that exact bundle (keep the previous bundle on the host) and a `previous`
 that is still the legacy descriptor is refused — that case is an R5-B recovery, not a slot rollback.
