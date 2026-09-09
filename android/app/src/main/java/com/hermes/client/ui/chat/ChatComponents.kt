@@ -1439,8 +1439,8 @@ internal fun UserBubble(
                         add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制", "Copy")) {
                             copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied"))
                         })
-                        add(MessageAction(Icons.Rounded.Edit, localized(language, "编辑并重新发送", "Edit & resend")) { onEditResend(msg.text) })
                         add(MessageAction(Icons.Rounded.SelectAll, localized(language, "选择文本", "Select text")) { selectingText = true })
+                        add(MessageAction(Icons.Rounded.Edit, localized(language, "编辑并重新发送", "Edit & resend")) { onEditResend(msg.text) })
                         if (failed && sendDiagnostic != null) {
                             add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制诊断信息", "Copy diagnostics")) {
                                 copyToClipboard(sendDiagnostic, clipboard, context, localized(language, "诊断信息已复制", "Diagnostics copied"))
@@ -1999,6 +1999,9 @@ internal fun AssistantTurn(
                     add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制", "Copy")) {
                         copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied"))
                     })
+                    // Second, right after 复制: it is the same intent at a smaller grain, and the
+                    // only way to reach a selection at all. Behind 朗读 it was effectively hidden.
+                    add(MessageAction(Icons.Rounded.SelectAll, localized(language, "选择文本", "Select text")) { selectingText = true })
                     if (canRegenerate) {
                         add(MessageAction(Icons.Rounded.Refresh, localized(language, "重新生成", "Regenerate")) { onRegenerate() })
                         add(MessageAction(Icons.Rounded.SwapHoriz, localized(language, "换个模型重试", "Retry with another model")) { onRetryWithModel() })
@@ -2011,7 +2014,6 @@ internal fun AssistantTurn(
                             ) { if (isSpeaking) onStopReading() else onReadAloud(msg.text) },
                         )
                     }
-                    add(MessageAction(Icons.Rounded.SelectAll, localized(language, "选择文本", "Select text")) { selectingText = true })
                 },
                 onDismiss = { menuOpen = false },
             )
@@ -2840,11 +2842,18 @@ internal fun CodeWithCopy(code: String, language: String?, style: TextStyle) {
 /**
  * Full-screen plain-text selection view. The markdown body is not selectable (SelectionContainer
  * and the markdown renderer's block structure do not compose well), so partial quoting runs
- * through this dialog: the raw text, selectable, scrollable, nothing else.
+ * through this dialog: selectable, scrollable, nothing else.
+ *
+ * It opens on the prose ([readableText]) rather than the markdown source, because the usual reason
+ * to come here is to quote a sentence somewhere else and `**bold**` is not what the reader saw.
+ * The source is one tap away for the times you do want it verbatim.
  */
 @Composable
 private fun TextSelectionDialog(text: String, onDismiss: () -> Unit) {
     val language = LocalAppLanguage.current
+    // Saveable: a rotation mid-selection must not silently swap what you were reading.
+    var showSource by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    val prose = remember(text) { readableText(text) }
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -2870,6 +2879,13 @@ private fun TextSelectionDialog(text: String, onDismiss: () -> Unit) {
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(start = 4.dp),
                     )
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { showSource = !showSource }) {
+                        Text(
+                            if (showSource) localized(language, "显示正文", "Show text")
+                            else localized(language, "显示原文", "Show source"),
+                        )
+                    }
                 }
                 SelectionContainer(
                     Modifier
@@ -2878,7 +2894,7 @@ private fun TextSelectionDialog(text: String, onDismiss: () -> Unit) {
                         .padding(horizontal = 20.dp),
                 ) {
                     Text(
-                        text,
+                        if (showSource) text else prose,
                         style = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, lineHeight = 26.sp),
                         modifier = Modifier.padding(bottom = 24.dp),
                     )
