@@ -616,8 +616,10 @@ not be used to bypass it.
 ## Production single-Mac binding gray rollout (R5-F3; code gate only)
 
 Gateway 0.4.14 adds a second, separately confirmed transition after R5-F2. It does not migrate the database or add
-another identity provider. It requires the exact committed email-rollout journal and active release, then enables
-only Connector binding and Desktop managed-install capability. The account continues to own at most one active Mac;
+another identity provider. It requires the original committed email-rollout journal, the current schema-15 active
+release, and the exact live email-only environment that routine releases preserve; the checkpoint is intentionally
+not rewritten to impersonate each later Gateway release. It then enables only Connector binding and Desktop
+managed-install capability. The account continues to own at most one active Mac;
 multi-device selection, sharing, identity management, Web sessions, deletion, and Google remain disabled. Legacy App
 and Connector tokens stay accepted throughout the test window.
 

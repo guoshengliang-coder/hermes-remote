@@ -45,7 +45,7 @@ test("binding Nginx include exposes only singular binding HTTP and V2 Connector 
   assert.throws(() => installBindingNginxInclude(installed, fixture.releaseConfig, routesPath), isCode);
 });
 
-test("production binding rollout commits only after two enabled verifications", async (t) => {
+test("production binding rollout accepts the original email checkpoint after preserved routine releases", async (t) => {
   const fixture = await createFixture(t);
   const calls = [];
   let emailChecks = 0;
@@ -263,8 +263,8 @@ async function createFixture(t) {
     runId: "email-run",
     stage: "committed",
     activeSlot: "green",
-    serverVersion: currentManifest.serverVersion,
-    sourceCommit: currentManifest.sourceCommit,
+    serverVersion: "0.4.9",
+    sourceCommit: "a".repeat(40),
     databaseSchemaVersion: 15,
     migration: {},
     updatedAt: "2026-09-09T00:00:00.000Z",
