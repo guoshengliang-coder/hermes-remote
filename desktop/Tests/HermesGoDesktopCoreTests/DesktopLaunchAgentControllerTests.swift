@@ -39,6 +39,33 @@ final class DesktopLaunchAgentControllerTests: XCTestCase {
         XCTAssertTrue(runner.mutations().isEmpty)
     }
 
+    func testStopWaitsForLaunchdToConvergeBeforeStartingManagedServices() throws {
+        let runner = ScriptedCommandRunner(statuses: [
+            1, 0, // stopLegacy: account absent, legacy present
+            0, 0, 1, // bootout succeeds; legacy remains visible once, then disappears
+            1, 1, // startAccount: legacy absent, account absent
+            0, 0, 1, // bootstrap succeeds, account present, legacy absent
+        ])
+        let root = URL(fileURLWithPath: "/tmp/test-agents")
+        let controller = try DesktopLaunchAgentController(
+            userID: 501,
+            launchAgentsRoot: root,
+            runner: runner,
+            convergenceAttempts: 3,
+            convergenceDelay: 0
+        )
+
+        try controller.stopLegacy(snapshot: snapshot(root: root, running: true))
+        try controller.startAccount(
+            plistURL: root.appendingPathComponent("com.hermesgo.connector.plist")
+        )
+
+        XCTAssertEqual(runner.mutations(), [
+            ["bootout", "gui/501/com.hermesremote.connector"],
+            ["bootstrap", "gui/501", "/tmp/test-agents/com.hermesgo.connector.plist"],
+        ])
+    }
+
     func testRollbackStopsOnlyAccountThenRestoresExactLegacyPlist() throws {
         let runner = ScriptedCommandRunner(statuses: [
             1, 0, // stopAccount: legacy absent, account present

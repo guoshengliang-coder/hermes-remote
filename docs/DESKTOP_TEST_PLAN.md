@@ -77,6 +77,8 @@ The current automated suite covers:
 - exact legacy/account user LaunchAgent labels, duplicate-Connector prevention, health-gated binding
   confirmation, lost-response idempotency, automatic rollback, ambiguous-commit stop, and restart
   recovery;
+- bounded launchd convergence after every managed bootstrap/bootout, including delayed legacy
+  removal before managed startup or rollback decisions;
 - signed Hermes entrypoint-only plist generation, separate exact Hermes/Connector labels, Hermes-first
   startup, process-specific post-checkpoint ready evidence plus loopback health, bounded/symlink-safe
   log reads, Connector suppression on Hermes timeout, and reverse-order rollback;

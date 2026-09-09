@@ -22,6 +22,8 @@ builds have neither enablement, so the action remains absent and read-only compa
 The migration core now owns separate exact-label Hermes Server and Connector LaunchAgents. It starts
 Hermes first and requires a new process-specific ready marker plus healthy loopback probe before the
 Connector may start; pre-commit rollback stops both managed services before restoring legacy state.
+Each launchd mutation waits for the exact label to converge, so a successful `bootout` whose removal
+finishes asynchronously cannot be mistaken for a failed migration or a completed rollback.
 
 When the Gateway separately advertises `accountDeletion`, Desktop exposes a danger-zone flow that
 requires typed `DELETE`, an explicit permanence acknowledgement, and a fresh email code. It revokes
