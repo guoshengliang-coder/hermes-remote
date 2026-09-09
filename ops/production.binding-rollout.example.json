@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "environment": "production",
+  "operator": "release-operator",
+  "productionReleaseConfig": "/secure-input/hermes-go/production-release.json",
+  "host": {
+    "hostname": "gateway-prod",
+    "architecture": "amd64"
+  },
+  "gateway": {
+    "origin": "https://gateway.example.com",
+    "runtimeContract": "hermes-serve-v1"
+  },
+  "deployment": {
+    "observationSeconds": 30
+  }
+}

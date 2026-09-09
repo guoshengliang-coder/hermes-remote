@@ -135,3 +135,20 @@ key, publish signed/versioned Hermes and Connector archives, Developer ID sign/n
 release, prove the packaged Hermes Server satisfies the frozen runtime/provider contract, authorize
 staging flags, and collect install/upgrade/interruption/rollback evidence on clean supported Macs.
 Physical phone continuity and production rollout remain separate gates.
+
+## 2026-09-09 internal arm64 artifact gate
+
+The approved internal Ed25519 signing key was generated outside the repository with owner-only permissions. From
+clean Hermes GO commit `82c711182f37ba139a359113374bb815746fd575` and clean upstream Hermes commit
+`f159e581c7afd22a5c94652c569e3859f1b994d2`, the release tools produced one internal 0.3.0 arm64 set under
+`~/.hermes-go-releases/internal/0.3.0`: Hermes Server 0.21.0 (289,150,358 bytes, SHA-256
+`bad166c542c4182ba431ced5edc67280eed8be112c00d1bb16ade69e6a091933`) and Connector 0.1.2 (37,061,648
+bytes, SHA-256 `01476c7ebf5b3b3bde2d1dd590f824576e5b52c9232ec5e85bb2331765e3cca6`). The independent public-key verifier
+accepted the manifest, both archives, origin, channel, architecture, sizes, hashes, entrypoints, and tar safety.
+
+An extraction smoke proved bundled arm64 Python 3.11.15 and Node 22.23.2. The signed Hermes entrypoint emitted the
+exact random-port readiness marker and `/api/status` reported 0.21.0 from an isolated empty `HERMES_HOME`; the signed
+Connector reached its expected missing-credential boundary without a missing-runtime/module failure. Raw staging,
+smoke directories, and the release worktree were deleted after verification, leaving only the final signed set and
+protected signing key. HTTPS publication, pinned configured Desktop build, Developer ID/notarization, and physical
+target-Mac migration are still pending; no production flag or running target service changed during this gate.

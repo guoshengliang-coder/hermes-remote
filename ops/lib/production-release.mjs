@@ -262,7 +262,9 @@ export async function verifyReleaseInputs(config, activeSlot, runner, expectedEn
   return runtimeEnvironment;
 }
 
-export async function verifyPreservedEmailSurface(request, fetchImpl = fetch) {
+export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
+  bindingEnabled = false,
+} = {}) {
   const capabilitiesResponse = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/capabilities`);
   if (!capabilitiesResponse?.ok) fail("production_release_email_capabilities_unavailable");
   let capabilities;
@@ -283,26 +285,30 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch) {
       || auth.webAccountCenter !== false
       || auth.accountDeletion === true
       || auth.webSessions === true
-      || binding?.enabled !== false
-      || binding?.replacement !== false
+      || binding?.enabled !== bindingEnabled
+      || binding?.replacement !== bindingEnabled
       || binding?.maxActiveConnectorsPerAccount !== 1
       || Object.hasOwn(binding ?? {}, "supportsDeviceSelection")
       || Object.hasOwn(binding ?? {}, "supportsDeviceSharing")
-      || Object.hasOwn(capabilities ?? {}, "desktopBootstrap")) {
+      || (bindingEnabled
+        ? capabilities?.desktopBootstrap?.runtimeContract !== "hermes-serve-v1"
+        : Object.hasOwn(capabilities ?? {}, "desktopBootstrap"))) {
     fail("production_release_email_capabilities_invalid");
   }
   const account = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/account`);
   if (account?.status !== 401) fail("production_release_email_account_guard_invalid");
   const bindingRoute = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/connector-binding`);
-  const expectedBindingStatus = request.publicRoute === true ? 404 : 503;
+  const expectedBindingStatus = bindingEnabled ? 401 : (request.publicRoute === true ? 404 : 503);
   if (bindingRoute?.status !== expectedBindingStatus) fail("production_release_binding_route_must_stay_absent");
 }
 
 function preserveAccountSurface(smoke, runtimeEnvironment, fetchImpl) {
-  if (runtimeEnvironment.mode !== "email_otp") return smoke;
+  if (!new Set(["email_otp", "email_binding"]).has(runtimeEnvironment.mode)) return smoke;
   return async (request) => {
-    await smoke({ ...request, expectedRuntimeMode: "email_otp" });
-    await verifyPreservedEmailSurface(request, fetchImpl);
+    await smoke({ ...request, expectedRuntimeMode: runtimeEnvironment.mode });
+    await verifyPreservedEmailSurface(request, fetchImpl, {
+      bindingEnabled: runtimeEnvironment.mode === "email_binding",
+    });
   };
 }
 

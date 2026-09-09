@@ -21,11 +21,14 @@ const MANIFEST_V2_KEYS = Object.freeze([...MANIFEST_V1_KEYS, "smokeRuntimeEntry"
 const MANIFEST_V3_KEYS = Object.freeze([...MANIFEST_V2_KEYS, "releaseEntrypoint"]);
 // Schema 4 carries the separately confirmed, fail-closed production email-account rollout.
 const MANIFEST_V4_KEYS = Object.freeze([...MANIFEST_V3_KEYS, "accountRolloutEntrypoint"]);
+// Schema 5 carries the separately confirmed, fail-closed single-Mac binding/Desktop-bootstrap rollout.
+const MANIFEST_V5_KEYS = Object.freeze([...MANIFEST_V4_KEYS, "bindingRolloutEntrypoint"]);
 const MANIFEST_KEYS_BY_SCHEMA = Object.freeze({
   1: MANIFEST_V1_KEYS,
   2: MANIFEST_V2_KEYS,
   3: MANIFEST_V3_KEYS,
   4: MANIFEST_V4_KEYS,
+  5: MANIFEST_V5_KEYS,
 });
 
 export async function loadProductionBaselineBundleManifest(filePath, {
@@ -57,6 +60,9 @@ export async function loadProductionBaselineBundleManifest(filePath, {
     if (raw.schemaVersion >= 4 && raw.accountRolloutEntrypoint !== "scripts/production-account-rollout.mjs") {
       fail("bundle_account_rollout_entrypoint_invalid");
     }
+    if (raw.schemaVersion >= 5 && raw.bindingRolloutEntrypoint !== "scripts/production-binding-rollout.mjs") {
+      fail("bundle_binding_rollout_entrypoint_invalid");
+    }
     if (verifyArchive) {
       const archivePath = path.join(path.dirname(filePath), raw.archiveFile);
       const archive = await readSafeFile(archivePath, 128 * 1024 * 1024);
@@ -71,8 +77,8 @@ export async function loadProductionBaselineBundleManifest(filePath, {
 
 export function createProductionBaselineBundleManifest({ sourceCommit, createdAt, archiveFile, archiveSha256 }) {
   return {
-    schemaVersion: 4,
-    kind: "hermes-go-production-baseline-bundle-v4",
+    schemaVersion: 5,
+    kind: "hermes-go-production-baseline-bundle-v5",
     sourceCommit,
     createdAt,
     archiveFile,
@@ -82,6 +88,7 @@ export function createProductionBaselineBundleManifest({ sourceCommit, createdAt
     smokeRuntimeEntry: "ops/lib/production-smoke-runtime.mjs",
     releaseEntrypoint: "scripts/production-release.mjs",
     accountRolloutEntrypoint: "scripts/production-account-rollout.mjs",
+    bindingRolloutEntrypoint: "scripts/production-binding-rollout.mjs",
   };
 }
 
