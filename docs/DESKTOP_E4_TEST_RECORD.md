@@ -88,6 +88,16 @@ The packaged plist kept managed bootstrap disabled and all release-manifest/sign
 strict codesign verification passed for the ad-hoc app. The output remains development material,
 not a Developer ID signed, notarized, or distributable release.
 
+The following E4 acceptance-preflight fix removes the remaining UI dead end for an existing Mac.
+A recognized running legacy Connector may now enter the already implemented two-stage migration only
+when its configured Hermes status URL is healthy and the complete signed-release/Gateway runtime gate
+is ready. The final preflight reuses that configured URL instead of incorrectly assuming the future
+managed loopback endpoint is already active. Stopped, unhealthy, unsigned, disabled, or mismatched
+cases remain read-only; no production flag or target service is changed by this source fix.
+The focused 12-test preflight suite and the complete 150-test Desktop suite passed on 2026-09-09,
+followed by canonical asset comparison, release-mode app assembly, and strict ad-hoc codesign
+verification. This is still source/local evidence rather than target-Mac migration acceptance.
+
 `npm run test -w @hermes-remote/connector` passes the Connector suite, including strict account
 credential loading, canonical challenge signatures, time/binding/generation checks, and exact v2 URL
 derivation. The final local `npm run build` and `npm test` baseline also passed: Protocol 13/13,
