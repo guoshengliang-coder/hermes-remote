@@ -278,6 +278,19 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.111 makes a bot conversation just a conversation. Opening a DingTalk or Slack row
+  now opens the ordinary chat screen, and the separate read-only transcript page is gone — it was a
+  second renderer over the same history, and it had already missed four things the chat screen
+  handled, most recently the timestamps that prompted this. So the times are there, and so is
+  everything else the chat screen does. You can also type: the page was read-only on a rationale
+  that turned out to be wrong — nothing sent from the phone ever reached the other platform, and
+  nothing could, because outbound delivery lives in a process the phone does not talk to. What is
+  true is that your message joins the shared conversation context, so the person on the other app
+  gets answers shaped by something they never saw; a dialog says that once per channel and then
+  stays out of the way. Three older defects went with it: the model chip named the profile's
+  default model as though it had answered on DingTalk, copying or exporting a channel transcript
+  signed the other person's messages 你, and merely opening one of these conversations spun up a
+  runtime on the Mac and started polling it.
 - Version 0.1.110 makes the Chats screen shorter. 项目 and 已归档 leave the segment row for a new
   overflow menu beside search, and each becomes a full-screen page — they are low-frequency
   management actions that were competing for width with the list you actually read, and four cells
@@ -769,7 +782,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.110-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.111-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
