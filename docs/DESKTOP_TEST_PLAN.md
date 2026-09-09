@@ -81,6 +81,9 @@ The current automated suite covers:
   as active; intermediate journals recover before a second install and mismatches fail closed;
 - existing-install observation/recovery remains available when new-install rollout is disabled, and
   active state must match the current account's exact binding ID/generation before it is claimed;
+- a recognized running legacy Connector uses its own configured Hermes status URL for the final
+  migration preflight and can enter the signed two-stage migration only while that health check and
+  the complete managed-install capability agree; stopped/unhealthy or unsigned cases stay read-only;
 - bilingual `HR-MIGRATE-001` through `HR-MIGRATE-005` terminal-state mapping.
 
 Remaining email-first release acceptance requires live-provider tests for resend/cooldown, expiry,
@@ -98,6 +101,7 @@ the project-wide `ERROR_HANDLING.md` contract.
 | Case | Expected result | Status |
 |---|---|---|
 | Existing Connector running | Desktop observes it and does not launch a replacement | Verified on target Mac 2026-09-02; PID and launch count unchanged |
+| Existing Connector migration gate | Healthy configured Hermes plus matching signed-release capability exposes preparation; stopped/unhealthy/unsigned cases preserve legacy | Automated; packaged target-Mac migration still pending |
 | Existing Connector absent | UI reports not detected and offers no destructive action | Verified 2026-09-02 |
 | Gateway available | Gateway layer is healthy with safe latency | Verified on target Mac 2026-09-02; 15–18 ms observed |
 | Gateway offline/DNS failure | Only Gateway layer fails; Hermes wording remains accurate | Pending fault injection |

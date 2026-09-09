@@ -249,6 +249,12 @@ transition with validation and automatic rollback; see `DESKTOP_TEST_PLAN.md`.
 Physical two-phone use, managed-Agent takeover, and rollback remain pending. Phase 0 still makes no
 Hermes, Gateway, Android, token, or Connector configuration changes.
 
+The next E4 acceptance build may offer the same two-stage signed migration to a recognized, running
+legacy Connector only when that Connector's configured Hermes status URL is healthy and the complete
+Desktop/Gateway managed-install contract matches. Preparation remains inert; the second confirmation
+is still required before any service switch. A stopped Connector, an unhealthy configured Hermes,
+or a missing/mismatched signed-release gate remains read-only and preserves the legacy service.
+
 ### Phase 0.5 local verification
 
 - All 21 Desktop core tests passed, including payload compatibility, native QR round-trip decoding,

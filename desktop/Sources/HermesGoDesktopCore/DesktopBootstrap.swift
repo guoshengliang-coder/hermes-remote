@@ -48,6 +48,16 @@ public struct DesktopBootstrapPlan: Equatable, Sendable {
 }
 
 public enum DesktopBootstrapPlanner {
+    public static func hermesStatusURL(for legacy: LegacyConnectorSnapshot) -> URL {
+        if legacy.isInstalled, let configured = legacy.config.hermesStatusURL {
+            return configured
+        }
+        return URL(
+            string: "/api/status",
+            relativeTo: DesktopHermesRuntimeContract.serveV1.baseURL
+        )!.absoluteURL
+    }
+
     public static func plan(
         legacy: LegacyConnectorSnapshot,
         hermesReachable: Bool,
@@ -102,17 +112,61 @@ public enum DesktopBootstrapPlanner {
         }
 
         if legacy.isInstalled {
-            let runningDetail = legacy.isRunning
-                ? "现有 Connector 正在运行，Desktop 会保持它不变；迁移前需要单独确认并准备可回滚版本。"
-                : "检测到现有 Connector，但它当前未运行。Desktop 不会覆盖或另起一个实例。"
+            guard legacy.isRunning else {
+                return plan(
+                    readiness: .existingServiceNeedsAttention,
+                    title: "现有 Connector 需要检查",
+                    detail: "检测到现有 Connector，但它当前未运行。Desktop 不会覆盖或另起一个实例。",
+                    steps: [.inspectExisting, .preserveExisting],
+                    canBegin: false
+                )
+            }
+            guard hermesReachable else {
+                return plan(
+                    readiness: .existingServiceNeedsAttention,
+                    title: "现有 Hermes 需要检查",
+                    detail: "现有 Connector 正在运行，但它配置的 Hermes 未通过健康检查。Desktop 已停止迁移，现有连接保持不变。",
+                    steps: [.inspectExisting, .preserveExisting, .verifyEndToEnd],
+                    canBegin: false
+                )
+            }
+            guard managedInstallAvailability == .ready else {
+                let releaseDetail = switch managedInstallAvailability {
+                case .disabled:
+                    "受管迁移通道当前未启用。"
+                case .invalidConfiguration:
+                    "受管迁移配置不完整或无效。"
+                case .serverCapabilityUnavailable:
+                    "Gateway 尚未声明受管迁移能力。"
+                case .runtimeContractMismatch:
+                    "Gateway 与 Desktop 的 Hermes 运行合同不一致。"
+                case .ready:
+                    preconditionFailure("ready availability must pass the guard")
+                }
+                return plan(
+                    readiness: .existingServicePreserved,
+                    title: "已保护现有 Hermes 服务",
+                    detail: "现有 Connector 与 Hermes 均可访问，Desktop 会保持它们不变；\(releaseDetail)",
+                    steps: [.inspectExisting, .preserveExisting, .verifySignedRelease],
+                    canBegin: false
+                )
+            }
             return plan(
-                readiness: legacy.isRunning ? .existingServicePreserved : .existingServiceNeedsAttention,
-                title: legacy.isRunning ? "已保护现有 Hermes 服务" : "现有 Connector 需要检查",
-                detail: hermesReachable
-                    ? "\(runningDetail) 本机 Hermes 当前可访问。"
-                    : "\(runningDetail) 本机 Hermes 当前未通过访问检查。",
-                steps: [.inspectExisting, .preserveExisting, .bindAccount, .verifyEndToEnd],
-                canBegin: false
+                readiness: .readyForManagedInstall,
+                title: "已准备好迁移现有连接",
+                detail: "现有 Connector 与 Hermes 均已通过预检。Desktop 会先验证签名版本；只有再次确认后才会切换 Connector，失败时自动恢复原连接。",
+                steps: [
+                    .inspectExisting,
+                    .preserveExisting,
+                    .verifySignedRelease,
+                    .installHermes,
+                    .configureLocalProvider,
+                    .installConnector,
+                    .bindAccount,
+                    .enableAutomaticStartup,
+                    .verifyEndToEnd,
+                ],
+                canBegin: true
             )
         }
 

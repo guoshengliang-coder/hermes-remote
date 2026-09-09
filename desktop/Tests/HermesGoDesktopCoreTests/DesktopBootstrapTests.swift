@@ -3,17 +3,44 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopBootstrapTests: XCTestCase {
-    func testRunningLegacyConnectorIsPreservedAndCannotBeginManagedInstall() {
+    func testHealthyRunningLegacyConnectorCanBeginConfirmedManagedMigration() {
         let plan = DesktopBootstrapPlanner.plan(
             legacy: snapshot(installed: true, running: true),
             hermesReachable: true,
             managedInstallAvailability: .ready
         )
 
+        XCTAssertEqual(plan.readiness, .readyForManagedInstall)
+        XCTAssertTrue(plan.canBegin)
+        XCTAssertTrue(plan.requiresConfirmation)
+        XCTAssertTrue(plan.steps.contains { $0.kind == .preserveExisting })
+        XCTAssertTrue(plan.steps.contains { $0.kind == .bindAccount })
+        XCTAssertTrue(plan.detailChinese.contains("失败时自动恢复原连接"))
+    }
+
+    func testRunningLegacyConnectorRemainsReadOnlyUntilSignedMigrationIsAvailable() {
+        let plan = DesktopBootstrapPlanner.plan(
+            legacy: snapshot(installed: true, running: true),
+            hermesReachable: true,
+            managedInstallAvailability: .disabled
+        )
+
         XCTAssertEqual(plan.readiness, .existingServicePreserved)
         XCTAssertFalse(plan.canBegin)
         XCTAssertTrue(plan.steps.contains { $0.kind == .preserveExisting })
-        XCTAssertTrue(plan.detailChinese.contains("保持它不变"))
+        XCTAssertTrue(plan.detailChinese.contains("保持它们不变"))
+    }
+
+    func testRunningLegacyConnectorCannotMigrateWhenItsConfiguredHermesIsUnhealthy() {
+        let plan = DesktopBootstrapPlanner.plan(
+            legacy: snapshot(installed: true, running: true),
+            hermesReachable: false,
+            managedInstallAvailability: .ready
+        )
+
+        XCTAssertEqual(plan.readiness, .existingServiceNeedsAttention)
+        XCTAssertFalse(plan.canBegin)
+        XCTAssertTrue(plan.detailChinese.contains("Hermes 未通过健康检查"))
     }
 
     func testStoppedExistingConnectorFailsClosedWithoutOfferingSecondInstance() {
@@ -87,6 +114,34 @@ final class DesktopBootstrapTests: XCTestCase {
             .enableAutomaticStartup,
             .verifyEndToEnd,
         ])
+    }
+
+    func testLegacyMigrationPreflightUsesTheConnectorsConfiguredHermesStatusURL() {
+        let legacy = LegacyConnectorSnapshot(
+            isInstalled: true,
+            isRunning: true,
+            config: LegacyConnectorConfig(
+                gatewayURL: nil,
+                hermesBaseURL: URL(string: "http://100.64.0.8:9119")!
+            ),
+            recentLogs: [],
+            installDirectory: URL(fileURLWithPath: "/tmp/hermes-test"),
+            launchAgentURL: URL(fileURLWithPath: "/tmp/com.hermesremote.connector.plist")
+        )
+
+        XCTAssertEqual(
+            DesktopBootstrapPlanner.hermesStatusURL(for: legacy).absoluteString,
+            "http://100.64.0.8:9119/api/status"
+        )
+    }
+
+    func testCleanInstallPreflightUsesTheManagedLoopbackContract() {
+        XCTAssertEqual(
+            DesktopBootstrapPlanner.hermesStatusURL(
+                for: snapshot(installed: false, running: false)
+            ).absoluteString,
+            "http://127.0.0.1:9119/api/status"
+        )
     }
 
     func testManagedActiveReleaseCannotBeMistakenForAnUnknownPortOwner() {

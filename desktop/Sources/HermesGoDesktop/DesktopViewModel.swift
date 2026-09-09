@@ -697,10 +697,7 @@ final class DesktopViewModel: ObservableObject {
         let observation = await Task.detached(priority: .userInitiated) {
             inspector.inspect()
         }.value
-        let statusURL = URL(
-            string: "/api/status",
-            relativeTo: DesktopHermesRuntimeContract.serveV1.baseURL
-        )!.absoluteURL
+        let statusURL = DesktopBootstrapPlanner.hermesStatusURL(for: observation)
         let hermes = await prober.probeHermes(statusURL)
         let managedInstallation = await inspectManagedBootstrapInstallation()
         let plan = DesktopBootstrapPlanner.plan(
