@@ -4,29 +4,32 @@ import { loadBundleManifest } from "../ops/lib/config.mjs";
 import { createStagingSmokeCallbacks } from "../ops/lib/deploy-smoke.mjs";
 import { errorPayload, OpsError } from "../ops/lib/errors.mjs";
 import { loadManagedBaselineConfig } from "../ops/lib/managed-baseline-config.mjs";
-import { executeProductionRelease } from "../ops/lib/production-release.mjs";
+import { executeProductionRelease, recoverFailedProductionRelease } from "../ops/lib/production-release.mjs";
 import { withProductionSmokeRuntime } from "../ops/lib/production-smoke-runtime.mjs";
 
 // R5-F1: routine production Gateway release (deploy or rollback) inside the managed baseline.
-// Same private configuration file as R5-D; `targetArtifactManifest` names the bundle to move to.
+// Same private configuration file as R5-D; `targetArtifactManifest` names the paired bundle to
+// deploy, roll back to, or use while recovering an audited pre-switch candidate failure.
 try {
   const args = parseArguments(process.argv.slice(2));
   const config = await loadManagedBaselineConfig(args.config);
   const manifest = await loadBundleManifest(config.targetArtifactManifest);
   const connectorEntry = fileURLToPath(new URL("../connector/dist/index.js", import.meta.url));
-  const result = await withProductionSmokeRuntime(async (runtime) => {
-    const smoke = await createStagingSmokeCallbacks(config, {
-      env: runtime.environment,
-      spawnImpl: runtime.spawn,
+  const result = args.operation === "recover"
+    ? await recoverFailedProductionRelease(config, manifest, { confirmation: args.confirm })
+    : await withProductionSmokeRuntime(async (runtime) => {
+      const smoke = await createStagingSmokeCallbacks(config, {
+        env: runtime.environment,
+        spawnImpl: runtime.spawn,
+      });
+      return executeProductionRelease(config, manifest, {
+        operation: args.operation,
+        confirmation: args.confirm,
+        ...smoke,
+      });
+    }, {
+      connectorEntry,
     });
-    return executeProductionRelease(config, manifest, {
-      operation: args.operation,
-      confirmation: args.confirm,
-      ...smoke,
-    });
-  }, {
-    connectorEntry,
-  });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${JSON.stringify(errorPayload(error, "productionRelease", "production_release_entrypoint"))}\n`);
@@ -48,7 +51,7 @@ function parseArguments(values) {
     parsed[key] = value;
   }
   if (!parsed.config
-      || !new Set(["deploy", "rollback"]).has(parsed.operation)
+      || !new Set(["deploy", "rollback", "recover"]).has(parsed.operation)
       || !/^production:[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/.test(parsed.confirm ?? "")) {
     throw new OpsError("productionRelease", "production_release_exact_confirmation_required", "production_release_arguments");
   }

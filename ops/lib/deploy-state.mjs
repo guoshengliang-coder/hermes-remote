@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, open, readFile, unlink } from "node:fs/promises";
+import { lstat, open, readFile, readdir, unlink } from "node:fs/promises";
 import { hostname as systemHostname } from "node:os";
 import path from "node:path";
 import { OpsError } from "./errors.mjs";
@@ -304,6 +304,82 @@ export async function archiveSupersededPreSwitchDeploymentJournal(
   } catch (error) {
     if (error instanceof OpsError) throw error;
     fail(error instanceof Error ? error.message : error, "deploy_journal_archive");
+  }
+}
+
+export async function restoreCommittedJournalAfterFailedCandidate({
+  filePath,
+  historyRoot,
+  auditPath,
+  expectedSource,
+  activeSlot,
+  currentCheckpoint,
+  owner,
+}) {
+  let failed;
+  let originalInfo;
+  try {
+    originalInfo = await lstat(filePath);
+    failed = await readDeploymentJournal(filePath);
+  } catch (error) {
+    if (error instanceof OpsError) throw error;
+    fail("failed_candidate_journal_unreadable", "deploy_journal_recover");
+  }
+  if (failed.stage !== "candidate_started"
+      || failed.operation !== "deploy"
+      || failed.activeSlot !== activeSlot
+      || JSON.stringify(failed.source) !== JSON.stringify(expectedSource)
+      || JSON.stringify(failed.checkpoint) !== JSON.stringify(currentCheckpoint)) {
+    fail("failed_candidate_journal_conflict", "deploy_journal_recover");
+  }
+  if (!await auditRecordsFailure(auditPath, failed.runId)) {
+    fail("failed_candidate_audit_missing", "deploy_journal_recover");
+  }
+
+  let names;
+  try {
+    names = await readdir(historyRoot);
+  } catch {
+    fail("committed_journal_history_unreadable", "deploy_journal_recover");
+  }
+  const matches = [];
+  for (const name of names.filter((value) => /^deploy-state\.committed\.[A-Za-z0-9._-]{1,128}\.json$/.test(value))) {
+    const candidate = await readDeploymentJournal(path.join(historyRoot, name));
+    if (candidate.stage === "committed"
+        && candidate.candidateSlot === activeSlot
+        && JSON.stringify(candidate.target) === JSON.stringify(expectedSource)) {
+      matches.push(candidate);
+    }
+  }
+  if (matches.length !== 1) fail("committed_journal_history_ambiguous", "deploy_journal_recover");
+
+  const failedArchive = path.join(historyRoot, `deploy-state.failed.${failed.runId}.json`);
+  try {
+    let archiveMissing = false;
+    try {
+      const archived = await readDeploymentJournal(failedArchive);
+      if (JSON.stringify(archived) !== JSON.stringify(failed)) {
+        fail("failed_journal_archive_conflict", "deploy_journal_recover");
+      }
+    } catch (error) {
+      if (error?.code === "ENOENT") archiveMissing = true;
+      else throw error;
+    }
+    if (archiveMissing) {
+      await atomicWrite(failedArchive, `${JSON.stringify(failed, null, 2)}\n`, 0o600, owner);
+    }
+    const currentInfo = await lstat(filePath);
+    if (currentInfo.dev !== originalInfo.dev || currentInfo.ino !== originalInfo.ino) {
+      fail("deployment_journal_changed", "deploy_journal_recover");
+    }
+    await atomicWrite(filePath, `${JSON.stringify(matches[0], null, 2)}\n`, 0o600, owner);
+    if (JSON.stringify(await readDeploymentJournal(filePath)) !== JSON.stringify(matches[0])) {
+      fail("committed_journal_restore_mismatch", "deploy_journal_recover");
+    }
+    return { failed, failedArchive, restored: matches[0] };
+  } catch (error) {
+    if (error instanceof OpsError) throw error;
+    fail(error instanceof Error ? error.message : error, "deploy_journal_recover");
   }
 }
 

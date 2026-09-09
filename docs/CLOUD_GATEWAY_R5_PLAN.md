@@ -234,3 +234,11 @@ PR #111 的全部门禁、合并后 CI/SAST/OCI 与手动 R5-D 演练通过后�
 final-delivered，Connector 与 legacy token 通道持续健康，green 零重启。迁移后的 schema-15 代次
 `20260908T191154059Z-cecbfc922361` 已在 Mac 用 PostgreSQL 18 和精确 0.4.9 镜像真实恢复、回传证据并激活
 ack；HK 捕获/监控 timer 与 Mac 小时级 LaunchAgent 均已按 schema 15 和新 manifest 更新并通过复查。
+
+后续 0.4.10 常规发布在切流前被旧的“账号关闭”readiness 断言拒绝；实际生产已是仅邮箱 OTP，
+候选正确返回 `database=ok`、`migrations=ok`、`postgresql=supported`，因此线上 0.4.9、Nginx、release links
+和流量均未变化。0.4.11 修正候选及公网 smoke，使其按受管槽中保留的精确邮箱环境验证。由于失败记录
+按设计停在 `candidate_started` 并锁定原计划，0.4.12 增加同提交制品携带的窄恢复入口：只有失败审计、
+候选停止且端口空闲、原槽和 release links 未变、Nginx 检查点逐字节一致、并且历史中恰有一个与当前
+0.4.9 对应的 committed journal 时，才会在部署锁内归档失败 journal 并恢复该 committed journal；
+恢复完成后仍须重新执行完整常规发布，不能借此启用绑定或扩大邮箱灰度范围。

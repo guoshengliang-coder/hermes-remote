@@ -15,6 +15,7 @@ import {
   readDeploymentJournal,
   readOrCreateDeploymentJournal,
   releaseDeploymentLock,
+  restoreCommittedJournalAfterFailedCandidate,
   writeDeploymentJournal,
 } from "../../ops/lib/deploy-state.mjs";
 import {
@@ -286,6 +287,85 @@ test("failed-journal replacement rejects missing failure evidence and any post-c
     currentOwnership().host,
   ), isOpsCode("HR-OPS-007"));
   assert.equal((await readDeploymentJournal(journalPath)).stage, "candidate_started");
+});
+
+test("an audited failed candidate can restore exactly one archived committed journal", async (t) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-failed-candidate-recovery-")));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const historyRoot = path.join(root, "history");
+  await mkdir(historyRoot, { recursive: true, mode: 0o700 });
+  const journalPath = path.join(root, "deploy-state.json");
+  const auditPath = path.join(root, "operations.jsonl");
+  const source = sourceIdentity();
+  const target = targetIdentity();
+  const checkpoint = {
+    currentReleaseTarget: "releases/0.4.9-aaaaaaaaaaaa",
+    previousReleaseTarget: "releases/0.4.8-bbbbbbbbbbbb",
+    nginxConfigSha256: "c".repeat(64),
+    upstreamSha256: "d".repeat(64),
+  };
+  const committed = {
+    schemaVersion: 2,
+    operation: "deploy",
+    planDigest: "e".repeat(64),
+    runId: "previous-committed",
+    stage: "committed",
+    activeSlot: "blue",
+    candidateSlot: "green",
+    source: targetIdentity(),
+    target: source,
+    checkpoint: {
+      currentReleaseTarget: "releases/0.4.8-bbbbbbbbbbbb",
+      previousReleaseTarget: null,
+      nginxConfigSha256: "f".repeat(64),
+      upstreamSha256: "0".repeat(64),
+    },
+    startedAt: "2026-09-09T01:00:00.000Z",
+    updatedAt: "2026-09-09T01:01:00.000Z",
+  };
+  await writeDeploymentJournal(
+    path.join(historyRoot, `deploy-state.committed.${committed.runId}.json`),
+    committed,
+    currentOwnership().host,
+  );
+  let failed = createDeploymentJournal({
+    operation: "deploy",
+    planDigest: "1".repeat(64),
+    runId: "failed-candidate",
+    activeSlot: "green",
+    candidateSlot: "blue",
+    source,
+    target,
+    now: new Date("2026-09-09T02:00:00.000Z"),
+  });
+  for (const stage of ["artifact_verified", "lock_acquired"]) {
+    failed = advanceDeploymentJournal(failed, stage, new Date("2026-09-09T02:00:01.000Z"));
+  }
+  failed = advanceDeploymentJournal(failed, "checkpoint_created", new Date("2026-09-09T02:00:02.000Z"), { checkpoint });
+  failed = advanceDeploymentJournal(failed, "migration_verified", new Date("2026-09-09T02:00:03.000Z"));
+  failed = advanceDeploymentJournal(failed, "candidate_started", new Date("2026-09-09T02:00:04.000Z"));
+  await writeDeploymentJournal(journalPath, failed, currentOwnership().host);
+  await writeFile(auditPath, `${JSON.stringify({
+    runId: failed.runId,
+    operation: "deploy",
+    stage: "failed",
+    result: "failed",
+    errorCode: "HR-OPS-007",
+    finishedAt: "2026-09-09T02:00:05.000Z",
+  })}\n`, { mode: 0o600 });
+
+  const recovered = await restoreCommittedJournalAfterFailedCandidate({
+    filePath: journalPath,
+    historyRoot,
+    auditPath,
+    expectedSource: source,
+    activeSlot: "green",
+    currentCheckpoint: checkpoint,
+    owner: currentOwnership().host,
+  });
+  assert.deepEqual(recovered.failed, failed);
+  assert.deepEqual(await readDeploymentJournal(recovered.failedArchive), failed);
+  assert.deepEqual(await readDeploymentJournal(journalPath), committed);
 });
 
 test("deployment lock is exclusive, stale-owner aware, and ownership fenced", async (t) => {

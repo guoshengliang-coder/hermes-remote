@@ -398,7 +398,12 @@ When the active slot already serves the email-OTP gray rollout, routine-release 
 preserved Schema/PostgreSQL readiness contract (`database=ok`, `migrations=ok`, `postgresql=supported`) and the
 single `email_otp` provider. It must not reuse the account-disabled OCI expectations. Gateway 0.4.11 carries
 this correction after 0.4.10 was rejected before traffic switching by the stale disabled-runtime readiness
-assertion.
+assertion. If that failure left an audited `candidate_started` journal, use the same-commit operator and Gateway
+bundle for the next release, run `production-release.mjs --operation recover`, and then run the normal `deploy`.
+Recovery requires the original active slot and release links, byte-identical Nginx site/upstream checkpoint, an
+inactive candidate with its port free, the recorded failed audit, and exactly one archived committed journal for
+the live release. It archives the failed journal and restores that exact committed journal under the deployment
+lock; any ambiguity or drift remains fail-closed. Gateway 0.4.12 introduces this recovery operation.
 
 The first two authorized production attempts did not complete adoption. The first stopped before candidate start
 on Docker 29/containerd image-ID representation. The second loaded the corrected image and started blue, then
@@ -435,7 +440,7 @@ changes per release:
 node scripts/production-release.mjs \
   --config /secure-input/hermes-go/production-release.json \
   --confirm production:<configured-hostname> \
-  --operation deploy   # or: rollback
+  --operation deploy   # or: rollback; recover only for the audited pre-switch case below
 ```
 
 What it does and refuses, in order: exact `production:<hostname>` confirmation, root, Linux/amd64 and the real
