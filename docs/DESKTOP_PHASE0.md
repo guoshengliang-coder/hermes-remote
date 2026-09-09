@@ -137,7 +137,8 @@ The local core now contains the later-slice safety path while the packaged UI re
   password in the LaunchAgent;
 - account-mode Connector v2 challenge proof and local Hermes preflight;
 - crash-safe binding create/confirm idempotency, durable migration state, exact-label user launchd
-  control, one-Connector enforcement, automatic pre-commit rollback, and restart recovery;
+  control with bounded bootstrap/bootout convergence, one-Connector enforcement, automatic
+  pre-commit rollback, and restart recovery;
 - fail-closed manual-attention behavior when remote commit status cannot be proven.
 
 This is not a release enablement. No real signing key/artifact URL is embedded, no LaunchAgent is

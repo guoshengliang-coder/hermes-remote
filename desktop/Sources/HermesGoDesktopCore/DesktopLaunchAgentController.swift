@@ -35,16 +35,31 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
     private let userID: UInt32
     private let launchAgentsRoot: URL
     private let runner: Runner
+    private let convergenceAttempts: Int
+    private let convergenceDelay: TimeInterval
     private let launchctl = URL(fileURLWithPath: "/bin/launchctl")
 
-    public init(userID: UInt32, launchAgentsRoot: URL, runner: Runner) throws {
+    public init(
+        userID: UInt32,
+        launchAgentsRoot: URL,
+        runner: Runner,
+        convergenceAttempts: Int = 50,
+        convergenceDelay: TimeInterval = 0.1
+    ) throws {
         let root = launchAgentsRoot.standardizedFileURL.resolvingSymlinksInPath()
-        guard root.isFileURL, root.path.hasPrefix("/"), root.path != "/" else {
+        guard root.isFileURL,
+              root.path.hasPrefix("/"),
+              root.path != "/",
+              (1...100).contains(convergenceAttempts),
+              (0...1).contains(convergenceDelay)
+        else {
             throw DesktopLaunchAgentControllerError.invalidConfiguration
         }
         self.userID = userID
         self.launchAgentsRoot = root
         self.runner = runner
+        self.convergenceAttempts = convergenceAttempts
+        self.convergenceDelay = convergenceDelay
     }
 
     public func inspect() throws -> DesktopLaunchAgentServiceState {
@@ -67,7 +82,7 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
               isLoaded(Self.legacyLabel)
         else { throw DesktopLaunchAgentControllerError.invalidConfiguration }
         guard run(["bootout", serviceTarget(Self.legacyLabel)]).status == 0,
-              !isLoaded(Self.legacyLabel)
+              waitUntilLoaded(Self.legacyLabel, expected: false)
         else { throw DesktopLaunchAgentControllerError.legacyStopFailed }
     }
 
@@ -79,7 +94,7 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
               !isLoaded(Self.accountLabel)
         else { throw DesktopLaunchAgentControllerError.duplicateConnector }
         guard run(["bootstrap", domainTarget, plistURL.path]).status == 0,
-              isLoaded(Self.accountLabel),
+              waitUntilLoaded(Self.accountLabel, expected: true),
               !isLoaded(Self.legacyLabel)
         else { throw DesktopLaunchAgentControllerError.accountStartFailed }
     }
@@ -89,7 +104,7 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
             throw DesktopLaunchAgentControllerError.invalidConfiguration
         }
         guard run(["bootout", serviceTarget(Self.accountLabel)]).status == 0,
-              !isLoaded(Self.accountLabel)
+              waitUntilLoaded(Self.accountLabel, expected: false)
         else { throw DesktopLaunchAgentControllerError.accountStopFailed }
     }
 
@@ -98,7 +113,7 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
               !isLoaded(Self.hermesLabel)
         else { throw DesktopLaunchAgentControllerError.invalidConfiguration }
         guard run(["bootstrap", domainTarget, plistURL.path]).status == 0,
-              isLoaded(Self.hermesLabel)
+              waitUntilLoaded(Self.hermesLabel, expected: true)
         else { throw DesktopLaunchAgentControllerError.hermesStartFailed }
     }
 
@@ -107,7 +122,7 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
             throw DesktopLaunchAgentControllerError.invalidConfiguration
         }
         guard run(["bootout", serviceTarget(Self.hermesLabel)]).status == 0,
-              !isLoaded(Self.hermesLabel)
+              waitUntilLoaded(Self.hermesLabel, expected: false)
         else { throw DesktopLaunchAgentControllerError.hermesStopFailed }
     }
 
@@ -118,7 +133,7 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
               !isLoaded(Self.legacyLabel)
         else { throw DesktopLaunchAgentControllerError.invalidConfiguration }
         guard run(["bootstrap", domainTarget, snapshot.launchAgentURL.path]).status == 0,
-              isLoaded(Self.legacyLabel),
+              waitUntilLoaded(Self.legacyLabel, expected: true),
               !isLoaded(Self.accountLabel)
         else { throw DesktopLaunchAgentControllerError.legacyRestoreFailed }
     }
@@ -127,6 +142,15 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
     private func serviceTarget(_ label: String) -> String { "\(domainTarget)/\(label)" }
     private func isLoaded(_ label: String) -> Bool {
         run(["print", serviceTarget(label)]).status == 0
+    }
+    private func waitUntilLoaded(_ label: String, expected: Bool) -> Bool {
+        for attempt in 0..<convergenceAttempts {
+            if isLoaded(label) == expected { return true }
+            if attempt + 1 < convergenceAttempts, convergenceDelay > 0 {
+                Thread.sleep(forTimeInterval: convergenceDelay)
+            }
+        }
+        return false
     }
     private func run(_ arguments: [String]) -> CommandResult {
         runner.run(executable: launchctl, arguments: arguments)
