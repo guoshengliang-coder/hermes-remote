@@ -351,6 +351,13 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideBotSendNoticeStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.BotSendNoticeStore =
+        com.hermes.client.data.repository.BotSendNoticeStore(context)
+
+    @Provides
+    @Singleton
     fun provideViewModeStore(
         @ApplicationContext context: Context,
     ): com.hermes.client.data.repository.ViewModeStore =

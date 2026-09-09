@@ -34,7 +34,15 @@ class SessionRepository(
     private val accountSessions: AccountSessionManager? = null,
     private val conversationDevices: ConversationDeviceStore? = null,
 ) {
-    @Volatile private var allProfilesCache: List<Session> = emptyList()
+    /**
+     * Every non-archived, non-empty session on the current route, WITHOUT [isInteractive].
+     * Both [listAllProfiles] and [botSessions] write it — they are the same endpoint read through
+     * two different filters — so a bot session is resolvable by id no matter which one ran.
+     * [cachedAllProfiles] applies the interactive filter on the way out, so the Chats list is
+     * unchanged; without this split [cachedSession] returned null for every messaging session,
+     * which is why a bot conversation opened with no title and the profile's default model.
+     */
+    @Volatile private var allSessionsCache: List<Session> = emptyList()
     @Volatile private var allProfilesLoaded: Boolean = false
     @Volatile private var allProfilesCacheRoute: String? = null
     private val historyCache = object : LinkedHashMap<String, List<ChatMessage>>(12, 0.75f, true) {
@@ -119,14 +127,16 @@ class SessionRepository(
         val context = accountSessions?.routingContext()
         val route = routeKey(context)
         return coalesced("$LIST_ALL_KEY:$route") {
-            val loaded = bindToRoute(
+            val all = bindToRoute(
                 rest.profileSessions(deviceId = context?.deviceId).sessions.map { it.toDomain() },
                 context,
-            ).filter { !it.archived && it.isInteractive() }
-            allProfilesCache = loaded
+            ).filter { !it.archived && it.messageCount > 0 }
+            allSessionsCache = all
             allProfilesCacheRoute = route
+            // Only this method sets the loaded flag: it is the Chats list's "finished loading"
+            // gate, and botSessions() populating the same cache must not satisfy it.
             allProfilesLoaded = true
-            loaded
+            all.filter { it.isInteractive() }
         }
     }
 
@@ -137,23 +147,43 @@ class SessionRepository(
      */
     suspend fun botSessions(): List<Session> {
         val context = accountSessions?.routingContext()
-        return coalesced("$BOT_LIST_KEY:${routeKey(context)}") {
-            bindToRoute(
+        val route = routeKey(context)
+        return coalesced("$BOT_LIST_KEY:$route") {
+            val all = bindToRoute(
                 rest.profileSessions(deviceId = context?.deviceId).sessions.map { it.toDomain() },
                 context,
             ).filter { !it.archived && it.messageCount > 0 }
+            allSessionsCache = all
+            allProfilesCacheRoute = route
+            all
         }
     }
 
+    /**
+     * The session row for [sessionId], from cache when warm and otherwise through the same
+     * coalesced cross-profile read [listAllProfiles] uses. The chat screen calls this instead of
+     * [list], which is a 50-row recency window: a session outside it silently came back without a
+     * title or a model, and for messaging sessions that was every session older than the last 50.
+     */
+    suspend fun sessionMeta(sessionId: String, profile: String? = null, deviceId: String? = null): Session? {
+        cachedSession(sessionId, profile, deviceId)?.let { return it }
+        runCatching { listAllProfiles() }
+        return cachedSession(sessionId, profile, deviceId)
+    }
+
     fun cachedAllProfiles(): List<Session> =
-        if (allProfilesCacheRoute == routeKey(accountSessions?.routingContext())) allProfilesCache else emptyList()
+        if (allProfilesCacheRoute == routeKey(accountSessions?.routingContext())) {
+            allSessionsCache.filter { it.isInteractive() }
+        } else {
+            emptyList()
+        }
 
     /** Distinguishes a successfully loaded empty list from a list that has not been fetched yet. */
     fun hasLoadedAllProfiles(): Boolean = allProfilesLoaded &&
         allProfilesCacheRoute == routeKey(accountSessions?.routingContext())
 
     fun cachedSession(sessionId: String, profile: String? = null, deviceId: String? = null): Session? =
-        allProfilesCache.firstOrNull {
+        allSessionsCache.firstOrNull {
             it.id == sessionId &&
                 (profile.isNullOrBlank() || it.profile == profile) &&
                 (deviceId.isNullOrBlank() || it.deviceId == deviceId)

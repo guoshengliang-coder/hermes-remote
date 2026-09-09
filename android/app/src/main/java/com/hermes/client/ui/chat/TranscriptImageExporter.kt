@@ -63,6 +63,7 @@ internal fun OffscreenTranscriptExporter(
     messages: List<ChatMessage>,
     exportedAtMillis: Long,
     onDone: (Boolean) -> Unit,
+    origin: com.hermes.client.ui.sessions.BotOrigin? = null,
 ) {
     val context = LocalContext.current
     val language = LocalAppLanguage.current
@@ -106,7 +107,7 @@ internal fun OffscreenTranscriptExporter(
                     modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
                 )
 
-                body.forEach { message -> TranscriptTurn(message) }
+                body.forEach { message -> TranscriptTurn(message, origin) }
 
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.outlineVariant,
@@ -142,12 +143,12 @@ internal fun OffscreenTranscriptExporter(
 }
 
 @Composable
-private fun TranscriptTurn(message: ChatMessage) {
+private fun TranscriptTurn(message: ChatMessage, origin: com.hermes.client.ui.sessions.BotOrigin?) {
     val language = LocalAppLanguage.current
     val label = when {
         message.isError -> localized(language, "错误", "Error")
         message.role == Role.SYSTEM -> localized(language, "系统", "System")
-        message.role == Role.USER -> localized(language, "你", "You")
+        message.role == Role.USER -> userSpeakerLabel(origin, language)
         else -> localized(language, "助手", "Assistant")
     }
     Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {

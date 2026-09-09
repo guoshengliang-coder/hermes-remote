@@ -215,6 +215,35 @@ lives in the **gateway** process. **A channel conversation cannot be pulled back
 than hand-listed a second time: a platform source added upstream then joins the 机器人 segment
 instead of belonging to neither surface.
 
+### 7b. Outbound boundary: which process can reach a platform (verified 2026-09-09)
+
+Four facts, written down because we got this wrong once by generalising from DingTalk — the one
+platform whose out-of-process send is degenerate — to all 33.
+
+1. **The dashboard cannot reach a platform at all.** `hermes dashboard` / `hermes serve` runs
+   agents in-process (`tui_gateway.ws → server._make_agent`, noted at `hermes_cli/main.py`) but
+   **loads no platform adapters**. Outbound delivery is `handle_message` → `self.send()` inside
+   `gateway/platforms/base.py`, which lives only in the `hermes gateway run` process. `qqbot` and
+   `raft` override `handle_message`; both overrides are still adapter-internal.
+   **So a `prompt.submit` from the phone is never delivered to the channel — on any platform.**
+2. **Nothing retries it later either.** `gateway/delivery_ledger.py` records a durable delivery
+   obligation, but only from inside the adapter's own send path. A message the dashboard writes to
+   `state.db` creates no obligation, so no sweep will pick it up.
+3. **Out-of-process sends (`_standalone_send`, used by cron `deliver=` and `hermes send`) split in
+   two.** Feishu, Slack, Telegram, WeCom and ~16 others take a **real `chat_id`** and can reach any
+   conversation. **DingTalk cannot**: it posts to one static `DINGTALK_WEBHOOK_URL` and **ignores
+   `chat_id`**, because the live adapter uses per-conversation webhooks that arrive with each
+   inbound message and do not exist outside that process.
+4. **We cannot use (3) from the app anyway.** There is no send endpoint — every `/api/messaging/*`
+   route is configuration or pairing, and `/test` sends nothing; this repository does not modify
+   upstream; and the session row carries no `chat_id`, only `source` / `display_name` / `chat_type`.
+
+Consequence for any future "send into the channel from the phone" work: it needs **both** a
+`chat_id` on the session row (or an upstream endpoint that replies into the session) **and** a path
+that reaches the live adapter. Until then, cron `deliver=<channel>` is the only delivery we have.
+This is also why the 机器人 conversation carries a one-time dialog rather than a promise
+(`docs/DESIGN.md` §5.16).
+
 ## Upgrade checklist
 
 Run this before adopting a new Hermes, and record the outcome by updating the version table above.

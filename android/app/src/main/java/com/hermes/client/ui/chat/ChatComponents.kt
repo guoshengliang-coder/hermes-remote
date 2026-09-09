@@ -1380,8 +1380,20 @@ internal fun UserBubble(
     val sendingLabel = localized(language, "发送中", "Sending")
     val failedLabel = localized(language, "未发送 · 点按重试", "Not sent · Tap to retry")
     val failedCode = com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED.compact
+    // In a channel conversation the right-hand column carries two different speakers: the person
+    // on the other app, and anything typed here. Naming them apart is not decoration — a blanket
+    // peer label would sign the reader's own words with somebody else's name.
+    val speaker = userTurnLabel(msg.id, LocalLocallySentIds.current, LocalBotOrigin.current, language)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
       Column(horizontalAlignment = Alignment.End) {
+        if (speaker != null) {
+            Text(
+                speaker,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
         Box {
             Column(
                 Modifier

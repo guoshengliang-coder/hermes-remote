@@ -98,7 +98,6 @@ fun SessionsScreen(
     onOpenProjects: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
     onOpenCron: () -> Unit = {},
-    onOpenBotSession: (sessionId: String, profile: String?) -> Unit = { _, _ -> },
     onOpenMessaging: () -> Unit = {},
     onUnauthorized: () -> Unit = {},
 ) {
@@ -190,8 +189,8 @@ fun SessionsScreen(
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (viewMode == ViewMode.BOTS) {
-                // ── Bots: what Hermes has been saying on other apps. Read-only by nature —
-                // Hermes is a bot over there, so nothing typed here could appear as you. ─────
+                // ── Bots: what Hermes has been saying on other apps. Rows open the ordinary chat
+                // screen — there is no second transcript renderer any more (docs/DESIGN.md §5.16).
                 val sections = remember(state.botSessions) { botSections(state.botSessions) }
                 Box(Modifier.fillMaxSize()) {
                     when {
@@ -232,7 +231,7 @@ fun SessionsScreen(
                                                 style = MaterialTheme.typography.bodyMedium,
                                             )
                                         },
-                                        modifier = Modifier.clickable { onOpenBotSession(s.id, s.profile) },
+                                        modifier = Modifier.clickable { onOpen(ChatLaunch.existing(s)) },
                                     )
                                 }
                             }

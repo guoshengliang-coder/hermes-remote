@@ -76,6 +76,7 @@ class ChatViewModel @Inject constructor(
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
     private val projectPrefs: com.hermes.client.data.repository.ProjectPrefsStore,
     private val tools: com.hermes.client.data.repository.ToolsRepository,
+    private val botSendNotice: com.hermes.client.data.repository.BotSendNoticeStore,
     private val accountSessions: AccountSessionManager? = null,
     private val conversationDevices: ConversationDeviceStore? = null,
 ) : ViewModel() {
@@ -238,6 +239,45 @@ class ChatViewModel @Inject constructor(
     // Read on open so the UI can distinguish "following the default" from a session override.
     private val _defaultModel = MutableStateFlow<String?>(null)
     val defaultModel: StateFlow<String?> = _defaultModel.asStateFlow()
+
+    /**
+     * Set when this conversation came from a messaging channel rather than from this phone.
+     * Drives the peer labels, the model chip's third state, hiding handoff, and the one-time
+     * send notice. Null for an ordinary chat, which is every existing behaviour unchanged.
+     */
+    private val _botOrigin = MutableStateFlow<com.hermes.client.ui.sessions.BotOrigin?>(null)
+    val botOrigin: StateFlow<com.hermes.client.ui.sessions.BotOrigin?> = _botOrigin.asStateFlow()
+
+    /** Ids of turns sent from this device this session; see [com.hermes.client.ui.chat.userTurnLabel]. */
+    private val _locallySentIds = MutableStateFlow<Set<String>>(emptySet())
+    val locallySentIds: StateFlow<Set<String>> = _locallySentIds.asStateFlow()
+
+    private val acknowledgedBotChannels = botSendNotice.acknowledged
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptySet())
+
+    /**
+     * True when the next message into this conversation should be preceded by the one-time notice:
+     * a bot conversation on a channel this device has not been told about yet. The composer stays
+     * clean the rest of the time — the price of saying it once is that it has to be said clearly.
+     */
+    val botNoticeNeeded: StateFlow<Boolean> =
+        kotlinx.coroutines.flow.combine(_botOrigin, acknowledgedBotChannels) { origin, acknowledged ->
+            origin != null && origin.source !in acknowledged
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, false)
+
+    /** The person has read the notice for this channel; never show it for that channel again. */
+    fun acknowledgeBotNotice() {
+        val source = _botOrigin.value?.source ?: return
+        viewModelScope.launch { runCatching { botSendNotice.acknowledge(source) } }
+    }
+
+    /**
+     * True while a bot conversation is open and has not been resumed yet. Opening one deliberately
+     * does NOT resume: `bindLiveHandle` starts process polling, and browsing a log should not
+     * materialise an agent runtime — nor poll it — for a conversation another process owns. The
+     * first send resumes instead.
+     */
+    private var resumeDeferred: Boolean = false
     private val _defaultProvider = MutableStateFlow<String?>(null)
     val defaultProvider: StateFlow<String?> = _defaultProvider.asStateFlow()
 
@@ -462,6 +502,8 @@ class ChatViewModel @Inject constructor(
         runtimeStore.setTitle(key, initialTitle?.takeIf { it.isNotBlank() } ?: cachedMeta?.title)
         _currentModel.value = cachedMeta?.model?.ifBlank { null }
         _currentProvider.value = cachedMeta?.provider?.ifBlank { null }
+        _botOrigin.value = com.hermes.client.ui.sessions.botOriginOf(cachedMeta)
+        _locallySentIds.value = emptySet()
         _workspace.value = null
         _workspaceError.value = null
         viewModelScope.launch {
@@ -507,13 +549,24 @@ class ChatViewModel @Inject constructor(
         // "新会话" until Hermes emits session.title after the first prompt.
         viewModelScope.launch {
             val meta = runCatching {
-                sessions.list(profile, currentDeviceId).firstOrNull { it.id == id }
+                sessions.sessionMeta(id, profile, currentDeviceId)
             }.getOrNull()
             if (storedSessionId == id && meta != null) {
                 _sessionTitle.value = displaySessionTitle(meta.title, fallbackTitle)
                 runtimeStore.setTitle(key, meta.title)
                 _currentModel.value = meta.model?.ifBlank { null }
                 _currentProvider.value = meta.provider?.ifBlank { null }
+                com.hermes.client.ui.sessions.botOriginOf(meta)?.let { late ->
+                    if (_botOrigin.value == null) {
+                        // Classified only now — a deep link or a notification opened this before
+                        // any list had been read. The resume it already fired is left alone rather
+                        // than unwound; the next open reads the cache and defers properly.
+                        com.hermes.client.data.diagnostics.DebugLog.log(
+                            "session", "late bot classification for ${'$'}id",
+                        )
+                    }
+                    _botOrigin.value = late
+                }
                 applyWorkspace(meta.cwd, meta.gitBranch, meta.gitRepoRoot)
             }
         }
@@ -594,7 +647,13 @@ class ChatViewModel @Inject constructor(
                     if (storedSessionId == id) {
                         _defaultModel.value = defaultModel
                         _defaultProvider.value = null
-                        if (_currentModel.value.isNullOrBlank() && defaultModel != null) {
+                        // Never for a bot conversation: the profile default is this phone's
+                        // setting, not the model that answered on the other app, and writing it
+                        // here made the chip name a model that had never touched that session.
+                        if (_botOrigin.value == null &&
+                            _currentModel.value.isNullOrBlank() &&
+                            defaultModel != null
+                        ) {
                             _currentModel.value = defaultModel
                         }
                         backfillProvidersFromCatalog()
@@ -608,20 +667,23 @@ class ChatViewModel @Inject constructor(
         // Resume is independent from REST history. The composer can be used immediately, but any
         // send awaits this gate so a stored database id is never submitted as a live runtime id.
         val gateForOpen = liveHandleGate
-        resumeJob = viewModelScope.launch {
-            try {
-                val handle = recoverLiveHandle(id, profile, key)
-                if (storedSessionId == id && liveHandleGate === gateForOpen) {
-                    gateForOpen.complete(handle)
+        resumeDeferred = com.hermes.client.ui.sessions.isBotSession(cachedMeta?.source)
+        if (!resumeDeferred) {
+            resumeJob = viewModelScope.launch {
+                try {
+                    val handle = recoverLiveHandle(id, profile, key)
+                    if (storedSessionId == id && liveHandleGate === gateForOpen) {
+                        gateForOpen.complete(handle)
+                    }
+                } catch (cancelled: CancellationException) {
+                    gateForOpen.cancel(cancelled)
+                    throw cancelled
+                } catch (error: Exception) {
+                    com.hermes.client.data.diagnostics.DebugLog.log(
+                        "session", "resume($id) failed: ${error.message}",
+                    )
+                    gateForOpen.completeExceptionally(error)
                 }
-            } catch (cancelled: CancellationException) {
-                gateForOpen.cancel(cancelled)
-                throw cancelled
-            } catch (error: Exception) {
-                com.hermes.client.data.diagnostics.DebugLog.log(
-                    "session", "resume($id) failed: ${error.message}",
-                )
-                gateForOpen.completeExceptionally(error)
             }
         }
         titleJob?.cancel()
@@ -647,7 +709,7 @@ class ChatViewModel @Inject constructor(
                             // Some gateway versions omit session_id on title events. Never apply that
                             // unscoped title directly: re-read this session's own metadata instead.
                             val meta = runCatching {
-                                sessions.list(profile, currentDeviceId).firstOrNull { it.id == storedSessionId }
+                                sessions.sessionMeta(storedSessionId, profile, currentDeviceId)
                             }.getOrNull()
                             if (this@ChatViewModel.storedSessionId == id && meta != null) {
                                 _sessionTitle.value = displaySessionTitle(meta.title, fallbackTitle)
@@ -721,7 +783,7 @@ class ChatViewModel @Inject constructor(
                 )
                 launch {
                     val metadata = runCatching {
-                        sessions.list(profile, currentDeviceId).firstOrNull { it.id == id }
+                        sessions.sessionMeta(id, profile, currentDeviceId)
                     }.getOrNull()
                     if (runtimeKey == key && metadata != null) {
                         val fallback = localized(appLanguage, "会话", "Chat")
@@ -900,6 +962,31 @@ class ChatViewModel @Inject constructor(
         val expectedStoredId = storedSessionId
         val expectedProfile = currentProfile
         val gateForSend = liveHandleGate
+        // This turn is ours, not the channel peer's. Recorded before the send so the bubble is
+        // signed correctly the moment it appears, whatever the send goes on to do.
+        if (_botOrigin.value != null) _locallySentIds.value = _locallySentIds.value + messageId
+        // A bot conversation opened without resuming (see [resumeDeferred]). Resume now rather
+        // than letting the gate run out its 25-second timeout on the very first message.
+        if (resumeDeferred && !gateForSend.isCompleted) {
+            resumeDeferred = false
+            resumeJob = viewModelScope.launch {
+                try {
+                    val key = runtimeKey ?: return@launch
+                    val handle = recoverLiveHandle(expectedStoredId, expectedProfile, key)
+                    if (storedSessionId == expectedStoredId && liveHandleGate === gateForSend) {
+                        gateForSend.complete(handle)
+                    }
+                } catch (cancelled: CancellationException) {
+                    gateForSend.cancel(cancelled)
+                    throw cancelled
+                } catch (error: Exception) {
+                    com.hermes.client.data.diagnostics.DebugLog.log(
+                        "session", "deferred resume($expectedStoredId) failed: ${error.message}",
+                    )
+                    gateForSend.completeExceptionally(error)
+                }
+            }
+        }
         sendJob = viewModelScope.launch {
             try {
                 val outgoingImages = atts.filter { it.kind == AttachmentKind.IMAGE }.map { a ->
