@@ -19,6 +19,42 @@ export function gatewaySmokeRoutePolicy(routeMode = "private") {
   };
 }
 
+export function gatewayRuntimePolicy(runtimeMode = "disabled") {
+  if (runtimeMode === "disabled") {
+    return {
+      runtimeMode,
+      readiness: {
+        status: "ready",
+        checks: {
+          config: "ok",
+          database: "disabled",
+          migrations: "not_required",
+          postgresql: "not_required",
+        },
+      },
+      accountAuthEnabled: false,
+      accountProviders: null,
+    };
+  }
+  if (runtimeMode === "email_otp") {
+    return {
+      runtimeMode,
+      readiness: {
+        status: "ready",
+        checks: {
+          config: "ok",
+          database: "ok",
+          migrations: "ok",
+          postgresql: "supported",
+        },
+      },
+      accountAuthEnabled: true,
+      accountProviders: ["email_otp"],
+    };
+  }
+  throw new GatewayCandidateSmokeError("configuration");
+}
+
 export async function runGatewaySmokeCheck(check, operation) {
   try {
     return await operation();

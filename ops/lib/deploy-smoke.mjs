@@ -139,6 +139,7 @@ async function runVerifier(request, internalGatewayUrl, { appToken, internalStat
         EXPECTED_DEVICE_ID: request.expectedDeviceId,
         HERMES_STATUS_MODE: request.publicRoute ? "live" : "mock",
         GATEWAY_SMOKE_ROUTE: request.publicRoute ? "public" : "private",
+        EXPECTED_GATEWAY_RUNTIME_MODE: request.expectedRuntimeMode ?? "disabled",
       },
       stdio: ["ignore", "ignore", "pipe"],
     });

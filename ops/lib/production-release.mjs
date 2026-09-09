@@ -224,7 +224,7 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch) {
 function preserveAccountSurface(smoke, runtimeEnvironment, fetchImpl) {
   if (runtimeEnvironment.mode !== "email_otp") return smoke;
   return async (request) => {
-    await smoke(request);
+    await smoke({ ...request, expectedRuntimeMode: "email_otp" });
     await verifyPreservedEmailSurface(request, fetchImpl);
   };
 }
