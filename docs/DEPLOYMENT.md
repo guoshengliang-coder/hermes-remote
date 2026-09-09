@@ -396,7 +396,9 @@ successful disposable workflow does not authorize running this command on the HK
 
 When the active slot already serves the email-OTP gray rollout, routine-release smoke must validate the
 preserved Schema/PostgreSQL readiness contract (`database=ok`, `migrations=ok`, `postgresql=supported`) and the
-single `email_otp` provider. It must not reuse the account-disabled OCI expectations. Gateway 0.4.11 carries
+single `email_otp` provider. When Desktop binding is also active, the same smoke must additionally require the
+singular binding surface and the `hermes-serve-v1` Desktop bootstrap contract; it must reject multi-device or
+sharing capability drift. It must not reuse the account-disabled OCI expectations. Gateway 0.4.11 carries
 this correction after 0.4.10 was rejected before traffic switching by the stale disabled-runtime readiness
 assertion. If that failure left an audited `candidate_started` journal, use the same-commit operator and Gateway
 bundle for the next release, run `production-release.mjs --operation recover`, and then run the normal `deploy`.

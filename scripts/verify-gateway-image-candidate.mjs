@@ -5,6 +5,7 @@ import {
   gatewayRuntimePolicy,
   GatewayCandidateSmokeError,
   runGatewaySmokeCheck,
+  verifyGatewayCapabilities,
   waitForGatewayForwarding,
 } from "./lib/gateway-candidate-smoke.mjs";
 import { serializeReleaseError } from "./lib/release-errors.mjs";
@@ -57,14 +58,7 @@ async function verify() {
 
     await runGatewaySmokeCheck("capabilities", async () => {
       const capabilities = await fetchJson("/v2/capabilities");
-      assert.equal(capabilities.accountAuth?.enabled, runtimePolicy.accountAuthEnabled);
-      if (runtimePolicy.accountProviders !== null) {
-        assert.deepEqual(capabilities.accountAuth?.providers, runtimePolicy.accountProviders);
-      }
-      assert.equal(capabilities.binding?.enabled, false);
-      assert.equal(capabilities.legacy?.appTokenAccepted, true);
-      assert.equal(capabilities.legacy?.connectorTokenAccepted, true);
-      assert.equal(capabilities.server?.version, expectedVersion);
+      verifyGatewayCapabilities(capabilities, runtimePolicy, expectedVersion);
     });
 
     await runGatewaySmokeCheck("release_identity", async () => {
