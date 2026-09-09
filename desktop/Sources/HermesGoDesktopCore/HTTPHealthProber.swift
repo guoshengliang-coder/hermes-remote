@@ -1,3 +1,4 @@
+import CFNetwork
 import Foundation
 
 public struct ProbeResult: Equatable, Sendable {
@@ -114,7 +115,14 @@ public struct HTTPHealthProber {
         let configuration = URLSessionConfiguration.ephemeral
         // A system HTTP/PAC proxy may otherwise receive requests for 127.0.0.1. Candidate
         // readiness must prove the process on this Mac, never a proxy response or timeout.
-        configuration.connectionProxyDictionary = [:]
+        configuration.connectionProxyDictionary = [
+            kCFNetworkProxiesHTTPEnable as String: false,
+            kCFNetworkProxiesHTTPSEnable as String: false,
+            kCFNetworkProxiesSOCKSEnable as String: false,
+            kCFNetworkProxiesFTPEnable as String: false,
+            kCFNetworkProxiesProxyAutoConfigEnable as String: false,
+            kCFNetworkProxiesProxyAutoDiscoveryEnable as String: false,
+        ]
         return configuration
     }
 
