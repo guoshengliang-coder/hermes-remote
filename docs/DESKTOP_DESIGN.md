@@ -46,6 +46,10 @@ Implemented account states are capability checking/unavailable, signed out, emai
 signed in with no binding, bound healthy/offline, pending/replacement/revoked, and session-needs-login.
 The normal signed-in view shows the account, current Desktop, one binding, and independently removable
 phones. Account errors appear with stable `HR-*` codes and copyable redacted diagnostics.
+The signed-in dashboard follows the capability snapshot field by field: the account summary remains available after
+email-only authentication, while phone installations and Connector binding are loaded only when their respective
+identity-management and binding capabilities are enabled. A disabled optional surface is shown as empty/unavailable;
+its absent route must not turn a successful email exchange into an account-service error.
 
 Removing another phone opens a dedicated sheet rather than immediately mutating the account. The
 sheet names the target, explains that only that phone's account login is revoked, sends a six-digit

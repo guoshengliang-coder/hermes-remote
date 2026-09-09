@@ -32,6 +32,8 @@ The current automated suite covers:
 - email sign-in challenge/exchange paths, normalized email, stable installation identity and
   exchange idempotency, macOS session validation, and bilingual `HR-AUTH-009` through
   `HR-AUTH-011` recovery contracts;
+- email-only gray-rollout capability gating: after a successful exchange, disabled installation and binding routes
+  are not requested, the session remains stored, and the account summary reaches the signed-in state;
 - separate account-session and Connector-machine identity stores, Ed25519 challenge signing, access
   refresh, and persisted idempotency-key reuse after a lost refresh response;
 - signed-in dashboard reduction, two-phone listing, current-account-email reauthentication before
