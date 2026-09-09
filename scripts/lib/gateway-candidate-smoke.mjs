@@ -34,9 +34,12 @@ export function gatewayRuntimePolicy(runtimeMode = "disabled") {
       },
       accountAuthEnabled: false,
       accountProviders: null,
+      bindingEnabled: false,
+      desktopBootstrapRuntimeContract: null,
     };
   }
-  if (runtimeMode === "email_otp") {
+  if (runtimeMode === "email_otp" || runtimeMode === "email_binding") {
+    const bindingEnabled = runtimeMode === "email_binding";
     return {
       runtimeMode,
       readiness: {
@@ -50,9 +53,31 @@ export function gatewayRuntimePolicy(runtimeMode = "disabled") {
       },
       accountAuthEnabled: true,
       accountProviders: ["email_otp"],
+      bindingEnabled,
+      desktopBootstrapRuntimeContract: bindingEnabled ? "hermes-serve-v1" : null,
     };
   }
   throw new GatewayCandidateSmokeError("configuration");
+}
+
+export function verifyGatewayCapabilities(capabilities, runtimePolicy, expectedVersion) {
+  const binding = capabilities?.binding;
+  const desktopBootstrap = capabilities?.desktopBootstrap;
+  const valid = capabilities?.accountAuth?.enabled === runtimePolicy.accountAuthEnabled
+    && (runtimePolicy.accountProviders === null
+      || JSON.stringify(capabilities.accountAuth?.providers) === JSON.stringify(runtimePolicy.accountProviders))
+    && binding?.enabled === runtimePolicy.bindingEnabled
+    && binding?.replacement === runtimePolicy.bindingEnabled
+    && binding?.maxActiveConnectorsPerAccount === 1
+    && !Object.hasOwn(binding ?? {}, "supportsDeviceSelection")
+    && !Object.hasOwn(binding ?? {}, "supportsDeviceSharing")
+    && (runtimePolicy.desktopBootstrapRuntimeContract === null
+      ? desktopBootstrap === undefined
+      : desktopBootstrap?.runtimeContract === runtimePolicy.desktopBootstrapRuntimeContract)
+    && capabilities?.legacy?.appTokenAccepted === true
+    && capabilities?.legacy?.connectorTokenAccepted === true
+    && capabilities?.server?.version === expectedVersion;
+  if (!valid) throw new GatewayCandidateSmokeError("capabilities");
 }
 
 export async function runGatewaySmokeCheck(check, operation) {
