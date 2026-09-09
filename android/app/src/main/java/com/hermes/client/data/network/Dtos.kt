@@ -326,9 +326,12 @@ data class ModelOptionDto(
 )
 
 /**
- * Gateway `projects.tree` result. Single-profile (the connected gateway's bound profile).
- * `scoped_session_ids` is parsed but unused in v1 (Sessions mode shows the flat REST list
- * independently). `icon` is an unknown key here and intentionally ignored (YAGNI).
+ * Gateway `projects.tree` result. Single-profile (the gateway's LAUNCH profile — `projects.*`
+ * takes no profile param upstream), so the Projects page only reads it while the active profile
+ * is that one. `scoped_session_ids` is parsed but unused.
+ *
+ * Keys are camelCase on the wire (upstream `_project_node` in tui_gateway/project_tree.py), which
+ * is why these fields carry no @SerialName.
  */
 @Serializable data class ProjectTreeDto(
     val projects: List<ProjectNodeDto> = emptyList(),
@@ -340,7 +343,13 @@ data class ModelOptionDto(
     val label: String = "",
     val path: String? = null,
     val color: String? = null,
+    // A codicon name (upstream's curated palette), not an emoji or a drawable. Unknown names fall
+    // back to the folder glyph rather than rendering nothing.
+    val icon: String? = null,
     val isAuto: Boolean = false,
+    // The "Home" bucket for sessions that belong to no project. It is not a real project row and
+    // must never be offered for rename/delete.
+    val isNoProject: Boolean = false,
     val sessionCount: Int = 0,
     val lastActive: Double? = null,
     val repos: List<RepoDto> = emptyList(),
@@ -370,6 +379,52 @@ data class ModelOptionDto(
 @Serializable data class ProjectSessionsResultDto(
     val project: ProjectNodeDto? = null,
 )
+
+/** Gateway `projects.{create,get,update}` result — the single project row that was written. */
+@Serializable data class ProjectMutationResultDto(
+    val project: ProjectRowDto? = null,
+)
+
+/**
+ * A row of upstream's `projects` table, as returned by the CRUD methods (NOT the tree shape).
+ * These keys are snake_case — the row is `Project.to_dict()` in hermes_cli/projects_db.py, a
+ * different serializer from the tree's `_project_node`.
+ */
+@Serializable data class ProjectRowDto(
+    val id: String,
+    val name: String = "",
+    val slug: String = "",
+    val description: String? = null,
+    val icon: String? = null,
+    val color: String? = null,
+    @SerialName("primary_path") val primaryPath: String? = null,
+    val folders: List<ProjectFolderDto> = emptyList(),
+    val archived: Boolean = false,
+)
+
+@Serializable data class ProjectFolderDto(
+    val path: String,
+    val label: String? = null,
+    @SerialName("is_primary") val isPrimary: Boolean = false,
+)
+
+/** `GET /api/fs/list` — one directory level. Never throws upstream; failure arrives as [error]. */
+@Serializable data class FsListDto(
+    val entries: List<FsEntryDto> = emptyList(),
+    val error: String? = null,
+)
+
+@Serializable data class FsEntryDto(
+    val name: String = "",
+    val path: String = "",
+    val isDirectory: Boolean = false,
+)
+
+/** `GET /api/fs/git-root` — the repo root containing a path, or null when it is not in a repo. */
+@Serializable data class FsGitRootDto(val root: String? = null)
+
+/** `GET /api/fs/default-cwd` — where the folder picker opens. */
+@Serializable data class FsDefaultCwdDto(val cwd: String? = null, val branch: String? = null)
 
 /**
  * One option in the cron delivery picker. Hermes calls `GET /api/cron/delivery-targets` the

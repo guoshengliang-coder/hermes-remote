@@ -2,7 +2,9 @@ package com.hermes.client.domain
 
 import com.hermes.client.data.network.LaneDto
 import com.hermes.client.data.network.MessageDto
+import com.hermes.client.data.network.ProjectFolderDto
 import com.hermes.client.data.network.ProjectNodeDto
+import com.hermes.client.data.network.ProjectRowDto
 import com.hermes.client.data.network.ProjectTreeDto
 import com.hermes.client.data.network.RepoDto
 import com.hermes.client.data.network.SessionDto
@@ -644,7 +646,9 @@ fun ProjectNodeDto.toDomain() = Project(
     label = label,
     path = path,
     color = color?.ifBlank { null },
+    icon = icon?.ifBlank { null },
     isAuto = isAuto,
+    isNoProject = isNoProject,
     sessionCount = sessionCount,
     lastActive = com.hermes.client.ui.util.secondsToEpochMs(lastActive),
     repos = repos.map { it.toDomain() },
@@ -675,3 +679,20 @@ fun LaneDto.toDomain() = ProjectLane(
 fun ChatMessage.isRenderable(): Boolean =
     text.isNotBlank() || images.isNotEmpty() || files.isNotEmpty() ||
         tools.isNotEmpty() || thinking.isNotBlank() || displayKind != null
+
+fun ProjectRowDto.toDomain() = ProjectRecord(
+    id = id,
+    name = name,
+    slug = slug,
+    description = description?.ifBlank { null },
+    icon = icon?.ifBlank { null },
+    color = color?.ifBlank { null },
+    primaryPath = primaryPath?.ifBlank { null },
+    folders = folders.map { it.toDomain() },
+)
+
+fun ProjectFolderDto.toDomain() = ProjectFolder(
+    path = path,
+    label = label?.ifBlank { null },
+    isPrimary = isPrimary,
+)

@@ -84,6 +84,25 @@ const server = createServer(async (request, response) => {
   if (p === "/api/tools/toolsets") return json(response, { toolsets: [] });
   if (p === "/api/analytics/usage" || p === "/api/analytics/models") return json(response, {});
   if (p === "/api/messaging/platforms") return json(response, { platforms: [] });
+  if (p === "/api/fs/default-cwd") return json(response, { cwd: LAUNCH_DIR, branch: "main" });
+  if (p === "/api/fs/git-root") {
+    const target = url.searchParams.get("path") ?? "";
+    return json(response, { root: FAKE_REPOS.has(target) ? target : null });
+  }
+  if (p === "/api/fs/list") {
+    // Upstream never throws here: a bad path comes back as an empty list plus an `error` string,
+    // which is what the client maps to HR-SESS-012.
+    const target = url.searchParams.get("path") ?? "";
+    const children = FAKE_FS[target];
+    if (!children) return json(response, { entries: [], error: "ENOENT" });
+    return json(response, {
+      entries: children.map((name) => ({
+        name,
+        path: target === "/" ? `/${name}` : `${target}/${name}`,
+        isDirectory: true,
+      })),
+    });
+  }
   if (p === "/api/cron/jobs") return json(response, { jobs: [] });
   json(response, { error: "not_found" }, 404);
 });
@@ -246,6 +265,84 @@ async function streamRun(socket) {
 // ── Workspace fixtures (dev only) ─────────────────────────────────────────────────────────────
 // The mock gateway's "launch directory" — sessions created without a cwd land here.
 const LAUNCH_DIR = "/Users/me";
+// ---- projects + a fake Mac filesystem --------------------------------------
+// Upstream's projects.* are server-authoritative and take no profile param, so the app only
+// manages them for the default profile — which is what this mock reports. Kept in memory so a
+// restart resets to the fixtures, and deliberately NOT backed by the real disk: the folder
+// picker must be exercisable without letting a dev tool walk the developer's home directory.
+
+let projectSeq = 1;
+const projects = [
+  { id: "p_seed01", name: "Hermes Remote", slug: "hermes-remote", icon: "repo", color: "hsl(210 68% 58%)",
+    folders: [{ path: "/Users/me/CodeX project/hermes-remote", is_primary: true }] },
+];
+
+// path -> child directory names.
+const FAKE_FS = {
+  "/": ["Users"],
+  "/Users": ["me"],
+  "/Users/me": ["CodeX project", "ops", "notes", ".hermes"],
+  "/Users/me/CodeX project": ["hermes-remote", "hermes-ops", "scratch"],
+  "/Users/me/CodeX project/hermes-remote": ["android", "gateway", "docs"],
+  "/Users/me/CodeX project/hermes-ops": [],
+  "/Users/me/CodeX project/scratch": [],
+  "/Users/me/ops": ["hk"],
+  "/Users/me/ops/hk": [],
+  "/Users/me/notes": [],
+  "/Users/me/.hermes": ["nous-hermes-agent-playground"],
+  "/Users/me/.hermes/nous-hermes-agent-playground": [],
+};
+// Which of those are git repos, for the picker's hint.
+const FAKE_REPOS = new Set([
+  "/Users/me/CodeX project/hermes-remote",
+  "/Users/me/CodeX project/hermes-ops",
+  "/Users/me/ops/hk",
+  "/Users/me/.hermes/nous-hermes-agent-playground",
+]);
+
+const projectDict = (p) => ({
+  id: p.id, slug: p.slug, name: p.name, description: p.description ?? null,
+  icon: p.icon ?? null, color: p.color ?? null, board_slug: null,
+  primary_path: (p.folders.find((f) => f.is_primary) ?? p.folders[0])?.path ?? null,
+  archived: false, created_at: nowSec(),
+  folders: p.folders.map((f) => ({ path: f.path, label: null, is_primary: !!f.is_primary, added_at: nowSec() })),
+});
+
+const findProject = (id) => projects.find((p) => p.id === String(id ?? ""));
+
+/** Upstream's `_project_node` shape: camelCase, repos carry lanes under `groups`. */
+function projectTreeNodes() {
+  const sessions = mockSessions().filter((r) => !r.archived);
+  const claimed = new Set();
+  const nodes = projects.map((p) => {
+    const paths = p.folders.map((f) => f.path);
+    const mine = sessions.filter((row) => paths.some((dir) => (row.cwd ?? "").startsWith(dir)));
+    mine.forEach((row) => claimed.add(row.id));
+    const primary = projectDict(p).primary_path;
+    return {
+      id: p.id, label: p.name, path: primary, color: p.color ?? null, icon: p.icon ?? null,
+      isAuto: false, isNoProject: false, sessionCount: mine.length,
+      lastActive: mine.length ? Math.max(...mine.map((r) => r.last_active)) : null,
+      repos: paths.map((dir) => ({
+        id: dir, label: dir.split("/").pop(), path: dir, sessionCount: mine.filter((r) => (r.cwd ?? "").startsWith(dir)).length,
+        groups: [{ id: "all", label: "", path: dir, isMain: true, sessions: [] }],
+      })),
+      previewSessions: mine.slice(0, 3),
+    };
+  });
+  // Everything a project did not claim lands in upstream's no-project bucket.
+  const rest = sessions.filter((row) => !claimed.has(row.id));
+  nodes.push({
+    id: "__no_project__", label: "Home", path: LAUNCH_DIR, color: null, icon: null,
+    isAuto: false, isNoProject: true, sessionCount: rest.length,
+    lastActive: rest.length ? Math.max(...rest.map((r) => r.last_active)) : null,
+    repos: [{ id: LAUNCH_DIR, label: "home", path: LAUNCH_DIR, sessionCount: rest.length,
+              groups: [{ id: "all", label: "", path: LAUNCH_DIR, isMain: true, sessions: [] }] }],
+    previewSessions: rest.slice(0, 3),
+  });
+  return nodes;
+}
+
 const HERMES_REMOTE = "/Users/me/CodeX project/hermes-remote";
 const nowSec = () => Math.floor(Date.now() / 1000);
 const fixtureSessions = [
@@ -327,6 +424,83 @@ wss.on("connection", (socket) => {
         const cwd = requested && !requested.includes("missing") ? requested : LAUNCH_DIR;
         storedWorkspace = { cwd, git_repo_root: requested === cwd ? cwd : null, git_branch: requested === cwd ? "main" : null };
         reply({ session_id: LIVE_ID, stored_session_id: STORED_ID, info: { model: "claude-opus-5", cwd, branch: storedWorkspace.git_branch } });
+        break;
+      }
+      case "projects.tree": {
+        reply({ projects: projectTreeNodes(), active_id: null });
+        break;
+      }
+      case "projects.project_sessions": {
+        const node = projectTreeNodes().find((n) => n.id === String(request.params?.project_id ?? ""));
+        if (!node) { replyError(5062, "no such project"); break; }
+        const all = mockSessions().filter((r) => !r.archived);
+        reply({ project: { ...node, repos: node.repos.map((repo) => ({
+          ...repo,
+          groups: [{ id: "all", label: "", path: repo.path, isMain: true,
+                     sessions: all.filter((r) => (r.cwd ?? "").startsWith(repo.path)) }],
+        })) } });
+        break;
+      }
+      case "projects.create": {
+        const name = String(request.params?.name ?? "").trim();
+        if (!name) { replyError(5063, "name is required"); break; }
+        const folders = (request.params?.folders ?? []).map((path) => ({ path, is_primary: false }));
+        if (folders.length) folders[0].is_primary = true;
+        const created = {
+          id: `p_new${projectSeq++}`, name,
+          slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "project",
+          icon: request.params?.icon ?? null, color: request.params?.color ?? null, folders,
+        };
+        projects.push(created);
+        reply({ project: projectDict(created) });
+        break;
+      }
+      case "projects.update": {
+        const target = findProject(request.params?.id);
+        if (!target) { replyError(5062, "no such project"); break; }
+        if (request.params?.name !== undefined) {
+          const name = String(request.params.name ?? "").trim();
+          if (!name) { replyError(5063, "name is required"); break; }
+          target.name = name;
+        }
+        if (request.params?.icon !== undefined) target.icon = request.params.icon;
+        if (request.params?.color !== undefined) target.color = request.params.color;
+        reply({ project: projectDict(target) });
+        break;
+      }
+      case "projects.add_folder": {
+        const target = findProject(request.params?.id);
+        if (!target) { replyError(5062, "no such project"); break; }
+        const path = String(request.params?.path ?? "").trim();
+        if (!path) { replyError(5063, "path is required"); break; }
+        if (!target.folders.some((f) => f.path === path)) {
+          target.folders.push({ path, is_primary: target.folders.length === 0 });
+        }
+        reply({ project: projectDict(target) });
+        break;
+      }
+      case "projects.remove_folder": {
+        const target = findProject(request.params?.id);
+        if (!target) { replyError(5062, "no such project"); break; }
+        target.folders = target.folders.filter((f) => f.path !== String(request.params?.path ?? ""));
+        if (target.folders.length && !target.folders.some((f) => f.is_primary)) target.folders[0].is_primary = true;
+        reply({ project: projectDict(target) });
+        break;
+      }
+      case "projects.set_primary": {
+        const target = findProject(request.params?.id);
+        if (!target) { replyError(5062, "no such project"); break; }
+        const path = String(request.params?.path ?? "");
+        if (!target.folders.some((f) => f.path === path)) { replyError(5063, "folder not in project"); break; }
+        target.folders.forEach((f) => { f.is_primary = f.path === path; });
+        reply({ project: projectDict(target) });
+        break;
+      }
+      case "projects.delete": {
+        const target = findProject(request.params?.id);
+        if (!target) { replyError(5062, "no such project"); break; }
+        projects.splice(projects.indexOf(target), 1);
+        reply({ projects: projects.map(projectDict), active_id: null });
         break;
       }
       case "session.resume": {

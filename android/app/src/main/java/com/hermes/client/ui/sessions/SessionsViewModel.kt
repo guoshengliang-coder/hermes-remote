@@ -11,6 +11,7 @@ import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.PinStore
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.ProjectPrefsStore
+import com.hermes.client.data.repository.ProjectsRepository
 import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.data.repository.ViewModeStore
 import com.hermes.client.domain.Project
@@ -44,12 +45,25 @@ data class SessionsUiState(
     val configuredChannels: Int = 0,
 )
 
+/**
+ * The profile whose HERMES_HOME is the Hermes root, and therefore the one whose `projects.db`
+ * every `projects.*` call resolves to. Used only when `/api/profiles` did not mark one.
+ */
+private const val DEFAULT_PROFILE_NAME = "default"
+
 /** Projects-mode state: [tree] is the overview; [scope] is the drilled-in hydrated project (null = overview). */
 data class ProjectsUiState(
     val tree: List<Project> = emptyList(),
     val loading: Boolean = false,
     val error: AppError? = null,
     val scope: Project? = null,
+    /**
+     * Whether this list came from the gateway's projects.db (so projects can be created, renamed
+     * and removed) or from the client-side derivation (read-only). See [SessionsViewModel.loadProjectTree].
+     */
+    val managed: Boolean = false,
+    /** Set by a failed edit; cleared once shown. Separate from [error], which owns the whole list. */
+    val editError: AppError? = null,
 )
 
 @HiltViewModel
@@ -62,6 +76,7 @@ class SessionsViewModel @Inject constructor(
     private val runtimeStore: SessionRuntimeStore,
     private val tools: com.hermes.client.data.repository.ToolsRepository,
     private val projectPrefs: ProjectPrefsStore,
+    private val projectsRepo: ProjectsRepository,
     private val accountSessions: AccountSessionManager? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(
@@ -211,28 +226,40 @@ class SessionsViewModel @Inject constructor(
 
     private var projectTreeJob: Job? = null
 
+    /**
+     * Whether the gateway's own project list is the one we may read and write.
+     *
+     * Upstream resolves `projects.db` from the gateway process's HERMES_HOME and no `projects.*`
+     * method takes a profile, so those calls always land on the DEFAULT profile's database
+     * (`is_default` marks exactly the profile whose home is that root). Reading it while the app
+     * is scoped to another tenant would show one profile's folders around another's chats, so the
+     * other profiles keep the client-side derivation and stay read-only.
+     */
+    private fun projectsAreManaged(): Boolean {
+        val active = profileManager.active.value ?: return false
+        val default = profileManager.list.value.firstOrNull { it.isDefault }?.name ?: DEFAULT_PROFILE_NAME
+        return active == default
+    }
+
     /** Build the project overview (also the retry entry point). Latest-wins like [refresh]. */
     fun loadProjectTree() {
         projectTreeJob?.cancel()
         projectTreeJob = viewModelScope.launch {
             _projects.value = _projects.value.copy(loading = true, error = null)
             try {
-                // Stopgap: the gateway's projects.tree is pinned to the launch profile, so derive
-                // projects client-side from the session list — filtered to the ACTIVE profile,
-                // per the app-wide scope rule (everything follows the current profile). Re-wire
-                // to a per-profile gateway RPC (see ProjectsRepository) once available.
-                val active = profileManager.active.value
-                val all = sessions.listAllProfiles()
-                val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
-                val derived = deriveProjectsFromSessions(scoped, defaultProjectPath.value)
+                val managed = projectsAreManaged()
+                val list = if (managed) serverProjects() else derivedProjects()
                 // Keep the drilled-in project by id so a rebuild never kicks the user back to
                 // the overview. Within a run only: Projects is a pushed page now, so a cold launch
                 // deliberately opens on the overview (docs/DESIGN.md §5.3, 2026-09-09).
-                val scopeId = _projects.value.scope?.id
+                val open = _projects.value.scope
                 _projects.value = _projects.value.copy(
                     loading = false,
-                    tree = derived,
-                    scope = scopeId?.let { id -> derived.firstOrNull { it.id == id } },
+                    tree = list,
+                    managed = managed,
+                    // A rebuilt node carries fresh counts but only preview sessions, so a hydrated
+                    // scope keeps its sessions rather than blanking the drill-in mid-refresh.
+                    scope = open?.let { s -> list.firstOrNull { it.id == s.id }?.let { fresh -> mergeScope(fresh, s) } },
                 )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -245,15 +272,121 @@ class SessionsViewModel @Inject constructor(
         }
     }
 
-    /** Drill into a project. Derived projects already carry all their sessions — no fetch needed. */
+    /** The gateway's server-authoritative tree, normalized to this app's default-project convention. */
+    private suspend fun serverProjects(): List<Project> =
+        projectsRepo.tree().projects.map(::normalizeServerProject).sortedBy { it.id != DEFAULT_PROJECT_ID }
+
+    /**
+     * Upstream calls the bucket for chats that belong to no project `__no_project__`; this app has
+     * always called it 「默认项目」 and pins it first with the house glyph. Same idea, one name.
+     */
+    private fun normalizeServerProject(project: Project): Project =
+        if (project.isNoProject) project.copy(id = DEFAULT_PROJECT_ID) else project
+
+    private suspend fun derivedProjects(): List<Project> {
+        // The gateway's projects.tree is pinned to the launch profile, so for every other tenant
+        // derive projects client-side from the session list — filtered to the ACTIVE profile, per
+        // the app-wide scope rule (everything follows the current profile).
+        val active = profileManager.active.value
+        val all = sessions.listAllProfiles()
+        val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
+        return deriveProjectsFromSessions(scoped, defaultProjectPath.value)
+    }
+
+    /** Carry a hydrated drill-in's sessions across a tree rebuild that only returns previews. */
+    private fun mergeScope(fresh: Project, open: Project): Project =
+        if (fresh.repos.sumOf { r -> r.lanes.sumOf { it.sessions.size } } == 0 && open.repos.isNotEmpty()) {
+            fresh.copy(repos = open.repos)
+        } else {
+            fresh
+        }
+
+    /**
+     * Drill into a project. Derived projects already carry all their sessions; server nodes carry
+     * only preview rows, so those are hydrated with `projects.project_sessions`. The scope is set
+     * first either way, so the page opens immediately and fills in.
+     */
     fun enterProject(project: Project) {
         _projects.value = _projects.value.copy(scope = project)
+        if (!_projects.value.managed || project.id == DEFAULT_PROJECT_ID) return
+        viewModelScope.launch {
+            runCatching { projectsRepo.projectSessions(project.id) }
+                .onSuccess { hydrated ->
+                    // Ignore a late arrival for a project the user already left.
+                    if (hydrated != null && _projects.value.scope?.id == project.id) {
+                        _projects.value = _projects.value.copy(scope = normalizeServerProject(hydrated))
+                    }
+                }
+        }
     }
 
     /** Return to the project overview. */
     fun exitProject() {
         _projects.value = _projects.value.copy(scope = null)
     }
+
+    // ── Project management ──────────────────────────────────────────────────────────────────
+    // Only reachable while [ProjectsUiState.managed]; every call writes the gateway's projects.db
+    // and then rebuilds the tree, because upstream re-derives membership by path on every read.
+
+    /** Create a project owning [folder]. Rebuilds the tree so the new row appears with its counts. */
+    fun createProject(name: String, folder: String?, icon: String?, color: String?) =
+        editProject("project_create") { projectsRepo.create(name.trim(), folder, icon, color) }
+
+    /** Rename and/or restyle. Upstream patches only the fields it receives, so nulls are safe. */
+    fun updateProject(id: String, name: String? = null, icon: String? = null, color: String? = null) =
+        editProject("project_update") { projectsRepo.update(id, name?.trim(), icon, color) }
+
+    fun addProjectFolder(id: String, path: String) =
+        editProject("project_add_folder") { projectsRepo.addFolder(id, path) }
+
+    fun removeProjectFolder(id: String, path: String) =
+        editProject("project_remove_folder") { projectsRepo.removeFolder(id, path) }
+
+    fun setProjectPrimaryFolder(id: String, path: String) =
+        editProject("project_set_primary") { projectsRepo.setPrimary(id, path) }
+
+    /**
+     * Remove the grouping. Upstream deletes the row and its folder rows only — chats are untouched
+     * and nothing on disk moves, so the folder reappears immediately as an auto project. Leaving
+     * the drill-in is part of the action: the project the user was inside no longer exists.
+     */
+    fun deleteProject(id: String) =
+        editProject("project_delete") {
+            projectsRepo.delete(id)
+            if (_projects.value.scope?.id == id) _projects.value = _projects.value.copy(scope = null)
+        }
+
+    private fun editProject(stage: String, block: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                block()
+                loadProjectTree()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _projects.value = _projects.value.copy(editError = projectEditError(e, stage))
+            }
+        }
+    }
+
+    /** One-shot: the edit failure has been shown. */
+    fun clearProjectEditError() {
+        _projects.value = _projects.value.copy(editError = null)
+    }
+
+    /** One directory level on the Mac, for the folder picker. Throws so the caller can show HR-SESS-012. */
+    suspend fun browseFolder(path: String): List<com.hermes.client.data.network.FsEntryDto> {
+        val page = sessions.browseFolder(path)
+        if (page.error != null) throw IllegalStateException(page.error)
+        return page.entries.filter { it.isDirectory }
+    }
+
+    /** Where the folder picker opens: the gateway's own working directory. */
+    suspend fun defaultBrowseFolder(): String? = sessions.defaultBrowseFolder()
+
+    /** The repo root containing [path], for the picker's "this is a git repo" hint. */
+    suspend fun gitRootOf(path: String): String? = runCatching { sessions.gitRootOf(path) }.getOrNull()
 
     init {
         restoreSelectedRoute()

@@ -12,7 +12,8 @@ import androidx.compose.ui.unit.dp
 // Shared thin-stroke (1.7dp) icon set — the same brush as the card page's hand-drawn glyphs,
 // for list surfaces that need matching outline icons. Tinted by Icon like any vector.
 
-private fun strokeIcon(name: String, block: PathBuilder.() -> Unit): ImageVector =
+// `internal`, not private: ProjectIcons.kt draws the project glyph set with the same brush.
+internal fun strokeIcon(name: String, block: PathBuilder.() -> Unit): ImageVector =
     ImageVector.Builder(
         name = name,
         defaultWidth = 24.dp, defaultHeight = 24.dp,

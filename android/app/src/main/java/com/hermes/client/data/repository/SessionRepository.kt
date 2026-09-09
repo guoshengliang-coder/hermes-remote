@@ -336,4 +336,14 @@ class SessionRepository(
         conversationDevices?.remove(account.accountId, profile, sessionId)
     }
 
+
+    // ── Filesystem, for the project folder picker ───────────────────────────────────────────
+    // Thin passthroughs: the picker needs the Mac's directory tree, and this repository already
+    // owns the REST client. Upstream reports a bad path in the body, not as an HTTP failure.
+
+    suspend fun browseFolder(path: String): com.hermes.client.data.network.FsListDto = rest.fsList(path)
+
+    suspend fun defaultBrowseFolder(): String? = rest.fsDefaultCwd()
+
+    suspend fun gitRootOf(path: String): String? = rest.fsGitRoot(path)
 }

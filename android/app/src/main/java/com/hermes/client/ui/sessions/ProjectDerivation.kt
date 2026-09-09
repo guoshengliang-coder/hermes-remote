@@ -91,6 +91,9 @@ private fun buildProject(id: String, label: String, path: String?, rows: List<Se
         label = label,
         path = path,
         color = null,
+        icon = null,
+        // Derived projects are folders that happen to hold sessions, not rows in the gateway's
+        // projects.db — so they can never be renamed, recoloured or removed.
         isAuto = true,
         sessionCount = rows.size,
         lastActive = rows.mapNotNull { it.lastActive }.maxOrNull(),
