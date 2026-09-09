@@ -86,6 +86,8 @@ The current automated suite covers:
   exact `hermes-serve-v1` loopback arguments and sentinels, absent/mismatched Gateway capability
   rejection, and readiness only when both gates match;
 - an existing responder on reserved port 9119, including 401/403, blocks clean install;
+- packaged ATS configuration explicitly permits local-network health probes while leaving arbitrary
+  public and WebView HTTP loads disabled;
 - restart inspection recognizes only an `account_active` journal plus both exact managed LaunchAgents
   as active; intermediate journals recover before a second install and mismatches fail closed;
 - a newly confirmed run atomically replaces only a terminal `legacy_active` or `clean_uninstalled`
