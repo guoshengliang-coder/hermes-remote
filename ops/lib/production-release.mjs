@@ -294,7 +294,8 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch) {
   const account = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/account`);
   if (account?.status !== 401) fail("production_release_email_account_guard_invalid");
   const bindingRoute = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/connector-binding`);
-  if (bindingRoute?.status !== 404) fail("production_release_binding_route_must_stay_absent");
+  const expectedBindingStatus = request.publicRoute === true ? 404 : 503;
+  if (bindingRoute?.status !== expectedBindingStatus) fail("production_release_binding_route_must_stay_absent");
 }
 
 function preserveAccountSurface(smoke, runtimeEnvironment, fetchImpl) {

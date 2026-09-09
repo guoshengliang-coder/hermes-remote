@@ -242,3 +242,6 @@ ack；HK 捕获/监控 timer 与 Mac 小时级 LaunchAgent 均已按 schema 15 �
 候选停止且端口空闲、原槽和 release links 未变、Nginx 检查点逐字节一致、并且历史中恰有一个与当前
 0.4.9 对应的 committed journal 时，才会在部署锁内归档失败 journal 并恢复该 committed journal；
 恢复完成后仍须重新执行完整常规发布，不能借此启用绑定或扩大邮箱灰度范围。
+0.4.12 首次重试随后在私有候选邮箱面校验中保持切流前失败：Gateway 内部对已关闭的 binding control
+返回 `503`，公网 Nginx 则按预期隐藏该路由并返回 `404`。0.4.13 将两条边界分别固定为私有 `503`、
+公网 `404`；其余 capability、readiness、账号和部署恢复合同不变。
