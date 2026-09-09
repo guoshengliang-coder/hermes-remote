@@ -53,6 +53,9 @@ pass, and the legacy connection remains available. Local evidence and remaining 
 - The app declares macOS local-network ATS access so its `URLSession` health probes can reach the
   pinned loopback Hermes endpoint on macOS 14 and later. Public HTTP remains disallowed; the exception
   does not enable arbitrary network or WebView loads.
+- Managed-candidate Hermes health uses a dedicated ephemeral URL session with system HTTP/PAC proxies
+  disabled. The proof must reach `127.0.0.1:9119` on this Mac; public Relay traffic continues to use
+  the normal system networking configuration.
 - Managed takeover requires exact user confirmation and never runs the legacy and account Connector
   labels together.
 - Download/verification occurs before the exact version confirmation and cannot mutate installation,

@@ -8,6 +8,12 @@ final class DesktopHermesReadinessTests: XCTestCase {
         super.tearDown()
     }
 
+    func testCandidateLoopbackSessionDoesNotInheritTheSystemProxy() {
+        let configuration = HTTPHealthProber.loopbackDirectConfiguration()
+        XCTAssertNotNil(configuration.connectionProxyDictionary)
+        XCTAssertEqual(configuration.connectionProxyDictionary?.count, 0)
+    }
+
     func testRequiresANewExactMarkerAndHealthyLoopbackResponseTogether() async throws {
         let fixture = try makeFixture(initialLog: "HERMES_BACKEND_READY port=9119\n")
         defer { try? FileManager.default.removeItem(at: fixture.root) }
