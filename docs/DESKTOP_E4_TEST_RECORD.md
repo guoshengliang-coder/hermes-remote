@@ -15,6 +15,14 @@ failure, private-key ownership/permission enforcement, symlink refusal, artifact
 key custody approval, HTTPS publication, notarized Desktop packaging, and physical migration remain
 separate gates.
 
+The following component-archive slice adds clean full-commit/version checks, fixed Hermes source and
+metadata allowlists, explicit exclusion of environment/private-key filenames, bundled
+architecture-matched Python and Node runtimes, production-only Connector JavaScript, bounded tree
+walks, relative launchers, public build identities, and partial-output cleanup. The extraction gate's
+former 4,096-entry limit could not contain a real Python runtime; it is now still bounded at 65,536
+entries and 16 MiB of listing output. Regression tests accept a 4,100-file dependency tree and reject
+65,537 entries before extraction without weakening traversal, link, or special-file checks.
+
 ## Scope completed
 
 - Desktop decodes the additive E3 capability and owned-device response only when

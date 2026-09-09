@@ -55,8 +55,8 @@ public enum DesktopArchiveExtractionError: Error, Equatable, Sendable {
 }
 
 public struct DesktopTarArchiveExtractor<Runner: OutputCommandRunning> {
-    private static var maximumListingBytes: Int { 1024 * 1024 }
-    private static var maximumEntries: Int { 4096 }
+    private static var maximumListingBytes: Int { 16 * 1024 * 1024 }
+    private static var maximumEntries: Int { 65_536 }
 
     private let runner: Runner
     private let fileManager: FileManager

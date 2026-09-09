@@ -22,6 +22,7 @@
     "desktop:assets:test": "cmp android/app/src/main/ic_launcher-playstore.png desktop/Packaging/AppIcon.png",
     "desktop:managed-release:package": "node scripts/package-desktop-managed-release.mjs",
     "desktop:managed-release:verify": "node scripts/verify-desktop-managed-release.mjs",
+    "desktop:components:package": "node scripts/package-desktop-components.mjs",
     "smoke": "node scripts/smoke-client.mjs",
     "smoke:compat": "node scripts/smoke-compat-client.mjs",
     "mock:hermes": "node scripts/mock-hermes.mjs",

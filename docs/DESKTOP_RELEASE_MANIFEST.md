@@ -13,7 +13,9 @@ Hermes Go Desktop accepts a managed install only through this sequence:
 4. download each artifact without redirects, with its signed size as a streaming upper bound;
 5. verify the exact filename, byte size, and streaming SHA-256 digest;
 6. list the tar archive before extraction and reject absolute/traversing paths, duplicate normalized
-   paths, symlinks, hard links, devices, FIFOs, and other non-file/non-directory members;
+   paths, symlinks, hard links, devices, FIFOs, and other non-file/non-directory members; both the
+   verbose listing and member count stay bounded at 16 MiB and 65,536 entries so a real Python runtime
+   fits without permitting an unbounded archive walk;
 7. extract into a new permission-restricted staging directory, validate the executable entrypoint,
    then move the complete release into its immutable version directory;
 8. activate with one atomic `current` symlink replacement.
@@ -170,6 +172,25 @@ enters manual attention without guessing that legacy should become authoritative
 ## Publication and rollout gates
 
 ### Offline packaging and verification
+
+Build the two component inputs from clean, full-commit-pinned Hermes and Hermes GO sources before
+signing. `desktop/Packaging/component-archives.example.json` documents the inputs. The Hermes builder
+copies only an explicit source-directory/metadata allowlist, root Python modules, the selected Python
+runtime, and its site-packages; it never copies `HERMES_HOME`, `.env`, Git data, tests, Node build
+trees, or Desktop releases. The Connector builder carries the production JavaScript only, its two
+runtime dependencies, and an architecture-matched Node executable. Both launchers resolve their
+bundled runtimes relative to the signed release and do not depend on launchd `PATH`.
+
+```bash
+npm run desktop:components:package -- \
+  --config /absolute/protected/path/component-archives.json \
+  --output /absolute/empty/component-output
+```
+
+The component gate refuses dirty or mismatched Git identities, mismatched semantic versions or Mach-O
+architectures, symlink/special-file inputs, more than 65,536 staged entries, more than 2 GiB of staged
+bytes, and existing targets. `BUILD-IDENTITY.json` inside each archive records only public component,
+version, architecture, and full source commit data.
 
 The repository provides an offline publisher for the signed envelope and its exact two archives. It
 does not upload, deploy, enable flags, or alter a Mac. Start from
