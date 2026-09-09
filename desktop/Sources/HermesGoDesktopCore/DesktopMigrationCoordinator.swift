@@ -42,7 +42,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         launchAgent: DesktopLaunchAgentController<Runner>,
         hermesReadiness: any DesktopHermesCandidateReadinessChecking
             = DesktopHermesCandidateReadinessChecker(),
-        maximumHealthPolls: Int = 30,
+        maximumHealthPolls: Int = 75,
         healthPollDelayNanoseconds: UInt64 = 1_000_000_000
     ) throws {
         guard (1...300).contains(maximumHealthPolls) else {

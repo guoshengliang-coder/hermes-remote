@@ -3,6 +3,39 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopMigrationCoordinatorTests: XCTestCase {
+    func testDefaultHealthWindowCoversASeventyFivePollColdStart() async throws {
+        let fixture = try Fixture(legacyRunning: true)
+        defer { fixture.cleanup() }
+        let readiness = MigrationHermesReadiness(healthy: true)
+        let controller = try DesktopLaunchAgentController(
+            userID: 501,
+            launchAgentsRoot: fixture.layout.launchAgentsRoot,
+            runner: fixture.runner
+        )
+        let coordinator = try DesktopMigrationCoordinator(
+            account: fixture.account,
+            journal: fixture.journal,
+            installer: fixture.installer,
+            launchAgent: controller,
+            hermesReadiness: readiness,
+            healthPollDelayNanoseconds: 0
+        )
+
+        _ = try await coordinator.migrate(
+            manifest: fixture.manifest,
+            sources: fixture.sources,
+            hermesLaunchAgentConfiguration: fixture.hermesLaunchAgentConfiguration,
+            launchAgentConfiguration: fixture.launchAgentConfiguration,
+            legacy: fixture.legacy,
+            runID: fixture.runID,
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>.confirmationText(
+                releaseVersion: fixture.manifest.releaseVersion
+            )
+        )
+
+        XCTAssertEqual(readiness.maximumAttempts(), 75)
+    }
+
     func testHealthyCandidateCommitsOnlyAfterProofAndHealth() async throws {
         let fixture = try Fixture(legacyRunning: true)
         defer { fixture.cleanup() }
@@ -490,8 +523,14 @@ private final class InMemoryLaunchctlRunner: CommandRunning, @unchecked Sendable
     func replaceLoaded(with labels: Set<String>) { lock.withLock { loaded = labels } }
 }
 
-private struct MigrationHermesReadiness: DesktopHermesCandidateReadinessChecking {
+private final class MigrationHermesReadiness: DesktopHermesCandidateReadinessChecking, @unchecked Sendable {
     let healthy: Bool
+    private let lock = NSLock()
+    private var observedMaximumAttempts: Int?
+
+    init(healthy: Bool) {
+        self.healthy = healthy
+    }
 
     func checkpoint(logURL: URL) throws -> DesktopHermesReadinessCheckpoint {
         DesktopHermesReadinessCheckpoint(logURL: logURL)
@@ -503,8 +542,11 @@ private struct MigrationHermesReadiness: DesktopHermesCandidateReadinessChecking
         maximumAttempts: Int,
         delayNanoseconds: UInt64
     ) async throws -> Bool {
-        healthy
+        lock.withLock { observedMaximumAttempts = maximumAttempts }
+        return healthy
     }
+
+    func maximumAttempts() -> Int? { lock.withLock { observedMaximumAttempts } }
 }
 
 private func XCTAssertThrowsErrorAsync<T>(

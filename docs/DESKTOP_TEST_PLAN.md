@@ -91,6 +91,8 @@ The current automated suite covers:
 - candidate Hermes readiness uses a dedicated ephemeral session that explicitly disables HTTP, HTTPS,
   SOCKS, FTP, PAC, and automatic proxy discovery, so configured proxies cannot intercept or stall the
   `127.0.0.1:9119` commit gate;
+- the production migration coordinator passes a 75-poll window to candidate readiness, covering the
+  measured 35-second physical-Mac cold start while tests can still inject shorter deterministic limits;
 - restart inspection recognizes only an `account_active` journal plus both exact managed LaunchAgents
   as active; intermediate journals recover before a second install and mismatches fail closed;
 - a newly confirmed run atomically replaces only a terminal `legacy_active` or `clean_uninstalled`

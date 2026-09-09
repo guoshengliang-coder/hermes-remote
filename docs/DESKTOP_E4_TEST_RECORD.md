@@ -1,8 +1,10 @@
 # Desktop E4 test record
 
-Date: 2026-09-07
+Date: 2026-09-09
 Status: E4-D local multi-device UX, signed bootstrap, packaged orchestration, account Connector,
-binding, and rollback/restart recovery complete; real release and target-Mac enablement remain pending.
+binding, rollback, and restart recovery are complete. The internal 0.3.0 arm64 candidate reached
+account mode on one physical Mac, but phone continuity failed and the Mac was rolled back to legacy;
+physical acceptance, Developer ID/notarization, and Android account migration remain pending.
 
 ## E4-E offline release publisher
 
@@ -152,3 +154,43 @@ Connector reached its expected missing-credential boundary without a missing-run
 smoke directories, and the release worktree were deleted after verification, leaving only the final signed set and
 protected signing key. HTTPS publication, pinned configured Desktop build, Developer ID/notarization, and physical
 target-Mac migration are still pending; no production flag or running target service changed during this gate.
+
+## 2026-09-09 physical migration and restart recovery
+
+The internal 0.3.0 manifest and both signed arm64 components were downloaded and verified by the
+production-configured ad-hoc Desktop app on `LGS-MACMINI`. Three earlier confirmed attempts exercised the
+pre-commit rollback path: generations 4 through 6 stopped the managed candidate, removed the active-release
+pointer, and restored the exact legacy Connector after the local Hermes readiness gate timed out. The machine
+remained reachable and the existing connection was preserved after every failure.
+
+A reversible isolated launch measured the real cold-start boundary before changing the timeout: the managed
+Hermes process was running immediately, appended the exact new readiness marker after about 21 seconds, and first
+returned HTTP 200 from `http://127.0.0.1:9119/api/status` after about 35 seconds. The former 30 one-second polls
+therefore rejected a healthy cold start. The candidate now retains the exact marker-plus-loopback-HTTP proof but
+allows 75 one-second polls. The focused nine-test coordinator suite, complete 162-test Desktop suite, canonical
+asset comparison, release app assembly, and `git diff --check` all passed before installation.
+
+Generation 7 completed at `2026-09-09T15:10:55.520Z` with journal state `account_active`, release `0.3.0`, and the
+current symlink set to `releases/0.3.0`. Exact LaunchAgents `com.hermesgo.hermes-server` and
+`com.hermesgo.connector` were both loaded and running; `com.hermesremote.connector` was absent; loopback Hermes
+returned HTTP 200; and the four managed stdout/stderr files contained no error, fatal, panic, unauthorized, or
+forbidden entries. The account view reported `连接正常`, Connector online, Hermes reachable, managed release
+0.3.0 connected, and the account bound to this Desktop.
+
+Quitting and reopening only the Desktop app preserved both managed service PIDs, journal state, generation, active
+release pointer, and loopback HTTP health. The reopened account view again recognized the managed connection as
+active, closing the E4-D restart-recognition implementation gate. The tested Desktop executable SHA-256 was
+`048b77b7ea25dfc6832af60349786975158145ee2a78fe50fe349d89feaf88a0`; it is ad-hoc signed test material, not a
+Developer ID signed or notarized release.
+
+The physical acceptance nevertheless failed immediately afterward: Android 0.1.112 was not authorized on the
+account and still used the legacy App Token route, so stopping `com.hermesremote.connector` made the phone report
+`HR-CONN-005`. The operator stopped both managed services, restored the exact legacy LaunchAgent, verified public
+`/relay-health` returned one online `mac-mini`, returned the journal to `legacy_active`, and removed the exact
+`releases/0.3.0` activation symlink. The signed release directory remains inert for a future retry. Account-mode
+migration must remain disabled for this Mac until an Android account-login build is installed, authorized, and
+proven against the account Connector; service-only/Desktop-only success is insufficient.
+
+The public `/relay-health` response intentionally reflects only the legacy Connector registry, so it reports zero
+during an account-only migration; account Connector state is currently observable through the authenticated
+account surface and structured Gateway logs instead. This remains an operator-observability limitation.
