@@ -1,8 +1,14 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstat, readFile, readlink } from "node:fs/promises";
 import { hostname as systemHostname } from "node:os";
 import path from "node:path";
 import { executeDeployment, loadCurrentManifest, resolveActiveSlot } from "./deploy-command.mjs";
+import {
+  acquireDeploymentLock,
+  readDeploymentJournal,
+  releaseDeploymentLock,
+  restoreCommittedJournalAfterFailedCandidate,
+} from "./deploy-state.mjs";
 import {
   inspectProductionReleaseEnvironment,
   renderProductionReleaseEnvironment,
@@ -160,6 +166,76 @@ export async function verifyProductionReleaseAdmission(config, targetManifest, o
   }
 }
 
+export async function recoverFailedProductionRelease(config, targetManifest, options = {}) {
+  const runner = options.runner ?? createCommandRunner();
+  const runId = options.runId ?? randomUUID();
+  const owner = options.owner ?? { uid: 0, gid: 0 };
+  let lock;
+  try {
+    if (config.managedBaseline !== true || config.environment !== "production") fail("production_release_config_required");
+    if (options.confirmation !== `production:${config.host.hostname}`) fail("production_release_confirmation_required");
+    if ((options.getUid ?? (() => process.getuid?.()))() !== 0) fail("production_release_requires_root");
+    if ((options.platform ?? process.platform) !== "linux"
+        || (options.architecture ?? process.arch) !== "x64"
+        || (options.hostname ?? systemHostname()) !== config.host.hostname) {
+      fail("production_release_host_mismatch");
+    }
+    if (config.database !== null
+        || config.gateway.accountAuthEnabled !== false
+        || config.gateway.accountBindingEnabled !== false) {
+      fail("production_release_account_and_database_must_stay_disabled");
+    }
+    const release = targetManifest?.releaseContract;
+    if (![2, 3].includes(targetManifest?.schemaVersion)
+        || release?.maintenanceRequired !== true
+        || release?.rollbackSupported !== true) {
+      throw new OpsError("compatibility", "production_release_target_contract_invalid", "production_release_recover");
+    }
+
+    const sourceManifest = await loadCurrentManifest(config);
+    const journalPath = path.join(config.paths.stateRoot, "ops", "deploy-state.json");
+    const historyRoot = path.join(config.paths.stateRoot, "ops", "history");
+    const auditPath = path.join(config.paths.stateRoot, "ops", "operations.jsonl");
+    const journal = await readDeploymentJournal(journalPath);
+    if (journal.stage !== "candidate_started"
+        || journal.operation !== "deploy"
+        || journal.activeSlot === null
+        || JSON.stringify(journal.source) !== JSON.stringify(releaseIdentity(sourceManifest))) {
+      fail("production_release_failed_candidate_not_recoverable");
+    }
+    await verifyFailedCandidateLiveState(config, journal, runner, sourceManifest);
+
+    const lockPath = path.join(config.paths.stateRoot, "ops", "deploy.lock");
+    lock = await acquireDeploymentLock(lockPath, runId);
+    await verifyFailedCandidateLiveState(config, journal, runner, sourceManifest);
+    const currentCheckpoint = await productionCheckpoint(config);
+    const recovered = await restoreCommittedJournalAfterFailedCandidate({
+      filePath: journalPath,
+      historyRoot,
+      auditPath,
+      expectedSource: releaseIdentity(sourceManifest),
+      activeSlot: journal.activeSlot,
+      currentCheckpoint,
+      owner,
+    });
+    await verifyFailedCandidateLiveState(config, recovered.failed, runner, sourceManifest);
+    return {
+      ok: true,
+      command: "production-recover",
+      recoveredRunId: recovered.failed.runId,
+      activeSlot: recovered.failed.activeSlot,
+      candidateSlot: recovered.failed.candidateSlot,
+      sourceVersion: sourceManifest.serverVersion,
+      targetVersion: targetManifest.serverVersion,
+    };
+  } catch (error) {
+    if (error instanceof OpsError) throw error;
+    fail(error instanceof Error ? error.message : error);
+  } finally {
+    await releaseDeploymentLock(lock).catch(() => {});
+  }
+}
+
 /**
  * Re-run before candidate start and again immediately before the active slot is stopped:
  * the active slot must still be the one serving, the legacy Node unit must still be retired,
@@ -239,6 +315,43 @@ async function boundedFetch(fetchImpl, url) {
 
 function serviceActive(runner, serviceName) {
   return runner.run("systemctl", ["is-active", "--quiet", `${serviceName}.service`], { allowFailure: true }).status === 0;
+}
+
+async function verifyFailedCandidateLiveState(config, journal, runner, sourceManifest) {
+  await verifyReleaseInputs(config, journal.activeSlot, runner);
+  if ((await readReleaseLink(config.paths.installRoot, "current")) !== releaseTarget(sourceManifest)) {
+    fail("production_release_current_release_changed");
+  }
+  const candidate = config.slots[journal.candidateSlot];
+  if (!candidate || serviceActive(runner, candidate.serviceName)) {
+    fail("production_release_failed_candidate_still_active");
+  }
+  const listeners = runner.run("ss", ["-ltnH", "sport", "=", `:${candidate.gatewayPort}`], { allowFailure: true });
+  if (listeners.status !== 0 || listeners.stdout.trim()) {
+    fail("production_release_failed_candidate_port_in_use");
+  }
+  if (JSON.stringify(await productionCheckpoint(config)) !== JSON.stringify(journal.checkpoint)) {
+    fail("production_release_failed_candidate_checkpoint_changed");
+  }
+}
+
+async function productionCheckpoint(config) {
+  return {
+    currentReleaseTarget: await readReleaseLink(config.paths.installRoot, "current"),
+    previousReleaseTarget: await readReleaseLink(config.paths.installRoot, "previous"),
+    nginxConfigSha256: createHash("sha256").update(await readManagedFile(config.nginx.configFile)).digest("hex"),
+    upstreamSha256: createHash("sha256").update(await readManagedFile(config.nginx.upstreamConfigFile)).digest("hex"),
+  };
+}
+
+function releaseIdentity(manifest) {
+  return {
+    serverVersion: manifest.serverVersion,
+    sourceCommit: manifest.sourceCommit,
+    imageId: manifest.imageId,
+    manifestSchemaVersion: manifest.schemaVersion,
+    databaseSchemaVersion: manifest.releaseContract?.databaseSchemaVersion ?? null,
+  };
 }
 
 async function readManagedFile(filePath) {

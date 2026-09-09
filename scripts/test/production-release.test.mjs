@@ -17,10 +17,12 @@ import {
 } from "../../ops/lib/production-release-environment.mjs";
 import {
   executeProductionRelease,
+  recoverFailedProductionRelease,
   verifyPreservedEmailSurface,
   verifyProductionReleaseAdmission,
   verifyReleaseInputs,
 } from "../../ops/lib/production-release.mjs";
+import { readDeploymentJournal, writeDeploymentJournal } from "../../ops/lib/deploy-state.mjs";
 
 const CURRENT_COMMIT = "c".repeat(40);
 const NEXT_COMMIT = "f".repeat(40);
@@ -169,6 +171,78 @@ test("R5-F1 tells both candidate and public smoke to expect the preserved email 
     },
   });
   assert.deepEqual(observed, ["email_otp", "email_otp"]);
+});
+
+test("R5-F1 recovery restores the archived committed journal only while the failed candidate stays inactive", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  const opsRoot = path.join(config.paths.stateRoot, "ops");
+  const historyRoot = path.join(opsRoot, "history");
+  await mkdir(historyRoot, { mode: 0o700 });
+  const committed = await readDeploymentJournal(fixture.journalPath);
+  await writeDeploymentJournal(
+    path.join(historyRoot, `deploy-state.committed.${committed.runId}.json`),
+    committed,
+    currentOwnership().host,
+  );
+  const checkpoint = {
+    currentReleaseTarget: CURRENT_RELEASE,
+    previousReleaseTarget: LEGACY_RELEASE,
+    nginxConfigSha256: createHash("sha256").update(await readFile(config.nginx.configFile)).digest("hex"),
+    upstreamSha256: createHash("sha256").update(await readFile(config.nginx.upstreamConfigFile)).digest("hex"),
+  };
+  const failed = {
+    schemaVersion: 2,
+    operation: "deploy",
+    planDigest: "9".repeat(64),
+    runId: "failed-email-candidate",
+    stage: "candidate_started",
+    activeSlot: "blue",
+    candidateSlot: "green",
+    source: identity(fixture.currentManifest),
+    target: identity(fixture.nextManifest),
+    checkpoint,
+    startedAt: "2026-09-09T02:00:00.000Z",
+    updatedAt: "2026-09-09T02:00:05.000Z",
+  };
+  await writeDeploymentJournal(fixture.journalPath, failed, currentOwnership().host);
+  await writeFile(path.join(opsRoot, "operations.jsonl"), `${JSON.stringify({
+    runId: failed.runId,
+    operation: "deploy",
+    stage: "failed",
+    result: "failed",
+    errorCode: "HR-OPS-007",
+    finishedAt: "2026-09-09T02:00:06.000Z",
+  })}\n`, { mode: 0o600 });
+  const runner = recoveryRunner({ blue: true });
+  const result = await recoverFailedProductionRelease(config, fixture.nextManifest, {
+    confirmation: "production:prod-host",
+    platform: "linux",
+    architecture: "x64",
+    hostname: "prod-host",
+    getUid: () => 0,
+    runner,
+    owner: currentOwnership().host,
+    runId: "journal-recovery",
+  });
+  assert.equal(result.command, "production-recover");
+  assert.equal(result.recoveredRunId, failed.runId);
+  assert.deepEqual(await readDeploymentJournal(fixture.journalPath), committed);
+
+  await writeDeploymentJournal(fixture.journalPath, failed, currentOwnership().host);
+  await assert.rejects(
+    () => recoverFailedProductionRelease(config, fixture.nextManifest, {
+      confirmation: "production:prod-host",
+      platform: "linux",
+      architecture: "x64",
+      hostname: "prod-host",
+      getUid: () => 0,
+      runner: recoveryRunner({ blue: true, green: true }),
+      owner: currentOwnership().host,
+      runId: "blocked-recovery",
+    }),
+    (error) => error?.technicalCause === "production_release_failed_candidate_still_active",
+  );
 });
 
 test("R5-F1 refuses to run before R5-D committed a managed release behind current", async (t) => {
@@ -404,9 +478,12 @@ test("R5-F1 error is bilingual, retryable, registered, and its entrypoint fails 
 
 test("the operator bundle and the disposable rehearsal carry the R5-F1 entrypoint", async () => {
   const packager = await readFile("scripts/package-production-baseline-bundle.mjs", "utf8");
+  const entrypoint = await readFile("scripts/production-release.mjs", "utf8");
   assert.match(packager, /"scripts\/production-release\.mjs"/);
   assert.match(packager, /verifyStagedProductionReleaseEntrypoint\(temporaryRoot\)/);
   assert.match(packager, /diagnostic\?\.code !== "HR-OPS-016"/);
+  assert.match(entrypoint, /recoverFailedProductionRelease/);
+  assert.match(entrypoint, /\["deploy", "rollback", "recover"\]/);
   const rehearsal = await readFile("scripts/test-gateway-staging-bootstrap.sh", "utf8");
   assert.match(rehearsal, /r5d_ops_root\/scripts\/production-release\.mjs/);
   assert.match(rehearsal, /--operation "\$1"/);
@@ -449,6 +526,16 @@ function slotRunner(active) {
             ? active.green === true
             : false;
       return { status: state ? 0 : 3, stdout: "", stderr: "" };
+    },
+  };
+}
+
+function recoveryRunner(active) {
+  const services = slotRunner(active);
+  return {
+    run(command, args) {
+      if (command === "ss") return { status: 0, stdout: "", stderr: "" };
+      return services.run(command, args);
     },
   };
 }
