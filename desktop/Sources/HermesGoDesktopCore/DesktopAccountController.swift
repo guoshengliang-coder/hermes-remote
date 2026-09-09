@@ -872,9 +872,17 @@ public actor DesktopAccountController {
     private func loadDashboard(record: AccountSessionRecord) async throws -> DesktopAccountState {
         do {
             let refreshed = try await refreshIfNeeded(record)
+            let identityManagementEnabled = capabilitiesSnapshot?.accountAuth.identityManagement == true
+            let bindingEnabled = capabilitiesSnapshot?.binding.enabled == true
             async let account = api.account(accessToken: refreshed.session.accessToken)
-            async let installations = api.installations(accessToken: refreshed.session.accessToken)
-            async let binding = api.binding(accessToken: refreshed.session.accessToken)
+            async let installations = loadInstallations(
+                accessToken: refreshed.session.accessToken,
+                enabled: identityManagementEnabled
+            )
+            async let binding = loadBinding(
+                accessToken: refreshed.session.accessToken,
+                enabled: bindingEnabled
+            )
             let devicePage: AccountDevicePage
             if capabilitiesSnapshot?.binding.supportsDeviceSelection == true {
                 devicePage = try await api.devices(accessToken: refreshed.session.accessToken)
@@ -950,6 +958,35 @@ public actor DesktopAccountController {
             }
             return .needsSignIn(issueCode)
         }
+    }
+
+    private func loadInstallations(
+        accessToken: String,
+        enabled: Bool
+    ) async throws -> [ManagedAccountInstallation] {
+        guard enabled else { return [] }
+        return try await api.installations(accessToken: accessToken)
+    }
+
+    private func loadBinding(
+        accessToken: String,
+        enabled: Bool
+    ) async throws -> AccountBindingSnapshot {
+        guard enabled else {
+            return AccountBindingSnapshot(
+                state: "no_binding",
+                id: nil,
+                generation: nil,
+                deviceId: nil,
+                displayName: nil,
+                expiresAt: nil,
+                keyProved: nil,
+                healthVerified: nil,
+                binding: nil,
+                previousBinding: nil
+            )
+        }
+        return try await api.binding(accessToken: accessToken)
     }
 
     private func recoverPendingAccountDeletion(

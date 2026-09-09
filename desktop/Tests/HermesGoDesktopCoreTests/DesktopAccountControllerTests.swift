@@ -94,6 +94,35 @@ final class DesktopAccountControllerTests: XCTestCase {
         XCTAssertEqual(try sessions.load(), fixtures.record)
     }
 
+    func testEmailOnlyGrayRolloutSkipsDisabledManagementRoutesAfterSignIn() async throws {
+        let fixtures = AccountFixtures()
+        let api = RecordingAccountAPI(
+            fixtures: fixtures,
+            bindingEnabled: false,
+            identityManagementEnabled: false
+        )
+        let sessions = MemoryAccountSessionStore()
+        let controller = DesktopAccountController(
+            api: api,
+            sessionStore: sessions,
+            machineIdentityStore: MemoryMachineIdentityStore(),
+            oauth: nil,
+            displayName: "Mac mini",
+            appVersion: "0.2.0"
+        )
+
+        let challenge = try await controller.requestEmailSignInCode(email: "liang@example.invalid")
+        let state = try await controller.completeEmailSignIn(challenge: challenge, code: "012345")
+
+        guard case .signedIn(let dashboard) = state else {
+            return XCTFail("Expected an email-only signed-in dashboard")
+        }
+        XCTAssertEqual(dashboard.session.account.email, "liang@example.invalid")
+        XCTAssertEqual(dashboard.binding.state, "no_binding")
+        XCTAssertTrue(dashboard.installations.isEmpty)
+        XCTAssertEqual(try sessions.load(), fixtures.record)
+    }
+
     func testExpiredAccessRefreshUsesStableClientInstallationIDAndRotatesKeychainRecord() async throws {
         let fixtures = AccountFixtures(expiredAccess: true)
         let api = RecordingAccountAPI(fixtures: fixtures)
@@ -828,6 +857,7 @@ private struct AccountFixtures {
     func capabilities(
         multiDeviceEnabled: Bool,
         sharingEnabled: Bool = false,
+        bindingEnabled: Bool = true,
         identityManagementEnabled: Bool = true,
         accountDeletionEnabled: Bool = false
     ) -> AccountCapabilities {
@@ -842,11 +872,11 @@ private struct AccountFixtures {
                 accountDeletion: accountDeletionEnabled
             ),
             binding: .init(
-                enabled: true,
-                replacement: true,
+                enabled: bindingEnabled,
+                replacement: bindingEnabled,
                 maxActiveConnectorsPerAccount: multiDeviceEnabled ? 3 : 1,
-                supportsDeviceSelection: multiDeviceEnabled ? true : nil,
-                supportsDeviceSharing: sharingEnabled ? true : nil,
+                supportsDeviceSelection: bindingEnabled && multiDeviceEnabled ? true : nil,
+                supportsDeviceSharing: bindingEnabled && sharingEnabled ? true : nil,
                 maxSharedDevices: sharingEnabled ? 10 : nil,
                 maxGranteesPerDevice: sharingEnabled ? 5 : nil
             ),
@@ -998,6 +1028,7 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
     private var accountDeletionFailuresRemaining: Int
     private let multiDeviceEnabled: Bool
     private let sharingEnabled: Bool
+    private let bindingEnabled: Bool
     private let identityManagementEnabled: Bool
     private let accountDeletionEnabled: Bool
     private var shareManagementHistory: [String] = []
@@ -1018,6 +1049,7 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
         accountEnabled: Bool = true,
         multiDeviceEnabled: Bool = false,
         sharingEnabled: Bool = false,
+        bindingEnabled: Bool = true,
         identityManagementEnabled: Bool = true,
         accountDeletionEnabled: Bool = false,
         accountDeletionFailuresRemaining: Int = 0,
@@ -1033,6 +1065,7 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
         self.accountEnabled = accountEnabled
         self.multiDeviceEnabled = multiDeviceEnabled
         self.sharingEnabled = sharingEnabled
+        self.bindingEnabled = bindingEnabled
         self.identityManagementEnabled = identityManagementEnabled
         self.accountDeletionEnabled = accountDeletionEnabled
         self.accountDeletionFailuresRemaining = accountDeletionFailuresRemaining
@@ -1050,6 +1083,7 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
             return fixtures.capabilities(
                 multiDeviceEnabled: multiDeviceEnabled,
                 sharingEnabled: sharingEnabled,
+                bindingEnabled: bindingEnabled,
                 identityManagementEnabled: identityManagementEnabled,
                 accountDeletionEnabled: accountDeletionEnabled
             )
@@ -1129,9 +1163,13 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
 
     func account(accessToken: String) async throws -> AccountSnapshot { fixtures.accountSnapshot }
     func installations(accessToken: String) async throws -> [ManagedAccountInstallation] {
-        [fixtures.phoneA, fixtures.phoneB]
+        guard identityManagementEnabled else { throw AccountClientError.transport }
+        return [fixtures.phoneA, fixtures.phoneB]
     }
-    func binding(accessToken: String) async throws -> AccountBindingSnapshot { bindingSnapshot }
+    func binding(accessToken: String) async throws -> AccountBindingSnapshot {
+        guard bindingEnabled else { throw AccountClientError.transport }
+        return bindingSnapshot
+    }
     func devices(accessToken: String) async throws -> AccountDevicePage {
         AccountDevicePage(
             items: [fixtures.deviceA, fixtures.deviceB] + (sharingEnabled ? [fixtures.sharedDevice] : []),

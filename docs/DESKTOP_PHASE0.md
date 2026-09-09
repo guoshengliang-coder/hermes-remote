@@ -80,6 +80,10 @@ historical evidence, not as the email-first shipping UI.
 - `HR-AUTH-009` through `HR-AUTH-011` have bilingual Desktop copy, retryability, and recovery actions.
 - `HR-ACCOUNT-009` has bilingual Desktop copy when identity management is not enabled.
 - Google OAuth code remains available only for future provider work and has no first-release UI entry.
+- A successful email exchange is sufficient to retain the Desktop management session. Dashboard refresh always
+  validates `/v2/account`, but requests installations only when `identityManagement` is advertised and requests
+  Connector binding only when `binding.enabled` is true. An email-only gray rollout therefore renders a signed-in
+  account with empty management sections instead of converting disabled-route 404 responses into a login failure.
 
 The default-off account-lifecycle slice adds capability-gated permanent Cloud-account deletion to
 Desktop. The danger sheet requires typed `DELETE`, an explicit permanence acknowledgement, and a

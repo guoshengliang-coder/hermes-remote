@@ -64,3 +64,21 @@ Hermes process, Android device, or account rollout flag was touched.
 
 The feature remains default-off. This record is local implementation evidence, not production-release
 or physical-device evidence.
+
+## 2026-09-09 email-only production acceptance correction
+
+The first packaged Desktop run against the authorized email-only production gray rollout received a real code and
+completed both exchange attempts with HTTP 200. The subsequent dashboard load still called the intentionally absent
+installation and Connector-binding routes, received 404 for each, and incorrectly presented `HR-ACCOUNT-002` even
+though the account session had already been created and stored. The server, code, and delivery path were healthy.
+
+The Desktop controller now always validates the authenticated `/v2/account` snapshot, but skips installations unless
+`identityManagement=true` and skips Connector binding unless `binding.enabled=true`. A regression fixture matching
+the production capability document fails if either disabled API is touched, and proves the stored email session
+reaches a signed-in dashboard with an empty management surface. This correction does not enable binding, identity
+management, sharing, Google, or any server route.
+
+The corrected ad-hoc package was then installed over the existing `/Applications/Hermes Go Desktop.app`. macOS
+retained the session record but required a one-time Keychain access confirmation because the replacement ad-hoc
+binary has a different code-signing hash. That local confirmation remains a human acceptance step; stable signed
+distribution is required to avoid the prompt on routine upgrades.
