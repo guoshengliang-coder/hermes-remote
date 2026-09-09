@@ -466,7 +466,10 @@ lifecycle state, then re-verifies the public route (`HR-OPS-016`).
 Candidate admission first requires successful loopback liveness, readiness and version probes, then waits up
 to 75 seconds for Docker's independent health state. The wider bound covers the image's 10-second start period
 and two 30-second scheduler intervals on a loaded host; `unhealthy` still fails immediately, and `starting` at
-the deadline remains a hard failure before any traffic switch.
+the deadline remains a hard failure before any traffic switch. The managed systemd unit overrides the image's
+health command with the same `/readyz` probe derived from the slot's runtime `PORT`. This is required when
+adopting or rolling forward an immutable older image whose embedded healthcheck used fixed port `8787`; the
+operator does not alter the image and does not weaken the Docker health gate.
 
 `--operation rollback` is the same machine pointed at the release behind `previous`; the configuration's
 `targetArtifactManifest` must name that exact bundle (keep the previous bundle on the host) and a `previous`

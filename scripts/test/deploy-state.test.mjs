@@ -44,10 +44,17 @@ test("R4 blue/green templates isolate candidate process, state, and private port
   assert.equal(otherSlot("green"), "blue");
   assert.match(blue, /hermes-go-gateway-blue/);
   assert.match(blue, /--network host/);
+  assert.match(blue, /--health-cmd=/);
+  assert.match(blue, /process\.env\.PORT/);
+  assert.equal(blue.includes("http://127.0.0.1:8787/readyz"), false);
+  assert.match(blue, /--health-interval=30s --health-timeout=5s --health-start-period=10s --health-retries=3/);
   assert.equal(blue.includes("--publish"), false);
   assert.match(blue, /gateway-slots\/blue/);
   assert.match(green, /hermes-go-gateway-green/);
   assert.match(green, /--network host/);
+  assert.match(green, /--health-cmd=/);
+  assert.match(green, /process\.env\.PORT/);
+  assert.equal(green.includes("http://127.0.0.1:8787/readyz"), false);
   assert.equal(green.includes("--publish"), false);
   assert.match(green, /gateway-slots\/green/);
   assert.match(blueEnvironment, /ACCOUNT_AUTH_ENABLED=0/);
