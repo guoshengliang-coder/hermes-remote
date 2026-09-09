@@ -4,6 +4,18 @@ import { OpsError } from "./errors.mjs";
 
 export const DEPLOY_SLOTS = Object.freeze(["blue", "green"]);
 
+const RUNTIME_HEALTH_COMMAND = [
+  "node -e 'fetch(\"http://127.0.0.1:\"+(process.env.PORT||\"8787\")+\"/readyz\")",
+  ".then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))'",
+].join("");
+const RUNTIME_HEALTH_OPTIONS = [
+  `--health-cmd=${quoteSystemdArgument(RUNTIME_HEALTH_COMMAND)}`,
+  "--health-interval=30s",
+  "--health-timeout=5s",
+  "--health-start-period=10s",
+  "--health-retries=3",
+].join(" ");
+
 export function otherSlot(slot) {
   assertSlot(slot);
   return slot === "blue" ? "green" : "blue";
@@ -45,7 +57,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStartPre=-/usr/bin/docker rm --force ${selected.containerName}
-ExecStart=/usr/bin/docker run --name ${selected.containerName} --read-only --network host --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000 --cap-drop=ALL --security-opt=no-new-privileges --memory=256m --cpus=1 --pids-limit=128 --env-file ${environmentPath} --mount type=bind,src=${configRoot}/secrets,dst=/run/hermes-go/secrets,readonly --mount type=bind,src=${statePath},dst=/var/lib/hermes-go --log-driver=local --log-opt max-size=10m --log-opt max-file=3 ${runtimeImageId}
+ExecStart=/usr/bin/docker run --name ${selected.containerName} --read-only --network host --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000 --cap-drop=ALL --security-opt=no-new-privileges --memory=256m --cpus=1 --pids-limit=128 ${RUNTIME_HEALTH_OPTIONS} --env-file ${environmentPath} --mount type=bind,src=${configRoot}/secrets,dst=/run/hermes-go/secrets,readonly --mount type=bind,src=${statePath},dst=/var/lib/hermes-go --log-driver=local --log-opt max-size=10m --log-opt max-file=3 ${runtimeImageId}
 ExecStop=/usr/bin/docker stop --time 20 ${selected.containerName}
 Restart=always
 RestartSec=3
@@ -69,6 +81,10 @@ UMask=0077
 [Install]
 WantedBy=multi-user.target
 `;
+}
+
+function quoteSystemdArgument(value) {
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
 function assertRuntimeImageId(manifest, runtimeImageId) {
