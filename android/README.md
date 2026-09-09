@@ -278,6 +278,17 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.110 makes the Chats screen shorter. 项目 and 已归档 leave the segment row for a new
+  overflow menu beside search, and each becomes a full-screen page — they are low-frequency
+  management actions that were competing for width with the list you actually read, and four cells
+  on a 390dp screen left 91.5dp each (which is why the English archive label had to be the less
+  accurate `Archive`; it is `Archived` again). The row now carries only what is content — which
+  batch of chats you are looking at — so it holds 会话 and 机器人, and when no messaging channel is
+  configured it does not render at all: the screen is a plain list. Search keeps its top-bar slot,
+  because burying it costs a tap without buying any room. A chat opened from Projects or Archived
+  returns to that page instead of bouncing home, so reading several chats inside one project stays
+  in that project; the drilled-in project is remembered for the session but no longer across
+  launches, and creating a chat from inside one still lands in that folder.
 - Version 0.1.109 changes almost nothing you can see, and changes what happens after something
   goes wrong. HG-27 arrived with 5,864 diagnostic entries across 31 hours and still could not say
   why a socket had sat in 「正在连接 Relay…」 for a minute: every silent early-return on the
@@ -758,7 +769,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.109-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.110-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
