@@ -403,7 +403,11 @@ bundle for the next release, run `production-release.mjs --operation recover`, a
 Recovery requires the original active slot and release links, byte-identical Nginx site/upstream checkpoint, an
 inactive candidate with its port free, the recorded failed audit, and exactly one archived committed journal for
 the live release. It archives the failed journal and restores that exact committed journal under the deployment
-lock; any ambiguity or drift remains fail-closed. Gateway 0.4.12 introduces this recovery operation.
+lock; any ambiguity or drift remains fail-closed. Gateway 0.4.12 introduces this recovery operation. Its first
+production retry also proved that a disabled binding route is intentionally different across the two smoke
+surfaces: the private Gateway returns `503` because its control dependency is disabled, while public Nginx hides
+the route with `404`. Gateway 0.4.13 verifies both exact values instead of applying the public expectation to the
+private candidate.
 
 The first two authorized production attempts did not complete adoption. The first stopped before candidate start
 on Docker 29/containerd image-ID representation. The second loaded the corrected image and started blue, then
