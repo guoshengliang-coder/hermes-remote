@@ -169,6 +169,8 @@ the packaged app declares only `NSAllowsLocalNetworking` so macOS 14+ permits th
 `http://127.0.0.1:9119/api/status` readiness probe without allowing arbitrary public HTTP traffic.
 That candidate-only probe also disables inherited HTTP/PAC proxies: its process-specific readiness proof
 must terminate on this Mac even when the user's public Relay traffic intentionally uses a system proxy.
+Both the local Hermes readiness gate and the following Connector binding gate allow up to 75 one-second
+polls; the local gate still requires a new exact process marker and a healthy loopback response together.
 unknown/mismatched state fails closed. After rollback reaches `legacy_active` or `clean_uninstalled`, a
 new explicit confirmation starts a fresh run and atomically replaces that terminal journal; no other
 journal state can be replaced by a different run ID. If the failed run's temporary cloud binding expires

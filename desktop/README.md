@@ -56,6 +56,8 @@ pass, and the legacy connection remains available. Local evidence and remaining 
 - Managed-candidate Hermes health uses a dedicated ephemeral URL session with system HTTP/PAC proxies
   disabled. The proof must reach `127.0.0.1:9119` on this Mac; public Relay traffic continues to use
   the normal system networking configuration.
+- Candidate Hermes and Connector health each receive up to 75 one-second polls. This covers a measured
+  35-second cold start on the physical Mac mini without weakening the exact marker and HTTP proof.
 - Managed takeover requires exact user confirmation and never runs the legacy and account Connector
   labels together.
 - Download/verification occurs before the exact version confirmation and cannot mutate installation,
