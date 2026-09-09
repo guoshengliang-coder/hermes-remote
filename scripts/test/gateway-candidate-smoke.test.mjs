@@ -7,6 +7,7 @@ import { PassThrough } from "node:stream";
 import test from "node:test";
 import {
   gatewaySmokeRoutePolicy,
+  gatewayRuntimePolicy,
   GatewayCandidateSmokeError,
   waitForGatewayForwarding,
 } from "../lib/gateway-candidate-smoke.mjs";
@@ -110,6 +111,42 @@ test("public smoke omits private-only health, readiness, capabilities, and relea
   });
   assert.throws(
     () => gatewaySmokeRoutePolicy("unsupported"),
+    (error) => error instanceof GatewayCandidateSmokeError
+      && error.message === "smoke_check=configuration",
+  );
+});
+
+test("candidate smoke uses the exact readiness contract for the preserved runtime mode", () => {
+  assert.deepEqual(gatewayRuntimePolicy("disabled"), {
+    runtimeMode: "disabled",
+    readiness: {
+      status: "ready",
+      checks: {
+        config: "ok",
+        database: "disabled",
+        migrations: "not_required",
+        postgresql: "not_required",
+      },
+    },
+    accountAuthEnabled: false,
+    accountProviders: null,
+  });
+  assert.deepEqual(gatewayRuntimePolicy("email_otp"), {
+    runtimeMode: "email_otp",
+    readiness: {
+      status: "ready",
+      checks: {
+        config: "ok",
+        database: "ok",
+        migrations: "ok",
+        postgresql: "supported",
+      },
+    },
+    accountAuthEnabled: true,
+    accountProviders: ["email_otp"],
+  });
+  assert.throws(
+    () => gatewayRuntimePolicy("binding"),
     (error) => error instanceof GatewayCandidateSmokeError
       && error.message === "smoke_check=configuration",
   );

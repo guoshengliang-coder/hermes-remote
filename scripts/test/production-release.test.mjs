@@ -144,6 +144,33 @@ test("R5-F1 email smoke requires the narrow public account surface", async () =>
   );
 });
 
+test("R5-F1 tells both candidate and public smoke to expect the preserved email runtime", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  await writeEmailEnvironment(config, "blue");
+  const observed = [];
+  const smoke = async (request) => observed.push(request.expectedRuntimeMode);
+  await executeProductionRelease(config, fixture.nextManifest, {
+    ...releaseOptions(fixture),
+    candidateSmoke: smoke,
+    publicSmoke: smoke,
+    fetchImpl: async (url) => {
+      const pathname = new URL(url).pathname;
+      if (pathname === "/v2/capabilities") return jsonResponse(emailCapabilities());
+      if (pathname === "/v2/account") return new Response("{}", { status: 401 });
+      if (pathname === "/v2/connector-binding") return new Response("not found", { status: 404 });
+      assert.fail(`unexpected URL ${url}`);
+    },
+    executeDeployment: async (_config, _target, options) => {
+      const request = { gatewayUrl: "https://gateway.example.com" };
+      await options.candidateSmoke(request);
+      await options.publicSmoke(request);
+      return { ok: true, stage: "committed", activeSlot: "green", previousSlot: "blue" };
+    },
+  });
+  assert.deepEqual(observed, ["email_otp", "email_otp"]);
+});
+
 test("R5-F1 refuses to run before R5-D committed a managed release behind current", async (t) => {
   const fixture = await createFixture(t);
   const config = await loadManagedBaselineConfig(fixture.configPath);

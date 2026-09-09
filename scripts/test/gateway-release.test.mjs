@@ -7,7 +7,7 @@ test("Gateway release contract stays aligned with package and protocol versions"
   const gatewayPackage = JSON.parse(await readFile("gateway/package.json", "utf8"));
   const contract = JSON.parse(await readFile("gateway/release-contract.json", "utf8"));
   const protocolSource = await readFile("protocol/src/index.ts", "utf8");
-  assert.equal(gatewayPackage.version, "0.4.10");
+  assert.equal(gatewayPackage.version, "0.4.11");
   assert.equal(contract.manifestVersion, 2);
   assert.match(protocolSource, new RegExp(`PROTOCOL_VERSION = ${contract.protocolVersions.legacy}`));
   assert.match(
@@ -107,5 +107,7 @@ test("Gateway candidate smoke can split public and private verification routes s
   assert.match(verifier, /runGatewaySmokeCheck\("websocket_forward"/);
   assert.match(verifier, /statusMode === "live"/);
   assert.match(verifier, /gatewaySmokeRoutePolicy/);
+  assert.match(verifier, /gatewayRuntimePolicy/);
+  assert.match(verifier, /EXPECTED_GATEWAY_RUNTIME_MODE/);
   assert.match(verifier, /if \(routePolicy\.verifyPrivateSurface\)/);
 });

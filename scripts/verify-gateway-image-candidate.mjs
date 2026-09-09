@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { WebSocket } from "ws";
 import {
   gatewaySmokeRoutePolicy,
+  gatewayRuntimePolicy,
   GatewayCandidateSmokeError,
   runGatewaySmokeCheck,
   waitForGatewayForwarding,
@@ -18,6 +19,7 @@ let expectedVersion;
 let expectedDeviceId;
 let statusMode;
 let routePolicy;
+let runtimePolicy;
 
 try {
   baseUrl = required("PUBLIC_GATEWAY_URL").replace(/\/$/, "");
@@ -33,6 +35,7 @@ try {
     throw new GatewayCandidateSmokeError("configuration");
   }
   routePolicy = gatewaySmokeRoutePolicy(process.env.GATEWAY_SMOKE_ROUTE || "private");
+  runtimePolicy = gatewayRuntimePolicy(process.env.EXPECTED_GATEWAY_RUNTIME_MODE || "disabled");
   await verify();
   console.log(`GATEWAY_OCI_SMOKE_OK version=${expectedVersion} commit=${expectedCommit}`);
 } catch (error) {
@@ -49,20 +52,15 @@ async function verify() {
       assert.deepEqual(await fetchJson("/healthz"), { status: "alive" });
     });
     await runGatewaySmokeCheck("readiness", async () => {
-      assert.deepEqual(await fetchJson("/readyz"), {
-        status: "ready",
-        checks: {
-          config: "ok",
-          database: "disabled",
-          migrations: "not_required",
-          postgresql: "not_required",
-        },
-      });
+      assert.deepEqual(await fetchJson("/readyz"), runtimePolicy.readiness);
     });
 
     await runGatewaySmokeCheck("capabilities", async () => {
       const capabilities = await fetchJson("/v2/capabilities");
-      assert.equal(capabilities.accountAuth?.enabled, false);
+      assert.equal(capabilities.accountAuth?.enabled, runtimePolicy.accountAuthEnabled);
+      if (runtimePolicy.accountProviders !== null) {
+        assert.deepEqual(capabilities.accountAuth?.providers, runtimePolicy.accountProviders);
+      }
       assert.equal(capabilities.binding?.enabled, false);
       assert.equal(capabilities.legacy?.appTokenAccepted, true);
       assert.equal(capabilities.legacy?.connectorTokenAccepted, true);

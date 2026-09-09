@@ -394,6 +394,12 @@ validation, reload, state handoff, observation, or smoke fails. See `CLOUD_GATEW
 the config, topology, disposable test, maintenance-window checklist, and recovery boundary. Source review or a
 successful disposable workflow does not authorize running this command on the HK host.
 
+When the active slot already serves the email-OTP gray rollout, routine-release smoke must validate the
+preserved Schema/PostgreSQL readiness contract (`database=ok`, `migrations=ok`, `postgresql=supported`) and the
+single `email_otp` provider. It must not reuse the account-disabled OCI expectations. Gateway 0.4.11 carries
+this correction after 0.4.10 was rejected before traffic switching by the stale disabled-runtime readiness
+assertion.
+
 The first two authorized production attempts did not complete adoption. The first stopped before candidate start
 on Docker 29/containerd image-ID representation. The second loaded the corrected image and started blue, then
 stopped before route switch when the packaged smoke verifier could not load an omitted local dependency. Both
