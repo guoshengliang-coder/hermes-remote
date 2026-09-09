@@ -542,6 +542,23 @@ test("PostgreSQL enforces one Connector and isolates independently revocable pho
       replacementPrincipal.installation.id,
     );
 
+    const expiredRetryKeys = generateKeyPairSync("ed25519");
+    const expiredRetryCandidate = await control.createPendingBinding(replacementPrincipal, {
+      desktopInstallationId: replacementPrincipal.installation.id,
+      displayName: "Expired retry candidate",
+      connectorPublicKey: rawEd25519PublicKey(expiredRetryKeys.publicKey),
+      keyAlgorithm: "Ed25519",
+      idempotencyKey: randomUUID(),
+    });
+    await pool.query(
+      "UPDATE connector_bindings SET pending_expires_at = now() - interval '1 second' WHERE id = $1",
+      [expiredRetryCandidate.id],
+    );
+    assert.deepEqual(await control.getBinding(replacementPrincipal), {
+      state: "revoked",
+      generation: expiredRetryCandidate.generation,
+    });
+
     identity = {
       provider: "google",
       issuer: "https://accounts.google.com",
