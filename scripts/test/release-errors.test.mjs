@@ -7,9 +7,9 @@ import {
   serializeReleaseError,
 } from "../lib/release-errors.mjs";
 
-test("Gateway release errors keep stable bilingual and retry contracts", async () => {
+test("release errors keep stable bilingual and retry contracts", async () => {
   const codes = Object.values(RELEASE_ERROR_DEFINITIONS).map((definition) => definition.code);
-  assert.deepEqual(codes, ["HR-RELEASE-001", "HR-RELEASE-002", "HR-RELEASE-003"]);
+  assert.deepEqual(codes, ["HR-RELEASE-001", "HR-RELEASE-002", "HR-RELEASE-003", "HR-RELEASE-004"]);
   for (const definition of Object.values(RELEASE_ERROR_DEFINITIONS)) {
     assert.match(definition.summaryZh, /[\u3400-\u9fff]/);
     assert.match(definition.summaryEn, /^[A-Z]/);
@@ -21,6 +21,12 @@ test("Gateway release errors keep stable bilingual and retry contracts", async (
   for (const code of codes) {
     assert.equal(registry.includes("| `" + code + "` |"), true, `${code} missing from registry`);
   }
+});
+
+test("Desktop managed release packaging has its own stable stage", () => {
+  const error = createReleaseError("desktopPackage", "private_key_invalid");
+  assert.equal(error.code, "HR-RELEASE-004");
+  assert.equal(error.stage, "desktop_managed_release_package");
 });
 
 test("Gateway release error serialization redacts credentials and signed query values", () => {

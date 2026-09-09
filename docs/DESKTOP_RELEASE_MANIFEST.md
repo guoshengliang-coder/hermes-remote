@@ -169,6 +169,42 @@ enters manual attention without guessing that legacy should become authoritative
 
 ## Publication and rollout gates
 
+### Offline packaging and verification
+
+The repository provides an offline publisher for the signed envelope and its exact two archives. It
+does not upload, deploy, enable flags, or alter a Mac. Start from
+`desktop/Packaging/managed-release.example.json`, keep the real configuration and Ed25519 private key
+outside the repository, and give the key file owner-only permissions (`0600`). Both source archives
+must be absolute, regular, non-symlinked tar-gzip files with only files/directories and the declared
+regular-file entrypoint. The publisher refuses existing output targets and removes only files it
+created if a later gate fails.
+
+```bash
+npm run desktop:managed-release:package -- \
+  --config /absolute/protected/path/publisher.json \
+  --output /absolute/empty/output/directory
+```
+
+Success prints `DESKTOP_MANAGED_RELEASE_OK`, the manifest/artifact paths and hashes, and the derived
+unpadded-base64url public key. The private key and its path are never printed. Before upload, verify
+the copied files independently using only the public key printed by the packaging gate:
+
+```bash
+npm run desktop:managed-release:verify -- \
+  --manifest /absolute/output/Hermes-Desktop-0.3.0-arm64.manifest.json \
+  --artifacts /absolute/output \
+  --key-id desktop-internal-2026-a \
+  --public-key '<unpadded-base64url-public-key>' \
+  --origin https://downloads.example \
+  --channel internal \
+  --architecture arm64
+```
+
+The verifier rechecks the Ed25519 signature over the exact payload bytes, strict field set, lifetime,
+origin, archive names and entrypoints, byte sizes, and SHA-256 digests. Any publisher or verifier
+failure is emitted as the bilingual, retryable `HR-RELEASE-004` diagnostic. The example values are
+documentation placeholders and are not approved production identities.
+
 A real release still requires all of the following outside this local implementation:
 
 - provision and approve the release-signing key and pinned production public key;

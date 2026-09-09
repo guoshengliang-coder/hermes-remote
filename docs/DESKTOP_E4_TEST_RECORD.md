@@ -4,6 +4,17 @@ Date: 2026-09-07
 Status: E4-D local multi-device UX, signed bootstrap, packaged orchestration, account Connector,
 binding, and rollback/restart recovery complete; real release and target-Mac enablement remain pending.
 
+## E4-E offline release publisher
+
+The repository now includes a default-inert offline publisher and independent public-key verifier for
+the exact E4 signed manifest. Automated coverage proves successful Ed25519 packaging and byte-for-byte
+verification of both archives, canonical public-key export, strict fields/origin/lifetime, safe tar
+members and declared entrypoints, SHA-256/size validation, no-overwrite behavior, cleanup after partial
+failure, private-key ownership/permission enforcement, symlink refusal, artifact-tamper rejection, and
+`HR-RELEASE-004` diagnostic redaction. This closes the tooling gap only; real Hermes/Connector archives,
+key custody approval, HTTPS publication, notarized Desktop packaging, and physical migration remain
+separate gates.
+
 ## Scope completed
 
 - Desktop decodes the additive E3 capability and owned-device response only when
