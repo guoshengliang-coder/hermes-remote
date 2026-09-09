@@ -184,6 +184,12 @@ the public-key-only path. Partial failure removes only files created by the curr
 signature, archive, and integrity failures use the registered `HR-RELEASE-004` diagnostic without
 printing private-key contents or paths.
 
+The preceding component builder is also source-pinned and default-inert. It creates a relocatable
+Hermes Server using an allowlisted upstream source tree plus bundled Python runtime/site-packages, and
+a Connector using production-only compiled JavaScript plus bundled Node and its runtime dependencies.
+Neither launcher relies on launchd `PATH`, and neither component archive carries `HERMES_HOME`, `.env`,
+account sessions, Connector credentials, or Git metadata.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 

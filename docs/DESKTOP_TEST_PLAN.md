@@ -55,8 +55,12 @@ The current automated suite covers:
 - offline managed-release publication with owner-only Ed25519 key custody, exact two-archive output,
   independent public-key verification, no-overwrite/partial-cleanup behavior, and redacted
   `HR-RELEASE-004` diagnostics;
+- component-archive construction from exact clean Git identities, an allowlisted secret-free Hermes
+  source/runtime boundary, production-only Connector JavaScript, bundled architecture-matched
+  runtimes, relative launchers, bounded trees, and no-overwrite cleanup;
 - redirect-free bounded downloads, exact size and streaming SHA-256 artifact validation;
-- tar member preflight, including traversal/link/special-file rejection before extraction;
+- tar member preflight, including traversal/link/special-file rejection before extraction, realistic
+  dependency trees above the former 4,096-entry limit, and rejection beyond the new 65,536 bound;
 - private credential/LaunchAgent writes, immutable release staging, atomic activation and rollback;
 - a rolled-back, app-marked inactive release can be atomically replaced by a freshly verified
   same-version retry, while active, unmarked, mismatched, or unsafe directories remain immutable;
