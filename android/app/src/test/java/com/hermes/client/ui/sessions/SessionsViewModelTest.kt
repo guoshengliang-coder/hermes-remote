@@ -38,6 +38,11 @@ class SessionsViewModelTest {
     private val toolsRepo = mockk<com.hermes.client.data.repository.ToolsRepository>(relaxed = true)
     private val projectPrefs = mockk<com.hermes.client.data.repository.ProjectPrefsStore>(relaxed = true)
     private val projectsRepo = mockk<com.hermes.client.data.repository.ProjectsRepository>(relaxed = true)
+    // The catalog is the real one: it is the shared decision the Projects page, both pickers and
+    // every row's project name now run through, so faking it would test nothing.
+    private val projectCatalog by lazy {
+        com.hermes.client.data.repository.ProjectCatalog(projectsRepo, sessionRepo, profileManager, projectPrefs)
+    }
     private val defaultPathFlow = MutableStateFlow<String?>(null)
     // Controllable so tests can switch tenants and watch the scoped lists follow.
     private val activeProfileFlow = MutableStateFlow<String?>("personal")
@@ -65,7 +70,7 @@ class SessionsViewModelTest {
 
     private fun buildVm(accountSessions: com.hermes.client.data.auth.AccountSessionManager? = null) = SessionsViewModel(
         sessionRepo, chatRepo, profileManager, pinStore, viewModeStore, runtimeStore, toolsRepo, projectPrefs,
-        projectsRepo, accountSessions,
+        projectsRepo, projectCatalog, accountSessions,
     )
 
     private fun repoSession(id: String, repo: String?, profile: String = "personal") = Session(

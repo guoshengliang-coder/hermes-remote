@@ -75,6 +75,7 @@ class ChatViewModel @Inject constructor(
     private val fileRepository: ChatFileRepository,
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
     private val projectPrefs: com.hermes.client.data.repository.ProjectPrefsStore,
+    private val projectCatalog: com.hermes.client.data.repository.ProjectCatalog,
     private val tools: com.hermes.client.data.repository.ToolsRepository,
     private val botSendNotice: com.hermes.client.data.repository.BotSendNoticeStore,
     private val accountSessions: AccountSessionManager? = null,
@@ -138,13 +139,20 @@ class ChatViewModel @Inject constructor(
             cwd = cwd?.ifBlank { null },
             branch = branch?.ifBlank { null },
             gitRepoRoot = gitRepoRoot?.ifBlank { null },
-            projectLabel = com.hermes.client.ui.sessions.projectLabelOfPath(cwd, gitRepoRoot, defaultProjectPath),
+            // The project's real name when the catalog knows it; the folder basename otherwise.
+            projectLabel = projectCatalog.nameForPath(cwd, gitRepoRoot, defaultProjectPath),
         )
     }
 
-    private fun rebuildWorkspaceProjects(profile: String?) {
-        val scoped = sessions.cachedAllProfiles().filter { profile.isNullOrBlank() || it.profile == profile }
-        _workspaceProjects.value = com.hermes.client.ui.sessions.deriveProjectsFromSessions(scoped, defaultProjectPath)
+    /**
+     * The list behind「移动到项目」. Same source as the Projects page — before this it derived its
+     * own from the session cache, which is why the two disagreed once the page started reading the
+     * gateway. The warm cache is shown first so the sheet is never empty, then the authoritative
+     * list replaces it; a failed fetch keeps the warm one rather than emptying the sheet.
+     */
+    private suspend fun rebuildWorkspaceProjects(profile: String?) {
+        _workspaceProjects.value = projectCatalog.derivedFromCache(profile)
+        runCatching { projectCatalog.refresh() }.onSuccess { _workspaceProjects.value = it }
     }
 
     /**

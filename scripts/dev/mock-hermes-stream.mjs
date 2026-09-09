@@ -273,7 +273,7 @@ const LAUNCH_DIR = "/Users/me";
 
 let projectSeq = 1;
 const projects = [
-  { id: "p_seed01", name: "Hermes Remote", slug: "hermes-remote", icon: "repo", color: "hsl(210 68% 58%)",
+  { id: "p_seed01", name: "赫尔墨斯远程", slug: "hermes-remote", icon: "repo", color: "hsl(210 68% 58%)",
     folders: [{ path: "/Users/me/CodeX project/hermes-remote", is_primary: true }] },
 ];
 

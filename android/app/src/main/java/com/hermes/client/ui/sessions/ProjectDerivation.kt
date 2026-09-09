@@ -20,6 +20,16 @@ const val DEFAULT_PROJECT_ID = "__default_project__"
 fun projectCreationCwd(scope: Project?): String? =
     scope?.takeIf { it.id != DEFAULT_PROJECT_ID }?.path
 
+/**
+ * Every folder a project owns: its primary path plus each repo the tree lists under it. Upstream
+ * projects can span several folders, so membership can never be decided by [Project.path] alone.
+ */
+fun Project.folderPaths(): List<String> =
+    (listOfNotNull(path) + repos.mapNotNull { it.path })
+        .map { it.trimEnd('/', '\\') }
+        .filter { it.isNotBlank() }
+        .distinct()
+
 /** The path a session is grouped by: the resolved git repo root, else its working directory. */
 fun projectKeyOf(session: Session): String? =
     session.gitRepoRoot?.ifBlank { null } ?: session.cwd?.ifBlank { null }

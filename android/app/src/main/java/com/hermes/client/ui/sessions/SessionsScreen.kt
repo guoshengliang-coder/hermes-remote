@@ -551,9 +551,10 @@ fun SessionsScreen(
     }
 
     moveTarget?.let { target ->
-        val projects = remember(state.sessions, defaultProjectPath) {
-            deriveProjectsFromSessions(state.sessions, defaultProjectPath)
-        }
+        // The shared catalog, not a local derivation: this sheet and the Projects page must offer
+        // the same projects under the same names.
+        val projects by vm.pickerProjects.collectAsStateWithLifecycle()
+        LaunchedEffect(target) { vm.refreshPickerProjects() }
         ProjectPickerSheet(
             projects = projects,
             currentProjectId = projectOf(target, projects)?.id,

@@ -23,9 +23,11 @@ fun sessionSublineParts(
     session: Session,
     lead: SublineLead = SublineLead.PROJECT,
     defaultProjectPath: String? = null,
+    /** The project's own name, when something upstream of here knows it. */
+    projectName: String? = null,
 ): SessionSublineParts {
     val leadText = when (lead) {
-        SublineLead.PROJECT -> projectLabelOf(session, defaultProjectPath)
+        SublineLead.PROJECT -> projectName?.ifBlank { null } ?: projectLabelOf(session, defaultProjectPath)
         SublineLead.BRANCH -> session.gitBranch?.ifBlank { null }
     }
     return SessionSublineParts(lead = leadText, model = session.model?.ifBlank { null })
