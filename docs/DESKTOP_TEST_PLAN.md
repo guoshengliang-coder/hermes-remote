@@ -88,8 +88,9 @@ The current automated suite covers:
 - an existing responder on reserved port 9119, including 401/403, blocks clean install;
 - packaged ATS configuration explicitly permits local-network health probes while leaving arbitrary
   public and WebView HTTP loads disabled;
-- candidate Hermes readiness uses a dedicated ephemeral session with an empty proxy dictionary, so a
-  configured system/PAC proxy cannot intercept or stall the `127.0.0.1:9119` commit gate;
+- candidate Hermes readiness uses a dedicated ephemeral session that explicitly disables HTTP, HTTPS,
+  SOCKS, FTP, PAC, and automatic proxy discovery, so configured proxies cannot intercept or stall the
+  `127.0.0.1:9119` commit gate;
 - restart inspection recognizes only an `account_active` journal plus both exact managed LaunchAgents
   as active; intermediate journals recover before a second install and mismatches fail closed;
 - a newly confirmed run atomically replaces only a terminal `legacy_active` or `clean_uninstalled`

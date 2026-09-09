@@ -1,4 +1,5 @@
 import Foundation
+import CFNetwork
 import XCTest
 @testable import HermesGoDesktopCore
 
@@ -10,8 +11,13 @@ final class DesktopHermesReadinessTests: XCTestCase {
 
     func testCandidateLoopbackSessionDoesNotInheritTheSystemProxy() {
         let configuration = HTTPHealthProber.loopbackDirectConfiguration()
-        XCTAssertNotNil(configuration.connectionProxyDictionary)
-        XCTAssertEqual(configuration.connectionProxyDictionary?.count, 0)
+        let proxy = configuration.connectionProxyDictionary
+        XCTAssertEqual(proxy?[kCFNetworkProxiesHTTPEnable as String] as? Bool, false)
+        XCTAssertEqual(proxy?[kCFNetworkProxiesHTTPSEnable as String] as? Bool, false)
+        XCTAssertEqual(proxy?[kCFNetworkProxiesSOCKSEnable as String] as? Bool, false)
+        XCTAssertEqual(proxy?[kCFNetworkProxiesFTPEnable as String] as? Bool, false)
+        XCTAssertEqual(proxy?[kCFNetworkProxiesProxyAutoConfigEnable as String] as? Bool, false)
+        XCTAssertEqual(proxy?[kCFNetworkProxiesProxyAutoDiscoveryEnable as String] as? Bool, false)
     }
 
     func testRequiresANewExactMarkerAndHealthyLoopbackResponseTogether() async throws {
