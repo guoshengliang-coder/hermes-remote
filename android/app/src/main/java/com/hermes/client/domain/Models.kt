@@ -114,9 +114,15 @@ data class Project(
     val id: String,
     val label: String,
     val path: String?,
-    // Hex string like "#RRGGBB" for explicit projects; null for auto/discovered (render with accent).
+    // A CSS color string for explicit projects; null for auto/discovered (render with accent).
     val color: String?,
+    // A codicon name from upstream's palette; null or unknown renders the plain folder glyph.
+    val icon: String?,
+    // False = an explicit row in the gateway's projects.db, which is the ONLY kind that can be
+    // renamed, recoloured or removed. True = derived from a folder that happens to hold sessions.
     val isAuto: Boolean,
+    // The "no project" Home bucket. Never a management target.
+    val isNoProject: Boolean = false,
     val sessionCount: Int,
     val lastActive: Long?,
     val repos: List<ProjectRepo>,
@@ -143,4 +149,23 @@ data class ProjectLane(
 data class ProjectTree(
     val projects: List<Project>,
     val activeId: String?,
+)
+
+/** One folder of a multi-folder project (upstream `project_folders`). */
+data class ProjectFolder(
+    val path: String,
+    val label: String?,
+    val isPrimary: Boolean,
+)
+
+/** A row of the gateway's projects table — what the CRUD methods return, not the tree shape. */
+data class ProjectRecord(
+    val id: String,
+    val name: String,
+    val slug: String,
+    val description: String?,
+    val icon: String?,
+    val color: String?,
+    val primaryPath: String?,
+    val folders: List<ProjectFolder>,
 )

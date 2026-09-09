@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
@@ -679,4 +681,21 @@ class ScreenshotTest {
     @Test fun botBubblesZhLargeFont() = snap("bot-bubbles-zh-fs13", fontScale = 1.3f) { BotBubblePair() }
 
     @Test fun botBubblesDark() = snap("bot-bubbles-dark", darkTheme = true) { BotBubblePair() }
+
+    // ── Project glyphs. Hand-drawn 1.7dp strokes (docs/DESIGN.md §4), so a malformed path is
+    // invisible to a unit test and obvious here — the first `repo` draft rendered as a bracket.
+    @Test fun projectIcons() = snap("project-icons") {
+        androidx.compose.foundation.layout.Row(
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(8.dp),
+        ) {
+            com.hermes.client.ui.components.PROJECT_ICONS.forEach { name ->
+                androidx.compose.material3.Icon(
+                    com.hermes.client.ui.components.projectIconFor(name),
+                    contentDescription = name,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+        }
+    }
 }

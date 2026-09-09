@@ -15,6 +15,10 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.hermes.client.ui.localization.localizedMessage
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -48,6 +52,13 @@ fun ProjectsScreen(
     val creator = rememberSessionCreator(vm, activeProfile, onOpen)
     val openSession = rememberSessionOpener(vm, onOpen)
     val scope = projectsState.scope
+
+    // Which sheet is open, and what the folder picker (if showing) is picking FOR. Both are page
+    // state rather than routes, for the same reason the drill-in is: the ids involved are file
+    // system paths, and a rebuilt tree must never strand a half-finished edit on the back stack.
+    var sheet by remember { mutableStateOf<ProjectSheet>(ProjectSheet.None) }
+    var picking by remember { mutableStateOf<FolderPick?>(null) }
+    var newProjectFolder by remember { mutableStateOf<String?>(null) }
     // Resolved in composition: projectDisplayLabel is @Composable (it localizes the default
     // project's name), so neither the snackbar effect nor the title can call it inline.
     val scopeLabel = scope?.let { projectDisplayLabel(it) }
@@ -56,7 +67,40 @@ fun ProjectsScreen(
     // re-entry updates warm content silently.
     LaunchedEffect(Unit) { vm.loadProjectTree() }
 
-    BackHandler(enabled = scope != null) { vm.exitProject() }
+    // A failed edit is a one-shot: show it, then let the page carry on with the list it has.
+    LaunchedEffect(projectsState.editError) {
+        projectsState.editError?.let {
+            snackbarHostState.showSnackbar(it.localizedMessage(language))
+            vm.clearProjectEditError()
+        }
+    }
+
+    // Back unwinds one layer at a time: the picker, then the drill-in, then the page.
+    BackHandler(enabled = picking != null || scope != null) {
+        when {
+            picking != null -> picking = null
+            else -> vm.exitProject()
+        }
+    }
+
+    picking?.let { purpose ->
+        FolderPickerScreen(
+            vm = vm,
+            onBack = { picking = null },
+            onPicked = { path ->
+                picking = null
+                when (purpose) {
+                    // Creating: hold the folder and reopen the sheet the user came from.
+                    is FolderPick.ForNewProject -> {
+                        newProjectFolder = path
+                        sheet = ProjectSheet.Create
+                    }
+                    is FolderPick.ForExistingProject -> vm.addProjectFolder(purpose.projectId, path)
+                }
+            },
+        )
+        return
+    }
 
     // First entry into a real project: a one-time notice that the FAB now creates there. Keyed on
     // the project and on whether the seen-set has loaded (not on its contents) so marking the
@@ -88,6 +132,18 @@ fun ProjectsScreen(
                             Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = localized(language, "返回", "Back"),
                         )
+                    }
+                },
+                actions = {
+                    // Only the gateway's own list can gain a project; the derived one is a view of
+                    // folders that happen to hold chats (see ProjectsUiState.managed).
+                    if (projectsState.managed && scope == null) {
+                        IconButton(onClick = { newProjectFolder = null; sheet = ProjectSheet.Create }) {
+                            Icon(
+                                Icons.Rounded.Add,
+                                contentDescription = localized(language, "新建项目", "New project"),
+                            )
+                        }
                     }
                 },
             )
@@ -128,8 +184,71 @@ fun ProjectsScreen(
                     projectsState.tree,
                     nowMs = System.currentTimeMillis(),
                     onOpenProject = { vm.enterProject(it) },
+                    onManageProject = if (projectsState.managed) {
+                        { project -> sheet = ProjectSheet.Actions(project) }
+                    } else null,
                 )
             }
         }
     }
+
+    when (val open = sheet) {
+        ProjectSheet.None -> Unit
+        ProjectSheet.Create -> ProjectEditSheet(
+            existing = null,
+            folder = newProjectFolder,
+            onPickFolder = { sheet = ProjectSheet.None; picking = FolderPick.ForNewProject },
+            onDismiss = { sheet = ProjectSheet.None },
+            onSubmit = { name, icon, color ->
+                sheet = ProjectSheet.None
+                vm.createProject(name, newProjectFolder, icon, color)
+                newProjectFolder = null
+            },
+        )
+        is ProjectSheet.Actions -> ProjectActionSheet(
+            project = open.project,
+            onDismiss = { sheet = ProjectSheet.None },
+            onEdit = { sheet = ProjectSheet.Edit(open.project) },
+            onManageFolders = { sheet = ProjectSheet.Folders(open.project) },
+            onDelete = { sheet = ProjectSheet.Remove(open.project) },
+        )
+        is ProjectSheet.Edit -> ProjectEditSheet(
+            existing = open.project,
+            folder = null,
+            onPickFolder = {},
+            onDismiss = { sheet = ProjectSheet.None },
+            onSubmit = { name, icon, color ->
+                sheet = ProjectSheet.None
+                vm.updateProject(open.project.id, name, icon, color)
+            },
+        )
+        is ProjectSheet.Folders -> ProjectFoldersSheet(
+            project = open.project,
+            onDismiss = { sheet = ProjectSheet.None },
+            onAddFolder = { picking = FolderPick.ForExistingProject(open.project.id) },
+            onSetPrimary = { path -> sheet = ProjectSheet.None; vm.setProjectPrimaryFolder(open.project.id, path) },
+            onRemoveFolder = { path -> sheet = ProjectSheet.None; vm.removeProjectFolder(open.project.id, path) },
+        )
+        is ProjectSheet.Remove -> RemoveProjectDialog(
+            project = open.project,
+            onDismiss = { sheet = ProjectSheet.None },
+            onConfirm = { vm.deleteProject(open.project.id) },
+        )
+    }
+}
+
+/** Which project sheet the page has open. */
+private sealed interface ProjectSheet {
+    data object None : ProjectSheet
+    data object Create : ProjectSheet
+    data class Actions(val project: com.hermes.client.domain.Project) : ProjectSheet
+    data class Edit(val project: com.hermes.client.domain.Project) : ProjectSheet
+    data class Folders(val project: com.hermes.client.domain.Project) : ProjectSheet
+    data class Remove(val project: com.hermes.client.domain.Project) : ProjectSheet
+}
+
+/** What a folder chosen in the picker is for. */
+private sealed interface FolderPick {
+    data object ForNewProject : FolderPick
+    data class ForExistingProject(val projectId: String) : FolderPick
 }

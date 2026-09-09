@@ -1,6 +1,7 @@
 package com.hermes.client.ui.sessions
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,18 +25,36 @@ import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.l10n
 import com.hermes.client.ui.util.relativeTimeLabel
 
-/** Parse the gateway's "#RRGGBB" project color; fall back to the tenant accent when null/invalid. */
+/** The gateway's project colour, or the tenant accent when it is unset or unparseable. */
 @Composable
-private fun projectTint(color: String?): Color {
-    val accent = MaterialTheme.colorScheme.primary
-    return color?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() } ?: accent
-}
+private fun projectTint(color: String?): Color =
+    parseProjectColor(color) ?: MaterialTheme.colorScheme.primary
 
-/** Projects overview: the default project first, then one tappable row per project. */
+/**
+ * Projects overview: the default project first, then one tappable row per project.
+ *
+ * [onManageProject] is null while the list is the client-side derivation — those rows are folders
+ * that happen to hold chats, not rows in the gateway's projects.db, so there is nothing to edit.
+ */
 @Composable
-fun ProjectOverview(projects: List<Project>, nowMs: Long, onOpenProject: (Project) -> Unit) {
+fun ProjectOverview(
+    projects: List<Project>,
+    nowMs: Long,
+    onOpenProject: (Project) -> Unit,
+    onManageProject: ((Project) -> Unit)? = null,
+) {
     LazyColumn(Modifier.fillMaxWidth()) {
-        items(projects, key = { it.id }) { p -> ProjectCard(p, nowMs, onClick = { onOpenProject(p) }) }
+        items(projects, key = { it.id }) { p ->
+            ProjectCard(
+                p,
+                nowMs,
+                onClick = { onOpenProject(p) },
+                // The default-project bucket and auto-discovered folders have no row to edit.
+                onLongClick = onManageProject
+                    ?.takeIf { p.id != DEFAULT_PROJECT_ID && !p.isAuto }
+                    ?.let { manage -> { manage(p) } },
+            )
+        }
     }
 }
 
@@ -44,8 +63,15 @@ fun ProjectOverview(projects: List<Project>, nowMs: Long, onOpenProject: (Projec
  * default project uses the house-folder in the muted colour; real projects the folder with the
  * project colour on the LINE (the filled glyph read as a solid block).
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun ProjectCard(project: Project, nowMs: Long, onClick: () -> Unit) {
+fun ProjectCard(
+    project: Project,
+    nowMs: Long,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+) {
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val language = LocalAppLanguage.current
     val isDefault = project.id == DEFAULT_PROJECT_ID
     val count = l10n(
@@ -62,7 +88,8 @@ fun ProjectCard(project: Project, nowMs: Long, onClick: () -> Unit) {
         supportingContent = { Text(parts.joinToString(" · "), maxLines = 1, overflow = TextOverflow.Ellipsis) },
         leadingContent = {
             Icon(
-                if (isDefault) HomeFolderStrokeIcon else FolderStrokeIcon,
+                if (isDefault) HomeFolderStrokeIcon
+                else com.hermes.client.ui.components.projectIconFor(project.icon),
                 contentDescription = null,
                 tint = if (isDefault) MaterialTheme.colorScheme.onSurfaceVariant else projectTint(project.color),
                 modifier = Modifier.size(24.dp),
@@ -71,7 +98,17 @@ fun ProjectCard(project: Project, nowMs: Long, onClick: () -> Unit) {
         trailingContent = {
             Icon(ThinChevronIcon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
         },
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = if (onLongClick == null) {
+            Modifier.clickable(onClick = onClick)
+        } else {
+            Modifier.combinedClickable(
+                onClick = onClick,
+                onLongClick = {
+                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    onLongClick()
+                },
+            )
+        },
     )
 }
 
