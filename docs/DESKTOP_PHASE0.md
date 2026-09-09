@@ -165,7 +165,9 @@ migration. A foreign/stale preparation or wrong confirmation cannot invoke migra
 Any responder already reachable on reserved port 9119 blocks clean install, including an authenticated
 Hermes response. After success, the UI recognizes only an `account_active` journal plus both exact
 managed LaunchAgents as active. Intermediate journals enter restart recovery before another install;
-unknown/mismatched state fails closed. Temporary cleanup failure retains a cleanup-only retry and uses
+unknown/mismatched state fails closed. After rollback reaches `legacy_active` or `clean_uninstalled`, a
+new explicit confirmation starts a fresh run and atomically replaces that terminal journal; no other
+journal state can be replaced by a different run ID. Temporary cleanup failure retains a cleanup-only retry and uses
 `HR-MIGRATE-005`. The production/default plist and Gateway flag remain off, so this source connection
 does not authorize a real download, installation, process change, or rollout.
 

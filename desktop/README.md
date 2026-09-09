@@ -58,7 +58,9 @@ pass, and the legacy connection remains available. Local evidence and remaining 
   never offers a second install.
 - On a later Desktop launch, an `account_active` journal plus both exact managed LaunchAgents is shown
   as the active installation. An intermediate journal is recovered before any new install is allowed;
-  mismatched journal/service state fails closed with a registered migration issue.
+  mismatched journal/service state fails closed with a registered migration issue. A completed rollback
+  to `legacy_active` or `clean_uninstalled` admits a newly confirmed migration run and atomically replaces
+  the terminal journal; active, intermediate, and manual-attention journals remain non-replaceable.
 - Existing-install observation/recovery does not depend on the new-install flag. The active journal's
   binding ID/generation must match the signed-in account, so account B cannot claim or replace account
   A's already managed service on the same Mac.
