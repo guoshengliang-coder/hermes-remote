@@ -194,6 +194,9 @@ fun ChatScreen(
         }
     }
     val currentModel by vm.currentModel.collectAsStateWithLifecycle()
+    val botOrigin by vm.botOrigin.collectAsStateWithLifecycle()
+    val locallySentIds by vm.locallySentIds.collectAsStateWithLifecycle()
+    val botNoticeNeeded by vm.botNoticeNeeded.collectAsStateWithLifecycle()
     val providers by vm.providers.collectAsStateWithLifecycle()
     val favorites by vm.favorites.collectAsStateWithLifecycle()
     val currentProvider by vm.currentProvider.collectAsStateWithLifecycle()
@@ -383,8 +386,18 @@ fun ChatScreen(
     val canSend = canSend(connected, draft.isNotBlank(), state.pendingAttachments.isNotEmpty(), state.isGenerating)
     val haptic = LocalHapticFeedback.current
 
+    // Shown once per channel, before the first message a person sends into one of its
+    // conversations. A dialog rather than a line above the composer: the composer already carries
+    // the AI-generated disclaimer under it, and two grey micro-lines around one control is noise.
+    var botNoticeOpen by remember { mutableStateOf(false) }
+
     fun submit() {
         if (!canSend) return
+        if (botNoticeNeeded) {
+            // Deliberately before the draft is cleared: cancelling must leave what was typed.
+            botNoticeOpen = true
+            return
+        }
         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
         vm.send(draft)
         draft = ""
@@ -768,6 +781,10 @@ fun ChatScreen(
         )
     }
 
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalBotOrigin provides botOrigin,
+        LocalLocallySentIds provides locallySentIds,
+    ) {
     Scaffold(
         topBar = {
             // The search bar takes the top bar's place (docs/DESIGN.md §5.4): the transcript
@@ -819,7 +836,22 @@ fun ChatScreen(
                     // and the door to change it. Only profiles that have projects at all get the
                     // row — a profile of plain chats keeps the single-line bar (docs/DESIGN.md §5.4).
                     val ws = workspace
-                    if (ws != null && workspaceProjects.any { it.id != com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID }) {
+                    val origin = botOrigin
+                    if (origin != null) {
+                        // A channel conversation says where it came from and who is on the other
+                        // end. It takes the workspace row's place rather than a banner of its own:
+                        // this is identity, not an alert, and the full-width slot below belongs to
+                        // connection state, which must stay the loudest thing on the screen.
+                        Text(
+                            com.hermes.client.ui.sessions.botOriginLabel(
+                                origin.displayName, origin.chatType, origin.source, language,
+                            ),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    } else if (ws != null && workspaceProjects.any { it.id != com.hermes.client.ui.sessions.DEFAULT_PROJECT_ID }) {
                         WorkspaceSubtitle(
                             projectLabel = ws.projectLabel,
                             branch = ws.branch,
@@ -888,7 +920,7 @@ fun ChatScreen(
                             )
                             DropdownMenuItem(
                                 leadingIcon = { Icon(com.hermes.client.ui.components.PromptListIcon, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(localized(language, "我的提问", "Your prompts")) },
+                                text = { Text(promptListTitle(botOrigin, language)) },
                                 onClick = {
                                     transcriptMenu = false
                                     promptListTick = System.currentTimeMillis()
@@ -916,7 +948,7 @@ fun ChatScreen(
                                 leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null, Modifier.size(20.dp)) },
                                 text = { Text(localized(language, "复制对话", "Copy transcript")) },
                                 onClick = {
-                                    val t = transcriptText(state.messages, language)
+                                    val t = transcriptText(state.messages, language, botOrigin)
                                     if (t.isBlank()) {
                                         android.widget.Toast.makeText(context, localized(language, "暂无可导出的内容", "Nothing to export yet"), android.widget.Toast.LENGTH_SHORT).show()
                                     } else {
@@ -952,15 +984,20 @@ fun ChatScreen(
                                     confirmArchive = true
                                 },
                             )
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Rounded.Forum, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(localized(language, "转到消息渠道", "Move to a channel")) },
-                                onClick = {
-                                    transcriptMenu = false
-                                    vm.loadHandoffTargets()
-                                    showHandoffSheet = true
-                                },
-                            )
+                            // Handoff moves a LOCAL conversation out to a platform, one direction
+                            // only. This one is already on a platform, so there is nowhere for it
+                            // to go and the gateway refuses it outright (4025/4026).
+                            if (botOrigin == null) {
+                                DropdownMenuItem(
+                                    leadingIcon = { Icon(Icons.Rounded.Forum, contentDescription = null, Modifier.size(20.dp)) },
+                                    text = { Text(localized(language, "转到消息渠道", "Move to a channel")) },
+                                    onClick = {
+                                        transcriptMenu = false
+                                        vm.loadHandoffTargets()
+                                        showHandoffSheet = true
+                                    },
+                                )
+                            }
                             DropdownMenuItem(
                                 leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null, Modifier.size(20.dp)) },
                                 text = { Text(localized(language, "切换人格", "Switch persona")) },
@@ -1107,8 +1144,9 @@ fun ChatScreen(
                                             val effortSuffix = com.hermes.client.ui.models.reasoningLabel(reasoningEffort)
                                                 ?.let { " · " + it.resolve(language) } ?: ""
                                             Text(
-                                                if (currentModel.isNullOrBlank()) localized(language, "默认模型", "Default model")
-                                                else compactModelLabel(currentModel) + effortSuffix,
+                                                modelChipLabel(
+                                                    currentModel, effortSuffix, botOrigin != null, language,
+                                                ),
                                                 style = MaterialTheme.typography.labelLarge,
                                                 color = if (currentModel.isNullOrBlank()) MaterialTheme.colorScheme.onSurfaceVariant
                                                 else MaterialTheme.colorScheme.onSurface,
@@ -1344,8 +1382,7 @@ fun ChatScreen(
                         NewChatGreeting(
                             profile = sessionProfile,
                             identityName = identities[sessionProfile]?.displayName,
-                            modelLabel = if (currentModel.isNullOrBlank()) localized(language, "默认模型", "Default model")
-                            else compactModelLabel(currentModel!!) + effortSuffix,
+                            modelLabel = modelChipLabel(currentModel, effortSuffix, isBot = false, language = language),
                             connection = connState,
                             imeVisible = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0,
                         )
@@ -1354,6 +1391,7 @@ fun ChatScreen(
                 }
             }
         }
+    }
     }
 
     state.pendingApproval?.let { req ->
@@ -1619,13 +1657,42 @@ fun ChatScreen(
         )
     }
 
+    if (botNoticeOpen) {
+        val origin = botOrigin
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { botNoticeOpen = false },
+            title = { Text(com.hermes.client.ui.sessions.botSendNoticeTitle(origin?.source, language)) },
+            text = { Text(com.hermes.client.ui.sessions.botSendNoticeBody(origin?.source, language)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        vm.acknowledgeBotNotice()
+                        botNoticeOpen = false
+                        // botNoticeNeeded has not recomposed yet, so go straight to the send
+                        // rather than back through submit()'s gate.
+                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                        vm.send(draft)
+                        draft = ""
+                        sendToBottomTick = System.currentTimeMillis()
+                        collapseComposer()
+                    },
+                ) { Text(localized(language, "知道了，发送", "Got it, send")) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { botNoticeOpen = false },
+                ) { Text(localized(language, "取消", "Cancel")) }
+            },
+        )
+    }
+
     if (shareFormatSheet) {
         val density = androidx.compose.ui.platform.LocalDensity.current.density
         val subject = localized(language, "Hermes GO 对话记录", "Hermes GO chat transcript")
         ShareTranscriptSheet(
             onText = {
                 shareFormatSheet = false
-                val body = transcriptText(state.messages, language)
+                val body = transcriptText(state.messages, language, botOrigin)
                 val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(android.content.Intent.EXTRA_SUBJECT, subject)
@@ -1646,6 +1713,7 @@ fun ChatScreen(
                     language = language,
                     exportedAtMillis = now,
                     model = currentModel,
+                    origin = botOrigin,
                 )
                 exportScope.launch {
                     val ok = TranscriptShare.shareMarkdown(
@@ -1694,6 +1762,7 @@ fun ChatScreen(
             title = sessionTitle,
             messages = state.messages,
             exportedAtMillis = remember { System.currentTimeMillis() },
+            origin = botOrigin,
             onDone = { ok ->
                 transcriptImageExporting = false
                 if (!ok) {

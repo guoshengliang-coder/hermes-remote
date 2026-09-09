@@ -4,6 +4,7 @@ import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.domain.Session
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -16,6 +17,40 @@ private fun session(
 )
 
 class BotSessionsTest {
+    @Test fun a_conversation_from_another_app_is_a_bot_session() {
+        assertTrue(isBotSession("dingtalk"))
+        assertTrue(isBotSession("slack"))
+        assertTrue(isBotSession("feishu"))
+    }
+
+    /**
+     * `cron` is in EXCLUDED_SOURCES but is NOT a conversation. It is openable in chat today from
+     * the activity feed, and treating it as one would sign its turns with a peer who does not
+     * exist and hide handoff from a session that can legitimately use it.
+     */
+    @Test fun a_scheduled_run_is_not_a_bot_session() {
+        assertFalse(isBotSession("cron"))
+        assertFalse(isBotSession("subagent"))
+        assertFalse(isBotSession("tool"))
+    }
+
+    @Test fun a_local_or_unknown_source_is_not_a_bot_session() {
+        assertFalse(isBotSession(null))
+        assertFalse(isBotSession(""))
+        assertFalse(isBotSession("cli"))
+        assertFalse(isBotSession("hermes-dispatch"))
+    }
+
+    @Test fun the_origin_carries_who_is_on_the_other_end() {
+        val origin = botOriginOf(
+            session("s1", "dingtalk").copy(displayName = null, chatType = "dm"),
+        )
+        assertEquals("dingtalk", origin?.source)
+        assertEquals("dm", origin?.chatType)
+        assertNull(botOriginOf(session("s2", "cli")))
+        assertNull(botOriginOf(null))
+    }
+
     @Test fun bot_sources_are_the_messaging_half_of_the_excluded_set() {
         assertTrue("dingtalk" in BOT_SOURCES)
         assertTrue("slack" in BOT_SOURCES)

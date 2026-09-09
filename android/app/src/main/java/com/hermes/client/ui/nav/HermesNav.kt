@@ -52,7 +52,6 @@ import com.hermes.client.ui.messaging.MessagingSetupScreen
 import com.hermes.client.ui.models.ModelsScreen
 import com.hermes.client.ui.models.ModelsViewModel
 import com.hermes.client.ui.sessions.SessionsScreen
-import com.hermes.client.ui.sessions.BotTranscriptScreen
 import com.hermes.client.ui.sessions.SessionsViewModel
 import com.hermes.client.ui.sessions.SearchViewModel
 import com.hermes.client.ui.settings.AboutScreen
@@ -385,9 +384,6 @@ fun HermesNav(
                     onOpenArchived = { push("archived") },
                     onOpenCron = { push("cron") },
                     onOpenMessaging = { push("messaging") },
-                    onOpenBotSession = { id, profile ->
-                        push("bot_transcript/$id?profile=${profile.orEmpty()}")
-                    },
                     onUnauthorized = onUnauthorized,
                 )
             }
@@ -517,11 +513,6 @@ fun HermesNav(
                     jobId = entry.arguments?.getString("id") ?: "new",
                     onDone = { nav.popBackStack() },
                 )
-            }
-            composable("bot_transcript/{id}?profile={profile}") { entry ->
-                val id = entry.arguments?.getString("id").orEmpty()
-                val profile = entry.arguments?.getString("profile")?.takeIf { it.isNotBlank() }
-                BotTranscriptScreen(sessionId = id, profile = profile, onBack = back)
             }
             composable("messaging") {
                 MessagingScreen(

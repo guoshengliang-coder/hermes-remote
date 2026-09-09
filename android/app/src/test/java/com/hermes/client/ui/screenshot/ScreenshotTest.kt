@@ -636,4 +636,47 @@ class ScreenshotTest {
 
     @Test fun chatsTopBarEnLargeFont() =
         snap("chats-topbar-en-fs13", fontScale = 1.3f) { topBar(com.hermes.client.ui.localization.AppLanguage.EN)() }
+
+    // ── Bot conversation bubbles: with the composer open, the right-hand column carries two
+    // speakers. Signing them apart is the whole point, and it is only visible in a picture.
+    private val dingTalkDm =
+        com.hermes.client.ui.sessions.BotOrigin("dingtalk", displayName = null, chatType = "dm")
+
+    @androidx.compose.runtime.Composable
+    private fun BotBubblePair() {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.chat.LocalBotOrigin provides dingTalkDm,
+            com.hermes.client.ui.chat.LocalLocallySentIds provides setOf("mine"),
+        ) {
+            androidx.compose.foundation.layout.Column(
+                androidx.compose.ui.Modifier.padding(12.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+            ) {
+                com.hermes.client.ui.chat.UserBubble(
+                    msg = com.hermes.client.domain.ChatMessage(
+                        id = "theirs",
+                        role = com.hermes.client.domain.Role.USER,
+                        text = "帮我看下这个报错",
+                    ),
+                    onEditResend = {}, onImageSave = {}, onImageSaveAs = {}, onImageShare = {},
+                    savingImageId = null, onFileOpen = {}, onFileShare = {},
+                )
+                com.hermes.client.ui.chat.UserBubble(
+                    msg = com.hermes.client.domain.ChatMessage(
+                        id = "mine",
+                        role = com.hermes.client.domain.Role.USER,
+                        text = "我从手机补一句",
+                    ),
+                    onEditResend = {}, onImageSave = {}, onImageSaveAs = {}, onImageShare = {},
+                    savingImageId = null, onFileOpen = {}, onFileShare = {},
+                )
+            }
+        }
+    }
+
+    @Test fun botBubblesZh() = snap("bot-bubbles-zh") { BotBubblePair() }
+
+    @Test fun botBubblesZhLargeFont() = snap("bot-bubbles-zh-fs13", fontScale = 1.3f) { BotBubblePair() }
+
+    @Test fun botBubblesDark() = snap("bot-bubbles-dark", darkTheme = true) { BotBubblePair() }
 }

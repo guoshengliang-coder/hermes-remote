@@ -34,6 +34,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.After
 import org.junit.Before
@@ -62,6 +63,10 @@ class ChatViewModelTest {
     private val tts = mockk<com.hermes.client.data.tts.TextToSpeechController>(relaxed = true)
     private val promptStore = mockk<com.hermes.client.data.repository.PromptStore>(relaxed = true)
     private val configRepo = mockk<com.hermes.client.data.repository.ConfigRepository>(relaxed = true)
+    private val acknowledgedChannels = MutableStateFlow<Set<String>>(emptySet())
+    private val botSendNotice = mockk<com.hermes.client.data.repository.BotSendNoticeStore>(relaxed = true).also {
+        every { it.acknowledged } returns acknowledgedChannels
+    }
     private val credentialStore = mockk<com.hermes.client.data.auth.CredentialStore> {
         every { load() } returns mockk()
     }
@@ -91,6 +96,9 @@ class ChatViewModelTest {
         coEvery { chatRepo.resume(any(), any()) } returns null
         every { profileManager.active } returns MutableStateFlow<String?>(null)
         coEvery { sessionRepo.history(any(), any()) } returns emptyList()
+        // Relaxed mockk hands back a stub Session for a nullable reference return, and a stub with
+        // a blank title would overwrite the title the caller passed in. Say "no row" explicitly.
+        coEvery { sessionRepo.sessionMeta(any(), any(), any()) } returns null
         coEvery { mediaRepo.hydrateMessages(any(), any()) } answers { firstArg() }
         coEvery { fileRepo.upload(any(), any(), any()) } returns
             com.hermes.client.data.network.UploadedArtifact("/tmp/uploaded", "attachment", 3)
@@ -130,7 +138,7 @@ class ChatViewModelTest {
             chatRepo, sessionRepo, store, reasoningPresetStore, profileRepo, profileManager,
             favoritesStore, pendingShareStore, tts, promptStore, configRepo, runtimeStore,
             mediaRepo, fileRepo, mainDispatcherRule.dispatcher, projectPrefs,
-            toolsRepo, accountSessions, conversationDevices,
+            toolsRepo, botSendNotice, accountSessions, conversationDevices,
         )
     }
 
@@ -160,7 +168,7 @@ class ChatViewModelTest {
         verify(exactly = 1) { manager.routeToDevice("mac-history") }
         verify(exactly = 1) { chatRepo.reconnect() }
         coVerify { sessionRepo.history("session-1", null, "mac-history") }
-        coVerify { sessionRepo.list(null, "mac-history") }
+        coVerify { sessionRepo.sessionMeta("session-1", null, "mac-history") }
     }
 
     @Test fun revoked_conversation_device_surfaces_the_registered_binding_error() = runTest {
@@ -260,6 +268,98 @@ class ChatViewModelTest {
         vm.open("s1")
         advanceUntilIdle()
         coVerify { chatRepo.resume("s1", "personal") }
+    }
+
+    private fun botSession(id: String, source: String = "dingtalk") = com.hermes.client.domain.Session(
+        id = id, title = "钉钉会话", model = null, provider = null, messageCount = 4,
+        profile = null, archived = false, source = source, lastActive = 0L, chatType = "dm",
+    )
+
+    /**
+     * Opening a channel conversation must NOT resume it. Resume materialises an agent runtime in
+     * the dashboard process and binds a live handle, which starts process polling — for a
+     * conversation another process owns. Reading a log should cost nothing on the Mac.
+     */
+    @Test fun opening_a_bot_conversation_does_not_resume_it() = runTest {
+        every { sessionRepo.cachedSession("bot-1", any(), any()) } returns botSession("bot-1")
+        val vm = buildVm()
+        vm.open("bot-1")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { chatRepo.resume(any(), any()) }
+        assertEquals("dingtalk", vm.botOrigin.value?.source)
+    }
+
+    @Test fun opening_an_ordinary_conversation_still_resumes_it() = runTest {
+        every { sessionRepo.cachedSession(any(), any(), any()) } returns null
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { chatRepo.resume("s1", null) }
+        assertNull(vm.botOrigin.value)
+    }
+
+    /**
+     * Sending is what pays for the runtime. The exact call count is not pinned: the send path has
+     * its own retry ladder for a gate that fails or times out, and asserting a number here would
+     * pin that ladder rather than this behaviour. What matters is that browsing cost nothing and
+     * sending resumes.
+     */
+    @Test fun sending_into_a_bot_conversation_resumes_it() = runTest {
+        every { sessionRepo.cachedSession("bot-1", any(), any()) } returns botSession("bot-1")
+        val vm = buildVm()
+        vm.open("bot-1")
+        advanceUntilIdle()
+        coVerify(exactly = 0) { chatRepo.resume(any(), any()) }
+
+        vm.send("在吗")
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { chatRepo.resume("bot-1", any()) }
+    }
+
+    /**
+     * The chip used to name the profile's default model as though it had answered on DingTalk.
+     * A channel conversation with no model of its own must stay unknown.
+     */
+    @Test fun a_bot_conversation_never_adopts_the_profile_default_model() = runTest {
+        every { sessionRepo.cachedSession("bot-1", any(), any()) } returns botSession("bot-1")
+        coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "anthropic/claude-sonnet-4") }
+        val vm = buildVm()
+        vm.open("bot-1")
+        advanceUntilIdle()
+
+        assertNull(vm.currentModel.value)
+        assertEquals("anthropic/claude-sonnet-4", vm.defaultModel.value)
+    }
+
+    @Test fun an_ordinary_conversation_still_falls_back_to_the_profile_default_model() = runTest {
+        every { sessionRepo.cachedSession(any(), any(), any()) } returns null
+        coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "anthropic/claude-sonnet-4") }
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        assertEquals("anthropic/claude-sonnet-4", vm.currentModel.value)
+    }
+
+    /** Said once per channel, not once per device: a DingTalk acknowledgement says nothing about Slack. */
+    @Test fun the_send_notice_is_needed_per_channel_and_not_at_all_for_a_local_chat() = runTest {
+        every { sessionRepo.cachedSession("bot-1", any(), any()) } returns botSession("bot-1")
+        val vm = buildVm()
+        vm.open("bot-1")
+        advanceUntilIdle()
+        assertTrue(vm.botNoticeNeeded.value)
+
+        acknowledgedChannels.value = setOf("dingtalk")
+        advanceUntilIdle()
+        assertFalse(vm.botNoticeNeeded.value)
+
+        every { sessionRepo.cachedSession("bot-2", any(), any()) } returns botSession("bot-2", "slack")
+        vm.open("bot-2")
+        advanceUntilIdle()
+        assertTrue(vm.botNoticeNeeded.value)
     }
 
     @Test fun open_prefers_navigation_profile_and_title_for_existing_session() = runTest {

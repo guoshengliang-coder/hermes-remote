@@ -13,14 +13,18 @@ fun lastUserMessageText(messages: List<ChatMessage>): String? =
  * Render the conversation to a plain-text, role-labeled transcript. Body text is verbatim
  * (markdown preserved). Blank-text turns (tool-only / still-streaming stubs) are skipped.
  */
-fun transcriptText(messages: List<ChatMessage>, language: AppLanguage = AppLanguage.EN): String =
+fun transcriptText(
+    messages: List<ChatMessage>,
+    language: AppLanguage = AppLanguage.EN,
+    origin: com.hermes.client.ui.sessions.BotOrigin? = null,
+): String =
     messages
         .filter { it.text.isNotBlank() }
         .joinToString("\n\n") { m ->
             val label = when {
                 m.isError -> localized(language, "错误", "Error")
                 m.role == Role.SYSTEM -> localized(language, "系统", "System")
-                m.role == Role.USER -> localized(language, "你", "You")
+                m.role == Role.USER -> userSpeakerLabel(origin, language)
                 else -> localized(language, "助手", "Assistant")
             }
             "$label:\n${m.text}"
