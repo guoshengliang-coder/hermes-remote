@@ -407,7 +407,9 @@ lock; any ambiguity or drift remains fail-closed. Gateway 0.4.12 introduces this
 production retry also proved that a disabled binding route is intentionally different across the two smoke
 surfaces: the private Gateway returns `503` because its control dependency is disabled, while public Nginx hides
 the route with `404`. Gateway 0.4.13 verifies both exact values instead of applying the public expectation to the
-private candidate.
+private candidate. The authorized 2026-09-09 production run `348f8a3f-fa25-4bc3-be45-ae210458be5f` committed
+0.4.13 to blue with 0.4.9 as `previous`; the site-file hash stayed unchanged, the container was healthy with zero
+restarts, the email-only public contract passed, and the production monitor remained green.
 
 The first two authorized production attempts did not complete adoption. The first stopped before candidate start
 on Docker 29/containerd image-ID representation. The second loaded the corrected image and started blue, then
