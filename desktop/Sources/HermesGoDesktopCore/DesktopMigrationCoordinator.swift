@@ -1,7 +1,7 @@
 import Foundation
 
 public protocol DesktopBindingCoordinating: Sendable {
-    func beginBinding() async throws -> DesktopBindingPreparation
+    func beginBinding(retryingRevokedGeneration: Int?) async throws -> DesktopBindingPreparation
     func refresh() async throws -> DesktopAccountState
     func confirmBinding() async throws -> DesktopAccountState
 }
@@ -84,9 +84,12 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
               serviceState.legacyLoaded == legacy.isRunning
         else { throw DesktopMigrationCoordinatorError.invalidStartingState }
 
-        let preparation = try await account.beginBinding()
-        let pending = try pendingBinding(preparation.state)
         let lastKnownGood: DesktopLastKnownGoodMode = legacy.isRunning ? .legacy : .none
+        let retryingRevokedGeneration = try revokedRetryGeneration(lastKnownGood: lastKnownGood)
+        let preparation = try await account.beginBinding(
+            retryingRevokedGeneration: retryingRevokedGeneration
+        )
+        let pending = try pendingBinding(preparation.state)
         _ = try journal.begin(
             runID: runID,
             lastKnownGoodMode: lastKnownGood,
@@ -293,6 +296,22 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
               let generation = dashboard.binding.generation
         else { throw DesktopMigrationCoordinatorError.invalidBindingState }
         return (id, generation)
+    }
+
+    private func revokedRetryGeneration(lastKnownGood: DesktopLastKnownGoodMode) throws -> Int? {
+        guard let recorded = try journal.load(),
+              recorded.bindingID != nil,
+              let generation = recorded.bindingGeneration,
+              generation > 0
+        else { return nil }
+
+        switch (recorded.state, recorded.lastKnownGoodMode, lastKnownGood) {
+        case (.legacyActive, .legacy, .legacy),
+             (.cleanUninstalled, .none, .none):
+            return generation
+        default:
+            return nil
+        }
     }
 
     private func isCommitted(_ state: DesktopAccountState, bindingID: String, generation: Int) -> Bool {

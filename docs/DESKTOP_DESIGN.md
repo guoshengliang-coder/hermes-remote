@@ -44,6 +44,8 @@ keeping browser cookies and profile data outside Hermes Go Desktop.
 
 Implemented account states are capability checking/unavailable, signed out, email-code verification,
 signed in with no binding, bound healthy/offline, pending/replacement/revoked, and session-needs-login.
+The revoked card explains that a locally proven, safely rolled-back migration may be retried without a
+new login; all other revoked bindings still require identity verification and replacement.
 The normal signed-in view shows the account, current Desktop, one binding, and independently removable
 phones. Account errors appear with stable `HR-*` codes and copyable redacted diagnostics.
 The signed-in dashboard follows the capability snapshot field by field: the account summary remains available after

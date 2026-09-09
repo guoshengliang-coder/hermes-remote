@@ -1109,7 +1109,7 @@ struct AccountDevicesView: View {
         case "replacement_pending":
             return ("arrow.triangle.2.circlepath", "等待确认更换 Mac", "原来的 Desktop 在更换提交前仍保持工作。")
         case "revoked":
-            return ("xmark.shield", "这台 Mac 的绑定已撤销", "需要重新验证账号后才能发起新的绑定或替换。")
+            return ("xmark.shield", "这台 Mac 的绑定已撤销", "若上次迁移已安全回滚，可重新下载并确认；其他撤销需要重新验证账号。")
         default:
             return ("desktopcomputer", "尚未建立账号绑定", "当前旧 Connector 不受影响；账号绑定将在安全迁移阶段完成。")
         }

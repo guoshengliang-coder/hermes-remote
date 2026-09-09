@@ -167,7 +167,10 @@ Hermes response. After success, the UI recognizes only an `account_active` journ
 managed LaunchAgents as active. Intermediate journals enter restart recovery before another install;
 unknown/mismatched state fails closed. After rollback reaches `legacy_active` or `clean_uninstalled`, a
 new explicit confirmation starts a fresh run and atomically replaces that terminal journal; no other
-journal state can be replaced by a different run ID. Temporary cleanup failure retains a cleanup-only retry and uses
+journal state can be replaced by a different run ID. If the failed run's temporary cloud binding expires
+before retry, the coordinator passes only the terminal journal's exact generation to the account client;
+that generation may create a fresh pending binding, while unrelated revoked state still fails closed with
+`HR-BIND-006`. Temporary cleanup failure retains a cleanup-only retry and uses
 `HR-MIGRATE-005`. The production/default plist and Gateway flag remain off, so this source connection
 does not authorize a real download, installation, process change, or rollout.
 
