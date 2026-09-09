@@ -43,7 +43,10 @@ fun SessionSubline(
     pinned: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val parts = sessionSublineParts(session, lead, defaultProjectPath)
+    // The project's real name when the catalog knows it (upstream projects have names of their
+    // own); the folder basename otherwise, which is what this row always used to show.
+    val projectName = LocalProjectNames.current(session)
+    val parts = sessionSublineParts(session, lead, defaultProjectPath, projectName)
     if (parts.isEmpty && !pinned) return
     if (!pinned) {
         SublineBody(parts, lead, modifier)

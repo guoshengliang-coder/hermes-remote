@@ -344,6 +344,13 @@ fun HermesNav(
                     onDone = { showNotificationOnboarding = false },
                 )
             }
+            // One source for "what is this chat's project called", for every row on every screen
+            // (list, archive, search, chat subtitle). See LocalProjectNames.
+            val projectNames: com.hermes.client.ui.sessions.ProjectNamesViewModel = hiltViewModel()
+            val nameFor by projectNames.nameFor.collectAsStateWithLifecycle()
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.hermes.client.ui.sessions.LocalProjectNames provides nameFor,
+            ) {
             NavHost(
                 navController = nav,
                 startDestination = start,
@@ -607,6 +614,7 @@ fun HermesNav(
             }
             composable("settings_about") { AboutScreen(onBack = { nav.popBackStack() }) }
             composable("agents_tools") { AgentsToolsScreen(onMenu = back) }
+            }
             }
         }
     }

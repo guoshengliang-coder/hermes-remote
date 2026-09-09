@@ -307,6 +307,16 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideProjectCatalog(
+        projects: ProjectsRepository,
+        sessions: com.hermes.client.data.repository.SessionRepository,
+        profileManager: com.hermes.client.data.repository.ProfileManager,
+        projectPrefs: com.hermes.client.data.repository.ProjectPrefsStore,
+    ): com.hermes.client.data.repository.ProjectCatalog =
+        com.hermes.client.data.repository.ProjectCatalog(projects, sessions, profileManager, projectPrefs)
+
+    @Provides
+    @Singleton
     fun provideTranscriptStore(
         @ApplicationContext context: Context,
     ): com.hermes.client.data.repository.TranscriptStore =

@@ -45,12 +45,6 @@ data class SessionsUiState(
     val configuredChannels: Int = 0,
 )
 
-/**
- * The profile whose HERMES_HOME is the Hermes root, and therefore the one whose `projects.db`
- * every `projects.*` call resolves to. Used only when `/api/profiles` did not mark one.
- */
-private const val DEFAULT_PROFILE_NAME = "default"
-
 /** Projects-mode state: [tree] is the overview; [scope] is the drilled-in hydrated project (null = overview). */
 data class ProjectsUiState(
     val tree: List<Project> = emptyList(),
@@ -77,6 +71,7 @@ class SessionsViewModel @Inject constructor(
     private val tools: com.hermes.client.data.repository.ToolsRepository,
     private val projectPrefs: ProjectPrefsStore,
     private val projectsRepo: ProjectsRepository,
+    private val projectCatalog: com.hermes.client.data.repository.ProjectCatalog,
     private val accountSessions: AccountSessionManager? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(
@@ -235,10 +230,17 @@ class SessionsViewModel @Inject constructor(
      * is scoped to another tenant would show one profile's folders around another's chats, so the
      * other profiles keep the client-side derivation and stay read-only.
      */
-    private fun projectsAreManaged(): Boolean {
-        val active = profileManager.active.value ?: return false
-        val default = profileManager.list.value.firstOrNull { it.isDefault }?.name ?: DEFAULT_PROFILE_NAME
-        return active == default
+    private fun projectsAreManaged(): Boolean = projectCatalog.isManaged()
+
+    /**
+     * The list behind「移动到项目」and every row's project name. Shared with the Projects page
+     * through [com.hermes.client.data.repository.ProjectCatalog] so the two cannot disagree.
+     */
+    val pickerProjects: StateFlow<List<Project>> = projectCatalog.projects
+
+    /** Warm the shared list without disturbing the Projects page's own loading/error state. */
+    fun refreshPickerProjects() {
+        viewModelScope.launch { runCatching { projectCatalog.refresh() } }
     }
 
     /** Build the project overview (also the retry entry point). Latest-wins like [refresh]. */
@@ -272,26 +274,9 @@ class SessionsViewModel @Inject constructor(
         }
     }
 
-    /** The gateway's server-authoritative tree, normalized to this app's default-project convention. */
-    private suspend fun serverProjects(): List<Project> =
-        projectsRepo.tree().projects.map(::normalizeServerProject).sortedBy { it.id != DEFAULT_PROJECT_ID }
+    private suspend fun serverProjects(): List<Project> = projectCatalog.server()
 
-    /**
-     * Upstream calls the bucket for chats that belong to no project `__no_project__`; this app has
-     * always called it 「默认项目」 and pins it first with the house glyph. Same idea, one name.
-     */
-    private fun normalizeServerProject(project: Project): Project =
-        if (project.isNoProject) project.copy(id = DEFAULT_PROJECT_ID) else project
-
-    private suspend fun derivedProjects(): List<Project> {
-        // The gateway's projects.tree is pinned to the launch profile, so for every other tenant
-        // derive projects client-side from the session list — filtered to the ACTIVE profile, per
-        // the app-wide scope rule (everything follows the current profile).
-        val active = profileManager.active.value
-        val all = sessions.listAllProfiles()
-        val scoped = if (active.isNullOrBlank()) all else all.filter { it.profile == active }
-        return deriveProjectsFromSessions(scoped, defaultProjectPath.value)
-    }
+    private suspend fun derivedProjects(): List<Project> = projectCatalog.derived()
 
     /** Carry a hydrated drill-in's sessions across a tree rebuild that only returns previews. */
     private fun mergeScope(fresh: Project, open: Project): Project =
@@ -314,7 +299,11 @@ class SessionsViewModel @Inject constructor(
                 .onSuccess { hydrated ->
                     // Ignore a late arrival for a project the user already left.
                     if (hydrated != null && _projects.value.scope?.id == project.id) {
-                        _projects.value = _projects.value.copy(scope = normalizeServerProject(hydrated))
+                        // Hydration returns the same node shape as the tree, so it needs the
+                        // same __no_project__ → default-project rename.
+                        _projects.value = _projects.value.copy(
+                            scope = if (hydrated.isNoProject) hydrated.copy(id = DEFAULT_PROJECT_ID) else hydrated,
+                        )
                     }
                 }
         }

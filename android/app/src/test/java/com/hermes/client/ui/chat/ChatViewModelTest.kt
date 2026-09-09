@@ -138,6 +138,9 @@ class ChatViewModelTest {
             chatRepo, sessionRepo, store, reasoningPresetStore, profileRepo, profileManager,
             favoritesStore, pendingShareStore, tts, promptStore, configRepo, runtimeStore,
             mediaRepo, fileRepo, mainDispatcherRule.dispatcher, projectPrefs,
+            com.hermes.client.data.repository.ProjectCatalog(
+                mockk(relaxed = true), sessionRepo, profileManager, projectPrefs,
+            ),
             toolsRepo, botSendNotice, accountSessions, conversationDevices,
         )
     }
