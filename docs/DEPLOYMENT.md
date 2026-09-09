@@ -576,6 +576,24 @@ transition was removed; the reloaded hourly job completed idempotently with exit
 container. The production monitor's expected schema was advanced from 7 to 15 and its immediate rerun passed host,
 disk and fresh encrypted off-host backup checks. Both HK timers remain enabled and active.
 
+A read-only post-rollout binding preflight on 2026-09-09 found that the 0.4.9 image healthcheck probes fixed port
+`8787` while the managed green slot listens on runtime `PORT=18788`. Public traffic, `/readyz`, email login, the
+legacy Connector, and PostgreSQL remained available, but Docker correctly reported the failing probe as
+`unhealthy`. Source now derives the probe port from `PORT`, and the OCI candidate gate runs the image on a
+non-default internal port and waits for Docker `healthy`. Binding rollout remains blocked until that correction is
+released through the normal versioned blue/green path and the replacement container reports `healthy`; do not
+weaken or bypass the health gate.
+
+The routine production release path now accepts only two exact active-slot environments: the original account-off
+managed baseline, or the committed email-OTP-only rollout. In email mode it copies the allowlisted environment to
+the candidate while changing only the slot `PORT`, requires the source and target manifests to declare the same
+database schema, re-hashes the active environment before the source is stopped, and checks both candidate and
+public capabilities. Email must remain the sole provider; binding, multi-device, sharing, identity management, Web
+sessions, account deletion, Google and Desktop managed install must remain absent or disabled. Any extra field,
+permission drift, changed value, schema change or wider advertised surface aborts before traffic movement. A
+schema-changing account release still requires the dedicated migration/restore workflow; the routine release must
+not be used to bypass it.
+
 ## Edge JSON compression (2026-09-07, authorized)
 
 Nothing on the path compressed anything. Hermes returns no `Content-Encoding` even when asked for gzip, the

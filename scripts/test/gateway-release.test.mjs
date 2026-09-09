@@ -40,6 +40,7 @@ test("Gateway image build context is allowlisted and release packaging fails clo
   assert.equal(dockerignore.includes("!environment.md"), false);
 
   const dockerfile = await readFile("deploy/Dockerfile.gateway", "utf8");
+  const compose = await readFile("deploy/docker-compose.yml", "utf8");
   const edge = await readFile("deploy/hermes-edge.nginx.conf.template", "utf8");
   assert.match(edge, /location = \/v2\/webhooks\/resend \{[\s\S]*?client_max_body_size 64k;/);
   assert.match(edge, /proxy_pass https:\/\/hermes_gateway_tls\/v2\/webhooks\/resend;/);
@@ -52,6 +53,14 @@ test("Gateway image build context is allowlisted and release packaging fails clo
     "/readyz",
   ]) {
     assert.equal(dockerfile.includes(required), true, `${required} missing from Gateway image contract`);
+  }
+  for (const [label, source] of [["Dockerfile", dockerfile], ["Compose", compose]]) {
+    assert.equal(source.includes("process.env.PORT"), true, `${label} healthcheck must use the runtime port`);
+    assert.equal(
+      source.includes("fetch('http://127.0.0.1:8787/readyz')"),
+      false,
+      `${label} healthcheck must not pin the development port`,
+    );
   }
 
   const packageScript = await readFile("scripts/package-gateway-image.sh", "utf8");
@@ -68,6 +77,8 @@ test("Gateway image build context is allowlisted and release packaging fails clo
     "--cap-drop=ALL",
     "--security-opt=no-new-privileges",
     "verify-gateway-image-candidate.mjs",
+    "gateway_container_unhealthy",
+    "--env PORT=\"$gateway_port\"",
     "GATEWAY_OCI_RELEASE_OK",
   ]) {
     assert.equal(imageTest.includes(required), true, `${required} missing from Gateway OCI smoke gate`);

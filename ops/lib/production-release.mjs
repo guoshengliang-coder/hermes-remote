@@ -3,6 +3,11 @@ import { lstat, readFile, readlink } from "node:fs/promises";
 import { hostname as systemHostname } from "node:os";
 import path from "node:path";
 import { executeDeployment, loadCurrentManifest, resolveActiveSlot } from "./deploy-command.mjs";
+import {
+  inspectProductionReleaseEnvironment,
+  renderProductionReleaseEnvironment,
+  sameProductionReleaseEnvironment,
+} from "./production-release-environment.mjs";
 import { satisfiesProductionNginxContract } from "./deploy-switch.mjs";
 import { renderNginxUpstream } from "./deploy-system.mjs";
 import { OpsError } from "./errors.mjs";
@@ -36,12 +41,32 @@ export async function executeProductionRelease(config, targetManifest, options =
   const execute = options.executeDeployment ?? executeDeployment;
   let result;
   try {
+    const candidateSmoke = preserveAccountSurface(
+      options.candidateSmoke,
+      admission.runtimeEnvironment,
+      options.fetchImpl,
+    );
+    const publicSmoke = preserveAccountSurface(
+      options.publicSmoke,
+      admission.runtimeEnvironment,
+      options.fetchImpl,
+    );
     result = await execute(config, targetManifest, {
       operation: admission.operation,
       confirmation: options.confirmation,
-      candidateSmoke: options.candidateSmoke,
-      publicSmoke: options.publicSmoke,
-      sourcePreflight: () => verifyReleaseInputs(config, admission.activeSlot, runner),
+      candidateSmoke,
+      publicSmoke,
+      candidateEnvironment: (_config, slot) => renderProductionReleaseEnvironment(
+        config,
+        slot,
+        admission.runtimeEnvironment,
+      ),
+      sourcePreflight: () => verifyReleaseInputs(
+        config,
+        admission.activeSlot,
+        runner,
+        admission.runtimeEnvironment,
+      ),
       runner,
       platform: options.platform,
       architecture: options.architecture,
@@ -122,8 +147,13 @@ export async function verifyProductionReleaseAdmission(config, targetManifest, o
         fail("production_release_rollback_to_legacy_requires_recovery");
       }
     }
-    await verifyReleaseInputs(config, activeSlot, options.runner);
-    return { operation: options.operation, sourceManifest, activeSlot };
+    const runtimeEnvironment = await verifyReleaseInputs(config, activeSlot, options.runner);
+    if (runtimeEnvironment.mode === "email_otp"
+        && sourceManifest.releaseContract?.databaseSchemaVersion
+          !== targetManifest.releaseContract?.databaseSchemaVersion) {
+      fail("production_release_email_database_schema_change_requires_migration");
+    }
+    return { operation: options.operation, sourceManifest, activeSlot, runtimeEnvironment };
   } catch (error) {
     if (error instanceof OpsError) throw error;
     fail(error instanceof Error ? error.message : error);
@@ -135,7 +165,7 @@ export async function verifyProductionReleaseAdmission(config, targetManifest, o
  * the active slot must still be the one serving, the legacy Node unit must still be retired,
  * and the edge must still route through the production upstream that this release will move.
  */
-export async function verifyReleaseInputs(config, activeSlot, runner) {
+export async function verifyReleaseInputs(config, activeSlot, runner, expectedEnvironment) {
   if (!runner) fail("production_release_runner_required");
   if (!config.slots[activeSlot]) fail("production_release_active_slot_unknown");
   if (!serviceActive(runner, config.slots[activeSlot].serviceName)) fail("production_release_active_slot_inactive");
@@ -147,6 +177,63 @@ export async function verifyReleaseInputs(config, activeSlot, runner) {
   const site = await readManagedFile(config.nginx.configFile);
   if (!satisfiesProductionNginxContract(config, site.toString("utf8"))) {
     fail("production_release_live_nginx_contract_invalid");
+  }
+  const runtimeEnvironment = await inspectProductionReleaseEnvironment(config, activeSlot);
+  if (expectedEnvironment
+      && !sameProductionReleaseEnvironment(runtimeEnvironment, expectedEnvironment)) {
+    fail("production_release_environment_changed_after_admission");
+  }
+  return runtimeEnvironment;
+}
+
+export async function verifyPreservedEmailSurface(request, fetchImpl = fetch) {
+  const capabilitiesResponse = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/capabilities`);
+  if (!capabilitiesResponse?.ok) fail("production_release_email_capabilities_unavailable");
+  let capabilities;
+  try {
+    capabilities = await capabilitiesResponse.json();
+  } catch {
+    fail("production_release_email_capabilities_invalid");
+  }
+  const auth = capabilities?.accountAuth;
+  const binding = capabilities?.binding;
+  if (auth?.enabled !== true
+      || !Array.isArray(auth.providers)
+      || auth.providers.length !== 1
+      || auth.providers[0] !== "email_otp"
+      || auth.android !== true
+      || auth.macos !== true
+      || auth.identityManagement !== false
+      || auth.webAccountCenter !== false
+      || auth.accountDeletion === true
+      || auth.webSessions === true
+      || binding?.enabled !== false
+      || binding?.replacement !== false
+      || binding?.maxActiveConnectorsPerAccount !== 1
+      || Object.hasOwn(binding ?? {}, "supportsDeviceSelection")
+      || Object.hasOwn(binding ?? {}, "supportsDeviceSharing")
+      || Object.hasOwn(capabilities ?? {}, "desktopBootstrap")) {
+    fail("production_release_email_capabilities_invalid");
+  }
+  const account = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/account`);
+  if (account?.status !== 401) fail("production_release_email_account_guard_invalid");
+  const bindingRoute = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/connector-binding`);
+  if (bindingRoute?.status !== 404) fail("production_release_binding_route_must_stay_absent");
+}
+
+function preserveAccountSurface(smoke, runtimeEnvironment, fetchImpl) {
+  if (runtimeEnvironment.mode !== "email_otp") return smoke;
+  return async (request) => {
+    await smoke(request);
+    await verifyPreservedEmailSurface(request, fetchImpl);
+  };
+}
+
+async function boundedFetch(fetchImpl, url) {
+  try {
+    return await fetchImpl(url, { signal: AbortSignal.timeout(5_000) });
+  } catch {
+    return null;
   }
 }
 

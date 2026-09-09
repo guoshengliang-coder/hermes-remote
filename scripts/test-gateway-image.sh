@@ -90,7 +90,7 @@ mock_pid=$!
 
 docker run --detach \
   --name "$container_name" \
-  --publish "127.0.0.1:${gateway_port}:8787" \
+  --publish "127.0.0.1:${gateway_port}:${gateway_port}" \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000 \
   --cap-drop=ALL \
@@ -101,6 +101,7 @@ docker run --detach \
   --env APP_TOKEN="$app_token" \
   --env CONNECTOR_TOKEN="$connector_token" \
   --env INTERNAL_STATUS_TOKEN="$internal_status_token" \
+  --env PORT="$gateway_port" \
   --env ACCOUNT_AUTH_ENABLED=0 \
   --env ACCOUNT_BINDING_ENABLED=0 \
   --env DEFAULT_DEVICE_ID=oci-staging \
@@ -117,6 +118,20 @@ for _ in $(seq 1 50); do
 done
 if [ "$gateway_ready" -ne 1 ]; then
   report_failure candidate "gateway_healthz_timeout"
+  exit 1
+fi
+
+container_healthy=0
+for _ in $(seq 1 45); do
+  container_health=$(docker container inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}absent{{end}}' "$container_name" 2>/dev/null || true)
+  case "$container_health" in
+    healthy) container_healthy=1; break ;;
+    unhealthy) report_failure candidate "gateway_container_unhealthy"; exit 1 ;;
+  esac
+  sleep 1
+done
+if [ "$container_healthy" -ne 1 ]; then
+  report_failure candidate "gateway_container_health_timeout"
   exit 1
 fi
 
