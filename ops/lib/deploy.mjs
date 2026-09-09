@@ -318,7 +318,10 @@ export async function verifyCandidateBase(config, manifest, slot, internalToken,
   if (version?.serverVersion !== manifest.serverVersion || version?.sourceCommit !== manifest.sourceCommit) {
     fail("candidate_version_identity_mismatch", "candidate_smoke");
   }
-  for (let attempt = 0; attempt < 45; attempt += 1) {
+  // Docker may schedule the first effective probe after the 10-second start period plus up to
+  // two 30-second health intervals on a loaded runner. Keep this bounded, but do not reject an
+  // HTTP-ready candidate while Docker still reports the non-terminal `starting` state.
+  for (let attempt = 0; attempt < 75; attempt += 1) {
     const inspection = runner.run("docker", [
       "container",
       "inspect",
@@ -329,7 +332,7 @@ export async function verifyCandidateBase(config, manifest, slot, internalToken,
     const status = inspection.status === 0 ? inspection.stdout.trim() : "unavailable";
     if (status === "healthy") return;
     if (status === "unhealthy") fail("candidate_container_unhealthy", "candidate_smoke");
-    if (attempt === 44) fail(`candidate_container_health_timeout=${status}`, "candidate_smoke");
+    if (attempt === 74) fail(`candidate_container_health_timeout=${status}`, "candidate_smoke");
     await sleep(1_000);
   }
 }
