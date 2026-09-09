@@ -164,6 +164,7 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
       material,
       ownership,
       runtimeImage.imageId,
+      options.candidateEnvironment,
     );
 
     if (reached(journal, "route_switched")) fail("candidate_phase_already_complete", "candidate_resume");
@@ -253,14 +254,30 @@ async function prepareLockDirectories(config, paths, ownership) {
   await ensureManagedDirectory(paths.historyRoot, 0o700, ownership.host);
 }
 
-async function installCandidateFiles(config, manifest, slot, paths, material, ownership, runtimeImageId) {
+async function installCandidateFiles(
+  config,
+  manifest,
+  slot,
+  paths,
+  material,
+  ownership,
+  runtimeImageId,
+  candidateEnvironment,
+) {
   await installImmutableFile(paths.releaseManifest, `${JSON.stringify(stripArchivePath(manifest), null, 2)}\n`, 0o644, ownership.host);
   await installImmutableFile(paths.appToken, `${material.app}\n`, 0o440, ownership.secret);
   await installImmutableFile(paths.connectorToken, `${material.connector}\n`, 0o440, ownership.secret);
   await installImmutableFile(paths.internalStatusToken, `${material.internal}\n`, 0o440, ownership.secret);
   await installImmutableFile(paths.certificate, material.certificate, 0o644, ownership.host);
   await installImmutableFile(paths.privateKey, material.privateKey, 0o600, ownership.host);
-  await atomicWrite(paths.environment, renderDeployGatewayEnvironment(config, slot), 0o600, ownership.host);
+  const environment = candidateEnvironment
+    ? candidateEnvironment(config, slot)
+    : renderDeployGatewayEnvironment(config, slot);
+  if (typeof environment !== "string" || environment.length < 2 || environment.length > 64 * 1024
+      || !environment.endsWith("\n") || environment.includes("\0")) {
+    fail("candidate_environment_invalid", "candidate_install");
+  }
+  await atomicWrite(paths.environment, environment, 0o600, ownership.host);
   await atomicWrite(paths.unit, renderDeploySystemdUnit(config, manifest, slot, runtimeImageId), 0o644, ownership.host);
 }
 
@@ -286,6 +303,7 @@ async function installImmutableFile(filePath, content, mode, owner) {
 export async function verifyCandidateBase(config, manifest, slot, internalToken, options) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+  const runner = options.runner ?? createCommandRunner({ timeoutMs: 10_000 });
   const origin = `http://127.0.0.1:${config.slots[slot].gatewayPort}`;
   for (let attempt = 0; attempt < 40; attempt += 1) {
     const health = await fetchJson(fetchImpl, `${origin}/healthz`);
@@ -299,6 +317,20 @@ export async function verifyCandidateBase(config, manifest, slot, internalToken,
   });
   if (version?.serverVersion !== manifest.serverVersion || version?.sourceCommit !== manifest.sourceCommit) {
     fail("candidate_version_identity_mismatch", "candidate_smoke");
+  }
+  for (let attempt = 0; attempt < 45; attempt += 1) {
+    const inspection = runner.run("docker", [
+      "container",
+      "inspect",
+      "--format",
+      "{{if .State.Health}}{{.State.Health.Status}}{{else}}absent{{end}}",
+      config.slots[slot].containerName,
+    ], { allowFailure: true, timeout: 10_000 });
+    const status = inspection.status === 0 ? inspection.stdout.trim() : "unavailable";
+    if (status === "healthy") return;
+    if (status === "unhealthy") fail("candidate_container_unhealthy", "candidate_smoke");
+    if (attempt === 44) fail(`candidate_container_health_timeout=${status}`, "candidate_smoke");
+    await sleep(1_000);
   }
 }
 

@@ -342,6 +342,7 @@ test("deployment lock is exclusive, stale-owner aware, and ownership fenced", as
 test("candidate preparation reaches private verification without changing current or Nginx", async (t) => {
   const fixture = await createCandidateFixture(t);
   const runner = createCandidateRunner(fixture.targetManifest);
+  const candidateEnvironment = `${renderDeployGatewayEnvironment(fixture.config, "blue")}TEST_RELEASE_MODE=preserved\n`;
   let smokeCalls = 0;
   const result = await prepareCandidate(fixture.config, fixture.sourceManifest, fixture.targetManifest, {
     runner,
@@ -354,6 +355,7 @@ test("candidate preparation reaches private verification without changing curren
     sleep: async () => {},
     now: incrementingClock(),
     runId: "candidate-success",
+    candidateEnvironment: () => candidateEnvironment,
     candidateSmoke: async (request) => {
       smokeCalls += 1;
       assert.equal(request.gatewayUrl, `http://127.0.0.1:${fixture.config.slots.blue.gatewayPort}`);
@@ -369,6 +371,10 @@ test("candidate preparation reaches private verification without changing curren
   assert.equal(await readFile(fixture.config.nginx.configFile, "utf8"), fixture.nginxContent);
   assert.equal(runner.calls.some((call) => call.args.includes("nginx.service")), false);
   assert.equal(runner.calls.some((call) => call.args.includes("hermes-go-gateway-staging.service")), false);
+  assert.equal(
+    await readFile(path.join(fixture.config.paths.configRoot, "slots", "blue", "gateway.env"), "utf8"),
+    candidateEnvironment,
+  );
   assert.match(
     await readFile(path.join(fixture.config.paths.systemdUnitDirectory, "hermes-go-gateway-blue.service"), "utf8"),
     new RegExp(fixture.targetManifest.imageId),
@@ -1311,6 +1317,9 @@ function createTransactionalRunner(fixture, { nginxTestFailures = 0, databaseFai
         return success();
       }
       if (command === "docker" && args[0] === "info") return success("linux/x86_64\n");
+      if (command === "docker" && args[0] === "container" && args[1] === "inspect") {
+        return success("healthy\n");
+      }
       if (command === "docker" && args[0] === "image" && args[1] === "inspect") {
         const manifest = [fixture.targetManifest, fixture.rollbackManifest]
           .find((candidate) => candidate?.imageReference === args.at(-1));
@@ -1416,6 +1425,9 @@ function createCandidateRunner(manifest, { active = false } = {}) {
       if (command === "systemctl" && args[0] === "is-system-running") return success("running\n");
       if (command === "systemctl" && args[0] === "is-active") return active ? success() : failure();
       if (command === "docker" && args[0] === "info") return success("linux/x86_64\n");
+      if (command === "docker" && args[0] === "container" && args[1] === "inspect") {
+        return success("healthy\n");
+      }
       if (command === "docker" && args[0] === "image" && args[1] === "inspect") {
         return imageLoaded ? success(`${manifest.imageId}|amd64\n`) : failure();
       }

@@ -7,11 +7,17 @@ import path from "node:path";
 import test from "node:test";
 import { executeDeployment } from "../../ops/lib/deploy-command.mjs";
 import { satisfiesProductionNginxContract } from "../../ops/lib/deploy-switch.mjs";
-import { renderNginxUpstream } from "../../ops/lib/deploy-system.mjs";
+import { renderDeployGatewayEnvironment, renderNginxUpstream } from "../../ops/lib/deploy-system.mjs";
 import { OPS_ERROR_DEFINITIONS } from "../../ops/lib/errors.mjs";
 import { loadManagedBaselineConfig } from "../../ops/lib/managed-baseline-config.mjs";
+import { renderEmailRolloutEnvironment } from "../../ops/lib/production-account-rollout.mjs";
+import {
+  inspectProductionReleaseEnvironment,
+  renderProductionReleaseEnvironment,
+} from "../../ops/lib/production-release-environment.mjs";
 import {
   executeProductionRelease,
+  verifyPreservedEmailSurface,
   verifyProductionReleaseAdmission,
   verifyReleaseInputs,
 } from "../../ops/lib/production-release.mjs";
@@ -61,6 +67,81 @@ test("R5-F1 admission binds the exact host, confirmation, root, smoke callbacks 
   assert.equal(admitted.activeSlot, "blue");
   assert.equal(admitted.sourceManifest.serverVersion, "0.4.0");
   assert.equal(admitted.sourceManifest.schemaVersion, 3);
+  assert.equal(admitted.runtimeEnvironment.mode, "disabled");
+});
+
+test("R5-F1 preserves the exact email-only runtime while changing only the candidate port", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  await writeEmailEnvironment(config, "blue");
+
+  const inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  assert.equal(inspected.mode, "email_otp");
+  const candidate = renderProductionReleaseEnvironment(config, "green", inspected);
+  assert.equal(candidate, (await emailEnvironment(config, "green")));
+  assert.match(candidate, /^PORT=18788$/m);
+  assert.match(candidate, /^ACCOUNT_AUTH_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_EMAIL_OTP_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_BINDING_ENABLED=0$/m);
+  assert.match(candidate, /^ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED=0$/m);
+
+  const admitted = await verifyProductionReleaseAdmission(config, fixture.nextManifest, releaseOptions(fixture));
+  assert.equal(admitted.runtimeEnvironment.mode, "email_otp");
+
+  await writeFile(
+    environmentPath(config, "blue"),
+    (await emailEnvironment(config, "blue")).replace("ACCOUNT_BINDING_ENABLED=0", "ACCOUNT_BINDING_ENABLED=1"),
+    { mode: 0o600 },
+  );
+  await assert.rejects(
+    () => inspectProductionReleaseEnvironment(config, "blue"),
+    (error) => error?.technicalCause === "production_release_email_environment_invalid",
+  );
+});
+
+test("R5-F1 rejects email-mode schema changes and post-admission environment drift", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  await writeEmailEnvironment(config, "blue");
+  await assert.rejects(
+    () => verifyProductionReleaseAdmission(config, {
+      ...fixture.nextManifest,
+      releaseContract: { ...fixture.nextManifest.releaseContract, databaseSchemaVersion: 8 },
+    }, releaseOptions(fixture)),
+    (error) => error?.technicalCause === "production_release_email_database_schema_change_requires_migration",
+  );
+
+  const admitted = await verifyProductionReleaseAdmission(config, fixture.nextManifest, releaseOptions(fixture));
+  const changed = (await emailEnvironment(config, "blue")).replace("ACCOUNT_DATABASE_SSL=1", "ACCOUNT_DATABASE_SSL=0");
+  await writeFile(environmentPath(config, "blue"), changed, { mode: 0o600 });
+  await assert.rejects(
+    () => verifyReleaseInputs(config, "blue", slotRunner({ blue: true }), admitted.runtimeEnvironment),
+    (error) => error?.technicalCause === "production_release_environment_changed_after_admission",
+  );
+});
+
+test("R5-F1 email smoke requires the narrow public account surface", async () => {
+  const requests = [];
+  const goodFetch = async (url) => {
+    requests.push(new URL(url).pathname);
+    const pathname = new URL(url).pathname;
+    if (pathname === "/v2/capabilities") return jsonResponse(emailCapabilities());
+    if (pathname === "/v2/account") return new Response("{}", { status: 401 });
+    if (pathname === "/v2/connector-binding") return new Response("not found", { status: 404 });
+    assert.fail(`unexpected URL ${url}`);
+  };
+  await verifyPreservedEmailSurface({ gatewayUrl: "https://gateway.example.com" }, goodFetch);
+  assert.deepEqual(requests, ["/v2/capabilities", "/v2/account", "/v2/connector-binding"]);
+
+  await assert.rejects(
+    () => verifyPreservedEmailSurface({ gatewayUrl: "https://gateway.example.com" }, async (url) => {
+      if (new URL(url).pathname === "/v2/capabilities") {
+        return jsonResponse({ ...emailCapabilities(), binding: { enabled: true, replacement: true, maxActiveConnectorsPerAccount: 1 } });
+      }
+      return new Response("{}", { status: 401 });
+    }),
+    (error) => error?.technicalCause === "production_release_email_capabilities_invalid",
+  );
 });
 
 test("R5-F1 refuses to run before R5-D committed a managed release behind current", async (t) => {
@@ -177,6 +258,10 @@ test("R5-F1 delegates only through the production-release capability with the co
   assert.equal(delegated.confirmation, "production:prod-host");
   assert.equal(delegated.sourceManifest.serverVersion, "0.4.0");
   assert.equal(delegated.legacySmoke, undefined);
+  assert.equal(
+    delegated.candidateEnvironment(config, "green"),
+    renderDeployGatewayEnvironment(config, "green"),
+  );
   assert.equal(result.command, "production-deploy");
   assert.equal(result.activeSlotBefore, "blue");
   assert.equal(result.rollbackPoint, CURRENT_RELEASE);
@@ -466,6 +551,10 @@ async function createFixture(t) {
   const configPath = path.join(inputs, "managed-baseline.json");
   await writeJson(configPath, rawConfig);
   const config = await loadManagedBaselineConfig(configPath);
+  for (const slot of ["blue", "green"]) {
+    await mkdir(path.dirname(environmentPath(config, slot)), { recursive: true });
+    await writeFile(environmentPath(config, slot), renderDeployGatewayEnvironment(config, slot), { mode: 0o600 });
+  }
 
   const currentManifest = gatewayManifest("0.4.0", CURRENT_COMMIT, "d".repeat(64));
   const nextManifest = gatewayManifest("0.4.1", NEXT_COMMIT, "e".repeat(64));
@@ -508,4 +597,43 @@ async function createFixture(t) {
 
 async function writeJson(filePath, value, mode = 0o600) {
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, { mode });
+}
+
+function environmentPath(config, slot) {
+  return path.join(config.paths.configRoot, "slots", slot, "gateway.env");
+}
+
+async function emailEnvironment(config, slot) {
+  const origin = `https://${config.nginx.serverName}`;
+  return renderEmailRolloutEnvironment(config, {
+    gateway: { emailIssuer: origin, origin, trustLoopbackProxy: true },
+    database: { ssl: true },
+  }, slot);
+}
+
+async function writeEmailEnvironment(config, slot) {
+  await writeFile(environmentPath(config, slot), await emailEnvironment(config, slot), { mode: 0o600 });
+}
+
+function emailCapabilities() {
+  return {
+    version: 1,
+    accountAuth: {
+      enabled: true,
+      providers: ["email_otp"],
+      android: true,
+      macos: true,
+      identityManagement: false,
+      webAccountCenter: false,
+    },
+    binding: { enabled: false, replacement: false, maxActiveConnectorsPerAccount: 1 },
+    legacy: { appTokenAccepted: true, connectorTokenAccepted: true },
+  };
+}
+
+function jsonResponse(value, init = {}) {
+  return new Response(JSON.stringify(value), {
+    ...init,
+    headers: { "content-type": "application/json", ...(init.headers ?? {}) },
+  });
 }

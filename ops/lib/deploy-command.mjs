@@ -50,6 +50,7 @@ export async function executeDeployment(config, targetManifest, options = {}) {
     ownership,
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
     ...(options.sleep ? { sleep: options.sleep } : {}),
+    ...(options.candidateEnvironment ? { candidateEnvironment: options.candidateEnvironment } : {}),
     now,
   };
   const startedAt = now().toISOString();
