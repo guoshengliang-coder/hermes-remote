@@ -19,8 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.alpha
-import com.hermes.client.data.error.AppError
-import com.hermes.client.data.error.AppErrorCode
 import com.hermes.client.ui.localization.localizedMessage
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,17 +33,17 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Forum
-import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -97,6 +95,8 @@ fun SessionsScreen(
     onOpen: (ChatLaunch) -> Unit,
     onOpenCard: () -> Unit = {},
     onOpenSearch: () -> Unit = {},
+    onOpenProjects: () -> Unit = {},
+    onOpenArchived: () -> Unit = {},
     onOpenCron: () -> Unit = {},
     onOpenBotSession: (sessionId: String, profile: String?) -> Unit = { _, _ -> },
     onOpenMessaging: () -> Unit = {},
@@ -106,7 +106,6 @@ fun SessionsScreen(
     val activeProfile by vm.activeProfile.collectAsStateWithLifecycle()
     val profiles by vm.profiles.collectAsStateWithLifecycle()
     val pinnedTokens by vm.pinnedTokens.collectAsStateWithLifecycle()
-    val archivedState by vm.archivedState.collectAsStateWithLifecycle()
     val health by vm.health.collectAsStateWithLifecycle()
     val viewMode by vm.viewMode.collectAsStateWithLifecycle()
     val showBots = remember(state.configuredChannels, state.botSessions) {
@@ -120,56 +119,18 @@ fun SessionsScreen(
     LaunchedEffect(showBots, viewMode) {
         if (!showBots && viewMode == ViewMode.BOTS) vm.setViewMode(ViewMode.SESSIONS)
     }
-    val projectsState by vm.projectsState.collectAsStateWithLifecycle()
     val runtimes by vm.runtimes.collectAsStateWithLifecycle()
     val unreadTokens by vm.unreadTokens.collectAsStateWithLifecycle()
     val defaultProjectPath by vm.defaultProjectPath.collectAsStateWithLifecycle()
-    val introSeen by vm.introSeen.collectAsStateWithLifecycle()
-    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
     // Session whose「移动到项目…」picker is open (from the long-press menu).
     var moveTarget by remember { mutableStateOf<Session?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val language = LocalAppLanguage.current
-    var creatingSession by rememberSaveable { mutableStateOf(false) }
-    var openRequestJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    var openRequestSerial by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
-
-    fun createSession() {
-        if (creatingSession) return
-        creatingSession = true
-        // One rule (docs/DESIGN.md §5.3): drilled into a real project, the new chat is created IN
-        // that folder; everywhere else — Sessions segment, overview, the default project — it
-        // lands in the gateway's launch directory, the default project. No inference, no picker.
-        val targetCwd = projectsState.scope
-            ?.takeIf { viewMode == ViewMode.PROJECTS && it.id != DEFAULT_PROJECT_ID }
-            ?.path
-        scope.launch {
-            try {
-                vm.createSession(targetCwd)?.let { created ->
-                    if (created.fellBackToDefault) {
-                        val error = AppError(AppErrorCode.PROJECT_FELL_BACK_TO_DEFAULT, retryable = false, stage = "session_create")
-                        Toast.makeText(context, error.localizedMessage(language), Toast.LENGTH_LONG).show()
-                    }
-                    onOpen(ChatLaunch.new(created.id, activeProfile, created.deviceId))
-                }
-            } finally {
-                creatingSession = false
-            }
-        }
-    }
-
-    fun openExisting(session: Session) {
-        val request = ++openRequestSerial
-        openRequestJob?.cancel()
-        openRequestJob = scope.launch {
-            if (vm.prepareOpen(session) && request == openRequestSerial) {
-                onOpen(ChatLaunch.existing(session))
-            } else if (request == openRequestSerial) {
-                Toast.makeText(context, localized(language, "无法切换到该会话所属身份，请稍后重试", "Could not switch to this session's profile. Try again."), Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
+    // The Chats list always creates in the gateway's launch directory — the default project.
+    // Creating INTO a project is the Projects page's job (docs/DESIGN.md §5.3).
+    val creator = rememberSessionCreator(vm, activeProfile, onOpen)
+    val openExisting = rememberSessionOpener(vm, onOpen)
 
     // I1: route to Setup when a 401 is received
     LaunchedEffect(state.unauthorized) {
@@ -194,123 +155,41 @@ fun SessionsScreen(
         vm.onVisible()
     }
 
-    // First entry into a real project: a one-time notice that the FAB now creates there. Keyed on
-    // the project and on whether the seen-set has loaded (not on its contents) so marking the
-    // project seen does not restart the effect and cut the snackbar short.
-    val scopeProject = projectsState.scope
-    LaunchedEffect(scopeProject?.id, introSeen == null) {
-        val seen = introSeen ?: return@LaunchedEffect
-        val project = scopeProject ?: return@LaunchedEffect
-        if (project.id == DEFAULT_PROJECT_ID || project.id in seen) return@LaunchedEffect
-        vm.markIntroSeen(project.id)
-        snackbarHostState.showSnackbar(
-            message = localized(language, "在这里新建的会话会归入 ${project.label}", "Chats created here join ${project.label}"),
-            actionLabel = localized(language, "知道了", "Got it"),
-            duration = androidx.compose.material3.SnackbarDuration.Short,
-        )
-    }
-
     Scaffold(
-        snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHostState) },
         topBar = {
             Column {
-                com.hermes.client.ui.components.HermesTopBar(
-                    title = localized(language, "会话", "Chats"),
-                    navigationIcon = {
-                        // The active profile's avatar IS the identity signal — and the door to
-                        // the card page, the app's only profile-switch point.
-                        IconButton(onClick = onOpenCard) {
-                            com.hermes.client.ui.components.ProfileAvatar(activeProfile, size = 36.dp)
-                        }
-                    },
-                    centered = true,
-                    actions = {
-                        IconButton(onClick = onOpenSearch) {
-                            Icon(Icons.Rounded.Search, contentDescription = localized(language, "搜索", "Search"))
-                        }
-                    },
+                ChatsTopBar(
+                    activeProfile = activeProfile,
+                    onOpenCard = onOpenCard,
+                    onOpenSearch = onOpenSearch,
+                    onOpenProjects = onOpenProjects,
+                    onOpenArchived = onOpenArchived,
                 )
-                ChatsSegmentedRow(
-                    tabs = buildList {
-                        // English labels are kept short on purpose: a fourth segment leaves
-                        // 91.5dp per cell, and "Sessions"/"Archived" clip at fontScale 1.3.
-                        add(ViewMode.SESSIONS to localized(language, "会话", "Chats"))
-                        add(ViewMode.PROJECTS to localized(language, "项目", "Projects"))
-                        // Only once this Hermes actually has a channel, or has history from one.
-                        if (showBots) add(ViewMode.BOTS to localized(language, "机器人", "Bots"))
-                        add(ViewMode.ARCHIVED to localized(language, "已归档", "Archive"))
-                    },
-                    selected = viewMode,
-                    onSelect = { vm.setViewMode(it) },
-                )
+                // Zero or two segments: without a messaging channel there is nothing to switch
+                // between, so the row is absent entirely (docs/DESIGN.md §5.16).
+                val modes = remember(showBots) { chatsSegmentModes(showBots) }
+                if (modes.isNotEmpty()) {
+                    ChatsSegmentedRow(
+                        tabs = modes.map {
+                            it to when (it) {
+                                ViewMode.SESSIONS -> localized(language, "会话", "Chats")
+                                ViewMode.BOTS -> localized(language, "机器人", "Bots")
+                            }
+                        },
+                        selected = viewMode,
+                        onSelect = { vm.setViewMode(it) },
+                    )
+                }
             }
         },
         floatingActionButton = {
+            // Bot conversations are started by the other side; nothing to create here.
             if (viewMode == ViewMode.BOTS) return@Scaffold
-            FloatingActionButton(
-                onClick = ::createSession,
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ) {
-                if (creatingSession) {
-                    // Button-internal wait keeps the M3 spinner: the brand mark is drawn in one
-                    // colour and reads poorly on onPrimary (docs/DESIGN.md §5.6).
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.5.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
-                } else {
-                    Icon(
-                        Icons.Rounded.Add,
-                        contentDescription = localized(language, "新建会话", "New session"),
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
-            }
+            NewSessionFab(creator, cwd = null)
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            if (viewMode == ViewMode.PROJECTS) {
-                Box(Modifier.fillMaxSize()) {
-                    when {
-                        projectsState.loading && projectsState.tree.isEmpty() ->
-                            com.hermes.client.ui.components.ListLoadingState()
-                        projectsState.error != null ->
-                            com.hermes.client.ui.components.ErrorState(
-                                error = projectsState.error!!,
-                                onRetry = { vm.loadProjectTree() },
-                            )
-                        projectsState.scope != null ->
-                            ProjectScopeView(
-                                project = projectsState.scope!!,
-                                defaultProjectPath = defaultProjectPath,
-                                onBack = { vm.exitProject() },
-                                // Projects span profiles, so switch to the session's own profile
-                                // (awaited) before opening, or the chat resumes against the wrong DB.
-                                onOpenSession = ::openExisting,
-                            )
-                        // The default project is always derived; "no projects" means nothing else
-                        // exists yet AND the default project is empty too.
-                        projectsState.tree.all { it.id == DEFAULT_PROJECT_ID && it.sessionCount == 0 } ->
-                            com.hermes.client.ui.components.EmptyState(
-                                title = localized(language, "暂无项目", "No projects"),
-                                subtitle = localized(
-                                    language,
-                                    "会话页新建的会话属于默认项目；在项目文件夹中运行的会话会显示在这里。",
-                                    "Chats created from Sessions belong to the default project; chats run in a project folder show up here.",
-                                ),
-                                actionLabel = localized(language, "重新加载", "Reload"),
-                                onAction = { vm.loadProjectTree() },
-                            )
-                        else -> ProjectOverview(
-                            projectsState.tree,
-                            nowMs = System.currentTimeMillis(),
-                            onOpenProject = { vm.enterProject(it) },
-                        )
-                    }
-                }
-            } else if (viewMode == ViewMode.BOTS) {
+            if (viewMode == ViewMode.BOTS) {
                 // ── Bots: what Hermes has been saying on other apps. Read-only by nature —
                 // Hermes is a bot over there, so nothing typed here could appear as you. ─────
                 val sections = remember(state.botSessions) { botSections(state.botSessions) }
@@ -356,35 +235,6 @@ fun SessionsScreen(
                                         modifier = Modifier.clickable { onOpenBotSession(s.id, s.profile) },
                                     )
                                 }
-                            }
-                        }
-                    }
-                }
-            } else if (viewMode == ViewMode.ARCHIVED) {
-                // ── Archived mode (was its own pushed screen; now the third segment) ────────
-                Box(Modifier.fillMaxSize()) {
-                    when {
-                        archivedState.loading && archivedState.sessions.isEmpty() ->
-                            com.hermes.client.ui.components.ListLoadingState()
-                        archivedState.error != null ->
-                            com.hermes.client.ui.components.ErrorState(
-                                error = archivedState.error!!,
-                                onRetry = { vm.loadArchived() },
-                            )
-                        archivedState.sessions.isEmpty() ->
-                            com.hermes.client.ui.components.EmptyState(
-                                title = localized(language, "暂无归档会话", "Nothing archived"),
-                                subtitle = localized(language, "长按会话可将它归档。", "Long-press a session to archive it."),
-                            )
-                        else -> LazyColumn {
-                            items(archivedState.sessions, key = { "a-${it.profile.orEmpty()}:${it.id}" }) { s ->
-                                ArchivedRow(
-                                    session = s,
-                                    defaultProjectPath = defaultProjectPath,
-                                    onOpen = { openExisting(s) },
-                                    onUnarchive = { vm.unarchive(s) },
-                                    onDelete = { vm.delete(s) },
-                                )
                             }
                         }
                     }
@@ -515,7 +365,7 @@ fun SessionsScreen(
                                 title = localized(language, "暂无会话", "No sessions yet"),
                                 subtitle = localized(language, "点击右下角的加号开始对话。", "Tap the plus button to start a conversation."),
                                 actionLabel = localized(language, "新建会话", "New session"),
-                                onAction = ::createSession,
+                                onAction = { creator.create(null) },
                             )
                         else -> {
                             val isPinned = { s: Session ->
@@ -718,90 +568,6 @@ fun SessionsScreen(
                         ?: localized(language, "已移动到 $label", "Moved to $label")
                     Toast.makeText(context, text, if (error != null) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
                 }
-            },
-        )
-    }
-}
-
-/**
- * One archived session: stroke archive-box + title/model (matching the Projects row layout),
- * no divider. Tap opens; LONG-PRESS offers unarchive and delete — the same sheet pattern as
- * live session rows (the old trailing unarchive button broke the layout symmetry).
- */
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
-@Composable
-private fun ArchivedRow(
-    session: Session,
-    defaultProjectPath: String?,
-    onOpen: () -> Unit,
-    onUnarchive: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    val language = LocalAppLanguage.current
-    val haptics = LocalHapticFeedback.current
-    var menuOpen by remember { mutableStateOf(false) }
-    var confirmingDelete by remember { mutableStateOf(false) }
-
-    ListItem(
-        leadingContent = {
-            Icon(
-                com.hermes.client.ui.components.ArchiveBoxIcon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp),
-            )
-        },
-        headlineContent = { Text(session.title) },
-        supportingContent = { SessionSubline(session, defaultProjectPath = defaultProjectPath) },
-        modifier = Modifier.combinedClickable(
-            onClick = onOpen,
-            onLongClick = {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                menuOpen = true
-            },
-        ),
-    )
-
-    if (menuOpen) {
-        ModalBottomSheet(onDismissRequest = { menuOpen = false }, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
-            Text(
-                session.title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 2,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-            )
-            ListItem(
-                headlineContent = { Text(localized(language, "取消归档", "Unarchive")) },
-                leadingContent = { Icon(Icons.Rounded.Unarchive, contentDescription = null) },
-                modifier = Modifier.clickable { menuOpen = false; onUnarchive() },
-            )
-            ListItem(
-                headlineContent = { Text(localized(language, "删除", "Delete"), color = MaterialTheme.colorScheme.error) },
-                leadingContent = {
-                    Icon(
-                        Icons.Rounded.Delete,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                },
-                modifier = Modifier.clickable { menuOpen = false; confirmingDelete = true },
-            )
-            androidx.compose.foundation.layout.Spacer(Modifier.size(20.dp))
-        }
-    }
-
-    if (confirmingDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmingDelete = false },
-            title = { Text(localized(language, "删除会话？", "Delete session?")) },
-            text = { Text(localized(language, "“${session.title}”将被永久删除。", "\"${session.title}\" will be permanently deleted.")) },
-            confirmButton = {
-                TextButton(onClick = { confirmingDelete = false; onDelete() }) {
-                    Text(localized(language, "删除", "Delete"), color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmingDelete = false }) { Text(localized(language, "取消", "Cancel")) }
             },
         )
     }
@@ -1126,9 +892,80 @@ private fun UnreadIndicator() {
 
 
 /**
- * The Chats segment row. Extracted so its width can be pinned by a screenshot test: with the Bots
- * segment present this row carries four labels in a 366dp span, and the tightest case — English at
- * fontScale 1.3 — is exactly the one that would only ever be noticed on a device.
+ * Which segments the Chats row shows. The row carries CONTENT — which batch of chats you are
+ * looking at — so it holds Bots and nothing else; Projects and Archive organise chats and live in
+ * the overflow menu instead (docs/DESIGN.md §5.16, 2026-09-09). With no messaging channel there
+ * is only one batch, so the row is empty and the caller renders nothing at all.
+ */
+internal fun chatsSegmentModes(showBots: Boolean): List<ViewMode> =
+    if (showBots) listOf(ViewMode.SESSIONS, ViewMode.BOTS) else emptyList()
+
+/**
+ * `[avatar 36] 会话 [search][more]`. Search keeps a top-bar slot on purpose: it is how you find a
+ * chat you cannot name, and burying it would cost a tap without buying any room. The overflow
+ * holds the two pages that organise chats rather than show them — so the centred title now has
+ * 52dp on the left against two actions on the right, which is why it has its own screenshot.
+ */
+@Composable
+internal fun ChatsTopBar(
+    activeProfile: String?,
+    onOpenCard: () -> Unit,
+    onOpenSearch: () -> Unit,
+    onOpenProjects: () -> Unit,
+    onOpenArchived: () -> Unit,
+) {
+    val language = LocalAppLanguage.current
+    var menuOpen by remember { mutableStateOf(false) }
+    com.hermes.client.ui.components.HermesTopBar(
+        title = localized(language, "会话", "Chats"),
+        navigationIcon = {
+            // The active profile's avatar IS the identity signal — and the door to
+            // the card page, the app's only profile-switch point.
+            IconButton(onClick = onOpenCard) {
+                com.hermes.client.ui.components.ProfileAvatar(activeProfile, size = 36.dp)
+            }
+        },
+        centered = true,
+        actions = {
+            IconButton(onClick = onOpenSearch) {
+                Icon(Icons.Rounded.Search, contentDescription = localized(language, "搜索", "Search"))
+            }
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(Icons.Rounded.MoreVert, contentDescription = localized(language, "更多", "More"))
+                }
+                // Same menu shape as the chat screen's (docs/DESIGN.md §5.4): navigation first,
+                // 20dp leading glyphs, 16dp corners on `surface`.
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { menuOpen = false },
+                    shape = RoundedCornerShape(16.dp),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ) {
+                    DropdownMenuItem(
+                        leadingIcon = {
+                            Icon(com.hermes.client.ui.components.FolderStrokeIcon, contentDescription = null, Modifier.size(20.dp))
+                        },
+                        text = { Text(localized(language, "项目", "Projects")) },
+                        onClick = { menuOpen = false; onOpenProjects() },
+                    )
+                    DropdownMenuItem(
+                        leadingIcon = {
+                            Icon(com.hermes.client.ui.components.ArchiveBoxIcon, contentDescription = null, Modifier.size(20.dp))
+                        },
+                        text = { Text(localized(language, "已归档", "Archived")) },
+                        onClick = { menuOpen = false; onOpenArchived() },
+                    )
+                }
+            }
+        },
+    )
+}
+
+/**
+ * The Chats segment row. Extracted so its width can be pinned by a screenshot test — at most two
+ * labels now that Projects and Archive have moved out, but the tightest case (English at
+ * fontScale 1.3) is still one that would only ever be noticed on a device.
  */
 @Composable
 internal fun ChatsSegmentedRow(

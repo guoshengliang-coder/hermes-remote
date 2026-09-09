@@ -1,22 +1,16 @@
 package com.hermes.client.ui.sessions
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,48 +76,40 @@ fun ProjectCard(project: Project, nowMs: Long, onClick: () -> Unit) {
 }
 
 /**
- * Drill-in for one project: a back row with the project's path beneath it, then its sessions with
- * a `branch · model` subline (the project itself is the page header, so it is not repeated). A
- * single-lane project renders a flat list; multi-lane projects show repo/branch sub-headers.
+ * Drill-in for one project: its path, then its sessions with a `branch · model` subline (the
+ * project name is the page title, so it is not repeated). A single-lane project renders a flat
+ * list; multi-lane projects show repo/branch sub-headers.
+ *
+ * Back is the page's top bar, not a row in the list — Projects is a full-screen page now, and one
+ * page gets one back affordance (docs/DESIGN.md §5.3, 2026-09-09).
  */
 @Composable
 fun ProjectScopeView(
     project: Project,
     defaultProjectPath: String?,
-    onBack: () -> Unit,
     onOpenSession: (Session) -> Unit,
 ) {
     val lanes = project.repos.flatMap { repo -> repo.lanes.map { repo to it } }
     val multi = lanes.size > 1
     val isDefault = project.id == DEFAULT_PROJECT_ID
     LazyColumn(Modifier.fillMaxWidth()) {
-        item(key = "back") {
-            Column(Modifier.fillMaxWidth()) {
-                Row(
-                    Modifier.fillMaxWidth().clickable(onClick = onBack).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Start,
-                ) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = l10n("返回", "Back"), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp))
-                    Text(projectDisplayLabel(project), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        item(key = "path") {
+            val pathLine = when {
+                isDefault -> {
+                    val where = project.path ?: l10n("网关启动目录", "Gateway launch directory")
+                    l10n("$where · 会话页新建的会话都在这里", "$where · Chats created from Sessions live here")
                 }
-                val pathLine = when {
-                    isDefault -> {
-                        val where = project.path ?: l10n("网关启动目录", "Gateway launch directory")
-                        l10n("$where · 会话页新建的会话都在这里", "$where · Chats created from Sessions live here")
-                    }
-                    else -> project.path.orEmpty()
-                }
-                if (pathLine.isNotBlank()) {
-                    Text(
-                        pathLine,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth().padding(start = 48.dp, end = 16.dp, bottom = 10.dp),
-                    )
-                }
+                else -> project.path.orEmpty()
+            }
+            if (pathLine.isNotBlank()) {
+                Text(
+                    pathLine,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 10.dp),
+                )
             }
         }
         lanes.forEach { (repo, lane) ->
