@@ -278,6 +278,18 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.112 turns a project into something you can actually make. Until now a project was
+  a folder that happened to hold chats: it had no name of its own, no colour or glyph, could not
+  span two folders, and did not exist at all until something ran inside it. Hermes has had
+  first-class projects the whole time and the phone simply never read them. 项目 now shows the
+  Mac's own list and can edit it — create a project (name, glyph, colour and a folder you browse
+  to on the Mac), rename or restyle it, add and remove folders and choose which one new chats are
+  created in. Removing one is called 移除分组, not 删除, because that is what it does: the project
+  row goes away while every chat, folder and file stays exactly where it was, and the folder comes
+  straight back as an auto-detected project. Glyphs and colours are the desktop's own, so a
+  project styled on the phone looks the same over there. One limit worth knowing: Hermes keeps
+  projects per installation rather than per identity, so this list belongs to the default identity
+  — switch to another one and 项目 stays the read-only folder view it has always been.
 - Version 0.1.111 makes a bot conversation just a conversation. Opening a DingTalk or Slack row
   now opens the ordinary chat screen, and the separate read-only transcript page is gone — it was a
   second renderer over the same history, and it had already missed four things the chat screen
@@ -782,7 +794,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.111-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.112-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
