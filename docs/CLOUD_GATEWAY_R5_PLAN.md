@@ -245,3 +245,18 @@ ack；HK 捕获/监控 timer 与 Mac 小时级 LaunchAgent 均已按 schema 15 �
 0.4.12 首次重试随后在私有候选邮箱面校验中保持切流前失败：Gateway 内部对已关闭的 binding control
 返回 `503`，公网 Nginx 则按预期隐藏该路由并返回 `404`。0.4.13 将两条边界分别固定为私有 `503`、
 公网 `404`；其余 capability、readiness、账号和部署恢复合同不变。
+
+PR #117 合并提交 `1c73f010d831` 的 main CI/SAST/OCI（OCI run `34302971090`）全部通过后，0.4.12
+操作器先归档 0.4.10 失败 run `dd5af69c-d410-436b-9200-385cceec4704` 并恢复唯一的 0.4.9 committed
+journal。0.4.12 发布 run `07ac7b95-3c5d-46ab-b437-70832f8a3bcb` 复现上述私有 `503` 差异且在切流前
+停止；同一恢复入口再次归档该 run，0.4.9、release links 与 Nginx 两份文件保持原哈希。
+
+PR #118 合并提交 `bdc66f58a8c9` 的 main CI/SAST/OCI（OCI run `34304405260`）全部通过，Gateway archive
+SHA-256 为 `53176188f59ac271c3d2fa574d109eadeb70839e85b482aeb7d95303d606a5d4`，operator archive 为
+`ed78eded1f62902109e383f93a11edc1d477000ec6e514655d50a4ed48c7d04e`。生产 run
+`348f8a3f-fa25-4bc3-be45-ae210458be5f` 随后 committed：0.4.13 blue active/enabled、容器 health `healthy`、
+零重启，`current=0.4.13-bdc66f58a8c9`，`previous=0.4.9-787bdc917190`。站点文件 SHA-256 仍是
+`237e8546a0f5e5f4a35ef90cbdc53a58e1604b03cbbeb35938726b5cb04b9173`，只有 upstream 改到 loopback
+`18787`。readiness 保持 schema 15/PostgreSQL 18 全绿；公网仍只有 `email_otp`，Connector `mac-mini`
+在线，账号 guard 为 `401`，binding 路由为 `404`，Google、绑定、多设备、分享、身份/Web/删除和
+Desktop 托管安装均未启用。生产监控复跑通过，最近异机加密备份的本地/异机哈希与 87,632 字节一致。
