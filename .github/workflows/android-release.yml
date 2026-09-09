@@ -94,6 +94,14 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      # No cache configuration here on purpose. setup-gradle writes its Gradle User Home entry only
+      # from the default branch and restores with a non-strict key, so this tag-triggered job reads
+      # back the entry that ci.yml's `android` job saved on main. With the build cache on (see
+      # android/gradle.properties) the release build restores the compilation — and the unit-test
+      # task, whose inputs are identical on the same commit — instead of repeating for a third time
+      # what the PR and main runs already did. verifyDebugSigningKey declares no outputs, so it is
+      # never cacheable and still executes here, and package-debug-apk.sh independently re-reads the
+      # built APK's signer, package, and version with aapt/apksigner.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
 

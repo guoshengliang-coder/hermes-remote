@@ -29,7 +29,8 @@ test('ordinary CI, SAST, and the Gateway image gates stay unprivileged and never
     assert.equal(/KEYSTORE|RELEASE_SSH/.test(text), false, `${file}: references release signing or deployment secrets`);
   }
   const ci = await read('ci.yml');
-  assert.match(ci, /gradlew :app:testDebugUnitTest :app:lintDebug :app:compileDebugSources/);
+  assert.match(ci, /run: \.\/gradlew :app:testDebugUnitTest --no-daemon/);
+  assert.match(ci, /run: \.\/gradlew :app:lintDebug --no-daemon/);
 
   const sast = await read('sast.yml');
   assert.match(sast, /semgrep\/semgrep:1\.176\.0@sha256:[0-9a-f]{64}/);
@@ -50,6 +51,47 @@ test('ordinary CI, SAST, and the Gateway image gates stay unprivileged and never
   assert.match(gatewayOci, /retention-days: 7/);
   assert.match(gatewayOci, /permissions:\n  contents: read/);
   assert.equal(/docker\s+(?:push|login)|packages: write|secrets\./.test(gatewayOci), false, 'Gateway OCI gate must not publish images or receive secrets');
+});
+
+test('lint is its own job and the Android build gate keeps its caches and its signing check', async () => {
+  const ci = await read('ci.yml');
+  // Lint used to run at the tail of the unit-test task graph, where nothing waited on its result.
+  // It is a separate job so it no longer sits on the critical path.
+  assert.match(
+    ci,
+    /  android-lint:\n    needs: changes\n    if: needs\.changes\.outputs\.android == 'true'/,
+    'android-lint must stay gated on the same tested path selection as android'
+  );
+  const androidJob = ci.slice(ci.indexOf('\n  android:'), ci.indexOf('\n  android-lint:'));
+  assert.equal(
+    androidJob.includes('lintDebug'),
+    false,
+    'lint belongs to android-lint; keeping it here puts it back on the critical path'
+  );
+  const ciCommands = ci.split('\n').filter(line => /^\s*(?:-\s*)?run:/.test(line));
+  assert.equal(
+    ciCommands.some(line => line.includes('compileDebugSources')),
+    false,
+    ':app:compileDebugSources is a lifecycle task already contained in the testDebugUnitTest graph'
+  );
+
+  // Both caches are what make a PR, the main run and the release job stop repeating each other's
+  // compilation. Losing either silently returns CI to "45 actionable tasks: 45 executed".
+  const gradleProperties = await readRoot(path.join('android', 'gradle.properties'));
+  assert.match(gradleProperties, /^org\.gradle\.caching=true$/m);
+  assert.match(gradleProperties, /^org\.gradle\.configuration-cache=true$/m);
+
+  // The build cache must never be able to satisfy the debug-signing check. A task with no declared
+  // outputs is neither cacheable nor up-to-date-able, so it re-runs on every build.
+  const buildScript = await readRoot(path.join('android', 'app', 'build.gradle.kts'));
+  const verifyTask = buildScript.slice(buildScript.indexOf('tasks.register("verifyDebugSigningKey")'));
+  const verifyBody = verifyTask.slice(0, verifyTask.indexOf('\ntasks.matching'));
+  assert.ok(verifyBody.includes('doLast'), 'verifyDebugSigningKey must still perform its check');
+  assert.equal(
+    /\b(outputs\.(file|dir)|@OutputFile|@OutputDirectory|outputs\.cacheIf)\b/.test(verifyBody),
+    false,
+    'declaring outputs would let the build cache skip the signing check'
+  );
 });
 
 test('routine workflows cancel stale PR runs and bound every job', async () => {
