@@ -90,6 +90,10 @@ The current automated suite covers:
   as active; intermediate journals recover before a second install and mismatches fail closed;
 - a newly confirmed run atomically replaces only a terminal `legacy_active` or `clean_uninstalled`
   rollback journal; intermediate, active, and manual-attention journals reject a different run ID;
+- a revoked pending binding is recreated only when its generation matches the same Desktop's terminal
+  `legacy_active`/`clean_uninstalled` rollback journal; missing or mismatched proof fails closed with
+  `HR-BIND-006`, remains visible through the migration presentation boundary, and does not call binding
+  creation;
 - existing-install observation/recovery remains available when new-install rollout is disabled, and
   active state must match the current account's exact binding ID/generation before it is claimed;
 - a recognized running legacy Connector uses its own configured Hermes status URL for the final

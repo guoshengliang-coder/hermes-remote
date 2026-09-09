@@ -722,6 +722,80 @@ final class DesktopAccountControllerTests: XCTestCase {
         XCTAssertFalse(String(describing: preparation.credential).contains(credential["privateKey"] as! String))
     }
 
+    func testRevokedBindingCanBeRecreatedOnlyForTheRecordedRollbackGeneration() async throws {
+        let fixtures = AccountFixtures()
+        let revoked = AccountBindingSnapshot(
+            state: "revoked",
+            id: nil,
+            generation: 1,
+            deviceId: nil,
+            displayName: nil,
+            expiresAt: nil,
+            keyProved: nil,
+            healthVerified: nil,
+            binding: nil,
+            previousBinding: nil
+        )
+        let api = RecordingAccountAPI(fixtures: fixtures, bindingSnapshot: revoked)
+        let controller = DesktopAccountController(
+            api: api,
+            sessionStore: MemoryAccountSessionStore(record: fixtures.record),
+            machineIdentityStore: MemoryMachineIdentityStore(),
+            deviceSelectionStore: MemoryDeviceSelectionStore(),
+            oauth: nil,
+            displayName: "Office Mac",
+            appVersion: "0.3.0"
+        )
+
+        _ = try await controller.bootstrap()
+        let preparation = try await controller.beginBinding(retryingRevokedGeneration: 1)
+
+        guard case .signedIn(let dashboard) = preparation.state else {
+            return XCTFail("Expected pending binding dashboard")
+        }
+        XCTAssertEqual(dashboard.binding.state, "binding_pending")
+        let createAttempts = await api.bindingCreateAttempts()
+        XCTAssertEqual(createAttempts.count, 1)
+    }
+
+    func testRevokedBindingWithoutMatchingRollbackGenerationFailsClosed() async throws {
+        let fixtures = AccountFixtures()
+        let revoked = AccountBindingSnapshot(
+            state: "revoked",
+            id: nil,
+            generation: 1,
+            deviceId: nil,
+            displayName: nil,
+            expiresAt: nil,
+            keyProved: nil,
+            healthVerified: nil,
+            binding: nil,
+            previousBinding: nil
+        )
+        let api = RecordingAccountAPI(fixtures: fixtures, bindingSnapshot: revoked)
+        let controller = DesktopAccountController(
+            api: api,
+            sessionStore: MemoryAccountSessionStore(record: fixtures.record),
+            machineIdentityStore: MemoryMachineIdentityStore(),
+            deviceSelectionStore: MemoryDeviceSelectionStore(),
+            oauth: nil,
+            displayName: "Office Mac",
+            appVersion: "0.3.0"
+        )
+
+        _ = try await controller.bootstrap()
+        await XCTAssertThrowsErrorAsync(
+            try await controller.beginBinding(retryingRevokedGeneration: 2)
+        ) { error in
+            guard case .remote(let remote)? = error as? AccountClientError else {
+                return XCTFail("Expected a structured remote binding error")
+            }
+            XCTAssertEqual(remote.code, "HR-BIND-006")
+        }
+        let createAttempts = await api.bindingCreateAttempts()
+        XCTAssertTrue(createAttempts.isEmpty)
+    }
+
     func testLostBindingCreateResponseReusesPersistedIdempotencyKey() async throws {
         let fixtures = AccountFixtures()
         let sessions = MemoryAccountSessionStore(record: fixtures.record)
@@ -1058,7 +1132,8 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
         emailReauthenticationFailuresRemaining: Int = 0,
         defaultSelectionFailuresRemaining: Int = 0,
         bindingCreateFailuresRemaining: Int = 0,
-        bindingConfirmFailuresRemaining: Int = 0
+        bindingConfirmFailuresRemaining: Int = 0,
+        bindingSnapshot: AccountBindingSnapshot? = nil
     ) {
         self.fixtures = fixtures
         self.refreshFailuresRemaining = refreshFailuresRemaining
@@ -1073,7 +1148,7 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
         self.shareCreateFailuresRemaining = shareCreateFailuresRemaining
         self.emailReauthenticationFailuresRemaining = emailReauthenticationFailuresRemaining
         self.defaultSelectionFailuresRemaining = defaultSelectionFailuresRemaining
-        bindingSnapshot = fixtures.binding
+        self.bindingSnapshot = bindingSnapshot ?? fixtures.binding
         self.bindingCreateFailuresRemaining = bindingCreateFailuresRemaining
         self.bindingConfirmFailuresRemaining = bindingConfirmFailuresRemaining
     }

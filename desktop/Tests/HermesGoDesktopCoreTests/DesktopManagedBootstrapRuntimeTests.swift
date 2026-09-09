@@ -162,7 +162,9 @@ final class DesktopManagedBootstrapRuntimeTests: XCTestCase {
 }
 
 private struct RuntimeAccountFake: DesktopBindingCoordinating {
-    func beginBinding() async throws -> DesktopBindingPreparation { fatalError("must stay inert") }
+    func beginBinding(retryingRevokedGeneration: Int?) async throws -> DesktopBindingPreparation {
+        fatalError("must stay inert")
+    }
     func refresh() async throws -> DesktopAccountState { fatalError("must stay inert") }
     func confirmBinding() async throws -> DesktopAccountState { fatalError("must stay inert") }
 }

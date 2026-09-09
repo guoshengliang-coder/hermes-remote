@@ -80,6 +80,38 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.currentRelease.path))
     }
 
+    func testRetryAfterLegacyRollbackCarriesTheRevokedBindingGeneration() async throws {
+        let fixture = try Fixture(legacyRunning: true)
+        defer { fixture.cleanup() }
+        let previousRunID = "10000000-0000-4000-8000-000000000009"
+        _ = try fixture.journal.begin(
+            runID: previousRunID,
+            lastKnownGoodMode: .legacy,
+            releaseVersion: fixture.manifest.releaseVersion,
+            bindingID: fixture.bindingID,
+            bindingGeneration: 1
+        )
+        _ = try fixture.journal.transition(runID: previousRunID, to: .accountStaged)
+        _ = try fixture.journal.transition(runID: previousRunID, to: .rollingBack)
+        _ = try fixture.journal.transition(runID: previousRunID, to: .legacyActive)
+
+        _ = try await fixture.coordinator.migrate(
+            manifest: fixture.manifest,
+            sources: fixture.sources,
+            hermesLaunchAgentConfiguration: fixture.hermesLaunchAgentConfiguration,
+            launchAgentConfiguration: fixture.launchAgentConfiguration,
+            legacy: fixture.legacy,
+            runID: fixture.runID,
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>.confirmationText(
+                releaseVersion: fixture.manifest.releaseVersion
+            )
+        )
+
+        let retryGenerations = await fixture.account.retryGenerations()
+        XCTAssertEqual(retryGenerations, [1])
+        XCTAssertEqual(try fixture.journal.load()?.state, .accountActive)
+    }
+
     func testCleanInstallFailureReturnsToKnownUninstalledState() async throws {
         let fixture = try Fixture(legacyRunning: false, failAccountStart: true)
         defer { fixture.cleanup() }
@@ -347,14 +379,16 @@ private actor MigrationAccountFake: DesktopBindingCoordinating {
     private var committed = false
     private let ambiguousCommit: Bool
     private var confirmationAttempted = false
+    private var recordedRetryGenerations: [Int?] = []
 
     init(bindingID: String, ambiguousCommit: Bool) {
         self.bindingID = bindingID
         self.ambiguousCommit = ambiguousCommit
     }
 
-    func beginBinding() async throws -> DesktopBindingPreparation {
+    func beginBinding(retryingRevokedGeneration: Int?) async throws -> DesktopBindingPreparation {
         began += 1
+        recordedRetryGenerations.append(retryingRevokedGeneration)
         return DesktopBindingPreparation(
             state: pendingState(keyProved: false, healthy: false),
             credential: AccountConnectorCredentialPayload(data: Data("{\"test\":true}".utf8))
@@ -376,6 +410,7 @@ private actor MigrationAccountFake: DesktopBindingCoordinating {
 
     func beginCount() -> Int { began }
     func confirmCount() -> Int { confirmations }
+    func retryGenerations() -> [Int?] { recordedRetryGenerations }
 
     private func pendingState(keyProved: Bool, healthy: Bool) -> DesktopAccountState {
         .signedIn(dashboard(binding: AccountBindingSnapshot(

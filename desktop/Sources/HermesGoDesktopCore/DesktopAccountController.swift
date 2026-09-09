@@ -597,7 +597,9 @@ public actor DesktopAccountController {
             : nil
     }
 
-    public func beginBinding() async throws -> DesktopBindingPreparation {
+    public func beginBinding(
+        retryingRevokedGeneration: Int? = nil
+    ) async throws -> DesktopBindingPreparation {
         guard let record = sessionRecord else {
             throw AccountClientError.remote(AccountRemoteError(
                 code: "HR-AUTH-003",
@@ -616,10 +618,25 @@ public actor DesktopAccountController {
                 correlationId: nil
             ))
         }
-        if dashboardSnapshot?.binding.state == "binding_pending" {
+        guard let binding = dashboardSnapshot?.binding else {
+            throw AccountClientError.invalidResponse
+        }
+        if binding.state == "binding_pending" {
             return try bindingPreparation(from: dashboardSnapshot!)
         }
-        guard dashboardSnapshot?.binding.state == "no_binding" else {
+        if binding.state == "revoked" {
+            guard let retryingRevokedGeneration,
+                  binding.generation == retryingRevokedGeneration
+            else {
+                throw AccountClientError.remote(AccountRemoteError(
+                    code: "HR-BIND-006",
+                    message: "This Desktop binding was revoked.",
+                    retryable: false,
+                    recoveryAction: "verify_and_replace",
+                    correlationId: nil
+                ))
+            }
+        } else if binding.state != "no_binding" {
             throw AccountClientError.remote(AccountRemoteError(
                 code: "HR-BIND-002",
                 message: "This Desktop already has a binding.",

@@ -173,6 +173,20 @@ final class DesktopIssueTests: XCTestCase {
         XCTAssertTrue(restored.displayChinese.contains("HR-MIGRATE-003"))
         XCTAssertTrue(restored.displayEnglish.contains("HR-MIGRATE-003"))
 
+        let revoked = DesktopIssue.migration(
+            AccountClientError.remote(AccountRemoteError(
+                code: "HR-BIND-006",
+                message: "must not become primary UI text",
+                retryable: false,
+                recoveryAction: "verify_and_replace",
+                correlationId: nil
+            )),
+            terminalState: .legacyActive
+        )
+        XCTAssertEqual(revoked.code, .bindingRevoked)
+        XCTAssertTrue(revoked.displayChinese.contains("HR-BIND-006"))
+        XCTAssertFalse(revoked.technicalCause?.contains("must not become primary UI text") == true)
+
         let ambiguous = DesktopIssue.migration(
             DesktopMigrationCoordinatorError.commitAmbiguous,
             terminalState: .rollbackAttentionRequired

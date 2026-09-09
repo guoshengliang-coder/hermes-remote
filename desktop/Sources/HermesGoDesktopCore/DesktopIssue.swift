@@ -288,17 +288,23 @@ public struct DesktopIssue: Error, Equatable, Sendable {
         _ error: Error,
         terminalState: DesktopMigrationState?
     ) -> DesktopIssue {
-        let code: DesktopIssueCode
         if terminalState == .rollbackAttentionRequired
             || error as? DesktopMigrationCoordinatorError == .rollbackFailed
             || error as? DesktopMigrationCoordinatorError == .commitAmbiguous {
-            code = .migrationRollbackFailed
-        } else if error as? DesktopLaunchAgentControllerError == .duplicateConnector {
-            code = .migrationConnectorMismatch
+            return DesktopIssue(
+                code: .migrationRollbackFailed,
+                technicalCause: String(describing: error)
+            )
+        }
+        if let accountError = error as? AccountClientError {
+            return account(accountError)
+        }
+        let code: DesktopIssueCode = if error as? DesktopLaunchAgentControllerError == .duplicateConnector {
+            .migrationConnectorMismatch
         } else if terminalState == .legacyActive || terminalState == .cleanUninstalled {
-            code = .migrationCandidateFailed
+            .migrationCandidateFailed
         } else {
-            code = .migrationPreflightFailed
+            .migrationPreflightFailed
         }
         return DesktopIssue(code: code, technicalCause: String(describing: error))
     }
