@@ -19,6 +19,15 @@ const DEFINITIONS = Object.freeze({
     summaryEn: "The Gateway candidate image failed end-to-end verification. Review diagnostics and retry.",
     retryable: true,
     recoveryAction: "inspect_details_and_retry",
+    stage: "gateway_oci_smoke",
+  }),
+  desktopPackage: Object.freeze({
+    code: "HR-RELEASE-004",
+    summaryZh: "Desktop 受管发布包未通过生成、签名或完整性校验。",
+    summaryEn: "The Desktop managed release failed packaging, signing, or integrity verification.",
+    retryable: true,
+    recoveryAction: "inspect_details_and_retry",
+    stage: "desktop_managed_release_package",
   }),
 });
 
@@ -29,7 +38,7 @@ export function createReleaseError(kind, technicalCause) {
   return {
     ...definition,
     technicalCause: redactTechnicalCause(technicalCause),
-    stage: `gateway_oci_${kind in DEFINITIONS ? kind : "smoke"}`,
+    stage: definition.stage ?? `gateway_oci_${kind in DEFINITIONS ? kind : "smoke"}`,
   };
 }
 

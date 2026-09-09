@@ -52,6 +52,9 @@ The current automated suite covers:
   after lost reauthentication or invitation responses, without persisting the six-digit code;
 - strict signed Desktop manifest parsing, pinned Ed25519 keys, tamper/expiry/origin/architecture and
   unknown-field rejection;
+- offline managed-release publication with owner-only Ed25519 key custody, exact two-archive output,
+  independent public-key verification, no-overwrite/partial-cleanup behavior, and redacted
+  `HR-RELEASE-004` diagnostics;
 - redirect-free bounded downloads, exact size and streaming SHA-256 artifact validation;
 - tar member preflight, including traversal/link/special-file rejection before extraction;
 - private credential/LaunchAgent writes, immutable release staging, atomic activation and rollback;

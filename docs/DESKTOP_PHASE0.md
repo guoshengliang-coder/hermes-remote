@@ -173,6 +173,20 @@ configuration. Turning off downloads after a machine is installed therefore does
 managed services. Active state must also match the current account's exact binding ID and generation;
 signing into another account cannot claim or overwrite the first account's managed Mac.
 
+## E4-E offline signed-release publisher — local only
+
+The repository now has a default-inert publisher and an independent verifier for the E4 envelope and
+its exact Hermes Server/Connector archives. The publisher requires an external owner-only Ed25519
+private-key file, safe regular source archives, canonical release identity/lifetime/origin fields,
+and absent output targets. It copies the two archives, computes their size and SHA-256 values, signs
+the exact payload bytes, derives the pin-safe raw public key, and then verifies its own output through
+the public-key-only path. Partial failure removes only files created by the current run. Packaging,
+signature, archive, and integrity failures use the registered `HR-RELEASE-004` diagnostic without
+printing private-key contents or paths.
+
+This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
+packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
+
 The local E5 UI contract is also default-off. When advertised by a development Gateway, Account &
 Devices separates owned and shared Macs and exposes whole-device invite/accept/cancel/revoke/leave
 controls. E7 replaces the invitation's browser flow with an email code for a scoped `device.share`

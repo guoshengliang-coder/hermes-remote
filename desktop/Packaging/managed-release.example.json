@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "releaseVersion": "0.3.0",
+  "channel": "internal",
+  "architecture": "arm64",
+  "minimumMacOS": "14.0",
+  "createdAt": "2026-09-09T00:00:00Z",
+  "expiresAt": "2026-09-23T00:00:00Z",
+  "artifactOrigin": "https://downloads.example",
+  "artifactPathPrefix": "/desktop/releases/0.3.0",
+  "signing": {
+    "keyId": "desktop-internal-2026-a",
+    "privateKeyFile": "/absolute/protected/path/desktop-release-ed25519.pem"
+  },
+  "artifacts": [
+    {
+      "component": "hermes_server",
+      "version": "0.21.0",
+      "source": "/absolute/staging/path/Hermes-Server-input.tar.gz",
+      "entrypoint": "bin/hermes-server"
+    },
+    {
+      "component": "connector",
+      "version": "0.1.2",
+      "source": "/absolute/staging/path/Hermes-Connector-input.tar.gz",
+      "entrypoint": "bin/hermes-connector"
+    }
+  ]
+}
