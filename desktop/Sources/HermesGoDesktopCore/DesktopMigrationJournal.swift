@@ -146,18 +146,7 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
         bindingGeneration: Int?
     ) throws -> DesktopMigrationJournal {
         try withExclusiveLock {
-            if let existing = try loadUnlocked() {
-                guard existing.runID == normalizedUUID(runID) else {
-                    throw DesktopMigrationJournalError.runMismatch
-                }
-                guard existing.lastKnownGoodMode == lastKnownGoodMode,
-                      existing.releaseVersion == (try? semanticVersion(releaseVersion)),
-                      existing.bindingID == (try? optionalUUID(bindingID)),
-                      existing.bindingGeneration == (try? validGeneration(bindingGeneration))
-                else { throw DesktopMigrationJournalError.inputMismatch }
-                return existing
-            }
-            let journal = DesktopMigrationJournal(
+            let requested = DesktopMigrationJournal(
                 runID: try requiredUUID(runID),
                 state: .preflight,
                 lastKnownGoodMode: lastKnownGoodMode,
@@ -166,8 +155,34 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
                 bindingGeneration: try validGeneration(bindingGeneration),
                 updatedAt: canonicalTimestamp(now())
             )
-            try saveUnlocked(journal)
-            return journal
+            if let existing = try loadUnlocked() {
+                if existing.runID == requested.runID {
+                    guard existing.lastKnownGoodMode == requested.lastKnownGoodMode,
+                          existing.releaseVersion == requested.releaseVersion,
+                          existing.bindingID == requested.bindingID,
+                          existing.bindingGeneration == requested.bindingGeneration
+                    else { throw DesktopMigrationJournalError.inputMismatch }
+                    return existing
+                }
+
+                switch existing.state {
+                case .legacyActive:
+                    guard existing.lastKnownGoodMode == .legacy,
+                          requested.lastKnownGoodMode == .legacy
+                    else { throw DesktopMigrationJournalError.invalidState }
+                case .cleanUninstalled:
+                    guard existing.lastKnownGoodMode == .none,
+                          requested.lastKnownGoodMode == .none
+                    else { throw DesktopMigrationJournalError.invalidState }
+                default:
+                    throw DesktopMigrationJournalError.runMismatch
+                }
+
+                try saveUnlocked(requested)
+                return requested
+            }
+            try saveUnlocked(requested)
+            return requested
         }
     }
 

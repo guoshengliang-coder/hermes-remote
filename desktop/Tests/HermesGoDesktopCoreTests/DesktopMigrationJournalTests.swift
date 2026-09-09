@@ -101,6 +101,106 @@ final class DesktopMigrationJournalTests: XCTestCase {
         XCTAssertEqual(try store.load(), original)
     }
 
+    func testNewRunReplacesTerminalRolledBackJournal() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try DesktopMigrationJournalStore(root: root)
+        let firstRunID = "10000000-0000-4000-8000-000000000001"
+        _ = try store.begin(
+            runID: firstRunID,
+            lastKnownGoodMode: .legacy,
+            releaseVersion: "1.2.3",
+            bindingID: "20000000-0000-4000-8000-000000000001",
+            bindingGeneration: 1
+        )
+        _ = try store.transition(runID: firstRunID, to: .accountStaged)
+        _ = try store.transition(runID: firstRunID, to: .rollingBack)
+        _ = try store.transition(runID: firstRunID, to: .legacyActive)
+
+        let retry = try store.begin(
+            runID: "10000000-0000-4000-8000-000000000002",
+            lastKnownGoodMode: .legacy,
+            releaseVersion: "1.2.4",
+            bindingID: "20000000-0000-4000-8000-000000000002",
+            bindingGeneration: 2
+        )
+
+        XCTAssertEqual(retry.state, .preflight)
+        XCTAssertEqual(retry.runID, "10000000-0000-4000-8000-000000000002")
+        XCTAssertEqual(retry.releaseVersion, "1.2.4")
+        XCTAssertEqual(retry.bindingID, "20000000-0000-4000-8000-000000000002")
+        XCTAssertEqual(retry.bindingGeneration, 2)
+        XCTAssertEqual(try store.load(), retry)
+    }
+
+    func testNewRunReplacesTerminalCleanJournal() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try DesktopMigrationJournalStore(root: root)
+        let firstRunID = "10000000-0000-4000-8000-000000000001"
+        _ = try store.begin(
+            runID: firstRunID,
+            lastKnownGoodMode: .none,
+            releaseVersion: "1.2.3",
+            bindingID: "20000000-0000-4000-8000-000000000001",
+            bindingGeneration: 1
+        )
+        _ = try store.transition(runID: firstRunID, to: .rollingBack)
+        _ = try store.transition(runID: firstRunID, to: .cleanUninstalled)
+
+        let retry = try store.begin(
+            runID: "10000000-0000-4000-8000-000000000002",
+            lastKnownGoodMode: .none,
+            releaseVersion: "1.2.3",
+            bindingID: "20000000-0000-4000-8000-000000000002",
+            bindingGeneration: 1
+        )
+
+        XCTAssertEqual(retry.state, .preflight)
+        XCTAssertEqual(retry.runID, "10000000-0000-4000-8000-000000000002")
+        XCTAssertEqual(try store.load(), retry)
+    }
+
+    func testNewRunCannotReplaceNonRetryableJournal() throws {
+        for state: DesktopMigrationState in [.accountStaged, .accountActive, .rollbackAttentionRequired] {
+            let root = temporaryRoot()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let store = try DesktopMigrationJournalStore(root: root)
+            let firstRunID = "10000000-0000-4000-8000-000000000001"
+            _ = try store.begin(
+                runID: firstRunID,
+                lastKnownGoodMode: .legacy,
+                releaseVersion: "1.2.3",
+                bindingID: "20000000-0000-4000-8000-000000000001",
+                bindingGeneration: 1
+            )
+            _ = try store.transition(runID: firstRunID, to: .accountStaged)
+            if state != .accountStaged {
+                _ = try store.transition(runID: firstRunID, to: .candidateStarting)
+                _ = try store.transition(runID: firstRunID, to: .candidateAuthenticated)
+                _ = try store.transition(runID: firstRunID, to: .candidateHealthy)
+                _ = try store.transition(runID: firstRunID, to: .commitPending)
+                if state == .accountActive {
+                    _ = try store.transition(runID: firstRunID, to: .accountActive)
+                } else {
+                    _ = try store.transition(runID: firstRunID, to: .rollbackAttentionRequired)
+                }
+            }
+            let original = try XCTUnwrap(store.load())
+
+            XCTAssertThrowsError(try store.begin(
+                runID: "10000000-0000-4000-8000-000000000002",
+                lastKnownGoodMode: .legacy,
+                releaseVersion: "1.2.3",
+                bindingID: "20000000-0000-4000-8000-000000000002",
+                bindingGeneration: 1
+            )) { error in
+                XCTAssertEqual(error as? DesktopMigrationJournalError, .runMismatch)
+            }
+            XCTAssertEqual(try store.load(), original)
+        }
+    }
+
     func testRollbackPathStopsAtKnownLegacyOrManualAttention() throws {
         for terminal: DesktopMigrationState in [
             .cleanUninstalled, .legacyActive, .rollbackAttentionRequired,

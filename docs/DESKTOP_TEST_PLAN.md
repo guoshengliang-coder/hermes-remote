@@ -88,6 +88,8 @@ The current automated suite covers:
 - an existing responder on reserved port 9119, including 401/403, blocks clean install;
 - restart inspection recognizes only an `account_active` journal plus both exact managed LaunchAgents
   as active; intermediate journals recover before a second install and mismatches fail closed;
+- a newly confirmed run atomically replaces only a terminal `legacy_active` or `clean_uninstalled`
+  rollback journal; intermediate, active, and manual-attention journals reject a different run ID;
 - existing-install observation/recovery remains available when new-install rollout is disabled, and
   active state must match the current account's exact binding ID/generation before it is claimed;
 - a recognized running legacy Connector uses its own configured Hermes status URL for the final
