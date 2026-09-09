@@ -92,10 +92,18 @@ pipeline {
           steps {
             checkout scm
             // assembleDebug 依赖 verifyDebugSigningKey，缺少共享 debug keystore
-            // （docs/SIGNING.md）时会 fail closed，而 CI 绝不持有该密钥。单元测试、
-            // lint 和全量源码编译覆盖同样的代码，只是不打包、不签名。
+            // （docs/SIGNING.md）时会 fail closed，而 CI 绝不持有该密钥。单元测试和
+            // lint 覆盖同样的代码，只是不打包、不签名。
+            //
+            // 与 ci.yml 的一处刻意分歧：那边把 lint 拆成了独立并行 job，因为 GitHub
+            // 每个 job 独占一台 runner，拆开就是纯赚墙钟时间。这里五个 stage 共享
+            // ci.slice 的 2 核预算，再拆一个 stage 只会让它们互相抢 CPU，所以 lint
+            // 留在本 stage 内串行。
+            // `:app:compileDebugSources` 已删除：它是个 lifecycle 任务，
+            // `:app:testDebugUnitTest --dry-run` 的任务图里已经包含整个 debug 主源码
+            // 编译，加上它只多出它自己一个 SKIPPED 节点。
             dir('android') {
-              sh './gradlew :app:testDebugUnitTest :app:lintDebug :app:compileDebugSources --no-daemon'
+              sh './gradlew :app:testDebugUnitTest :app:lintDebug --no-daemon'
             }
           }
           post {

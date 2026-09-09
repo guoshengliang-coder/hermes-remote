@@ -126,6 +126,13 @@ android {
         unitTests.isReturnDefaultValues = true
         // Robolectric-based screenshot tests render real resources.
         unitTests.isIncludeAndroidResources = true
+        // 1327 JVM tests in a single module. Executing them in one fork left the CI runner's
+        // other cores idle for the whole test task; half the cores keeps room for the Gradle
+        // daemon and the Robolectric sandbox each fork loads.
+        unitTests.all {
+            it.maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1)
+            it.maxHeapSize = "1g"
+        }
     }
 
     // Build daemon runs on JBR (JDK 21); emit JVM 17 bytecode for Android.
@@ -144,24 +151,34 @@ kotlin {
 // Keep Gradle's canonical app-debug.apk intact for tooling, and automatically
 // stage the tester-facing APK under a stable, versioned filename after each build.
 // Sync uses an isolated directory so an older version can never be handed off by mistake.
+// Both tasks below read the version and the keystore identity into locals inside their own
+// configuration block before any execution-time lambda closes over them. Referring to a script
+// property such as `appVersionName` directly from `rename {}` or `doLast {}` makes the lambda hold
+// the build script object, which the configuration cache cannot serialize — it fails the build with
+// "cannot serialize Gradle script object references".
 val stageDebugApk = tasks.register<Sync>("stageDebugApk") {
     group = "distribution"
     description = "Stages the debug APK with its version in the filename."
+    val stagedApkName = "Hermes-Remote-$appVersionName-debug.apk"
     from(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk"))
     into(layout.buildDirectory.dir("outputs/apk/distribution/debug"))
-    rename { "Hermes-Remote-$appVersionName-debug.apk" }
+    rename { stagedApkName }
 }
 
 val verifyDebugSigningKey = tasks.register("verifyDebugSigningKey") {
     group = "verification"
     description = "Rejects builds that do not use the shared Hermes Remote debug certificate."
+    // Deliberately without declared inputs or outputs: the check must run on every build, so it
+    // must never become up-to-date or restorable from the build cache.
+    val keystore = canonicalDebugKeystore
+    val expectedCertificate = expectedDebugCertificateSha256
     doLast {
-        check(canonicalDebugKeystore.isFile) {
-            "Missing shared Hermes Remote debug keystore at ${canonicalDebugKeystore.path}. " +
+        check(keystore.isFile) {
+            "Missing shared Hermes Remote debug keystore at ${keystore.path}. " +
                 "Ask the project owner for secure provisioning; do not generate a replacement."
         }
         val keyStore = KeyStore.getInstance("PKCS12").apply {
-            canonicalDebugKeystore.inputStream().use { load(it, "android".toCharArray()) }
+            keystore.inputStream().use { load(it, "android".toCharArray()) }
         }
         val certificate = checkNotNull(keyStore.getCertificate("androiddebugkey")) {
             "Shared debug keystore does not contain androiddebugkey."
@@ -169,9 +186,9 @@ val verifyDebugSigningKey = tasks.register("verifyDebugSigningKey") {
         val actual = MessageDigest.getInstance("SHA-256")
             .digest(certificate.encoded)
             .joinToString("") { "%02X".format(it) }
-        check(actual == expectedDebugCertificateSha256) {
+        check(actual == expectedCertificate) {
             "Wrong Hermes Remote debug signing certificate: $actual. " +
-                "Expected $expectedDebugCertificateSha256."
+                "Expected $expectedCertificate."
         }
     }
 }
