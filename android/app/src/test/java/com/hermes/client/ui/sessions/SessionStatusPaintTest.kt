@@ -29,8 +29,10 @@ class SessionStatusPaintTest {
         assertEquals(SessionStatusPaint.FAILED, sessionStatusPaint(SessionRunPhase.FAILED))
     }
 
-    // Everything else is deliberately neutral — no phase may quietly fall back onto the brand.
-    @Test fun every_other_phase_is_neutral() {
+    // Everything else is a run in flight, and paints as RUNNING (cyan) rather than falling back on
+    // a neutral grey — which is what it used to do, making an active session look parked.
+    // IDLE reaches this branch too, but never renders: sessionStatusLine() returns null for it.
+    @Test fun every_other_phase_is_a_run_in_flight() {
         val claimed = setOf(
             SessionRunPhase.WAITING_APPROVAL,
             SessionRunPhase.WAITING_CLARIFICATION,
@@ -39,7 +41,7 @@ class SessionStatusPaintTest {
             SessionRunPhase.COMPLETED_UNREAD,
         )
         for (phase in SessionRunPhase.entries.filterNot { it in claimed }) {
-            assertEquals(phase.name, SessionStatusPaint.NEUTRAL, sessionStatusPaint(phase))
+            assertEquals(phase.name, SessionStatusPaint.RUNNING, sessionStatusPaint(phase))
         }
     }
 }

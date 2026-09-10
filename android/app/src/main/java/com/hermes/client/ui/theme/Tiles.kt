@@ -60,6 +60,51 @@ fun fabContainerColor(): Color = if (isDarkSurface()) FabContainerDark else FabC
 @Composable
 fun fabOutlineColor(): Color = if (isDarkSurface()) FabOutlineDark else Color.Transparent
 
+/**
+ * The run spinner (docs/DESIGN.md §5.2). Blue — NOT the cyan that `StatusTone.RUNNING` paints the
+ * status text with. The design source deliberately splits them: the words say what is happening,
+ * the spinner just says something is, and keeping the spinner on the brand blue stops a small
+ * moving object from competing with the sentence next to it.
+ *
+ * Paired with [SpinnerTrackAlpha]: the design draws a full circle at 25% under the arc, so the
+ * indicator reads as a ring with a lit segment rather than a lone arc chasing its tail. Material's
+ * default indeterminate indicator has no track at all, which is what shipped by mistake.
+ */
+internal val SpinnerLight = Color(0xFF2563EB)
+internal val SpinnerDark = Color(0xFF3B82F6)
+
+/** The design's `opacity-25` track under the moving arc. */
+const val SpinnerTrackAlpha = 0.25f
+
+@Composable
+fun spinnerColor(): Color = if (isDarkSurface()) SpinnerDark else SpinnerLight
+
+/**
+ * The incident banner's fill and ink (docs/DESIGN.md §5.2). Deliberately NOT `errorContainer`:
+ * that one belongs to genuine errors — a failed delete, a broken dialog — and painting a standing
+ * "Slack is disconnected" notice in the same red both over-states the incident and wears out the
+ * colour that destructive confirmations depend on. The design source gives this its own softer
+ * rose, and these are its values.
+ *
+ * Worth watching: the light fill sits only 1.04:1 from the paper, so the card reads by HUE rather
+ * than by lightness. That is the design's intent, but it is quieter than the errorContainer it
+ * replaces (1.23:1) — if it disappears on a real screen, deepen the fill rather than reaching back
+ * for errorContainer.
+ */
+internal val IncidentContainerLight = Color(0xFFFFF1F2)
+internal val IncidentContainerDark = Color(0xFF2A1B1D)
+internal val OnIncidentLight = Color(0xFF9F1239)
+internal val OnIncidentDark = Color(0xFFFCA5A5)
+
+@Composable
+fun incidentContainerColor(): Color =
+    if (isDarkSurface()) IncidentContainerDark else IncidentContainerLight
+
+/** Ink on [incidentContainerColor]: 7.30:1 light, 8.69:1 dark. */
+@Composable
+fun onIncidentColor(): Color =
+    if (isDarkSurface()) OnIncidentDark else OnIncidentLight
+
 /** Dark shadows are invisible, so the dark tier carries the card on fill alone. */
 @Composable
 fun tileShadow(): Dp = if (isDarkSurface()) 0.dp else 1.dp

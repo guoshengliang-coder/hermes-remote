@@ -54,8 +54,16 @@ fun SessionSubline(
     val projectName = LocalProjectNames.current(session)
     val parts = sessionSublineParts(session, lead, defaultProjectPath, projectName)
     if (parts.isEmpty && !pinned) return
-    androidx.compose.material3.ProvideTextStyle(com.hermes.client.ui.theme.SessionRowSubline) {
-        SublineContent(parts, lead, pinned, modifier)
+    // One step lighter than ListItem's onSurfaceVariant, matching the design's "muted" tier
+    // (decision 2026-09-10). The design puts the folder glyph and the "device only" note a further
+    // step down again at #A8A29E — NOT adopted: that measures 2.39:1 on paper, under the 3:1 floor
+    // a graphic owes. Icon and text share this one tier instead.
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.outline,
+    ) {
+        androidx.compose.material3.ProvideTextStyle(com.hermes.client.ui.theme.SessionRowSubline) {
+            SublineContent(parts, lead, pinned, modifier)
+        }
     }
 }
 

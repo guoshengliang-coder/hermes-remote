@@ -56,7 +56,9 @@ private val LightBackground = Color(0xFFFAF9F5)
 // Rows sit directly on paper now; pure white moved to surfaceContainerLowest (§2.1).
 private val LightSurface = Color(0xFFFAF9F5)
 private val LightSurfaceVariant = Color(0xFFE3E2DF)
-private val LightOutline = Color(0xFF7A766C)
+// 4.54:1 on paper. Deep enough to carry TEXT, not just strokes: the session subline uses it as
+// the design's "muted" tier, which sits one step lighter than onSurfaceVariant.
+private val LightOutline = Color(0xFF777268)
 
 // Lifted off pure dark: pure-dark reads harsh on OLED for long night reading.
 private val DarkBackground = Color(0xFF0F1217)

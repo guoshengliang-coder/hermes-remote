@@ -274,7 +274,8 @@ fun SessionsScreen(
                     // band reads as a second app bar, while an inset card reads as one incident
                     // sitting on the page (docs/DESIGN.md §5.2, decision 2026-09-10).
                     Surface(
-                        color = MaterialTheme.colorScheme.errorContainer,
+                        color = com.hermes.client.ui.theme.incidentContainerColor(),
+                        contentColor = com.hermes.client.ui.theme.onIncidentColor(),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -290,19 +291,19 @@ fun SessionsScreen(
                         Icon(
                             if (health.hasChannelCause) Icons.Rounded.Forum else Icons.Rounded.Schedule,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                            tint = com.hermes.client.ui.theme.onIncidentColor(),
                             modifier = Modifier.padding(end = 8.dp),
                         )
                         Text(
                             label,
                             style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            color = com.hermes.client.ui.theme.onIncidentColor(),
                             modifier = Modifier.weight(1f),
                         )
                         Icon(
                             Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                            tint = com.hermes.client.ui.theme.onIncidentColor(),
                         )
                     }
                     }
@@ -600,8 +601,16 @@ private fun SectionHeader(
     // The pillar carries the group's weight so the four headers stop reading as one texture.
     // Time buckets get a neutral bar on purpose — a time range is not a state, and colouring it
     // would spend the reader's attention on "when" instead of "what needs me".
+    // Header text and pillar share one colour per group, so the two never disagree about how
+    // urgent the group is. Only the group that needs action carries a hue (DESIGN.md §1 原则3,
+    // amended 2026-09-10: the group header is no longer unconditionally the brand colour).
+    val accent = when (tone) {
+        SectionTone.NEEDS_YOU -> statusColor(StatusTone.WARN)
+        SectionTone.PINNED -> MaterialTheme.colorScheme.onSurfaceVariant
+        SectionTone.TIME -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
     val pillar = when (tone) {
-        SectionTone.NEEDS_YOU -> MaterialTheme.colorScheme.tertiary
+        SectionTone.NEEDS_YOU -> statusColor(StatusTone.WARN)
         SectionTone.PINNED -> MaterialTheme.colorScheme.outline
         SectionTone.TIME -> MaterialTheme.colorScheme.outlineVariant
     }
@@ -620,7 +629,7 @@ private fun SectionHeader(
         Text(
             label.uppercase(),
             style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
+            color = accent,
         )
         note?.let {
             Text(
@@ -635,13 +644,13 @@ private fun SectionHeader(
         val hot = tone == SectionTone.NEEDS_YOU
         Surface(
             shape = RoundedCornerShape(6.dp),
-            color = if (hot) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f)
+            color = if (hot) statusColor(StatusTone.WARN).copy(alpha = 0.12f)
             else MaterialTheme.colorScheme.surfaceContainerHigh,
         ) {
             Text(
                 count.toString(),
                 style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
-                color = if (hot) MaterialTheme.colorScheme.tertiary
+                color = if (hot) statusColor(StatusTone.WARN)
                 else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp),
             )
@@ -698,11 +707,16 @@ private fun SessionRow(
             supportingContent = {
                 Column {
                     SessionSubline(session, defaultProjectPath = defaultProjectPath, pinned = isPinned)
-                    runtime?.takeIf { it.phase != SessionRunPhase.IDLE || it.hasRunningProcesses }?.let { value ->
+                    // Gate on the TEXT, not on the phase. The phase-based guard let a blank label
+                    // through, and a blank Text still costs a full line: the row grew to Material's
+                    // three-line height (88dp) while showing two lines, and three-line rows are
+                    // top-aligned, so 40dp of dead space opened up under the subline. On a device
+                    // that reads as a random extra gap every few rows (docs/DESIGN.md §5.2).
+                    sessionStatusLine(runtime, language)?.let { label ->
                         Text(
-                            runtimeLabel(value, language),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = runtimeColor(value.phase),
+                            label,
+                            style = com.hermes.client.ui.theme.SessionRowStatus,
+                            color = runtimeColor(runtime!!.phase),
                         )
                     }
                 }
@@ -824,6 +838,24 @@ private fun SessionRow(
     }
 }
 
+/**
+ * The status line's text, or null when there is nothing to say.
+ *
+ * Never returns a blank string, and that is the whole point: a composed text node still occupies a
+ * full line box when its content is empty, so a
+ * blank label silently promotes the row from Material's two-line height (72dp) to its three-line
+ * height (88dp) and — because three-line list items are top-aligned rather than centred — leaves
+ * 40dp of empty space below the subline. Pinned by SessionStatusLineTest.
+ */
+internal fun sessionStatusLine(
+    runtime: SessionRuntime?,
+    language: com.hermes.client.ui.localization.AppLanguage,
+): String? {
+    val value = runtime ?: return null
+    if (value.phase == SessionRunPhase.IDLE && !value.hasRunningProcesses) return null
+    return runtimeLabel(value, language).takeIf { it.isNotBlank() }
+}
+
 private fun runtimeLabel(runtime: SessionRuntime, language: com.hermes.client.ui.localization.AppLanguage): String {
     if (!runtime.phase.isActive && runtime.hasRunningProcesses) {
         val count = runtime.chat.backgroundProcesses.count { it.running }
@@ -874,24 +906,28 @@ internal fun sessionRowTrailing(runtime: SessionRuntime?, unread: Boolean): Sess
  * testable without a Compose runtime — in particular that COMPLETED_UNREAD no longer resolves to
  * the brand colour.
  */
-internal enum class SessionStatusPaint { WAITING, FAILED, COMPLETED, NEUTRAL }
+internal enum class SessionStatusPaint { WAITING, FAILED, COMPLETED, RUNNING }
 
 internal fun sessionStatusPaint(phase: SessionRunPhase): SessionStatusPaint = when (phase) {
     SessionRunPhase.WAITING_APPROVAL, SessionRunPhase.WAITING_CLARIFICATION,
     SessionRunPhase.WAITING_ATTENTION -> SessionStatusPaint.WAITING
     SessionRunPhase.FAILED -> SessionStatusPaint.FAILED
     SessionRunPhase.COMPLETED_UNREAD -> SessionStatusPaint.COMPLETED
-    else -> SessionStatusPaint.NEUTRAL
+    // Everything left is a run in flight — thinking, streaming, using a tool, reconnecting.
+    else -> SessionStatusPaint.RUNNING
 }
 
 @Composable
 private fun runtimeColor(phase: SessionRunPhase) = when (sessionStatusPaint(phase)) {
-    SessionStatusPaint.WAITING -> MaterialTheme.colorScheme.tertiary
-    SessionStatusPaint.FAILED -> MaterialTheme.colorScheme.error
+    SessionStatusPaint.WAITING -> statusColor(StatusTone.WARN)
+    SessionStatusPaint.FAILED -> statusColor(StatusTone.BAD)
     // Deliberately NOT primary: with a blue brand, a blue "done" is indistinguishable from the
     // chrome around it (section headers, FAB). Green carries the status; see StatusColors.kt.
     SessionStatusPaint.COMPLETED -> statusColor(StatusTone.GOOD)
-    SessionStatusPaint.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
+    // Its own hue, not onSurfaceVariant. This used to be the same grey as the subline beside it,
+    // so a running session looked exactly like a parked one (DESIGN.md §2.1, decision 2026-09-10).
+    // StatusTone.RUNNING is a deep blue on paper (#0369A1) and cyan on the dark surface (#67E8F9).
+    SessionStatusPaint.RUNNING -> statusColor(StatusTone.RUNNING)
 }
 
 @Composable
@@ -905,12 +941,16 @@ private fun RuntimeIndicator(runtime: SessionRuntime) {
             SessionRunPhase.WAITING_ATTENTION,
         )
     ) {
-        // Not the brand mark: this indicator's colour carries run status (§2.1 keeps status
-        // colours independent of the brand), and a tinted H would blur the two systems.
+        // Blue with a faint track under it, per the design source — not the cyan the status TEXT
+        // uses, and not Material's bare trackless arc. The words carry what is happening; the
+        // spinner only says that something is (docs/DESIGN.md §5.2).
+        val spinner = com.hermes.client.ui.theme.spinnerColor()
         CircularProgressIndicator(
             modifier = Modifier.size(18.dp),
-            color = color,
-            strokeWidth = 2.dp,
+            color = spinner,
+            strokeWidth = 1.9.dp,
+            trackColor = spinner.copy(alpha = com.hermes.client.ui.theme.SpinnerTrackAlpha),
+            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
         )
     } else {
         Box(

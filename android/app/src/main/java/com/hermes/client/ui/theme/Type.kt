@@ -125,18 +125,29 @@ val HermesTypography = Typography(
 )
 
 /**
- * The session list row's own two steps (docs/DESIGN.md §5.2). The design puts the title at 15px
- * and the subline at 12px; Material's ListItem would otherwise hand them bodyLarge (16sp) and
- * bodyMedium (14sp), which is what made rows measure 73.5dp against the design's ~65.
+ * The session list row's own three steps (docs/DESIGN.md §5.2). The design puts the title at 15px,
+ * the subline at 12px and the status line at 12px/500; Material's ListItem would otherwise hand the
+ * first two bodyLarge (16sp) and bodyMedium (14sp), which is what made rows measure 73.5dp against
+ * the design's ~65.
  *
  * These are explicit rather than global tokens because the sizes they replace are load-bearing
- * elsewhere: bodyLarge is the chat reading step and bodyMedium is used in 78 places.
+ * elsewhere: bodyLarge is the chat reading step, bodyMedium is used in 78 places, and labelMedium
+ * — which the status line used to borrow — also carries the group headers, whose design role is the
+ * opposite setting (wide-tracked uppercase). One token cannot serve both.
+ *
+ * Line heights are the design's own `leading-[1.45]`, which the row container applies to all three
+ * and none of them override: 15 × 1.45 = 21.75, 12 × 1.45 = 17.4. They are carried exactly rather
+ * than rounded to a whole sp, so the fixture row needs no "we rounded it" clause.
+ *
+ * Where the design *screen* and the design *system* disagree, the screen wins (decision
+ * 2026-09-11): the system's `title-md` token says 15px/500/0em, the screen's row title renders
+ * 15px/600/−0.01em. Both are pinned by DesignConformanceTest so the choice cannot silently flip.
  */
 val SessionRowTitle = TextStyle(
     fontFamily = Default,
     fontWeight = FontWeight.SemiBold,
     fontSize = 15.sp,
-    lineHeight = 20.sp,
+    lineHeight = 21.75.sp,
     letterSpacing = (-0.15).sp,
 )
 
@@ -144,6 +155,18 @@ val SessionRowSubline = TextStyle(
     fontFamily = Default,
     fontWeight = FontWeight.Normal,
     fontSize = 12.sp,
-    lineHeight = 16.sp,
+    lineHeight = 17.4.sp,
     letterSpacing = 0.sp,
+)
+
+/**
+ * The runtime status line ("正在运行" / "等待你的确认"). The design sets it apart from the subline
+ * above it by weight and tracking, not by size — `text-[12px] font-medium tracking-tight`.
+ */
+val SessionRowStatus = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 12.sp,
+    lineHeight = 17.4.sp,
+    letterSpacing = (-0.3).sp,
 )

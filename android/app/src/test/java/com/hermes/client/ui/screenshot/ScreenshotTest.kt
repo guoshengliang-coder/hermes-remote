@@ -507,6 +507,53 @@ class ScreenshotTest {
         profile = "personal", cwd = repo, gitRepoRoot = repo, gitBranch = null,
     )
 
+    // Diagnostic: the REAL row shape (SessionRowTitle + SessionSubline inside a ListItem) across
+    // the content variants a live list actually contains, each on its own tint so the row
+    // rectangles can be measured off the PNG instead of inferred from ListItem's internals.
+    @androidx.compose.runtime.Composable
+    private fun ProbeRow(
+        tint: androidx.compose.ui.graphics.Color,
+        title: String,
+        repo: String?,
+        status: String? = null,
+    ) {
+        androidx.compose.material3.ListItem(
+            headlineContent = {
+                androidx.compose.material3.Text(title, style = com.hermes.client.ui.theme.SessionRowTitle)
+            },
+            supportingContent = {
+                androidx.compose.foundation.layout.Column {
+                    SessionSubline(listSession(title, repo), defaultProjectPath = "/Users/me")
+                    // Same gate production uses: blank means no line at all, not an empty one.
+                    status?.takeIf { it.isNotBlank() }?.let {
+                        androidx.compose.material3.Text(
+                            it,
+                            style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
+            },
+            colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = tint),
+        )
+    }
+
+    @Test fun rowHeightProbe() = snap("row-height-probe") {
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+            ProbeRow(androidx.compose.ui.graphics.Color(0xFFFFE0E0), "确认是否正常", null)
+            ProbeRow(androidx.compose.ui.graphics.Color(0xFFE0FFE0), "起风工作室数据", "/u/xiaomai")
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0xFFE0E0FF),
+                "哎，现在 DeepSeek 说它发了一个最新的 Flash 4.1，我在这个 Hermes 里",
+                "/u/xiaomai",
+            )
+            ProbeRow(androidx.compose.ui.graphics.Color(0xFFFFF0D0), "查看机器性能负荷", null, status = "已完成")
+            // The question this probe was written to settle: does an EMPTY status Text still cost
+            // a line? If it does, a row can be 88dp tall while showing only two lines of content.
+            ProbeRow(androidx.compose.ui.graphics.Color(0xFFD0F0FF), "空状态串", "/u/xiaomai", status = "")
+            ProbeRow(androidx.compose.ui.graphics.Color(0xFFF0D0FF), "无状态槽", "/u/xiaomai", status = null)
+        }
+    }
+
     @Test fun sessionRowsPinnedSubline() = snap("session-rows-pinned") {
         val defaultPath = "/Users/me"
         androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
