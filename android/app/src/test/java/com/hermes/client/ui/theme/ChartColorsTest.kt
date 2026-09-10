@@ -16,8 +16,8 @@ import org.junit.Test
 class ChartColorsTest {
 
     // The tile the chart is drawn on, not the page background (CardPage.kt).
-    private val lightTile = 0xFFFAFBFD.toInt()
-    private val darkTile = 0xFF20272E.toInt()
+    private val lightTile = 0xFFFFFFFF.toInt()
+    private val darkTile = 0xFF1A1F27.toInt()
 
     @Test fun values_are_pinned() {
         assertEquals(0xFF00306A.toInt(), chartBandArgb(ChartBand.INPUT, dark = false))

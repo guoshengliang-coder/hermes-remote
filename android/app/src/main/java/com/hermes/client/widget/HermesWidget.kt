@@ -38,8 +38,11 @@ class HermesWidget : GlanceAppWidget() {
     private fun Content(context: Context, language: AppLanguage) {
         Column(
             modifier = GlanceModifier.fillMaxSize()
-                // Brand mint (Mint40) — the widget predates the palette and wore a stray purple.
-                .background(ColorProvider(Color(0xFF087A5C)))
+                // Brand blue (§2.1). This was still Mint40 #087A5C: the widget was missed by the
+                // 0.1.61 icon-blue swap that retired mint, and the miss only became obvious next to
+                // the warm re-skin. Glance sits outside MaterialTheme, so the literal is unavoidable
+                // — keep it equal to the light `primary`, on which white text clears AA at 7.51:1.
+                .background(ColorProvider(Color(0xFF004AC6)))
                 .padding(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

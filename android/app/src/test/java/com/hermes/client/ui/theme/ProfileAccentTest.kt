@@ -52,10 +52,10 @@ class ProfileAccentTest {
 
     // The OUTLINE style draws the identity colour as a ring + initial ON the surface. Light keeps
     // l=0.32 (≥ 3.9:1 on white, above); dark must lift it — the raw 0.32 colour is ~1.6–3.2:1
-    // against #121921. Pin the lifted lightness at ≥ 4.5:1 (AA normal text) for EVERY hue and for
+    // against #0F1217. Pin the lifted lightness at ≥ 4.5:1 (AA normal text) for EVERY hue and for
     // the neutral swatches.
     @Test fun outline_colour_on_dark_surface_clears_aa_on_every_hue() {
-        val darkSurface = 0xFF121921.toInt()
+        val darkSurface = 0xFF0F1217.toInt()
         for (hue in 0 until 360) {
             val lifted = avatarOutlineColorArgb(hslToArgb(hue.toFloat(), 0.62f, 0.32f), dark = true)
             val ratio = contrastRatioForTest(lifted, darkSurface)

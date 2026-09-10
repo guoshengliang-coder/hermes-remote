@@ -1,6 +1,7 @@
 package com.hermes.client.ui.sessions
 
 import android.widget.Toast
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -124,8 +125,16 @@ internal fun NewSessionFab(creator: SessionCreator, cwd: String?) {
     val language = LocalAppLanguage.current
     FloatingActionButton(
         onClick = { creator.create(cwd) },
-        containerColor = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary,
+        // Dark carries a hairline because the near-black fill alone is 1.19:1 on the obsidian
+        // ground; light passes Color.Transparent and draws none.
+        modifier = Modifier.border(
+            1.dp,
+            com.hermes.client.ui.theme.fabOutlineColor(),
+            androidx.compose.material3.FloatingActionButtonDefaults.shape,
+        ),
+        // Neutral near-black, not the brand blue — DESIGN.md §2.7 item 1.
+        containerColor = com.hermes.client.ui.theme.fabContainerColor(),
+        contentColor = androidx.compose.ui.graphics.Color.White,
     ) {
         if (creator.creating) {
             // Button-internal wait keeps the M3 spinner: the brand mark is drawn in one
@@ -133,7 +142,7 @@ internal fun NewSessionFab(creator: SessionCreator, cwd: String?) {
             CircularProgressIndicator(
                 modifier = Modifier.size(24.dp),
                 strokeWidth = 2.5.dp,
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = androidx.compose.ui.graphics.Color.White,
             )
         } else {
             Icon(

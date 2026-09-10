@@ -272,12 +272,21 @@ fun SessionsScreen(
                             "${health.total} things need attention",
                         )
                     }
+                    // An inset rounded card, not a full-bleed strip: on warm paper a bleeding
+                    // band reads as a second app bar, while an inset card reads as one incident
+                    // sitting on the page (docs/DESIGN.md §5.2, decision 2026-09-10).
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                    ) {
                     Row(
                         Modifier.fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.errorContainer)
                             // Root cause first: when a channel is down that is where the fix is.
                             .clickable { if (health.hasChannelCause) onOpenMessaging() else onOpenCron() }
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
@@ -297,6 +306,7 @@ fun SessionsScreen(
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onErrorContainer,
                         )
+                    }
                     }
                 }
                 // Reveal newly promoted 需要你处理 sessions: LazyColumn's scroll anchoring
@@ -393,7 +403,7 @@ fun SessionsScreen(
                                 if (needsYou.isNotEmpty()) {
                                     item(key = "h-needs") {
                                         SectionHeader(
-                                            localized(language, "需要你处理", "Needs you"), needsYou.size,
+                                            localized(language, "需要你处理", "Needs you"), needsYou.size, SectionTone.NEEDS_YOU,
                                             collapsed = "needs" in collapsed, onToggle = { toggle("needs") },
                                         )
                                     }
@@ -416,7 +426,7 @@ fun SessionsScreen(
                                 if (pinned.isNotEmpty()) {
                                     item(key = "h-pinned") {
                                         SectionHeader(
-                                            localized(language, "已置顶", "Pinned"), pinned.size,
+                                            localized(language, "已置顶", "Pinned"), pinned.size, SectionTone.PINNED,
                                             note = localized(language, "仅此设备", "Device only"),
                                             collapsed = "pinned" in collapsed, onToggle = { toggle("pinned") },
                                         )
@@ -440,7 +450,7 @@ fun SessionsScreen(
                                 if (groups.today.isNotEmpty()) {
                                     item(key = "h-today") {
                                         SectionHeader(
-                                            localized(language, "今天", "Today"), groups.today.size,
+                                            localized(language, "今天", "Today"), groups.today.size, SectionTone.TIME,
                                             collapsed = "today" in collapsed, onToggle = { toggle("today") },
                                         )
                                     }
@@ -463,7 +473,7 @@ fun SessionsScreen(
                                 if (groups.week.isNotEmpty()) {
                                     item(key = "h-week") {
                                         SectionHeader(
-                                            localized(language, "前 7 天", "Previous 7 days"), groups.week.size,
+                                            localized(language, "前 7 天", "Previous 7 days"), groups.week.size, SectionTone.TIME,
                                             collapsed = "week" in collapsed, onToggle = { toggle("week") },
                                         )
                                     }
@@ -486,7 +496,7 @@ fun SessionsScreen(
                                 if (groups.earlier.isNotEmpty()) {
                                     item(key = "h-earlier") {
                                         SectionHeader(
-                                            localized(language, "更早", "Earlier"), groups.earlier.size,
+                                            localized(language, "更早", "Earlier"), groups.earlier.size, SectionTone.TIME,
                                             collapsed = "earlier" in collapsed, onToggle = { toggle("earlier") },
                                         )
                                     }
@@ -573,21 +583,42 @@ fun SessionsScreen(
     }
 }
 
+/**
+ * What a group's leading pillar says about it (docs/DESIGN.md §5.2, decision 2026-09-10).
+ * Only one group ever carries colour: the one that needs the reader to act.
+ */
+internal enum class SectionTone { NEEDS_YOU, PINNED, TIME }
+
 @Composable
 private fun SectionHeader(
     label: String,
     count: Int,
+    tone: SectionTone,
     note: String? = null,
     collapsed: Boolean = false,
     onToggle: (() -> Unit)? = null,
 ) {
     val language = LocalAppLanguage.current
+    // The pillar carries the group's weight so the four headers stop reading as one texture.
+    // Time buckets get a neutral bar on purpose — a time range is not a state, and colouring it
+    // would spend the reader's attention on "when" instead of "what needs me".
+    val pillar = when (tone) {
+        SectionTone.NEEDS_YOU -> MaterialTheme.colorScheme.tertiary
+        SectionTone.PINNED -> MaterialTheme.colorScheme.outline
+        SectionTone.TIME -> MaterialTheme.colorScheme.outlineVariant
+    }
     androidx.compose.foundation.layout.Row(
         Modifier.fillMaxWidth()
             .then(if (onToggle != null) Modifier.clickable(onClick = onToggle) else Modifier)
             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box(
+            Modifier
+                .size(width = 3.dp, height = 14.dp)
+                .background(pillar, RoundedCornerShape(2.dp)),
+        )
+        androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
         Text(
             label.uppercase(),
             style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
@@ -601,11 +632,22 @@ private fun SectionHeader(
             )
         }
         androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-        Text(
-            count.toString(),
-            style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
-            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        // The count is a chip, and the one group that needs action wears a tinted one. A bare
+        // number gave all four groups the same visual weight.
+        val hot = tone == SectionTone.NEEDS_YOU
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = if (hot) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f)
+            else MaterialTheme.colorScheme.surfaceContainerHigh,
+        ) {
+            Text(
+                count.toString(),
+                style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+                color = if (hot) MaterialTheme.colorScheme.tertiary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp),
+            )
+        }
         if (onToggle != null) {
             Icon(
                 if (collapsed) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess,
