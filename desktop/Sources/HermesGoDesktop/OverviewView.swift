@@ -6,7 +6,10 @@ struct OverviewView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Binding var selection: DesktopSection
 
-    private let topology: [HealthComponent] = [.desktopAgent, .gateway, .hermes, .endToEnd]
+    private var topology: [HealthComponent] {
+        let visible = Set(model.presentedHealth.components.map(\.component))
+        return [.desktopAgent, .gateway, .hermes, .endToEnd].filter(visible.contains)
+    }
 
     var body: some View {
         ScrollView {
@@ -40,7 +43,7 @@ struct OverviewView: View {
                     activityCard
                 }
 
-                Text("上次完整检查：\(model.health.checkedAt.formatted(date: .omitted, time: .shortened))")
+                Text("上次完整检查：\(model.presentedHealth.checkedAt.formatted(date: .omitted, time: .shortened))")
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
             }
@@ -137,7 +140,7 @@ struct OverviewView: View {
     }
 
     private func topologyNode(_ component: HealthComponent) -> some View {
-        let item = model.health.component(component)
+        let item = model.presentedHealth.component(component)
         return VStack(spacing: 8) {
             ZStack {
                 Circle()

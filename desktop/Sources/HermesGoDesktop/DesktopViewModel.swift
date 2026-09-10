@@ -94,7 +94,7 @@ final class DesktopViewModel: ObservableObject {
     }
 
     var statusTitle: String {
-        switch health.overall {
+        switch presentedHealth.overall {
         case .checking: "正在检查"
         case .healthy: "工作正常"
         case .degraded: "部分功能受限"
@@ -103,7 +103,7 @@ final class DesktopViewModel: ObservableObject {
     }
 
     var statusDetail: String {
-        switch health.overall {
+        switch presentedHealth.overall {
         case .checking: "正在确认旧 Connector 与连接链路"
         case .healthy: "这台 Mac 正在安全连接 Hermes GO"
         case .degraded: "主链路可用，但有一项能力需要确认"
@@ -112,12 +112,21 @@ final class DesktopViewModel: ObservableObject {
     }
 
     var overallLevel: HealthLevel {
-        switch health.overall {
+        switch presentedHealth.overall {
         case .checking: .checking
         case .healthy: .healthy
         case .degraded: .degraded
         case .needsAttention: .failed
         }
+    }
+
+    var presentedHealth: DesktopHealthSnapshot {
+        health.presented(accountModeActive: isAccountModeActive)
+    }
+
+    private var isAccountModeActive: Bool {
+        if case .signedIn = accountState { return true }
+        return false
     }
 
     func startMonitoring() {
