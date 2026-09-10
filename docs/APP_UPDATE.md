@@ -54,7 +54,12 @@ downgrade is not supported.”
 > *Incident: 0.1.97 was allocated twice and published never* below before bumping anything.
 
 1. The integration agent bumps `appVersionName` and `appVersionCode`, updates `android/README.md`, and
-   adds `android/releases/<version>.json` containing only channel and release notes.
+   adds `android/releases/<version>.json` containing only channel and release notes. Do this with
+   `node scripts/bump-android-release.mjs --notes-file <notes> --summary "<README entry>"`, which
+   writes all three and fails closed on the two ways this went wrong by hand: allocating from a tree
+   that is not the current `origin/main`, and reusing a number an existing release file or `origin`
+   tag already carries. It validates the notes against `release-server/src/schema.mjs` at allocation
+   time rather than at upload. It deliberately does not commit, tag, build, or publish.
 2. Commit the release, push it to `origin/main`, and confirm the worktree is clean. With the canonical
    key provisioned, run `scripts/publish-android-apk.sh`. The publisher refuses a dirty worktree or a
    `HEAD` different from `origin/main`. Authentication comes only from ssh-agent/key or caller-injected

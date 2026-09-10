@@ -83,8 +83,19 @@ The Android version source of truth is at the top of `android/app/build.gradle.k
 
 For every APK actually handed to a tester or user:
 
-1. The integration agent increments `appVersionName` by one patch version and `appVersionCode` by one.
-2. Update the matching version note in `android/README.md`.
+1. The integration agent allocates the next version with
+
+   ```bash
+   node scripts/bump-android-release.mjs --notes-file <notes> --summary "<README entry>"
+   ```
+
+   which increments `appVersionName` by one patch version and `appVersionCode` by one, writes the
+   `android/README.md` entry and the staged-APK filename, and adds `android/releases/<version>.json`.
+   It refuses to allocate from a dirty tree or from anything but the current `origin/main`, and
+   refuses a number that a release file or an `origin` tag already carries — the way 0.1.95 and
+   0.1.97 were lost. Editing the three files by hand instead is still allowed, and still has to
+   produce exactly the same result.
+2. Confirm the version note in `android/README.md` reads the way you want it to.
 3. Run the mandatory release gate from the repository root:
 
    ```bash
