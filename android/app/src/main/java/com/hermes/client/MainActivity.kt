@@ -202,6 +202,7 @@ class MainActivity : ComponentActivity() {
                                             AccountTransportMode.REAUTHENTICATION_REQUIRED,
                                             AccountTransportMode.ACCOUNT_DELETION_COMMITTED -> chat.disconnect()
                                             AccountTransportMode.ACCOUNT,
+                                            AccountTransportMode.ACCOUNT_PENDING,
                                             AccountTransportMode.LEGACY -> Unit
                                         }
                                     }
@@ -440,6 +441,7 @@ class MainActivity : ComponentActivity() {
     private fun hasConnectionConfiguration(): Boolean =
         when (accountSessions.transportMode()) {
             AccountTransportMode.ACCOUNT -> true
+            AccountTransportMode.ACCOUNT_PENDING,
             AccountTransportMode.LEGACY ->
                 runCatching { credentialStore.load() }.getOrNull() != null
             AccountTransportMode.DEVICE_SELECTION_REQUIRED,

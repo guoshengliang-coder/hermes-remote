@@ -1,6 +1,6 @@
 # Account platform E8 Android test record
 
-Date: 2026-09-08
+Date: 2026-09-08 (updated 2026-09-10)
 
 Scope: local Android email-code account foundation and challenge lifecycle, owned/shared device selection, and conversation affinity
 
@@ -69,6 +69,17 @@ Production changes: none
   `/api/status` probe succeed. Account REST and WebSocket then use the selected `/v2/devices/{id}`
   paths and `Authorization: Bearer`. A dedicated client without the legacy dashboard cookie jar or
   authenticator is mandatory, so account traffic never also sends an App Token or dashboard cookie.
+- Android now follows the binding capability instead of assuming the multi-device contract. When
+  `supportsDeviceSelection` is absent/false, it reads `/v2/connector-binding`, maps the sole bound Mac
+  into the existing presentation model, probes Bearer `/api/status`, and then uses `/api/*` plus
+  `/api/ws`; it never calls the disabled `/v2/devices*` endpoints. Explicit device routes remain in
+  place for a future capability-enabled multi-device rollout.
+- A working Legacy installation that opts into email login persists the account as
+  `ACCOUNT_PENDING` and keeps Legacy REST/WebSocket/startup authoritative until the account Mac passes
+  its Bearer probe. Device selection and route mode then commit together before one reconnect. The
+  pending state survives process restart; a missing Mac or failed probe does not disrupt Legacy, and
+  an invalid pending session returns to Legacy. Invalidation after account transport is active keeps
+  the existing fail-closed reauthentication behavior.
 - “Sign out on this phone” calls the current-installation revocation endpoint and retains legacy
   credentials.
 - The durable lifecycle inbox is account/phone scoped rather than Mac scoped. Page and delivery-ACK
@@ -94,9 +105,9 @@ Production changes: none
 | Check | Result | Coverage |
 |---|---|---|
 | `:app:compileDebugKotlin` | Pass | Hilt graph, Compose and Android account sources compile |
-| Focused account/API/transport/startup tests | Pass | Capabilities, email exchange binding, structured errors, encrypted-state model, refresh rotation/revocation, explicit REST path, Bearer-only dedicated REST/WebSocket clients, installation-scoped lifecycle inbox/cursor, automatic discovery, revoked-device handoff, legacy preservation, bilingual presentation |
+| Focused account/API/transport/startup tests | Pass, 109 tests | Capabilities, singular and explicit binding lookup/routing, pending Legacy migration, email exchange binding, structured errors, encrypted-state model, refresh rotation/revocation, Bearer-only dedicated REST/WebSocket clients, installation-scoped lifecycle inbox/cursor, automatic discovery, revoked-device handoff, legacy preservation, bilingual presentation |
 | `:app:compileDebugAndroidTestKotlin` | Pass | Encrypted-store persistence regression compiles for device execution |
-| `:app:testDebugUnitTest :app:assembleDebug` | Pass, 961 tests | Full Android JVM baseline, Hilt graph, debug signing check, and debug build |
+| `:app:testDebugUnitTest :app:assembleDebug` | Pass, 1,382 tests | Full Android JVM baseline, Hilt graph, debug signing check, and debug build |
 | Account screen Robolectric UI/recording | Pass | Email-first light screen, OTP expiry/resend-cooldown light screen, no-device auto-discovery light screen, plus owned/shared dark screen at 1.3 font scale; locally inspected |
 
 The first E8-A focused run exposed an invalid “healthy device” fixture whose Connector defaulted offline;
@@ -147,6 +158,14 @@ the account/device control surface and immediately retires an active route when 
 mandatory. Its regressions also prove that operation-scoped `HR-AUTH-006` preserves the current
 transport and renders its canonical Chinese and English explanation. The baseline advances to 961 tests.
 
+The 2026-09-10 singular-binding alignment adds capability-directed `/v2/connector-binding` discovery,
+unprefixed Bearer REST/WebSocket routing, and a durable pending-activation handoff from Legacy. Its
+focused 109-test set passes. The first compilation exposed a KDoc token parsed as a nested comment;
+the wording was corrected. The first full login-path regression also exposed that local JVM/device
+environments can provide null Android manufacturer/model values before the exchange call; the display
+name now safely falls back to `Android phone`. The final full baseline passes 1,382 tests, the debug
+build/signing check passes, and the Android instrumentation source set compiles.
+
 ## Still open before E8 release
 
 - Emulator inspection could not run because this host's configured SDK has no Emulator package.
@@ -154,7 +173,8 @@ transport and renders its canonical Chinese and English explanation. The baselin
   serial, preventing a connected physical phone from being mistaken for the emulator. Physical
   TalkBack and device testing remain open. The encrypted-store gate test compiled but was not run on
   a device in this iteration.
-- Live transactional email delivery and code entry against a non-production environment.
+- Real-device validation of this branch's singular-binding handoff, including app-process restart
+  while activation is pending and the first successful Bearer WebSocket connection.
 - Two accounts, two phones, owned + shared Macs, revocation, network loss, refresh expiry, and Mac
   restart end-to-end acceptance.
 - APK version bump, package gate, signed artifact verification, publication, production feature

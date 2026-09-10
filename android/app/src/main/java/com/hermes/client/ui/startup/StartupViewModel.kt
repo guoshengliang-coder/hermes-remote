@@ -458,9 +458,15 @@ class StartupViewModel @Inject constructor(
         return true
     }
 
-    private fun hasConnectionConfiguration(): Boolean =
-        accountSessions?.transportMode()?.let { it != AccountTransportMode.LEGACY } == true ||
-            runCatching { credentials.load() }.getOrNull() != null
+    private fun hasConnectionConfiguration(): Boolean = when (accountSessions?.transportMode()) {
+        AccountTransportMode.ACCOUNT,
+        AccountTransportMode.DEVICE_SELECTION_REQUIRED,
+        AccountTransportMode.REAUTHENTICATION_REQUIRED,
+        AccountTransportMode.ACCOUNT_DELETION_COMMITTED -> true
+        AccountTransportMode.ACCOUNT_PENDING,
+        AccountTransportMode.LEGACY,
+        null -> runCatching { credentials.load() }.getOrNull() != null
+    }
 
     private suspend fun probeAccountConnection(): GatewayProbeResult = try {
         rest.gatewayStatus()

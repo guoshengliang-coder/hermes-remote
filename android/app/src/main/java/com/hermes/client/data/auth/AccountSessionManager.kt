@@ -16,6 +16,7 @@ data class AccountConnection(
     val baseUrl: String,
     val bearer: String,
     val deviceId: String,
+    val deviceRouteMode: AccountDeviceRouteMode,
 )
 
 data class AccountControlConnection(
@@ -30,6 +31,8 @@ data class AccountRoutingContext(
 
 enum class AccountTransportMode {
     ACCOUNT,
+    /** A verified account exists beside the still-authoritative, working Legacy transport. */
+    ACCOUNT_PENDING,
     DEVICE_SELECTION_REQUIRED,
     REAUTHENTICATION_REQUIRED,
     ACCOUNT_DELETION_COMMITTED,
@@ -63,6 +66,7 @@ class AccountSessionManager(
         if (store.accountReauthenticationRequired()) return AccountTransportMode.REAUTHENTICATION_REQUIRED
         if (store.explicitLegacyConnectionSelected()) return AccountTransportMode.LEGACY
         val current = _session.value ?: return AccountTransportMode.LEGACY
+        if (current.activationPending) return AccountTransportMode.ACCOUNT_PENDING
         return if (current.selectedDeviceId == null) {
             AccountTransportMode.DEVICE_SELECTION_REQUIRED
         } else {
@@ -70,7 +74,11 @@ class AccountSessionManager(
         }
     }
 
-    fun activate(baseUrl: String, response: AccountExchangeResponseDto) {
+    fun activate(
+        baseUrl: String,
+        response: AccountExchangeResponseDto,
+        keepLegacyTransportUntilProbe: Boolean = false,
+    ) {
         val value = AccountSession(
             baseUrl = normalizeGatewayBaseUrl(baseUrl),
             accountId = response.account.id,
@@ -82,6 +90,7 @@ class AccountSessionManager(
             accessExpiresAt = response.session.accessExpiresAt,
             refreshToken = response.session.refreshToken,
             refreshExpiresAt = response.session.refreshExpiresAt,
+            activationPending = keepLegacyTransportUntilProbe,
         )
         store.saveAccountSession(value)
         // Fail closed across a process crash: commit the new account first, then activate it.
@@ -93,11 +102,16 @@ class AccountSessionManager(
         _session.value = value
     }
 
-    fun selectDevice(device: AccountDeviceDto) {
+    fun selectDevice(
+        device: AccountDeviceDto,
+        routeMode: AccountDeviceRouteMode = AccountDeviceRouteMode.EXPLICIT_DEVICE,
+    ) {
         val current = _session.value ?: return
         val updated = current.copy(
             selectedDeviceId = device.deviceId,
             selectedDeviceName = device.desktopDisplayName,
+            activationPending = false,
+            deviceRouteMode = routeMode,
         )
         store.saveAccountSession(updated)
         store.setExplicitLegacyConnectionSelected(false)
@@ -176,7 +190,9 @@ class AccountSessionManager(
                 update(refreshed)
                 refreshed.accessToken
             } catch (error: AccountApiException) {
-                if (error.statusCode == 401 || error.errorCode in INVALID_SESSION_CODES) clearLocal()
+                if (error.statusCode == 401 || error.errorCode in INVALID_SESSION_CODES) {
+                    invalidateAccountSession()
+                }
                 throw error
             }
         }
@@ -189,7 +205,7 @@ class AccountSessionManager(
             ?: return null
         val bearer = accessToken() ?: return null
         val current = _session.value ?: return null
-        return AccountConnection(current.baseUrl, bearer, selected)
+        return AccountConnection(current.baseUrl, bearer, selected, current.deviceRouteMode)
     }
 
     /** Account-owned endpoints such as the phone lifecycle inbox do not belong to one Mac. */
@@ -254,7 +270,7 @@ class AccountSessionManager(
     /** Applies the same recovery to account REST responses without treating ordinary 404s as revocation. */
     fun handleRestRejection(statusCode: Int, errorCode: String?, rejectedDeviceId: String?) {
         when {
-            statusCode == 401 || errorCode in INVALID_SESSION_CODES -> clearLocal()
+            statusCode == 401 || errorCode in INVALID_SESSION_CODES -> invalidateAccountSession()
             errorCode == "HR-BIND-011" && !rejectedDeviceId.isNullOrBlank() ->
                 handleTransportHandshakeRejection(404, rejectedDeviceId)
         }
@@ -284,6 +300,11 @@ class AccountSessionManager(
         store.setAccountDeletionCommitted(false)
         _session.value = null
         transportDeviceId = null
+    }
+
+    /** A failed opt-in probe restores Legacy; an already-active account still fails closed. */
+    private fun invalidateAccountSession() {
+        clearLocal(requireReauthentication = _session.value?.activationPending != true)
     }
 
     private fun update(value: AccountSession) {

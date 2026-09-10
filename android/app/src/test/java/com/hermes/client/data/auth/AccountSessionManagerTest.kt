@@ -237,6 +237,51 @@ class AccountSessionManagerTest {
         assertEquals("Office Mac", manager.session.value?.selectedDeviceName)
     }
 
+    @Test fun optInActivationKeepsLegacyUntilASingularRouteIsSelected() = runTest {
+        val manager = manager()
+
+        manager.activate(
+            baseUrl(),
+            AccountExchangeResponseDto(
+                AccountDto("account-1", email = "person@example.com"),
+                AccountInstallationDto("installation-1", "phone", "android", "Pixel"),
+                AccountTokensDto("hga", "2099-01-01T00:00:00Z", "hgr", "2099-02-01T00:00:00Z"),
+            ),
+            keepLegacyTransportUntilProbe = true,
+        )
+
+        assertEquals(AccountTransportMode.ACCOUNT_PENDING, manager.transportMode())
+        assertNull(manager.connection())
+        manager.selectDevice(
+            AccountDeviceDto(
+                id = "binding-1",
+                generation = 1,
+                deviceId = "mac-1",
+                desktopDisplayName = "Office Mac",
+                access = "owner",
+            ),
+            AccountDeviceRouteMode.SINGLE_BINDING,
+        )
+
+        assertEquals(AccountTransportMode.ACCOUNT, manager.transportMode())
+        assertEquals(false, manager.session.value?.activationPending)
+        assertEquals(AccountDeviceRouteMode.SINGLE_BINDING, manager.connection()?.deviceRouteMode)
+    }
+
+    @Test fun invalidPendingAccountSessionReturnsToLegacyInsteadOfEnteringAReauthenticationGate() {
+        store.account = session(
+            accessExpiresAt = "2099-01-01T00:00:00Z",
+            selectedDeviceId = null,
+        ).copy(activationPending = true)
+        val manager = manager()
+
+        manager.handleRestRejection(401, "HR-AUTH-004", rejectedDeviceId = null)
+
+        assertNull(manager.session.value)
+        assertEquals(false, manager.requiresAccountReauthentication())
+        assertEquals(AccountTransportMode.LEGACY, manager.transportMode())
+    }
+
     @Test fun conversation_route_does_not_change_selected_mac_and_can_be_restored() = runTest {
         store.account = session(accessExpiresAt = "2099-01-01T00:00:00Z", selectedDeviceId = "mac-default")
         val manager = manager()

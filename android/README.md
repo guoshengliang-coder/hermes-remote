@@ -12,8 +12,14 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   capability. The previous Relay URL + App Token + QR setup remains under the explicit Legacy
   connection entry; Mac credentials never enter the app.
 - Account access/refresh material and the random per-install installation ID use encrypted storage
-  separate from legacy credentials. Selecting an owned or shared Mac commits the cloud default and
-  passes an explicit-device end-to-end probe before REST/WebSocket switch to bearer authentication.
+  separate from legacy credentials. Android follows the Gateway capability: the current single-Mac
+  rollout reads `/v2/connector-binding` and uses Bearer on `/api/*` plus `/api/ws`; a future
+  multi-device rollout uses the explicit `/v2/devices/{id}` routes and cloud default selection.
+- When a working Legacy connection opts into account login, Android persists a distinct pending
+  activation state and keeps Legacy authoritative across restart. It switches REST/WebSocket only
+  after the discovered account Mac passes the Bearer end-to-end probe; a missing Mac, failed probe,
+  or invalid pending account session leaves the old connection intact. Invalidation after account
+  transport was already active still fails closed and requires sign-in.
 - Email-code challenges use the server's absolute expiry and resend deadlines: Android restores only
   a still-valid encrypted challenge after process death, never persists the entered code, disables
   early resend, and clears locally expired or malformed challenges before verification.

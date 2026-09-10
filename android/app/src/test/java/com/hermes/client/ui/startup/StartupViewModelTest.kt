@@ -95,6 +95,23 @@ class StartupViewModelTest {
         coVerify(exactly = 0) { rest.probeStatusFor(any(), any()) }
     }
 
+    @Test fun pendingAccountActivationKeepsUsingTheRetainedLegacyConfiguration() = runTest {
+        val accountSessions = mockk<AccountSessionManager>()
+        every { accountSessions.session } returns MutableStateFlow(
+            accountSession().copy(activationPending = true, selectedDeviceId = null),
+        )
+        every { accountSessions.transportMode() } returns AccountTransportMode.ACCOUNT_PENDING
+        every { accountSessions.requiresAccountReauthentication() } returns false
+        val vm = vm(accountSessions)
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+
+        coVerify(exactly = 1) { rest.probeStatusFor(config.baseUrl, config.token) }
+        coVerify(exactly = 0) { rest.gatewayStatus() }
+        verify(exactly = 1) { chat.connect() }
+    }
+
     @Test fun persistedAccountReauthenticationGateBlocksLegacyColdStartFallback() = runTest {
         every { credentials.load() } returns config
         val accountSessions = mockk<AccountSessionManager>(relaxed = true)
