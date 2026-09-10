@@ -254,6 +254,31 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         }
     }
 
+    /// Re-establishes the single-Connector invariant after Migration Assistant restores both
+    /// LaunchAgents. This is allowed only for a durably committed account installation whose two
+    /// managed services are already loaded; it never starts or rewrites a service.
+    @discardableResult
+    public func reconcileTransferredAccountActive() throws -> Bool {
+        guard let preview = try journal.loadReadOnly(),
+              preview.state == .accountActive,
+              preview.bindingID != nil,
+              preview.bindingGeneration != nil
+        else { return false }
+        let operationLease = try journal.acquireOperationLease()
+        defer { withExtendedLifetime(operationLease) {} }
+        guard let recorded = try journal.load(),
+              recorded.state == .accountActive,
+              recorded.bindingID != nil,
+              recorded.bindingGeneration != nil
+        else { return false }
+        let services = launchAgent.inspectAllowingDuplicateConnector()
+        guard services.accountLoaded, services.hermesLoaded else {
+            throw DesktopMigrationCoordinatorError.invalidStartingState
+        }
+        try launchAgent.suppressTransferredLegacyForActiveManagedInstallation()
+        return services.legacyLoaded
+    }
+
     private func waitForCandidate(bindingID: String, generation: Int, runID: String) async throws {
         var authenticated = false
         for attempt in 0..<maximumHealthPolls {

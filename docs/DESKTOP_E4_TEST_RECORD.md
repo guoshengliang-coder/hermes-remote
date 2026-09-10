@@ -266,5 +266,25 @@ during local diagnostics was rotated immediately; the old value was invalidated 
 value was retained in this record.
 
 This remains an internal ad-hoc build. It is not Developer ID signed, notarized, stapled, or approved
-for public distribution. Migration Assistant transfer to a different physical Mac remains a separate
-acceptance gate.
+for public distribution.
+
+## 2026-09-10 Migration Assistant physical transfer finding
+
+Migration Assistant moved the active managed installation to a new Mac mini with the journal still
+`account_active`, release 0.3.0, and binding generation 7. It also caused launchd to load both
+`com.hermesremote.connector` and `com.hermesgo.connector`, demonstrating that a successful `bootout`
+during the original migration did not persist the single-Connector invariant across machine transfer.
+The transferred installation predated the private session-token contract and required a local token
+rotation before managed Hermes and Connector could share the current credential format.
+
+The target was repaired without changing the Cloud binding or Hermes data: the legacy label was
+stopped and persistently disabled, managed Hermes authenticated its protected loopback endpoint, the
+managed Connector established TLS to the Gateway, and Desktop 0.2.3 launched. Temporary repair
+snapshots and the retired credential were removed after the live checks passed; no secret value was
+recorded.
+
+The corresponding regression changes make legacy disable/enable part of the normal takeover/rollback
+pair and let Desktop suppress a transferred duplicate at startup only when the durable journal is
+exactly `account_active` and both managed labels are already loaded. Intermediate and incomplete
+states remain inert or fail closed. A packaged run of the corrected Desktop followed by a full Mac
+reboot and Android REST/WebSocket verification remains pending.
