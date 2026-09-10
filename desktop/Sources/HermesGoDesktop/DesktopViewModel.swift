@@ -801,6 +801,17 @@ final class DesktopViewModel: ObservableObject {
 
     private func recoverManagedBootstrapAfterRestart() async {
         guard let runtime = managedRecoveryRuntime else { return }
+        do {
+            _ = try await Task.detached(priority: .utility) {
+                try runtime.reconcileTransferredAccountActive()
+            }.value
+        } catch {
+            managedBootstrapOperation = .failed
+            managedBootstrapIssue = DesktopIssue(
+                code: .migrationConnectorMismatch,
+                technicalCause: String(describing: error)
+            )
+        }
         let inspector = self.inspector
         let observation = await Task.detached(priority: .utility) {
             inspector.inspect()

@@ -4,9 +4,11 @@ Current internal test release: **0.2.3** (build 6). It carries the managed-migra
 private loopback session-token handoff required by Hermes Server 0.21.0, and reports the effective
 managed Agent instead of treating the intentionally stopped legacy Connector as a failure. A managed
 installation whose this-device-only account session is absent remains visible as running but awaiting
-account verification. While the account is signed in, legacy App-Token health is also removed from
-Overview, Diagnostics, and aggregate status. Public distribution still requires Developer ID signing,
-notarization, stapling, and clean-Mac acceptance.
+account verification. A committed account migration now persistently disables the legacy LaunchAgent,
+re-enables it on pre-commit rollback, and reasserts that single-Connector state after Migration
+Assistant restores both labels. While the account is signed in, legacy App-Token health is also
+removed from Overview, Diagnostics, and aggregate status. Public distribution still requires
+Developer ID signing, notarization, stapling, and clean-Mac acceptance.
 
 Hermes Go Desktop is the native macOS companion for the existing Hermes Remote Connector. The local
 I3-A alpha still runs in **compatibility observation mode**: it reads the current user-level launchd status,
@@ -67,7 +69,10 @@ pass, and the legacy connection remains available. Local evidence and remaining 
 - Candidate Hermes and Connector health each receive up to 75 one-second polls. This covers a measured
   35-second cold start on the physical Mac mini without weakening the exact marker and HTTP proof.
 - Managed takeover requires exact user confirmation and never runs the legacy and account Connector
-  labels together.
+  labels together. The legacy label is persistently disabled before managed startup and re-enabled
+  before rollback restore. On Desktop startup, an exact `account_active` journal plus both loaded
+  managed services may suppress a transferred legacy label; no intermediate or mismatched state may
+  use that repair.
 - Download/verification occurs before the exact version confirmation and cannot mutate installation,
   credentials, LaunchAgents, processes, or bindings. Closing the confirmation removes the private
   workspace. A committed install that cannot clean temporary files exposes only a cleanup retry and

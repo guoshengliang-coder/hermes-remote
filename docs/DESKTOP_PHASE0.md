@@ -362,8 +362,24 @@ by this UI-only step.
 - Physical UI inspection confirmed the Overview now reports the effective managed Agent as healthy
   instead of treating the intentionally stopped legacy Connector as a failure. Temporary rollback,
   transfer, and clean-build copies were removed after verification.
-- Migration Assistant transfer to a new physical Mac, Developer ID signing, notarization, stapling,
-  and clean-Mac launch acceptance remain pending.
+- Developer ID signing, notarization, stapling, and clean-Mac launch acceptance remain pending.
+
+### Migration Assistant physical transfer — 2026-09-10
+
+- Migration Assistant moved the active 0.3.0 managed installation to a new Mac mini. The journal and
+  binding remained `account_active` at generation 7, but launchd restored both the legacy and managed
+  Connector labels. The transferred pre-session-token installation also needed its local Hermes
+  credential rotated to the current private 43-character format.
+- The old Connector was stopped and persistently disabled, the managed Hermes/Connector pair was
+  restarted with one shared private credential, and authenticated loopback plus the Connector's TLS
+  connection to the Gateway passed. Desktop 0.2.3 then launched and the duplicate label remained
+  unloaded. No Cloud binding or Hermes data was replaced.
+- The deterministic correction now disables the legacy label during the original managed takeover,
+  re-enables it during pre-commit rollback, and on later Desktop startup suppresses a transferred
+  duplicate only when an exact `account_active` journal and both managed services are present. It is
+  inert for intermediate, mismatched, or incomplete installations.
+- A packaged run of this correction and a full Mac reboot followed by Android REST/WebSocket traffic
+  are still required before closing the physical migration gate.
 
 ### Account-mode presentation release — 2026-09-10
 
@@ -378,5 +394,6 @@ by this UI-only step.
 - Authenticated local Hermes health returned HTTP 200 and Connector retained an established upstream
   connection. A session token exposed during local diagnostics was rotated immediately and the old
   value invalidated.
-- Migration Assistant transfer to a new physical Mac, Developer ID signing, notarization, stapling,
-  and clean-Mac launch acceptance remain pending.
+- The later physical Migration Assistant run is recorded above. A packaged rerun of its deterministic
+  launch-state correction, Developer ID signing, notarization, stapling, and clean-Mac launch
+  acceptance remain pending.

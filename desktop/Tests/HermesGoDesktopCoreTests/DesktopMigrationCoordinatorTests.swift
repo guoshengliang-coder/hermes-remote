@@ -66,6 +66,7 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
             DesktopManagedInstallLayout.connectorLabel,
             DesktopManagedInstallLayout.hermesLabel,
         ])
+        XCTAssertEqual(fixture.runner.disabledLabels(), ["com.hermesremote.connector"])
         XCTAssertEqual(
             fixture.runner.events().compactMap { command -> String? in
                 guard command.first == "bootstrap" else { return nil }
@@ -110,6 +111,7 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(try fixture.journal.load()?.state, .legacyActive)
         XCTAssertEqual(fixture.runner.loadedLabels(), ["com.hermesremote.connector"])
+        XCTAssertTrue(fixture.runner.disabledLabels().isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.currentRelease.path))
     }
 
@@ -228,6 +230,7 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(try fixture.journal.load()?.state, .legacyActive)
         XCTAssertEqual(fixture.runner.loadedLabels(), ["com.hermesremote.connector"])
+        XCTAssertTrue(fixture.runner.disabledLabels().isEmpty)
         let bootstrappedLabels = fixture.runner.events().compactMap { command -> String? in
             guard command.first == "bootstrap" else { return nil }
             return URL(fileURLWithPath: command.last!).deletingPathExtension().lastPathComponent
@@ -317,6 +320,74 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         XCTAssertEqual(recovered, .legacyActive)
         XCTAssertEqual(fixture.runner.loadedLabels(), ["com.hermesremote.connector"])
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.currentRelease.path))
+    }
+
+    func testMigrationAssistantDuplicateIsSuppressedOnlyForCommittedAccountActiveJournal() throws {
+        let fixture = try Fixture(legacyRunning: true)
+        defer { fixture.cleanup() }
+        _ = try fixture.journal.begin(
+            runID: fixture.runID,
+            lastKnownGoodMode: .legacy,
+            releaseVersion: fixture.manifest.releaseVersion,
+            bindingID: fixture.bindingID,
+            bindingGeneration: 1
+        )
+        for state in [
+            DesktopMigrationState.accountStaged,
+            .candidateStarting,
+            .candidateAuthenticated,
+            .candidateHealthy,
+            .commitPending,
+            .accountActive,
+        ] {
+            _ = try fixture.journal.transition(runID: fixture.runID, to: state)
+        }
+        fixture.runner.replaceLoaded(with: [
+            "com.hermesremote.connector",
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
+
+        XCTAssertTrue(try fixture.coordinator.reconcileTransferredAccountActive())
+
+        XCTAssertEqual(fixture.runner.loadedLabels(), [
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
+        XCTAssertEqual(fixture.runner.disabledLabels(), ["com.hermesremote.connector"])
+    }
+
+    func testTransferReconciliationIsInertBeforeAccountCommit() throws {
+        let fixture = try Fixture(legacyRunning: true)
+        defer { fixture.cleanup() }
+        _ = try fixture.journal.begin(
+            runID: fixture.runID,
+            lastKnownGoodMode: .legacy,
+            releaseVersion: fixture.manifest.releaseVersion,
+            bindingID: fixture.bindingID,
+            bindingGeneration: 1
+        )
+        _ = try fixture.journal.transition(runID: fixture.runID, to: .accountStaged)
+        fixture.runner.replaceLoaded(with: [
+            "com.hermesremote.connector",
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
+
+        XCTAssertFalse(try fixture.coordinator.reconcileTransferredAccountActive())
+        XCTAssertEqual(fixture.runner.loadedLabels().count, 3)
+        XCTAssertTrue(fixture.runner.disabledLabels().isEmpty)
+    }
+
+    func testTransferReconciliationDoesNotCreateStateOnCleanMac() throws {
+        let fixture = try Fixture(legacyRunning: false)
+        defer { fixture.cleanup() }
+        let journalRoot = fixture.root.appendingPathComponent("journal")
+
+        XCTAssertFalse(try fixture.coordinator.reconcileTransferredAccountActive())
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: journalRoot.path))
+        XCTAssertTrue(fixture.runner.events().isEmpty)
     }
 }
 
@@ -540,6 +611,7 @@ private actor MigrationAccountFake: DesktopBindingCoordinating {
 private final class InMemoryLaunchctlRunner: CommandRunning, @unchecked Sendable {
     private let lock = NSLock()
     private var loaded: Set<String>
+    private var disabled: Set<String> = []
     private let failAccountStart: Bool
     private var commands: [[String]] = []
 
@@ -559,6 +631,14 @@ private final class InMemoryLaunchctlRunner: CommandRunning, @unchecked Sendable
                 let label = arguments.last!.split(separator: "/").last.map(String.init)!
                 loaded.remove(label)
                 return CommandResult(status: 0)
+            case "disable":
+                let label = arguments.last!.split(separator: "/").last.map(String.init)!
+                disabled.insert(label)
+                return CommandResult(status: 0)
+            case "enable":
+                let label = arguments.last!.split(separator: "/").last.map(String.init)!
+                disabled.remove(label)
+                return CommandResult(status: 0)
             case "bootstrap":
                 let label = URL(fileURLWithPath: arguments.last!).deletingPathExtension().lastPathComponent
                 if label == DesktopManagedInstallLayout.connectorLabel, failAccountStart {
@@ -573,6 +653,7 @@ private final class InMemoryLaunchctlRunner: CommandRunning, @unchecked Sendable
     }
 
     func loadedLabels() -> Set<String> { lock.withLock { loaded } }
+    func disabledLabels() -> Set<String> { lock.withLock { disabled } }
     func events() -> [[String]] { lock.withLock { commands } }
     func replaceLoaded(with labels: Set<String>) { lock.withLock { loaded = labels } }
 }

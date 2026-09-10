@@ -18,6 +18,7 @@ public enum DesktopLaunchAgentControllerError: Error, Equatable, Sendable {
     case invalidConfiguration
     case duplicateConnector
     case legacyStopFailed
+    case legacySuppressionFailed
     case accountStartFailed
     case accountStopFailed
     case hermesStartFailed
@@ -63,15 +64,19 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
     }
 
     public func inspect() throws -> DesktopLaunchAgentServiceState {
-        let state = DesktopLaunchAgentServiceState(
-            legacyLoaded: isLoaded(Self.legacyLabel),
-            accountLoaded: isLoaded(Self.accountLabel),
-            hermesLoaded: isLoaded(Self.hermesLabel)
-        )
+        let state = inspectAllowingDuplicateConnector()
         guard !state.hasDuplicateConnector else {
             throw DesktopLaunchAgentControllerError.duplicateConnector
         }
         return state
+    }
+
+    public func inspectAllowingDuplicateConnector() -> DesktopLaunchAgentServiceState {
+        DesktopLaunchAgentServiceState(
+            legacyLoaded: isLoaded(Self.legacyLabel),
+            accountLoaded: isLoaded(Self.accountLabel),
+            hermesLoaded: isLoaded(Self.hermesLabel)
+        )
     }
 
     public func stopLegacy(snapshot: LegacyConnectorSnapshot) throws {
@@ -81,9 +86,36 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
               !isLoaded(Self.accountLabel),
               isLoaded(Self.legacyLabel)
         else { throw DesktopLaunchAgentControllerError.invalidConfiguration }
+        guard run(["disable", serviceTarget(Self.legacyLabel)]).status == 0 else {
+            throw DesktopLaunchAgentControllerError.legacyStopFailed
+        }
         guard run(["bootout", serviceTarget(Self.legacyLabel)]).status == 0,
               waitUntilLoaded(Self.legacyLabel, expected: false)
-        else { throw DesktopLaunchAgentControllerError.legacyStopFailed }
+        else {
+            _ = run(["enable", serviceTarget(Self.legacyLabel)])
+            throw DesktopLaunchAgentControllerError.legacyStopFailed
+        }
+    }
+
+    /// Migration Assistant can restore both user LaunchAgents even when the committed managed
+    /// installation was the sole authority on the source Mac. The durable account-active journal
+    /// is checked by the caller before this exact-label repair is allowed.
+    public func suppressTransferredLegacyForActiveManagedInstallation() throws {
+        guard isLoaded(Self.accountLabel),
+              isLoaded(Self.hermesLabel)
+        else { throw DesktopLaunchAgentControllerError.invalidConfiguration }
+        guard run(["disable", serviceTarget(Self.legacyLabel)]).status == 0 else {
+            throw DesktopLaunchAgentControllerError.legacySuppressionFailed
+        }
+        guard isLoaded(Self.legacyLabel) else { return }
+        guard run(["bootout", serviceTarget(Self.legacyLabel)]).status == 0,
+              waitUntilLoaded(Self.legacyLabel, expected: false),
+              isLoaded(Self.accountLabel),
+              isLoaded(Self.hermesLabel)
+        else {
+            _ = run(["enable", serviceTarget(Self.legacyLabel)])
+            throw DesktopLaunchAgentControllerError.legacySuppressionFailed
+        }
     }
 
     public func startAccount(plistURL: URL) throws {
@@ -132,7 +164,8 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
               !isLoaded(Self.accountLabel),
               !isLoaded(Self.legacyLabel)
         else { throw DesktopLaunchAgentControllerError.invalidConfiguration }
-        guard run(["bootstrap", domainTarget, snapshot.launchAgentURL.path]).status == 0,
+        guard run(["enable", serviceTarget(Self.legacyLabel)]).status == 0,
+              run(["bootstrap", domainTarget, snapshot.launchAgentURL.path]).status == 0,
               waitUntilLoaded(Self.legacyLabel, expected: true),
               !isLoaded(Self.accountLabel)
         else { throw DesktopLaunchAgentControllerError.legacyRestoreFailed }

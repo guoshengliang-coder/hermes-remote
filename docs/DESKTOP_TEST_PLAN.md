@@ -80,6 +80,9 @@ The current automated suite covers:
 - exact legacy/account user LaunchAgent labels, duplicate-Connector prevention, health-gated binding
   confirmation, lost-response idempotency, automatic rollback, ambiguous-commit stop, and restart
   recovery;
+- persistent legacy-label disablement before managed startup, matching re-enablement before rollback,
+  and startup repair that suppresses a Migration Assistant-restored duplicate only when an exact
+  `account_active` journal and both managed services prove the committed authority;
 - bounded launchd convergence after every managed bootstrap/bootout, including delayed legacy
   removal before managed startup or rollback decisions;
 - signed Hermes entrypoint-only plist generation, separate exact Hermes/Connector labels, Hermes-first
@@ -133,7 +136,7 @@ the project-wide `ERROR_HANDLING.md` contract.
 |---|---|---|
 | Existing Connector running | Desktop observes it and does not launch a replacement | Verified on target Mac 2026-09-02; PID and launch count unchanged |
 | Existing Connector migration gate | Healthy configured Hermes plus matching signed-release capability exposes preparation; stopped/unhealthy/unsigned cases preserve legacy | Automated; packaged target-Mac migration still pending |
-| Migration Assistant preserves managed services | Overview reports the effective managed Agent rather than the stopped legacy label; missing this-device-only account credentials require sign-in without starting a duplicate Connector | Automated reducer; physical new-Mac transfer pending |
+| Migration Assistant preserves managed services | Overview reports the effective managed Agent rather than the stopped legacy label; missing this-device-only account credentials require sign-in; a restored legacy label is persistently suppressed only for a proven `account_active` installation | Physical transfer exposed duplicate startup and was manually repaired 2026-09-10; deterministic suppression automated; packaged reboot rerun pending |
 | Existing Connector absent | UI reports not detected and offers no destructive action | Verified 2026-09-02 |
 | Gateway available | Gateway layer is healthy with safe latency | Verified on target Mac 2026-09-02; 15–18 ms observed |
 | Gateway offline/DNS failure | Only Gateway layer fails; Hermes wording remains accurate | Pending fault injection |
