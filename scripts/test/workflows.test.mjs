@@ -28,6 +28,10 @@ test('ordinary CI, SAST, and the Gateway image gates stay unprivileged and never
     assert.equal(/gradlew[^\n]*assemble/.test(text), false, `${file}: packages an APK, which needs the canonical debug key`);
     assert.equal(/KEYSTORE|RELEASE_SSH/.test(text), false, `${file}: references release signing or deployment secrets`);
   }
+  // Ordinary CI may hold exactly one secret: the key that lets setup-gradle persist the
+  // configuration cache. Anything else appearing here means the unprivileged property was lost.
+  const ciSecrets = new Set([...(await read('ci.yml')).matchAll(/secrets\.([A-Z0-9_]+)/g)].map(match => match[1]));
+  assert.deepEqual([...ciSecrets].sort(), ['GITHUB_TOKEN', 'GRADLE_ENCRYPTION_KEY']);
   const ci = await read('ci.yml');
   assert.match(ci, /run: \.\/gradlew :app:testDebugUnitTest --no-daemon/);
   assert.match(ci, /run: \.\/gradlew :app:lintDebug --no-daemon/);
@@ -92,6 +96,19 @@ test('lint is its own job and the Android build gate keeps its caches and its si
     false,
     'declaring outputs would let the build cache skip the signing check'
   );
+});
+
+test('every Gradle job is given the key that makes the configuration cache survive the runner', async () => {
+  // setup-gradle: "Configuration-cache data will not be saved/restored without an encryption key
+  // being provided." Without this the entry is stored at the end of each job and thrown away with
+  // the runner, which is what every Android run logged before it was wired up.
+  for (const file of ['ci.yml', 'android-release.yml']) {
+    const text = await read(file);
+    const gradleSetups = text.split('gradle/actions/setup-gradle@').length - 1;
+    assert.ok(gradleSetups > 0, `${file}: expected at least one setup-gradle step`);
+    const keyed = text.split('cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}').length - 1;
+    assert.equal(keyed, gradleSetups, `${file}: ${gradleSetups - keyed} setup-gradle step(s) without the key`);
+  }
 });
 
 test('routine workflows cancel stale PR runs and bound every job', async () => {
@@ -229,8 +246,17 @@ test('release secrets stay scoped to the steps that consume them', async () => {
   const jobLevelEnv = lines.filter(line => /^ {4}env:\s*$/.test(line));
   assert.deepEqual(jobLevelEnv, [], 'release secrets must not be exposed to every step through job-level env');
   const secrets = lines.filter(line => line.includes('secrets.'));
-  assert.equal(secrets.length, 5);
-  for (const line of secrets) assert.match(line, /^ {10}\w+: \$\{\{ secrets\.\w+ \}\}$/, `unexpected secret usage: ${line}`);
+  // Five release secrets on the two steps that consume them, plus the configuration-cache key on
+  // the setup-gradle step. Each is a single step-scoped line; none is job-level env.
+  assert.equal(secrets.length, 6);
+  for (const line of secrets) assert.match(line, /^ {10}[\w-]+: \$\{\{ secrets\.\w+ \}\}$/, `unexpected secret usage: ${line}`);
+  const cacheKey = secrets.filter(line => line.includes('GRADLE_ENCRYPTION_KEY'));
+  assert.equal(cacheKey.length, 1);
+  // It is a cache key, not release material: it must sit on setup-gradle, before signing begins.
+  assert.ok(
+    release.indexOf('GRADLE_ENCRYPTION_KEY') < release.indexOf('Build signed APK and erase signing key'),
+    'the cache key belongs to setup-gradle, not to a step that handles signing or deployment',
+  );
   assert.match(release, /Build signed APK and erase signing key[\s\S]*key="\$HOME\/\.android\/debug\.keystore"[\s\S]*trap[^\n]*\$key/);
   assert.match(release, /Publish APK and erase deployment key[\s\S]*key="\$HOME\/\.ssh\/id_ed25519"[\s\S]*trap[^\n]*\$key/);
   assert.match(release, /APK_RELEASE_GATE_FILE/);
