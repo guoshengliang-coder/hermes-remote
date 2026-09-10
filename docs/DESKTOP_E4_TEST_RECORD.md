@@ -4,7 +4,7 @@ Date: 2026-09-10
 Status: E4-D local multi-device UX, signed bootstrap, packaged orchestration, account Connector,
 binding, rollback, and restart recovery are complete. Android account continuity and managed account
 mode were subsequently proven on the physical Mac. The corrective internal 0.3.1 arm64 release is
-published and Desktop 0.2.1 is installed on that Mac; Developer ID signing/notarization and clean-Mac
+published and Desktop 0.2.2 is installed on that Mac; Developer ID signing/notarization and clean-Mac
 acceptance remain pending.
 
 ## E4-E offline release publisher
@@ -223,3 +223,27 @@ an assertion that the already running services were silently upgraded.
 
 This remains an internal ad-hoc test release. No Developer ID Application identity was available, so
 the app was not notarized or stapled and must not be presented as a public macOS release.
+
+## 2026-09-10 Desktop 0.2.2 effective-Agent correction
+
+PR #150 merged the effective-Agent status reducer as `be97a5a24172f314ac821ddf77545119f3cfc969`,
+and PR #151 merged the 0.2.2/build 5 version gate as
+`f4c3ec612b4afb348ff6663a85cb056409fe2fd3`. Every applicable PR check and both post-merge CI/SAST
+workflows completed successfully. The final configured internal DMG was built from a clean detached
+worktree whose `HEAD` exactly matched `origin/main`; the complete 171-test Desktop suite, canonical
+asset comparison, release build, strict ad-hoc codesign verification, and `hdiutil verify` passed.
+The 2,041,257-byte DMG SHA-256 is
+`f3568a3aa1a481640386a5737b7c66129af0b74e314c9f68f98d51658410e1d2`.
+
+The DMG was copied to the target Mac mini, and its remote size and SHA-256 matched before installation.
+Desktop 0.2.2 replaced 0.2.1 at `/Applications/Hermes Go Desktop.app`; only the GUI process was
+restarted. The managed Hermes and Connector processes retained their pre-install PIDs, the legacy
+Connector label remained unloaded, and the migration journal remained `account_active`. Physical UI
+inspection confirmed `工作正常`, `托管后台连接正在运行`, `托管 Connector 正在运行`, and managed mode
+`0.3.0`, closing the false legacy-Agent failure that motivated the correction. The temporary 0.2.1
+rollback app, transferred DMG, and clean release worktree were removed after verification.
+
+This is still an internal ad-hoc build. It is not Developer ID signed, notarized, stapled, or approved
+for public distribution. Migration Assistant transfer to a different physical Mac remains a separate
+acceptance gate; this run verified same-Mac overwrite behavior and the deterministic transferred-state
+reducer only.

@@ -340,3 +340,18 @@ Final local artifact: `desktop/build/Hermes-Go-Desktop-0.2.0-dev.dmg`, SHA-256
   by full public re-download. Release 0.3.0 remains online and unchanged for rollback.
 - This is an internal ad-hoc build. Developer ID signing, Apple notarization, stapling, and clean-Mac
   acceptance are still required before public distribution.
+
+### Effective-Agent correction release — 2026-09-10
+
+- Desktop 0.2.2 (bundle build 5) was built from clean merged commit
+  `f4c3ec612b4afb348ff6663a85cb056409fe2fd3` with the same pinned internal 0.3.1 release configuration.
+- The 2,041,257-byte DMG passed `hdiutil verify` and strict ad-hoc codesign verification; its SHA-256
+  is `f3568a3aa1a481640386a5737b7c66129af0b74e314c9f68f98d51658410e1d2`.
+- It replaced Desktop 0.2.1 on the target Mac mini without restarting the managed Hermes or Connector
+  processes. Both retained their pre-install PIDs, the legacy label stayed unloaded, and the journal
+  stayed `account_active`.
+- Physical UI inspection confirmed the Overview now reports the effective managed Agent as healthy
+  instead of treating the intentionally stopped legacy Connector as a failure. Temporary rollback,
+  transfer, and clean-build copies were removed after verification.
+- Migration Assistant transfer to a new physical Mac, Developer ID signing, notarization, stapling,
+  and clean-Mac launch acceptance remain pending.
