@@ -612,6 +612,20 @@ class ScreenshotTest {
         )
     }
 
+    // The capsule's stated ceiling is three options (docs/DESIGN.md §5.2). This pins the worst
+    // case that ceiling has to survive: the Appearance screen's colour-mode switch, whose Chinese
+    // labels are the longest in the app, at fontScale 1.3. If it ever clips here, the rule is
+    // wrong and the cron editor is not the only screen that has to stay on Material's row.
+    @Test fun segmentsThreeZhLargeFont() = snap("segments-3-zh-fs13", fontScale = 1.3f) {
+        val options = listOf("跟随系统", "浅色", "深色")
+        com.hermes.client.ui.components.SegmentedCapsule(
+            options = options,
+            selected = options[0],
+            onSelect = {},
+            label = { it },
+        )
+    }
+
     @Test fun segmentsTwoEnLargeFontDark() = snap("segments-2-en-fs13-dark", darkTheme = true, fontScale = 1.3f) {
         com.hermes.client.ui.sessions.ChatsSegmentedRow(
             tabs(zh = false), com.hermes.client.ui.sessions.ViewMode.BOTS, {},

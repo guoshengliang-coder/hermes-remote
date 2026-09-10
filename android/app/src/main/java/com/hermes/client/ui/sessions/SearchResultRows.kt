@@ -80,7 +80,7 @@ fun SearchSectionHeader(label: String, trailing: String? = null, onTrailing: (()
 fun TitleMatchRow(match: TitleMatch, query: String, defaultProjectPath: String?, onClick: () -> Unit, pinned: Boolean = false) {
     val language = LocalAppLanguage.current
     ListItem(
-        headlineContent = { Text(highlighted(match.session.title, query), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        headlineContent = { Text(highlighted(match.session.title, query), maxLines = 1, overflow = TextOverflow.Ellipsis, style = com.hermes.client.ui.theme.SessionRowTitle) },
         supportingContent = { SessionSubline(match.session, defaultProjectPath = defaultProjectPath, pinned = pinned) },
         trailingContent = if (match.archived) ({ ArchivedTag(language) }) else null,
         modifier = Modifier.clickable(onClick = onClick),

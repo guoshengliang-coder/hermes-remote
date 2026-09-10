@@ -34,6 +34,12 @@ import com.hermes.client.ui.localization.localized
  *
  * Laid out with a plain [Layout], not BoxWithConstraints: ListItem measures its slots
  * intrinsically, and SubcomposeLayout-based components throw when asked for intrinsics.
+ *
+ * The 12sp step is applied HERE rather than at each ListItem (decision 2026-09-10): four screens
+ * render this line — the session list, search results, the project drill-down and the archive —
+ * and a subline that is 12sp in one list and 14sp in another is worse than either size. Material's
+ * ListItem would otherwise hand it bodyMedium at 14sp, only 1sp under the title, which is what
+ * made the secondary line compete with the primary one (docs/DESIGN.md §5.2).
  */
 @Composable
 fun SessionSubline(
@@ -48,6 +54,18 @@ fun SessionSubline(
     val projectName = LocalProjectNames.current(session)
     val parts = sessionSublineParts(session, lead, defaultProjectPath, projectName)
     if (parts.isEmpty && !pinned) return
+    androidx.compose.material3.ProvideTextStyle(com.hermes.client.ui.theme.SessionRowSubline) {
+        SublineContent(parts, lead, pinned, modifier)
+    }
+}
+
+@Composable
+private fun SublineContent(
+    parts: SessionSublineParts,
+    lead: SublineLead,
+    pinned: Boolean,
+    modifier: Modifier,
+) {
     if (!pinned) {
         SublineBody(parts, lead, modifier)
         return

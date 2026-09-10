@@ -20,9 +20,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -255,26 +252,19 @@ fun MessagingScreen(
                     // unsure which slice they are looking at (the Chats segments are fixed too).
 
                             val configured = state.platforms.count { it.configured }
-                            SingleChoiceSegmentedButtonRow(
-                                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                            ) {
-                                val options = listOf(
-                                    MessagingFilter.CONFIGURED to l10n("已配置 $configured", "In use $configured"),
-                                    MessagingFilter.ALL to l10n("全部 ${state.platforms.size}", "All ${state.platforms.size}"),
-                                )
-                                options.forEachIndexed { i, (value, label) ->
-                                    SegmentedButton(
-                                        selected = filter == value,
-                                        onClick = { filter = value },
-                                        shape = SegmentedButtonDefaults.itemShape(i, options.size),
-                                        colors = SegmentedButtonDefaults.colors(
-                                            activeContainerColor = MaterialTheme.colorScheme.primary,
-                                            activeContentColor = MaterialTheme.colorScheme.onPrimary,
-                                        ),
-                                        icon = {},
-                                    ) { Text(label, maxLines = 1) }
-                                }
-                            }
+                            val options = listOf(
+                                MessagingFilter.CONFIGURED to l10n("已配置 $configured", "In use $configured"),
+                                MessagingFilter.ALL to l10n("全部 ${state.platforms.size}", "All ${state.platforms.size}"),
+                            )
+                            // Was a hand-matched copy of the Chats segments; now literally the
+                            // same component, so it cannot drift again.
+                            com.hermes.client.ui.components.SegmentedCapsule(
+                                options = options,
+                                selected = options.first { it.first == filter },
+                                onSelect = { filter = it.first },
+                                label = { it.second },
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            )
                     LazyColumn(Modifier.fillMaxSize()) {
                         if (sections.isEmpty()) {
                             item(key = "empty") {

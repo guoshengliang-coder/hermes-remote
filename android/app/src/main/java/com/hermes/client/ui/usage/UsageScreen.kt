@@ -15,9 +15,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -242,20 +239,12 @@ fun UsageScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RangeSegments(selected: Int, onSelect: (Int) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 2.dp)) {
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            USAGE_RANGE_CHOICES.forEachIndexed { index, days ->
-                SegmentedButton(
-                    selected = days == selected,
-                    onClick = { onSelect(days) },
-                    shape = SegmentedButtonDefaults.itemShape(index, USAGE_RANGE_CHOICES.size),
-                    // §5.2: selection is carried by the fill alone — the check mark shifts labels
-                    // as it appears and disappears.
-                    icon = {},
-                    label = { Text(l10n("$days 天", "$days d"), style = MaterialTheme.typography.labelLarge) },
-                )
-            }
-        }
-    }
+    com.hermes.client.ui.components.SegmentedCapsule(
+        options = USAGE_RANGE_CHOICES,
+        selected = selected,
+        onSelect = onSelect,
+        label = { days -> l10n("$days 天", "$days d") },
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 2.dp),
+    )
     Box(Modifier.height(8.dp))
 }

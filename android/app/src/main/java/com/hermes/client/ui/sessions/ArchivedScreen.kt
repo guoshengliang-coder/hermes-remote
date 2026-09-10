@@ -132,7 +132,7 @@ private fun ArchivedRow(
                 modifier = Modifier.size(24.dp),
             )
         },
-        headlineContent = { Text(session.title) },
+        headlineContent = { Text(session.title, style = com.hermes.client.ui.theme.SessionRowTitle) },
         supportingContent = { SessionSubline(session, defaultProjectPath = defaultProjectPath) },
         modifier = Modifier.combinedClickable(
             onClick = onOpen,

@@ -37,9 +37,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -392,17 +389,13 @@ fun ProfileEditScreen(
                     AvatarStyle.SOLID to localized(language, "实心", "Solid"),
                     AvatarStyle.OUTLINE to localized(language, "空心", "Outline"),
                 )
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 12.dp)) {
-                    styles.forEachIndexed { i, (style, label) ->
-                        SegmentedButton(
-                            selected = draft.style == style,
-                            onClick = { vm.setStyle(style) },
-                            shape = SegmentedButtonDefaults.itemShape(i, styles.size),
-                            // No check glyph (house rule): selection reads from the fill alone.
-                            icon = {},
-                        ) { Text(label) }
-                    }
-                }
+                com.hermes.client.ui.components.SegmentedCapsule(
+                    options = styles,
+                    selected = styles.first { it.first == draft.style },
+                    onSelect = { vm.setStyle(it.first) },
+                    label = { it.second },
+                    modifier = Modifier.padding(horizontal = 16.dp).padding(top = 12.dp),
+                )
             }
             Spacer(Modifier.height(12.dp))
 
