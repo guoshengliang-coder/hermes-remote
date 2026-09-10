@@ -284,6 +284,17 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.115 finishes the job 0.1.114 started. That release repainted the app but left two
+  systems untouched, because neither was ever in a re-skin's scope: the type scale and the
+  segmented switch. Text now sets the way the design does — tighter at 16sp and above where it
+  used to be looser, and one weight heavier on titles and labels, so hierarchy comes from weight
+  instead of size alone. Session rows finally read as a title with a subtitle rather than two
+  competing lines: the title steps down to 15sp and the subline to 12sp, and all four lists that
+  show that line — chats, search, a project's chats, the archive — get the same one, because they
+  were quietly disagreeing. The switch between 会话 and 机器人 stops being a slab of brand blue
+  and becomes a raised chip on a sunken track, with its icons back now that there are two segments
+  instead of four; five other screens carried hand-made copies of the old switch and now share the
+  real one, so they cannot drift apart again. Nothing about colour changed in this release.
 - Version 0.1.114 repaints the whole app on warm paper. The ground moves from a cool near-white to
   #FAF9F5, and pure white is promoted to the raised layer: cards, sheets and menus now sit BRIGHTER
   than the page instead of one shade darker. Dark mode moves to a warm obsidian. Session groups
@@ -820,7 +831,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.114-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.115-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
