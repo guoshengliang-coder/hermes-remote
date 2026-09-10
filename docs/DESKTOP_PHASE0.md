@@ -191,6 +191,13 @@ configuration. Turning off downloads after a machine is installed therefore does
 managed services. Active state must also match the current account's exact binding ID and generation;
 signing into another account cannot claim or overwrite the first account's managed Mac.
 
+Overview health now reduces the effective background mode rather than treating the stopped legacy
+label as the only Agent. An `account_active` journal with both exact managed LaunchAgents therefore
+reports the managed Connector as running. If Migration Assistant transfers those managed files and
+services while the this-device-only account Keychain record is absent, Desktop reports a degraded
+running-but-unverified state and asks the user to sign in; it does not rebind, replace, or start a
+second Connector automatically. A signed-in binding mismatch still fails closed.
+
 ## E4-E offline signed-release publisher — local only
 
 The repository now has a default-inert publisher and an independent verifier for the E4 envelope and

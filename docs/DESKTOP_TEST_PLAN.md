@@ -101,6 +101,9 @@ The current automated suite covers:
   measured 35-second physical-Mac cold start while tests can still inject shorter deterministic limits;
 - restart inspection recognizes only an `account_active` journal plus both exact managed LaunchAgents
   as active; intermediate journals recover before a second install and mismatches fail closed;
+- overview Agent reduction prefers that exact active managed installation over a stopped legacy
+  label, reports a transferred managed service as running-but-unverified until account sign-in, and
+  fails closed when the signed-in binding ID or generation differs;
 - a newly confirmed run atomically replaces only a terminal `legacy_active` or `clean_uninstalled`
   rollback journal; intermediate, active, and manual-attention journals reject a different run ID;
 - a revoked pending binding is recreated only when its generation matches the same Desktop's terminal
@@ -130,6 +133,7 @@ the project-wide `ERROR_HANDLING.md` contract.
 |---|---|---|
 | Existing Connector running | Desktop observes it and does not launch a replacement | Verified on target Mac 2026-09-02; PID and launch count unchanged |
 | Existing Connector migration gate | Healthy configured Hermes plus matching signed-release capability exposes preparation; stopped/unhealthy/unsigned cases preserve legacy | Automated; packaged target-Mac migration still pending |
+| Migration Assistant preserves managed services | Overview reports the effective managed Agent rather than the stopped legacy label; missing this-device-only account credentials require sign-in without starting a duplicate Connector | Automated reducer; physical new-Mac transfer pending |
 | Existing Connector absent | UI reports not detected and offers no destructive action | Verified 2026-09-02 |
 | Gateway available | Gateway layer is healthy with safe latency | Verified on target Mac 2026-09-02; 15–18 ms observed |
 | Gateway offline/DNS failure | Only Gateway layer fails; Hermes wording remains accurate | Pending fault injection |

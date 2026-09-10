@@ -28,6 +28,7 @@ final class DesktopViewModel: ObservableObject {
     @Published private(set) var accountIssue: DesktopIssue?
     @Published private(set) var isAccountOperationInProgress = false
     @Published private(set) var bootstrapPlan: DesktopBootstrapPlan = .checking
+    @Published private(set) var agentPresentation: DesktopAgentPresentation = .checking
     @Published private(set) var managedBootstrapOperation: DesktopManagedBootstrapOperation = .idle
     @Published private(set) var managedBootstrapPreparation: DesktopManagedBootstrapPreparation?
     @Published private(set) var managedBootstrapIssue: DesktopIssue?
@@ -478,12 +479,13 @@ final class DesktopViewModel: ObservableObject {
         legacy = observation
 
         let checkedAt = Date()
-        let agentHealth = ComponentHealth(
-            component: .desktopAgent,
-            level: observation.isRunning ? .healthy : (observation.isInstalled ? .failed : .unavailable),
-            detail: observation.isRunning
-                ? "旧 Connector 正在运行（兼容观察模式）"
-                : (observation.isInstalled ? "已安装但当前未运行" : "未检测到旧 Connector"),
+        let rawManagedInstallation = await inspectRawManagedBootstrapInstallation()
+        let accountVerification = managedAccountVerification(for: rawManagedInstallation)
+        let scopedManagedInstallation = scopeManagedBootstrapInstallation(rawManagedInstallation)
+        agentPresentation = DesktopAgentPresentation.reduce(
+            legacy: observation,
+            managed: rawManagedInstallation,
+            accountVerification: accountVerification,
             checkedAt: checkedAt
         )
 
@@ -520,7 +522,7 @@ final class DesktopViewModel: ObservableObject {
 
         health = DesktopHealthSnapshot(
             components: [
-                agentHealth,
+                agentPresentation.health,
                 ComponentHealth(
                     component: .gateway,
                     level: relayResult.level,
@@ -550,7 +552,6 @@ final class DesktopViewModel: ObservableObject {
         case .signedIn(let dashboard): dashboard.desktopBootstrapRuntimeContract
         default: nil
         }
-        let managedInstallation = await inspectManagedBootstrapInstallation()
         bootstrapPlan = DesktopBootstrapPlanner.plan(
             legacy: observation,
             hermesReachable: hermesResult.level == .healthy || hermesResult.level == .degraded,
@@ -558,9 +559,9 @@ final class DesktopViewModel: ObservableObject {
                 configuration: effectiveManagedBootstrapConfiguration,
                 serverRuntimeContract: serverRuntimeContract
             ),
-            managedInstallation: managedInstallation
+            managedInstallation: scopedManagedInstallation
         )
-        applyManagedBootstrapInstallation(managedInstallation)
+        applyManagedBootstrapInstallation(scopedManagedInstallation)
     }
 
     func prepareManagedBootstrap() async {
@@ -699,7 +700,7 @@ final class DesktopViewModel: ObservableObject {
         }.value
         let statusURL = DesktopBootstrapPlanner.hermesStatusURL(for: observation)
         let hermes = await prober.probeHermes(statusURL)
-        let managedInstallation = await inspectManagedBootstrapInstallation()
+        let managedInstallation = await inspectScopedManagedBootstrapInstallation()
         let plan = DesktopBootstrapPlanner.plan(
             legacy: observation,
             hermesReachable: hermes.level == .healthy || hermes.level == .degraded,
@@ -722,17 +723,39 @@ final class DesktopViewModel: ObservableObject {
         return nil
     }
 
-    private func inspectManagedBootstrapInstallation() async
+    private func inspectRawManagedBootstrapInstallation() async
         -> DesktopManagedBootstrapInstallationStatus {
         guard let runtime = managedRecoveryRuntime else { return .absent }
-        let installation = await Task.detached(priority: .utility) {
+        return await Task.detached(priority: .utility) {
             (try? runtime.inspectInstallation()) ?? .inconsistent
         }.value
+    }
+
+    private func inspectScopedManagedBootstrapInstallation() async
+        -> DesktopManagedBootstrapInstallationStatus {
+        scopeManagedBootstrapInstallation(await inspectRawManagedBootstrapInstallation())
+    }
+
+    private func scopeManagedBootstrapInstallation(
+        _ installation: DesktopManagedBootstrapInstallationStatus
+    ) -> DesktopManagedBootstrapInstallationStatus {
         guard case .signedIn(let dashboard) = accountState else { return installation }
         return installation.scopedToCurrentAccount(
             bindingID: dashboard.binding.binding?.id,
             bindingGeneration: dashboard.binding.binding?.generation
         )
+    }
+
+    private func managedAccountVerification(
+        for installation: DesktopManagedBootstrapInstallationStatus
+    ) -> DesktopManagedAccountVerification {
+        guard case .active(_, let bindingID, let bindingGeneration) = installation,
+              case .signedIn(let dashboard) = accountState
+        else { return .unavailable }
+        return dashboard.binding.binding?.id == bindingID
+            && dashboard.binding.binding?.generation == bindingGeneration
+            ? .verified
+            : .mismatched
     }
 
     private func applyManagedBootstrapInstallation(
@@ -773,7 +796,7 @@ final class DesktopViewModel: ObservableObject {
         let observation = await Task.detached(priority: .utility) {
             inspector.inspect()
         }.value
-        let installation = await inspectManagedBootstrapInstallation()
+        let installation = await inspectScopedManagedBootstrapInstallation()
         guard case .interrupted(let runID, _) = installation else {
             applyManagedBootstrapInstallation(installation)
             return
@@ -785,7 +808,7 @@ final class DesktopViewModel: ObservableObject {
                 legacy: observation,
                 runID: runID
             )
-            let refreshed = await inspectManagedBootstrapInstallation()
+            let refreshed = await inspectScopedManagedBootstrapInstallation()
             applyManagedBootstrapInstallation(refreshed)
             if recovered == .legacyActive || recovered == .cleanUninstalled {
                 managedBootstrapOperation = .idle
