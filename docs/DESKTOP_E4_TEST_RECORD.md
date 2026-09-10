@@ -4,7 +4,7 @@ Date: 2026-09-10
 Status: E4-D local multi-device UX, signed bootstrap, packaged orchestration, account Connector,
 binding, rollback, and restart recovery are complete. Android account continuity and managed account
 mode were subsequently proven on the physical Mac. The corrective internal 0.3.1 arm64 release is
-published and Desktop 0.2.2 is installed on that Mac; Developer ID signing/notarization and clean-Mac
+published and Desktop 0.2.3 is installed on that Mac; Developer ID signing/notarization and clean-Mac
 acceptance remain pending.
 
 ## E4-E offline release publisher
@@ -247,3 +247,24 @@ This is still an internal ad-hoc build. It is not Developer ID signed, notarized
 for public distribution. Migration Assistant transfer to a different physical Mac remains a separate
 acceptance gate; this run verified same-Mac overwrite behavior and the deterministic transferred-state
 reducer only.
+
+## 2026-09-10 Desktop 0.2.3 account-mode legacy-probe retirement
+
+PR #154 merged the account-aware health presentation and 0.2.3/build 6 version gate as
+`8972317b375d3dfde4d09fd2e49069576fa4da7d`. Every PR check and the resulting main CI and SAST
+workflows passed. From an isolated clean worktree at that exact `origin/main` commit, the complete
+172-test Desktop suite, canonical asset comparison, release build, strict ad-hoc codesign
+verification, and `hdiutil verify` passed. The 2,041,359-byte DMG SHA-256 is
+`fc17da801db26141a2e3a9b8c7178a9ea82454389bb84e79a7e4146290978ce5`.
+
+Desktop 0.2.3 replaced 0.2.2 at `/Applications/Hermes Go Desktop.app`. A one-time macOS Keychain
+access approval was accepted for the newly signed app. Live Accessibility inspection then confirmed
+that account loading had completed, the account did not require login, and neither the legacy
+App-Token row nor its end-to-end check was visible. The authenticated loopback Hermes probe returned
+HTTP 200 and Connector retained an established upstream connection. A loopback session token exposed
+during local diagnostics was rotated immediately; the old value was invalidated and no credential
+value was retained in this record.
+
+This remains an internal ad-hoc build. It is not Developer ID signed, notarized, stapled, or approved
+for public distribution. Migration Assistant transfer to a different physical Mac remains a separate
+acceptance gate.
