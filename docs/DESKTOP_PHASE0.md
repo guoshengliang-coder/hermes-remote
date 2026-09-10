@@ -343,7 +343,7 @@ Final local artifact: `desktop/build/Hermes-Go-Desktop-0.2.0-dev.dmg`, SHA-256
 
 ### Account-mode legacy-probe retirement
 
-The next Desktop source slice removes the legacy App-Token end-to-end row from Overview and
+Desktop 0.2.3 removes the legacy App-Token end-to-end row from Overview and
 Diagnostics whenever a Hermes GO account is signed in. Aggregate status uses the same filtered
 snapshot, so a missing or stale legacy Token cannot degrade a healthy account-mode presentation. The
 underlying legacy profile and its explicit save-time probe remain available in the collapsed legacy
@@ -362,5 +362,21 @@ by this UI-only step.
 - Physical UI inspection confirmed the Overview now reports the effective managed Agent as healthy
   instead of treating the intentionally stopped legacy Connector as a failure. Temporary rollback,
   transfer, and clean-build copies were removed after verification.
+- Migration Assistant transfer to a new physical Mac, Developer ID signing, notarization, stapling,
+  and clean-Mac launch acceptance remain pending.
+
+### Account-mode presentation release — 2026-09-10
+
+- Desktop 0.2.3 (bundle build 6) was built from clean merged commit
+  `8972317b375d3dfde4d09fd2e49069576fa4da7d` with the pinned internal 0.3.1 release configuration.
+- The complete 172-test Desktop suite passed. The 2,041,359-byte DMG passed `hdiutil verify` and
+  strict ad-hoc codesign verification; its SHA-256 is
+  `fc17da801db26141a2e3a9b8c7178a9ea82454389bb84e79a7e4146290978ce5`.
+- It replaced Desktop 0.2.2 on the target Mac mini. After the newly signed app received one-time
+  Keychain access approval, live UI inspection confirmed account loading completed and the legacy
+  App-Token/end-to-end presentation was absent in account mode.
+- Authenticated local Hermes health returned HTTP 200 and Connector retained an established upstream
+  connection. A session token exposed during local diagnostics was rotated immediately and the old
+  value invalidated.
 - Migration Assistant transfer to a new physical Mac, Developer ID signing, notarization, stapling,
   and clean-Mac launch acceptance remain pending.
