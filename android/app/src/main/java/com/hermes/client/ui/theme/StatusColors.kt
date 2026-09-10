@@ -1,6 +1,5 @@
 package com.hermes.client.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
@@ -42,7 +41,14 @@ fun statusArgb(tone: StatusTone, dark: Boolean): Int = when (tone) {
     StatusTone.BAD -> if (dark) BAD_DARK else BAD_LIGHT
 }
 
-/** Compose-facing wrapper; defaults to the system theme. */
+/**
+ * Compose-facing wrapper. The default reads the EFFECTIVE theme, never the system setting —
+ * DESIGN.md §2.2. It used to default to `isSystemInDarkTheme()`, so an app set to Dark on a
+ * phone set to Light painted the LIGHT status tier onto the dark surface: "已完成" green landed
+ * at 3.66:1 and "运行失败" red at 3.34:1, both under the 4.5:1 floor §5.7 owes body text.
+ * Two call sites relied on this default (the session list's completed dot and StatusDot), so the
+ * fix belongs on the default itself rather than on the callers.
+ */
 @Composable
-fun statusColor(tone: StatusTone, dark: Boolean = isSystemInDarkTheme()): Color =
+fun statusColor(tone: StatusTone, dark: Boolean = isDarkSurface()): Color =
     Color(statusArgb(tone, dark))

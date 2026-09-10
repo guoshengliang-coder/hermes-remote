@@ -25,13 +25,13 @@ import androidx.compose.ui.graphics.luminance
 /** One band of the stacked usage chart. */
 enum class ChartBand { INPUT, OUTPUT, CACHE }
 
-private val INPUT_LIGHT = 0xFF00306A.toInt() // 12.5:1 on the light tile (#FAFBFD) — Blue20
-private val OUTPUT_LIGHT = 0xFF0B5FD0.toInt() //  5.7:1 — Blue40, the brand primary
-private val CACHE_LIGHT = 0xFF5C8FDE.toInt() //  3.2:1 — the lightest step that still clears 3:1
+private val INPUT_LIGHT = 0xFF00306A.toInt() // 12.9:1 on the light tile (#FFFFFF) — Blue20
+private val OUTPUT_LIGHT = 0xFF0B5FD0.toInt() //  5.9:1 — the icon blue; still the middle step, no longer the primary
+private val CACHE_LIGHT = 0xFF5C8FDE.toInt() //  3.3:1 — the lightest step that still clears 3:1
 
-private val INPUT_DARK = 0xFFA9C7FF.toInt() //  8.9:1 on the dark tile (#20272E) — Blue80
-private val OUTPUT_DARK = 0xFF7793C9.toInt() //  4.9:1
-private val CACHE_DARK = 0xFF5B7398.toInt() //  3.1:1
+private val INPUT_DARK = 0xFFA9C7FF.toInt() //  9.7:1 on the dark tile (#1A1F27) — Blue80
+private val OUTPUT_DARK = 0xFF7793C9.toInt() //  5.4:1
+private val CACHE_DARK = 0xFF5B7398.toInt() //  3.4:1
 
 fun chartBandArgb(band: ChartBand, dark: Boolean): Int = when (band) {
     ChartBand.INPUT -> if (dark) INPUT_DARK else INPUT_LIGHT

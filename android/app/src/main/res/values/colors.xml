@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="startup_background">#F8FAFD</color>
+    <!-- Warm paper, = surface / surfaceContainerLowest-adjacent (DESIGN.md §2.1). Must equal
+         the light StartupPalette background so the splash-to-gate handoff shows no colour step. -->
+    <color name="startup_background">#FAF9F5</color>
 </resources>

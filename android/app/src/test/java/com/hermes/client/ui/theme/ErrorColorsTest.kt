@@ -17,8 +17,8 @@ import org.junit.Test
  */
 class ErrorColorsTest {
 
-    private val lightSurface = 0xFFFFFFFF.toInt()
-    private val darkSurface = 0xFF121921.toInt()
+    private val lightSurface = 0xFFFAF9F5.toInt()
+    private val darkSurface = 0xFF0F1217.toInt()
 
     @Test fun values_are_pinned() {
         assertEquals(0xFFBA1A1A.toInt(), HermesLightColors.error.toArgb())

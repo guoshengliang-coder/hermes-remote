@@ -16,11 +16,11 @@ import org.junit.Test
  */
 class StatusColorsTest {
 
-    private val lightSurface = 0xFFFFFFFF.toInt()
-    private val darkSurface = 0xFF121921.toInt()
+    private val lightSurface = 0xFFFAF9F5.toInt()
+    private val darkSurface = 0xFF0F1217.toInt()
 
     // The brand primary in each tier — GOOD must stay clear of these.
-    private val primaryLight = 0xFF0B5FD0.toInt()
+    private val primaryLight = 0xFF004AC6.toInt()
     private val primaryDark = 0xFFA9C7FF.toInt()
 
     @Test fun values_are_pinned() {
