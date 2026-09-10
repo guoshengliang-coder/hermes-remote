@@ -128,6 +128,9 @@ drifts from the canonical source.
   shown as history, but cannot by themselves mark a currently healthy connection offline.
 - End-to-end failures show a registered `HR-*` code and recovery action; raw HTTP bodies and tokens
   never become primary UI text.
+- While a Hermes GO account session is signed in, Overview, Diagnostics, and aggregate health omit
+  the legacy App-Token end-to-end probe. The probe remains scoped to the collapsed legacy editor and
+  must not make a healthy account-mode connection appear degraded or unconfigured.
 - A managed local Hermes WebSocket is authenticated with one private installation token shared by
   file path between Hermes and Connector. The value is never rendered, copied into diagnostics, or
   sent to Gateway; a missing or unsafe file leaves the path offline rather than weakening auth.

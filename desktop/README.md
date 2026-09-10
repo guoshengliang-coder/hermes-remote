@@ -117,6 +117,10 @@ npm run desktop:app
 The app opens Google's account chooser in the system browser with PKCE S256, state, nonce, and a
 temporary `127.0.0.1` callback. It never reads Chrome/Safari profiles or stores a Google access token.
 
+When an account session is signed in, Overview, Diagnostics, and the menu-bar aggregate status omit
+the legacy App-Token end-to-end probe. That compatibility probe remains available only through the
+collapsed legacy configuration path and cannot degrade a healthy account-mode presentation.
+
 `desktop:app` and `desktop:dmg` use ad-hoc signing when `SIGNING_IDENTITY` is unset. A public build
 requires a Developer ID Application identity and Apple notarization credentials; see
 `docs/DESKTOP_PHASE0.md`.

@@ -341,6 +341,15 @@ Final local artifact: `desktop/build/Hermes-Go-Desktop-0.2.0-dev.dmg`, SHA-256
 - This is an internal ad-hoc build. Developer ID signing, Apple notarization, stapling, and clean-Mac
   acceptance are still required before public distribution.
 
+### Account-mode legacy-probe retirement
+
+The next Desktop source slice removes the legacy App-Token end-to-end row from Overview and
+Diagnostics whenever a Hermes GO account is signed in. Aggregate status uses the same filtered
+snapshot, so a missing or stale legacy Token cannot degrade a healthy account-mode presentation. The
+underlying legacy profile and its explicit save-time probe remain available in the collapsed legacy
+editor for rollback during the staged retirement period; no protocol or stored credential is deleted
+by this UI-only step.
+
 ### Effective-Agent correction release — 2026-09-10
 
 - Desktop 0.2.2 (bundle build 5) was built from clean merged commit

@@ -95,6 +95,14 @@ public struct DesktopHealthSnapshot: Equatable, Sendable {
             ?? ComponentHealth(component: component, level: .checking, detail: "正在检查")
     }
 
+    public func presented(accountModeActive: Bool) -> DesktopHealthSnapshot {
+        guard accountModeActive else { return self }
+        return DesktopHealthSnapshot(
+            components: components.filter { $0.component != .endToEnd },
+            checkedAt: checkedAt
+        )
+    }
+
     public static let checking = DesktopHealthSnapshot(
         components: HealthComponent.allCases.map {
             ComponentHealth(component: $0, level: .checking, detail: "正在检查")
