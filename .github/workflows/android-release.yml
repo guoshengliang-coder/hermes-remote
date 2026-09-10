@@ -104,6 +104,12 @@ jobs:
       # built APK's signer, package, and version with aapt/apksigner.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+        with:
+          # Without a key, setup-gradle stores the configuration-cache entry and throws it away:
+          # "Configuration-cache data will not be saved/restored without an encryption key being
+          # provided." Every Android CI run so far has logged "Configuration cache entry stored"
+          # and never "reused". An absent secret is the current behaviour, not a failure.
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
       - name: Build signed APK and erase signing key
         shell: bash

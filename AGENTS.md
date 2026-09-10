@@ -29,10 +29,19 @@ and pushing may continue when the change being integrated does not touch those f
 built or published from that worktree: cut a fresh worktree at the release commit instead, so that
 no one else's half-finished work can reach the artifact.
 
-When the hosting plan cannot enforce branch protection, the integration agent must treat successful
-PR checks as a manual merge gate: inspect every check reported for the PR, merge only after all have
-completed successfully, and verify the resulting `main` checks before handoff. Do not use auto-merge
-as a substitute for this gate when the repository has no enforced required checks.
+The integration agent must treat successful PR checks as a manual merge gate: inspect every check
+reported for the PR, merge only after all have completed successfully, and verify the resulting
+`main` checks before handoff. Do not use auto-merge as a substitute for this gate.
+
+This is a manual gate by circumstance, not by limitation. `main` does carry branch protection, and
+this repository is public, so required status checks and a merge queue are both available. But
+`enforce_admins` is off and every agent merges as the repository owner, so protection does not bind
+these merges: `required_approving_review_count` has been 1 the whole time, and PRs merge through
+`gh pr merge` with zero approvals. Required checks configured today would behave the same way —
+recorded in settings, binding on nobody. Turning `enforce_admins` on would make them bind, and would
+equally make that review requirement bind every PR. So the gate stays human, and the reason it stays
+human is a deliberate trade, not a missing feature: measured over 150 merged pull requests, two were
+merged with a failing check and none was merged before its checks finished.
 
 `docs/INTEGRATION.md` defines the cross-subproject rules: which paths belong to Android, Desktop or
 Cloud; the contract surfaces whose change requires the other sides to be addressed in the same
