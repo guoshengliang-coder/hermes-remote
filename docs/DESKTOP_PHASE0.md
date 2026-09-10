@@ -318,3 +318,18 @@ or a missing/mismatched signed-release gate remains read-only and preserves the 
 
 Final local artifact: `desktop/build/Hermes-Go-Desktop-0.2.0-dev.dmg`, SHA-256
 `1ca9d6f5b4f10f49080d6fe1312a05b1ab03ef06ca6c9232d2799e61ba668aa8`.
+
+### Internal corrective release — 2026-09-10
+
+- Desktop 0.2.1 (bundle build 4) was built from clean merged commit
+  `95acaa3e2b8fecbe9f55ba91fe7378d77b7f2340` with the internal 0.3.1 manifest URL and existing pinned
+  internal Ed25519 public key.
+- The DMG passed `hdiutil verify`; the mounted and installed app both passed strict ad-hoc codesign
+  verification. Its SHA-256 is `c191c10200dd1ebf98c80fcb652e83a47e02d0df7cbef3c768163d9b6c59a4d9`.
+- The app replaced 0.2.0 at `/Applications/Hermes Go Desktop.app` and launched successfully. The
+  managed Hermes and Connector processes retained their original PIDs, authenticated local Hermes
+  status remained healthy, and Connector kept an established Gateway connection.
+- Signed managed release 0.3.1 was published at `https://mrlgs.net/desktop/releases/0.3.1/` and verified
+  by full public re-download. Release 0.3.0 remains online and unchanged for rollback.
+- This is an internal ad-hoc build. Developer ID signing, Apple notarization, stapling, and clean-Mac
+  acceptance are still required before public distribution.
