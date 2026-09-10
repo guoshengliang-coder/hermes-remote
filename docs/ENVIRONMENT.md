@@ -172,14 +172,19 @@ first release must keep this flag at `0`.
 
 R2 adds `GET /healthz` for liveness and `GET /readyz` for traffic admission. When account mode is
 enabled, readiness requires a reachable certified PostgreSQL 18 database at exact schema version 15.
-`GET /internal/version`, `GET /internal/account-email-metrics`, and
-`GET /internal/account-retention` are disabled unless
+`GET /internal/version`, `GET /internal/account-email-metrics`,
+`GET /internal/account-retention`, and `GET /internal/account-connectors` are disabled unless
 `INTERNAL_STATUS_TOKEN` or `_FILE` is configured and must remain on the private operations path; they
 must not be added to the public Nginx routing table. The email snapshot contains one-hour aggregate
 counts only. `providerAccepted` means the transactional provider accepted the API request;
 `finalDelivered`, `finalHardFailed`, and `finalDelayed` are independently derived from verified
 webhook events. No mailbox, challenge/invitation ID, code, provider message ID, or account identifier
 is returned.
+
+The live-Connector snapshot reports separate legacy/account counts plus only binding UUID, public
+device ID, generation, and current connection time for account-mode rows. It is process-local and
+resets on Gateway restart. Use authenticated `/v2/devices` for durable `lastSeenAt`; never publish
+the internal snapshot through Nginx.
 
 Account mode also starts a bounded retention scheduler after 60 seconds and repeats it every six
 hours. Each sweep removes no more than 1,000 rows per eligible table, uses `SKIP LOCKED` for

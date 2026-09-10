@@ -150,6 +150,7 @@ the project-wide `ERROR_HANDLING.md` contract.
 | Owner revokes / recipient leaves | Matching access and live stream end; owner, other grantees, Connector, and Hermes continue | Gateway automated; packaged Desktop and multi-node run pending |
 | Account deletion off | No Desktop danger-zone action appears and the route is not called | Core/API automated; packaged UI pending |
 | Permanent account deletion | Typed `DELETE`, acknowledgement, and fresh email code precede immediate Cloud logout; success and recovered ambiguous completion land on “deletion submitted”; the explicit other-email exit reaches an empty sign-in flow, while local Hermes remains intact | Core/API/PostgreSQL automated; disposable packaged-account and privacy review pending |
+| Android account-mode cutover | Android signs in by email, selects the intended owned/shared Mac, proves REST and WebSocket traffic, then Desktop migrates; protected Connector status matches the exact binding/generation before and after Desktop/Mac restart | Pending Android account build and coordinated physical run |
 
 The first real-app check verified that the ad-hoc app launches and remains running. The target Mac run
 then verified the installed DMG against a live legacy Connector without changing its PID, launch count,
@@ -161,6 +162,29 @@ The `0.2.0-dev` target upgrade additionally verified Keychain persistence across
 reveal, and the invalid-token UI mapping without restarting the legacy Connector. The disposable Token
 and temporary rollback package were removed after the run. A real production Token was deliberately
 not retrieved as part of this test, so the successful end-to-end and Android scan rows remain pending.
+
+## Android-account coordinated acceptance
+
+Run this matrix only after the Android account branch has passed its package gate. Do not migrate the
+Mac merely because email login or `/v2/devices` succeeds.
+
+1. Keep the legacy Connector active. Install the versioned Android test artifact, sign in with email,
+   and confirm the intended owned or shared Mac is listed without importing a legacy App Token.
+2. Record the protected `/internal/account-connectors` snapshot and the authenticated Android device
+   row. The former may show zero account connections before migration; `/relay-health` must still show
+   the expected legacy Connector.
+3. Complete the Desktop's two-confirmation migration. Require an `account_active` journal, both exact
+   managed LaunchAgents, healthy local Hermes, and an internal snapshot row whose binding UUID and
+   generation match Desktop state.
+4. From Android, exercise one REST status request and one real WebSocket session through the selected
+   device. For a shared Mac, repeat using the grantee account and confirm revocation closes only that
+   grantee's live stream.
+5. Restart Android and Desktop independently, then reboot the Mac. Require the same account binding,
+   automatic managed-service recovery, a newer process-local `connectedAt`, and successful Android
+   REST/WebSocket traffic without re-entering a legacy Token.
+6. On any failed gate, capture redacted diagnostics and use the journaled Desktop rollback. Confirm
+   the legacy Connector returns, `/relay-health` reports it online, and the old Android path remains
+   usable. Do not call a mixed legacy/account state successful.
 
 ## Later takeover gate
 

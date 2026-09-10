@@ -746,3 +746,12 @@ loopback operations path. The first attempt may remain null for 60 seconds. Ther
 six-hour intervals. Deleted totals are process-local and may reset after a restart; they are evidence
 of activity, not durable accounting. Do not publish this endpoint through Nginx or treat a cleanup
 failure as authorization to restart/deploy—the scheduler preserves login availability and retries.
+
+During an account-Connector migration, query `GET /internal/account-connectors` through the same
+protected loopback path and internal Bearer token. Before stopping legacy, record
+`legacyOnline >= 1`; after the Desktop reports `account_active`, require the intended binding UUID,
+device ID, and generation in `connectors`, with `accountOnline >= 1`. `connectedAt` identifies the
+current process-local WebSocket registration and resets after reconnect or Gateway restart. Pair it
+with the signed-in account's `/v2/devices` `lastSeenAt` and end-to-end health; neither the public
+`/relay-health` legacy count nor this live snapshot alone proves Android REST/WebSocket traffic.
+The endpoint is read-only and does not authorize a restart, migration, or production deployment.

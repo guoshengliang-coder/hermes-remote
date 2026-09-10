@@ -49,6 +49,18 @@ export interface ServerCapabilities {
   legacyAuth: boolean;
 }
 
+export interface AccountConnectorStatus {
+  observedAt: string;
+  legacyOnline: number;
+  accountOnline: number;
+  connectors: Array<{
+    bindingId: string;
+    deviceId: string;
+    generation: number;
+    connectedAt: string;
+  }>;
+}
+
 export class ServerReleaseController {
   constructor(private readonly options: {
     manifest: ServerReleaseManifest;
@@ -57,6 +69,7 @@ export class ServerReleaseController {
     readiness(): Promise<GatewayReadiness>;
     emailDeliveryMetrics?(): Promise<AccountEmailDeliveryMetrics>;
     retentionMetrics?(): AccountRetentionMetrics;
+    accountConnectorStatus?(): AccountConnectorStatus;
     tokensEqual(actual: string, expected: string): boolean;
   }) {}
 
@@ -80,7 +93,8 @@ export class ServerReleaseController {
     }
     if (url.pathname !== "/internal/version"
         && url.pathname !== "/internal/account-email-metrics"
-        && url.pathname !== "/internal/account-retention") return false;
+        && url.pathname !== "/internal/account-retention"
+        && url.pathname !== "/internal/account-connectors") return false;
     if (request.method !== "GET" || !this.options.internalStatusToken) {
       sendJson(response, 404, { error: "not_found" });
       return true;
@@ -107,6 +121,14 @@ export class ServerReleaseController {
         return true;
       }
       sendJson(response, 200, this.options.retentionMetrics());
+      return true;
+    }
+    if (url.pathname === "/internal/account-connectors") {
+      if (!this.options.accountConnectorStatus) {
+        sendJson(response, 404, { error: "not_found" });
+        return true;
+      }
+      sendJson(response, 200, this.options.accountConnectorStatus());
       return true;
     }
     const { files, manifestVersion, ...release } = this.options.manifest;

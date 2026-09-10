@@ -114,6 +114,17 @@ test("release endpoints separate liveness, readiness, and protected build metada
         accountsAnonymized: 1,
       },
     }),
+    accountConnectorStatus: () => ({
+      observedAt: "2026-09-07T12:00:00.000Z",
+      legacyOnline: 1,
+      accountOnline: 1,
+      connectors: [{
+        bindingId: "40000000-0000-4000-8000-000000000001",
+        deviceId: "office-mac",
+        generation: 2,
+        connectedAt: "2026-09-07T11:59:00.000Z",
+      }],
+    }),
     tokensEqual: (actual, expected) => actual === expected,
   });
 
@@ -210,6 +221,35 @@ test("release endpoints separate liveness, readiness, and protected build metada
     },
   });
   assert.equal(JSON.stringify(retention.json()).includes("accountId"), false);
+
+  const connectors = new MemoryResponse();
+  await controller.handle(
+    request("GET", "Bearer internal-status-token"),
+    connectors.asResponse(),
+    url("/internal/account-connectors"),
+  );
+  assert.equal(connectors.status, 200);
+  assert.deepEqual(connectors.json(), {
+    observedAt: "2026-09-07T12:00:00.000Z",
+    legacyOnline: 1,
+    accountOnline: 1,
+    connectors: [{
+      bindingId: "40000000-0000-4000-8000-000000000001",
+      deviceId: "office-mac",
+      generation: 2,
+      connectedAt: "2026-09-07T11:59:00.000Z",
+    }],
+  });
+  assert.equal(JSON.stringify(connectors.json()).includes("accountId"), false);
+  assert.equal(JSON.stringify(connectors.json()).includes("email"), false);
+
+  const rejectedConnectors = new MemoryResponse();
+  await controller.handle(
+    request("GET", "Bearer wrong-internal-token"),
+    rejectedConnectors.asResponse(),
+    url("/internal/account-connectors"),
+  );
+  assert.equal(rejectedConnectors.status, 401);
 });
 
 function request(method: string, authorization?: string): IncomingMessage {

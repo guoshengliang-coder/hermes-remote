@@ -77,6 +77,8 @@ remaining live-mail/packaged-device gates are recorded in
 `docs/ACCOUNT_MODE_E7_DESKTOP_TEST_RECORD.md`.
 The local E8 Android email-code, explicit owned/shared-Mac selection, transport-isolation, and
 conversation-affinity evidence is recorded in `docs/ACCOUNT_MODE_E8_ANDROID_TEST_RECORD.md`.
+The stable server contract, compatibility invariants, and coordinated physical cutover checklist for
+the active Android adoption branch are summarized in `docs/ANDROID_ACCOUNT_HANDOFF.md`.
 The default-off E9 permanent Cloud-account deletion state machine, Web/Desktop confirmation,
 cross-account sharing cleanup, and remaining privacy/physical/deployment gates are recorded in
 `docs/ACCOUNT_MODE_E9_TEST_RECORD.md`.

@@ -176,6 +176,19 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
       ...(accountRuntime.retentionMetrics
         ? { retentionMetrics: () => accountRuntime.retentionMetrics!() }
         : {}),
+      accountConnectorStatus: () => ({
+        observedAt: new Date().toISOString(),
+        legacyOnline: connectorRegistry.legacyCount,
+        accountOnline: connectorRegistry.accountCount,
+        connectors: [...connectorRegistry.accountConnections()]
+          .map(({ bindingId, connector, connectedAt }) => ({
+            bindingId,
+            deviceId: connector.deviceId,
+            generation: connector.binding!.generation,
+            connectedAt,
+          }))
+          .sort((left, right) => left.bindingId.localeCompare(right.bindingId)),
+      }),
       tokensEqual: safeEqual,
     }),
   });

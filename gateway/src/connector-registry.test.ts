@@ -28,10 +28,19 @@ test("ConnectorRegistry replaces and conditionally removes account bindings", ()
   const first = {};
   const replacement = {};
   assert.equal(registry.replaceAccount("binding-1", first), undefined);
+  assert.equal(registry.accountCount, 1);
+  const connectedAt = [...registry.accountConnections()][0]?.connectedAt;
+  assert.equal(Number.isFinite(Date.parse(connectedAt ?? "")), true);
+  assert.deepEqual(
+    [...registry.accountConnections()].map(({ bindingId, connector }) => ({ bindingId, connector })),
+    [{ bindingId: "binding-1", connector: first }],
+  );
   assert.equal(registry.replaceAccount("binding-1", replacement), first);
+  assert.equal(registry.accountCount, 1);
   assert.equal(registry.getAccount("binding-1"), replacement);
   assert.equal(registry.getByRoutingKey(accountRoutingKey("binding-1")), replacement);
   assert.equal(registry.getByRoutingKey("unknown:binding-1"), undefined);
   assert.equal(registry.deleteAccountIfCurrent("binding-1", first), false);
   assert.equal(registry.deleteAccountIfCurrent("binding-1", replacement), true);
+  assert.equal(registry.accountCount, 0);
 });
