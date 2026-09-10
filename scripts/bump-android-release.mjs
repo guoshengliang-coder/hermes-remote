@@ -45,19 +45,26 @@ export function applyGradleVersions(text, next) {
   return withName;
 }
 
-const escapeVersion = version => version.replace(/\./g, '\\.');
+// A version string is not attacker-controlled here, but building a regexp out of one still means
+// every caller has to reason about escaping. Both lookups are plain substring work, so they are
+// written as plain substring work.
+function lineStartIndex(text, prefix) {
+  if (text.startsWith(prefix)) return 0;
+  const index = text.indexOf(`\n${prefix}`);
+  return index === -1 ? -1 : index + 1;
+}
 
 // The bullet list is not sorted, so the only stable anchor is the entry for the version being
 // superseded: the new one goes immediately above it, exactly where a human has been putting it.
 export function applyReadme(text, {current, next, summary}) {
-  const anchor = new RegExp(`^- Version ${escapeVersion(current)} `, 'm').exec(text);
-  if (!anchor) throw new Error(`android/README.md has no "- Version ${current}" entry to anchor against`);
+  const anchorIndex = lineStartIndex(text, `- Version ${current} `);
+  if (anchorIndex === -1) throw new Error(`android/README.md has no "- Version ${current}" entry to anchor against`);
   const bullet = `${wrapBullet(`- Version ${next} ${summary.trim()}`)}\n`;
-  let out = text.slice(0, anchor.index) + bullet + text.slice(anchor.index);
+  let out = text.slice(0, anchorIndex) + bullet + text.slice(anchorIndex);
 
-  const apkReference = new RegExp(`Hermes-Remote-${escapeVersion(current)}-debug\\.apk`, 'g');
-  if (!apkReference.test(out)) throw new Error(`android/README.md has no Hermes-Remote-${current}-debug.apk reference`);
-  out = out.replace(apkReference, `Hermes-Remote-${next}-debug.apk`);
+  const currentApk = `Hermes-Remote-${current}-debug.apk`;
+  if (!out.includes(currentApk)) throw new Error(`android/README.md has no ${currentApk} reference`);
+  out = out.split(currentApk).join(`Hermes-Remote-${next}-debug.apk`);
 
   // scripts/package-debug-apk.sh re-checks both of these before it will build. Failing here costs
   // nothing; failing there costs a full test-and-assemble cycle first.
