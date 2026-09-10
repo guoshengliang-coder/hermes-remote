@@ -133,8 +133,9 @@ The local core now contains the later-slice safety path while the packaged UI re
 - private staging and immutable version directories with atomic `current` activation/rollback;
 - separate exact-label managed Hermes and Connector user LaunchAgents; Hermes starts first, proves a
   fresh bounded ready marker plus loopback health, and Connector cannot start after a Hermes timeout;
-- account Connector credentials written separately at mode `0600`, with no legacy Token or Hermes
-  password in the LaunchAgent;
+- account Connector credentials and the installation-local Hermes session token written separately
+  at mode `0600`; LaunchAgents carry only their paths, never a legacy Token, Hermes password, or the
+  local session-token value;
 - account-mode Connector v2 challenge proof and local Hermes preflight;
 - crash-safe binding create/confirm idempotency, durable migration state, exact-label user launchd
   control with bounded bootstrap/bootout convergence, one-Connector enforcement, automatic
@@ -149,7 +150,8 @@ The next local E4-C gate now has a strict dual-sided readiness contract. The pac
 the complete signed-release configuration and `hermes-serve-v1`; Gateway must independently advertise
 the same contract behind its rollout flag, which remains
 `ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED=0`. The official loopback
-`hermes serve` arguments, `HERMES_HOME` boundary, readiness line, and port-conflict line are frozen in
+`hermes serve` arguments, `HERMES_HOME` boundary, Desktop-owned loopback session-token handshake,
+readiness line, and port-conflict line are frozen in
 the core, but the packaged UI still performs no install or process mutation.
 
 ## E4-D default-off packaged orchestration — local only
@@ -176,7 +178,11 @@ new explicit confirmation starts a fresh run and atomically replaces that termin
 journal state can be replaced by a different run ID. If the failed run's temporary cloud binding expires
 before retry, the coordinator passes only the terminal journal's exact generation to the account client;
 that generation may create a fresh pending binding, while unrelated revoked state still fails closed with
-`HR-BIND-006`. Temporary cleanup failure retains a cleanup-only retry and uses
+`HR-BIND-006`. If Cloud instead already reports the terminal journal's exact binding ID and generation
+as active, the retry may restore that same binding only when its public-key fingerprint matches this
+Mac's retained machine key. This recovery waits for the original binding to become healthy and performs
+neither first-binding confirmation nor replacement; every mismatch remains blocked. Temporary cleanup
+failure retains a cleanup-only retry and uses
 `HR-MIGRATE-005`. The production/default plist and Gateway flag remain off, so this source connection
 does not authorize a real download, installation, process change, or rollout.
 

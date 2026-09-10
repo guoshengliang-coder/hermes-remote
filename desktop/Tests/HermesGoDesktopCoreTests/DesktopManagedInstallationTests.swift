@@ -127,6 +127,7 @@ final class DesktopManagedInstallationTests: XCTestCase {
             credentialFile: credentialURL,
             gatewayURL: URL(string: "wss://gateway.example/v2/connect")!,
             hermesBaseURL: URL(string: "http://127.0.0.1:9119")!,
+            sessionTokenFile: layout.hermesSessionToken,
             standardOutput: testRoot.appendingPathComponent("managed/logs/connector.log"),
             standardError: testRoot.appendingPathComponent("managed/logs/connector.error.log")
         )
@@ -144,8 +145,34 @@ final class DesktopManagedInstallationTests: XCTestCase {
         let environment = try XCTUnwrap(decoded["EnvironmentVariables"] as? [String: String])
         XCTAssertEqual(environment["CONNECTOR_MODE"], "account")
         XCTAssertEqual(environment["GATEWAY_URL"], "wss://gateway.example/v2/connect")
+        XCTAssertEqual(environment["HERMES_SESSION_TOKEN_FILE"], layout.hermesSessionToken.path)
+        XCTAssertNil(environment["HERMES_SESSION_TOKEN"])
         XCTAssertNil(environment["CONNECTOR_TOKEN"])
         XCTAssertNil(environment["HERMES_AUTH_PASSWORD"])
+    }
+
+    func testHermesSessionTokenIsPrivateStableAndRejectsUnsafeReplacement() throws {
+        let testRoot = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: testRoot) }
+        let layout = try DesktopManagedInstallLayout(
+            root: testRoot.appendingPathComponent("managed"),
+            launchAgentsRoot: testRoot.appendingPathComponent("agents")
+        )
+        let installer = DesktopManagedInstaller(layout: layout)
+
+        let first = try installer.ensureHermesSessionToken()
+        let firstValue = try String(contentsOf: first, encoding: .utf8)
+        XCTAssertEqual(first, layout.hermesSessionToken)
+        XCTAssertNotNil(firstValue.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression))
+        XCTAssertEqual(try installer.ensureHermesSessionToken(), first)
+        XCTAssertEqual(try String(contentsOf: first, encoding: .utf8), firstValue)
+        let attributes = try FileManager.default.attributesOfItem(atPath: first.path)
+        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: first.path)
+        XCTAssertThrowsError(try installer.ensureHermesSessionToken()) { error in
+            XCTAssertEqual(error as? DesktopManagedInstallError, .unsafeFilesystemObject)
+        }
     }
 
     func testHermesLaunchAgentUsesOnlySignedEntrypointAndFrozenLoopbackContract() throws {
@@ -161,6 +188,7 @@ final class DesktopManagedInstallationTests: XCTestCase {
             ),
             hermesHome: testRoot.appendingPathComponent("hermes-home"),
             runtimeContract: .serveV1,
+            sessionTokenFile: layout.hermesSessionToken,
             standardOutput: testRoot.appendingPathComponent("managed/logs/hermes-server.log"),
             standardError: testRoot.appendingPathComponent("managed/logs/hermes-server.error.log")
         )
@@ -185,7 +213,11 @@ final class DesktopManagedInstallationTests: XCTestCase {
         ])
         XCTAssertEqual(
             decoded["EnvironmentVariables"] as? [String: String],
-            ["HERMES_HOME": testRoot.appendingPathComponent("hermes-home").path]
+            [
+                "HERMES_HOME": testRoot.appendingPathComponent("hermes-home").path,
+                "HERMES_DESKTOP": "1",
+                "HERMES_SESSION_TOKEN_FILE": layout.hermesSessionToken.path,
+            ]
         )
         XCTAssertNil(decoded["KeepAlive"])
     }
@@ -221,6 +253,7 @@ final class DesktopManagedInstallationTests: XCTestCase {
             credentialFile: layout.connectorCredential,
             gatewayURL: URL(string: "wss://gateway.example/v2/connect")!,
             hermesBaseURL: URL(string: "http://127.0.0.1:9119")!,
+            sessionTokenFile: layout.hermesSessionToken,
             standardOutput: layout.logsRoot.appendingPathComponent("connector.log"),
             standardError: layout.logsRoot.appendingPathComponent("connector.error.log")
         )
@@ -237,6 +270,7 @@ final class DesktopManagedInstallationTests: XCTestCase {
             hermesExecutable: URL(fileURLWithPath: "/bin/sh"),
             hermesHome: testRoot.appendingPathComponent("hermes-home"),
             runtimeContract: .serveV1,
+            sessionTokenFile: layout.hermesSessionToken,
             standardOutput: layout.logsRoot.appendingPathComponent("hermes-server.log"),
             standardError: layout.logsRoot.appendingPathComponent("hermes-server.error.log")
         )

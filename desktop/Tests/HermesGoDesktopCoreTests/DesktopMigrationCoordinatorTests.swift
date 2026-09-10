@@ -140,9 +140,47 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
             )
         )
 
-        let retryGenerations = await fixture.account.retryGenerations()
-        XCTAssertEqual(retryGenerations, [1])
+        let retryReferences = await fixture.account.retryReferences()
+        XCTAssertEqual(retryReferences.map(\.id), [fixture.bindingID])
+        XCTAssertEqual(retryReferences.map(\.generation), [1])
         XCTAssertEqual(try fixture.journal.load()?.state, .accountActive)
+    }
+
+    func testMatchingBoundBindingResumesAfterLocalRollbackWithoutRemoteConfirmation() async throws {
+        let fixture = try Fixture(legacyRunning: true, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        let previousRunID = "10000000-0000-4000-8000-000000000009"
+        _ = try fixture.journal.begin(
+            runID: previousRunID,
+            lastKnownGoodMode: .legacy,
+            releaseVersion: fixture.manifest.releaseVersion,
+            bindingID: fixture.bindingID,
+            bindingGeneration: 1
+        )
+        _ = try fixture.journal.transition(runID: previousRunID, to: .accountStaged)
+        _ = try fixture.journal.transition(runID: previousRunID, to: .rollingBack)
+        _ = try fixture.journal.transition(runID: previousRunID, to: .legacyActive)
+
+        let outcome = try await fixture.coordinator.migrate(
+            manifest: fixture.manifest,
+            sources: fixture.sources,
+            hermesLaunchAgentConfiguration: fixture.hermesLaunchAgentConfiguration,
+            launchAgentConfiguration: fixture.launchAgentConfiguration,
+            legacy: fixture.legacy,
+            runID: fixture.runID,
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>.confirmationText(
+                releaseVersion: fixture.manifest.releaseVersion
+            )
+        )
+
+        XCTAssertEqual(outcome.bindingID, fixture.bindingID)
+        let confirmCount = await fixture.account.confirmCount()
+        XCTAssertEqual(confirmCount, 0)
+        XCTAssertEqual(try fixture.journal.load()?.state, .accountActive)
+        XCTAssertEqual(fixture.runner.loadedLabels(), [
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
     }
 
     func testCleanInstallFailureReturnsToKnownUninstalledState() async throws {
@@ -302,7 +340,8 @@ private final class Fixture {
         legacyRunning: Bool,
         failAccountStart: Bool = false,
         ambiguousCommit: Bool = false,
-        hermesHealthy: Bool = true
+        hermesHealthy: Bool = true,
+        resumeBoundBinding: Bool = false
     ) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("hermes-migration-coordinator-\(UUID().uuidString)", isDirectory: true)
@@ -319,7 +358,11 @@ private final class Fixture {
             launchAgentsRoot: layout.launchAgentsRoot,
             runner: runner
         )
-        account = MigrationAccountFake(bindingID: bindingID, ambiguousCommit: ambiguousCommit)
+        account = MigrationAccountFake(
+            bindingID: bindingID,
+            ambiguousCommit: ambiguousCommit,
+            resumeBoundBinding: resumeBoundBinding
+        )
         coordinator = try DesktopMigrationCoordinator(
             account: account,
             journal: journal,
@@ -341,6 +384,7 @@ private final class Fixture {
             ),
             hermesHome: root.appendingPathComponent("hermes-home"),
             runtimeContract: .serveV1,
+            sessionTokenFile: layout.hermesSessionToken,
             standardOutput: root.appendingPathComponent("managed/logs/hermes-server.log"),
             standardError: root.appendingPathComponent("managed/logs/hermes-server.error.log")
         )
@@ -349,6 +393,7 @@ private final class Fixture {
             credentialFile: layout.connectorCredential,
             gatewayURL: URL(string: "wss://gateway.example/v2/connect")!,
             hermesBaseURL: URL(string: "http://127.0.0.1:9119")!,
+            sessionTokenFile: layout.hermesSessionToken,
             standardOutput: root.appendingPathComponent("managed/logs/connector.log"),
             standardError: root.appendingPathComponent("managed/logs/connector.error.log")
         )
@@ -411,26 +456,35 @@ private actor MigrationAccountFake: DesktopBindingCoordinating {
     private var confirmations = 0
     private var committed = false
     private let ambiguousCommit: Bool
+    private let resumeBoundBinding: Bool
     private var confirmationAttempted = false
-    private var recordedRetryGenerations: [Int?] = []
+    private var recordedRetryReferences: [(id: String?, generation: Int?)] = []
 
-    init(bindingID: String, ambiguousCommit: Bool) {
+    init(bindingID: String, ambiguousCommit: Bool, resumeBoundBinding: Bool = false) {
         self.bindingID = bindingID
         self.ambiguousCommit = ambiguousCommit
+        self.resumeBoundBinding = resumeBoundBinding
     }
 
-    func beginBinding(retryingRevokedGeneration: Int?) async throws -> DesktopBindingPreparation {
+    func beginBinding(
+        retryingTerminalBindingID: String?,
+        retryingTerminalGeneration: Int?
+    ) async throws -> DesktopBindingPreparation {
         began += 1
-        recordedRetryGenerations.append(retryingRevokedGeneration)
+        recordedRetryReferences.append((retryingTerminalBindingID, retryingTerminalGeneration))
         return DesktopBindingPreparation(
-            state: pendingState(keyProved: false, healthy: false),
+            state: resumeBoundBinding
+                ? committedState()
+                : pendingState(keyProved: false, healthy: false),
             credential: AccountConnectorCredentialPayload(data: Data("{\"test\":true}".utf8))
         )
     }
 
     func refresh() async throws -> DesktopAccountState {
         if ambiguousCommit, confirmationAttempted { return .signedOut }
-        return committed ? committedState() : pendingState(keyProved: true, healthy: true)
+        return committed || resumeBoundBinding
+            ? committedState()
+            : pendingState(keyProved: true, healthy: true)
     }
 
     func confirmBinding() async throws -> DesktopAccountState {
@@ -443,7 +497,7 @@ private actor MigrationAccountFake: DesktopBindingCoordinating {
 
     func beginCount() -> Int { began }
     func confirmCount() -> Int { confirmations }
-    func retryGenerations() -> [Int?] { recordedRetryGenerations }
+    func retryReferences() -> [(id: String?, generation: Int?)] { recordedRetryReferences }
 
     private func pendingState(keyProved: Bool, healthy: Bool) -> DesktopAccountState {
         .signedIn(dashboard(binding: AccountBindingSnapshot(

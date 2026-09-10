@@ -1,7 +1,10 @@
 import Foundation
 
 public protocol DesktopBindingCoordinating: Sendable {
-    func beginBinding(retryingRevokedGeneration: Int?) async throws -> DesktopBindingPreparation
+    func beginBinding(
+        retryingTerminalBindingID: String?,
+        retryingTerminalGeneration: Int?
+    ) async throws -> DesktopBindingPreparation
     func refresh() async throws -> DesktopAccountState
     func confirmBinding() async throws -> DesktopAccountState
 }
@@ -85,22 +88,27 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         else { throw DesktopMigrationCoordinatorError.invalidStartingState }
 
         let lastKnownGood: DesktopLastKnownGoodMode = legacy.isRunning ? .legacy : .none
-        let retryingRevokedGeneration = try revokedRetryGeneration(lastKnownGood: lastKnownGood)
+        let retryingTerminalBinding = try terminalRetryBinding(lastKnownGood: lastKnownGood)
         let preparation = try await account.beginBinding(
-            retryingRevokedGeneration: retryingRevokedGeneration
+            retryingTerminalBindingID: retryingTerminalBinding?.id,
+            retryingTerminalGeneration: retryingTerminalBinding?.generation
         )
-        let pending = try pendingBinding(preparation.state)
+        let target = try bindingTarget(
+            preparation.state,
+            retryingTerminalBinding: retryingTerminalBinding
+        )
         _ = try journal.begin(
             runID: runID,
             lastKnownGoodMode: lastKnownGood,
             releaseVersion: manifest.releaseVersion,
-            bindingID: pending.id,
-            bindingGeneration: pending.generation
+            bindingID: target.id,
+            bindingGeneration: target.generation
         )
         var activation: DesktopReleaseActivation?
         do {
             _ = try installer.stageRelease(manifest: manifest, runID: runID, sources: sources)
             _ = try installer.writeCredential(preparation.credential)
+            _ = try installer.ensureHermesSessionToken()
             let hermesLaunchAgentURL = try installer.writeHermesLaunchAgent(
                 hermesLaunchAgentConfiguration,
                 manifest: manifest
@@ -125,28 +133,47 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             ) else { throw DesktopMigrationCoordinatorError.hermesHealthTimedOut }
             try launchAgent.startAccount(plistURL: accountLaunchAgentURL)
 
-            try await waitForCandidate(bindingID: pending.id, generation: pending.generation, runID: runID)
+            if target.isAlreadyBound {
+                try await waitForCommittedBinding(
+                    bindingID: target.id,
+                    generation: target.generation,
+                    runID: runID
+                )
+            } else {
+                try await waitForCandidate(
+                    bindingID: target.id,
+                    generation: target.generation,
+                    runID: runID
+                )
+            }
             _ = try journal.transition(runID: runID, to: .commitPending)
-            do {
-                let confirmed = try await account.confirmBinding()
-                guard isCommitted(confirmed, bindingID: pending.id, generation: pending.generation) else {
+            if target.isAlreadyBound {
+                let reconciled = try await account.refresh()
+                guard isCommitted(reconciled, bindingID: target.id, generation: target.generation) else {
                     throw DesktopMigrationCoordinatorError.commitAmbiguous
                 }
-            } catch {
-                let reconciled = try await account.refresh()
-                if !isCommitted(reconciled, bindingID: pending.id, generation: pending.generation) {
-                    guard isPending(reconciled, bindingID: pending.id, generation: pending.generation) else {
+            } else {
+                do {
+                    let confirmed = try await account.confirmBinding()
+                    guard isCommitted(confirmed, bindingID: target.id, generation: target.generation) else {
                         throw DesktopMigrationCoordinatorError.commitAmbiguous
                     }
-                    throw DesktopMigrationCoordinatorError.commitNotApplied
+                } catch {
+                    let reconciled = try await account.refresh()
+                    if !isCommitted(reconciled, bindingID: target.id, generation: target.generation) {
+                        guard isPending(reconciled, bindingID: target.id, generation: target.generation) else {
+                            throw DesktopMigrationCoordinatorError.commitAmbiguous
+                        }
+                        throw DesktopMigrationCoordinatorError.commitNotApplied
+                    }
                 }
             }
             _ = try journal.transition(runID: runID, to: .accountActive)
             return DesktopMigrationOutcome(
                 runID: UUID(uuidString: runID)!.uuidString.lowercased(),
                 releaseVersion: manifest.releaseVersion,
-                bindingID: pending.id,
-                bindingGeneration: pending.generation
+                bindingID: target.id,
+                bindingGeneration: target.generation
             )
         } catch {
             let failureState = try? journal.load()?.state
@@ -251,6 +278,31 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         throw DesktopMigrationCoordinatorError.healthTimedOut
     }
 
+    private func waitForCommittedBinding(
+        bindingID: String,
+        generation: Int,
+        runID: String
+    ) async throws {
+        for attempt in 0..<maximumHealthPolls {
+            let state = try await account.refresh()
+            guard case .signedIn(let dashboard) = state,
+                  dashboard.binding.state == "bound",
+                  let binding = dashboard.binding.binding,
+                  binding.id == bindingID,
+                  binding.generation == generation
+            else { throw DesktopMigrationCoordinatorError.invalidBindingState }
+            if isCommitted(state, bindingID: bindingID, generation: generation) {
+                _ = try journal.transition(runID: runID, to: .candidateAuthenticated)
+                _ = try journal.transition(runID: runID, to: .candidateHealthy)
+                return
+            }
+            if attempt + 1 < maximumHealthPolls, healthPollDelayNanoseconds > 0 {
+                try await Task.sleep(nanoseconds: healthPollDelayNanoseconds)
+            }
+        }
+        throw DesktopMigrationCoordinatorError.healthTimedOut
+    }
+
     private func rollback(
         activation: DesktopReleaseActivation?,
         legacy: LegacyConnectorSnapshot,
@@ -289,18 +341,33 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         return .rollbackAttentionRequired
     }
 
-    private func pendingBinding(_ state: DesktopAccountState) throws -> (id: String, generation: Int) {
-        guard case .signedIn(let dashboard) = state,
-              dashboard.binding.state == "binding_pending",
-              let id = dashboard.binding.id,
-              let generation = dashboard.binding.generation
-        else { throw DesktopMigrationCoordinatorError.invalidBindingState }
-        return (id, generation)
+    private func bindingTarget(
+        _ state: DesktopAccountState,
+        retryingTerminalBinding: (id: String, generation: Int)?
+    ) throws -> (id: String, generation: Int, isAlreadyBound: Bool) {
+        guard case .signedIn(let dashboard) = state else {
+            throw DesktopMigrationCoordinatorError.invalidBindingState
+        }
+        if dashboard.binding.state == "binding_pending",
+           let id = dashboard.binding.id,
+           let generation = dashboard.binding.generation {
+            return (id, generation, false)
+        }
+        if dashboard.binding.state == "bound",
+           let retryingTerminalBinding,
+           let binding = dashboard.binding.binding,
+           binding.id == retryingTerminalBinding.id,
+           binding.generation == retryingTerminalBinding.generation {
+            return (binding.id, binding.generation, true)
+        }
+        throw DesktopMigrationCoordinatorError.invalidBindingState
     }
 
-    private func revokedRetryGeneration(lastKnownGood: DesktopLastKnownGoodMode) throws -> Int? {
+    private func terminalRetryBinding(
+        lastKnownGood: DesktopLastKnownGoodMode
+    ) throws -> (id: String, generation: Int)? {
         guard let recorded = try journal.load(),
-              recorded.bindingID != nil,
+              let bindingID = recorded.bindingID,
               let generation = recorded.bindingGeneration,
               generation > 0
         else { return nil }
@@ -308,7 +375,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         switch (recorded.state, recorded.lastKnownGoodMode, lastKnownGood) {
         case (.legacyActive, .legacy, .legacy),
              (.cleanUninstalled, .none, .none):
-            return generation
+            return (bindingID, generation)
         default:
             return nil
         }

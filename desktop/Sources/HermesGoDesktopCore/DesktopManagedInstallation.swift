@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import Security
 
 public struct DesktopManagedInstallLayout: Equatable, Sendable {
     public static let connectorLabel = "com.hermesgo.connector"
@@ -19,6 +20,7 @@ public struct DesktopManagedInstallLayout: Equatable, Sendable {
     public var logsRoot: URL { root.appendingPathComponent("logs", isDirectory: true) }
     public var currentRelease: URL { root.appendingPathComponent("current") }
     public var connectorCredential: URL { secretsRoot.appendingPathComponent("connector-account.json") }
+    public var hermesSessionToken: URL { secretsRoot.appendingPathComponent("hermes-session-token") }
     public var connectorLaunchAgent: URL {
         launchAgentsRoot.appendingPathComponent(Self.connectorLabel + ".plist")
     }
@@ -156,6 +158,37 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         return layout.connectorCredential
     }
 
+    /// Returns a stable, installation-local credential shared only by the managed Hermes process
+    /// and its Connector. The value never enters either LaunchAgent plist or the Cloud credential.
+    public func ensureHermesSessionToken() throws -> URL {
+        try ensurePrivateDirectory(layout.root)
+        try ensurePrivateDirectory(layout.secretsRoot)
+        var metadata = stat()
+        if Darwin.lstat(layout.hermesSessionToken.path, &metadata) == 0 {
+            guard (metadata.st_mode & S_IFMT) == S_IFREG,
+                  metadata.st_uid == Darwin.getuid(),
+                  metadata.st_mode & 0o077 == 0,
+                  metadata.st_size == 43,
+                  let value = try? String(contentsOf: layout.hermesSessionToken, encoding: .utf8),
+                  value.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil
+            else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+            return layout.hermesSessionToken
+        }
+        guard errno == ENOENT else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+            throw DesktopManagedInstallError.persistenceFailed
+        }
+        let token = Data(bytes).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        guard token.utf8.count == 43 else { throw DesktopManagedInstallError.persistenceFailed }
+        try atomicWrite(Data(token.utf8), to: layout.hermesSessionToken, permissions: 0o600)
+        return layout.hermesSessionToken
+    }
+
     public func writeLaunchAgent(
         _ configuration: DesktopAccountConnectorLaunchAgent,
         manifest: DesktopReleaseManifest
@@ -169,6 +202,7 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
             .standardizedFileURL
         guard configuration.connectorExecutable.standardizedFileURL.path == expectedExecutable.path,
               configuration.credentialFile.standardizedFileURL.path == layout.connectorCredential.path,
+              configuration.sessionTokenFile.standardizedFileURL.path == layout.hermesSessionToken.path,
               configuration.standardOutput.standardizedFileURL.path
                 == layout.logsRoot.appendingPathComponent("connector.log").path,
               configuration.standardError.standardizedFileURL.path
@@ -196,6 +230,7 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
             .appendingPathComponent(hermes.entrypoint)
             .standardizedFileURL
         guard configuration.hermesExecutable.standardizedFileURL.path == expectedExecutable.path,
+              configuration.sessionTokenFile.standardizedFileURL.path == layout.hermesSessionToken.path,
               configuration.standardOutput.standardizedFileURL.path
                 == layout.logsRoot.appendingPathComponent("hermes-server.log").path,
               configuration.standardError.standardizedFileURL.path
@@ -467,6 +502,7 @@ public struct DesktopHermesServerLaunchAgent: Sendable {
     public let hermesExecutable: URL
     public let hermesHome: URL
     public let runtimeContract: DesktopHermesRuntimeContract
+    public let sessionTokenFile: URL
     public let standardOutput: URL
     public let standardError: URL
 
@@ -474,12 +510,14 @@ public struct DesktopHermesServerLaunchAgent: Sendable {
         hermesExecutable: URL,
         hermesHome: URL,
         runtimeContract: DesktopHermesRuntimeContract,
+        sessionTokenFile: URL,
         standardOutput: URL,
         standardError: URL
     ) {
         self.hermesExecutable = hermesExecutable
         self.hermesHome = hermesHome
         self.runtimeContract = runtimeContract
+        self.sessionTokenFile = sessionTokenFile
         self.standardOutput = standardOutput
         self.standardError = standardError
     }
@@ -488,7 +526,10 @@ public struct DesktopHermesServerLaunchAgent: Sendable {
         guard [hermesExecutable, standardOutput, standardError].allSatisfy({
             $0.isFileURL && $0.path.hasPrefix("/") && $0.path != "/"
         }) else { throw DesktopLaunchAgentError.invalidConfiguration }
-        let environment = try runtimeContract.environmentVariables(hermesHome: hermesHome)
+        let environment = try runtimeContract.environmentVariables(
+            hermesHome: hermesHome,
+            sessionTokenFile: sessionTokenFile
+        )
         let object: [String: Any] = [
             "Label": DesktopManagedInstallLayout.hermesLabel,
             "ProgramArguments": [hermesExecutable.path] + runtimeContract.programArguments,
@@ -514,6 +555,7 @@ public struct DesktopAccountConnectorLaunchAgent: Sendable {
     public let credentialFile: URL
     public let gatewayURL: URL
     public let hermesBaseURL: URL
+    public let sessionTokenFile: URL
     public let standardOutput: URL
     public let standardError: URL
 
@@ -522,6 +564,7 @@ public struct DesktopAccountConnectorLaunchAgent: Sendable {
         credentialFile: URL,
         gatewayURL: URL,
         hermesBaseURL: URL,
+        sessionTokenFile: URL,
         standardOutput: URL,
         standardError: URL
     ) {
@@ -529,12 +572,13 @@ public struct DesktopAccountConnectorLaunchAgent: Sendable {
         self.credentialFile = credentialFile
         self.gatewayURL = gatewayURL
         self.hermesBaseURL = hermesBaseURL
+        self.sessionTokenFile = sessionTokenFile
         self.standardOutput = standardOutput
         self.standardError = standardError
     }
 
     public func encodedPropertyList() throws -> Data {
-        guard [connectorExecutable, credentialFile, standardOutput, standardError].allSatisfy({
+        guard [connectorExecutable, credentialFile, sessionTokenFile, standardOutput, standardError].allSatisfy({
             $0.isFileURL && $0.path.hasPrefix("/") && $0.path != "/"
         }), Self.validGateway(gatewayURL), Self.validHermes(hermesBaseURL) else {
             throw DesktopLaunchAgentError.invalidConfiguration
@@ -552,6 +596,7 @@ public struct DesktopAccountConnectorLaunchAgent: Sendable {
                 "ACCOUNT_CONNECTOR_CREDENTIAL_FILE": credentialFile.path,
                 "GATEWAY_URL": gatewayURL.absoluteString,
                 "HERMES_BASE_URL": hermesBaseURL.absoluteString,
+                "HERMES_SESSION_TOKEN_FILE": sessionTokenFile.path,
             ],
         ]
         do {

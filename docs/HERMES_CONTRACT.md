@@ -72,6 +72,15 @@ Mac; the phone holds only its own app token (see `docs/ARCHITECTURE.md`).
 
 ### 3. WebSocket RPC methods
 
+`/api/ws` is not anonymous on Hermes 0.21.0, including a loopback-only `hermes serve` process.
+In loopback mode the upgrade requires the process's exact session token as the `token` query
+parameter. When `dashboard.public_url` names a non-loopback host, the managed private backend must
+also start with `HERMES_DESKTOP=1` plus an operator-supplied `HERMES_DASHBOARD_SESSION_TOKEN`; those
+three facts activate Hermes' Desktop-owned loopback exemption instead of the public ticket gate.
+Hermes GO therefore generates one private installation-local token, starts Hermes with that token,
+and lets only the local Connector read the same token. The value never crosses Gateway and is never
+placed in the signed release.
+
 ```
 session.create   session.resume   session.interrupt   session.workspace.move
 prompt.submit    slash.exec       complete.path       commands.catalog

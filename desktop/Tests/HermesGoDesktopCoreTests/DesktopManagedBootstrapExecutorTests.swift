@@ -214,6 +214,7 @@ private final class BootstrapExecutorFixture {
         hermesExecutable: URL(fileURLWithPath: "/tmp/managed/current/hermes_server/bin/hermes-server"),
         hermesHome: URL(fileURLWithPath: "/tmp/hermes-home"),
         runtimeContract: .serveV1,
+        sessionTokenFile: URL(fileURLWithPath: "/tmp/managed/secrets/hermes-session-token"),
         standardOutput: URL(fileURLWithPath: "/tmp/managed/logs/hermes-server.log"),
         standardError: URL(fileURLWithPath: "/tmp/managed/logs/hermes-server.error.log")
     )
@@ -222,6 +223,7 @@ private final class BootstrapExecutorFixture {
         credentialFile: URL(fileURLWithPath: "/tmp/managed/secrets/connector-account.json"),
         gatewayURL: URL(string: "wss://gateway.example/v2/connect")!,
         hermesBaseURL: URL(string: "http://127.0.0.1:9119")!,
+        sessionTokenFile: URL(fileURLWithPath: "/tmp/managed/secrets/hermes-session-token"),
         standardOutput: URL(fileURLWithPath: "/tmp/managed/logs/connector.log"),
         standardError: URL(fileURLWithPath: "/tmp/managed/logs/connector.error.log")
     )

@@ -48,8 +48,16 @@ test("component builder creates source-pinned relocatable Hermes and Connector a
   assert.doesNotMatch(connectorNames, /\.test\.|\.map$|\.d\.ts$/m);
   const hermesNames = run("/usr/bin/tar", ["-tzf", result.artifacts[0].path]);
   assert.match(hermesNames, /runtime\/python\/bin\/python3\.11/);
+  assert.match(hermesNames, /runtime\/read-private-session-token\.py/);
   assert.match(hermesNames, /runtime\/site-packages\/dependency\.py/);
   assert.doesNotMatch(hermesNames, /\.git|\.env|private\.pem|node_modules/);
+
+  run("/usr/bin/tar", ["-xzf", result.artifacts[0].path, "-C", extracted]);
+  const hermesLauncher = await readFile(path.join(extracted, "bin/hermes-server"), "utf8");
+  const tokenReader = await readFile(path.join(extracted, "runtime/read-private-session-token.py"), "utf8");
+  assert.match(hermesLauncher, /HERMES_DASHBOARD_SESSION_TOKEN/);
+  assert.match(tokenReader, /O_NOFOLLOW/);
+  assert.match(tokenReader, /st_mode & 0o077/);
 });
 
 test("component builder rejects dirty source identities before staging", async (t) => {

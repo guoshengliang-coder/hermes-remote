@@ -46,6 +46,12 @@ Implemented account states are capability checking/unavailable, signed out, emai
 signed in with no binding, bound healthy/offline, pending/replacement/revoked, and session-needs-login.
 The revoked card explains that a locally proven, safely rolled-back migration may be retried without a
 new login; all other revoked bindings still require identity verification and replacement.
+The same recovery rule applies when Cloud already committed the exact binding before the local machine
+returned to a terminal rollback state: Desktop may resume only when the terminal journal's binding ID
+and generation match the active Cloud binding and the active fingerprint matches this Mac's retained
+machine key. This is recovery of the same binding, not replacement, so it does not request a second
+replacement confirmation. Any ID, generation, fingerprint, or journal-state mismatch remains blocked
+with the existing binding-conflict path.
 The normal signed-in view shows the account, current Desktop, one binding, and independently removable
 phones. Account errors appear with stable `HR-*` codes and copyable redacted diagnostics.
 The signed-in dashboard follows the capability snapshot field by field: the account summary remains available after
@@ -118,6 +124,9 @@ drifts from the canonical source.
   shown as history, but cannot by themselves mark a currently healthy connection offline.
 - End-to-end failures show a registered `HR-*` code and recovery action; raw HTTP bodies and tokens
   never become primary UI text.
+- A managed local Hermes WebSocket is authenticated with one private installation token shared by
+  file path between Hermes and Connector. The value is never rendered, copied into diagnostics, or
+  sent to Gateway; a missing or unsafe file leaves the path offline rather than weakening auth.
 
 ## Concept references
 
