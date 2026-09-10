@@ -162,7 +162,7 @@ fun ProjectScopeView(
             }
             items(lane.sessions, key = { "sess-${it.id}" }) { s ->
                 ListItem(
-                    headlineContent = { Text(s.title) },
+                    headlineContent = { Text(s.title, style = com.hermes.client.ui.theme.SessionRowTitle) },
                     supportingContent = { SessionSubline(s, lead = SublineLead.BRANCH, defaultProjectPath = defaultProjectPath) },
                     modifier = Modifier.clickable { onOpenSession(s) },
                 )

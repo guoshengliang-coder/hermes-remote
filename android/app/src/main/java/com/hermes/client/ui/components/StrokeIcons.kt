@@ -126,6 +126,59 @@ val ThinChevronIcon: ImageVector by lazy {
 // Small-icon compensation (docs/DESIGN.md §4.1): the 1.7dp stroke is tuned for 24dp glyphs. An
 // icon embedded at 16–18dp scales that stroke to ~1.2dp — thinner than the text beside it —
 // so glyphs meant for pills and rows are drawn at 2.4 (≈1.8dp at 18dp), matching labelLarge.
+/**
+ * The two segment glyphs for the Chats / Bots switch (docs/DESIGN.md §4.2, §5.2).
+ *
+ * Both use [smallStrokeIcon]: they render at 18dp inside the segment pill, where the 1.7dp brush
+ * would thin out to ~1.2dp and read lighter than the label beside them (§4.1 small-size rule).
+ *
+ * Drawn as a pair on purpose — same 14x11 body box, same 2.5-unit corner radius, same optical
+ * centre — so that the selected and unselected segments carry equal visual weight. Hollow, like
+ * every glyph in this file: a filled bubble already means "a chat message" inside the transcript.
+ */
+val ChatBubbleStrokeIcon: ImageVector by lazy {
+    smallStrokeIcon("StrokeChatBubble") {
+        // Rounded speech bubble, tail dropping from the lower left.
+        moveTo(5f, 6.5f)
+        arcToRelative(2.5f, 2.5f, 0f, false, true, 2.5f, -2.5f)
+        horizontalLineTo(16.5f)
+        arcToRelative(2.5f, 2.5f, 0f, false, true, 2.5f, 2.5f)
+        verticalLineTo(13.5f)
+        arcToRelative(2.5f, 2.5f, 0f, false, true, -2.5f, 2.5f)
+        horizontalLineTo(10f)
+        lineTo(6.5f, 19.5f)
+        verticalLineTo(16f)
+        horizontalLineTo(7.5f)
+        arcToRelative(2.5f, 2.5f, 0f, false, true, -2.5f, -2.5f)
+        close()
+    }
+}
+
+/** Bot head: the same rounded body box as the bubble, plus an antenna and two eyes. */
+val BotStrokeIcon: ImageVector by lazy {
+    smallStrokeIcon("StrokeBot") {
+        // Antenna.
+        moveTo(12f, 3f)
+        verticalLineTo(6f)
+        // Head.
+        moveTo(7.5f, 6f)
+        horizontalLineTo(16.5f)
+        arcToRelative(2.5f, 2.5f, 0f, false, true, 2.5f, 2.5f)
+        verticalLineTo(15.5f)
+        arcToRelative(2.5f, 2.5f, 0f, false, true, -2.5f, 2.5f)
+        horizontalLineTo(7.5f)
+        arcToRelative(2.5f, 2.5f, 0f, false, true, -2.5f, -2.5f)
+        verticalLineTo(8.5f)
+        arcToRelative(2.5f, 2.5f, 0f, false, true, 2.5f, -2.5f)
+        close()
+        // Eyes — short strokes rather than dots, so they survive the 18dp downscale.
+        moveTo(9.5f, 11f)
+        verticalLineTo(12.5f)
+        moveTo(14.5f, 11f)
+        verticalLineTo(12.5f)
+    }
+}
+
 private fun smallStrokeIcon(name: String, block: PathBuilder.() -> Unit): ImageVector =
     ImageVector.Builder(
         name = name,

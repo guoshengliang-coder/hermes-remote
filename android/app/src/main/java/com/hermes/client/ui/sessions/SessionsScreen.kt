@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.dp
@@ -53,9 +54,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -224,7 +222,7 @@ fun SessionsScreen(
                                 }
                                 items(section.sessions, key = { "bot-${it.id}" }) { s ->
                                     ListItem(
-                                        headlineContent = { Text(s.title) },
+                                        headlineContent = { Text(s.title, style = com.hermes.client.ui.theme.SessionRowTitle) },
                                         supportingContent = {
                                             Text(
                                                 localized(language, "${s.messageCount} 条", "${s.messageCount} messages"),
@@ -692,7 +690,7 @@ private fun SessionRow(
     val moveEnabled = runtime?.hasActiveWork != true && runtime?.phase?.isActive != true
 
     ListItem(
-            headlineContent = { Text(session.title) },
+            headlineContent = { Text(session.title, style = com.hermes.client.ui.theme.SessionRowTitle) },
             // No leading slot: the pinned marker rides in the subline so every title shares one
             // left edge (docs/DESIGN.md §5.2). Project · model, then the live status line. No
             // profile text: the list is scoped to one profile and identity lives only in the
@@ -1015,21 +1013,22 @@ internal fun ChatsSegmentedRow(
     selected: ViewMode,
     onSelect: (ViewMode) -> Unit,
 ) {
-    val accent = MaterialTheme.colorScheme.primary
-    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
-        tabs.forEachIndexed { i, (mode, label) ->
-            SegmentedButton(
-                selected = selected == mode,
-                onClick = { onSelect(mode) },
-                shape = SegmentedButtonDefaults.itemShape(i, tabs.size),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = accent,
-                    activeContentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-                // No check glyph: its appear/disappear used to shove the labels sideways on every
-                // switch. Selection reads from the fill alone.
-                icon = {},
-            ) { Text(label, maxLines = 1) }
-        }
-    }
+    // Icons are back here, and only here. They were dropped on 2026-09-01 because four segments
+    // left 91.5dp per cell and the glyphs squeezed the labels; two segments give ~183dp, so that
+    // constraint is gone. The other five switches stay text-only — they sit inside settings forms
+    // where a glyph would be decoration, not a landmark. The check glyph stays gone everywhere:
+    // that one shifted labels sideways on every switch, which no amount of width fixes.
+    com.hermes.client.ui.components.SegmentedCapsule(
+        options = tabs.map { it.first },
+        selected = selected,
+        onSelect = onSelect,
+        label = { mode -> tabs.first { it.first == mode }.second },
+        icon = { mode ->
+            when (mode) {
+                ViewMode.SESSIONS -> com.hermes.client.ui.components.ChatBubbleStrokeIcon
+                ViewMode.BOTS -> com.hermes.client.ui.components.BotStrokeIcon
+            }
+        },
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+    )
 }

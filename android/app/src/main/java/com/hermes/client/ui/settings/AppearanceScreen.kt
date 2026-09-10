@@ -8,9 +8,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,19 +42,19 @@ fun AppearanceScreen(
         Column(Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
             Label(localized(language, "颜色模式", "Color mode"))
             val modes = listOf(ThemeMode.SYSTEM, ThemeMode.LIGHT, ThemeMode.DARK)
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                modes.forEachIndexed { i, m ->
-                    SegmentedButton(
-                        selected = mode == m,
-                        onClick = { vm.setThemeMode(m) },
-                        shape = SegmentedButtonDefaults.itemShape(i, modes.size),
-                    ) { Text(when (m) {
+            com.hermes.client.ui.components.SegmentedCapsule(
+                options = modes,
+                selected = mode,
+                onSelect = { vm.setThemeMode(it) },
+                label = { m ->
+                    when (m) {
                         ThemeMode.SYSTEM -> localized(language, "跟随系统", "System")
                         ThemeMode.LIGHT -> localized(language, "浅色", "Light")
                         ThemeMode.DARK -> localized(language, "深色", "Dark")
-                    }) }
-                }
-            }
+                    }
+                },
+                modifier = Modifier.padding(top = 8.dp),
+            )
 
             Label(localized(language, "工具调用显示", "Tool-call display"), top = 24.dp)
             Text(
@@ -67,15 +64,13 @@ fun AppearanceScreen(
                 overflow = TextOverflow.Ellipsis,
             )
             val options = listOf(false to localized(language, "产品", "Product"), true to localized(language, "技术", "Technical"))
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                options.forEachIndexed { i, (value, label) ->
-                    SegmentedButton(
-                        selected = technical == value,
-                        onClick = { vm.setToolCallTechnical(value) },
-                        shape = SegmentedButtonDefaults.itemShape(i, options.size),
-                    ) { Text(label) }
-                }
-            }
+            com.hermes.client.ui.components.SegmentedCapsule(
+                options = options,
+                selected = options.first { it.first == technical },
+                onSelect = { vm.setToolCallTechnical(it.first) },
+                label = { it.second },
+                modifier = Modifier.padding(top = 8.dp),
+            )
         }
     }
 }
