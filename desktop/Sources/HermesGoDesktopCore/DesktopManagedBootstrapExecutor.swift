@@ -100,6 +100,7 @@ public struct DesktopManagedBootstrapCommitConfiguration: Equatable, Sendable {
                     .appendingPathComponent(hermesArtifact.entrypoint),
                 hermesHome: hermesHome,
                 runtimeContract: runtimeContract,
+                sessionTokenFile: layout.hermesSessionToken,
                 standardOutput: layout.logsRoot.appendingPathComponent("hermes-server.log"),
                 standardError: layout.logsRoot.appendingPathComponent("hermes-server.error.log")
             ),
@@ -110,6 +111,7 @@ public struct DesktopManagedBootstrapCommitConfiguration: Equatable, Sendable {
                 credentialFile: layout.connectorCredential,
                 gatewayURL: gatewayWebSocketURL,
                 hermesBaseURL: runtimeContract.baseURL,
+                sessionTokenFile: layout.hermesSessionToken,
                 standardOutput: layout.logsRoot.appendingPathComponent("connector.log"),
                 standardError: layout.logsRoot.appendingPathComponent("connector.error.log")
             )

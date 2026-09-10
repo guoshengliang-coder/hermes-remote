@@ -1,5 +1,9 @@
 # Hermes Go Desktop
 
+Current internal test release: **0.2.1** (build 4). It carries the managed-migration recovery fix and
+the private loopback session-token handoff required by Hermes Server 0.21.0. Public distribution still
+requires Developer ID signing, notarization, stapling, and clean-Mac acceptance.
+
 Hermes Go Desktop is the native macOS companion for the existing Hermes Remote Connector. The local
 I3-A alpha still runs in **compatibility observation mode**: it reads the current user-level launchd status,
 non-secret Connector settings, public Relay health, local Hermes reachability, and sanitized logs.

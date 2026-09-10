@@ -173,12 +173,41 @@ async function stageHermes({ destination, hermesRoot, pythonRoot, sitePackages, 
       await copyStrict(path.join(hermesRoot, entry.name), path.join(destination, "app", entry.name));
     }
   }
+  const tokenReader = `import os
+import re
+import stat
+import sys
+
+path = os.environ.get("HERMES_SESSION_TOKEN_FILE", "")
+try:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or metadata.st_mode & 0o077 or not 1 <= metadata.st_size <= 256):
+            raise ValueError("unsafe")
+        token = os.read(descriptor, 257).decode("ascii")
+    finally:
+        os.close(descriptor)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
+        raise ValueError("malformed")
+except Exception:
+    print("Hermes session token file is invalid", file=sys.stderr)
+    raise SystemExit(78)
+sys.stdout.write(token)
+`;
+  await writeFile(path.join(destination, "runtime/read-private-session-token.py"), tokenReader, { mode: 0o600 });
   const launcher = `#!/bin/sh
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 export PYTHONNOUSERSITE=1
 export PYTHONDONTWRITEBYTECODE=1
 export PYTHONPATH="$ROOT/app:$ROOT/runtime/site-packages"
+if [ -n "\${HERMES_SESSION_TOKEN_FILE:-}" ]; then
+  HERMES_DASHBOARD_SESSION_TOKEN=$("$ROOT/runtime/python/bin/python3.11" -s "$ROOT/runtime/read-private-session-token.py")
+  export HERMES_DASHBOARD_SESSION_TOKEN
+fi
 exec "$ROOT/runtime/python/bin/python3.11" -s -m hermes_cli.main "$@"
 `;
   await writeFile(path.join(destination, "bin/hermes-server"), launcher, { mode: 0o700 });

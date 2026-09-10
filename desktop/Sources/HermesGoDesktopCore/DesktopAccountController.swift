@@ -598,7 +598,8 @@ public actor DesktopAccountController {
     }
 
     public func beginBinding(
-        retryingRevokedGeneration: Int? = nil
+        retryingTerminalBindingID: String? = nil,
+        retryingTerminalGeneration: Int? = nil
     ) async throws -> DesktopBindingPreparation {
         guard let record = sessionRecord else {
             throw AccountClientError.remote(AccountRemoteError(
@@ -625,8 +626,9 @@ public actor DesktopAccountController {
             return try bindingPreparation(from: dashboardSnapshot!)
         }
         if binding.state == "revoked" {
-            guard let retryingRevokedGeneration,
-                  binding.generation == retryingRevokedGeneration
+            guard retryingTerminalBindingID.flatMap(UUID.init(uuidString:)) != nil,
+                  let retryingTerminalGeneration,
+                  binding.generation == retryingTerminalGeneration
             else {
                 throw AccountClientError.remote(AccountRemoteError(
                     code: "HR-BIND-006",
@@ -636,6 +638,13 @@ public actor DesktopAccountController {
                     correlationId: nil
                 ))
             }
+        } else if binding.state == "bound",
+                  let retryingTerminalBindingID,
+                  let retryingTerminalGeneration,
+                  let active = binding.binding,
+                  active.id == UUID(uuidString: retryingTerminalBindingID)?.uuidString.lowercased(),
+                  active.generation == retryingTerminalGeneration {
+            return try bindingPreparation(from: dashboardSnapshot!)
         } else if binding.state != "no_binding" {
             throw AccountClientError.remote(AccountRemoteError(
                 code: "HR-BIND-002",
@@ -1089,11 +1098,23 @@ public actor DesktopAccountController {
 
     private func bindingPreparation(from dashboard: AccountDashboard) throws -> DesktopBindingPreparation {
         let binding = dashboard.binding
-        guard binding.state == "binding_pending",
-              let bindingID = binding.id,
-              let generation = binding.generation,
-              let fingerprint = binding.publicKeyFingerprint
-        else { throw AccountClientError.invalidResponse }
+        let bindingID: String
+        let generation: Int
+        let fingerprint: String
+        if binding.state == "binding_pending",
+           let pendingID = binding.id,
+           let pendingGeneration = binding.generation,
+           let pendingFingerprint = binding.publicKeyFingerprint {
+            bindingID = pendingID
+            generation = pendingGeneration
+            fingerprint = pendingFingerprint
+        } else if binding.state == "bound", let active = binding.binding {
+            bindingID = active.id
+            generation = active.generation
+            fingerprint = active.publicKeyFingerprint
+        } else {
+            throw AccountClientError.invalidResponse
+        }
         let credential = try machineIdentityStore.loadOrCreate().accountConnectorCredential(
             bindingID: bindingID,
             generation: generation,

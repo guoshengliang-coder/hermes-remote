@@ -63,8 +63,13 @@ plus both exact managed LaunchAgents is treated as installed; intermediate state
 mismatches fail closed before another installation.
 
 `hermes-serve-v1` freezes the current official headless interface as
-`hermes serve --host 127.0.0.1 --port 9119`, with only `HERMES_HOME=<absolute non-root path>` supplied
-by the managed launcher. Readiness is the exact line `HERMES_BACKEND_READY port=9119`; the distinct
+`hermes serve --host 127.0.0.1 --port 9119`. The managed launcher supplies
+`HERMES_HOME=<absolute non-root path>`, `HERMES_DESKTOP=1`, and the path of one installation-local
+session-token file. Its signed wrapper validates that the file is regular, current-user owned,
+private, bounded, and canonical before exporting the value to Hermes; the Connector validates and
+reads the same file for REST headers and the `/api/ws?token=` handshake. The token file is generated
+locally at mode `0600`, never enters a manifest or Cloud request, and neither LaunchAgent contains its
+value. Readiness is the exact line `HERMES_BACKEND_READY port=9119`; the distinct
 port collision line is `BACKEND_PORT_IN_USE port=9119`. No provider/model secret belongs in the
 LaunchAgent: Hermes continues reading its profile-scoped state and private `.env` beneath
 `HERMES_HOME`. This contract follows the official
@@ -146,7 +151,8 @@ query, fragment, encoded slash, or traversal segment.
 ## Local layout and rollback
 
 The managed root contains immutable `releases/<version>` directories, a `current` relative symlink,
-a private Connector credential file, logs, staging, and the migration journal. The account Connector
+a private Connector credential file, a separate private Hermes session-token file, logs, staging,
+and the migration journal. The account Connector
 uses user LaunchAgent label `com.hermesgo.connector`; the legacy label remains
 `com.hermesremote.connector`. The managed Hermes Server uses the separate exact label
 `com.hermesgo.hermes-server`. Its plist executes only the signed Hermes entrypoint with the frozen

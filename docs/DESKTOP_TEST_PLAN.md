@@ -64,6 +64,9 @@ The current automated suite covers:
 - private credential/LaunchAgent writes, immutable release staging, atomic activation and rollback;
 - a rolled-back, app-marked inactive release can be atomically replaced by a freshly verified
   same-version retry, while active, unmarked, mismatched, or unsafe directories remain immutable;
+- a terminal rollback can resume an already committed Cloud binding only when its recorded ID,
+  generation, and retained machine-key fingerprint all match; it performs no replacement or second
+  remote confirmation, while every mismatch remains blocked;
 - acquisition ordering and lifecycle: private roots exist before verifier pinning, both signed
   components are required, digest/extraction failures remove only the current UUID workspace, and
   explicit discard preserves the parent workspace;
@@ -83,8 +86,11 @@ The current automated suite covers:
   startup, process-specific post-checkpoint ready evidence plus loopback health, bounded/symlink-safe
   log reads, Connector suppression on Hermes timeout, and reverse-order rollback;
 - default-off packaged bootstrap configuration, strict HTTPS/key/channel/architecture validation,
-  exact `hermes-serve-v1` loopback arguments and sentinels, absent/mismatched Gateway capability
-  rejection, and readiness only when both gates match;
+  exact `hermes-serve-v1` loopback arguments, Desktop marker, private session-token file path and
+  sentinels, absent/mismatched Gateway capability rejection, and readiness only when both gates match;
+- private installation-local Hermes token creation/reuse, unsafe file rejection, no token value in
+  either LaunchAgent, signed-wrapper file validation, and Connector file loading with no symlink or
+  group/world-readable fallback;
 - an existing responder on reserved port 9119, including 401/403, blocks clean install;
 - packaged ATS configuration explicitly permits local-network health probes while leaving arbitrary
   public and WebView HTTP loads disabled;

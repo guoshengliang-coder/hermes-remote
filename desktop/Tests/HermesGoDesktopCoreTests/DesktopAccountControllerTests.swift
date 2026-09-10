@@ -748,7 +748,10 @@ final class DesktopAccountControllerTests: XCTestCase {
         )
 
         _ = try await controller.bootstrap()
-        let preparation = try await controller.beginBinding(retryingRevokedGeneration: 1)
+        let preparation = try await controller.beginBinding(
+            retryingTerminalBindingID: "50000000-0000-4000-8000-000000000001",
+            retryingTerminalGeneration: 1
+        )
 
         guard case .signedIn(let dashboard) = preparation.state else {
             return XCTFail("Expected pending binding dashboard")
@@ -785,12 +788,166 @@ final class DesktopAccountControllerTests: XCTestCase {
 
         _ = try await controller.bootstrap()
         await XCTAssertThrowsErrorAsync(
-            try await controller.beginBinding(retryingRevokedGeneration: 2)
+            try await controller.beginBinding(
+                retryingTerminalBindingID: "50000000-0000-4000-8000-000000000001",
+                retryingTerminalGeneration: 2
+            )
         ) { error in
             guard case .remote(let remote)? = error as? AccountClientError else {
                 return XCTFail("Expected a structured remote binding error")
             }
             XCTAssertEqual(remote.code, "HR-BIND-006")
+        }
+        let createAttempts = await api.bindingCreateAttempts()
+        XCTAssertTrue(createAttempts.isEmpty)
+    }
+
+    func testMatchingBoundRollbackCanResumeWithoutCreatingAReplacement() async throws {
+        let fixtures = AccountFixtures()
+        let machines = MemoryMachineIdentityStore()
+        let machine = try machines.loadOrCreate()
+        let bindingID = "50000000-0000-4000-8000-000000000001"
+        let bound = AccountBindingSnapshot(
+            state: "bound",
+            id: nil,
+            generation: nil,
+            deviceId: nil,
+            displayName: nil,
+            expiresAt: nil,
+            keyProved: nil,
+            healthVerified: nil,
+            binding: ActiveAccountBinding(
+                id: bindingID,
+                generation: 7,
+                deviceId: "hermes-bound",
+                desktopDisplayName: "Office Mac",
+                publicKeyFingerprint: machine.connectorPublicKeyFingerprint,
+                connector: .init(online: false, lastSeenAt: nil),
+                hermes: .init(reachable: true, version: "1.0.0"),
+                gateway: .init(latencyMs: nil),
+                endToEnd: .init(healthy: false, checkedAt: nil)
+            ),
+            previousBinding: nil
+        )
+        let api = RecordingAccountAPI(fixtures: fixtures, bindingSnapshot: bound)
+        let controller = DesktopAccountController(
+            api: api,
+            sessionStore: MemoryAccountSessionStore(record: fixtures.record),
+            machineIdentityStore: machines,
+            deviceSelectionStore: MemoryDeviceSelectionStore(),
+            oauth: nil,
+            displayName: "Office Mac",
+            appVersion: "0.3.0"
+        )
+
+        _ = try await controller.bootstrap()
+        let preparation = try await controller.beginBinding(
+            retryingTerminalBindingID: bindingID,
+            retryingTerminalGeneration: 7
+        )
+        let credential = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: preparation.credential.data) as? [String: Any]
+        )
+
+        XCTAssertEqual(credential["bindingId"] as? String, bindingID.lowercased())
+        XCTAssertEqual(credential["generation"] as? Int, 7)
+        let createAttempts = await api.bindingCreateAttempts()
+        XCTAssertTrue(createAttempts.isEmpty)
+    }
+
+    func testBoundRollbackResumeFailsClosedWhenJournalBindingDoesNotMatch() async throws {
+        let fixtures = AccountFixtures()
+        let machines = MemoryMachineIdentityStore()
+        let machine = try machines.loadOrCreate()
+        let bound = AccountBindingSnapshot(
+            state: "bound",
+            id: nil,
+            generation: nil,
+            deviceId: nil,
+            displayName: nil,
+            expiresAt: nil,
+            keyProved: nil,
+            healthVerified: nil,
+            binding: ActiveAccountBinding(
+                id: "50000000-0000-4000-8000-000000000001",
+                generation: 7,
+                deviceId: "hermes-bound",
+                desktopDisplayName: "Office Mac",
+                publicKeyFingerprint: machine.connectorPublicKeyFingerprint,
+                connector: .init(online: false, lastSeenAt: nil),
+                hermes: .init(reachable: true, version: "1.0.0"),
+                gateway: .init(latencyMs: nil),
+                endToEnd: .init(healthy: false, checkedAt: nil)
+            ),
+            previousBinding: nil
+        )
+        let api = RecordingAccountAPI(fixtures: fixtures, bindingSnapshot: bound)
+        let controller = DesktopAccountController(
+            api: api,
+            sessionStore: MemoryAccountSessionStore(record: fixtures.record),
+            machineIdentityStore: machines,
+            deviceSelectionStore: MemoryDeviceSelectionStore(),
+            oauth: nil,
+            displayName: "Office Mac",
+            appVersion: "0.3.0"
+        )
+
+        _ = try await controller.bootstrap()
+        await XCTAssertThrowsErrorAsync(try await controller.beginBinding(
+            retryingTerminalBindingID: "50000000-0000-4000-8000-000000000099",
+            retryingTerminalGeneration: 7
+        )) { error in
+            guard case .remote(let remote)? = error as? AccountClientError else {
+                return XCTFail("Expected a structured binding conflict")
+            }
+            XCTAssertEqual(remote.code, "HR-BIND-002")
+        }
+        let createAttempts = await api.bindingCreateAttempts()
+        XCTAssertTrue(createAttempts.isEmpty)
+    }
+
+    func testBoundRollbackResumeFailsClosedWhenMachineKeyDoesNotMatch() async throws {
+        let fixtures = AccountFixtures()
+        let bindingID = "50000000-0000-4000-8000-000000000001"
+        let bound = AccountBindingSnapshot(
+            state: "bound",
+            id: nil,
+            generation: nil,
+            deviceId: nil,
+            displayName: nil,
+            expiresAt: nil,
+            keyProved: nil,
+            healthVerified: nil,
+            binding: ActiveAccountBinding(
+                id: bindingID,
+                generation: 7,
+                deviceId: "hermes-bound",
+                desktopDisplayName: "Office Mac",
+                publicKeyFingerprint: String(repeating: "f", count: 64),
+                connector: .init(online: false, lastSeenAt: nil),
+                hermes: .init(reachable: true, version: "1.0.0"),
+                gateway: .init(latencyMs: nil),
+                endToEnd: .init(healthy: false, checkedAt: nil)
+            ),
+            previousBinding: nil
+        )
+        let api = RecordingAccountAPI(fixtures: fixtures, bindingSnapshot: bound)
+        let controller = DesktopAccountController(
+            api: api,
+            sessionStore: MemoryAccountSessionStore(record: fixtures.record),
+            machineIdentityStore: MemoryMachineIdentityStore(),
+            deviceSelectionStore: MemoryDeviceSelectionStore(),
+            oauth: nil,
+            displayName: "Office Mac",
+            appVersion: "0.3.0"
+        )
+
+        _ = try await controller.bootstrap()
+        await XCTAssertThrowsErrorAsync(try await controller.beginBinding(
+            retryingTerminalBindingID: bindingID,
+            retryingTerminalGeneration: 7
+        )) { error in
+            XCTAssertEqual(error as? AccountSecretStoreError, .invalidMachineIdentity)
         }
         let createAttempts = await api.bindingCreateAttempts()
         XCTAssertTrue(createAttempts.isEmpty)
