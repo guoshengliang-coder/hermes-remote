@@ -25,11 +25,13 @@ class StatusColorsTest {
 
     @Test fun values_are_pinned() {
         assertEquals(0xFF2E7D32.toInt(), statusArgb(StatusTone.GOOD, dark = false))
-        assertEquals(0xFFC77700.toInt(), statusArgb(StatusTone.WARN, dark = false))
+        assertEquals(0xFFC2410C.toInt(), statusArgb(StatusTone.WARN, dark = false))
         assertEquals(0xFFC62828.toInt(), statusArgb(StatusTone.BAD, dark = false))
         assertEquals(0xFF7CDC80.toInt(), statusArgb(StatusTone.GOOD, dark = true))
-        assertEquals(0xFFFFB945.toInt(), statusArgb(StatusTone.WARN, dark = true))
+        assertEquals(0xFFFBBF24.toInt(), statusArgb(StatusTone.WARN, dark = true))
         assertEquals(0xFFFFB4AB.toInt(), statusArgb(StatusTone.BAD, dark = true))
+        assertEquals(0xFF0369A1.toInt(), statusArgb(StatusTone.RUNNING, dark = false))
+        assertEquals(0xFF67E8F9.toInt(), statusArgb(StatusTone.RUNNING, dark = true))
     }
 
     @Test fun good_is_never_the_brand_colour() {
@@ -40,9 +42,14 @@ class StatusColorsTest {
         assertTrue(hueOf(statusArgb(StatusTone.GOOD, dark = true)) in 90f..150f)
     }
 
-    // GOOD and BAD are rendered as 12sp labels in the session list, so they owe AA text contrast.
-    @Test fun good_and_bad_clear_aa_text_on_their_own_surface() {
-        for (tone in listOf(StatusTone.GOOD, StatusTone.BAD)) {
+    /**
+     * EVERY tone is rendered as a 12sp label in the session list, so every tone owes AA text
+     * contrast — not just the two that happened to be checked before. WARN used to sit at 3.29:1
+     * with a "dot only" comment while the row drew it as text anyway; including it here is what
+     * stops that from coming back.
+     */
+    @Test fun every_tone_clears_aa_text_on_its_own_surface() {
+        for (tone in StatusTone.entries) {
             val light = contrast(statusArgb(tone, dark = false), lightSurface)
             val dark = contrast(statusArgb(tone, dark = true), darkSurface)
             assertTrue("$tone light $light < 4.5", light >= 4.5)
