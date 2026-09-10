@@ -284,6 +284,15 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.113 completes the Android side of Hermes GO account binding. Email-code login now
+  discovers the Mac already bound by Hermes Go Desktop through the production single-binding
+  contract, then carries both REST and WebSocket traffic over the account bearer session. A working
+  legacy connection stays active until that account route has passed its probe; the pending handoff
+  survives an app restart, and the app switches transport only after the device and route mode can
+  be committed together. The capability gate keeps the same build compatible with the future
+  explicit multi-device routes without calling those disabled endpoints in today's rollout. This
+  release also restores the public notes for the diagnostic-session filtering work that shipped in
+  0.1.97 but was omitted from the update index.
 - Version 0.1.112 turns a project into something you can actually make. Until now a project was
   a folder that happened to hold chats: it had no name of its own, no colour or glyph, could not
   span two folders, and did not exist at all until something ran inside it. Hermes has had
@@ -800,7 +809,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.112-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.113-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
