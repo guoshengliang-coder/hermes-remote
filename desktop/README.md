@@ -1,6 +1,6 @@
 # Hermes Go Desktop
 
-Current internal test release: **0.2.3** (build 6). It carries the managed-migration recovery and
+Current internal test release: **0.2.4** (build 7). It carries the managed-migration recovery and
 private loopback session-token handoff required by Hermes Server 0.21.0, and reports the effective
 managed Agent instead of treating the intentionally stopped legacy Connector as a failure. A managed
 installation whose this-device-only account session is absent remains visible as running but awaiting
