@@ -115,6 +115,10 @@ class EncryptedCredentialStore(private val context: Context) :
             refreshExpiresAt = prefs.getString("account_refresh_expires_at", null).orEmpty(),
             selectedDeviceId = prefs.getString("account_selected_device_id", null),
             selectedDeviceName = prefs.getString("account_selected_device_name", null),
+            activationPending = prefs.getBoolean(ACCOUNT_ACTIVATION_PENDING, false),
+            deviceRouteMode = prefs.getString(ACCOUNT_DEVICE_ROUTE_MODE, null)
+                ?.let { runCatching { AccountDeviceRouteMode.valueOf(it) }.getOrNull() }
+                ?: AccountDeviceRouteMode.EXPLICIT_DEVICE,
             pendingRefreshIdempotencyKey = prefs.getString("account_pending_refresh_key", null),
         )
     }
@@ -134,6 +138,8 @@ class EncryptedCredentialStore(private val context: Context) :
             .putString("account_refresh_expires_at", session.refreshExpiresAt)
             .putString("account_selected_device_id", session.selectedDeviceId)
             .putString("account_selected_device_name", session.selectedDeviceName)
+            .putBoolean(ACCOUNT_ACTIVATION_PENDING, session.activationPending)
+            .putString(ACCOUNT_DEVICE_ROUTE_MODE, session.deviceRouteMode.name)
             .putString("account_pending_refresh_key", session.pendingRefreshIdempotencyKey)
             .putBoolean(ACCOUNT_REAUTHENTICATION_REQUIRED, false)
             .putBoolean(ACCOUNT_DELETION_COMMITTED, false)
@@ -158,6 +164,8 @@ class EncryptedCredentialStore(private val context: Context) :
             .remove("account_refresh_expires_at")
             .remove("account_selected_device_id")
             .remove("account_selected_device_name")
+            .remove(ACCOUNT_ACTIVATION_PENDING)
+            .remove(ACCOUNT_DEVICE_ROUTE_MODE)
             .remove("account_pending_refresh_key")
             .remove("account_email_base_url")
             .remove("account_email_mailbox")
@@ -349,6 +357,8 @@ class EncryptedCredentialStore(private val context: Context) :
         const val ACCOUNT_LAST_BASE_URL = "account_last_base_url"
         const val ACCOUNT_REAUTHENTICATION_REQUIRED = "account_reauthentication_required"
         const val ACCOUNT_EXPLICIT_LEGACY_CONNECTION = "account_explicit_legacy_connection"
+        const val ACCOUNT_ACTIVATION_PENDING = "account_activation_pending"
+        const val ACCOUNT_DEVICE_ROUTE_MODE = "account_device_route_mode"
         const val ACCOUNT_DELETION_COMMITTED = "account_deletion_committed"
         const val ACCOUNT_DELETION_BASE_URL = "account_deletion_base_url"
         const val ACCOUNT_DELETION_ACCOUNT_ID = "account_deletion_account_id"

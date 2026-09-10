@@ -87,6 +87,10 @@ open class AccountApi(
     suspend fun devices(baseUrl: String, bearer: String): AccountDevicesResponseDto =
         get(baseUrl, "/v2/devices", bearer)
 
+    /** Compatibility view used while an account can own exactly one Mac binding. */
+    suspend fun binding(baseUrl: String, bearer: String): AccountBindingSnapshotDto =
+        get(baseUrl, "/v2/connector-binding", bearer)
+
     suspend fun selectDefaultDevice(
         baseUrl: String,
         bearer: String,
@@ -111,6 +115,11 @@ open class AccountApi(
             "/v2/devices/${encodePathSegment(deviceId)}/api/status",
             bearer,
         )
+    }
+
+    /** Probe the singular account route before replacing a known-working Legacy transport. */
+    suspend fun probeSingleBinding(baseUrl: String, bearer: String) {
+        get<GatewayStatusDto>(baseUrl, "/api/status", bearer)
     }
 
     suspend fun signOut(

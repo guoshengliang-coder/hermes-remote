@@ -118,6 +118,37 @@ data class AccountDeviceDto(
 )
 
 @Serializable
+data class AccountActiveBindingDto(
+    val id: String,
+    val generation: Int,
+    val deviceId: String,
+    val desktopDisplayName: String,
+    val connector: AccountConnectorHealthDto = AccountConnectorHealthDto(),
+    val hermes: AccountHermesHealthDto = AccountHermesHealthDto(),
+    val gateway: AccountGatewayHealthDto = AccountGatewayHealthDto(),
+    val endToEnd: AccountEndToEndHealthDto = AccountEndToEndHealthDto(),
+)
+
+@Serializable
+data class AccountBindingSnapshotDto(
+    val state: String,
+    val binding: AccountActiveBindingDto? = null,
+)
+
+fun AccountActiveBindingDto.asOwnedDevice(): AccountDeviceDto = AccountDeviceDto(
+    id = id,
+    generation = generation,
+    deviceId = deviceId,
+    desktopDisplayName = desktopDisplayName,
+    connector = connector,
+    hermes = hermes,
+    gateway = gateway,
+    endToEnd = endToEnd,
+    access = "owner",
+    isDefault = true,
+)
+
+@Serializable
 data class AccountDevicesResponseDto(
     val items: List<AccountDeviceDto> = emptyList(),
     val maxOwnedDevices: Int = 3,

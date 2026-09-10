@@ -4,6 +4,7 @@ import com.hermes.client.data.auth.GatewayConfig
 import com.hermes.client.data.auth.AccountSession
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.AccountSessionStore
+import com.hermes.client.data.auth.AccountDeviceRouteMode
 import com.hermes.client.data.auth.PendingEmailChallenge
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -105,6 +106,37 @@ class HermesRestApiTest {
         )
         assertEquals("Bearer hga_secret", historical.headers["Authorization"])
         assertEquals("office/mac 1", manager.session.value?.selectedDeviceId)
+    }
+
+    @Test fun singular_account_mode_uses_compatibility_path_with_isolated_bearer_client() = runTest {
+        val server = serverRule.server
+        server.enqueue(MockResponse.Builder().code(200).body("""{"sessions":[]}""").build())
+        val accountStore = MemoryAccountStore(
+            AccountSession(
+                baseUrl = server.url("/").toString().trimEnd('/'),
+                accountId = "account-1",
+                installationId = "installation-1",
+                installationDisplayName = "Pixel",
+                accessToken = "hga_secret",
+                accessExpiresAt = "2099-01-01T00:00:00Z",
+                refreshToken = "hgr_secret",
+                refreshExpiresAt = "2099-02-01T00:00:00Z",
+                selectedDeviceId = "mac-1",
+                deviceRouteMode = AccountDeviceRouteMode.SINGLE_BINDING,
+            ),
+        )
+        val manager = AccountSessionManager(accountStore, AccountApi(testHttpClient(), json))
+        val accountApi = HermesRestApi(testHttpClient(), json, manager, testHttpClient()) {
+            GatewayConfig(baseUrl = server.url("/").toString().trimEnd('/'), token = "legacy-secret")
+        }
+
+        accountApi.sessions(limit = 20, offset = 0)
+        val recorded = server.takeRequest()
+
+        assertTrue(recorded.target.startsWith("/api/sessions"))
+        assertFalse(recorded.target.startsWith("/v2/devices/"))
+        assertEquals("Bearer hga_secret", recorded.headers["Authorization"])
+        assertEquals(null, recorded.headers["X-Hermes-Session-Token"])
     }
 
     @Test fun revokedAccountSessionCannotSilentlyFallBackToStoredLegacyCredentials() = runTest {

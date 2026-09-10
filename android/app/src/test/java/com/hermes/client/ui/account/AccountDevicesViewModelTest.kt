@@ -5,6 +5,7 @@ import com.hermes.client.data.auth.AccountClock
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.AccountSessionStore
 import com.hermes.client.data.auth.AccountTransportMode
+import com.hermes.client.data.auth.AccountDeviceRouteMode
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.GatewayConfig
 import com.hermes.client.data.auth.PendingEmailChallenge
@@ -13,10 +14,17 @@ import com.hermes.client.data.network.AccountApi
 import com.hermes.client.data.network.AccountApiException
 import com.hermes.client.data.network.AccountDeviceDto
 import com.hermes.client.data.network.AccountAuthCapabilityDto
+import com.hermes.client.data.network.AccountActiveBindingDto
+import com.hermes.client.data.network.AccountBindingCapabilityDto
+import com.hermes.client.data.network.AccountBindingSnapshotDto
 import com.hermes.client.data.network.AccountCapabilitiesDto
+import com.hermes.client.data.network.AccountDto
 import com.hermes.client.data.network.AccountDevicesResponseDto
 import com.hermes.client.data.network.AccountEndToEndHealthDto
+import com.hermes.client.data.network.AccountExchangeResponseDto
+import com.hermes.client.data.network.AccountInstallationDto
 import com.hermes.client.data.network.AccountReauthenticationGrantDto
+import com.hermes.client.data.network.AccountTokensDto
 import com.hermes.client.data.network.EmailChallengeDto
 import com.hermes.client.data.repository.ChatRepository
 import io.mockk.coEvery
@@ -72,6 +80,76 @@ class AccountDevicesViewModelTest {
         assertEquals("mac-1", manager.session.value?.selectedDeviceId)
         coVerify(exactly = 1) { api.probeDevice(any(), any(), "mac-1") }
         verify(exactly = 1) { chat.reconnect() }
+    }
+
+    @Test fun singularCapabilityNeverCallsMultiDeviceEndpointsAndActivatesAfterBearerProbe() =
+        runTest(dispatcher) {
+            val api = mockk<AccountApi>()
+            val store = MemoryAccountStore(
+                accountSession().copy(activationPending = true),
+            )
+            val manager = AccountSessionManager(store, api)
+            val chat = mockk<ChatRepository>(relaxed = true)
+            coEvery { api.capabilities(any()) } returns singularCapabilities()
+            coEvery { api.binding(any(), any()) } returns AccountBindingSnapshotDto(
+                state = "bound",
+                binding = activeBinding("mac-1"),
+            )
+            coEvery { api.probeSingleBinding(any(), any()) } returns Unit
+
+            AccountDevicesViewModel(api, store, manager, mockk(relaxed = true), chat)
+            runCurrent()
+
+            assertEquals("mac-1", manager.session.value?.selectedDeviceId)
+            assertEquals(false, manager.session.value?.activationPending)
+            assertEquals(AccountDeviceRouteMode.SINGLE_BINDING, manager.session.value?.deviceRouteMode)
+            coVerify(exactly = 1) { api.binding(any(), any()) }
+            coVerify(exactly = 1) { api.probeSingleBinding(any(), any()) }
+            coVerify(exactly = 0) { api.devices(any(), any()) }
+            coVerify(exactly = 0) { api.selectDefaultDevice(any(), any(), any(), any()) }
+            coVerify(exactly = 0) { api.probeDevice(any(), any(), any()) }
+            verify(exactly = 1) { chat.reconnect() }
+        }
+
+    @Test fun emailLoginKeepsWorkingLegacyTransportWhenAccountMacIsNotReady() = runTest(dispatcher) {
+        val now = Instant.parse("2026-09-08T08:00:00Z")
+        val api = mockk<AccountApi>()
+        val store = MemoryAccountStore(null, pendingChallenge(now))
+        val manager = AccountSessionManager(store, api)
+        val legacy = mockk<CredentialStore>()
+        every { legacy.load() } returns GatewayConfig("https://legacy.example", "legacy-token")
+        coEvery { api.capabilities(any()) } returns singularCapabilities()
+        coEvery {
+            api.exchangeEmailCode(any(), any(), any(), any(), any(), any(), any(), any())
+        } returns accountExchangeResponse()
+        coEvery { api.binding(any(), any()) } returns AccountBindingSnapshotDto("no_binding")
+        val vm = AccountDevicesViewModel(
+            api,
+            store,
+            manager,
+            legacy,
+            mockk(relaxed = true),
+            AccountClock { now },
+        )
+        runCurrent()
+        vm.onCodeChange("123456")
+        assertEquals(AccountStage.CODE_SENT, vm.state.value.stage)
+        assertEquals("123456", vm.state.value.code)
+        assertEquals(false, vm.state.value.busy)
+        assertTrue(store.pending != null)
+
+        vm.verifyCode().join()
+
+        coVerify(exactly = 1) {
+            api.exchangeEmailCode(any(), any(), any(), any(), any(), any(), any(), any())
+        }
+        coVerify(exactly = 1) { api.binding(any(), any()) }
+        assertNull(vm.state.value.error)
+        assertEquals(AccountTransportMode.ACCOUNT_PENDING, manager.transportMode())
+        assertTrue(manager.session.value?.activationPending == true)
+        assertNull(manager.session.value?.selectedDeviceId)
+        coVerify(exactly = 0) { api.devices(any(), any()) }
+        coVerify(exactly = 0) { api.probeSingleBinding(any(), any()) }
     }
 
     @Test fun multipleAvailableDevicesRequireAnExplicitChoice() = runTest(dispatcher) {
@@ -839,6 +917,43 @@ class AccountDevicesViewModelTest {
             providers = listOf("email_otp"),
             android = true,
             accountDeletion = accountDeletion,
+        ),
+        binding = AccountBindingCapabilityDto(
+            enabled = true,
+            maxActiveConnectorsPerAccount = 3,
+            supportsDeviceSelection = true,
+            supportsDeviceSharing = true,
+        ),
+    )
+
+    private fun singularCapabilities() = AccountCapabilitiesDto(
+        accountAuth = AccountAuthCapabilityDto(
+            enabled = true,
+            providers = listOf("email_otp"),
+            android = true,
+        ),
+        binding = AccountBindingCapabilityDto(
+            enabled = true,
+            maxActiveConnectorsPerAccount = 1,
+        ),
+    )
+
+    private fun activeBinding(id: String) = AccountActiveBindingDto(
+        id = "binding-$id",
+        generation = 1,
+        deviceId = id,
+        desktopDisplayName = "Mac $id",
+        endToEnd = AccountEndToEndHealthDto(healthy = true),
+    )
+
+    private fun accountExchangeResponse() = AccountExchangeResponseDto(
+        account = AccountDto("account-1", email = "person@example.com"),
+        installation = AccountInstallationDto("installation-1", "phone", "android", "Pixel"),
+        session = AccountTokensDto(
+            accessToken = "hga_access",
+            accessExpiresAt = "2099-01-01T00:00:00Z",
+            refreshToken = "hgr_refresh",
+            refreshExpiresAt = "2099-02-01T00:00:00Z",
         ),
     )
 

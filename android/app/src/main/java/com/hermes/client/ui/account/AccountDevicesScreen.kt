@@ -443,8 +443,16 @@ private fun SignInContent(state: AccountDevicesUiState, vm: AccountDevicesViewMo
     Text(
         localized(
             language,
-            "验证码会发送到你的邮箱。登录同一账号后，可以选择自己或他人共享给你的 Mac。",
-            "We'll email you a verification code. Sign in to choose a Mac you own or one shared with you.",
+            if (state.supportsDeviceSharing) {
+                "验证码会发送到你的邮箱。登录后，可以选择自己或他人共享给你的 Mac。"
+            } else {
+                "验证码会发送到你的邮箱。与 Mac 上的 Hermes Go Desktop 登录同一账号即可连接。"
+            },
+            if (state.supportsDeviceSharing) {
+                "We'll email you a verification code. Sign in to choose a Mac you own or one shared with you."
+            } else {
+                "We'll email you a verification code. Use the same account in Hermes Go Desktop on your Mac to connect."
+            },
         ),
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -552,11 +560,43 @@ private fun DeviceContent(
     vm: AccountDevicesViewModel,
 ) {
     val language = LocalAppLanguage.current
+    if (state.session?.activationPending == true) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.primaryContainer,
+        ) {
+            Text(
+                localized(
+                    language,
+                    "账号已登录，当前仍使用旧版连接。检测到账号 Mac 并通过端到端验证后才会切换。",
+                    "Your account is signed in, but the Legacy connection remains active until an account Mac passes the end-to-end check.",
+                ),
+                modifier = Modifier.padding(16.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+    }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(localized(language, "选择要使用的 Mac", "Choose a Mac"), style = MaterialTheme.typography.headlineSmall)
             Text(
-                localized(language, "最多 3 台自有设备；共享给你的设备会另外列出。", "Up to 3 owned Macs; Macs shared with you appear here too."),
+                localized(
+                    language,
+                    when {
+                        state.maxOwnedDevices == 1 -> "当前账号可连接 1 台 Mac。"
+                        state.supportsDeviceSharing ->
+                            "最多 ${state.maxOwnedDevices} 台自有设备；共享给你的设备会另外列出。"
+                        else -> "最多可连接 ${state.maxOwnedDevices} 台 Mac。"
+                    },
+                    when {
+                        state.maxOwnedDevices == 1 -> "This account can connect to 1 Mac."
+                        state.supportsDeviceSharing ->
+                            "Up to ${state.maxOwnedDevices} owned Macs; Macs shared with you appear here too."
+                        else -> "Connect up to ${state.maxOwnedDevices} Macs."
+                    },
+                ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -577,8 +617,16 @@ private fun DeviceContent(
                 Text(
                     localized(
                         language,
-                        "请在 Mac 上打开 Hermes Go Desktop，并使用同一邮箱登录或让设备所有者分享给你。停留在本页时会自动检查。",
-                        "Open Hermes Go Desktop on the Mac and sign in with the same email, or ask the owner to share the device. We'll keep checking while this page is open.",
+                        if (state.supportsDeviceSharing) {
+                            "请在 Mac 上打开 Hermes Go Desktop，并使用同一邮箱登录或让设备所有者分享给你。停留在本页时会自动检查。"
+                        } else {
+                            "请在 Mac 上打开 Hermes Go Desktop，并使用同一邮箱登录。停留在本页时会自动检查。"
+                        },
+                        if (state.supportsDeviceSharing) {
+                            "Open Hermes Go Desktop on the Mac and sign in with the same email, or ask the owner to share the device. We'll keep checking while this page is open."
+                        } else {
+                            "Open Hermes Go Desktop on the Mac and sign in with the same email. We'll keep checking while this page is open."
+                        },
                     ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

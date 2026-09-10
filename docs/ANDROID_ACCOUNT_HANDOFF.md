@@ -18,11 +18,15 @@ does not redefine fields or error semantics.
    the six-digit code.
 5. Store only the Hermes GO access/refresh tokens in Android secure storage. Refresh with another
    persist-before-send idempotency key; never send the legacy App Token with an account bearer.
-6. Load `GET /v2/account`, then `GET /v2/devices` when device selection is advertised. Keep owned and
-   shared devices distinguishable through `access`; do not infer ownership from display names.
-7. Persist the exact `deviceId` on each new conversation/task. Route REST through
-   `/v2/devices/{deviceId}/api/...` and WebSocket through `/v2/devices/{deviceId}/ws`, both with the
-   account Bearer header. A later default-device change affects only new conversations.
+6. Load `GET /v2/account`, then `GET /v2/devices` only when device selection is advertised. Otherwise,
+   read the single-Mac compatibility view at `GET /v2/connector-binding`; only `state=bound` supplies
+   a usable Mac. Keep owned and shared devices distinguishable through `access`; do not infer ownership
+   from display names.
+7. Persist the exact `deviceId` on each new conversation/task. With device selection advertised,
+   route REST through `/v2/devices/{deviceId}/api/...` and WebSocket through
+   `/v2/devices/{deviceId}/ws`. In single-Mac compatibility mode, use unprefixed `/api/...` and
+   `/api/ws`. Both modes use only the account Bearer header. A later default-device change affects
+   only new conversations.
 8. Use the account Bearer for `/api/mobile/events` and its acknowledgement/read routes so delivery
    cursors remain scoped to this phone installation.
 

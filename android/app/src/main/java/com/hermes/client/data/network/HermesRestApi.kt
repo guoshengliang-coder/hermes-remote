@@ -3,6 +3,7 @@ package com.hermes.client.data.network
 import com.hermes.client.data.auth.GatewayConfig
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.AccountTransportMode
+import com.hermes.client.data.auth.AccountDeviceRouteMode
 import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -109,9 +110,14 @@ class HermesRestApi(
         if (path.startsWith("/api/")) {
             accountSessionManager?.connection(deviceIdOverride)?.let { account ->
                 com.hermes.client.data.diagnostics.DebugLog.setTokenToRedact(account.bearer)
-                val device = java.net.URLEncoder.encode(account.deviceId, Charsets.UTF_8.name())
-                    .replace("+", "%20")
-                val routedPath = "/v2/devices/$device/api/${path.removePrefix("/api/")}"
+                val routedPath = when (account.deviceRouteMode) {
+                    AccountDeviceRouteMode.SINGLE_BINDING -> path
+                    AccountDeviceRouteMode.EXPLICIT_DEVICE -> {
+                        val device = java.net.URLEncoder.encode(account.deviceId, Charsets.UTF_8.name())
+                            .replace("+", "%20")
+                        "/v2/devices/$device/api/${path.removePrefix("/api/")}"
+                    }
+                }
                 return Request.Builder()
                     .url("${account.baseUrl.trimEnd('/')}$routedPath")
                     .header("Authorization", "Bearer ${account.bearer}")

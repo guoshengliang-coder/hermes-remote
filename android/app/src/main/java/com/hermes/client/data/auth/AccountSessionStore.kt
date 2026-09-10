@@ -18,9 +18,23 @@ data class AccountSession(
     val refreshExpiresAt: String,
     val selectedDeviceId: String? = null,
     val selectedDeviceName: String? = null,
+    /**
+     * True only while an existing Legacy connection remains authoritative during opt-in account
+     * migration. A successful account-route probe clears it atomically with device selection.
+     */
+    val activationPending: Boolean = false,
+    /** How Hermes traffic is addressed after account activation. */
+    val deviceRouteMode: AccountDeviceRouteMode = AccountDeviceRouteMode.EXPLICIT_DEVICE,
     /** Reused after a lost refresh response; cleared only when rotation commits. */
     val pendingRefreshIdempotencyKey: String? = null,
 )
+
+enum class AccountDeviceRouteMode {
+    /** One unambiguous binding; Bearer traffic uses the compatibility `/api/…` and `/api/ws`. */
+    SINGLE_BINDING,
+    /** Multiple accessible devices; every request carries an explicit opaque device ID. */
+    EXPLICIT_DEVICE,
+}
 
 data class PendingEmailChallenge(
     val baseUrl: String,
