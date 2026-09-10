@@ -166,16 +166,27 @@ environments can provide null Android manufacturer/model values before the excha
 name now safely falls back to `Android phone`. The final full baseline passes 1,382 tests, the debug
 build/signing check passes, and the Android instrumentation source set compiles.
 
+## 2026-09-10 Android 0.1.113 single-phone physical acceptance
+
+Android 0.1.113 (version code 114) was published from merged commit
+`cabee2b2a258517062811a082e0514db9678dda3`. Its Android release workflow completed successfully, and
+the public internal-channel index registered the 31,214,112-byte APK with SHA-256
+`ec332db45c53e8430656cb1b4fd8ee46cd6f5e2df383f5f209e01993221577ae` as the latest version.
+
+The project owner installed 0.1.113 on a physical Android phone and confirmed that the email-account
+path could use the Mac already bound through Hermes Go Desktop normally. This closes the primary
+single-phone install, account sign-in, binding discovery, and ordinary-use acceptance path. The
+confirmation does not by itself cover activation interrupted by process death, accessibility,
+multi-phone or multi-account isolation, sharing, revocation, or fault-injection scenarios.
+
 ## Still open before E8 release
 
 - Emulator inspection could not run because this host's configured SDK has no Emulator package.
   The lifecycle script now rejects a missing emulator binary and targets only an `emulator-*`
   serial, preventing a connected physical phone from being mistaken for the emulator. Physical
-  TalkBack and device testing remain open. The encrypted-store gate test compiled but was not run on
-  a device in this iteration.
-- Real-device validation of this branch's singular-binding handoff, including app-process restart
-  while activation is pending and the first successful Bearer WebSocket connection.
+  TalkBack testing remains open. The encrypted-store gate test compiled but was not run on a device
+  in this iteration.
+- App-process restart while account activation is still pending remains an explicit recovery test;
+  the completed ordinary-use run must not be treated as evidence for that interruption point.
 - Two accounts, two phones, owned + shared Macs, revocation, network loss, refresh expiry, and Mac
   restart end-to-end acceptance.
-- APK version bump, package gate, signed artifact verification, publication, production feature
-  flags, and deployment. None is authorized or performed by this record.
