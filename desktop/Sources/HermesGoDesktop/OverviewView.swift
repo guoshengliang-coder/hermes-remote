@@ -71,7 +71,7 @@ struct OverviewView: View {
             Image(systemName: "eye")
                 .foregroundStyle(Color.hermesBlue)
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.legacy?.isInstalled == true ? "正在观察现有 Connector" : "兼容观察模式已启用")
+                Text(agentBannerTitle)
                     .font(.system(size: 13, weight: .semibold))
                 Text(compatibilityDetail)
                     .font(.system(size: 12))
@@ -85,10 +85,37 @@ struct OverviewView: View {
     }
 
     private var compatibilityDetail: String {
-        if model.legacy?.isInstalled == true {
+        switch model.agentPresentation.mode {
+        case .managedVerified(let releaseVersion):
+            return "托管版本 \(releaseVersion) 已接管后台连接；旧 Connector 不会同时启动。"
+        case .managedUnverified:
+            return "后台服务已保留；若刚完成迁移助理，请重新登录以核验这台 Mac，不会自动创建第二个 Connector。"
+        case .attentionRequired:
+            return "Desktop 保持现状且不会启动第二个 Connector；请到“账号与设备”查看恢复状态。"
+        case .legacy:
             return "Desktop 尚未接管后台连接，不会中断现有手机和 Hermes 会话。"
+        case .checking:
+            return "正在识别旧版或托管 Connector，不会在检查期间修改后台服务。"
+        case .unavailable:
+            return "未检测到旧 Connector；Desktop 不会自动启动第二个后台实例。"
         }
-        return "未检测到旧 Connector；Desktop 不会自动启动第二个后台实例。"
+    }
+
+    private var agentBannerTitle: String {
+        switch model.agentPresentation.mode {
+        case .managedVerified:
+            "托管后台连接正在运行"
+        case .managedUnverified:
+            "检测到托管后台连接"
+        case .attentionRequired:
+            "后台连接状态需要核验"
+        case .legacy:
+            "正在观察现有 Connector"
+        case .checking:
+            "正在检查后台连接"
+        case .unavailable:
+            "兼容观察模式已启用"
+        }
     }
 
     private var topologyCard: some View {
@@ -153,7 +180,7 @@ struct OverviewView: View {
 
     private var activityCard: some View {
         infoCard(title: "观察状态", rows: [
-            ("旧 Connector", model.legacy?.isRunning == true ? "运行中" : "未运行"),
+            ("后台模式", backgroundModeSummary),
             ("只读观察", observerSummary),
             ("近期异常", recentWarningSummary),
             ("日志数量", "\(model.legacy?.recentLogs.count ?? 0) 条"),
@@ -168,6 +195,17 @@ struct OverviewView: View {
     private var observerSummary: String {
         guard model.legacy?.isInstalled == true else { return "未检测" }
         return model.legacy?.config.observerEnabled == true ? "已配置" : "已关闭"
+    }
+
+    private var backgroundModeSummary: String {
+        switch model.agentPresentation.mode {
+        case .managedVerified(let releaseVersion): "托管 \(releaseVersion)"
+        case .managedUnverified(let releaseVersion): "托管 \(releaseVersion) · 待核验"
+        case .legacy: "旧 Connector"
+        case .attentionRequired: "需要核验"
+        case .checking: "检查中"
+        case .unavailable: "未检测"
+        }
     }
 
     private func infoCard(title: String, rows: [(String, String)]) -> some View {
