@@ -23,7 +23,8 @@
 `scripts/` 与 `docs/` **按文件归属，不按目录** —— 它们是三边工具混放：
 
 - **android**：`scripts/package-debug-apk.sh`、`scripts/publish-android-apk.sh`、
-  `scripts/import-android-release-history.sh`、`scripts/lib/release_metadata.py`、`docs/DESIGN.md`
+  `scripts/bump-android-release.mjs`、`scripts/import-android-release-history.sh`、
+  `scripts/lib/release_metadata.py`、`docs/DESIGN.md`
 - **cloud**：`scripts/hermesctl.mjs`、`scripts/production-monitor.mjs`、`scripts/deploy-*.sh`、
   `scripts/bootstrap-release-server.sh`、
   `scripts/test/**`、`docs/CLOUD_*`、`docs/DEPLOYMENT.md`
