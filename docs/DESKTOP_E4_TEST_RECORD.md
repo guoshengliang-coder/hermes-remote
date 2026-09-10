@@ -1,10 +1,11 @@
 # Desktop E4 test record
 
-Date: 2026-09-09
+Date: 2026-09-10
 Status: E4-D local multi-device UX, signed bootstrap, packaged orchestration, account Connector,
-binding, rollback, and restart recovery are complete. The internal 0.3.0 arm64 candidate reached
-account mode on one physical Mac, but phone continuity failed and the Mac was rolled back to legacy;
-physical acceptance, Developer ID/notarization, and Android account migration remain pending.
+binding, rollback, and restart recovery are complete. Android account continuity and managed account
+mode were subsequently proven on the physical Mac. The corrective internal 0.3.1 arm64 release is
+published and Desktop 0.2.1 is installed on that Mac; Developer ID signing/notarization and clean-Mac
+acceptance remain pending.
 
 ## E4-E offline release publisher
 
@@ -194,3 +195,31 @@ proven against the account Connector; service-only/Desktop-only success is insuf
 The public `/relay-health` response intentionally reflects only the legacy Connector registry, so it reports zero
 during an account-only migration; account Connector state is currently observable through the authenticated
 account surface and structured Gateway logs instead. This remains an operator-observability limitation.
+
+## 2026-09-10 corrective internal release and installation
+
+PR #148 merged as `95acaa3e2b8fecbe9f55ba91fe7378d77b7f2340`, and every PR check plus the
+post-merge CI, SAST, and Gateway OCI workflows completed successfully. From an isolated clean worktree
+whose `HEAD` exactly matched `origin/main`, the internal publisher produced release 0.3.1 for arm64 with
+the existing approved key ID `desktop-internal-2026-a`. The manifest SHA-256 is
+`d952c8bfe71357b3ca16a541e583c46adc4d09d0ee0f79cc463851e49665677f`.
+
+The two signed components are Hermes Server 0.21.0 (289,157,113 bytes, SHA-256
+`b3816f71d008f077e2c83ba640288e2678216d8ccbf2742a3c6cd3e11dfe2e99`) and Connector 0.1.3
+(37,062,094 bytes, SHA-256 `92df148998d1dbe235b9992ebc4ed12c4849abddd8cdd858902616a06382a33b`).
+All three immutable URLs under `https://mrlgs.net/desktop/releases/0.3.1/` returned HTTP 200 with the
+declared sizes and content types. Full public HTTPS downloads reproduced all three hashes and passed
+the independent public-key verifier. The previous 0.3.0 files and routes remain available for rollback.
+
+The configured internal Desktop 0.2.1 DMG (bundle build 4, SHA-256
+`c191c10200dd1ebf98c80fcb652e83a47e02d0df7cbef3c768163d9b6c59a4d9`) passed `hdiutil verify` and
+strict ad-hoc codesign verification. It was installed over 0.2.0 on `LGS-MACMINI`, then launched from
+`/Applications/Hermes Go Desktop.app`. Its embedded internal manifest URL points to 0.3.1. The GUI-only
+replacement preserved the running managed Hermes and Connector PIDs; authenticated loopback
+`/api/status` returned Hermes 0.21.0 and the Connector retained an established TLS connection to the
+Gateway. The currently active managed release remains 0.3.0 with the previously applied compatibility
+repair; 0.3.1 is the signed source for future clean installation or an explicit managed upgrade, not
+an assertion that the already running services were silently upgraded.
+
+This remains an internal ad-hoc test release. No Developer ID Application identity was available, so
+the app was not notarized or stapled and must not be presented as a public macOS release.
