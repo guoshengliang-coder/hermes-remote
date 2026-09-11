@@ -151,6 +151,25 @@ adb -s <serial> exec-out screencap -p > screen.png
   停在"生成中"。多轮对话要在「Mock 会话」里造。
 - mock 会弹出审批和澄清弹层，挡住滑动手势 —— 先点「拒绝」或「跳过，让 agent 自行判断」关掉。
 
+## 3b. 卡片页的「反馈与建议」行需要本机配置
+
+这一行只在构建携带 MissionGo 的 endpoint 与 SDK token 时存在（`android/app/build.gradle.kts` 配置期读取，
+两者任一为空 = 功能不存在，不报错）。新克隆、他人机器与普通 CI 都没有，所以**本机打的调试包默认看不到这一行**，
+这是设计，不是 bug。要在真机上验它，在 `android/missiongo.properties` 写：
+
+```properties
+missiongoEndpoint=https://missiongo.mrlgs.net
+missiongoSdkToken=<从 MissionGo 控制台取>
+```
+
+该文件已被仓库根 `.gitignore` 忽略（第 12 行），**不要提交、不要把 token 贴进聊天或日志**。
+发布包的这两个值由 `.github/workflows/android-release.yml` 从仓库 secrets 注入，与本文件同一对。
+改完要重新构建：Gradle 在配置期读它并写进 `BuildConfig`。
+
+**已知行为（2026-09-11 vivo V2166BA 实测）**：编辑器是 MissionGo SDK 自己的 Activity；在编辑器里按返回会把
+整个应用任务退到桌面，而不是回到卡片页。应用进程仍在，重新点图标即恢复原状态。与本仓的调起代码无关
+（`ui/feedback/FeedbackEntry.kt` 只把宿主 Activity 交给 SDK），要修得在 SDK 侧。
+
 ## 4. 驱动与取证
 
 - `adb shell input text` 不接受非 ASCII 字符（会抛 NPE）。用 ASCII，空格写成 `%s`。
