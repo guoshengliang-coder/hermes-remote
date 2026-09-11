@@ -24,8 +24,9 @@ class CardPageLogicTest {
         assertEquals("2.3 s", formatLatency(2_349))
     }
 
-    @Test fun `build badge is the build type in capitals, and absent on release`() {
-        assertEquals("DEBUG", buildBadgeFor("debug"))
+    @Test fun `build badge reads DEV on debug, the type on other builds, nothing on release`() {
+        assertEquals("DEV", buildBadgeFor("debug"))
+        assertEquals("DEV", buildBadgeFor("Debug"))
         assertEquals("BETA", buildBadgeFor("beta"))
         assertNull(buildBadgeFor("release"))
         assertNull(buildBadgeFor("Release"))

@@ -22,12 +22,15 @@ fun formatLatency(ms: Long): String =
     if (ms < 1000) "$ms ms" else "%.1f s".format(ms / 1000.0)
 
 /**
- * The chip beside the wordmark: the build type in capitals, or nothing on a release build. The
- * mock draws 「DEV」; what a tester actually installs is the debug or beta build, and that is the
- * word they should see (the startup gate prints the same one).
+ * The chip beside the wordmark: 「DEV」on a debug build (the mock's word — "in development", not
+ * the compiler's "debug"; product decision 2026-09-11), any other non-release build type in
+ * capitals (BETA), nothing on a release build.
  */
-fun buildBadgeFor(buildType: String): String? =
-    buildType.takeUnless { it.equals("release", ignoreCase = true) }?.uppercase()
+fun buildBadgeFor(buildType: String): String? = when {
+    buildType.equals("release", ignoreCase = true) -> null
+    buildType.equals("debug", ignoreCase = true) -> "DEV"
+    else -> buildType.uppercase()
+}
 
 /** Jobs that will actually fire: enabled and not paused. What the 定时任务 row counts. */
 fun activeCronCount(jobs: List<CronJobDto>): Int =

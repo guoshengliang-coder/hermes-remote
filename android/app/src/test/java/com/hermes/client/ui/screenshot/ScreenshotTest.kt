@@ -594,7 +594,7 @@ class ScreenshotTest {
                 health = com.hermes.client.data.network.GatewayHealth.Healthy(version = null, running = true, latencyMs = latencyMs),
                 themeMode = com.hermes.client.data.repository.ThemeMode.SYSTEM,
                 updateAvailable = "0.1.117",
-                buildBadge = "DEBUG",
+                buildBadge = "DEV",
                 onNavigate = {},
                 onTheme = {},
                 onFeedback = {},
