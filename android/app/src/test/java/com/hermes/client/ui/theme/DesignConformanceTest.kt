@@ -102,6 +102,9 @@ class DesignConformanceTest {
                 "incidentBg" -> if (dark) IncidentContainerDark else IncidentContainerLight
                 "incidentInk" -> if (dark) OnIncidentDark else OnIncidentLight
                 "sublineFaint" -> if (dark) SublineFaintDark else SublineFaintLight
+                "pillarPinned" -> if (dark) PillarPinnedDark else PillarPinnedLight
+                "pillarToday" -> if (dark) PillarTodayDark else PillarTodayLight
+                "pillarOlder" -> if (dark) PillarOlderDark else PillarOlderLight
                 else -> error("unknown tiles role '$name' in ref '$ref'")
             }.toArgb()
             else -> error("unknown ref kind '$kind' in ref '$ref'")

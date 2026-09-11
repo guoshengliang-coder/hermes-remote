@@ -572,10 +572,10 @@ class ScreenshotTest {
                 "已置顶", 1, com.hermes.client.ui.sessions.SectionTone.PINNED, note = "仅此设备", onToggle = {},
             )
             com.hermes.client.ui.sessions.SectionHeader(
-                "今天", 4, com.hermes.client.ui.sessions.SectionTone.TIME, onToggle = {},
+                "今天", 4, com.hermes.client.ui.sessions.SectionTone.TODAY, onToggle = {},
             )
             com.hermes.client.ui.sessions.SectionHeader(
-                "前 7 天", 19, com.hermes.client.ui.sessions.SectionTone.TIME, collapsed = true, onToggle = {},
+                "前 7 天", 19, com.hermes.client.ui.sessions.SectionTone.OLDER, collapsed = true, onToggle = {},
             )
         }
     }

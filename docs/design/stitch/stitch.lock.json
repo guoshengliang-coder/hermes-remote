@@ -47,8 +47,8 @@
   "designSystem": {
     "_": "仓库 → Stitch 的反向同步记录（DESIGN.md §7 第 8 条）。漂移以 frontMatterSha256 为准而非整文件：实测这条通道只承载 token，改正文在 Stitch 那边什么都不会变（见 pushFidelity）。scripts/design/stitch-design-system.mjs --check 核对。",
     "file": "design-system.md",
-    "sha256": "804176645703a1400321307c843f50c7d48705dafabb969bbaaa52c18d3baf96",
-    "frontMatterSha256": "cba88db20a54c980c58c5502ba57686bbea194441dad7eedaea595fbffdeb063",
+    "sha256": "50f70fde83217a978aca190ef2de95c8d0ab6bd98285e08d65217e99287d5191",
+    "frontMatterSha256": "f9e93f3377ee972e00b0f93beb100b317b6d4ba35a571c6c285994ba9fa9d889",
     "pinnedBy": "android/app/src/test/java/com/hermes/client/ui/theme/DesignSystemExportTest.kt",
     "assetId": "8a7217d53f5e4f8399c25714f8833e79",
     "pushedFrontMatterSha256": "7e0f37cc751c09a8bb0f1327c998da3c5cd7bc51b8f507a9744a5b0fd36421f9",

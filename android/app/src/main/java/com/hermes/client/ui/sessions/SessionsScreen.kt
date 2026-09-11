@@ -451,7 +451,7 @@ fun SessionsScreen(
                                 if (groups.today.isNotEmpty()) {
                                     item(key = "h-today") {
                                         SectionHeader(
-                                            localized(language, "今天", "Today"), groups.today.size, SectionTone.TIME,
+                                            localized(language, "今天", "Today"), groups.today.size, SectionTone.TODAY,
                                             collapsed = "today" in collapsed, onToggle = { toggle("today") },
                                         )
                                     }
@@ -474,7 +474,7 @@ fun SessionsScreen(
                                 if (groups.week.isNotEmpty()) {
                                     item(key = "h-week") {
                                         SectionHeader(
-                                            localized(language, "前 7 天", "Previous 7 days"), groups.week.size, SectionTone.TIME,
+                                            localized(language, "前 7 天", "Previous 7 days"), groups.week.size, SectionTone.OLDER,
                                             collapsed = "week" in collapsed, onToggle = { toggle("week") },
                                         )
                                     }
@@ -497,7 +497,7 @@ fun SessionsScreen(
                                 if (groups.earlier.isNotEmpty()) {
                                     item(key = "h-earlier") {
                                         SectionHeader(
-                                            localized(language, "更早", "Earlier"), groups.earlier.size, SectionTone.TIME,
+                                            localized(language, "更早", "Earlier"), groups.earlier.size, SectionTone.OLDER,
                                             collapsed = "earlier" in collapsed, onToggle = { toggle("earlier") },
                                         )
                                     }
@@ -588,7 +588,11 @@ fun SessionsScreen(
  * What a group's leading pillar says about it (docs/DESIGN.md §5.2, decision 2026-09-10).
  * Only one group ever carries colour: the one that needs the reader to act.
  */
-internal enum class SectionTone { NEEDS_YOU, PINNED, TIME }
+/**
+ * One per group header. TIME split into TODAY and OLDER on 2026-09-11: the design source gives
+ * 今天 its own green and puts 前 7 天 / 更早 on a slate, so a single "time" tone could not express it.
+ */
+internal enum class SectionTone { NEEDS_YOU, PINNED, TODAY, OLDER }
 
 @Composable
 internal fun SectionHeader(
@@ -607,16 +611,19 @@ internal fun SectionHeader(
     // urgent the group is. Only the group that needs action carries a hue (DESIGN.md §1 原则3,
     // amended 2026-09-10: the group header is no longer unconditionally the brand colour).
     val accent = when (tone) {
+        // Only 需要你处理 colours its LABEL. The other groups colour the pillar and leave the words
+        // neutral — four coloured labels would put four things in competition.
         SectionTone.NEEDS_YOU -> statusColor(StatusTone.WARN)
-        SectionTone.PINNED -> MaterialTheme.colorScheme.onSurfaceVariant
-        SectionTone.TIME -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val pillar = when (tone) {
-        // The bright graphic amber, not the deep text one the label uses — the mock draws the
-        // mark and the word in two different ambers (StatusColors.kt).
+        // One colour per group, from the design source (Tiles.kt). The bright graphic amber here,
+        // not the deep text one the label uses — the mock draws the mark and the word in two
+        // different ambers (StatusColors.kt).
         SectionTone.NEEDS_YOU -> com.hermes.client.ui.theme.warnGraphicColor()
-        SectionTone.PINNED -> MaterialTheme.colorScheme.outline
-        SectionTone.TIME -> MaterialTheme.colorScheme.outlineVariant
+        SectionTone.PINNED -> com.hermes.client.ui.theme.pillarPinnedColor()
+        SectionTone.TODAY -> com.hermes.client.ui.theme.pillarTodayColor()
+        SectionTone.OLDER -> com.hermes.client.ui.theme.pillarOlderColor()
     }
     androidx.compose.foundation.layout.Row(
         // px-4 py-2 in the mock: 16dp either side, 8dp above and below. The old 16/4 split

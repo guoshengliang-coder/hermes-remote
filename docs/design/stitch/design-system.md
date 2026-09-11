@@ -39,6 +39,9 @@ colors:
   status-running: '#0369a1'
   subline-faint: '#a8a29e'
   status-warn-graphic: '#d97706'
+  pillar-pinned: '#2563eb'
+  pillar-today: '#059669'
+  pillar-older: '#94a3b8'
   fab-container: '#181c24'
   spinner: '#2563eb'
   incident-container: '#fff1f2'
@@ -252,6 +255,9 @@ front matter 只能放一套颜色（Stitch 的格式限制），那是浅色档
 | status-bad | #B91C1C | #F87171 |
 | status-running | #0369A1 | #67E8F9 |
 | status-warn-graphic | #D97706 | #F59E0B |
+| pillar-pinned | #2563EB | #3B82F6 |
+| pillar-today | #059669 | #34D399 |
+| pillar-older | #94A3B8 | #64748B |
 | subline-faint | #A8A29E | #64615B |
 | fab-container | #181C24 | #181C24 |
 | fab-outline | — | #3A4049 |
@@ -269,8 +275,11 @@ front matter 只能放一套颜色（Stitch 的格式限制），那是浅色档
 - **琥珀分两档，标记一档、文字一档。** 立柱与等待圆点用 status-warn-graphic（亮），组头标签与
   等待状态句用 status-warn（深）。这是稿子自己的区分：看的标记和读的词不是一回事。其余三个状态
   标记与文字同色。
-- **时间分组不带颜色。**「今天 / 前 7 天 / 更早」的立柱用 outline-variant，「已置顶」用 outline，
-  只有「需要你处理」用琥珀。时间桶绝不用绿，绿只表示「已完成」。
+- **每个分组的立柱各有自己的颜色**：需要你处理 = status-warn-graphic（亮琥珀）、已置顶 =
+  pillar-pinned（蓝）、今天 = pillar-today（绿）、前 7 天与更早 = pillar-older（石板灰）。
+  **只有立柱上色**；组头文字与计数 chip 除「需要你处理」外一律中性，四个彩色标签会互相抢。
+  已知且接受的撞色：深色下 pillar-today 与 status-good 是同一支薄荷绿 `#34D399` —— 稿子自己
+  就是这么画的。（2026-09-10 曾定「只有需要你处理带色」，2026-09-11 因全灰太素而推翻。）
 - **FAB 是中性近黑，不是品牌色**：浅暗两档都是 #181C24；深色再加 1px #3A4049 描边，
   因为近黑对暗底只有 1.19:1，不描边就是页面上一个洞。
 - **转圈是品牌蓝 + 25% 同色完整轨道**，不是状态青，不是无轨道的孤弧。
