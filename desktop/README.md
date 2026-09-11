@@ -1,6 +1,6 @@
 # Hermes Go Desktop
 
-Current internal test release: **0.2.4** (build 7). It carries the managed-migration recovery and
+Current internal test release: **0.2.5** (build 8). It carries the managed-migration recovery and
 private loopback session-token handoff required by Hermes Server 0.21.0, and reports the effective
 managed Agent instead of treating the intentionally stopped legacy Connector as a failure. A managed
 installation whose this-device-only account session is absent remains visible as running but awaiting
@@ -10,7 +10,7 @@ Assistant restores both labels. While the account is signed in, legacy App-Token
 removed from Overview, Diagnostics, and aggregate status. Public distribution still requires
 Developer ID signing, notarization, stapling, and clean-Mac acceptance.
 
-The next maintenance source also repairs committed managed installations created before the private
+This release also repairs committed managed installations created before the private
 session-token file contract. On startup it preserves the existing high-entropy local token, removes
 that value from both owner-only LaunchAgent plists, writes it to the owner-only managed secrets file,
 then restarts Hermes before Connector and requires both local readiness and the exact bound account
