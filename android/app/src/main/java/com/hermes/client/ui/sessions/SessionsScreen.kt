@@ -591,7 +591,7 @@ fun SessionsScreen(
 internal enum class SectionTone { NEEDS_YOU, PINNED, TIME }
 
 @Composable
-private fun SectionHeader(
+internal fun SectionHeader(
     label: String,
     count: Int,
     tone: SectionTone,
