@@ -61,7 +61,7 @@ fun SessionSubline(
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.outline,
     ) {
-        androidx.compose.material3.ProvideTextStyle(com.hermes.client.ui.theme.SessionRowSubline) {
+        androidx.compose.material3.ProvideTextStyle(com.hermes.client.ui.tuning.tunedSubline()) { // TUNING-TEMP
             SublineContent(parts, lead, pinned, modifier)
         }
     }

@@ -1,6 +1,15 @@
 # Hermes Go Desktop
 
-Current internal test release: **0.2.5** (build 8). It carries the managed-migration recovery and
+Current internal test release: **0.2.6** (build 9). It skips the startup token-file migration for
+managed releases older than 0.3.1, preserving their inline session token and running services.
+Desktop 0.2.5/build 8 remains withdrawn after a physical target found that it moved the active
+managed 0.3.0 Connector to a token-file contract that release did not support. Its Gateway control
+connection remained online while Android WebSocket tunnels failed local authentication with
+`HR-CONN-002`. Desktop 0.2.6 has since passed installation and pre-reboot physical Android REST and
+WebSocket checks on that target. Reboot recovery remains deliberately deferred while the Mac is in
+use and is still required before full acceptance.
+
+Desktop 0.2.5 carried the managed-migration recovery and
 private loopback session-token handoff required by Hermes Server 0.21.0, and reports the effective
 managed Agent instead of treating the intentionally stopped legacy Connector as a failure. A managed
 installation whose this-device-only account session is absent remains visible as running but awaiting
@@ -10,13 +19,15 @@ Assistant restores both labels. While the account is signed in, legacy App-Token
 removed from Overview, Diagnostics, and aggregate status. Public distribution still requires
 Developer ID signing, notarization, stapling, and clean-Mac acceptance.
 
-This release also repairs committed managed installations created before the private
+The withdrawn release also attempted to repair committed managed installations created before the private
 session-token file contract. On startup it preserves the existing high-entropy local token, removes
 that value from both owner-only LaunchAgent plists, writes it to the owner-only managed secrets file,
 then restarts Hermes before Connector and requires both local readiness and the exact bound account
 health before recording completion. A partial write or failed health proof restores the exact prior
 plists/token state and restarts that configuration; mismatched plist values or account bindings fail
-closed with the existing migration diagnostic.
+closed with the existing migration diagnostic. The corrective implementation first requires managed
+release 0.3.1 or newer, the immutable release boundary at which both packaged components support the
+file contract; an older committed release remains untouched.
 
 Hermes Go Desktop is the native macOS companion for the existing Hermes Remote Connector. The local
 I3-A alpha still runs in **compatibility observation mode**: it reads the current user-level launchd status,

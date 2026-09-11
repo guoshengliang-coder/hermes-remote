@@ -42,13 +42,18 @@
       "design": ["#D97706", "#F59E0B"], "impl": ["#D97706", "#F59E0B"],
       "reason": "图形档：稿子给标记与文字两个不同的琥珀，这里照做（StatusColors.warnGraphicArgb）。浅色 3.02:1，低于旧的 3:1 图形下限，该下限已于 2026-09-11 废除。" },
 
-    { "role": "pillar.pinned", "ref": "scheme:outline",
-      "design": ["#2563EB", "#3B82F6"], "impl": ["#777268", "#8D897E"],
-      "reason": "定案：只让「需要你处理」带颜色，其余中性两档（§2.7 第 2 条）。" },
+    { "role": "pillar.pinned", "ref": "tiles:pillarPinned",
+      "design": ["#2563EB", "#3B82F6"], "impl": ["#2563EB", "#3B82F6"],
+      "reason": "" },
 
-    { "role": "pillar.time", "ref": "scheme:outlineVariant",
-      "design": ["#059669", "#64748B"], "impl": ["#C9C7C2", "#423F3A"],
-      "reason": "设计源给时间桶用绿，会与同屏「已完成」的绿撞车，深色下 #34D399 完全同色。" },
+    { "role": "pillar.today", "ref": "tiles:pillarToday",
+      "design": ["#059669", "#34D399"], "impl": ["#059669", "#34D399"],
+      "reason": "",
+      "note": "深色 #34D399 与 status-good 深色档完全同色 —— 稿子自己就是这样画的（今天立柱与「已完成」圆点同一支薄荷绿）。2026-09-11 产品负责人要求恢复彩色立柱时接受了这一点。" },
+
+    { "role": "pillar.older", "ref": "tiles:pillarOlder",
+      "design": ["#94A3B8", "#64748B"], "impl": ["#94A3B8", "#64748B"],
+      "reason": "" },
 
     { "role": "subline.text", "ref": "scheme:outline",
       "design": ["#78716C", "#8C8882"], "impl": ["#777268", "#8D897E"],

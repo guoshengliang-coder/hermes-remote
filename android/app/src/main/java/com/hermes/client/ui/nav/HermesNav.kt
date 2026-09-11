@@ -19,6 +19,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -557,6 +558,18 @@ fun HermesNav(
                 )
             }
             composable("app_update") { AppUpdateScreen(onBack = { nav.popBackStack() }) }
+            // TUNING-TEMP
+            composable("settings_tuning") {
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                val store = remember { com.hermes.client.ui.tuning.SessionListTuningStore(ctx) }
+                val tuning by store.tuning.collectAsState(initial = com.hermes.client.ui.tuning.SessionListTuning())
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                com.hermes.client.ui.tuning.SessionListTuningScreen(
+                    tuning = tuning,
+                    onChange = { scope.launch { store.save(it) } },
+                    onBack = { nav.popBackStack() },
+                )
+            }
             composable("settings_appearance") { AppearanceScreen(onBack = { nav.popBackStack() }) }
             composable("settings_language") { LanguageScreen(onBack = { nav.popBackStack() }) }
             composable("settings_account") {

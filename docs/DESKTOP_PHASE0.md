@@ -194,7 +194,11 @@ signing into another account cannot claim or overwrite the first account's manag
 Committed installations that predate the private session-token file contract are also reconciled by
 that always-available recovery runtime. An exact `account_active` journal, both loaded managed labels,
 the signed-in journal binding ID/generation, owner-only exact managed plist paths, and one shared valid
-token are required before mutation. Desktop preserves the token value, atomically moves it out of both
+token are required before mutation. The active managed release must also be 0.3.1 or newer: 0.3.1 is
+the first immutable package whose Hermes wrapper and Connector both consume the file contract, while
+0.3.0's Connector accepts only the inline environment value. Older releases return without acquiring
+the migration lease, refreshing the account, rewriting a file, or restarting a service. Desktop
+preserves the token value, atomically moves it out of both
 LaunchAgent environments into the `0600` managed secret file, restarts Hermes before Connector, and
 records an owner-only completion marker only after local readiness and bound account health pass. A
 missing marker makes a same-token half migration resumable after power loss. Failure restores the
