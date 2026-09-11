@@ -159,3 +159,82 @@ fun tileShadow(): Dp = if (isDarkSurface()) 0.dp else 1.dp
 fun hairlineColor(): Color =
     if (isDarkSurface()) lerp(MaterialTheme.colorScheme.surface, Color.White, 0.14f)
     else Color(0xFFEFEEEA) // surfaceContainer — one warm step past the card fill
+
+// ── Card page (docs/DESIGN.md §5.1, Stitch 基线-卡片页 / 暗夜, second pull 2026-09-11) ─────────
+//
+// The drawer's own tile language, kept apart from [tileColor] on purpose: the card-page mock
+// fills its cards with warm paper-subtle and rings them in a hairline, the usage page's mock does
+// not exist yet, and the product owner ruled that the usage page keeps the old faint card until
+// it has a mock of its own. Two truths for now, one per page.
+//
+// The second pull lightened everything: the cards went from pure white to #F4F3EE, and the
+// shortcut rows left their card entirely — they are bare rows on the drawer now, separated by
+// hairlines. The status capsule is gone with the latency bands it carried.
+
+/** The drawer sheet itself: paper in light (= surface), one container step UP from the ground
+ *  in dark (= surfaceContainerLow). A literal pair so the fixture can pin it as one role. */
+internal val CardDrawerLight = Color(0xFFFAF9F5)
+internal val CardDrawerDark = Color(0xFF161A22)
+
+@Composable
+fun cardDrawerColor(): Color = if (isDarkSurface()) CardDrawerDark else CardDrawerLight
+
+/** Card fill: paper-subtle in light (NOT white — changed by the second pull), one step up in dark. */
+internal val CardTileLight = Color(0xFFF4F3EE)
+internal val CardTileDark = Color(0xFF1E232B)
+
+/**
+ * The card's hairline. The mock draws `#E3E2DF` at 60% over the paper ground; this is that blend
+ * resolved to an opaque value so the fixture can pin it, the same way the dark capsule's rgba was
+ * resolved in the first pull.
+ */
+internal val CardTileBorderLight = Color(0xFFECEBE8)
+internal val CardTileBorderDark = Color(0xFF262C35)
+
+/** Between shortcut rows. Dark is the mock's `white/5` over the drawer, resolved to opaque. */
+internal val CardDividerLight = Color(0xFFEFEEEA)
+internal val CardDividerDark = Color(0xFF21252D)
+
+/** The build-type chip's fill. The gear button carries no fill at all since the second pull. */
+internal val CardChipLight = Color(0xFFEFEEEA)
+internal val CardChipDark = Color(0xFF1E232B)
+
+/** Row icons, right-hand values and the gear: the mock's `ink-muted`, one step lighter than body ink. */
+internal val CardInkMutedLight = Color(0xFF605C54)
+internal val CardInkMutedDark = Color(0xFFA8A49C)
+
+/** The 40dp rounded tile behind the remote-node icon: paper in light, one step up in dark. */
+internal val CardIconTileLight = Color(0xFFFAF9F5)
+internal val CardIconTileDark = Color(0xFF262C35)
+internal val CardIconTileBorderLight = Color(0xFFECEBE8)
+internal val CardIconTileBorderDark = Color(0xFF31373F)
+
+/**
+ * The "checked, and you are on the newest build" dot on the 检查更新 row. Green in both tiers, as
+ * drawn. An update that IS available takes the amber graphic tier of WARN instead, so the row has
+ * one dot with two meanings and never two dots.
+ */
+val CardDotGood = Color(0xFF16A34A)
+
+/**
+ * The footer's hairline rules, which fade to transparent away from the ✦.
+ *
+ * The dark mock paints these and the tagline in COLD greys (#717684 / #8A90A0). §2.1 bans cold
+ * neutrals on warm paper — and the drawer is the same sheet in both themes — so the dark tier uses
+ * the warm `outline` instead. Recorded as a deviation in design-conformance.json.
+ */
+internal val CardFooterRuleLight = Color(0xFF777268)
+internal val CardFooterRuleDark = Color(0xFF8D897E)
+
+@Composable fun cardTileColor(): Color = if (isDarkSurface()) CardTileDark else CardTileLight
+@Composable fun cardTileBorderColor(): Color = if (isDarkSurface()) CardTileBorderDark else CardTileBorderLight
+@Composable fun cardDividerColor(): Color = if (isDarkSurface()) CardDividerDark else CardDividerLight
+@Composable fun cardChipColor(): Color = if (isDarkSurface()) CardChipDark else CardChipLight
+@Composable fun cardInkMutedColor(): Color = if (isDarkSurface()) CardInkMutedDark else CardInkMutedLight
+@Composable fun cardIconTileColor(): Color = if (isDarkSurface()) CardIconTileDark else CardIconTileLight
+@Composable fun cardIconTileBorderColor(): Color = if (isDarkSurface()) CardIconTileBorderDark else CardIconTileBorderLight
+@Composable fun cardFooterRuleColor(): Color = if (isDarkSurface()) CardFooterRuleDark else CardFooterRuleLight
+
+/** The mock's `shadow-sm` — a whisper in light, nothing in dark (the border carries it there). */
+@Composable
+fun cardTileShadow(): Dp = if (isDarkSurface()) 0.dp else 1.dp

@@ -5,6 +5,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.hermes.client.R
@@ -273,4 +274,94 @@ val SessionGroupNote = TextStyle(
     fontSize = 10.sp,
     lineHeight = 13.sp,
     letterSpacing = (-0.1).sp,
+)
+
+// ── Card page steps (docs/DESIGN.md §3.2, Stitch 基线-卡片页, second pull 2026-09-11) ──────────
+//
+// Every step below is read straight off the mock's classes: `text-[Npx]` plus the weight and
+// tracking it carries. Line height is the browser's inherited 1.5 unless the element sets
+// `leading-tight` (1.25) or `leading-none` (1); `tracking-tight` is −0.025em at the step's size
+// and `tracking-wide` is +0.025em. Sans throughout, with one exception: the footer tagline, which
+// the second pull sets in an italic serif.
+
+/** 「Hermes GO」: `text-[20px] font-bold tracking-tight`. */
+val CardWordmark = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Bold,
+    fontSize = 20.sp,
+    lineHeight = 30.sp,
+    letterSpacing = (-0.5).sp,
+)
+
+/**
+ * The build-type chip beside the wordmark: `text-[11px] font-medium tracking-wide`. The first pull
+ * drew it 10.5/600 in caps with tight padding; the second lightened it and rounded it more.
+ */
+val CardChip = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 11.sp,
+    lineHeight = 16.5.sp,
+    letterSpacing = 0.275.sp,
+)
+
+/** The identity card's big line: `text-[15.5px] font-semibold tracking-tight`. */
+val CardIdentityName = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 15.5.sp,
+    lineHeight = 23.25.sp,
+    letterSpacing = (-0.3875).sp,
+)
+
+/** Every subline on the two cards: `text-[12px]`. */
+val CardIdentitySub = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Normal,
+    fontSize = 12.sp,
+    lineHeight = 18.sp,
+    letterSpacing = 0.sp,
+)
+
+/** 「远程节点」: `text-[14.5px] font-semibold tracking-tight` (was 14px before the second pull). */
+val CardNodeTitle = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 14.5.sp,
+    lineHeight = 21.75.sp,
+    letterSpacing = (-0.3625).sp,
+)
+
+/** Shortcut row labels: `text-[14.5px] font-medium`. */
+val CardRowTitle = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 14.5.sp,
+    lineHeight = 21.75.sp,
+    letterSpacing = 0.sp,
+)
+
+/** Right-hand values on the rows, and the node card's latency: `text-[13px]`. */
+val CardRowValue = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Normal,
+    fontSize = 13.sp,
+    lineHeight = 19.5.sp,
+    letterSpacing = 0.sp,
+)
+
+/**
+ * The bottom tagline: `text-[12px] tracking-wide italic font-serif`.
+ *
+ * The one serif in the app, and deliberately not bundled — [FontFamily.Serif] is whatever the
+ * device ships (Noto Serif on stock Android), which is enough for six English words set as a
+ * flourish. Bundling a face for this line would cost more than the line is worth.
+ */
+val CardFooter = TextStyle(
+    fontFamily = FontFamily.Serif,
+    fontStyle = FontStyle.Italic,
+    fontWeight = FontWeight.Normal,
+    fontSize = 12.sp,
+    lineHeight = 18.sp,
+    letterSpacing = 0.3.sp,
 )

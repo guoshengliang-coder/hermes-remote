@@ -91,6 +91,8 @@ class DesignConformanceTest {
                 "onSurfaceVariant" -> scheme.onSurfaceVariant
                 "outline" -> scheme.outline
                 "outlineVariant" -> scheme.outlineVariant
+                "surface" -> scheme.surface
+                "surfaceContainerLow" -> scheme.surfaceContainerLow
                 else -> error("unknown scheme role '$name' in ref '$ref'")
             }.toArgb()
             // The graphic tier of WARN: the pillar and the waiting dot, which the design source
@@ -105,6 +107,17 @@ class DesignConformanceTest {
                 "pillarPinned" -> if (dark) PillarPinnedDark else PillarPinnedLight
                 "pillarToday" -> if (dark) PillarTodayDark else PillarTodayLight
                 "pillarOlder" -> if (dark) PillarOlderDark else PillarOlderLight
+                // Card page (docs/DESIGN.md §5.1), second pull 2026-09-11.
+                "cardDrawer" -> if (dark) CardDrawerDark else CardDrawerLight
+                "cardTile" -> if (dark) CardTileDark else CardTileLight
+                "cardTileBorder" -> if (dark) CardTileBorderDark else CardTileBorderLight
+                "cardDivider" -> if (dark) CardDividerDark else CardDividerLight
+                "cardChip" -> if (dark) CardChipDark else CardChipLight
+                "cardInkMuted" -> if (dark) CardInkMutedDark else CardInkMutedLight
+                "cardIconTile" -> if (dark) CardIconTileDark else CardIconTileLight
+                "cardIconTileBorder" -> if (dark) CardIconTileBorderDark else CardIconTileBorderLight
+                "cardDotGood" -> CardDotGood
+                "cardFooterRule" -> if (dark) CardFooterRuleDark else CardFooterRuleLight
                 else -> error("unknown tiles role '$name' in ref '$ref'")
             }.toArgb()
             else -> error("unknown ref kind '$kind' in ref '$ref'")
@@ -125,6 +138,14 @@ class DesignConformanceTest {
             "SessionGroupCount" -> SessionGroupCount
             "SessionGroupNote" -> SessionGroupNote
             "SegmentLabel" -> SegmentLabel
+            "CardWordmark" -> CardWordmark
+            "CardChip" -> CardChip
+            "CardIdentityName" -> CardIdentityName
+            "CardIdentitySub" -> CardIdentitySub
+            "CardNodeTitle" -> CardNodeTitle
+            "CardRowTitle" -> CardRowTitle
+            "CardRowValue" -> CardRowValue
+            "CardFooter" -> CardFooter
             "labelMedium" -> HermesTypography.labelMedium
             "bodyLarge" -> HermesTypography.bodyLarge
             "titleMedium" -> HermesTypography.titleMedium

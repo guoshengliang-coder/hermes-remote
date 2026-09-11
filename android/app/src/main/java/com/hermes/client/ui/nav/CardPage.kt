@@ -1,12 +1,13 @@
 package com.hermes.client.ui.nav
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,8 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.ui.graphics.vector.path
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -30,7 +30,6 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -40,29 +39,66 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hermes.client.BuildConfig
 import com.hermes.client.data.network.GatewayHealth
-import com.hermes.client.data.repository.hasCustomName
 import com.hermes.client.data.repository.ThemeMode
+import com.hermes.client.data.repository.hasCustomName
 import com.hermes.client.ui.components.ProfileAvatar
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.theme.CardChip
+import com.hermes.client.ui.theme.CardFooter
+import com.hermes.client.ui.theme.CardIdentityName
+import com.hermes.client.ui.theme.CardIdentitySub
+import com.hermes.client.ui.theme.CardNodeTitle
+import com.hermes.client.ui.theme.CardDotGood
+import com.hermes.client.ui.theme.CardRowTitle
+import com.hermes.client.ui.theme.CardRowValue
+import com.hermes.client.ui.theme.CardWordmark
+import com.hermes.client.ui.theme.StatusTone
+import com.hermes.client.ui.theme.cardChipColor
+import com.hermes.client.ui.theme.cardDividerColor
+import com.hermes.client.ui.theme.cardDrawerColor
+import com.hermes.client.ui.theme.cardInkMutedColor
+import com.hermes.client.ui.theme.cardFooterRuleColor
+import com.hermes.client.ui.theme.cardIconTileBorderColor
+import com.hermes.client.ui.theme.cardIconTileColor
+import com.hermes.client.ui.theme.cardTileBorderColor
+import com.hermes.client.ui.theme.cardTileColor
+import com.hermes.client.ui.theme.cardTileShadow
+import com.hermes.client.ui.theme.isDarkSurface
+import com.hermes.client.ui.theme.statusColor
+import com.hermes.client.ui.theme.warnGraphicColor
+import com.hermes.client.update.UpdateBadgeState
 
 /**
- * The card page (modal drawer off the session list), v3 — matched to the real-device base
- * design: "Hermes" wordmark + settings gear up top; an identity card showing ONLY the current
- * profile (tap → the dedicated profile picker); one stats container (weekly usage | remote
- * device); then the shortcut rows — scheduled jobs, theme, model, app updates, feedback — icon +
- * label left, current value + chevron right. The feedback row is absent when the build carries no
- * MissionGo endpoint/token, which is a supported configuration rather than an error.
+ * The card page (modal drawer off the session list), v5 — conformed to the SECOND pull of the
+ * Stitch baseline 基线-卡片页 / 暗夜 (docs/design/stitch/card.default.*.html, 2026-09-11;
+ * docs/DESIGN.md §5.1): "Hermes GO" wordmark + build-type chip + a bare 36dp gear; an identity
+ * card showing ONLY the current profile (tap → the profile picker); a ONE-ROW remote-node card
+ * (the connected Mac and its round-trip time, tap → the remote devices page); bare shortcut rows
+ * separated by hairlines — scheduled jobs, theme, default model, app updates, feedback; a ✦ rule
+ * and an italic tagline pinned to the bottom.
+ *
+ * Gone with the second pull: the status capsule and its latency bands (优/普通/延迟), the online /
+ * total device counts, and the card that used to wrap the shortcut rows. Gone with the first:
+ * the 本周用量 half of the old stats card, whose entry now lives in Settings.
+ *
+ * The feedback row is absent when the build carries no MissionGo endpoint/token, which is a
+ * supported configuration rather than an error.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,207 +112,35 @@ fun CardPage(
     val state by vm.state.collectAsStateWithLifecycle()
     val health by vm.health.collectAsStateWithLifecycle()
     val themeMode by vm.themeMode.collectAsStateWithLifecycle()
+    val updateState by vm.updateState.collectAsState()
+    LaunchedEffect(Unit) { vm.refreshUpdateBadge() }
     var themeSheet by remember { mutableStateOf(false) }
-
-    // The card page renders at design scale regardless of the system font size — the user's
-    // explicit call after outsized text on large-font devices. Scoped to this sheet only; every
-    // reading surface (chat, lists, settings) still honours the system preference.
-    val baseDensity = androidx.compose.ui.platform.LocalDensity.current
-    val cardDensity = remember(baseDensity) {
-        androidx.compose.ui.unit.Density(baseDensity.density, fontScale = minOf(baseDensity.fontScale, 1.0f))
-    }
-
-    // Dark is decided by the THEME actually in effect (the in-app theme picker included),
-    // never by the system setting alone — isSystemInDarkTheme() here painted light cards onto
-    // a dark theme whenever the two disagreed.
-    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    // Measured off the reference: card fill sits 1-2 grey steps from the sheet, the outline
-    // carried by a whisper of shadow — the same "faint card" language in BOTH themes (dark
-    // lifts the surface one small step instead of jumping to the heavy surfaceVariant).
-    // The dark branch derives from surface, so it followed the palette on its own. The light
-    // literals did not: #FAFAF8 / #ECECEA are warm whites and read yellow now that the sheet
-    // around them is cool.
-    val tile = com.hermes.client.ui.theme.tileColor()
-    val tileShadow = com.hermes.client.ui.theme.tileShadow()
-    val hairline = com.hermes.client.ui.theme.hairlineColor()
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val launchFeedback = com.hermes.client.ui.feedback.rememberFeedbackLauncher(vm.feedbackReporter)
 
     ModalDrawerSheet(
         drawerState = drawerState ?: androidx.compose.material3.rememberDrawerState(androidx.compose.material3.DrawerValue.Open),
-        modifier = Modifier.fillMaxWidth(0.86f).widthIn(max = 360.dp),
-        drawerShape = RoundedCornerShape(topStart = 0.dp, topEnd = 22.dp, bottomEnd = 22.dp, bottomStart = 0.dp),
-        drawerContainerColor = MaterialTheme.colorScheme.surface,
+        // The mock: `w-[84%] max-w-[340px] rounded-r-3xl`, top to bottom.
+        modifier = Modifier.fillMaxWidth(0.84f).widthIn(max = 340.dp),
+        drawerShape = RoundedCornerShape(topStart = 0.dp, topEnd = 24.dp, bottomEnd = 24.dp, bottomStart = 0.dp),
+        drawerContainerColor = cardDrawerColor(),
     ) {
-        androidx.compose.runtime.CompositionLocalProvider(
-            androidx.compose.ui.platform.LocalDensity provides cardDensity,
-        ) {
-        Column(
-            Modifier.fillMaxHeight().verticalScroll(rememberScrollState())
-                .statusBarsPadding().padding(horizontal = 24.dp),
-        ) {
-            // ── Wordmark + settings gear ─────────────────────────────────────────────
-            Row(
-                Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 18.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "Hermes GO",
-                    style = MaterialTheme.typography.headlineSmall.copy(fontSize = 26.sp, fontWeight = FontWeight.Bold),
-                    modifier = Modifier.weight(1f),
-                )
-                Surface(
-                    onClick = { onNavigate("settings") },
-                    shape = CircleShape,
-                    // Dark shadows are invisible; the button needs a one-step fill instead.
-                    color = if (dark) tile else MaterialTheme.colorScheme.surface,
-                    shadowElevation = if (dark) 0.dp else 6.dp,
-                    modifier = Modifier.size(44.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(GearIcon, contentDescription = localized(language, "设置", "Settings"), modifier = Modifier.size(22.dp))
-                    }
-                }
-            }
-
-            // ── Identity card: current profile only; tap → profile picker ────────────
-            Surface(
-                onClick = { onNavigate("profiles") },
-                shape = RoundedCornerShape(20.dp),
-                color = tile,
-                shadowElevation = tileShadow,
-            ) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    ProfileAvatar(active, size = 48.dp)
-                    // With a custom display name the big line is that name and the profile name
-                    // moves to the subline; otherwise the card reads exactly as before.
-                    val identity = com.hermes.client.ui.components.LocalProfileIdentities.current[active]
-                    Column(Modifier.weight(1f).padding(start = 18.dp)) {
-                        Text(
-                            com.hermes.client.data.repository.displayNameFor(active, identity),
-                            style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            if (identity.hasCustomName()) active.orEmpty()
-                            else localized(language, "当前身份", "Active profile"),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = muted,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Icon(ThinChevron, contentDescription = null, tint = muted, modifier = Modifier.size(20.dp))
-                }
-            }
-
-            // ── Stats: one container, two halves, hairline between ───────────────────
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = tile,
-                shadowElevation = tileShadow,
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-            ) {
-                // The two cells SHARE one value size and one sub size: when either overflows,
-                // both step down together, so "14.7M" and "mac-mini" never render at
-                // mismatched sizes on the same row.
-                val weekValue = state.weekTokens?.let { compactTokens(it) } ?: "—"
-                val deviceValue = state.deviceId ?: localized(language, "未连接", "Offline")
-                var statValueSp by remember(weekValue, deviceValue) { mutableStateOf(23f) }
-                var statSubSp by remember(weekValue, deviceValue) { mutableStateOf(15f) }
-                Row(Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
-                    StatCell(
-                        title = localized(language, "本周用量", "This week"),
-                        value = weekValue,
-                        // Was an estimated dollar figure. Hermes computes cost from successful
-                        // main-agent responses only and hides the number in its own dashboard by
-                        // default, so a two-decimal "$0.42" on the drawer's first screen read as
-                        // billing when it is a lower bound. A session count says something the
-                        // source data actually supports (decision 2026-09-03).
-                        sub = state.weekSessions?.let {
-                            localized(language, "$it 次会话", if (it == 1) "$it session" else "$it sessions")
-                        },
-                        valueSp = statValueSp, subSp = statSubSp,
-                        onValueOverflow = { if (statValueSp > 13f) statValueSp -= 1f },
-                        onSubOverflow = { if (statSubSp > 11f) statSubSp -= 1f },
-                        onClick = { onNavigate("usage") },
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
-                    )
-                    Box(Modifier.width(1.dp).fillMaxHeight().padding(vertical = 18.dp).background(hairline))
-                    val healthy = health as? GatewayHealth.Healthy
-                    StatCell(
-                        title = localized(language, "远程设备", "Remote device"),
-                        value = deviceValue,
-                        sub = when {
-                            healthy != null && state.deviceId != null ->
-                                localized(language, "已连接", "Connected") + (healthy.latencyMs?.let { " · " + formatLatency(it) } ?: "")
-                            state.deviceId == null -> localized(language, "连接器离线", "Connector offline")
-                            else -> null
-                        },
-                        valueSp = statValueSp, subSp = statSubSp,
-                        onValueOverflow = { if (statValueSp > 13f) statValueSp -= 1f },
-                        onSubOverflow = { if (statSubSp > 11f) statSubSp -= 1f },
-                        subColor = if (state.deviceId == null) MaterialTheme.colorScheme.error else muted,
-                        onClick = { onNavigate("remote_devices") },
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
+        CardPageContent(
+            activeProfile = active,
+            state = state,
+            health = health,
+            themeMode = themeMode,
+            updateState = updateState,
+            buildBadge = buildBadgeFor(BuildConfig.BUILD_TYPE),
+            onNavigate = onNavigate,
+            onTheme = { themeSheet = true },
+            onFeedback = if (vm.feedbackReporter.isAvailable) {
+                {
+                    launchFeedback(
+                        com.hermes.client.data.feedback.FeedbackPrefill(context = mapOf("entry" to "card_page")),
                     )
                 }
-            }
-
-            val launchFeedback = com.hermes.client.ui.feedback.rememberFeedbackLauncher(vm.feedbackReporter)
-            // ── Shortcut rows: icon + label | current value + chevron ────────────────
-            Column(Modifier.padding(top = 10.dp)) {
-                ShortcutRow(
-                    icon = ClockIcon,
-                    label = localized(language, "定时任务", "Scheduled jobs"),
-                    badge = state.cronAlerts.takeIf { it > 0 },
-                    onClick = { onNavigate("cron") },
-                )
-                HorizontalDivider(color = hairline)
-                ShortcutRow(
-                    icon = MoonIcon,
-                    label = localized(language, "主题", "Theme"),
-                    value = themeLabel(themeMode, language),
-                    onClick = { themeSheet = true },
-                )
-                HorizontalDivider(color = hairline)
-                ShortcutRow(
-                    icon = CubeIcon,
-                    label = localized(language, "模型", "Model"),
-                    value = state.defaultModel ?: "—",
-                    onClick = { onNavigate("models") },
-                )
-                HorizontalDivider(color = hairline)
-                val updateAvailable by vm.updateAvailable.collectAsState()
-                LaunchedEffect(Unit) { vm.refreshUpdateBadge() }
-                ShortcutRow(
-                    icon = DownloadBoxIcon,
-                    label = localized(language, "检查更新", "App updates"),
-                    value = updateAvailable?.let { localized(language, "新版本 $it", "New $it") }
-                        ?: "v${com.hermes.client.BuildConfig.VERSION_NAME}",
-                    alertDot = updateAvailable != null,
-                    onClick = { onNavigate("app_update") },
-                )
-                if (vm.feedbackReporter.isAvailable) {
-                    HorizontalDivider(color = hairline)
-                    ShortcutRow(
-                        icon = com.hermes.client.ui.components.FeedbackBubbleIcon,
-                        label = localized(language, "反馈与建议", "Feedback"),
-                        // No value: this row performs an action instead of leading somewhere with a
-                        // current setting to show, the same shape as the scheduled-jobs row.
-                        onClick = {
-                            launchFeedback(
-                                com.hermes.client.data.feedback.FeedbackPrefill(
-                                    context = mapOf("entry" to "card_page"),
-                                ),
-                            )
-                        },
-                    )
-                }
-            }
-        }
-        }
+            } else null,
+        )
     }
 
     if (themeSheet) {
@@ -299,177 +163,418 @@ fun CardPage(
     }
 }
 
-private fun themeLabel(mode: ThemeMode, language: com.hermes.client.ui.localization.AppLanguage): String = when (mode) {
-    ThemeMode.SYSTEM -> localized(language, "随系统", "System")
-    ThemeMode.LIGHT -> localized(language, "浅色", "Light")
-    ThemeMode.DARK -> localized(language, "深色", "Dark")
+/**
+ * The sheet's content, stateless so the screenshot tests can render every state without a
+ * ViewModel. Everything in [CardPage] that is not a data source lives here.
+ */
+@Composable
+fun CardPageContent(
+    activeProfile: String?,
+    state: CardPageUiState,
+    health: GatewayHealth,
+    themeMode: ThemeMode,
+    updateState: UpdateBadgeState,
+    buildBadge: String?,
+    onNavigate: (String) -> Unit,
+    onTheme: () -> Unit,
+    /** Null when this build has no feedback channel: the row is then absent, not disabled. */
+    onFeedback: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val language = LocalAppLanguage.current
+    val dark = isDarkSurface()
+
+    // The card page renders at design scale regardless of the system font size — the user's
+    // explicit call after outsized text on large-font devices. Scoped to this sheet only; every
+    // reading surface (chat, lists, settings) still honours the system preference.
+    val baseDensity = androidx.compose.ui.platform.LocalDensity.current
+    val cardDensity = remember(baseDensity) {
+        androidx.compose.ui.unit.Density(baseDensity.density, fontScale = minOf(baseDensity.fontScale, 1.0f))
+    }
+
+    // The dark mock rings the sheet's right edge in white at 10% (`border-r border-white/10`).
+    val edge = if (dark) Color.White.copy(alpha = 0.10f) else Color.Transparent
+
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.ui.platform.LocalDensity provides cardDensity,
+    ) {
+        Column(
+            modifier
+                .fillMaxHeight()
+                .drawBehind {
+                    if (edge.alpha > 0f) {
+                        drawLine(edge, Offset(size.width - 0.5f, 0f), Offset(size.width - 0.5f, size.height), strokeWidth = 1f)
+                    }
+                }
+                .statusBarsPadding(),
+        ) {
+            // `px-5 pt-3 pb-3`, sections `gap-4`, header `pt-1 pb-1`; the footer is pinned below.
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp).padding(top = 12.dp),
+            ) {
+                CardHeader(buildBadge = buildBadge, onSettings = { onNavigate("settings") })
+
+                Spacer(Modifier.height(16.dp))
+                IdentityCard(activeProfile = activeProfile, onClick = { onNavigate("profiles") })
+
+                Spacer(Modifier.height(16.dp))
+                RemoteNodeCard(state = state, health = health, onClick = { onNavigate("remote_devices") })
+
+                // The rows sit on the drawer itself since the second pull — no card, just
+                // hairlines between them (`divide-y`, `pt-1`).
+                Spacer(Modifier.height(20.dp))
+                Column {
+                    val jobs = state.cronJobCount
+                    ShortcutRow(
+                        icon = ClockIcon,
+                        label = localized(language, "定时任务", "Scheduled jobs"),
+                        value = jobs?.let { localized(language, "$it 个任务", if (it == 1) "$it job" else "$it jobs") },
+                        // Failed or overdue jobs: the amber "something here" dot, in front of the
+                        // count. The mock shows 「0 运行中」 instead; the count of jobs that will
+                        // actually fire is the number we can stand behind (decision 2026-09-11).
+                        dot = if (state.cronAlerts > 0) RowDot.WARN else RowDot.NONE,
+                        onClick = { onNavigate("cron") },
+                    )
+                    CardRowDivider()
+                    ShortcutRow(
+                        icon = MoonIcon,
+                        label = localized(language, "主题", "Theme"),
+                        value = themeLabel(themeMode, language),
+                        onClick = onTheme,
+                    )
+                    CardRowDivider()
+                    ShortcutRow(
+                        icon = CubeIcon,
+                        label = localized(language, "默认模型", "Default model"),
+                        value = state.defaultModel ?: "—",
+                        onClick = { onNavigate("models") },
+                    )
+                    CardRowDivider()
+                    ShortcutRow(
+                        icon = DownloadBoxIcon,
+                        label = localized(language, "检查更新", "App updates"),
+                        // One dot, three meanings: green once a check confirms this is the newest
+                        // build, amber when a newer one exists, nothing at all before the first
+                        // successful check (§5.1).
+                        value = when (updateState) {
+                            is UpdateBadgeState.Available ->
+                                localized(language, "新版本 ${updateState.versionName}", "New ${updateState.versionName}")
+                            UpdateBadgeState.UpToDate ->
+                                localized(language, "v${BuildConfig.VERSION_NAME}（最新）", "v${BuildConfig.VERSION_NAME} (latest)")
+                            UpdateBadgeState.Unknown -> "v${BuildConfig.VERSION_NAME}"
+                        },
+                        dot = when (updateState) {
+                            is UpdateBadgeState.Available -> RowDot.WARN
+                            UpdateBadgeState.UpToDate -> RowDot.GOOD
+                            UpdateBadgeState.Unknown -> RowDot.NONE
+                        },
+                        onClick = { onNavigate("app_update") },
+                    )
+                    if (onFeedback != null) {
+                        CardRowDivider()
+                        ShortcutRow(
+                            icon = com.hermes.client.ui.components.FeedbackBubbleIcon,
+                            label = localized(language, "反馈与建议", "Feedback"),
+                            // No value: this row performs an action instead of leading somewhere
+                            // with a current setting to show.
+                            onClick = onFeedback,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+
+            CardFooterMark()
+        }
+    }
 }
 
+/**
+ * The bottom flourish the second pull added: two hairlines fading out from a ✦, then the brand
+ * line in italic serif. Decorative — no `contentDescription`, nothing to read aloud.
+ */
 @Composable
-private fun StatCell(
-    title: String,
-    value: String,
-    sub: String?,
-    valueSp: Float,
-    subSp: Float,
-    onValueOverflow: () -> Unit,
-    onSubOverflow: () -> Unit,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    subColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-) {
-    // Both halves are entries, so each carries the chevron the entry-row contract requires and
-    // ripples over its whole half (the padding lives inside the clickable, not on the Column).
-    // 14dp side padding + a 16dp chevron is what keeps "mac-mini" at the full 23sp value size;
-    // the shared shrink below is the fallback, not the normal state.
-    //
-    // TOP-aligned, never centred (docs/DESIGN.md §3.3). Both cells are stretched to the taller
-    // one's height, so centring each cell's content pushed the SHORTER one down as a block: the
-    // moment "已连接 · 231 ms" wrapped, the whole 本周用量 column — title, value and sub — sat
-    // lower than 远程设备's and the card read as broken (HG-14). Top alignment makes the three
-    // slots line up by construction, because the pair's title and value heights are identical:
-    // only the wrapped sub grows, and it grows downwards into space the taller cell already owns.
-    Column(modifier.clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 18.dp)) {
-        // Sizes are CONTROLLED by the parent so both cells stay in lockstep; the wrap-to-two-lines
-        // fallback stays per-cell (only the overlong value needs it).
-        Text(
-            title,
-            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        // The chevron rides the value line rather than the cell's midpoint — with a wrapped sub a
-        // vertically centred chevron drifts down towards the sub and stops reading as the value's
-        // affordance. The value keeps exactly the width budget it had before (chevron + 4dp gap).
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            FitText(
-                value,
-                style = MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = (-0.3).sp,
-                ),
-                fontSizeSp = valueSp, minSp = 13f, onOverflow = onValueOverflow,
-                modifier = Modifier.weight(1f).padding(top = 5.dp, bottom = 4.dp, end = 4.dp),
+private fun CardFooterMark() {
+    val rule = cardFooterRuleColor()
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 24.dp, bottom = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Row(
+            Modifier.alpha(0.4f),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.width(40.dp).height(1.dp)
+                    .background(Brush.horizontalGradient(listOf(Color.Transparent, rule))),
             )
-            Icon(
-                ThinChevron,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp),
+            Text(
+                "✦", // l10n-allow: decorative glyph
+                style = CardFooter.copy(fontSize = 10.sp, fontStyle = null),
+                color = rule,
+                modifier = Modifier.padding(horizontal = 10.dp),
+            )
+            Box(
+                Modifier.width(40.dp).height(1.dp)
+                    .background(Brush.horizontalGradient(listOf(rule, Color.Transparent))),
             )
         }
-        // The sub runs the full cell width — nothing sits to its right, so the 20dp the chevron
-        // reserves on the value line is free here. That is what usually keeps "已连接 · 231 ms"
-        // on one line; wrapping stays legal as §3.3's ② fallback, it just no longer misaligns.
-        sub?.let {
-            FitText(
-                it,
-                style = MaterialTheme.typography.bodyMedium.copy(color = subColor),
-                fontSizeSp = subSp, minSp = 11f, onOverflow = onSubOverflow,
+        Text(
+            "Your AI Agent, in Your Pocket", // l10n-allow: official English brand slogan
+            style = CardFooter,
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.75f),
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+    }
+}
+
+// ── Sections ────────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun CardHeader(buildBadge: String?, onSettings: () -> Unit) {
+    val language = LocalAppLanguage.current
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Hermes GO", style = CardWordmark, color = MaterialTheme.colorScheme.onSurface) // l10n-allow: brand wordmark
+        if (buildBadge != null) {
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = cardChipColor(),
+                modifier = Modifier.padding(start = 8.dp),
+            ) {
+                Text(
+                    buildBadge,
+                    style = CardChip,
+                    color = cardInkMutedColor(),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        // 36dp and NO container since the second pull: the gear is an icon on the paper, the way
+        // the session list's top-bar buttons are (SessionsScreen's 36dp IconButtons). Under
+        // Material's 48dp touch floor, which was dropped on 2026-09-11 (DESIGN.md §7 item 8).
+        androidx.compose.material3.IconButton(onClick = onSettings, modifier = Modifier.size(36.dp)) {
+            Icon(
+                GearIcon,
+                contentDescription = localized(language, "设置", "Settings"),
+                tint = cardInkMutedColor(),
+                modifier = Modifier.size(21.dp),
             )
         }
     }
 }
 
+/** The two cards: `rounded-2xl` paper-subtle fill, a hairline border, a whisper of shadow. */
+@Composable
+private fun CardTile(
+    onClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val shape = RoundedCornerShape(16.dp)
+    val border = BorderStroke(1.dp, cardTileBorderColor())
+    if (onClick != null) {
+        Surface(
+            onClick = onClick,
+            shape = shape,
+            color = cardTileColor(),
+            border = border,
+            shadowElevation = cardTileShadow(),
+            modifier = modifier.fillMaxWidth(),
+            content = content,
+        )
+    } else {
+        Surface(
+            shape = shape,
+            color = cardTileColor(),
+            border = border,
+            shadowElevation = cardTileShadow(),
+            modifier = modifier.fillMaxWidth(),
+            content = content,
+        )
+    }
+}
+
+@Composable
+private fun IdentityCard(activeProfile: String?, onClick: () -> Unit) {
+    val language = LocalAppLanguage.current
+    CardTile(onClick = onClick) {
+        Row(
+            Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ProfileAvatar(activeProfile, size = 44.dp)
+            // With a custom display name the big line is that name and the profile name moves to
+            // the subline; otherwise the card reads exactly as before.
+            val identity = com.hermes.client.ui.components.LocalProfileIdentities.current[activeProfile]
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(
+                    com.hermes.client.data.repository.displayNameFor(activeProfile, identity),
+                    style = CardIdentityName,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    if (identity.hasCustomName()) activeProfile.orEmpty()
+                    else localized(language, "当前身份", "Active profile"),
+                    style = CardIdentitySub,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            Icon(
+                ThinChevron, contentDescription = null,
+                tint = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(start = 4.dp).size(18.dp),
+            )
+        }
+    }
+}
+
+/**
+ * The connected Mac, on one row since the second pull: icon tile, the static title 「远程节点」 with
+ * the device name beneath it, and the round-trip time on the right. The capsule, its latency bands
+ * and the online/total counts all went with that pull.
+ */
+@Composable
+private fun RemoteNodeCard(state: CardPageUiState, health: GatewayHealth, onClick: () -> Unit) {
+    val language = LocalAppLanguage.current
+    val latency = (health as? GatewayHealth.Healthy)?.latencyMs
+    val offline = state.deviceId == null
+
+    CardTile(onClick = onClick) {
+        Row(
+            Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.size(40.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(cardIconTileColor())
+                    .border(1.dp, cardIconTileBorderColor(), RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    DesktopIcon, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Column(Modifier.weight(1f).padding(start = 12.dp, end = 8.dp)) {
+                Text(
+                    localized(language, "远程节点", "Remote nodes"),
+                    style = CardNodeTitle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                // Two lines before an ellipsis: on a 360dp phone the drawer is 302dp, and a long
+                // Mac name beside the latency has nowhere to go on one (vivo V2166BA, 2026-09-11).
+                Text(
+                    if (offline) localized(language, "连接器离线", "Connector offline")
+                    else localized(language, "${state.deviceId} (当前)", "${state.deviceId} (current)"),
+                    style = CardIdentitySub,
+                    color = if (offline) statusColor(StatusTone.BAD) else MaterialTheme.colorScheme.outline,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            Text(
+                when {
+                    offline -> localized(language, "离线", "Offline")
+                    latency != null -> formatLatency(latency)
+                    else -> localized(language, "已连接", "Connected")
+                },
+                style = CardRowValue,
+                color = if (offline) statusColor(StatusTone.BAD) else cardInkMutedColor(),
+                maxLines = 1, softWrap = false,
+            )
+            Icon(
+                ThinChevron, contentDescription = null,
+                tint = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(start = 6.dp).size(16.dp),
+            )
+        }
+    }
+}
+
+/** What the dot in front of a row's value means, if there is one. */
+private enum class RowDot { NONE, GOOD, WARN }
+
+/** A hairline between two shortcut rows — the mock's `divide-y`, inset by the row's own padding. */
+@Composable
+private fun CardRowDivider() {
+    HorizontalDivider(color = cardDividerColor(), modifier = Modifier.padding(horizontal = 4.dp))
+}
+
+/**
+ * One shortcut row: `h-[48px] px-1`, icon 20 + label, then (dot +) value + chevron on the right.
+ * Bare on the drawer since the second pull — the card that used to wrap these is gone, so the
+ * press ripple is clipped to the mock's own `rounded-lg` instead of the card's corner.
+ *
+ * Entry-row contract (DESIGN.md §5.1): tappable rows always carry the chevron.
+ */
 @Composable
 private fun ShortcutRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onClick: () -> Unit,
     value: String? = null,
-    badge: Int? = null,
-    // A small status dot after the label: "something new here", stronger than the neutral badge.
-    alertDot: Boolean = false,
+    dot: RowDot = RowDot.NONE,
 ) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 18.dp),
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .height(48.dp)
+            .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
+        Icon(icon, contentDescription = null, tint = cardInkMutedColor(), modifier = Modifier.size(20.dp))
         Text(
             label,
-            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp),
+            style = CardRowTitle,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 16.dp),
+            modifier = Modifier.padding(start = 12.dp),
         )
-        if (alertDot) {
-            Box(
-                Modifier
-                    .padding(start = 6.dp)
-                    .size(7.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.error),
-            )
-        }
         Spacer(Modifier.weight(1f))
-        // Neutral badge — same palette as the rest of the sheet, no alert colour.
-        badge?.let {
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
-                Text(
-                    it.toString(),
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                )
-            }
+        if (dot != RowDot.NONE) {
+            Box(
+                Modifier.padding(end = 6.dp).size(6.dp).clip(CircleShape)
+                    .background(if (dot == RowDot.GOOD) CardDotGood else warnGraphicColor()),
+            )
         }
         value?.let {
             AutoShrinkText(
                 it,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontSize = 15.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
+                style = CardRowValue.copy(color = cardInkMutedColor()),
                 minFontSize = 12.sp,
-                modifier = Modifier.widthIn(max = 160.dp).padding(start = 8.dp),
+                modifier = Modifier.widthIn(max = 160.dp),
             )
         }
         Icon(
             ThinChevron,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 2.dp).size(20.dp),
+            tint = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.padding(start = 4.dp).size(16.dp),
         )
     }
 }
 
-/**
- * Fit strategy, in order: (1) step the font size down to [minFontSize] on ONE line; (2) still
- * overflowing at the floor → keep the floor size and wrap to TWO lines; (3) only a two-line
- * overflow ellipsizes. Numbers and device names should never truncate before all of that.
- */
-/**
- * Parent-controlled fit text: font size comes from shared state (both stat cells shrink in
- * lockstep via [onOverflow]); at [minSp] the text wraps to two lines; only a two-line overflow
- * ellipsizes.
- */
-@Composable
-private fun FitText(
-    text: String,
-    style: androidx.compose.ui.text.TextStyle,
-    fontSizeSp: Float,
-    minSp: Float,
-    onOverflow: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var lines by remember(text) { mutableStateOf(1) }
-    Text(
-        text,
-        style = style.copy(fontSize = fontSizeSp.sp, lineHeight = (fontSizeSp * 1.25f).sp),
-        maxLines = lines,
-        softWrap = lines > 1,
-        overflow = TextOverflow.Ellipsis,
-        onTextLayout = { result ->
-            // With overflow=Ellipsis, didOverflowWidth is FALSE once ellipsized —
-            // isLineEllipsized is the signal that actually fires.
-            val overflowed = result.didOverflowWidth ||
-                result.isLineEllipsized(result.lineCount - 1)
-            if (overflowed) {
-                if (fontSizeSp > minSp) onOverflow() else if (lines == 1) lines = 2
-            }
-        },
-        modifier = modifier,
-    )
+private fun themeLabel(mode: ThemeMode, language: com.hermes.client.ui.localization.AppLanguage): String = when (mode) {
+    ThemeMode.SYSTEM -> localized(language, "随系统", "System")
+    ThemeMode.LIGHT -> localized(language, "浅色", "Light")
+    ThemeMode.DARK -> localized(language, "深色", "Dark")
 }
+
+// ── Text fitting ────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun AutoShrinkText(
@@ -493,8 +598,6 @@ private fun AutoShrinkText(
         softWrap = lines > 1,
         overflow = TextOverflow.Ellipsis,
         onTextLayout = { result ->
-            // With overflow=Ellipsis, didOverflowWidth is FALSE once the text has been
-            // ellipsized — isLineEllipsized is the signal that actually fires.
             val overflowed = result.didOverflowWidth ||
                 result.isLineEllipsized(result.lineCount - 1)
             if (overflowed) {
@@ -509,11 +612,12 @@ private fun AutoShrinkText(
     )
 }
 
-
 // ── Hand-drawn thin-stroke icon set ─────────────────────────────────────────────────────────
 // Material's outlined icons are cut for a 2dp stroke and read heavy against the reference,
-// whose glyphs sit at ~1.7dp. These five are drawn to the reference paths with the same
-// brush as CubeIcon: 1.7 stroke, round caps/joins, tinted by Icon like any vector.
+// whose glyphs sit at ~1.7dp. These are drawn to the reference paths with the same brush:
+// 1.7 stroke, round caps/joins, tinted by Icon like any vector. The Stitch mock draws its own
+// 1.5-stroke set (a chip for the model, cycling arrows for updates); the repo's set stays —
+// product decision 2026-09-11, DESIGN.md §4 remains the icon authority.
 
 private fun strokeIcon(
     name: String,
@@ -609,6 +713,24 @@ private val ThinChevron by lazy {
     }
 }
 
+/** A desktop monitor on a stand — the remote-node card's device tile, same brush as the set. */
+private val DesktopIcon by lazy {
+    strokeIcon("ThinDesktop") {
+        moveTo(5f, 4f)
+        lineTo(19f, 4f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 21f, y1 = 6f)
+        lineTo(21f, 14f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 19f, y1 = 16f)
+        lineTo(5f, 16f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 3f, y1 = 14f)
+        lineTo(3f, 6f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 5f, y1 = 4f)
+        close()
+        moveTo(12f, 16f); lineTo(12f, 20f)
+        moveTo(8f, 20f); lineTo(16f, 20f)
+    }
+}
+
 /**
  * Plain outlined cube for the model row — drawn to match the sheet's stroke icon set (clock,
  * moon, boxed arrow): 1.75 stroke, round joins, no scan-frame corners like ViewInAr's.
@@ -640,14 +762,4 @@ private val CubeIcon: androidx.compose.ui.graphics.vector.ImageVector by lazy {
             moveTo(12f, 12f); lineTo(12f, 20.8f)
         }
     }.build()
-}
-
-/** "242 ms" below a second, "1.1 s" above — four-digit ms never earns its width. */
-private fun formatLatency(ms: Long): String =
-    if (ms < 1000) "$ms ms" else "%.1f s".format(ms / 1000.0)
-
-private fun compactTokens(v: Long): String = when {
-    v >= 1_000_000 -> "%.1fM".format(v / 1_000_000.0)
-    v >= 1_000 -> "%.1fK".format(v / 1_000.0)
-    else -> v.toString()
 }

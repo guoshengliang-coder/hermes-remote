@@ -46,6 +46,16 @@ colors:
   spinner: '#2563eb'
   incident-container: '#fff1f2'
   incident-ink: '#9f1239'
+  card-drawer: '#faf9f5'
+  card-tile: '#f4f3ee'
+  card-tile-border: '#ecebe8'
+  card-divider: '#efeeea'
+  card-chip: '#efeeea'
+  card-ink-muted: '#605c54'
+  card-icon-tile: '#faf9f5'
+  card-icon-tile-border: '#ecebe8'
+  card-dot-good: '#16a34a'
+  card-footer-rule: '#777268'
 typography:
   headline-sm:
     fontFamily: Roboto Flex
@@ -155,6 +165,54 @@ typography:
     fontWeight: '500'
     lineHeight: 19.575px
     letterSpacing: -0.135px
+  card-wordmark:
+    fontFamily: Roboto Flex
+    fontSize: 20px
+    fontWeight: '700'
+    lineHeight: 30px
+    letterSpacing: -0.5px
+  card-chip:
+    fontFamily: Roboto Flex
+    fontSize: 11px
+    fontWeight: '500'
+    lineHeight: 16.5px
+    letterSpacing: 0.275px
+  card-identity-name:
+    fontFamily: Roboto Flex
+    fontSize: 15.5px
+    fontWeight: '600'
+    lineHeight: 23.25px
+    letterSpacing: -0.3875px
+  card-identity-sub:
+    fontFamily: Roboto Flex
+    fontSize: 12px
+    fontWeight: '400'
+    lineHeight: 18px
+    letterSpacing: 0px
+  card-node-title:
+    fontFamily: Roboto Flex
+    fontSize: 14.5px
+    fontWeight: '600'
+    lineHeight: 21.75px
+    letterSpacing: -0.3625px
+  card-row-title:
+    fontFamily: Roboto Flex
+    fontSize: 14.5px
+    fontWeight: '500'
+    lineHeight: 21.75px
+    letterSpacing: 0px
+  card-row-value:
+    fontFamily: Roboto Flex
+    fontSize: 13px
+    fontWeight: '400'
+    lineHeight: 19.5px
+    letterSpacing: 0px
+  card-footer:
+    fontFamily: Georgia
+    fontSize: 12px
+    fontWeight: '400'
+    lineHeight: 18px
+    letterSpacing: 0.3px
 rounded:
   xs: 8px
   sm: 12px
@@ -164,7 +222,7 @@ rounded:
   full: 9999px
 spacing:
   screen-padding-horizontal: 16px
-  card-page-padding: 24px
+  card-page-padding: 20px
   row-min-height-2-line: 72px
   status-pillar-width: 3px
   status-pillar-height: 12px
@@ -264,6 +322,16 @@ front matter 只能放一套颜色（Stitch 的格式限制），那是浅色档
 | spinner | #2563EB | #3B82F6 |
 | incident-container | #FFF1F2 | #2A1B1D |
 | incident-ink | #9F1239 | #FCA5A5 |
+| card-drawer | #FAF9F5 | #161A22 |
+| card-tile | #F4F3EE | #1E232B |
+| card-tile-border | #ECEBE8 | #262C35 |
+| card-divider | #EFEEEA | #21252D |
+| card-chip | #EFEEEA | #1E232B |
+| card-ink-muted | #605C54 | #A8A49C |
+| card-icon-tile | #FAF9F5 | #262C35 |
+| card-icon-tile-border | #ECEBE8 | #31373F |
+| card-dot-good | #16A34A | #16A34A |
+| card-footer-rule | #777268 | #8D897E |
 
 ### 颜色规则
 
@@ -305,7 +373,7 @@ front matter 只能放一套颜色（Stitch 的格式限制），那是浅色档
 
 - 圆角五档：8 / 12 / 16 / 22 / 28px。菜单 16px，分段轨道 12px、浮起片 8px，搜索框 18px，
   计数 chip 6px，告警卡 12px。
-- 页边距：列表页 16dp，卡片页 24dp。会话行两行项最小高 72dp（Material ListItem 下限）。
+- 页边距：列表页 16dp，卡片页 20dp（2026-09-11 起，原 24dp）。会话行两行项最小高 72dp（Material ListItem 下限）。
   会话行内边距 16·12dp；组头 16·8dp；计数 chip 8·2dp。
 - **没有触控下限。** 顶栏图标按钮就是 36dp，稿子画多大就是多大。2026-09-11 废除了「不小于 48dp」
   那一条 —— 与字号下限一起，换成严格照稿。

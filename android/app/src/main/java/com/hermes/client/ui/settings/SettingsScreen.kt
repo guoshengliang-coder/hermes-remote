@@ -44,6 +44,9 @@ fun SettingsScreen(
             Entry(localized(language, "通知", "Notifications"), localized(language, "审批、定时任务和消息提醒", "Approvals, cron, and messaging alerts")) { onNavigate("settings_notifications") }
             HorizontalDivider()
             Entry(localized(language, "记忆与预算", "Memory & budgets"), localized(language, "记忆、用户资料和默认模型", "Memory, user profile & default model")) { onNavigate("settings_memory") }
+            // Moved here from the card page on 2026-09-11: the drawer's stats card became the
+            // single 远程节点 card, so the usage page needed a home (docs/DESIGN.md §5.1, §5.14).
+            Entry(localized(language, "用量", "Usage"), localized(language, "本周 token、模型占比与定时任务", "Weekly tokens, model mix and scheduled jobs")) { onNavigate("usage") }
             HorizontalDivider()
             Entry(localized(language, "常用提示", "Saved prompts"), localized(language, "在输入框中复用的提示词", "Reusable prompts for the composer")) { onNavigate("settings_prompts") }
             HorizontalDivider()

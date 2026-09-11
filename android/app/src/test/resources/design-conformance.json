@@ -9,7 +9,10 @@
     "",
     "type 段是排版档位，与 roles 段同一套规则：四元组 [字号, 字重, 行高, 字距]，单位 px/sp，",
     "不同必须写 reason。行高取设计稿行容器的 leading-[1.45]（稿里三档都不自带 leading）。",
-    "note 不参与断言，用来记设计稿与设计系统本身打架的地方。2026-09-11 抽取。"
+    "note 不参与断言，用来记设计稿与设计系统本身打架的地方。2026-09-11 抽取。",
+    "",
+    "card.* 段来自 基线-卡片页（screens/e5db8e03 浅 / 72cf9986 暗夜）；2026-09-11 第四次拉取（设计师重出同两张稿）后重取，裁决见锁文件 specChanges。",
+    "稿里没有单一 token 可对的项记在锁文件 notes 里而不在这里：头像色与字母比例（按身份算 / §2.4 全局组件）、遮罩模糊（平台不支持）、图标（§4 为准）、身份卡副行文案（无数据源）。"
   ],
   "roles": [
     { "role": "status.running", "ref": "status:RUNNING",
@@ -80,7 +83,71 @@
       "design": ["#FFF1F2", "#2A1B1D"], "impl": ["#FFF1F2", "#2A1B1D"], "reason": "" },
 
     { "role": "incident.ink", "ref": "tiles:incidentInk",
-      "design": ["#9F1239", "#FCA5A5"], "impl": ["#9F1239", "#FCA5A5"], "reason": "" }
+      "design": ["#9F1239", "#FCA5A5"], "impl": ["#9F1239", "#FCA5A5"], "reason": "" },
+
+    { "role": "card.drawer", "ref": "tiles:cardDrawer",
+      "design": ["#FAF9F5", "#161A22"], "impl": ["#FAF9F5", "#161A22"],
+      "reason": "",
+      "note": "卡片页（screens/e5db8e03 浅 / 72cf9986 暗夜）。2026-09-11 第二次拉取重取；暗夜的抽屉是 surface-container-low，不是 surface。" },
+
+    { "role": "card.tile", "ref": "tiles:cardTile",
+      "design": ["#F4F3EE", "#1E232B"], "impl": ["#F4F3EE", "#1E232B"],
+      "reason": "",
+      "note": "第二次拉取把浅色卡由纯白 #FFFFFF 降为纸色 paper-subtle。" },
+
+    { "role": "card.tile.border", "ref": "tiles:cardTileBorder",
+      "design": ["#ECEBE8", "#262C35"], "impl": ["#ECEBE8", "#262C35"],
+      "reason": "",
+      "note": "稿是 #E3E2DF@60% 压在纸底上，折成不透明值（与第一次拉取折 rgba 同法）。" },
+
+    { "role": "card.divider", "ref": "tiles:cardDivider",
+      "design": ["#EFEEEA", "#21252D"], "impl": ["#EFEEEA", "#21252D"],
+      "reason": "",
+      "note": "快捷行之间的发丝线；行已不在卡内。暗夜是 white/5 压在 #161A22 上的折算值。" },
+
+    { "role": "card.chip", "ref": "tiles:cardChip",
+      "design": ["#EFEEEA", "#1E232B"], "impl": ["#EFEEEA", "#1E232B"],
+      "reason": "",
+      "note": "构建徽标底色。齿轮自第二次拉取起无底色，不再共用此角色。" },
+
+    { "role": "card.ink.muted", "ref": "tiles:cardInkMuted",
+      "design": ["#605C54", "#A8A49C"], "impl": ["#605C54", "#A8A49C"],
+      "reason": "",
+      "note": "行图标、右值、齿轮、徽标文字。浅色 = secondary，暗夜 = onSurfaceVariant，两档不同 token，故单列。" },
+
+    { "role": "card.ink.subtle", "ref": "scheme:outline",
+      "design": ["#777268", "#8D897E"], "impl": ["#777268", "#8D897E"],
+      "reason": "",
+      "note": "副行与箭头。暗夜稿的箭头写的仍是浅色值 #777268，视为笔误，取暗档。" },
+
+    { "role": "card.title.ink", "ref": "scheme:onSurface",
+      "design": ["#181C24", "#E2E0DB"], "impl": ["#1B1C1A", "#E2E0DB"],
+      "reason": "走 token（§2.1）；稿的 ink-dark 是冷一度的近黑，与本仓 onSurface 只差一个灰阶，视觉等同。" },
+
+    { "role": "card.icon-tile", "ref": "tiles:cardIconTile",
+      "design": ["#FAF9F5", "#262C35"], "impl": ["#FAF9F5", "#262C35"],
+      "reason": "",
+      "note": "远程节点行左侧 40dp 圆角底块。浅色与抽屉同色，靠描边成形。" },
+
+    { "role": "card.icon-tile.border", "ref": "tiles:cardIconTileBorder",
+      "design": ["#ECEBE8", "#31373F"], "impl": ["#ECEBE8", "#31373F"],
+      "reason": "",
+      "note": "暗夜是 white/5 压在 #262C35 上的折算值。" },
+
+    { "role": "card.dot.good", "ref": "tiles:cardDotGood",
+      "design": ["#16A34A", "#16A34A"], "impl": ["#16A34A", "#16A34A"],
+      "reason": "",
+      "note": "检查更新行「已是最新」的绿点。第一次拉取时这个值在状态胶囊里，胶囊已随第二次拉取删除。" },
+
+    { "role": "card.dot.warn", "ref": "warnGraphic:WARN",
+      "design": ["#D97706", "#F59E0B"], "impl": ["#D97706", "#F59E0B"],
+      "reason": "",
+      "note": "同一枚点的另一含义：有新版本，或定时任务有失败/逾期。稿只画了绿点。" },
+
+    { "role": "card.footer.rule", "ref": "tiles:cardFooterRule",
+      "design": ["#777268", "#8A90A0"], "impl": ["#777268", "#8D897E"],
+      "reason": "暗夜稿给页脚细线与标语用了冷灰 #8A90A0 / #717684；§2.1 禁止暖纸体系里出现冷灰，改用 outline 的暖档。",
+      "note": "浅色一致。" }
   ],
 
   "type": [
@@ -126,6 +193,44 @@
     { "role": "chat.body", "ref": "type:bodyLarge",
       "design": ["15", "400", "22", "0"], "impl": ["16", "400", "24", "0"],
       "reason": "bodyLarge 是聊天正文，全 App 主要阅读面；缩到 15sp 是可读性决策而非换肤细节（DESIGN.md §3.1）。",
-      "note": "" }
+      "note": "" },
+
+    { "role": "card.wordmark", "ref": "type:CardWordmark",
+      "design": ["20", "700", "30", "-0.5"], "impl": ["20", "700", "30", "-0.5"],
+      "reason": "",
+      "note": "卡片页各档（2026-09-11 第二次拉取重取）：稿的 text-[Npx] 不带 leading 时行高按浏览器继承的 1.5 记；leading-tight = 1.25、leading-none = 1；tracking-tight = −0.025em、tracking-wide = +0.025em，按字号折算。" },
+
+    { "role": "card.chip", "ref": "type:CardChip",
+      "design": ["11", "500", "16.5", "0.275"], "impl": ["11", "500", "16.5", "0.275"],
+      "reason": "",
+      "note": "第二次拉取由 10.5/600 大写 + 0.05em 改为 11/500 + tracking-wide，圆角 4 → 6、内距 6×2.5 → 8×2。" },
+
+    { "role": "card.identity.name", "ref": "type:CardIdentityName",
+      "design": ["15.5", "600", "23.25", "-0.3875"], "impl": ["15.5", "600", "23.25", "-0.3875"],
+      "reason": "", "note": "" },
+
+    { "role": "card.identity.sub", "ref": "type:CardIdentitySub",
+      "design": ["12", "400", "18", "0"], "impl": ["12", "400", "18", "0"],
+      "reason": "",
+      "note": "身份卡副行与远程节点副行共用。稿的身份卡副行写「网关启动目录 · 本机」，无数据源，实现保留「当前身份」（裁决 2026-09-11）。" },
+
+    { "role": "card.node.title", "ref": "type:CardNodeTitle",
+      "design": ["14.5", "600", "21.75", "-0.3625"], "impl": ["14.5", "600", "21.75", "-0.3625"],
+      "reason": "", "note": "第二次拉取由 14 改为 14.5。" },
+
+    { "role": "card.row.title", "ref": "type:CardRowTitle",
+      "design": ["14.5", "500", "21.75", "0"], "impl": ["14.5", "500", "21.75", "0"],
+      "reason": "", "note": "" },
+
+    { "role": "card.row.value", "ref": "type:CardRowValue",
+      "design": ["13", "400", "19.5", "0"], "impl": ["13", "400", "19.5", "0"],
+      "reason": "",
+      "note": "行右值与远程节点的毫秒数共用。暗夜稿给毫秒数加了 font-medium，几何以浅色为准（锁文件 pairs）。" },
+
+    { "role": "card.footer", "ref": "type:CardFooter",
+      "design": ["12", "400", "18", "0.3"], "impl": ["12", "400", "18", "0.3"],
+      "reason": "",
+      "note": "斜体衬线（FontFamily.Serif + FontStyle.Italic，系统字体不打包）；字族与字形不进四元组。暗夜稿写 12.5px Georgia，几何以浅色为准。" }
+
   ]
 }

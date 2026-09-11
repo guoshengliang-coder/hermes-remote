@@ -26,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -324,6 +325,10 @@ fun HermesNav(
     ModalNavigationDrawer(
         drawerState = drawerState,
         gesturesEnabled = drawerState.isOpen || route == "sessions",
+        // The card-page mock dims the list at 25% in light and 60% in dark (`bg-black/25`,
+        // `bg-black/60`). It also blurs it by 2–3px, which a modal drawer's scrim cannot do;
+        // recorded as a deviation in design-conformance.json.
+        scrimColor = Color.Black.copy(alpha = if (com.hermes.client.ui.theme.isDarkSurface()) 0.60f else 0.25f),
         drawerContent = { CardPage(onNavigate = closeCardAnd, drawerState = drawerState) },
     ) {
     Scaffold(
