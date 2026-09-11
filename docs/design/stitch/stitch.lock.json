@@ -19,23 +19,29 @@
       "result": "标签 6/6 符合新格式；5 张 HTML 内容变化（见 specChanges），仅 sessions.chats.default.more-menu.light 未变" }
   ],
   "specChanges": {
-    "_": "第二次拉取发现的、尚未落到 design-conformance.json / DESIGN.md / 代码的规格变更。需产品负责人确认是有意改稿还是误改；确认后按 §7 第 8 条顺序落地。",
-    "pending": [
+    "_": "第二次拉取发现的规格变更及裁决（产品负责人 2026-09-11：「一部分是有意的」，逐条如下）。status: adopted-pending-code | fixture-updated | consistent | rejected。",
+    "resolved": [
       { "screens": ["sessions.chats.default.light", "sessions.chats.default.dark"],
         "change": "行标题 15px → 15.5px（浅色用内联 style，暗色改类名）；字重改为按分组区分：「需要你处理」两行 600，其余行 500",
-        "conflictsWith": "fixture type.row.title = 15/600/21.75/-0.15（且 §5.2 的字号表）；行高若仍按 leading 1.45 应为 22.475" },
+        "decision": "采纳。SessionRowTitle 拆成两档 15.5/600 与 15.5/500，行高 22.475、字距 −0.155。fixture 已记 design 列（row.title.needsYou / row.title），impl 在代码落地前保持 15/600 并写 reason。",
+        "status": "adopted-pending-code",
+        "followUp": "开代码工作条目：Type.kt 两档样式、SessionRow 按分组选档、§5.2 字号表更新、row-height-probe 与 session-rows-pinned golden 重录" },
       { "screens": ["sessions.chats.default.light"],
         "change": "状态色改为内联覆盖：等待 = #B45309、已完成 = #2E7D32（与本仓 StatusColors 的 GOOD 相同）",
-        "conflictsWith": "fixture roles status.waiting design=#C2410C、status.completed design=#047857 —— 稿子向实现靠拢，fixture 的 design 列需要更新，impl 不变" },
+        "decision": "更新 fixture design 列，实现不动。已完成：浅色 design 与 impl 一致；等待：impl 维持 #C2410C（纸底 4.92 对 #B45309 的 4.53），写 reason。",
+        "status": "fixture-updated" },
       { "screens": ["sessions.chats.default.dark", "sessions.chats.default.more-menu.dark"],
         "change": "FAB 改为 56dp（w-14）、底色 #181C24、1px 白 12% 描边、28dp 描边式 SVG 加号（stroke 2.2）替代 Material Symbol",
-        "conflictsWith": "无冲突：与 §5.2 / §2.7 第 1 条的 FAB 定案一致（近黑 + 白色 28dp 加号 + 深色描边）；暗色底色 #181C24 与本仓深色档 #1E232B 不同，fixture fab.container 深色列需裁决" },
+        "decision": "与 §5.2 / §2.7 第 1 条的 FAB 定案一致，不改。暗色底 #181C24 与本仓深色档 #1E232B 的差异记在 fixture fab.container 的 reason；浅色稿仍是 52dp + Material 图标，等设计师同步。",
+        "status": "consistent" },
       { "screens": ["search.results.light"],
         "change": "查询词高亮字重 semibold → medium；底部汇总文字色 → #64748B",
-        "conflictsWith": "§5.2 搜索页：高亮 = primary 色 + Medium 字重 —— 稿子改后与文档一致，无需改代码" },
+        "decision": "与 §5.2 搜索页一致（primary + Medium），无需改代码。",
+        "status": "consistent" },
       { "screens": ["search.results.dark"],
         "change": "搜索框加 0.5px 白 8% 描边；底部汇总文字色 → #94A3B8",
-        "conflictsWith": "SearchField 是全 app 唯一形态（填充式、无描边）；0.5px 描边需裁决是否采纳" }
+        "decision": "不采纳。SearchField 是全 app 唯一形态（填充式、无描边），单改暗色会让全局搜索与聊天内搜索不一致。有意偏离。",
+        "status": "rejected" }
     ]
   },
   "canvas": { "widthCssPx": 390, "note": "1 CSS px = 1 dp（DESIGN.md §3.4）；Stitch 元数据里的 width 780 / height 是 2x 像素" },

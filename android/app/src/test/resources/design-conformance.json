@@ -3,7 +3,9 @@
     "设计源每个带颜色角色的取值，与实现的对应取值。DesignConformanceTest 读这份文件。",
     "design = Stitch 原稿的实测值；impl = 本仓当前应有的值；ref = 实现侧从哪里取。",
     "两者不同的行必须写 reason —— 测试会强制这一点，不写就红。",
-    "设计源：projects/8017882098155799612 screens/446ebc32（浅）与 971314ea（暗夜），2026-09-10 抽取。",
+    "设计源：projects/8017882098155799612 screens/446ebc32（浅）与 971314ea（暗夜），2026-09-10 抽取；",
+    "2026-09-11 第二次拉取（标签改为 基线- 格式后稿子有改动）更新了 status.waiting / status.completed / fab.container 的 design 列",
+    "和 type 的 row.title 两档。原件与哈希见 docs/design/stitch/stitch.lock.json，裁决见其 specChanges。",
     "",
     "type 段是排版档位，与 roles 段同一套规则：四元组 [字号, 字重, 行高, 字距]，单位 px/sp，",
     "不同必须写 reason。行高取设计稿行容器的 leading-[1.45]（稿里三档都不自带 leading）。",
@@ -14,11 +16,12 @@
       "design": ["#0369A1", "#67E8F9"], "impl": ["#0369A1", "#67E8F9"], "reason": "" },
 
     { "role": "status.waiting", "ref": "status:WARN",
-      "design": ["#C2410C", "#FBBF24"], "impl": ["#C2410C", "#FBBF24"], "reason": "" },
+      "design": ["#B45309", "#FBBF24"], "impl": ["#C2410C", "#FBBF24"],
+      "reason": "第二次拉取（2026-09-11）稿子把等待文字改为 #B45309（纸底 4.53）；实现维持 #C2410C（4.92），与 header.needsYou / pillar.needsYou 同源收敛成一个琥珀。产品负责人裁决：fixture 记 design、实现不动。" },
 
     { "role": "status.completed", "ref": "status:GOOD",
-      "design": ["#047857", "#34D399"], "impl": ["#2E7D32", "#7CDC80"],
-      "reason": "稿子的绿色相 163，超出 StatusColorsTest 钉死的 90–150「绿」判定带；且同族的 #16A34A 作 12sp 文字只有 3.13。" },
+      "design": ["#2E7D32", "#34D399"], "impl": ["#2E7D32", "#7CDC80"],
+      "reason": "浅色：第二次拉取（2026-09-11）稿子已改成本仓值，一致。暗色：稿子仍是 #34D399，色相 163 超出 StatusColorsTest 钉死的 90–150「绿」判定带，沿用 #7CDC80。" },
 
     { "role": "status.failed", "ref": "status:BAD",
       "design": ["#B91C1C", "#F87171"], "impl": ["#C62828", "#FFB4AB"],
@@ -65,7 +68,8 @@
       "reason": "" },
 
     { "role": "fab.container", "ref": "tiles:fab",
-      "design": ["#181C24", "#1E232B"], "impl": ["#181C24", "#1E232B"], "reason": "" },
+      "design": ["#181C24", "#181C24"], "impl": ["#181C24", "#1E232B"],
+      "reason": "暗色稿第二次拉取（2026-09-11）把 FAB 底改成与浅色相同的 #181C24；本仓深色档保持 §2.7 第 1 条定案的 #1E232B + 1dp 描边，不随稿改。" },
 
     { "role": "incident.container", "ref": "tiles:incidentBg",
       "design": ["#FFF1F2", "#2A1B1D"], "impl": ["#FFF1F2", "#2A1B1D"], "reason": "" },
@@ -76,9 +80,14 @@
 
   "type": [
     { "role": "row.title", "ref": "type:SessionRowTitle",
-      "design": ["15", "600", "21.75", "-0.15"], "impl": ["15", "600", "21.75", "-0.15"],
-      "reason": "",
-      "note": "稿与设计系统冲突：系统 title-md 写 15px/500/20px/0em，稿子的 <h2> 是 15px/600/-0.01em。按 2026-09-11 决策以稿为准。" },
+      "design": ["15.5", "600", "22.475", "-0.155"], "impl": ["15", "600", "21.75", "-0.15"],
+      "reason": "采纳待落地：第二次拉取（2026-09-11）稿子把「需要你处理」组标题改为 15.5px/600，产品负责人采纳（DESIGN.md §5.2 标题档修订）。代码另开工作条目；落地时把 impl 改成 design 值并清空本 reason。",
+      "note": "稿与设计系统冲突：系统 title-md 写 15px/500/20px/0em，稿子的 <h2> 第一次拉取是 15px/600/-0.01em。按 2026-09-11 决策以稿为准。" },
+
+    { "role": "row.title.other", "ref": "type:SessionRowTitle",
+      "design": ["15.5", "500", "22.475", "-0.155"], "impl": ["15", "600", "21.75", "-0.15"],
+      "reason": "采纳待落地：第二次拉取稿子把「需要你处理」以外各组的标题改为 15.5px/500（字重按分组区分）。代码落地时拆出第二档样式并把本行 ref 指向它；在此之前 ref 仍指现有的单一档。",
+      "note": "" },
 
     { "role": "row.subline", "ref": "type:SessionRowSubline",
       "design": ["12", "400", "17.4", "0"], "impl": ["12", "400", "17.4", "0"],
