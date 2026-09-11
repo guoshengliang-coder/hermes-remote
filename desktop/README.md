@@ -1,11 +1,12 @@
 # Hermes Go Desktop
 
-Current safe internal test release: **0.2.4** (build 7). Desktop 0.2.5/build 8 is withdrawn after a
-physical target found that it moved the active managed 0.3.0 Connector to the token-file contract
-introduced by managed release 0.3.1. That 0.3.0 Connector kept its Gateway control connection but
-could not authenticate tunneled local WebSockets, so Android reported `HR-CONN-002`; the target was
-restored to 0.2.4 and its prior inline-token configuration. The pending corrective Desktop release
-must skip this startup migration for every managed release older than 0.3.1.
+Current internal test release: **0.2.6** (build 9). It skips the startup token-file migration for
+managed releases older than 0.3.1, preserving their inline session token and running services.
+Desktop 0.2.5/build 8 remains withdrawn after a physical target found that it moved the active
+managed 0.3.0 Connector to a token-file contract that release did not support. Its Gateway control
+connection remained online while Android WebSocket tunnels failed local authentication with
+`HR-CONN-002`. The target was restored to 0.2.4/build 7, which remains its accepted version until
+0.2.6 passes physical Android REST and WebSocket checks.
 
 Desktop 0.2.5 carried the managed-migration recovery and
 private loopback session-token handoff required by Hermes Server 0.21.0, and reports the effective
