@@ -48,7 +48,8 @@ trap cleanup EXIT INT TERM
 
 # Mutating the live catalog from a dirty tree, or from anything but the commit on origin/main,
 # is how the deployed behaviour stops matching the reviewed source.
-[[ -z "$(git -C "$ROOT" status --porcelain)" ]] || { echo "Retiring requires a clean worktree" >&2; exit 1; }
+dirty() { git -C "$ROOT" status --porcelain; }
+[[ -z "$(dirty)" ]] || { echo "Retiring requires a clean worktree; these paths are not clean:" >&2; dirty >&2; exit 1; }
 git -C "$ROOT" fetch origin main
 HEAD_COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
 [[ "$HEAD_COMMIT" == "$(git -C "$ROOT" rev-parse origin/main)" ]] || { echo "HEAD must equal origin/main before retiring" >&2; exit 1; }
