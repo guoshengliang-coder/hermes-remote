@@ -133,11 +133,13 @@ The local core now contains the later-slice safety path while the packaged UI re
 - private staging and immutable version directories with atomic `current` activation/rollback;
 - separate exact-label managed Hermes and Connector user LaunchAgents; Hermes starts first, proves a
   fresh bounded ready marker plus loopback health, and Connector cannot start after a Hermes timeout;
-- account Connector credentials written separately at mode `0600`, with no legacy Token or Hermes
-  password in the LaunchAgent;
+- account Connector credentials and the installation-local Hermes session token written separately
+  at mode `0600`; LaunchAgents carry only their paths, never a legacy Token, Hermes password, or the
+  local session-token value;
 - account-mode Connector v2 challenge proof and local Hermes preflight;
 - crash-safe binding create/confirm idempotency, durable migration state, exact-label user launchd
-  control, one-Connector enforcement, automatic pre-commit rollback, and restart recovery;
+  control with bounded bootstrap/bootout convergence, one-Connector enforcement, automatic
+  pre-commit rollback, and restart recovery;
 - fail-closed manual-attention behavior when remote commit status cannot be proven.
 
 This is not a release enablement. No real signing key/artifact URL is embedded, no LaunchAgent is
@@ -148,7 +150,8 @@ The next local E4-C gate now has a strict dual-sided readiness contract. The pac
 the complete signed-release configuration and `hermes-serve-v1`; Gateway must independently advertise
 the same contract behind its rollout flag, which remains
 `ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED=0`. The official loopback
-`hermes serve` arguments, `HERMES_HOME` boundary, readiness line, and port-conflict line are frozen in
+`hermes serve` arguments, `HERMES_HOME` boundary, Desktop-owned loopback session-token handshake,
+readiness line, and port-conflict line are frozen in
 the core, but the packaged UI still performs no install or process mutation.
 
 ## E4-D default-off packaged orchestration — local only
@@ -164,7 +167,22 @@ migration. A foreign/stale preparation or wrong confirmation cannot invoke migra
 Any responder already reachable on reserved port 9119 blocks clean install, including an authenticated
 Hermes response. After success, the UI recognizes only an `account_active` journal plus both exact
 managed LaunchAgents as active. Intermediate journals enter restart recovery before another install;
-unknown/mismatched state fails closed. Temporary cleanup failure retains a cleanup-only retry and uses
+the packaged app declares only `NSAllowsLocalNetworking` so macOS 14+ permits the signed candidate's
+`http://127.0.0.1:9119/api/status` readiness probe without allowing arbitrary public HTTP traffic.
+That candidate-only probe also disables inherited HTTP/PAC proxies: its process-specific readiness proof
+must terminate on this Mac even when the user's public Relay traffic intentionally uses a system proxy.
+Both the local Hermes readiness gate and the following Connector binding gate allow up to 75 one-second
+polls; the local gate still requires a new exact process marker and a healthy loopback response together.
+unknown/mismatched state fails closed. After rollback reaches `legacy_active` or `clean_uninstalled`, a
+new explicit confirmation starts a fresh run and atomically replaces that terminal journal; no other
+journal state can be replaced by a different run ID. If the failed run's temporary cloud binding expires
+before retry, the coordinator passes only the terminal journal's exact generation to the account client;
+that generation may create a fresh pending binding, while unrelated revoked state still fails closed with
+`HR-BIND-006`. If Cloud instead already reports the terminal journal's exact binding ID and generation
+as active, the retry may restore that same binding only when its public-key fingerprint matches this
+Mac's retained machine key. This recovery waits for the original binding to become healthy and performs
+neither first-binding confirmation nor replacement; every mismatch remains blocked. Temporary cleanup
+failure retains a cleanup-only retry and uses
 `HR-MIGRATE-005`. The production/default plist and Gateway flag remain off, so this source connection
 does not authorize a real download, installation, process change, or rollout.
 
@@ -172,6 +190,46 @@ Observation and interrupted-run recovery are deliberately independent of the new
 configuration. Turning off downloads after a machine is installed therefore does not orphan its
 managed services. Active state must also match the current account's exact binding ID and generation;
 signing into another account cannot claim or overwrite the first account's managed Mac.
+
+Committed installations that predate the private session-token file contract are also reconciled by
+that always-available recovery runtime. An exact `account_active` journal, both loaded managed labels,
+the signed-in journal binding ID/generation, owner-only exact managed plist paths, and one shared valid
+token are required before mutation. The active managed release must also be 0.3.1 or newer: 0.3.1 is
+the first immutable package whose Hermes wrapper and Connector both consume the file contract, while
+0.3.0's Connector accepts only the inline environment value. Older releases return without acquiring
+the migration lease, refreshing the account, rewriting a file, or restarting a service. Desktop
+preserves the token value, atomically moves it out of both
+LaunchAgent environments into the `0600` managed secret file, restarts Hermes before Connector, and
+records an owner-only completion marker only after local readiness and bound account health pass. A
+missing marker makes a same-token half migration resumable after power loss. Failure restores the
+original plist/token bytes and proves the restored services healthy; a mismatch fails closed.
+
+Overview health now reduces the effective background mode rather than treating the stopped legacy
+label as the only Agent. An `account_active` journal with both exact managed LaunchAgents therefore
+reports the managed Connector as running. If Migration Assistant transfers those managed files and
+services while the this-device-only account Keychain record is absent, Desktop reports a degraded
+running-but-unverified state and asks the user to sign in; it does not rebind, replace, or start a
+second Connector automatically. A signed-in binding mismatch still fails closed.
+
+## E4-E offline signed-release publisher — local only
+
+The repository now has a default-inert publisher and an independent verifier for the E4 envelope and
+its exact Hermes Server/Connector archives. The publisher requires an external owner-only Ed25519
+private-key file, safe regular source archives, canonical release identity/lifetime/origin fields,
+and absent output targets. It copies the two archives, computes their size and SHA-256 values, signs
+the exact payload bytes, derives the pin-safe raw public key, and then verifies its own output through
+the public-key-only path. Partial failure removes only files created by the current run. Packaging,
+signature, archive, and integrity failures use the registered `HR-RELEASE-004` diagnostic without
+printing private-key contents or paths.
+
+The preceding component builder is also source-pinned and default-inert. It creates a relocatable
+Hermes Server using an allowlisted upstream source tree plus bundled Python runtime/site-packages, and
+a Connector using production-only compiled JavaScript plus bundled Node and its runtime dependencies.
+Neither launcher relies on launchd `PATH`, and neither component archive carries `HERMES_HOME`, `.env`,
+account sessions, Connector credentials, or Git metadata.
+
+This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
+packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 
 The local E5 UI contract is also default-off. When advertised by a development Gateway, Account &
 Devices separates owned and shared Macs and exposes whole-device invite/accept/cancel/revoke/leave
@@ -249,6 +307,12 @@ transition with validation and automatic rollback; see `DESKTOP_TEST_PLAN.md`.
 Physical two-phone use, managed-Agent takeover, and rollback remain pending. Phase 0 still makes no
 Hermes, Gateway, Android, token, or Connector configuration changes.
 
+The next E4 acceptance build may offer the same two-stage signed migration to a recognized, running
+legacy Connector only when that Connector's configured Hermes status URL is healthy and the complete
+Desktop/Gateway managed-install contract matches. Preparation remains inert; the second confirmation
+is still required before any service switch. A stopped Connector, an unhealthy configured Hermes,
+or a missing/mismatched signed-release gate remains read-only and preserves the legacy service.
+
 ### Phase 0.5 local verification
 
 - All 21 Desktop core tests passed, including payload compatibility, native QR round-trip decoding,
@@ -274,3 +338,98 @@ Hermes, Gateway, Android, token, or Connector configuration changes.
 
 Final local artifact: `desktop/build/Hermes-Go-Desktop-0.2.0-dev.dmg`, SHA-256
 `1ca9d6f5b4f10f49080d6fe1312a05b1ab03ef06ca6c9232d2799e61ba668aa8`.
+
+### Internal corrective release — 2026-09-10
+
+- Desktop 0.2.1 (bundle build 4) was built from clean merged commit
+  `95acaa3e2b8fecbe9f55ba91fe7378d77b7f2340` with the internal 0.3.1 manifest URL and existing pinned
+  internal Ed25519 public key.
+- The DMG passed `hdiutil verify`; the mounted and installed app both passed strict ad-hoc codesign
+  verification. Its SHA-256 is `c191c10200dd1ebf98c80fcb652e83a47e02d0df7cbef3c768163d9b6c59a4d9`.
+- The app replaced 0.2.0 at `/Applications/Hermes Go Desktop.app` and launched successfully. The
+  managed Hermes and Connector processes retained their original PIDs, authenticated local Hermes
+  status remained healthy, and Connector kept an established Gateway connection.
+- Signed managed release 0.3.1 was published at `https://mrlgs.net/desktop/releases/0.3.1/` and verified
+  by full public re-download. Release 0.3.0 remains online and unchanged for rollback.
+- This is an internal ad-hoc build. Developer ID signing, Apple notarization, stapling, and clean-Mac
+  acceptance are still required before public distribution.
+
+### Account-mode legacy-probe retirement
+
+Desktop 0.2.3 removes the legacy App-Token end-to-end row from Overview and
+Diagnostics whenever a Hermes GO account is signed in. Aggregate status uses the same filtered
+snapshot, so a missing or stale legacy Token cannot degrade a healthy account-mode presentation. The
+underlying legacy profile and its explicit save-time probe remain available in the collapsed legacy
+editor for rollback during the staged retirement period; no protocol or stored credential is deleted
+by this UI-only step.
+
+### Effective-Agent correction release — 2026-09-10
+
+- Desktop 0.2.2 (bundle build 5) was built from clean merged commit
+  `f4c3ec612b4afb348ff6663a85cb056409fe2fd3` with the same pinned internal 0.3.1 release configuration.
+- The 2,041,257-byte DMG passed `hdiutil verify` and strict ad-hoc codesign verification; its SHA-256
+  is `f3568a3aa1a481640386a5737b7c66129af0b74e314c9f68f98d51658410e1d2`.
+- It replaced Desktop 0.2.1 on the target Mac mini without restarting the managed Hermes or Connector
+  processes. Both retained their pre-install PIDs, the legacy label stayed unloaded, and the journal
+  stayed `account_active`.
+- Physical UI inspection confirmed the Overview now reports the effective managed Agent as healthy
+  instead of treating the intentionally stopped legacy Connector as a failure. Temporary rollback,
+  transfer, and clean-build copies were removed after verification.
+- Developer ID signing, notarization, stapling, and clean-Mac launch acceptance remain pending.
+
+### Migration Assistant physical transfer — 2026-09-10
+
+- Migration Assistant moved the active 0.3.0 managed installation to a new Mac mini. The journal and
+  binding remained `account_active` at generation 7, but launchd restored both the legacy and managed
+  Connector labels. The transferred pre-session-token installation also needed its local Hermes
+  credential rotated to a new private value shared only by the two managed services.
+- The old Connector was stopped and persistently disabled, the managed Hermes/Connector pair was
+  restarted with one shared private credential, and authenticated loopback plus the Connector's TLS
+  connection to the Gateway passed. Desktop 0.2.3 then launched and the duplicate label remained
+  unloaded. No Cloud binding or Hermes data was replaced.
+- The deterministic correction now disables the legacy label during the original managed takeover,
+  re-enables it during pre-commit rollback, and on later Desktop startup suppresses a transferred
+  duplicate only when an exact `account_active` journal and both managed services are present. It is
+  inert for intermediate, mismatched, or incomplete installations.
+- Desktop 0.2.4/build 7 packaged this correction. Installation and a full Mac reboot preserved the
+  `account_active` generation-7 journal, automatically restored only managed Hermes and Connector,
+  kept the legacy label persistently disabled/unloaded, returned authenticated local Hermes HTTP 200,
+  and re-established Connector TLS. The account-capable Android client then refreshed status and
+  opened `/api/ws`; Connector telemetry recorded 1,572 frames to the phone and 28 frames from it with
+  no tunnel error. This closes the physical Migration Assistant gate.
+
+### Account-mode presentation release — 2026-09-10
+
+- Desktop 0.2.3 (bundle build 6) was built from clean merged commit
+  `8972317b375d3dfde4d09fd2e49069576fa4da7d` with the pinned internal 0.3.1 release configuration.
+- The complete 172-test Desktop suite passed. The 2,041,359-byte DMG passed `hdiutil verify` and
+  strict ad-hoc codesign verification; its SHA-256 is
+  `fc17da801db26141a2e3a9b8c7178a9ea82454389bb84e79a7e4146290978ce5`.
+- It replaced Desktop 0.2.2 on the target Mac mini. After the newly signed app received one-time
+  Keychain access approval, live UI inspection confirmed account loading completed and the legacy
+  App-Token/end-to-end presentation was absent in account mode.
+- Authenticated local Hermes health returned HTTP 200 and Connector retained an established upstream
+  connection. A session token exposed during local diagnostics was rotated immediately and the old
+  value invalidated.
+- The later physical Migration Assistant run is recorded above. A packaged rerun of its deterministic
+  launch-state correction, Developer ID signing, notarization, stapling, and clean-Mac launch
+  acceptance remain pending.
+
+### Migration integrity release — 2026-09-11
+
+- Desktop 0.2.4 (bundle build 7) was built from clean merged commit
+  `48a6c2ed610efd83fdb8d55610245f4ac0b26345` with the pinned internal 0.3.1 release configuration.
+  The complete 178-test Desktop suite, asset comparison, configured release build, strict ad-hoc
+  codesign verification, and `hdiutil verify` passed.
+- The 2,045,620-byte DMG SHA-256 is
+  `8ba346e4409fa9a72b0999878cc230e23af08268a02b623418311443895a057a`. Target-side size, hash,
+  image, installed-app version, and codesign checks reproduced the local result.
+- Replacing Desktop 0.2.3 did not restart managed Hermes or Connector. A subsequent full Mac reboot
+  started only those two managed labels, left the legacy Connector disabled/unloaded, preserved the
+  exact account journal/binding generation, returned authenticated Hermes HTTP 200/version 0.21.0,
+  and established Connector TLS. Opening Desktop 0.2.4 after login preserved that state.
+- The attached HONOR test phone carried Android 0.1.89 and was not used for account-mode acceptance.
+  The operator used a separate account-capable Android client to refresh REST status and open a real
+  WebSocket session. Connector telemetry recorded one new `/api/ws` tunnel carrying 1,572 frames to
+  the phone and 28 frames from it without a tunnel error, closing the post-reboot phone check.
+- Developer ID signing, notarization, stapling, and clean-Mac acceptance remain pending.

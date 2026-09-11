@@ -34,6 +34,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.After
 import org.junit.Before
@@ -62,6 +63,10 @@ class ChatViewModelTest {
     private val tts = mockk<com.hermes.client.data.tts.TextToSpeechController>(relaxed = true)
     private val promptStore = mockk<com.hermes.client.data.repository.PromptStore>(relaxed = true)
     private val configRepo = mockk<com.hermes.client.data.repository.ConfigRepository>(relaxed = true)
+    private val acknowledgedChannels = MutableStateFlow<Set<String>>(emptySet())
+    private val botSendNotice = mockk<com.hermes.client.data.repository.BotSendNoticeStore>(relaxed = true).also {
+        every { it.acknowledged } returns acknowledgedChannels
+    }
     private val credentialStore = mockk<com.hermes.client.data.auth.CredentialStore> {
         every { load() } returns mockk()
     }
@@ -91,6 +96,9 @@ class ChatViewModelTest {
         coEvery { chatRepo.resume(any(), any()) } returns null
         every { profileManager.active } returns MutableStateFlow<String?>(null)
         coEvery { sessionRepo.history(any(), any()) } returns emptyList()
+        // Relaxed mockk hands back a stub Session for a nullable reference return, and a stub with
+        // a blank title would overwrite the title the caller passed in. Say "no row" explicitly.
+        coEvery { sessionRepo.sessionMeta(any(), any(), any()) } returns null
         coEvery { mediaRepo.hydrateMessages(any(), any()) } answers { firstArg() }
         coEvery { fileRepo.upload(any(), any(), any()) } returns
             com.hermes.client.data.network.UploadedArtifact("/tmp/uploaded", "attachment", 3)
@@ -130,7 +138,10 @@ class ChatViewModelTest {
             chatRepo, sessionRepo, store, reasoningPresetStore, profileRepo, profileManager,
             favoritesStore, pendingShareStore, tts, promptStore, configRepo, runtimeStore,
             mediaRepo, fileRepo, mainDispatcherRule.dispatcher, projectPrefs,
-            toolsRepo, accountSessions, conversationDevices,
+            com.hermes.client.data.repository.ProjectCatalog(
+                mockk(relaxed = true), sessionRepo, profileManager, projectPrefs,
+            ),
+            toolsRepo, botSendNotice, accountSessions, conversationDevices,
         )
     }
 
@@ -160,7 +171,7 @@ class ChatViewModelTest {
         verify(exactly = 1) { manager.routeToDevice("mac-history") }
         verify(exactly = 1) { chatRepo.reconnect() }
         coVerify { sessionRepo.history("session-1", null, "mac-history") }
-        coVerify { sessionRepo.list(null, "mac-history") }
+        coVerify { sessionRepo.sessionMeta("session-1", null, "mac-history") }
     }
 
     @Test fun revoked_conversation_device_surfaces_the_registered_binding_error() = runTest {
@@ -260,6 +271,98 @@ class ChatViewModelTest {
         vm.open("s1")
         advanceUntilIdle()
         coVerify { chatRepo.resume("s1", "personal") }
+    }
+
+    private fun botSession(id: String, source: String = "dingtalk") = com.hermes.client.domain.Session(
+        id = id, title = "钉钉会话", model = null, provider = null, messageCount = 4,
+        profile = null, archived = false, source = source, lastActive = 0L, chatType = "dm",
+    )
+
+    /**
+     * Opening a channel conversation must NOT resume it. Resume materialises an agent runtime in
+     * the dashboard process and binds a live handle, which starts process polling — for a
+     * conversation another process owns. Reading a log should cost nothing on the Mac.
+     */
+    @Test fun opening_a_bot_conversation_does_not_resume_it() = runTest {
+        every { sessionRepo.cachedSession("bot-1", any(), any()) } returns botSession("bot-1")
+        val vm = buildVm()
+        vm.open("bot-1")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { chatRepo.resume(any(), any()) }
+        assertEquals("dingtalk", vm.botOrigin.value?.source)
+    }
+
+    @Test fun opening_an_ordinary_conversation_still_resumes_it() = runTest {
+        every { sessionRepo.cachedSession(any(), any(), any()) } returns null
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { chatRepo.resume("s1", null) }
+        assertNull(vm.botOrigin.value)
+    }
+
+    /**
+     * Sending is what pays for the runtime. The exact call count is not pinned: the send path has
+     * its own retry ladder for a gate that fails or times out, and asserting a number here would
+     * pin that ladder rather than this behaviour. What matters is that browsing cost nothing and
+     * sending resumes.
+     */
+    @Test fun sending_into_a_bot_conversation_resumes_it() = runTest {
+        every { sessionRepo.cachedSession("bot-1", any(), any()) } returns botSession("bot-1")
+        val vm = buildVm()
+        vm.open("bot-1")
+        advanceUntilIdle()
+        coVerify(exactly = 0) { chatRepo.resume(any(), any()) }
+
+        vm.send("在吗")
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { chatRepo.resume("bot-1", any()) }
+    }
+
+    /**
+     * The chip used to name the profile's default model as though it had answered on DingTalk.
+     * A channel conversation with no model of its own must stay unknown.
+     */
+    @Test fun a_bot_conversation_never_adopts_the_profile_default_model() = runTest {
+        every { sessionRepo.cachedSession("bot-1", any(), any()) } returns botSession("bot-1")
+        coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "anthropic/claude-sonnet-4") }
+        val vm = buildVm()
+        vm.open("bot-1")
+        advanceUntilIdle()
+
+        assertNull(vm.currentModel.value)
+        assertEquals("anthropic/claude-sonnet-4", vm.defaultModel.value)
+    }
+
+    @Test fun an_ordinary_conversation_still_falls_back_to_the_profile_default_model() = runTest {
+        every { sessionRepo.cachedSession(any(), any(), any()) } returns null
+        coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "anthropic/claude-sonnet-4") }
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        assertEquals("anthropic/claude-sonnet-4", vm.currentModel.value)
+    }
+
+    /** Said once per channel, not once per device: a DingTalk acknowledgement says nothing about Slack. */
+    @Test fun the_send_notice_is_needed_per_channel_and_not_at_all_for_a_local_chat() = runTest {
+        every { sessionRepo.cachedSession("bot-1", any(), any()) } returns botSession("bot-1")
+        val vm = buildVm()
+        vm.open("bot-1")
+        advanceUntilIdle()
+        assertTrue(vm.botNoticeNeeded.value)
+
+        acknowledgedChannels.value = setOf("dingtalk")
+        advanceUntilIdle()
+        assertFalse(vm.botNoticeNeeded.value)
+
+        every { sessionRepo.cachedSession("bot-2", any(), any()) } returns botSession("bot-2", "slack")
+        vm.open("bot-2")
+        advanceUntilIdle()
+        assertTrue(vm.botNoticeNeeded.value)
     }
 
     @Test fun open_prefers_navigation_profile_and_title_for_existing_session() = runTest {
@@ -626,6 +729,136 @@ class ChatViewModelTest {
         coVerify(exactly = 1) { chatRepo.resume("s1", null) }
     }
 
+    // HG-29. A conversation upstream reaped answers 4001 to prompt.submit and then 4007 to the
+    // resume the client retries with. The old behaviour flattened both into a retryable
+    // HR-SESS-007 "点按重试" that could never succeed. A conversation opened as new, with nothing
+    // persisted, must instead be replaced silently and the typed message delivered to the
+    // replacement — the user loses neither the message nor anything else, because there was
+    // nothing else.
+    //
+    // Timing note (house pattern, see stale_submit_resumes_and_retries_once_with_new_handle): a
+    // just-submitted turn leaves the runtime in SUBMITTING, and the store's process poller loops
+    // on a 5s delay while a runtime has active work. advanceUntilIdle() would advance virtual time
+    // into that loop forever, so drive the send with runCurrent() and only advance once
+    // message.complete has taken the run out of the active phases.
+    @Test fun reaped_empty_session_is_recreated_and_the_message_is_delivered() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "live-1" andThenThrows
+            com.hermes.client.data.network.GatewayRpcException(4007, "session not found")
+        coEvery { chatRepo.submit("live-1", "hello") } throws
+            com.hermes.client.data.network.GatewayRpcException(4001, "session not found")
+        coEvery { chatRepo.createSession(any(), any()) } returns
+            com.hermes.client.data.repository.CreatedSession("s2", null)
+        coEvery { chatRepo.resume("s2", null) } returns "live-2"
+        coEvery { chatRepo.submit("live-2", "hello") } returns Unit
+
+        val vm = buildVm()
+        vm.open("s1", isNewSession = true)
+        advanceUntilIdle()
+
+        vm.send("hello")
+        runCurrent()
+
+        coVerify(exactly = 1) { chatRepo.createSession(any(), any()) }
+        coVerify(exactly = 1) { chatRepo.submit("live-2", "hello") }
+        assertEquals("the screen must re-navigate to the live id", "s2", vm.recreatedSessionId.value)
+        assertEquals(
+            "a delivered message must not be left looking failed",
+            com.hermes.client.domain.DeliveryState.SENT,
+            vm.state.value.messages.last { it.role == Role.USER }.delivery,
+        )
+
+        events.emit(event("message.complete", "live-2", "done"))
+        advanceUntilIdle()
+    }
+
+    // The other half of the same rule: a conversation that may hold history is NEVER silently
+    // replaced — that would cut the transcript loose from everything said before. It is terminal,
+    // and terminal means HR-SESS-001 with no retry offered, not HR-SESS-007 with one that lies.
+    @Test fun reaped_session_with_history_is_terminal_and_never_recreated() = runTest {
+        coEvery { sessionRepo.history(any(), any()) } returns listOf(
+            ChatMessage(id = "h1", role = Role.USER, text = "earlier"),
+            ChatMessage(id = "h2", role = Role.ASSISTANT, text = "earlier reply"),
+        )
+        coEvery { chatRepo.resume("s1", null) } returns "live-1" andThenThrows
+            com.hermes.client.data.network.GatewayRpcException(4007, "session not found")
+        coEvery { chatRepo.submit("live-1", "hello") } throws
+            com.hermes.client.data.network.GatewayRpcException(4001, "session not found")
+
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        vm.send("hello")
+        runCurrent()
+
+        coVerify(exactly = 0) { chatRepo.createSession(any(), any()) }
+        assertNull("a session with history must not be replaced", vm.recreatedSessionId.value)
+        assertEquals(
+            "the bubble must say the conversation is gone, not offer a retry",
+            com.hermes.client.domain.DeliveryState.UNDELIVERABLE,
+            vm.state.value.messages.last { it.role == Role.USER }.delivery,
+        )
+        advanceUntilIdle()
+    }
+
+    // Tapping the bubble of a terminal failure must do nothing. The UI already withholds the tap;
+    // this is the ViewModel refusing to re-dispatch even if something else asks it to.
+    @Test fun retrySend_ignores_an_undeliverable_bubble() = runTest {
+        coEvery { sessionRepo.history(any(), any()) } returns listOf(
+            ChatMessage(id = "h1", role = Role.USER, text = "earlier"),
+        )
+        coEvery { chatRepo.resume("s1", null) } returns "live-1" andThenThrows
+            com.hermes.client.data.network.GatewayRpcException(4007, "session not found")
+        coEvery { chatRepo.submit("live-1", "hello") } throws
+            com.hermes.client.data.network.GatewayRpcException(4001, "session not found")
+
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        vm.send("hello")
+        runCurrent()
+
+        val bubble = vm.state.value.messages.last { it.role == Role.USER }
+        vm.retrySend(bubble.id)
+        runCurrent()
+
+        coVerify(exactly = 1) { chatRepo.submit("live-1", "hello") }
+        assertEquals(
+            "the bubble stays exactly as it was",
+            com.hermes.client.domain.DeliveryState.UNDELIVERABLE,
+            vm.state.value.messages.last { it.role == Role.USER }.delivery,
+        )
+        advanceUntilIdle()
+    }
+
+    // Upstream broadcasts session.reclaimed precisely so the next prompt is not sent into a session
+    // that no longer exists. Acting on it saves a doomed round trip AND, more importantly, is the
+    // only warning that arrives before the user has typed anything.
+    @Test fun session_reclaimed_event_recovers_without_a_doomed_submit() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "live-1"
+        coEvery { chatRepo.createSession(any(), any()) } returns
+            com.hermes.client.data.repository.CreatedSession("s2", null)
+        coEvery { chatRepo.resume("s2", null) } returns "live-2"
+        coEvery { chatRepo.submit("live-2", "hello") } returns Unit
+
+        val vm = buildVm()
+        vm.open("s1", isNewSession = true)
+        advanceUntilIdle()
+
+        events.emit(event("session.reclaimed", "s1"))
+        runCurrent()
+
+        vm.send("hello")
+        runCurrent()
+
+        coVerify(exactly = 0) { chatRepo.submit("live-1", any()) }
+        coVerify(exactly = 1) { chatRepo.createSession(any(), any()) }
+        coVerify(exactly = 1) { chatRepo.submit("live-2", "hello") }
+
+        events.emit(event("message.complete", "live-2", "done"))
+        advanceUntilIdle()
+    }
+
     // Selecting in the chat sheet ALWAYS switches THIS session's model (the `/model … --session`
     // slash) — the sheet no longer carries a scope choice; the profile default is edited on the
     // settings Models screen only.
@@ -645,11 +878,11 @@ class ChatViewModelTest {
         assertTrue("onDone must be invoked so the caller dismisses the sheet", onDoneCalled)
     }
 
-    // A worker failure ("slash worker closed pipe") throws — it must surface in the sheet's error
-    // (not the chat transcript), and the sheet must stay open (onDone not invoked) so the user can
-    // retry or pick a different model.
+    // A refused switch surfaces in the sheet's error (not the chat transcript), and the sheet stays
+    // open (onDone not invoked) so the user can retry or pick a different model.
     @Test fun onSelectFromSheet_failure_surfaces_sheet_error() = runTest {
-        coEvery { chatRepo.slashExec("s1", any()) } throws RuntimeException("slash worker closed pipe")
+        coEvery { chatRepo.slashExec("s1", any()) } throws
+            com.hermes.client.data.network.GatewayRpcException(5000, "could not resolve credentials")
         val vm = buildVm()
         vm.open("s1"); advanceUntilIdle()
 
@@ -657,7 +890,57 @@ class ChatViewModelTest {
         vm.onSelectFromSheet("anthropic", "opus") { onDoneCalled = true }
         advanceUntilIdle()
 
-        assertTrue("a failed switch must surface a sheet error", vm.modelSheet.value.error != null)
+        val error = vm.modelSheet.value.error
+        assertEquals("HR-RPC-004", error?.code?.value)
+        assertTrue("a refused switch is worth retrying", error?.retryable == true)
+        assertFalse("the sheet must stay open on failure", onDoneCalled)
+    }
+
+    // HG-28. `slash.exec` 5030 means the Mac's Hermes could not start its slash worker at all — the
+    // managed 0.3.0 bundle shipped sources that its own child processes could not import, so every
+    // slash command was dead. Collapsing that into HR-RPC-004 told the user "请重试" for something
+    // no number of retries could fix; it needs its own non-retryable code.
+    @Test fun onSelectFromSheet_maps_a_dead_slash_worker_to_its_own_terminal_code() = runTest {
+        coEvery { chatRepo.slashExec("s1", any()) } throws
+            com.hermes.client.data.network.GatewayRpcException(
+                5030,
+                "slash worker closed pipe: ... (ModuleNotFoundError: No module named 'tui_gateway')",
+            )
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+
+        var onDoneCalled = false
+        vm.onSelectFromSheet("anthropic", "opus") { onDoneCalled = true }
+        advanceUntilIdle()
+
+        val error = vm.modelSheet.value.error
+        assertEquals("HR-RPC-007", error?.code?.value)
+        assertFalse("retrying a worker that cannot start is a lie", error?.retryable == true)
+        assertFalse("the sheet must stay open on failure", onDoneCalled)
+        assertTrue(
+            "the cause must survive for diagnostics",
+            error?.technicalCause?.contains("tui_gateway") == true,
+        )
+    }
+
+    // "恢复默认" runs the same slash, so it must classify failures the same way.
+    @Test fun restoreDefaultModel_maps_a_dead_slash_worker_to_its_own_terminal_code() = runTest {
+        coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "def-model") }
+        coEvery { modelRepo.providers(any()) } returns listOf(
+            com.hermes.client.data.network.ModelProviderDto(
+                slug = "prov", isCurrent = true, models = listOf("def-model"),
+            ),
+        )
+        coEvery { chatRepo.slashExec("s1", any()) } throws
+            com.hermes.client.data.network.GatewayRpcException(5030, "slash worker closed pipe")
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+
+        var onDoneCalled = false
+        vm.restoreDefaultModel { onDoneCalled = true }
+        advanceUntilIdle()
+
+        assertEquals("HR-RPC-007", vm.modelSheet.value.error?.code?.value)
         assertFalse("the sheet must stay open on failure", onDoneCalled)
     }
 

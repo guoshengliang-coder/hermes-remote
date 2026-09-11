@@ -94,8 +94,25 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      # The release build does not reuse CI's task outputs, and cannot. This job injects
+      # MISSIONGO_ENDPOINT and MISSIONGO_SDK_TOKEN into BuildConfig (app/build.gradle.kts), and
+      # ordinary CI deliberately carries neither. A different BuildConfig is a different input to
+      # every compilation downstream of it, so the build cache has nothing to offer: the 0.1.116
+      # release logged "55 actionable tasks: 55 executed". Its Gradle User Home entry is its own as
+      # well — setup-gradle prefers an entry saved by an earlier run of this same job on main (a
+      # workflow_dispatch) over the environment-wide fallback that would reach ci.yml's entries.
+      # verifyDebugSigningKey declares no outputs, so it is never cacheable and always executes, and
+      # package-debug-apk.sh independently re-reads the built APK's signer, package, and version
+      # with aapt/apksigner.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+        with:
+          # Without a key, setup-gradle stores the configuration-cache entry and throws it away:
+          # "Configuration-cache data will not be saved/restored without an encryption key being
+          # provided." In this job it rarely pays off: every release edits app/build.gradle.kts,
+          # which invalidates the entry, and the MISSIONGO_* values read at configuration time
+          # differ from CI's. It stays so all three setup-gradle steps are identical and tested alike.
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
       - name: Build signed APK and erase signing key
         shell: bash

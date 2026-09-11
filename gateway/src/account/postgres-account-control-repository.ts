@@ -393,12 +393,15 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
     if ((active.rowCount ?? 0) > 0) {
       if (principal.installation.kind === "desktop"
           && active.rows[0].desktop_installation_id !== principal.installation.id) {
+        // Treat an expired pending candidate as revoked in the read model immediately. Persisted
+        // cleanup may run later, but a safely rolled-back Desktop must see its newest generation.
         const replaced = await this.pool.query<{ generation: number }>(
           `SELECT generation
              FROM connector_bindings
             WHERE account_id = $1
               AND desktop_installation_id = $2
-              AND status IN ('replaced', 'revoked')
+              AND (status IN ('replaced', 'revoked')
+                OR (status = 'pending' AND pending_expires_at <= now()))
             ORDER BY generation DESC
             LIMIT 1`,
           [principal.account.id, principal.installation.id],
@@ -421,12 +424,14 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
       [principal.account.id, principal.installation.id],
     );
     if ((pending.rowCount ?? 0) > 0) return bindingCandidate(pending.rows[0]);
+    // See the active-binding branch above: expiry visibility cannot wait for another mutation.
     const revoked = await this.pool.query<{ generation: number }>(
       `SELECT generation
          FROM connector_bindings
         WHERE account_id = $1
           AND desktop_installation_id = $2
-          AND status IN ('replaced', 'revoked')
+          AND (status IN ('replaced', 'revoked')
+            OR (status = 'pending' AND pending_expires_at <= now()))
         ORDER BY generation DESC
         LIMIT 1`,
       [principal.account.id, principal.installation.id],

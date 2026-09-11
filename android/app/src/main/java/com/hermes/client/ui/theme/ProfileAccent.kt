@@ -48,7 +48,7 @@ fun avatarColorArgb(profile: String?): Int {
 
 /**
  * Lightness the OUTLINE avatar style lifts its hue to on a dark surface. The solid fill's 0.32
- * is invisible against `#121921`; 0.70 keeps every hue (s = 0.62) at ≥ 5.3:1 there, so the ring
+ * is invisible against `#0F1217`; 0.70 keeps every hue (s = 0.62) at ≥ 5.3:1 there, so the ring
  * and the coloured initial clear AA for normal text — pinned by ProfileAccentTest.
  */
 private const val OUTLINE_DARK_LIGHTNESS = 0.70f

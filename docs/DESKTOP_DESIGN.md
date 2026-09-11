@@ -44,6 +44,14 @@ keeping browser cookies and profile data outside Hermes Go Desktop.
 
 Implemented account states are capability checking/unavailable, signed out, email-code verification,
 signed in with no binding, bound healthy/offline, pending/replacement/revoked, and session-needs-login.
+The revoked card explains that a locally proven, safely rolled-back migration may be retried without a
+new login; all other revoked bindings still require identity verification and replacement.
+The same recovery rule applies when Cloud already committed the exact binding before the local machine
+returned to a terminal rollback state: Desktop may resume only when the terminal journal's binding ID
+and generation match the active Cloud binding and the active fingerprint matches this Mac's retained
+machine key. This is recovery of the same binding, not replacement, so it does not request a second
+replacement confirmation. Any ID, generation, fingerprint, or journal-state mismatch remains blocked
+with the existing binding-conflict path.
 The normal signed-in view shows the account, current Desktop, one binding, and independently removable
 phones. Account errors appear with stable `HR-*` codes and copyable redacted diagnostics.
 The signed-in dashboard follows the capability snapshot field by field: the account summary remains available after
@@ -108,6 +116,10 @@ drifts from the canonical source.
 ## Status and error language
 
 - Every layer keeps its own state: Desktop Agent, Gateway, local Hermes, optional observer, end to end.
+- The Desktop Agent layer represents the effective connector mode. An exact active managed install
+  supersedes the stopped legacy label instead of producing a false failure. If the managed services
+  survive a Migration Assistant transfer but this-device-only account credentials do not, the layer
+  stays visible as running-but-unverified and asks for sign-in; it never starts a duplicate Connector.
 - An optional observer failure may degrade the product but cannot mark a working main path offline.
 - “Cannot reach from this Mac” must not be rewritten as “Hermes is down.”
 - New user-visible errors must be registered in `ERROR_HANDLING.md` before implementation.
@@ -116,6 +128,12 @@ drifts from the canonical source.
   shown as history, but cannot by themselves mark a currently healthy connection offline.
 - End-to-end failures show a registered `HR-*` code and recovery action; raw HTTP bodies and tokens
   never become primary UI text.
+- While a Hermes GO account session is signed in, Overview, Diagnostics, and aggregate health omit
+  the legacy App-Token end-to-end probe. The probe remains scoped to the collapsed legacy editor and
+  must not make a healthy account-mode connection appear degraded or unconfigured.
+- A managed local Hermes WebSocket is authenticated with one private installation token shared by
+  file path between Hermes and Connector. The value is never rendered, copied into diagnostics, or
+  sent to Gateway; a missing or unsafe file leaves the path offline rather than weakening auth.
 
 ## Concept references
 

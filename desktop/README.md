@@ -1,5 +1,34 @@
 # Hermes Go Desktop
 
+Current internal test release: **0.2.6** (build 9). It skips the startup token-file migration for
+managed releases older than 0.3.1, preserving their inline session token and running services.
+Desktop 0.2.5/build 8 remains withdrawn after a physical target found that it moved the active
+managed 0.3.0 Connector to a token-file contract that release did not support. Its Gateway control
+connection remained online while Android WebSocket tunnels failed local authentication with
+`HR-CONN-002`. Desktop 0.2.6 has since passed installation and pre-reboot physical Android REST and
+WebSocket checks on that target. Reboot recovery remains deliberately deferred while the Mac is in
+use and is still required before full acceptance.
+
+Desktop 0.2.5 carried the managed-migration recovery and
+private loopback session-token handoff required by Hermes Server 0.21.0, and reports the effective
+managed Agent instead of treating the intentionally stopped legacy Connector as a failure. A managed
+installation whose this-device-only account session is absent remains visible as running but awaiting
+account verification. A committed account migration now persistently disables the legacy LaunchAgent,
+re-enables it on pre-commit rollback, and reasserts that single-Connector state after Migration
+Assistant restores both labels. While the account is signed in, legacy App-Token health is also
+removed from Overview, Diagnostics, and aggregate status. Public distribution still requires
+Developer ID signing, notarization, stapling, and clean-Mac acceptance.
+
+The withdrawn release also attempted to repair committed managed installations created before the private
+session-token file contract. On startup it preserves the existing high-entropy local token, removes
+that value from both owner-only LaunchAgent plists, writes it to the owner-only managed secrets file,
+then restarts Hermes before Connector and requires both local readiness and the exact bound account
+health before recording completion. A partial write or failed health proof restores the exact prior
+plists/token state and restarts that configuration; mismatched plist values or account bindings fail
+closed with the existing migration diagnostic. The corrective implementation first requires managed
+release 0.3.1 or newer, the immutable release boundary at which both packaged components support the
+file contract; an older committed release remains untouched.
+
 Hermes Go Desktop is the native macOS companion for the existing Hermes Remote Connector. The local
 I3-A alpha still runs in **compatibility observation mode**: it reads the current user-level launchd status,
 non-secret Connector settings, public Relay health, local Hermes reachability, and sanitized logs.
@@ -22,6 +51,8 @@ builds have neither enablement, so the action remains absent and read-only compa
 The migration core now owns separate exact-label Hermes Server and Connector LaunchAgents. It starts
 Hermes first and requires a new process-specific ready marker plus healthy loopback probe before the
 Connector may start; pre-commit rollback stops both managed services before restoring legacy state.
+Each launchd mutation waits for the exact label to converge, so a successful `bootout` whose removal
+finishes asynchronously cannot be mistaken for a failed migration or a completed rollback.
 
 When the Gateway separately advertises `accountDeletion`, Desktop exposes a danger-zone flow that
 requires typed `DELETE`, an explicit permanence acknowledgement, and a fresh email code. It revokes
@@ -48,15 +79,35 @@ pass, and the legacy connection remains available. Local evidence and remaining 
 - Existing legacy installs and any unknown service on loopback port 9119 remain read-only. A clean
   Mac can reach managed Bootstrap only in an explicitly configured build against a matching Gateway;
   the default packaged app cannot download or install anything.
+- The app declares macOS local-network ATS access so its `URLSession` health probes can reach the
+  pinned loopback Hermes endpoint on macOS 14 and later. Public HTTP remains disallowed; the exception
+  does not enable arbitrary network or WebView loads.
+- Managed-candidate Hermes health uses a dedicated ephemeral URL session with system HTTP/PAC proxies
+  disabled. The proof must reach `127.0.0.1:9119` on this Mac; public Relay traffic continues to use
+  the normal system networking configuration.
+- Candidate Hermes and Connector health each receive up to 75 one-second polls. This covers a measured
+  35-second cold start on the physical Mac mini without weakening the exact marker and HTTP proof.
 - Managed takeover requires exact user confirmation and never runs the legacy and account Connector
-  labels together.
+  labels together. The legacy label is persistently disabled before managed startup and re-enabled
+  before rollback restore. On Desktop startup, an exact `account_active` journal plus both loaded
+  managed services may suppress a transferred legacy label; no intermediate or mismatched state may
+  use that repair.
+- An exact committed installation without the session-token contract marker is reconciled once at
+  Desktop startup. Both managed LaunchAgents must be owner-only, point to the current managed
+  executables and exact log paths, and either agree on the same valid inline token or already agree on
+  the canonical private token file. The current account binding ID and generation must match before
+  any file or service mutation.
 - Download/verification occurs before the exact version confirmation and cannot mutate installation,
   credentials, LaunchAgents, processes, or bindings. Closing the confirmation removes the private
   workspace. A committed install that cannot clean temporary files exposes only a cleanup retry and
   never offers a second install.
 - On a later Desktop launch, an `account_active` journal plus both exact managed LaunchAgents is shown
   as the active installation. An intermediate journal is recovered before any new install is allowed;
-  mismatched journal/service state fails closed with a registered migration issue.
+  mismatched journal/service state fails closed with a registered migration issue. A completed rollback
+  to `legacy_active` or `clean_uninstalled` admits a newly confirmed migration run and atomically replaces
+  the terminal journal; when that run's pending cloud binding has since expired, only its recorded
+  generation may be recreated. Active, intermediate, unrelated revoked, and manual-attention states
+  remain non-replaceable.
 - Existing-install observation/recovery does not depend on the new-install flag. The active journal's
   binding ID/generation must match the signed-in account, so account B cannot claim or replace account
   A's already managed service on the same Mac.
@@ -95,6 +146,10 @@ npm run desktop:app
 
 The app opens Google's account chooser in the system browser with PKCE S256, state, nonce, and a
 temporary `127.0.0.1` callback. It never reads Chrome/Safari profiles or stores a Google access token.
+
+When an account session is signed in, Overview, Diagnostics, and the menu-bar aggregate status omit
+the legacy App-Token end-to-end probe. That compatibility probe remains available only through the
+collapsed legacy configuration path and cannot degrade a healthy account-mode presentation.
 
 `desktop:app` and `desktop:dmg` use ad-hoc signing when `SIGNING_IDENTITY` is unset. A public build
 requires a Developer ID Application identity and Apple notarization credentials; see

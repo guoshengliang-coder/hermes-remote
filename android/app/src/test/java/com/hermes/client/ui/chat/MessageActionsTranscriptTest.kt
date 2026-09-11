@@ -14,6 +14,29 @@ class MessageActionsTranscriptTest {
         assertEquals("", transcriptText(emptyList()))
     }
 
+    /**
+     * The regression pin that matters most: an ordinary conversation's transcript is unchanged,
+     * byte for byte, by the origin parameter existing at all.
+     */
+    @Test fun an_ordinary_transcript_is_unchanged_by_the_new_parameter() {
+        val turns = listOf(msg(Role.USER, "hi"), msg(Role.ASSISTANT, "hello"))
+        assertEquals(transcriptText(turns), transcriptText(turns, origin = null))
+    }
+
+    /**
+     * Exporting a channel conversation used to attribute the other person's messages to the
+     * reader — a transcript shared with a colleague said "You" over their own words.
+     */
+    @Test fun a_channel_transcript_names_the_peer_not_you() {
+        val t = transcriptText(
+            listOf(msg(Role.USER, "帮我看下"), msg(Role.ASSISTANT, "好的")),
+            com.hermes.client.ui.localization.AppLanguage.ZH,
+            com.hermes.client.ui.sessions.BotOrigin("dingtalk", null, "dm"),
+        )
+        assertTrue(t.startsWith("私聊 · 在钉钉:"))
+        assertTrue(!t.contains("你:"))
+    }
+
     @Test fun labels_user_and_assistant() {
         val t = transcriptText(listOf(msg(Role.USER, "hi"), msg(Role.ASSISTANT, "hello")))
         assertEquals("You:\nhi\n\nAssistant:\nhello", t)

@@ -396,14 +396,22 @@ successful disposable workflow does not authorize running this command on the HK
 
 When the active slot already serves the email-OTP gray rollout, routine-release smoke must validate the
 preserved Schema/PostgreSQL readiness contract (`database=ok`, `migrations=ok`, `postgresql=supported`) and the
-single `email_otp` provider. It must not reuse the account-disabled OCI expectations. Gateway 0.4.11 carries
+single `email_otp` provider. When Desktop binding is also active, the same smoke must additionally require the
+singular binding surface and the `hermes-serve-v1` Desktop bootstrap contract; it must reject multi-device or
+sharing capability drift. It must not reuse the account-disabled OCI expectations. Gateway 0.4.11 carries
 this correction after 0.4.10 was rejected before traffic switching by the stale disabled-runtime readiness
 assertion. If that failure left an audited `candidate_started` journal, use the same-commit operator and Gateway
 bundle for the next release, run `production-release.mjs --operation recover`, and then run the normal `deploy`.
 Recovery requires the original active slot and release links, byte-identical Nginx site/upstream checkpoint, an
 inactive candidate with its port free, the recorded failed audit, and exactly one archived committed journal for
 the live release. It archives the failed journal and restores that exact committed journal under the deployment
-lock; any ambiguity or drift remains fail-closed. Gateway 0.4.12 introduces this recovery operation.
+lock; any ambiguity or drift remains fail-closed. Gateway 0.4.12 introduces this recovery operation. Its first
+production retry also proved that a disabled binding route is intentionally different across the two smoke
+surfaces: the private Gateway returns `503` because its control dependency is disabled, while public Nginx hides
+the route with `404`. Gateway 0.4.13 verifies both exact values instead of applying the public expectation to the
+private candidate. The authorized 2026-09-09 production run `348f8a3f-fa25-4bc3-be45-ae210458be5f` committed
+0.4.13 to blue with 0.4.9 as `previous`; the site-file hash stayed unchanged, the container was healthy with zero
+restarts, the email-only public contract passed, and the production monitor remained green.
 
 The first two authorized production attempts did not complete adoption. The first stopped before candidate start
 on Docker 29/containerd image-ID representation. The second loaded the corrected image and started blue, then
@@ -456,6 +464,14 @@ rewrite plus `nginx -t`/reload, public smoke, observation window, public smoke a
 links, `committed`. **The Nginx site file is never rewritten by a release** — only the upstream include moves —
 and a failure after the live slot stopped restores that slot, the upstream, the release links and the
 lifecycle state, then re-verifies the public route (`HR-OPS-016`).
+
+Candidate admission first requires successful loopback liveness, readiness and version probes, then waits up
+to 75 seconds for Docker's independent health state. The wider bound covers the image's 10-second start period
+and two 30-second scheduler intervals on a loaded host; `unhealthy` still fails immediately, and `starting` at
+the deadline remains a hard failure before any traffic switch. The managed systemd unit overrides the image's
+health command with the same `/readyz` probe derived from the slot's runtime `PORT`. This is required when
+adopting or rolling forward an immutable older image whose embedded healthcheck used fixed port `8787`; the
+operator does not alter the image and does not weaken the Docker health gate.
 
 `--operation rollback` is the same machine pointed at the release behind `previous`; the configuration's
 `targetArtifactManifest` must name that exact bundle (keep the previous bundle on the host) and a `previous`
@@ -595,15 +611,55 @@ non-default internal port and waits for Docker `healthy`. Binding rollout remain
 released through the normal versioned blue/green path and the replacement container reports `healthy`; do not
 weaken or bypass the health gate.
 
-The routine production release path now accepts only two exact active-slot environments: the original account-off
-managed baseline, or the committed email-OTP-only rollout. In email mode it copies the allowlisted environment to
-the candidate while changing only the slot `PORT`, requires the source and target manifests to declare the same
+The routine production release path now accepts only three exact active-slot environments: the original account-off
+managed baseline, the committed email-OTP-only rollout, or the later committed single-Mac binding rollout. In either
+account mode it copies the allowlisted environment to the candidate while changing only the slot `PORT`, requires
+the source and target manifests to declare the same
 database schema, re-hashes the active environment before the source is stopped, and checks both candidate and
-public capabilities. Email must remain the sole provider; binding, multi-device, sharing, identity management, Web
-sessions, account deletion, Google and Desktop managed install must remain absent or disabled. Any extra field,
-permission drift, changed value, schema change or wider advertised surface aborts before traffic movement. A
+public capabilities. Email must remain the sole provider; binding and Desktop managed install must preserve their
+exact prior state, while multi-device, sharing, identity management, Web sessions, account deletion and Google must
+remain absent or disabled. Any extra field, permission drift, changed value, schema change or wider advertised
+surface aborts before traffic movement. A
 schema-changing account release still requires the dedicated migration/restore workflow; the routine release must
 not be used to bypass it.
+
+## Production single-Mac binding gray rollout (R5-F3; code gate only)
+
+Gateway 0.4.14 adds a second, separately confirmed transition after R5-F2. It does not migrate the database or add
+another identity provider. It requires the original committed email-rollout journal, the current schema-15 active
+release, and the exact live email-only environment that routine releases preserve; the checkpoint is intentionally
+not rewritten to impersonate each later Gateway release. It then enables only Connector binding and Desktop
+managed-install capability. The account continues to own at most one active Mac;
+multi-device selection, sharing, identity management, Web sessions, deletion, and Google remain disabled. Legacy App
+and Connector tokens stay accepted throughout the test window.
+
+Prepare a root-only `0600` configuration from `ops/production.binding-rollout.example.json`, validate it against
+`ops/hermes-go-production-binding-rollout-config.schema.json`, and run only from the matching immutable schema-5
+operator bundle:
+
+```bash
+node scripts/production-binding-rollout.mjs \
+  --config /secure-input/hermes-go/production-binding-rollout.json \
+  --confirm production:<configured-hostname>
+```
+
+The operator proves the email-only runtime and committed R5-F2 checkpoint before mutation. It adds an independent
+Nginx include for `/v2/connector-binding`, its child routes, and the exact `/v2/connect` WebSocket; runs `nginx -t`;
+restarts only the active Gateway; and verifies twice that readiness is schema 15/PostgreSQL 18, email remains the
+only provider, binding is singular, Desktop advertises `hermes-serve-v1`, unauthenticated binding is 401, the public
+WebSocket upgrades with 101, the legacy Hermes route remains healthy, and release identity is unchanged. Any live
+failure restores the previous environment and Nginx file byte-for-byte, removes the binding include, restarts the
+Gateway in email-only mode, and verifies public/private binding are again 404/503 and WebSocket is absent.
+Each post-restart verification waits first for bounded loopback readiness and then retries the preserved public and
+private account surface for bounded Nginx/Gateway convergence; a transient startup 502/503 is not treated as a
+binding failure while a persistent mismatch still fails closed.
+`HR-OPS-021` names all failures; inspect `/var/lib/hermes-go/ops/binding-rollout.json` before retrying.
+
+Do not execute this transition until the 0.4.14 PR and post-merge CI/OCI/manual gates pass, the signed Desktop
+component manifest is hosted at its exact HTTPS paths, and the target Mac has a configured Desktop build. After the
+operator commits, perform one explicit target-Mac migration while the legacy Connector rollback point is healthy.
+Record artifact identities, the binding run ID, target-Mac journal, account binding generation, and rollback evidence
+in this section. Source merge or artifact upload alone does not authorize capability enablement.
 
 ## Edge JSON compression (2026-09-07, authorized)
 
@@ -690,3 +746,12 @@ loopback operations path. The first attempt may remain null for 60 seconds. Ther
 six-hour intervals. Deleted totals are process-local and may reset after a restart; they are evidence
 of activity, not durable accounting. Do not publish this endpoint through Nginx or treat a cleanup
 failure as authorization to restart/deploy—the scheduler preserves login availability and retries.
+
+During an account-Connector migration, query `GET /internal/account-connectors` through the same
+protected loopback path and internal Bearer token. Before stopping legacy, record
+`legacyOnline >= 1`; after the Desktop reports `account_active`, require the intended binding UUID,
+device ID, and generation in `connectors`, with `accountOnline >= 1`. `connectedAt` identifies the
+current process-local WebSocket registration and resets after reconnect or Gateway restart. Pair it
+with the signed-in account's `/v2/devices` `lastSeenAt` and end-to-end health; neither the public
+`/relay-health` legacy count nor this live snapshot alone proves Android REST/WebSocket traffic.
+The endpoint is read-only and does not authorize a restart, migration, or production deployment.

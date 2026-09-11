@@ -44,6 +44,9 @@ fun SettingsScreen(
             Entry(localized(language, "通知", "Notifications"), localized(language, "审批、定时任务和消息提醒", "Approvals, cron, and messaging alerts")) { onNavigate("settings_notifications") }
             HorizontalDivider()
             Entry(localized(language, "记忆与预算", "Memory & budgets"), localized(language, "记忆、用户资料和默认模型", "Memory, user profile & default model")) { onNavigate("settings_memory") }
+            // Moved here from the card page on 2026-09-11: the drawer's stats card became the
+            // single 远程节点 card, so the usage page needed a home (docs/DESIGN.md §5.1, §5.14).
+            Entry(localized(language, "用量", "Usage"), localized(language, "本周 token、模型占比与定时任务", "Weekly tokens, model mix and scheduled jobs")) { onNavigate("usage") }
             HorizontalDivider()
             Entry(localized(language, "常用提示", "Saved prompts"), localized(language, "在输入框中复用的提示词", "Reusable prompts for the composer")) { onNavigate("settings_prompts") }
             HorizontalDivider()
@@ -56,6 +59,10 @@ fun SettingsScreen(
             Entry(localized(language, "API 密钥与环境变量", "API keys & env"), localized(language, "模型服务密钥和工具环境变量", "Provider keys and tool env vars")) { onNavigate("settings_env") }
             HorizontalDivider()
             Entry(localized(language, "诊断", "Diagnostics"), localized(language, "生成可分享的调试日志以排查错误", "Capture a shareable debug log to troubleshoot errors")) { onNavigate("settings_diagnostics") }
+            HorizontalDivider()
+            // TUNING-TEMP: a spike panel for dialling in the session list on a device. Remove
+            // the whole entry together with ui/tuning/ once the numbers are chosen.
+            Entry(localized(language, "会话列表调参（临时）", "Session list tuning (temporary)"), localized(language, "字号、行距、间距与立柱颜色，定完即删", "Type, spacing and pillar colours — deleted once decided")) { onNavigate("settings_tuning") }
             HorizontalDivider()
             Entry(localized(language, "关于", "About"), localized(language, "应用与网关版本", "App and gateway version")) { onNavigate("settings_about") }
         }

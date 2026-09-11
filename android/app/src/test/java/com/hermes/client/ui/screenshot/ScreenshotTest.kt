@@ -1,9 +1,12 @@
 package com.hermes.client.ui.screenshot
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
@@ -464,8 +467,10 @@ class ScreenshotTest {
     private fun userTurn(id: String, text: String, delivery: com.hermes.client.domain.DeliveryState) =
         com.hermes.client.domain.ChatMessage(id = id, role = com.hermes.client.domain.Role.USER, text = text, delivery = delivery)
 
-    // Delivery three-state: sent (solid), sending (dimmed + tail ring, revealed after 250ms) and
-    // not-sent (dimmed + error mark + tap-to-retry line). Bubbles are laid out in a plain Column:
+    // Delivery states: sent (solid), sending (dimmed + tail ring, revealed after 250ms), not-sent
+    // (dimmed + error mark + tap-to-retry line) and undeliverable — which must be visibly NOT the
+    // same offer as not-sent: same dimming and error mark, different copy, no retry (HG-29).
+    // Bubbles are laid out in a plain Column:
     // capturing the reverse-layout LazyColumn under Robolectric paints a stray copy of the last
     // row at the top of the image (a capture artifact, not visible on device). The ring's
     // breathing is switched off through LocalDeliveryMotionEnabled so the clock can settle.
@@ -481,6 +486,7 @@ class ScreenshotTest {
                     userTurn("h-1", "已发送的消息", com.hermes.client.domain.DeliveryState.SENT),
                     userTurn("u-2", "发送中的消息", com.hermes.client.domain.DeliveryState.SENDING),
                     userTurn("u-3", "未发送的消息", com.hermes.client.domain.DeliveryState.FAILED),
+                    userTurn("u-4", "会话已消失的消息", com.hermes.client.domain.DeliveryState.UNDELIVERABLE),
                 ).forEach { msg ->
                     com.hermes.client.ui.chat.UserBubble(
                         msg = msg,
@@ -491,7 +497,11 @@ class ScreenshotTest {
                         savingImageId = null,
                         onFileOpen = {},
                         onFileShare = {},
-                        sendDiagnostic = if (msg.delivery == com.hermes.client.domain.DeliveryState.FAILED) "code=HR-SESS-007" else null,
+                        sendDiagnostic = when (msg.delivery) {
+                            com.hermes.client.domain.DeliveryState.FAILED -> "code=HR-SESS-007"
+                            com.hermes.client.domain.DeliveryState.UNDELIVERABLE -> "code=HR-SESS-001"
+                            else -> null
+                        },
                     )
                 }
             }
@@ -504,6 +514,249 @@ class ScreenshotTest {
         id = title, title = title, model = "gpt-5.6-terra", provider = null, messageCount = 1,
         profile = "personal", cwd = repo, gitRepoRoot = repo, gitBranch = null,
     )
+
+    // Diagnostic: the REAL row shape (SessionRowTitle + SessionSubline inside a ListItem) across
+    // the content variants a live list actually contains, each on its own tint so the row
+    // rectangles can be measured off the PNG instead of inferred from ListItem's internals.
+    @androidx.compose.runtime.Composable
+    private fun ProbeRow(
+        tint: androidx.compose.ui.graphics.Color,
+        title: String,
+        repo: String?,
+        status: String? = null,
+    ) {
+        androidx.compose.material3.ListItem(
+            headlineContent = {
+                androidx.compose.material3.Text(title, style = com.hermes.client.ui.theme.SessionRowTitle)
+            },
+            supportingContent = {
+                // Same 2dp / 4dp rhythm the production row uses (docs/DESIGN.md §5.2) — this
+                // probe is only worth anything if it measures the real thing.
+                androidx.compose.foundation.layout.Column {
+                    androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.size(2.dp))
+                    SessionSubline(listSession(title, repo), defaultProjectPath = "/Users/me")
+                    // Same gate production uses: blank means no line at all, not an empty one.
+                    status?.takeIf { it.isNotBlank() }?.let {
+                        androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.size(4.dp))
+                        androidx.compose.material3.Text(
+                            it,
+                            style = com.hermes.client.ui.theme.SessionRowStatus,
+                        )
+                    }
+                }
+            },
+            colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = tint),
+        )
+    }
+
+    @Test fun rowHeightProbe() = snap("row-height-probe") {
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+            ProbeRow(androidx.compose.ui.graphics.Color(0xFFFFE0E0), "确认是否正常", null)
+            ProbeRow(androidx.compose.ui.graphics.Color(0xFFE0FFE0), "起风工作室数据", "/u/xiaomai")
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0xFFE0E0FF),
+                "哎，现在 DeepSeek 说它发了一个最新的 Flash 4.1，我在这个 Hermes 里",
+                "/u/xiaomai",
+            )
+            ProbeRow(androidx.compose.ui.graphics.Color(0xFFFFF0D0), "查看机器性能负荷", null, status = "已完成")
+            // The question this probe was written to settle: does an EMPTY status Text still cost
+            // a line? If it does, a row can be 88dp tall while showing only two lines of content.
+            ProbeRow(androidx.compose.ui.graphics.Color(0xFFD0F0FF), "空状态串", "/u/xiaomai", status = "")
+            ProbeRow(androidx.compose.ui.graphics.Color(0xFFF0D0FF), "无状态槽", "/u/xiaomai", status = null)
+        }
+    }
+
+    // All four group headers in one picture. The amber one is the only coloured pillar in the
+    // product, and it only ever appears when a session is actually waiting on you — which the
+    // local mock can hold for about six seconds, so it has never been caught on a device
+    // (docs/ANDROID_SMOKE.md A-01). This is the one place its colour can be looked at.
+    @androidx.compose.runtime.Composable
+    private fun SectionHeaders() {
+        androidx.compose.foundation.layout.Column {
+            com.hermes.client.ui.sessions.SectionHeader(
+                "需要你处理", 2, com.hermes.client.ui.sessions.SectionTone.NEEDS_YOU, onToggle = {},
+            )
+            com.hermes.client.ui.sessions.SectionHeader(
+                "已置顶", 1, com.hermes.client.ui.sessions.SectionTone.PINNED, note = "仅此设备", onToggle = {},
+            )
+            com.hermes.client.ui.sessions.SectionHeader(
+                "今天", 4, com.hermes.client.ui.sessions.SectionTone.TODAY, onToggle = {},
+            )
+            com.hermes.client.ui.sessions.SectionHeader(
+                "前 7 天", 19, com.hermes.client.ui.sessions.SectionTone.OLDER, collapsed = true, onToggle = {},
+            )
+        }
+    }
+
+    @Test fun sectionHeaderTones() = snap("section-header-tones") { SectionHeaders() }
+
+    @Test fun sectionHeaderTonesDark() = snap("section-header-tones-dark", darkTheme = true) { SectionHeaders() }
+
+    // The two title tiers side by side, same string, so the ONLY difference in the picture is the
+    // weight (docs/DESIGN.md §5.2: unread 600, read 500). Worth a golden of its own because the
+    // difference is easy to doubt on a screen — CJK at Medium already reads fairly heavy — and
+    // because nothing else pins that the read tier is the one a list of read rows gets.
+    // ── Card page (docs/DESIGN.md §5.1; Stitch 基线-卡片页 / 暗夜, keys card.default.*) ──────
+    // The drawer's content at the sheet's width, in the state the mock shows plus the ones it does
+    // not: a job count with an alert dot, all three update states, a long device name, offline.
+    private fun cardPage(
+        name: String,
+        darkTheme: Boolean = false,
+        fontScale: Float? = null,
+        deviceId: String? = "mac-mini",
+        latencyMs: Long = 29L,
+        updateState: com.hermes.client.update.UpdateBadgeState = com.hermes.client.update.UpdateBadgeState.UpToDate,
+    ) = snap(name, darkTheme = darkTheme, fontScale = fontScale) {
+        // Chinese, like the mock, so the reference render and the golden carry the same strings.
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+        androidx.compose.foundation.layout.Box(
+            androidx.compose.ui.Modifier
+                .widthIn(max = 340.dp)
+                .height(844.dp)
+                .background(com.hermes.client.ui.theme.cardDrawerColor()),
+        ) {
+            com.hermes.client.ui.nav.CardPageContent(
+                activeProfile = "default",
+                state = com.hermes.client.ui.nav.CardPageUiState(
+                    cronAlerts = 1,
+                    cronJobCount = 7,
+                    deviceId = deviceId,
+                    defaultModel = "claude-opus-5",
+                ),
+                health = com.hermes.client.data.network.GatewayHealth.Healthy(version = null, running = true, latencyMs = latencyMs),
+                themeMode = com.hermes.client.data.repository.ThemeMode.SYSTEM,
+                updateState = updateState,
+                buildBadge = "DEV",
+                onNavigate = {},
+                onTheme = {},
+                onFeedback = {},
+            )
+        }
+        }
+    }
+
+    @Test fun cardPageLight() = cardPage("card.default.light")
+
+    @Test fun cardPageDark() = cardPage("card.default.dark", darkTheme = true)
+
+    /** Large font + a long Mac name + an update waiting: the design-scale lock and the amber dot. */
+    @Test fun cardPageLightLargeFont() = cardPage(
+        "card.default.light-fs13",
+        fontScale = 1.3f,
+        deviceId = "guoshengliang-macbook-pro",
+        latencyMs = 231L,
+        updateState = com.hermes.client.update.UpdateBadgeState.Available("0.1.117"),
+    )
+
+    /** Connector offline, and an update check that has never succeeded: no dot on either row. */
+    @Test fun cardPageLightOffline() = cardPage(
+        "card.default.light-offline",
+        deviceId = null,
+        updateState = com.hermes.client.update.UpdateBadgeState.Unknown,
+    )
+
+    // ── Card page · theme sheet (§5.1 主题弹层; keys card.default.theme-sheet.*) ──────────────
+    // The sheet's body, not the ModalBottomSheet around it: a sheet renders in its own window and
+    // onRoot() cannot reach it. The grab bar above this is the shared SheetCloseHandle, unchanged.
+    private fun themeSheet(
+        name: String,
+        darkTheme: Boolean = false,
+        fontScale: Float? = null,
+        language: com.hermes.client.ui.localization.AppLanguage =
+            com.hermes.client.ui.localization.AppLanguage.ZH,
+        inUse: com.hermes.client.data.repository.ThemeMode = com.hermes.client.data.repository.ThemeMode.SYSTEM,
+        pending: com.hermes.client.data.repository.ThemeMode = inUse,
+    ) = snap(name, darkTheme = darkTheme, fontScale = fontScale) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides language,
+        ) {
+            androidx.compose.foundation.layout.Box(
+                androidx.compose.ui.Modifier
+                    .widthIn(max = 390.dp)
+                    .background(com.hermes.client.ui.theme.cardThemeSheetColor()),
+            ) {
+                com.hermes.client.ui.settings.ThemeSheetContent(
+                    inUse = inUse,
+                    pending = pending,
+                    onPendingChange = {},
+                    onSave = {},
+                    onClose = {},
+                )
+            }
+        }
+    }
+
+    @Test fun themeSheetLight() = themeSheet("card.default.theme-sheet.light")
+
+    @Test fun themeSheetDark() = themeSheet("card.default.theme-sheet.dark", darkTheme = true)
+
+    /**
+     * The state the whole redesign turns on: the radio has been moved to 黑曜石深色 but nothing has
+     * been written yet, so 「当前使用」 stays on 跟随系统. Selection and effect are two different
+     * things here, and this is the only picture that can prove it.
+     */
+    @Test fun themeSheetPending() = themeSheet(
+        "card.default.theme-sheet.pending",
+        pending = com.hermes.client.data.repository.ThemeMode.DARK,
+    )
+
+    /** English at fontScale 1.3: the longest names and the descriptions wrapping under them. */
+    @Test fun themeSheetEnglishLargeFont() = themeSheet(
+        "card.default.theme-sheet.en-fs13",
+        fontScale = 1.3f,
+        language = com.hermes.client.ui.localization.AppLanguage.EN,
+        pending = com.hermes.client.data.repository.ThemeMode.DARK,
+    )
+
+    // ── Settings → 外观 (the other home of the same option list) ──────────────────────────────
+    private fun appearanceOptions(name: String, darkTheme: Boolean = false) =
+        snap(name, darkTheme = darkTheme) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.hermes.client.ui.localization.LocalAppLanguage provides
+                    com.hermes.client.ui.localization.AppLanguage.ZH,
+            ) {
+                androidx.compose.foundation.layout.Box(
+                    androidx.compose.ui.Modifier.widthIn(max = 390.dp).padding(16.dp),
+                ) {
+                    com.hermes.client.ui.settings.ThemeOptionList(
+                        selected = com.hermes.client.data.repository.ThemeMode.LIGHT,
+                        onSelect = {},
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 8.dp),
+                    )
+                }
+            }
+        }
+
+    /** No 「当前使用」 badge here: on a page the tap IS the effect, so the badge would only echo the radio. */
+    @Test fun appearanceColorModeLight() = appearanceOptions("settings.appearance.color-mode")
+
+    @Test fun appearanceColorModeDark() =
+        appearanceOptions("settings.appearance.color-mode-dark", darkTheme = true)
+
+    @Test fun sessionRowTitleTiers() = snap("session-row-title-tiers") {
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+            for ((label, style) in listOf(
+                "未读 600" to com.hermes.client.ui.theme.SessionRowTitle,
+                "已读 500" to com.hermes.client.ui.theme.SessionRowTitleRead,
+            )) {
+                androidx.compose.material3.Text(
+                    label,
+                    style = com.hermes.client.ui.theme.SessionGroupHeader,
+                    modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                androidx.compose.material3.ListItem(
+                    headlineContent = {
+                        androidx.compose.material3.Text("重构 gateway 路由中间件 Refactor", style = style)
+                    },
+                    supportingContent = {
+                        SessionSubline(listSession("t-$label", "/u/hermes-remote"), defaultProjectPath = "/Users/me")
+                    },
+                )
+            }
+        }
+    }
 
     @Test fun sessionRowsPinnedSubline() = snap("session-rows-pinned") {
         val defaultPath = "/Users/me"
@@ -593,42 +846,126 @@ class ScreenshotTest {
         compose.onRoot().captureRoboImage("screenshots/smoke.png", roborazziOptions = options)
     }
 
-    // ── Chats segments: the Bots tab takes the row from three labels to four, and the tightest
-    // case (English at fontScale 1.3) is the one that would otherwise only surface on a device.
-    private fun tabs(bots: Boolean, zh: Boolean) = buildList {
-        add(com.hermes.client.ui.sessions.ViewMode.SESSIONS to if (zh) "会话" else "Chats")
-        add(com.hermes.client.ui.sessions.ViewMode.PROJECTS to if (zh) "项目" else "Projects")
-        if (bots) add(com.hermes.client.ui.sessions.ViewMode.BOTS to if (zh) "机器人" else "Bots")
-        add(com.hermes.client.ui.sessions.ViewMode.ARCHIVED to if (zh) "已归档" else "Archive")
-    }
+    // ── Chats top bar and segments. The four-segment squeeze is gone (Projects and Archive
+    // moved to the overflow menu), so what needs pinning now is the CENTRED title against an
+    // avatar on the left and two actions on the right — the imbalance that only shows on a device.
+    private fun tabs(zh: Boolean) =
+        com.hermes.client.ui.sessions.chatsSegmentModes(showBots = true).map {
+            it to when (it) {
+                com.hermes.client.ui.sessions.ViewMode.SESSIONS -> if (zh) "会话" else "Chats"
+                com.hermes.client.ui.sessions.ViewMode.BOTS -> if (zh) "机器人" else "Bots"
+            }
+        }
 
-    @Test fun segmentsThreeZh() = snap("segments-3-zh") {
+    @Test fun segmentsTwoZh() = snap("segments-2-zh") {
         com.hermes.client.ui.sessions.ChatsSegmentedRow(
-            tabs(bots = false, zh = true), com.hermes.client.ui.sessions.ViewMode.SESSIONS, {},
+            tabs(zh = true), com.hermes.client.ui.sessions.ViewMode.SESSIONS, {},
         )
     }
 
-    @Test fun segmentsFourZh() = snap("segments-4-zh") {
-        com.hermes.client.ui.sessions.ChatsSegmentedRow(
-            tabs(bots = true, zh = true), com.hermes.client.ui.sessions.ViewMode.BOTS, {},
+    // The capsule's stated ceiling is three options (docs/DESIGN.md §5.2), and this pins the worst
+    // case that ceiling has to survive at fontScale 1.3.
+    //
+    // SYNTHETIC since 主题弹层 landed: these used to be the Appearance screen's colour-mode switch,
+    // the longest three-option capsule that actually shipped. That screen now draws the theme
+    // option list instead, and the longest capsule left in the app is the usage range (7/30/90 天),
+    // which proves nothing. Kept rather than deleted, with made-up labels, because the ceiling it
+    // guards is a rule about the component and not about any one screen — the next three-option
+    // capsule someone adds needs this to already be failing if the rule is wrong.
+    @Test fun segmentsThreeZhLargeFont() = snap("segments-3-zh-fs13", fontScale = 1.3f) {
+        val options = listOf("跟随系统", "浅色", "深色")
+        com.hermes.client.ui.components.SegmentedCapsule(
+            options = options,
+            selected = options[0],
+            onSelect = {},
+            label = { it },
         )
     }
 
-    @Test fun segmentsFourZhLargeFont() = snap("segments-4-zh-fs13", fontScale = 1.3f) {
+    @Test fun segmentsTwoEnLargeFontDark() = snap("segments-2-en-fs13-dark", darkTheme = true, fontScale = 1.3f) {
         com.hermes.client.ui.sessions.ChatsSegmentedRow(
-            tabs(bots = true, zh = true), com.hermes.client.ui.sessions.ViewMode.BOTS, {},
+            tabs(zh = false), com.hermes.client.ui.sessions.ViewMode.BOTS, {},
         )
     }
 
-    @Test fun segmentsFourEnLargeFont() = snap("segments-4-en-fs13", fontScale = 1.3f) {
-        com.hermes.client.ui.sessions.ChatsSegmentedRow(
-            tabs(bots = true, zh = false), com.hermes.client.ui.sessions.ViewMode.BOTS, {},
-        )
+    private fun topBar(language: com.hermes.client.ui.localization.AppLanguage) =
+        @androidx.compose.runtime.Composable {
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.hermes.client.ui.localization.LocalAppLanguage provides language,
+            ) {
+                com.hermes.client.ui.sessions.ChatsTopBar(
+                    activeProfile = "default",
+                    onOpenCard = {},
+                    onOpenSearch = {},
+                    onOpenProjects = {},
+                    onOpenArchived = {},
+                )
+            }
+        }
+
+    @Test fun chatsTopBarZh() =
+        snap("chats-topbar-zh") { topBar(com.hermes.client.ui.localization.AppLanguage.ZH)() }
+
+    @Test fun chatsTopBarEnLargeFont() =
+        snap("chats-topbar-en-fs13", fontScale = 1.3f) { topBar(com.hermes.client.ui.localization.AppLanguage.EN)() }
+
+    // ── Bot conversation bubbles: with the composer open, the right-hand column carries two
+    // speakers. Signing them apart is the whole point, and it is only visible in a picture.
+    private val dingTalkDm =
+        com.hermes.client.ui.sessions.BotOrigin("dingtalk", displayName = null, chatType = "dm")
+
+    @androidx.compose.runtime.Composable
+    private fun BotBubblePair() {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.chat.LocalBotOrigin provides dingTalkDm,
+            com.hermes.client.ui.chat.LocalLocallySentIds provides setOf("mine"),
+        ) {
+            androidx.compose.foundation.layout.Column(
+                androidx.compose.ui.Modifier.padding(12.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+            ) {
+                com.hermes.client.ui.chat.UserBubble(
+                    msg = com.hermes.client.domain.ChatMessage(
+                        id = "theirs",
+                        role = com.hermes.client.domain.Role.USER,
+                        text = "帮我看下这个报错",
+                    ),
+                    onEditResend = {}, onImageSave = {}, onImageSaveAs = {}, onImageShare = {},
+                    savingImageId = null, onFileOpen = {}, onFileShare = {},
+                )
+                com.hermes.client.ui.chat.UserBubble(
+                    msg = com.hermes.client.domain.ChatMessage(
+                        id = "mine",
+                        role = com.hermes.client.domain.Role.USER,
+                        text = "我从手机补一句",
+                    ),
+                    onEditResend = {}, onImageSave = {}, onImageSaveAs = {}, onImageShare = {},
+                    savingImageId = null, onFileOpen = {}, onFileShare = {},
+                )
+            }
+        }
     }
 
-    @Test fun segmentsFourEnLargeFontDark() = snap("segments-4-en-fs13-dark", darkTheme = true, fontScale = 1.3f) {
-        com.hermes.client.ui.sessions.ChatsSegmentedRow(
-            tabs(bots = true, zh = false), com.hermes.client.ui.sessions.ViewMode.BOTS, {},
-        )
+    @Test fun botBubblesZh() = snap("bot-bubbles-zh") { BotBubblePair() }
+
+    @Test fun botBubblesZhLargeFont() = snap("bot-bubbles-zh-fs13", fontScale = 1.3f) { BotBubblePair() }
+
+    @Test fun botBubblesDark() = snap("bot-bubbles-dark", darkTheme = true) { BotBubblePair() }
+
+    // ── Project glyphs. Hand-drawn 1.7dp strokes (docs/DESIGN.md §4), so a malformed path is
+    // invisible to a unit test and obvious here — the first `repo` draft rendered as a bracket.
+    @Test fun projectIcons() = snap("project-icons") {
+        androidx.compose.foundation.layout.Row(
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(8.dp),
+        ) {
+            com.hermes.client.ui.components.PROJECT_ICONS.forEach { name ->
+                androidx.compose.material3.Icon(
+                    com.hermes.client.ui.components.projectIconFor(name),
+                    contentDescription = name,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+        }
     }
 }

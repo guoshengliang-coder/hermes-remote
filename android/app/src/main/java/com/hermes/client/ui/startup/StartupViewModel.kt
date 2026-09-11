@@ -6,6 +6,7 @@ import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.AccountTransportMode
 import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.auth.isLoopbackGatewayBaseUrl
 import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.network.ConnectionState
@@ -18,8 +19,6 @@ import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SessionRepository
-import com.hermes.client.data.repository.ViewModeStore
-import com.hermes.client.ui.sessions.ViewMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -86,6 +85,7 @@ sealed interface StartupUiState {
     data class RepairRequired(
         val reason: StartupReason,
         val failure: StartupFailure,
+        val accountSetup: Boolean = false,
     ) : StartupUiState
 }
 
@@ -103,7 +103,6 @@ class StartupViewModel @Inject constructor(
     private val profiles: ProfileManager,
     private val rest: HermesRestApi,
     private val models: ModelRepository,
-    private val viewModes: ViewModeStore,
     private val runtimes: SessionRuntimeStore,
     private val foregroundRecovery: ForegroundRecoveryCoordinator,
     private val accountSessions: AccountSessionManager? = null,
@@ -241,7 +240,11 @@ class StartupViewModel @Inject constructor(
         attemptJob?.cancel()
         attemptJob = null
         repairReason = reason
-        _state.value = StartupUiState.RepairRequired(reason, failure)
+        val accountSetup = failure == StartupFailure.CONNECTION_FAILED &&
+            runCatching { credentials.load()?.baseUrl }
+                .getOrNull()
+                ?.let(::isLoopbackGatewayBaseUrl) == true
+        _state.value = StartupUiState.RepairRequired(reason, failure, accountSetup)
     }
 
     /** Called after the repair screen has persisted edited values. */
@@ -461,9 +464,15 @@ class StartupViewModel @Inject constructor(
         return true
     }
 
-    private fun hasConnectionConfiguration(): Boolean =
-        accountSessions?.transportMode()?.let { it != AccountTransportMode.LEGACY } == true ||
-            runCatching { credentials.load() }.getOrNull() != null
+    private fun hasConnectionConfiguration(): Boolean = when (accountSessions?.transportMode()) {
+        AccountTransportMode.ACCOUNT,
+        AccountTransportMode.DEVICE_SELECTION_REQUIRED,
+        AccountTransportMode.REAUTHENTICATION_REQUIRED,
+        AccountTransportMode.ACCOUNT_DELETION_COMMITTED -> true
+        AccountTransportMode.ACCOUNT_PENDING,
+        AccountTransportMode.LEGACY,
+        null -> runCatching { credentials.load() }.getOrNull() != null
+    }
 
     private suspend fun probeAccountConnection(): GatewayProbeResult = try {
         rest.gatewayStatus()
@@ -515,16 +524,10 @@ class StartupViewModel @Inject constructor(
         foregroundRecovery.recoverActive() ?: recoverActiveDestinationFallback()
 
     private suspend fun recoverActiveDestinationFallback(): Boolean = when (val destination = activeDestination) {
-        StartupDestination.Sessions -> when (viewModes.mode.first()) {
-            ViewMode.ARCHIVED -> {
-                sessions.archivedAllProfiles()
-                true
-            }
-            // Bots reads the same cross-profile list, then filters by source client-side.
-            ViewMode.SESSIONS, ViewMode.PROJECTS, ViewMode.BOTS -> {
-                sessions.listAllProfiles()
-                true
-            }
+        // Both segments read the same cross-profile list; Bots filters by source client-side.
+        StartupDestination.Sessions -> {
+            sessions.listAllProfiles()
+            true
         }
         StartupDestination.Search -> {
             sessions.listAllProfiles()

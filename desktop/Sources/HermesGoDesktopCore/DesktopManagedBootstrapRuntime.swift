@@ -133,6 +133,16 @@ public final class DesktopManagedRecoveryRuntime: @unchecked Sendable {
     ) async throws -> DesktopMigrationState {
         try await migration.recoverInterrupted(legacy: legacy, runID: runID)
     }
+
+    @discardableResult
+    public func reconcileTransferredAccountActive() throws -> Bool {
+        try migration.reconcileTransferredAccountActive()
+    }
+
+    @discardableResult
+    public func reconcileCommittedHermesSessionTokenStorage() async throws -> Bool {
+        try await migration.reconcileCommittedHermesSessionTokenStorage()
+    }
 }
 
 /// Fully composed managed-bootstrap dependencies. Creating this value is inert: directories,
@@ -203,5 +213,15 @@ public final class DesktopManagedBootstrapRuntime: @unchecked Sendable {
         runID: String
     ) async throws -> DesktopMigrationState {
         try await migration.recoverInterrupted(legacy: legacy, runID: runID)
+    }
+
+    @discardableResult
+    public func reconcileTransferredAccountActive() throws -> Bool {
+        try migration.reconcileTransferredAccountActive()
+    }
+
+    @discardableResult
+    public func reconcileCommittedHermesSessionTokenStorage() async throws -> Bool {
+        try await migration.reconcileCommittedHermesSessionTokenStorage()
     }
 }

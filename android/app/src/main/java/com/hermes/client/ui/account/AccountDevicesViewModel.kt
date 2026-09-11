@@ -5,17 +5,21 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.BuildConfig
 import com.hermes.client.data.auth.AccountSession
+import com.hermes.client.data.auth.AccountDeviceRouteMode
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.AccountTransportMode
 import com.hermes.client.data.auth.AccountSessionStore
 import com.hermes.client.data.auth.AccountClock
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.DEFAULT_REMOTE_GATEWAY_URL
+import com.hermes.client.data.auth.isLoopbackGatewayBaseUrl
 import com.hermes.client.data.auth.PendingEmailChallenge
 import com.hermes.client.data.auth.PendingAccountDeletion
 import com.hermes.client.data.network.AccountApi
 import com.hermes.client.data.network.AccountApiException
 import com.hermes.client.data.network.AccountDeviceDto
+import com.hermes.client.data.network.AccountDevicesResponseDto
+import com.hermes.client.data.network.asOwnedDevice
 import com.hermes.client.data.repository.ChatRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Duration
@@ -67,6 +71,8 @@ data class AccountDevicesUiState(
     val session: AccountSession? = null,
     val devices: List<AccountDeviceDto> = emptyList(),
     val maxOwnedDevices: Int = 3,
+    val deviceRouteMode: AccountDeviceRouteMode = AccountDeviceRouteMode.EXPLICIT_DEVICE,
+    val supportsDeviceSharing: Boolean = false,
     val busy: Boolean = false,
     val selectingDeviceId: String? = null,
     val codeExpiresInSeconds: Int = 0,
@@ -299,7 +305,13 @@ class AccountDevicesViewModel @Inject constructor(
                 appVersion = BuildConfig.VERSION_NAME,
                 idempotencyKey = pending.exchangeIdempotencyKey,
             )
-            sessions.activate(pending.baseUrl, response)
+            val keepLegacyTransportUntilProbe = !sessions.requiresAccountReauthentication() &&
+                runCatching { legacyCredentials.load() }.getOrNull() != null
+            sessions.activate(
+                pending.baseUrl,
+                response,
+                keepLegacyTransportUntilProbe = keepLegacyTransportUntilProbe,
+            )
             challengeTimerJob?.cancel()
             challengeTimerJob = null
             _state.value = _state.value.copy(
@@ -327,18 +339,27 @@ class AccountDevicesViewModel @Inject constructor(
 
     fun useDevice(device: AccountDeviceDto) = viewModelScope.launch {
         if (_state.value.selectingDeviceId != null) return@launch
-        activateDevice(device)
+        activateDevice(device, _state.value.deviceRouteMode)
     }
 
-    private suspend fun activateDevice(device: AccountDeviceDto) {
+    private suspend fun activateDevice(device: AccountDeviceDto, routeMode: AccountDeviceRouteMode) {
         retryDevice = device
         _state.value = _state.value.copy(selectingDeviceId = device.deviceId, error = null)
         try {
             val current = sessions.session.value ?: return
             val bearer = sessions.accessToken() ?: return
-            val selected = api.selectDefaultDevice(current.baseUrl, bearer, device.deviceId)
-            api.probeDevice(current.baseUrl, bearer, selected.deviceId)
-            sessions.selectDevice(selected)
+            val selected = when (routeMode) {
+                AccountDeviceRouteMode.SINGLE_BINDING -> {
+                    api.probeSingleBinding(current.baseUrl, bearer)
+                    device.copy(isDefault = true)
+                }
+                AccountDeviceRouteMode.EXPLICIT_DEVICE -> {
+                    api.selectDefaultDevice(current.baseUrl, bearer, device.deviceId).also {
+                        api.probeDevice(current.baseUrl, bearer, it.deviceId)
+                    }
+                }
+            }
+            sessions.selectDevice(selected, routeMode)
             _state.value = _state.value.copy(
                 session = sessions.session.value,
                 devices = _state.value.devices.map {
@@ -657,6 +678,13 @@ class AccountDevicesViewModel @Inject constructor(
                 busy = false,
                 codeExpiresInSeconds = timing?.takeUnless { it.expired }?.expiresInSeconds ?: 0,
                 resendInSeconds = timing?.takeUnless { it.expired }?.resendInSeconds ?: 0,
+                maxOwnedDevices = capabilities.binding.maxActiveConnectorsPerAccount,
+                deviceRouteMode = if (capabilities.binding.supportsDeviceSelection) {
+                    AccountDeviceRouteMode.EXPLICIT_DEVICE
+                } else {
+                    AccountDeviceRouteMode.SINGLE_BINDING
+                },
+                supportsDeviceSharing = capabilities.binding.supportsDeviceSharing,
                 error = when {
                     !available -> AccountUiError("HR-AUTH-011", retryable = false)
                     pending != null && timing?.expired != false -> AccountUiError("HR-AUTH-009", retryable = false)
@@ -675,21 +703,44 @@ class AccountDevicesViewModel @Inject constructor(
 
     private suspend fun loadDevices(current: AccountSession) {
         try {
-            val accountDeletionEnabled = try {
-                api.capabilities(current.baseUrl).accountAuth.accountDeletion &&
-                    !current.accountEmail.isNullOrBlank()
+            val capabilities = try {
+                api.capabilities(current.baseUrl)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                false
+                null
             }
+            val accountDeletionEnabled = capabilities?.accountAuth?.accountDeletion == true &&
+                !current.accountEmail.isNullOrBlank()
             // Account deletion is an account-level capability. Keep it usable even if the
             // independent remote-device listing is temporarily unavailable.
             _state.value = _state.value.copy(accountDeletionEnabled = accountDeletionEnabled)
             val bearer = sessions.accessToken() ?: return
-            val response = api.devices(current.baseUrl, bearer)
+            val routeMode = when {
+                capabilities == null -> current.deviceRouteMode
+                capabilities.binding.supportsDeviceSelection -> AccountDeviceRouteMode.EXPLICIT_DEVICE
+                else -> AccountDeviceRouteMode.SINGLE_BINDING
+            }
+            val response = when {
+                capabilities?.binding?.enabled == false -> AccountDevicesResponseDto(
+                    maxOwnedDevices = capabilities.binding.maxActiveConnectorsPerAccount,
+                )
+                routeMode == AccountDeviceRouteMode.EXPLICIT_DEVICE ->
+                    api.devices(current.baseUrl, bearer)
+                else -> {
+                    val snapshot = api.binding(current.baseUrl, bearer)
+                    AccountDevicesResponseDto(
+                        items = snapshot.binding?.takeIf { snapshot.state == "bound" }
+                            ?.let { listOf(it.asOwnedDevice()) }
+                            .orEmpty(),
+                        maxOwnedDevices = capabilities?.binding?.maxActiveConnectorsPerAccount ?: 1,
+                    )
+                }
+            }
             val selectedId = sessions.session.value?.selectedDeviceId
             val selectedDeviceWasRemoved = selectedId != null && response.items.none { it.deviceId == selectedId }
+            val selectedDevice = response.items.firstOrNull { it.deviceId == selectedId }
+            val routeModeChanged = selectedDevice != null && current.deviceRouteMode != routeMode
             if (selectedDeviceWasRemoved) {
                 sessions.clearDeviceSelection()
             }
@@ -698,6 +749,8 @@ class AccountDevicesViewModel @Inject constructor(
                 session = sessions.session.value,
                 devices = response.items,
                 maxOwnedDevices = response.maxOwnedDevices,
+                deviceRouteMode = routeMode,
+                supportsDeviceSharing = capabilities?.binding?.supportsDeviceSharing == true,
                 accountDeletionEnabled = accountDeletionEnabled,
                 busy = false,
             )
@@ -706,12 +759,14 @@ class AccountDevicesViewModel @Inject constructor(
             // selection after revocation cleanup: using the stale pre-refresh id here left a sole
             // replacement Mac unselected until the user tapped Refresh/Use.
             if (sessions.session.value?.selectedDeviceId == null && response.items.size == 1) {
-                activateDevice(response.items.single())
+                activateDevice(response.items.single(), routeMode)
                 // If the replacement itself failed, retire the now-invalid old socket. A successful
                 // activation already reconnects exactly once to the replacement.
                 if (selectedDeviceWasRemoved && sessions.session.value?.selectedDeviceId == null) {
                     chat.reconnect()
                 }
+            } else if (routeModeChanged) {
+                activateDevice(checkNotNull(selectedDevice), routeMode)
             } else if (response.items.isEmpty()) {
                 if (selectedDeviceWasRemoved) chat.reconnect()
                 scheduleEmptyDevicePoll()
@@ -735,7 +790,9 @@ class AccountDevicesViewModel @Inject constructor(
     private fun accountBaseUrl(): String = sessions.session.value?.baseUrl
         ?: store.loadPendingEmailChallenge()?.baseUrl
         ?: store.lastAccountBaseUrl()
-        ?: runCatching { legacyCredentials.load()?.baseUrl }.getOrNull()
+        ?: runCatching { legacyCredentials.load()?.baseUrl }
+            .getOrNull()
+            ?.takeUnless(::isLoopbackGatewayBaseUrl)
         ?: DEFAULT_REMOTE_GATEWAY_URL
 
     /** Account-control errors use the same session/device recovery as Hermes REST responses. */
@@ -903,11 +960,11 @@ class AccountDevicesViewModel @Inject constructor(
         return true
     }
 
-    private fun phoneDisplayName(): String = listOf(Build.MANUFACTURER, Build.MODEL)
-        .filter { it.isNotBlank() }
-        .joinToString(" ")
-        .ifBlank { "Android phone" }
-        .take(128)
+    private fun phoneDisplayName(): String = runCatching {
+        listOfNotNull(Build.MANUFACTURER, Build.MODEL)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+    }.getOrNull().orEmpty().ifBlank { "Android phone" }.take(128)
 
     companion object {
         const val EMPTY_DEVICE_POLL_MS = 5_000L

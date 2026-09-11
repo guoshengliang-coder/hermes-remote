@@ -29,10 +29,19 @@ and pushing may continue when the change being integrated does not touch those f
 built or published from that worktree: cut a fresh worktree at the release commit instead, so that
 no one else's half-finished work can reach the artifact.
 
-When the hosting plan cannot enforce branch protection, the integration agent must treat successful
-PR checks as a manual merge gate: inspect every check reported for the PR, merge only after all have
-completed successfully, and verify the resulting `main` checks before handoff. Do not use auto-merge
-as a substitute for this gate when the repository has no enforced required checks.
+The integration agent must treat successful PR checks as a manual merge gate: inspect every check
+reported for the PR, merge only after all have completed successfully, and verify the resulting
+`main` checks before handoff. Do not use auto-merge as a substitute for this gate.
+
+This is a manual gate by circumstance, not by limitation. `main` does carry branch protection, and
+this repository is public, so required status checks and a merge queue are both available. But
+`enforce_admins` is off and every agent merges as the repository owner, so protection does not bind
+these merges: `required_approving_review_count` has been 1 the whole time, and PRs merge through
+`gh pr merge` with zero approvals. Required checks configured today would behave the same way —
+recorded in settings, binding on nobody. Turning `enforce_admins` on would make them bind, and would
+equally make that review requirement bind every PR. So the gate stays human, and the reason it stays
+human is a deliberate trade, not a missing feature: measured over 150 merged pull requests, two were
+merged with a failing check and none was merged before its checks finished.
 
 `docs/INTEGRATION.md` defines the cross-subproject rules: which paths belong to Android, Desktop or
 Cloud; the contract surfaces whose change requires the other sides to be addressed in the same
@@ -52,8 +61,9 @@ branch; and the separation of the merge, version and publish gates. Read it befo
 - `deploy/`: deployment and service templates; never store live credentials here.
 - `docs/`: architecture, environment shape, deployment record, smoke-test instructions, the
   cross-subproject integration rules (`docs/INTEGRATION.md`), the Android UI design contract
-  (`docs/DESIGN.md`), the upstream Hermes contract inventory (`docs/HERMES_CONTRACT.md`), and the
-  read-only incident runbook for session-state problems (`docs/DIAGNOSTICS.md`).
+  (`docs/DESIGN.md`), the upstream Hermes contract inventory (`docs/HERMES_CONTRACT.md`), the
+  read-only incident runbook for session-state problems (`docs/DIAGNOSTICS.md`), and the hands-on
+  guide for operating a physical Android device (`docs/DEVICE_TESTING.md`).
 
 `docs/HERMES_CONTRACT.md` inventories what this repository consumes from **upstream Hermes** — wire
 field names, RPC methods, text grammars, and one hand-copied constant — none of which we own or can
@@ -83,8 +93,19 @@ The Android version source of truth is at the top of `android/app/build.gradle.k
 
 For every APK actually handed to a tester or user:
 
-1. The integration agent increments `appVersionName` by one patch version and `appVersionCode` by one.
-2. Update the matching version note in `android/README.md`.
+1. The integration agent allocates the next version with
+
+   ```bash
+   node scripts/bump-android-release.mjs --notes-file <notes> --summary "<README entry>"
+   ```
+
+   which increments `appVersionName` by one patch version and `appVersionCode` by one, writes the
+   `android/README.md` entry and the staged-APK filename, and adds `android/releases/<version>.json`.
+   It refuses to allocate from a dirty tree or from anything but the current `origin/main`, and
+   refuses a number that a release file or an `origin` tag already carries — the way 0.1.95 and
+   0.1.97 were lost. Editing the three files by hand instead is still allowed, and still has to
+   produce exactly the same result.
+2. Confirm the version note in `android/README.md` reads the way you want it to.
 3. Run the mandatory release gate from the repository root:
 
    ```bash
@@ -148,6 +169,73 @@ cd android
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 ```
 
+UI, notification and background-behaviour changes need more than that baseline. Verification is
+layered, and the layers are **not** interchangeable — each covers something the others cannot:
+
+- **L1 — JVM + Roborazzi screenshots.** Always available, and the only layer CI can run. This is
+  the default gate for UI regressions: theme combinations, `fontScale`, density, layout.
+- **L2 — attached physical device.** Real look-and-feel, gestures, and vendor ROM behaviour
+  (notification delivery, background survival, battery optimisation). Run it whenever a device is
+  attached. `docs/DESIGN.md` settles look-and-feel disputes on a device, never on an emulator.
+  Several phones may be attached at once, and they do **not** substitute for one another: name the
+  device a result came from instead of writing "verified on device", because ROM behaviour is
+  exactly what differs between vendors. `ANDROID_SERIAL=<serial>` picks which one the tooling
+  targets by default. How to operate a phone — which APK to install, each vendor's install
+  confirmation page, the dev stack, and restoring the phone afterwards — is in
+  `docs/DEVICE_TESTING.md`; write new device gotchas back there. Install with
+  `scripts/dev/device-install.py`: it confirms install pages it has a recipe for, and on an unknown
+  page stops, reports `NEEDS_ATTENTION` and waits for an AI session or a person to resolve it; the
+  doc defines what may be confirmed and when a resolved page becomes a recipe. How many phones a
+  change needs:
+
+  | Change | Devices needed | Why |
+  |---|---|---|
+  | Visual, layout, copy | **one**, any | L1 already covers theme/`fontScale`/density combinations; the phone is here to settle final look-and-feel, not to be a matrix |
+  | Notifications, background survival, battery optimisation, permission prompts | **every vendor ROM you have** | This is precisely where vendors diverge — a HONOR result does not carry to a Xiaomi. This is the reason to own more than one phone |
+  | `targetSdk`-gated platform behaviour | **one device at or above `targetSdk`** (or L3) | Platform behaviour, not vendor behaviour; one device that reaches it closes the gap for everyone |
+
+  To act on every attached device, read the serials from the probe rather than hard-coding them,
+  and loop with `for` over a command substitution:
+
+  ```bash
+  for s in $(./scripts/dev/android-capabilities.sh --serials); do
+    adb -s "$s" install -r <apk>
+  done
+  ```
+
+  Both obvious alternatives silently run the body **once** on these machines. `for s in
+  $HR_DEVICE_SERIALS` fails because zsh does not word-split an unquoted variable, so every serial
+  arrives glued together. `... --serials | while read -r s` fails because `adb shell` reads stdin
+  and swallows the serials still waiting in the pipe. (zsh does split a command substitution, so
+  the form above works in zsh and bash alike.)
+- **L3 — emulator.** Platform behaviour gated on `targetSdk`, clean-install state, and the
+  size/density matrix. A device running below `targetSdk` cannot exercise those paths at all.
+
+Host capability differs per machine, so never hard-code emulator memory, AVD names or build/boot
+sequencing into files shared through Git — `gradle.properties` included, since CI runners read it
+too. Ask the host at runtime instead:
+
+```bash
+./scripts/dev/android-capabilities.sh     # layer availability, device SDK vs targetSdk gap
+./scripts/dev/emulator.sh start           # L3, self-tuned to the host tier
+HR_FORCE_TIER=low ./scripts/dev/emulator.sh start   # exercise the small-host path anywhere
+```
+
+`HR_FORCE_TIER` (`high`/`mid`/`low`) overrides the measured tier. Use it when changing the tiering
+logic: the low/mid branches are otherwise only ever executed on whichever machine happens to be
+small, so they rot unnoticed on the machine you develop on.
+
+When the probe reports a layer missing, `docs/DEVICE_TESTING.md` §7 says how to add it on that machine.
+
+To give one machine a larger Gradle heap, set it in `~/.gradle/gradle.properties` (per-user, outside
+the repository), not in the committed one — but do not expect it to speed builds up: measured, it
+did not (`docs/DEVICE_TESTING.md` §8). Knowledge about hosts and devices that holds for anyone on
+this project goes into that document, not into one machine's private notes.
+
+Report which layers ran and which did not. Do not claim device verification when only JVM tests were
+run. When a layer is unavailable on the host, or the attached device's SDK is below `targetSdk`, say
+so explicitly in the commit message and the handoff notes rather than leaving the gap implied.
+
 ### Desktop
 
 Desktop behavior and visual changes must update `docs/DESKTOP_PHASE0.md`,
@@ -163,8 +251,6 @@ An ad-hoc local app is not a distributable release. Do not claim Developer ID si
 unless the exact artifact has passed codesign verification, notary submission, stapling, and a clean
 machine launch check.
 
-For UI changes, also inspect the result on the configured emulator or a real device when available.
-Do not claim device verification when only JVM tests were run.
 
 ### Before handoff
 
@@ -172,6 +258,9 @@ Do not claim device verification when only JVM tests were run.
 - Confirm `git status` contains no accidental secrets, generated files, or other agents' changes.
 - For Android artifacts, confirm the signing certificate matches `docs/SIGNING.md`.
 - Report tests run, tests not run, the versioned APK path when applicable, and any deployment performed.
+- For Android UI or behaviour work, state which verification layers ran (L1/L2/L3) and which were
+  skipped or unavailable on this host, naming the device or emulator each L2/L3 result came from.
+  `./scripts/dev/android-capabilities.sh` prints that summary.
 - Commit and push only when the user or orchestrating workflow authorizes it. Never include
   `environment.md` in a commit.
 

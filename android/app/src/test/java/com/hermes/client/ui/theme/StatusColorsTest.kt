@@ -16,33 +16,57 @@ import org.junit.Test
  */
 class StatusColorsTest {
 
-    private val lightSurface = 0xFFFFFFFF.toInt()
-    private val darkSurface = 0xFF121921.toInt()
+    private val lightSurface = 0xFFFAF9F5.toInt()
+    private val darkSurface = 0xFF0F1217.toInt()
 
     // The brand primary in each tier — GOOD must stay clear of these.
-    private val primaryLight = 0xFF0B5FD0.toInt()
+    private val primaryLight = 0xFF004AC6.toInt()
     private val primaryDark = 0xFFA9C7FF.toInt()
 
     @Test fun values_are_pinned() {
         assertEquals(0xFF2E7D32.toInt(), statusArgb(StatusTone.GOOD, dark = false))
-        assertEquals(0xFFC77700.toInt(), statusArgb(StatusTone.WARN, dark = false))
-        assertEquals(0xFFC62828.toInt(), statusArgb(StatusTone.BAD, dark = false))
-        assertEquals(0xFF7CDC80.toInt(), statusArgb(StatusTone.GOOD, dark = true))
-        assertEquals(0xFFFFB945.toInt(), statusArgb(StatusTone.WARN, dark = true))
-        assertEquals(0xFFFFB4AB.toInt(), statusArgb(StatusTone.BAD, dark = true))
+        assertEquals(0xFFB45309.toInt(), statusArgb(StatusTone.WARN, dark = false))
+        assertEquals(0xFFB91C1C.toInt(), statusArgb(StatusTone.BAD, dark = false))
+        assertEquals(0xFF34D399.toInt(), statusArgb(StatusTone.GOOD, dark = true))
+        assertEquals(0xFFFBBF24.toInt(), statusArgb(StatusTone.WARN, dark = true))
+        assertEquals(0xFFF87171.toInt(), statusArgb(StatusTone.BAD, dark = true))
+        assertEquals(0xFF0369A1.toInt(), statusArgb(StatusTone.RUNNING, dark = false))
+        assertEquals(0xFF67E8F9.toInt(), statusArgb(StatusTone.RUNNING, dark = true))
+    }
+
+    /** WARN alone has a second, brighter value for marks — see [warnGraphicArgb]. */
+    @Test fun warn_graphic_tier_is_pinned_and_distinct_from_its_text_tier() {
+        assertEquals(0xFFD97706.toInt(), warnGraphicArgb(dark = false))
+        assertEquals(0xFFF59E0B.toInt(), warnGraphicArgb(dark = true))
+        assertNotEquals(statusArgb(StatusTone.WARN, dark = false), warnGraphicArgb(dark = false))
+        assertNotEquals(statusArgb(StatusTone.WARN, dark = true), warnGraphicArgb(dark = true))
+        // Same amber family, one step apart — not two unrelated colours.
+        assertTrue(kotlin.math.abs(hueOf(warnGraphicArgb(false)) - hueOf(statusArgb(StatusTone.WARN, false))) < 15f)
     }
 
     @Test fun good_is_never_the_brand_colour() {
         assertNotEquals(primaryLight, statusArgb(StatusTone.GOOD, dark = false))
         assertNotEquals(primaryDark, statusArgb(StatusTone.GOOD, dark = true))
-        // Not just a different value — a different hue family, so the two never read as one.
-        assertTrue(hueOf(statusArgb(StatusTone.GOOD, dark = false)) in 90f..150f)
-        assertTrue(hueOf(statusArgb(StatusTone.GOOD, dark = true)) in 90f..150f)
+        // A different hue family, so the two never read as one. The band reaches 170 because the
+        // dark tier took the design's mint #34D399 (hue 163) on 2026-09-11; it stays far from the
+        // brand blue at ~217, which is all this guard is for.
+        assertTrue(hueOf(statusArgb(StatusTone.GOOD, dark = false)) in 90f..170f)
+        assertTrue(hueOf(statusArgb(StatusTone.GOOD, dark = true)) in 90f..170f)
     }
 
-    // GOOD and BAD are rendered as 12sp labels in the session list, so they owe AA text contrast.
-    @Test fun good_and_bad_clear_aa_text_on_their_own_surface() {
-        for (tone in listOf(StatusTone.GOOD, StatusTone.BAD)) {
+    /**
+     * EVERY tone is rendered as a 12sp label in the session list, so every tone owes AA text
+     * contrast — not just the two that happened to be checked before. WARN used to sit at 3.29:1
+     * with a "dot only" comment while the row drew it as text anyway; including it here is what
+     * stops that from coming back.
+     *
+     * This one survived the 2026-09-11 decision to follow the mock over the floors, because the
+     * mock's own text tiers all clear 4.5 anyway — the values below are the design's. It is kept
+     * so that a future mock which does not clear it has to be argued for here rather than landing
+     * unnoticed.
+     */
+    @Test fun every_tone_clears_aa_text_on_its_own_surface() {
+        for (tone in StatusTone.entries) {
             val light = contrast(statusArgb(tone, dark = false), lightSurface)
             val dark = contrast(statusArgb(tone, dark = true), darkSurface)
             assertTrue("$tone light $light < 4.5", light >= 4.5)
@@ -50,20 +74,19 @@ class StatusColorsTest {
         }
     }
 
-    // WARN only ever renders as the connection dot, so it owes the 3:1 non-text floor, not 4.5.
-    @Test fun warn_clears_non_text_contrast() {
-        assertTrue(contrast(statusArgb(StatusTone.WARN, dark = false), lightSurface) >= 3.0)
-        assertTrue(contrast(statusArgb(StatusTone.WARN, dark = true), darkSurface) >= 3.0)
-    }
-
-    // The dark tier is deliberately level with the dark primary: status separates from chrome by
-    // hue, never by shouting louder. Guard the spread so a later tweak cannot break the balance.
-    @Test fun dark_tier_is_level_with_the_dark_primary() {
-        val ratios = listOf(StatusTone.GOOD, StatusTone.WARN, StatusTone.BAD)
-            .map { contrast(statusArgb(it, dark = true), darkSurface) } +
-            contrast(primaryDark, darkSurface)
-        val spread = ratios.max() - ratios.min()
-        assertTrue("dark tier spread $spread too wide: $ratios", spread <= 1.0)
+    /**
+     * The graphic amber is the one value in this file that does NOT clear a contrast floor: 3.02:1
+     * on warm paper, which the design source picked and which the repo adopted on 2026-09-11 when
+     * following the mock replaced the floors (docs/DESIGN.md §7 item 8).
+     *
+     * Asserted as a range rather than left unchecked, so that the trade stays visible: if a later
+     * change drags it under 2.5 the pillar has effectively vanished, and that should be a decision
+     * rather than a slip.
+     */
+    @Test fun warn_graphic_tier_is_below_the_old_floor_on_purpose() {
+        val light = contrast(warnGraphicArgb(dark = false), lightSurface)
+        assertTrue("graphic amber $light is no longer the design's 3.02:1", light in 2.5..3.5)
+        assertTrue(contrast(warnGraphicArgb(dark = true), darkSurface) >= 3.0)
     }
 
     // --- WCAG + hue math, test-side only (same convention as ProfileAccentTest) ---

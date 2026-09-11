@@ -34,6 +34,12 @@ import com.hermes.client.ui.localization.localized
  *
  * Laid out with a plain [Layout], not BoxWithConstraints: ListItem measures its slots
  * intrinsically, and SubcomposeLayout-based components throw when asked for intrinsics.
+ *
+ * The 12sp step is applied HERE rather than at each ListItem (decision 2026-09-10): four screens
+ * render this line — the session list, search results, the project drill-down and the archive —
+ * and a subline that is 12sp in one list and 14sp in another is worse than either size. Material's
+ * ListItem would otherwise hand it bodyMedium at 14sp, only 1sp under the title, which is what
+ * made the secondary line compete with the primary one (docs/DESIGN.md §5.2).
  */
 @Composable
 fun SessionSubline(
@@ -43,8 +49,31 @@ fun SessionSubline(
     pinned: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val parts = sessionSublineParts(session, lead, defaultProjectPath)
+    // The project's real name when the catalog knows it (upstream projects have names of their
+    // own); the folder basename otherwise, which is what this row always used to show.
+    val projectName = LocalProjectNames.current(session)
+    val parts = sessionSublineParts(session, lead, defaultProjectPath, projectName)
     if (parts.isEmpty && !pinned) return
+    // One step lighter than ListItem's onSurfaceVariant, matching the design's "muted" tier
+    // (decision 2026-09-10). The glyph goes a further step down to the design's faint tier
+    // (SublineFaint) — 2.39:1 on paper, adopted 2026-09-11 when the contrast floors were dropped
+    // in favour of following the mock exactly (docs/DESIGN.md §7 item 8).
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.outline,
+    ) {
+        androidx.compose.material3.ProvideTextStyle(com.hermes.client.ui.tuning.tunedSubline()) { // TUNING-TEMP
+            SublineContent(parts, lead, pinned, modifier)
+        }
+    }
+}
+
+@Composable
+private fun SublineContent(
+    parts: SessionSublineParts,
+    lead: SublineLead,
+    pinned: Boolean,
+    modifier: Modifier,
+) {
     if (!pinned) {
         SublineBody(parts, lead, modifier)
         return
@@ -79,7 +108,7 @@ private fun SublineBody(parts: SessionSublineParts, lead: SublineLead, modifier:
             Icon(
                 if (lead == SublineLead.BRANCH) BranchStrokeIcon else FolderStrokeIcon,
                 contentDescription = null,
-                tint = LocalContentColor.current,
+                tint = com.hermes.client.ui.theme.sublineFaintColor(),
                 modifier = Modifier.size(14.dp),
             )
             Text(leadText, maxLines = 1, overflow = TextOverflow.Ellipsis)

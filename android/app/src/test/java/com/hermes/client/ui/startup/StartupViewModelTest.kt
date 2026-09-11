@@ -15,8 +15,6 @@ import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SessionRepository
-import com.hermes.client.data.repository.ViewModeStore
-import com.hermes.client.ui.sessions.ViewMode
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -26,7 +24,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
@@ -48,7 +45,6 @@ class StartupViewModelTest {
     private val profiles = mockk<ProfileManager>(relaxed = true)
     private val rest = mockk<HermesRestApi>()
     private val models = mockk<ModelRepository>(relaxed = true)
-    private val viewModes = mockk<ViewModeStore>()
     private val runtimes = mockk<SessionRuntimeStore>(relaxed = true)
     private val foregroundRecovery = mockk<ForegroundRecoveryCoordinator>()
     private val connection = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
@@ -61,7 +57,6 @@ class StartupViewModelTest {
         every { chat.connectionState } returns connection
         coEvery { sessions.listAllProfiles() } returns emptyList()
         coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns GatewayProbeResult.Reachable
-        every { viewModes.mode } returns flowOf(ViewMode.SESSIONS)
         coEvery { foregroundRecovery.recoverActive() } returns null
     }
 
@@ -75,7 +70,6 @@ class StartupViewModelTest {
         profiles,
         rest,
         models,
-        viewModes,
         runtimes,
         foregroundRecovery,
         accountSessions,
@@ -99,6 +93,23 @@ class StartupViewModelTest {
         verify(exactly = 1) { chat.connect() }
         coVerify(exactly = 1) { rest.gatewayStatus() }
         coVerify(exactly = 0) { rest.probeStatusFor(any(), any()) }
+    }
+
+    @Test fun pendingAccountActivationKeepsUsingTheRetainedLegacyConfiguration() = runTest {
+        val accountSessions = mockk<AccountSessionManager>()
+        every { accountSessions.session } returns MutableStateFlow(
+            accountSession().copy(activationPending = true, selectedDeviceId = null),
+        )
+        every { accountSessions.transportMode() } returns AccountTransportMode.ACCOUNT_PENDING
+        every { accountSessions.requiresAccountReauthentication() } returns false
+        val vm = vm(accountSessions)
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+
+        coVerify(exactly = 1) { rest.probeStatusFor(config.baseUrl, config.token) }
+        coVerify(exactly = 0) { rest.gatewayStatus() }
+        verify(exactly = 1) { chat.connect() }
     }
 
     @Test fun persistedAccountReauthenticationGateBlocksLegacyColdStartFallback() = runTest {
@@ -531,6 +542,36 @@ class StartupViewModelTest {
             StartupFailure.CONNECTION_FAILED,
             (vm.state.value as StartupUiState.Failed).failure,
         )
+    }
+
+    @Test fun failedLoopbackRelayRepairOpensAccountSetupInsteadOfLegacySettings() = runTest {
+        val loopback = GatewayConfig("http://127.0.0.1:8787", "dev-app-token")
+        every { credentials.load() } returns loopback
+        coEvery { rest.probeStatusFor(loopback.baseUrl, loopback.token) } returns
+            GatewayProbeResult.Unreachable("connection refused")
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        vm.requestConfigurationRepair()
+
+        val repair = vm.state.value as StartupUiState.RepairRequired
+        assertEquals(StartupFailure.CONNECTION_FAILED, repair.failure)
+        assertTrue(repair.accountSetup)
+    }
+
+    @Test fun failedPublicRelayRepairStillOpensLegacyConnectionSettings() = runTest {
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
+            GatewayProbeResult.Unreachable("connection refused")
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        vm.requestConfigurationRepair()
+
+        val repair = vm.state.value as StartupUiState.RepairRequired
+        assertEquals(StartupFailure.CONNECTION_FAILED, repair.failure)
+        assertTrue(!repair.accountSetup)
     }
 
     @Test fun gatewayReadyTimeoutOffersRecoveryInsteadOfBlockingForever() = runTest {

@@ -132,6 +132,13 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "inspect_account_rollout_stage_and_retry",
   }),
+  productionBindingRollout: Object.freeze({
+    code: "HR-OPS-021",
+    summaryZh: "生产 Desktop 绑定灰度未完成，已阻止启用或恢复为邮箱登录状态。请检查灰度阶段后重试。",
+    summaryEn: "The production Desktop-binding rollout did not complete. Enablement was blocked or email-only mode was restored. Inspect the rollout stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_binding_rollout_stage_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;

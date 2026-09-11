@@ -5,6 +5,8 @@ import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.EncryptedCredentialStore
 import com.hermes.client.data.auth.AccountSessionStore
 import com.hermes.client.data.auth.AccountSessionManager
+import com.hermes.client.data.auth.AccountConnection
+import com.hermes.client.data.auth.AccountDeviceRouteMode
 import com.hermes.client.data.auth.AccountTransportMode
 import com.hermes.client.data.auth.AccountClock
 import com.hermes.client.data.auth.ConversationDeviceStore
@@ -42,6 +44,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
+import java.net.URLEncoder
 import javax.inject.Singleton
 import javax.inject.Qualifier
 
@@ -52,6 +55,19 @@ annotation class UpdateHttpClient
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
 annotation class AccountHttpClient
+
+internal fun accountWebSocketEndpoint(account: AccountConnection): GatewayWebSocketEndpoint {
+    val path = when (account.deviceRouteMode) {
+        AccountDeviceRouteMode.SINGLE_BINDING -> "/api/ws"
+        AccountDeviceRouteMode.EXPLICIT_DEVICE ->
+            "/v2/devices/${URLEncoder.encode(account.deviceId, Charsets.UTF_8.name()).replace("+", "%20")}/ws"
+    }
+    return GatewayWebSocketEndpoint(
+        url = "${account.baseUrl.trimEnd('/')}$path",
+        bearerToken = account.bearer,
+        accountDeviceId = account.deviceId,
+    )
+}
 
 /**
  * WebSocket ping cadence, which OkHttp also uses as the pong deadline: no pong within one interval
@@ -200,11 +216,7 @@ object AppModule {
                     val account = accountSessions.transportConnection()
                         ?: throw GatewayEndpointException("account connection unavailable", retryable = false)
                     com.hermes.client.data.diagnostics.DebugLog.setTokenToRedact(account.bearer)
-                    GatewayWebSocketEndpoint(
-                        url = "${account.baseUrl.trimEnd('/')}/v2/devices/${encodePathSegment(account.deviceId)}/ws",
-                        bearerToken = account.bearer,
-                        accountDeviceId = account.deviceId,
-                    )
+                    accountWebSocketEndpoint(account)
                 }
                 AccountTransportMode.DEVICE_SELECTION_REQUIRED ->
                     throw GatewayEndpointException("account device selection required", retryable = false)
@@ -212,6 +224,7 @@ object AppModule {
                     throw GatewayEndpointException("account sign-in required", retryable = false)
                 AccountTransportMode.ACCOUNT_DELETION_COMMITTED ->
                     throw GatewayEndpointException("account deletion committed", retryable = false)
+                AccountTransportMode.ACCOUNT_PENDING,
                 AccountTransportMode.LEGACY -> {
                     val stored = store.load() ?: error("no gateway configured")
                     val cfg = stored.copy(baseUrl = normalizeGatewayBaseUrl(stored.baseUrl))
@@ -307,6 +320,16 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideProjectCatalog(
+        projects: ProjectsRepository,
+        sessions: com.hermes.client.data.repository.SessionRepository,
+        profileManager: com.hermes.client.data.repository.ProfileManager,
+        projectPrefs: com.hermes.client.data.repository.ProjectPrefsStore,
+    ): com.hermes.client.data.repository.ProjectCatalog =
+        com.hermes.client.data.repository.ProjectCatalog(projects, sessions, profileManager, projectPrefs)
+
+    @Provides
+    @Singleton
     fun provideTranscriptStore(
         @ApplicationContext context: Context,
     ): com.hermes.client.data.repository.TranscriptStore =
@@ -348,6 +371,13 @@ object AppModule {
     @Singleton
     fun providePinStore(@ApplicationContext context: Context): com.hermes.client.data.repository.PinStore =
         com.hermes.client.data.repository.PinStore(context)
+
+    @Provides
+    @Singleton
+    fun provideBotSendNoticeStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.BotSendNoticeStore =
+        com.hermes.client.data.repository.BotSendNoticeStore(context)
 
     @Provides
     @Singleton

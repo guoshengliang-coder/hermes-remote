@@ -179,6 +179,13 @@ open class HermesGatewayClient(
         /** Polling RPCs: recorded only when they are slow or fail. See [call]. */
         val QUIET_RPC_METHODS = setOf("process.list")
 
+        /**
+         * Methods whose *outcome* is logged, not just their request. Reserved for calls that decide
+         * which conversation every later line refers to: without the answer, a later "session not
+         * found" cannot be told apart from a create that never worked.
+         */
+        val OUTCOME_RPC_METHODS = setOf("session.create")
+
         /** A quiet RPC this slow is worth a line even though it succeeded. */
         const val SLOW_RPC_MS = 1_000L
     }
@@ -483,7 +490,11 @@ open class HermesGatewayClient(
         return try {
             val result = withTimeout(rpcTimeoutMs) { deferred.await() }
             val elapsed = System.currentTimeMillis() - startedAt
-            if (quiet && elapsed >= SLOW_RPC_MS) {
+            // A quiet method speaks when it was slow; a session-shaping method always speaks. HG-29
+            // was a session that went missing two minutes after session.create, and the log could
+            // not say whether the create had ever succeeded: the request line was there and nothing
+            // followed it either way.
+            if (method in OUTCOME_RPC_METHODS || (quiet && elapsed >= SLOW_RPC_MS)) {
                 DebugLog.log("ws", "rpc#$id $method ← ok (${elapsed}ms)")
             }
             result

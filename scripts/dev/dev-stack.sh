@@ -113,12 +113,28 @@ start_stack() {
     node "$CONNECTOR_MARKER"
   sleep 2
 
+  # Reverse the gateway port onto every attached target, each pinned with -s. `adb get-state`
+  # and a bare `adb reverse` both fail with "more than one device" as soon as a phone and an
+  # emulator are attached together — and the old code then reported a healthy stack while the
+  # app had no route to the gateway at all. Phones are the normal case on the owner's hosts,
+  # so this is the default state once an emulator boots, not an edge case.
   ADB="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb"
-  if [ -x "$ADB" ] && "$ADB" get-state >/dev/null 2>&1; then
-    "$ADB" reverse "tcp:$GATEWAY_PORT" "tcp:$GATEWAY_PORT" && echo "adb reverse tcp:$GATEWAY_PORT ready"
-  else
-    echo "note: no adb device — skip reverse (run again after the emulator boots)"
+  reversed=0
+  if [ -x "$ADB" ]; then
+    while read -r serial state _rest; do
+      [ "${state:-}" = "device" ] || continue
+      if "$ADB" -s "$serial" reverse "tcp:$GATEWAY_PORT" "tcp:$GATEWAY_PORT" >/dev/null 2>&1; then
+        echo "adb reverse tcp:$GATEWAY_PORT ready on $serial"
+        reversed=$((reversed + 1))
+      else
+        echo "warning: adb reverse failed on $serial" >&2
+      fi
+    done <<EOF
+$("$ADB" devices 2>/dev/null | tail -n +2)
+EOF
   fi
+  [ "$reversed" -eq 0 ] && \
+    echo "note: no adb target — skip reverse (run again once a device or emulator is up)"
   status_stack
   echo "logs: $LOG_DIR/{mock,gateway,connector}.log"
 }

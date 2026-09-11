@@ -98,6 +98,20 @@ class AccountDevicesScreenTest {
         compose.onRoot().captureRoboImage("/tmp/hermes-account-no-device-light.png")
     }
 
+    @Test fun singularPendingMigrationExplainsThatLegacyStaysActive() {
+        show(
+            AccountDevicesUiState(
+                stage = AccountStage.SIGNED_IN,
+                session = session(selectedDeviceId = null).copy(activationPending = true),
+                maxOwnedDevices = 1,
+            ),
+        )
+
+        compose.onNodeWithText("账号已登录，当前仍使用旧版连接", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("当前账号可连接 1 台 Mac。").assertIsDisplayed()
+        compose.onNodeWithText("让设备所有者分享给你", substring = true).assertDoesNotExist()
+    }
+
     @Test fun codeEntryShowsExpiryAndDisablesResendDuringCooldown() {
         show(
             AccountDevicesUiState(

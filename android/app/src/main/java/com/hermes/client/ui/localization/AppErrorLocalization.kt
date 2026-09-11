@@ -24,6 +24,12 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "无法设置默认模型，请重试。", "Couldn't set the default model. Retry.")
         AppErrorCode.MODEL_REASONING_FAILED ->
             localized(language, "无法调整推理强度，请重试。", "Couldn't change the reasoning effort. Retry.")
+        AppErrorCode.SLASH_WORKER_UNAVAILABLE ->
+            localized(
+                language,
+                "Mac 上的 Hermes 无法执行命令，请查看详情。",
+                "The Hermes on your Mac can't run commands. See the details.",
+            )
         AppErrorCode.CONFIG_READ_FAILED ->
             localized(language, "无法加载配置，请重试。", "Couldn't load the configuration. Retry.")
         AppErrorCode.CONFIG_WRITE_FAILED ->
@@ -100,6 +106,14 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "消息未发送，点按气泡重试。", "The message was not sent. Tap the bubble to retry.")
         AppErrorCode.SESSION_ARCHIVE_FAILED ->
             localized(language, "无法归档会话，请重试。", "Couldn't archive the conversation. Retry.")
+        AppErrorCode.PROJECT_NOT_FOUND ->
+            localized(language, "项目已不存在，请重新加载。", "That project no longer exists. Reload the list.")
+        AppErrorCode.PROJECT_NAME_INVALID ->
+            localized(language, "项目名称无效，请换一个。", "That project name isn't valid. Try another.")
+        AppErrorCode.PROJECT_SAVE_FAILED ->
+            localized(language, "无法保存项目改动，请重试。", "Couldn't save the project change. Retry.")
+        AppErrorCode.FOLDER_BROWSE_FAILED ->
+            localized(language, "无法读取该文件夹，请换一个位置。", "Couldn't read that folder. Try another location.")
         AppErrorCode.INSTALL_PERMISSION_REQUIRED ->
             localized(language, "需要允许安装未知应用，授权后请重试。", "Permission to install unknown apps is required. Grant it and retry.")
         AppErrorCode.HISTORY_INCOMPLETE ->

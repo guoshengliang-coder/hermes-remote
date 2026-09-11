@@ -152,7 +152,8 @@ R5-F1 补的就是这条路，且刻意不把它做成 R5-F 账号模式晋级�
 
 - **入口**：`scripts/production-release.mjs --config <同一份 R5-D 私密配置> --confirm production:<主机名>
   --operation deploy|rollback`。运维 bundle manifest 从 schema v3 起用 `releaseEntrypoint` 固定该入口；
-  schema v4 在保留该入口的同时增加独立的邮箱登录灰度入口；
+  schema v4 在保留该入口的同时增加独立的邮箱登录灰度入口；schema v5 再增加只从已提交邮箱态进入的
+  单 Mac 绑定/Desktop 受管安装灰度入口；
   v2 仍可读（Mac 上的 R5-E 自动化还在用 v2 制品），但不能用于发版。打包器会在 staging root 内实际启动
   该入口并只接受 `HR-OPS-016` 的参数诊断。
 - **授权面**：新增 `production-release` capability，三处（命令、候选、切换）各自独立判定：受管配置、

@@ -127,6 +127,7 @@ final class DesktopManagedInstallationTests: XCTestCase {
             credentialFile: credentialURL,
             gatewayURL: URL(string: "wss://gateway.example/v2/connect")!,
             hermesBaseURL: URL(string: "http://127.0.0.1:9119")!,
+            sessionTokenFile: layout.hermesSessionToken,
             standardOutput: testRoot.appendingPathComponent("managed/logs/connector.log"),
             standardError: testRoot.appendingPathComponent("managed/logs/connector.error.log")
         )
@@ -144,8 +145,127 @@ final class DesktopManagedInstallationTests: XCTestCase {
         let environment = try XCTUnwrap(decoded["EnvironmentVariables"] as? [String: String])
         XCTAssertEqual(environment["CONNECTOR_MODE"], "account")
         XCTAssertEqual(environment["GATEWAY_URL"], "wss://gateway.example/v2/connect")
+        XCTAssertEqual(environment["HERMES_SESSION_TOKEN_FILE"], layout.hermesSessionToken.path)
+        XCTAssertNil(environment["HERMES_SESSION_TOKEN"])
         XCTAssertNil(environment["CONNECTOR_TOKEN"])
         XCTAssertNil(environment["HERMES_AUTH_PASSWORD"])
+    }
+
+    func testHermesSessionTokenIsPrivateStableAndRejectsUnsafeReplacement() throws {
+        let testRoot = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: testRoot) }
+        let layout = try DesktopManagedInstallLayout(
+            root: testRoot.appendingPathComponent("managed"),
+            launchAgentsRoot: testRoot.appendingPathComponent("agents")
+        )
+        let installer = DesktopManagedInstaller(layout: layout)
+
+        let first = try installer.ensureHermesSessionToken()
+        let firstValue = try String(contentsOf: first, encoding: .utf8)
+        XCTAssertEqual(first, layout.hermesSessionToken)
+        XCTAssertNotNil(firstValue.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression))
+        XCTAssertEqual(try installer.ensureHermesSessionToken(), first)
+        XCTAssertEqual(try String(contentsOf: first, encoding: .utf8), firstValue)
+        let attributes = try FileManager.default.attributesOfItem(atPath: first.path)
+        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: first.path)
+        XCTAssertThrowsError(try installer.ensureHermesSessionToken()) { error in
+            XCTAssertEqual(error as? DesktopManagedInstallError, .unsafeFilesystemObject)
+        }
+    }
+
+    func testInlineHermesSessionTokenMigratesToPrivateFileAndCanRollBackExactly() throws {
+        let testRoot = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: testRoot) }
+        let layout = try DesktopManagedInstallLayout(
+            root: testRoot.appendingPathComponent("managed"),
+            launchAgentsRoot: testRoot.appendingPathComponent("agents")
+        )
+        let installer = DesktopManagedInstaller(layout: layout)
+        let token = String(repeating: "a", count: 64)
+        try writeManagedLaunchAgents(layout: layout, hermesToken: .inline(token), connectorToken: .inline(token))
+        let originalHermes = try Data(contentsOf: layout.hermesLaunchAgent)
+        let originalConnector = try Data(contentsOf: layout.connectorLaunchAgent)
+
+        let migration = try XCTUnwrap(installer.prepareHermesSessionTokenFileMigration())
+
+        XCTAssertEqual(try String(contentsOf: layout.hermesSessionToken, encoding: .utf8), token)
+        XCTAssertEqual(try tokenEnvironment(at: layout.hermesLaunchAgent), [
+            "HERMES_SESSION_TOKEN_FILE": layout.hermesSessionToken.path,
+        ])
+        XCTAssertEqual(try tokenEnvironment(at: layout.connectorLaunchAgent), [
+            "HERMES_SESSION_TOKEN_FILE": layout.hermesSessionToken.path,
+        ])
+        XCTAssertEqual(permissions(at: layout.hermesSessionToken), 0o600)
+
+        try installer.commitHermesSessionTokenFileMigration()
+        XCTAssertEqual(try Data(contentsOf: layout.hermesSessionTokenContractMarker), Data("1\n".utf8))
+        XCTAssertEqual(permissions(at: layout.hermesSessionTokenContractMarker), 0o600)
+        XCTAssertNil(try installer.prepareHermesSessionTokenFileMigration())
+
+        try installer.rollbackHermesSessionTokenFileMigration(migration)
+        XCTAssertEqual(try Data(contentsOf: layout.hermesLaunchAgent), originalHermes)
+        XCTAssertEqual(try Data(contentsOf: layout.connectorLaunchAgent), originalConnector)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: layout.hermesSessionToken.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: layout.hermesSessionTokenContractMarker.path))
+    }
+
+    func testHalfMigratedMatchingTokenResumesWithoutRotatingCredential() throws {
+        let testRoot = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: testRoot) }
+        let layout = try DesktopManagedInstallLayout(
+            root: testRoot.appendingPathComponent("managed"),
+            launchAgentsRoot: testRoot.appendingPathComponent("agents")
+        )
+        let installer = DesktopManagedInstaller(layout: layout)
+        let token = String(repeating: "b", count: 64)
+        try writeManagedLaunchAgents(layout: layout, hermesToken: .file, connectorToken: .inline(token))
+        try FileManager.default.createDirectory(
+            at: layout.secretsRoot,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try Data(token.utf8).write(to: layout.hermesSessionToken)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: layout.hermesSessionToken.path
+        )
+
+        XCTAssertNotNil(try installer.prepareHermesSessionTokenFileMigration())
+        XCTAssertEqual(try String(contentsOf: layout.hermesSessionToken, encoding: .utf8), token)
+        XCTAssertEqual(try tokenEnvironment(at: layout.hermesLaunchAgent), [
+            "HERMES_SESSION_TOKEN_FILE": layout.hermesSessionToken.path,
+        ])
+        XCTAssertEqual(try tokenEnvironment(at: layout.connectorLaunchAgent), [
+            "HERMES_SESSION_TOKEN_FILE": layout.hermesSessionToken.path,
+        ])
+    }
+
+    func testMismatchedInlineHermesTokensFailClosedWithoutMutation() throws {
+        let testRoot = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: testRoot) }
+        let layout = try DesktopManagedInstallLayout(
+            root: testRoot.appendingPathComponent("managed"),
+            launchAgentsRoot: testRoot.appendingPathComponent("agents")
+        )
+        let installer = DesktopManagedInstaller(layout: layout)
+        try writeManagedLaunchAgents(
+            layout: layout,
+            hermesToken: .inline(String(repeating: "c", count: 64)),
+            connectorToken: .inline(String(repeating: "d", count: 64))
+        )
+        let originalHermes = try Data(contentsOf: layout.hermesLaunchAgent)
+        let originalConnector = try Data(contentsOf: layout.connectorLaunchAgent)
+
+        XCTAssertThrowsError(try installer.prepareHermesSessionTokenFileMigration()) { error in
+            XCTAssertEqual(error as? DesktopManagedInstallError, .unsafeFilesystemObject)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: layout.hermesLaunchAgent), originalHermes)
+        XCTAssertEqual(try Data(contentsOf: layout.connectorLaunchAgent), originalConnector)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: layout.hermesSessionToken.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: layout.hermesSessionTokenContractMarker.path))
     }
 
     func testHermesLaunchAgentUsesOnlySignedEntrypointAndFrozenLoopbackContract() throws {
@@ -161,6 +281,7 @@ final class DesktopManagedInstallationTests: XCTestCase {
             ),
             hermesHome: testRoot.appendingPathComponent("hermes-home"),
             runtimeContract: .serveV1,
+            sessionTokenFile: layout.hermesSessionToken,
             standardOutput: testRoot.appendingPathComponent("managed/logs/hermes-server.log"),
             standardError: testRoot.appendingPathComponent("managed/logs/hermes-server.error.log")
         )
@@ -185,7 +306,11 @@ final class DesktopManagedInstallationTests: XCTestCase {
         ])
         XCTAssertEqual(
             decoded["EnvironmentVariables"] as? [String: String],
-            ["HERMES_HOME": testRoot.appendingPathComponent("hermes-home").path]
+            [
+                "HERMES_HOME": testRoot.appendingPathComponent("hermes-home").path,
+                "HERMES_DESKTOP": "1",
+                "HERMES_SESSION_TOKEN_FILE": layout.hermesSessionToken.path,
+            ]
         )
         XCTAssertNil(decoded["KeepAlive"])
     }
@@ -221,6 +346,7 @@ final class DesktopManagedInstallationTests: XCTestCase {
             credentialFile: layout.connectorCredential,
             gatewayURL: URL(string: "wss://gateway.example/v2/connect")!,
             hermesBaseURL: URL(string: "http://127.0.0.1:9119")!,
+            sessionTokenFile: layout.hermesSessionToken,
             standardOutput: layout.logsRoot.appendingPathComponent("connector.log"),
             standardError: layout.logsRoot.appendingPathComponent("connector.error.log")
         )
@@ -237,6 +363,7 @@ final class DesktopManagedInstallationTests: XCTestCase {
             hermesExecutable: URL(fileURLWithPath: "/bin/sh"),
             hermesHome: testRoot.appendingPathComponent("hermes-home"),
             runtimeContract: .serveV1,
+            sessionTokenFile: layout.hermesSessionToken,
             standardOutput: layout.logsRoot.appendingPathComponent("hermes-server.log"),
             standardError: layout.logsRoot.appendingPathComponent("hermes-server.error.log")
         )
@@ -302,5 +429,95 @@ final class DesktopManagedInstallationTests: XCTestCase {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("hermes-managed-install-\(UUID().uuidString)", isDirectory: true)
             .resolvingSymlinksInPath()
+    }
+
+    private enum TestTokenStorage {
+        case file
+        case inline(String)
+    }
+
+    private func writeManagedLaunchAgents(
+        layout: DesktopManagedInstallLayout,
+        hermesToken: TestTokenStorage,
+        connectorToken: TestTokenStorage
+    ) throws {
+        try FileManager.default.createDirectory(
+            at: layout.launchAgentsRoot,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try writeManagedLaunchAgent(
+            at: layout.hermesLaunchAgent,
+            label: DesktopManagedInstallLayout.hermesLabel,
+            executable: layout.currentRelease.appendingPathComponent("hermes_server/bin/hermes-server"),
+            trailingArguments: ["serve", "--host", "127.0.0.1", "--port", "9119"],
+            logURL: layout.logsRoot.appendingPathComponent("hermes-server.log"),
+            errorLogURL: layout.logsRoot.appendingPathComponent("hermes-server.error.log"),
+            tokenFileURL: layout.hermesSessionToken,
+            tokenStorage: hermesToken,
+            inlineKey: "HERMES_DASHBOARD_SESSION_TOKEN"
+        )
+        try writeManagedLaunchAgent(
+            at: layout.connectorLaunchAgent,
+            label: DesktopManagedInstallLayout.connectorLabel,
+            executable: layout.currentRelease.appendingPathComponent("connector/bin/hermes-connector"),
+            trailingArguments: [],
+            logURL: layout.logsRoot.appendingPathComponent("connector.log"),
+            errorLogURL: layout.logsRoot.appendingPathComponent("connector.error.log"),
+            tokenFileURL: layout.hermesSessionToken,
+            tokenStorage: connectorToken,
+            inlineKey: "HERMES_SESSION_TOKEN"
+        )
+    }
+
+    private func writeManagedLaunchAgent(
+        at url: URL,
+        label: String,
+        executable: URL,
+        trailingArguments: [String],
+        logURL: URL,
+        errorLogURL: URL,
+        tokenFileURL: URL,
+        tokenStorage: TestTokenStorage,
+        inlineKey: String
+    ) throws {
+        var environment = ["TEST_ENVIRONMENT": "preserved"]
+        switch tokenStorage {
+        case .file:
+            environment["HERMES_SESSION_TOKEN_FILE"] = tokenFileURL.path
+        case .inline(let token):
+            environment[inlineKey] = token
+        }
+        let object: [String: Any] = [
+            "Label": label,
+            "ProgramArguments": [executable.path] + trailingArguments,
+            "StandardOutPath": logURL.path,
+            "StandardErrorPath": errorLogURL.path,
+            "EnvironmentVariables": environment,
+        ]
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: object,
+            format: .xml,
+            options: 0
+        )
+        try data.write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    private func tokenEnvironment(at url: URL) throws -> [String: String] {
+        let object = try XCTUnwrap(
+            PropertyListSerialization.propertyList(
+                from: Data(contentsOf: url),
+                options: [],
+                format: nil
+            ) as? [String: Any]
+        )
+        let environment = try XCTUnwrap(object["EnvironmentVariables"] as? [String: String])
+        return environment.filter { $0.key.contains("SESSION_TOKEN") }
+    }
+
+    private func permissions(at url: URL) -> Int? {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return (attributes?[.posixPermissions] as? NSNumber)?.intValue
     }
 }

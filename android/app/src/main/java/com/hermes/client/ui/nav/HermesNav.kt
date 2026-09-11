@@ -19,12 +19,14 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -52,7 +54,6 @@ import com.hermes.client.ui.messaging.MessagingSetupScreen
 import com.hermes.client.ui.models.ModelsScreen
 import com.hermes.client.ui.models.ModelsViewModel
 import com.hermes.client.ui.sessions.SessionsScreen
-import com.hermes.client.ui.sessions.BotTranscriptScreen
 import com.hermes.client.ui.sessions.SessionsViewModel
 import com.hermes.client.ui.sessions.SearchViewModel
 import com.hermes.client.ui.settings.AboutScreen
@@ -156,13 +157,15 @@ fun HermesNav(
     var pendingSetupCompletion by rememberSaveable { mutableStateOf<Long?>(null) }
     var setupRepairInProgress by rememberSaveable { mutableStateOf(false) }
 
-    fun openCanonicalChat(route: String) {
+    // A chat is a LEAF of the hub it was opened from — Chats, Projects or Archived — never
+    // another layer on top of a previous chat/search/detail destination. That keeps back
+    // deterministic (one press returns to the list you were browsing, and browsing a project's
+    // chats does not bounce you home each time), and normalizes stacks restored after process
+    // death. [anchor] names that hub; it must be on the back stack.
+    fun openCanonicalChat(route: String, anchor: String = "sessions") {
         CrashReporter.breadcrumb("nav", "open ${diagnosticRoute(route)}")
         nav.navigate(route) {
-            // A chat is a leaf of the single Sessions root, never another layer on top of a
-            // previous chat/search/detail destination. This also normalizes stacks restored after
-            // process death and makes system back deterministic: one press always returns home.
-            popUpTo("sessions") { inclusive = false }
+            popUpTo(anchor) { inclusive = false }
             launchSingleTop = true
             restoreState = false
         }
@@ -270,9 +273,19 @@ fun HermesNav(
     // Pushed screens navigate "up"; their top-bar nav icon (formerly the drawer hamburger) is a
     // back arrow wired to this.
     val back: () -> Unit = { nav.popBackStack() }
-    val backToSessions: () -> Unit = {
-        CrashReporter.breadcrumb("nav", "chat back -> sessions")
-        if (!nav.popBackStack("sessions", inclusive = false)) {
+    // Back out of a chat, to the LIST it was opened from. The chat sits directly on its hub
+    // (see openCanonicalChat), so the entry beneath it is that hub — Chats, Projects or
+    // Archived. This is the chat's top-bar arrow AND its system-back handler AND where it goes
+    // after archiving or moving a conversation away, so all three must agree. A stack restored
+    // without a hub beneath falls back to a fresh Chats root.
+    val backToList: () -> Unit = {
+        val hub = nav.previousBackStackEntry?.destination?.route
+        CrashReporter.breadcrumb("nav", "chat back -> ${hub ?: "sessions"}")
+        val landed = when (hub) {
+            "projects", "archived" -> nav.popBackStack()
+            else -> nav.popBackStack("sessions", inclusive = false)
+        }
+        if (!landed) {
             nav.navigate("sessions") {
                 popUpTo(nav.graph.startDestinationId) { inclusive = true }
                 launchSingleTop = true
@@ -312,6 +325,10 @@ fun HermesNav(
     ModalNavigationDrawer(
         drawerState = drawerState,
         gesturesEnabled = drawerState.isOpen || route == "sessions",
+        // The card-page mock dims the list at 25% in light and 60% in dark (`bg-black/25`,
+        // `bg-black/60`). It also blurs it by 2–3px, which a modal drawer's scrim cannot do;
+        // recorded as a deviation in design-conformance.json.
+        scrimColor = Color.Black.copy(alpha = if (com.hermes.client.ui.theme.isDarkSurface()) 0.60f else 0.25f),
         drawerContent = { CardPage(onNavigate = closeCardAnd, drawerState = drawerState) },
     ) {
     Scaffold(
@@ -333,6 +350,13 @@ fun HermesNav(
                     onDone = { showNotificationOnboarding = false },
                 )
             }
+            // One source for "what is this chat's project called", for every row on every screen
+            // (list, archive, search, chat subtitle). See LocalProjectNames.
+            val projectNames: com.hermes.client.ui.sessions.ProjectNamesViewModel = hiltViewModel()
+            val nameFor by projectNames.nameFor.collectAsStateWithLifecycle()
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.hermes.client.ui.sessions.LocalProjectNames provides nameFor,
+            ) {
             NavHost(
                 navController = nav,
                 startDestination = start,
@@ -369,12 +393,38 @@ fun HermesNav(
                     onOpen = openChat,
                     onOpenCard = openCard,
                     onOpenSearch = { nav.navigate("search") { launchSingleTop = true } },
+                    onOpenProjects = { push("projects") },
+                    onOpenArchived = { push("archived") },
                     onOpenCron = { push("cron") },
                     onOpenMessaging = { push("messaging") },
-                    onOpenBotSession = { id, profile ->
-                        push("bot_transcript/$id?profile=${profile.orEmpty()}")
-                    },
                     onUnauthorized = onUnauthorized,
+                )
+            }
+            // Projects and Archived SHARE the Chats ViewModel, deliberately: it owns the socket
+            // restore, the event collector and the cross-profile session list, and a second
+            // instance would silently duplicate all of it. Never `hiltViewModel()` here.
+            composable("projects") { entry ->
+                val vm: SessionsViewModel = hiltViewModel(remember(entry) { nav.getBackStackEntry("sessions") })
+                DisposableEffect(foregroundRecovery, vm) {
+                    foregroundRecovery?.register("projects") { vm.recoverProjectsForForeground() }
+                    onDispose { foregroundRecovery?.unregister("projects") }
+                }
+                com.hermes.client.ui.sessions.ProjectsScreen(
+                    vm = vm,
+                    onBack = back,
+                    onOpen = { target -> openCanonicalChat(chatRoute(target), anchor = "projects") },
+                )
+            }
+            composable("archived") { entry ->
+                val vm: SessionsViewModel = hiltViewModel(remember(entry) { nav.getBackStackEntry("sessions") })
+                DisposableEffect(foregroundRecovery, vm) {
+                    foregroundRecovery?.register("archived") { vm.recoverArchivedForForeground() }
+                    onDispose { foregroundRecovery?.unregister("archived") }
+                }
+                com.hermes.client.ui.sessions.ArchivedScreen(
+                    vm = vm,
+                    onBack = back,
+                    onOpen = { target -> openCanonicalChat(chatRoute(target), anchor = "archived") },
                 )
             }
             composable(
@@ -426,7 +476,7 @@ fun HermesNav(
                     isNewSession = entry.arguments?.getBoolean("new") ?: false,
                     initialQuery = entry.arguments?.getString("q"),
                     vm = vm,
-                    onMenu = backToSessions,
+                    onMenu = backToList,
                     onSearchAll = { q -> nav.navigate("search?q=${Uri.encode(q)}") { launchSingleTop = true } },
                     onNewChat = { id ->
                         openCanonicalChat(chatRoute(ChatLaunch.new(id)))
@@ -477,11 +527,6 @@ fun HermesNav(
                     onDone = { nav.popBackStack() },
                 )
             }
-            composable("bot_transcript/{id}?profile={profile}") { entry ->
-                val id = entry.arguments?.getString("id").orEmpty()
-                val profile = entry.arguments?.getString("profile")?.takeIf { it.isNotBlank() }
-                BotTranscriptScreen(sessionId = id, profile = profile, onBack = back)
-            }
             composable("messaging") {
                 MessagingScreen(
                     onMenu = back,
@@ -513,6 +558,18 @@ fun HermesNav(
                 )
             }
             composable("app_update") { AppUpdateScreen(onBack = { nav.popBackStack() }) }
+            // TUNING-TEMP
+            composable("settings_tuning") {
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                val store = remember { com.hermes.client.ui.tuning.SessionListTuningStore(ctx) }
+                val tuning by store.tuning.collectAsState(initial = com.hermes.client.ui.tuning.SessionListTuning())
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                com.hermes.client.ui.tuning.SessionListTuningScreen(
+                    tuning = tuning,
+                    onChange = { scope.launch { store.save(it) } },
+                    onBack = { nav.popBackStack() },
+                )
+            }
             composable("settings_appearance") { AppearanceScreen(onBack = { nav.popBackStack() }) }
             composable("settings_language") { LanguageScreen(onBack = { nav.popBackStack() }) }
             composable("settings_account") {
@@ -575,6 +632,7 @@ fun HermesNav(
             }
             composable("settings_about") { AboutScreen(onBack = { nav.popBackStack() }) }
             composable("agents_tools") { AgentsToolsScreen(onMenu = back) }
+            }
             }
         }
     }

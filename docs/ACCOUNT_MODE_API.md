@@ -488,6 +488,20 @@ identifier. A null `lastAttemptAt` is normal during the 60-second startup delay.
 the scheduler retries on its next six-hour interval. This endpoint also remains absent from public
 Nginx routing.
 
+### Internal live-Connector snapshot
+
+Authenticated loopback operations may call `GET /internal/account-connectors` with the same
+`INTERNAL_STATUS_TOKEN`. It reports the independently counted legacy and account-mode live
+connections. Each account-mode row contains only its binding UUID, public device ID, binding
+generation, and the time the current WebSocket was registered. It never returns an account ID,
+installation ID, email address, credential, public key, Hermes content, or network address.
+
+`connectedAt` is a connection-age signal, not a durable last-seen record. The authenticated
+`GET /v2/devices` account view remains the source of truth for persisted `lastSeenAt` and end-to-end
+health. A zero `accountOnline` value while a migrated Desktop claims `account_active` is a rollout
+failure; an expected legacy Connector does not make account mode healthy merely because
+`legacyOnline` is nonzero. This endpoint must remain absent from public Nginx routing.
+
 ### `POST /v2/auth/revoke-all`
 
 Requires the current access token, an `Idempotency-Key` UUID, and a fresh `account.revoke_all`
@@ -720,7 +734,11 @@ Returns exactly one of:
 - `state=bound` with safe Desktop name, binding ID/generation, Connector online/last seen, observed
   Hermes reachability/version, Gateway latency, and end-to-end status;
 - `state=replacement_pending` to the requesting Desktop only;
-- `state=revoked` to an old Desktop whose binding generation was replaced.
+- `state=revoked` to an old Desktop whose binding generation was replaced or whose newest pending
+  candidate expired. The generation is always the newest revoked-or-expired generation for that
+  Desktop, even before the next mutation or retention sweep persists an expired candidate as revoked;
+  this lets a safely rolled-back Desktop match its local terminal journal without weakening explicit
+  revocation handling.
 
 Phone clients use this response to populate the existing Remote device stat and its detail page.
 With E3 enabled it remains a compatibility view: a Desktop sees only its own binding state, and a

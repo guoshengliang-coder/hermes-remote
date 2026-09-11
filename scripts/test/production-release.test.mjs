@@ -13,6 +13,7 @@ import { loadManagedBaselineConfig } from "../../ops/lib/managed-baseline-config
 import { renderEmailRolloutEnvironment } from "../../ops/lib/production-account-rollout.mjs";
 import {
   inspectProductionReleaseEnvironment,
+  renderBindingRolloutEnvironment,
   renderProductionReleaseEnvironment,
 } from "../../ops/lib/production-release-environment.mjs";
 import {
@@ -101,6 +102,23 @@ test("R5-F1 preserves the exact email-only runtime while changing only the candi
   );
 });
 
+test("R5-F1 recognizes and preserves the exact single-Mac binding runtime", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  await writeEmailEnvironment(config, "blue");
+  const email = await inspectProductionReleaseEnvironment(config, "blue");
+  const bindingEnvironment = renderBindingRolloutEnvironment(config, "blue", email);
+  await writeFile(environmentPath(config, "blue"), bindingEnvironment, { mode: 0o600 });
+  const inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  assert.equal(inspected.mode, "email_binding");
+  const candidate = renderProductionReleaseEnvironment(config, "green", inspected);
+  assert.match(candidate, /^PORT=18788$/m);
+  assert.match(candidate, /^ACCOUNT_BINDING_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_MULTI_DEVICE_ENABLED=0$/m);
+  assert.match(candidate, /^ACCOUNT_DEVICE_SHARING_ENABLED=0$/m);
+});
+
 test("R5-F1 rejects email-mode schema changes and post-admission environment drift", async (t) => {
   const fixture = await createFixture(t);
   const config = await loadManagedBaselineConfig(fixture.configPath);
@@ -122,7 +140,7 @@ test("R5-F1 rejects email-mode schema changes and post-admission environment dri
   );
 });
 
-test("R5-F1 email smoke requires the narrow public account surface", async () => {
+test("R5-F1 email smoke requires the narrow public and disabled private binding surfaces", async () => {
   const requests = [];
   const goodFetch = async (url) => {
     requests.push(new URL(url).pathname);
@@ -132,8 +150,32 @@ test("R5-F1 email smoke requires the narrow public account surface", async () =>
     if (pathname === "/v2/connector-binding") return new Response("not found", { status: 404 });
     assert.fail(`unexpected URL ${url}`);
   };
-  await verifyPreservedEmailSurface({ gatewayUrl: "https://gateway.example.com" }, goodFetch);
+  await verifyPreservedEmailSurface({ gatewayUrl: "https://gateway.example.com", publicRoute: true }, goodFetch);
   assert.deepEqual(requests, ["/v2/capabilities", "/v2/account", "/v2/connector-binding"]);
+
+  await verifyPreservedEmailSurface({ gatewayUrl: "http://127.0.0.1:18787", publicRoute: false }, async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === "/v2/capabilities") return jsonResponse(emailCapabilities());
+    if (pathname === "/v2/account") return new Response("{}", { status: 401 });
+    if (pathname === "/v2/connector-binding") return new Response("disabled", { status: 503 });
+    assert.fail(`unexpected URL ${url}`);
+  });
+
+  for (const [publicRoute, status] of [[true, 503], [false, 404]]) {
+    await assert.rejects(
+      () => verifyPreservedEmailSurface({
+        gatewayUrl: publicRoute ? "https://gateway.example.com" : "http://127.0.0.1:18787",
+        publicRoute,
+      }, async (url) => {
+        const pathname = new URL(url).pathname;
+        if (pathname === "/v2/capabilities") return jsonResponse(emailCapabilities());
+        if (pathname === "/v2/account") return new Response("{}", { status: 401 });
+        if (pathname === "/v2/connector-binding") return new Response("unexpected", { status });
+        assert.fail(`unexpected URL ${url}`);
+      }),
+      (error) => error?.technicalCause === "production_release_binding_route_must_stay_absent",
+    );
+  }
 
   await assert.rejects(
     () => verifyPreservedEmailSurface({ gatewayUrl: "https://gateway.example.com" }, async (url) => {
@@ -142,6 +184,42 @@ test("R5-F1 email smoke requires the narrow public account surface", async () =>
       }
       return new Response("{}", { status: 401 });
     }),
+    (error) => error?.technicalCause === "production_release_email_capabilities_invalid",
+  );
+});
+
+test("R5-F1 binding smoke requires singular binding and the managed runtime contract", async () => {
+  const requests = [];
+  const fetchImpl = async (url) => {
+    requests.push(new URL(url).pathname);
+    const pathname = new URL(url).pathname;
+    if (pathname === "/v2/capabilities") return jsonResponse(bindingCapabilities());
+    if (pathname === "/v2/account" || pathname === "/v2/connector-binding") {
+      return new Response("{}", { status: 401 });
+    }
+    assert.fail(`unexpected URL ${url}`);
+  };
+  await verifyPreservedEmailSurface(
+    { gatewayUrl: "https://gateway.example.com", publicRoute: true },
+    fetchImpl,
+    { bindingEnabled: true },
+  );
+  assert.deepEqual(requests, ["/v2/capabilities", "/v2/account", "/v2/connector-binding"]);
+
+  await assert.rejects(
+    () => verifyPreservedEmailSurface(
+      { gatewayUrl: "https://gateway.example.com", publicRoute: true },
+      async (url) => {
+        const pathname = new URL(url).pathname;
+        if (pathname === "/v2/capabilities") {
+          const value = bindingCapabilities();
+          value.desktopBootstrap.runtimeContract = "other-contract";
+          return jsonResponse(value);
+        }
+        return new Response("{}", { status: 401 });
+      },
+      { bindingEnabled: true },
+    ),
     (error) => error?.technicalCause === "production_release_email_capabilities_invalid",
   );
 });
@@ -157,16 +235,20 @@ test("R5-F1 tells both candidate and public smoke to expect the preserved email 
     candidateSmoke: smoke,
     publicSmoke: smoke,
     fetchImpl: async (url) => {
-      const pathname = new URL(url).pathname;
+      const parsed = new URL(url);
+      const pathname = parsed.pathname;
       if (pathname === "/v2/capabilities") return jsonResponse(emailCapabilities());
       if (pathname === "/v2/account") return new Response("{}", { status: 401 });
-      if (pathname === "/v2/connector-binding") return new Response("not found", { status: 404 });
+      if (pathname === "/v2/connector-binding") {
+        return parsed.protocol === "https:"
+          ? new Response("not found", { status: 404 })
+          : new Response("disabled", { status: 503 });
+      }
       assert.fail(`unexpected URL ${url}`);
     },
     executeDeployment: async (_config, _target, options) => {
-      const request = { gatewayUrl: "https://gateway.example.com" };
-      await options.candidateSmoke(request);
-      await options.publicSmoke(request);
+      await options.candidateSmoke({ gatewayUrl: "http://127.0.0.1:18787", publicRoute: false });
+      await options.publicSmoke({ gatewayUrl: "https://gateway.example.com", publicRoute: true });
       return { ok: true, stage: "committed", activeSlot: "green", previousSlot: "blue" };
     },
   });
@@ -742,6 +824,14 @@ function emailCapabilities() {
     },
     binding: { enabled: false, replacement: false, maxActiveConnectorsPerAccount: 1 },
     legacy: { appTokenAccepted: true, connectorTokenAccepted: true },
+  };
+}
+
+function bindingCapabilities() {
+  return {
+    ...emailCapabilities(),
+    binding: { enabled: true, replacement: true, maxActiveConnectorsPerAccount: 1 },
+    desktopBootstrap: { runtimeContract: "hermes-serve-v1" },
   };
 }
 

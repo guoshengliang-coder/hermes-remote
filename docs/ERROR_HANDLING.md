@@ -95,6 +95,10 @@ backward compatible.
   the code without its `HR-` prefix (`SESS-007`), rendered in the neutral text colour after the
   localized action copy. The compact form is display-only; the full code stays the identity in
   toasts, pages, diagnostics, notifications and this registry (`AppErrorCode.compact`).
+- A non-retryable failure must not carry a retry affordance. `retryable = false` means the tap is
+  withheld, not merely discouraged: the bubble shows no "点按重试" copy, takes no click, and the
+  ViewModel refuses to re-dispatch it. An offer that cannot work is worse than none, because the
+  user keeps paying for it (HG-29: five taps, five identical 4001/4007 pairs).
 - Recoverable connection transitions use neutral progress states such as “正在重新连接…” rather
   than an error until retry policy is exhausted.
 - A recovered connection briefly shows success and then dismisses itself.
@@ -179,9 +183,10 @@ expanded without changing the underlying meaning.
 | `HR-RPC-001` | Gateway RPC returned an unmapped remote error | Relay 请求失败，请查看详情后重试。 | The Relay request failed. Review the details and retry. | Depends |
 | `HR-RPC-002` | Gateway RPC response timed out | Relay 响应超时，请稍后重试。 | The Relay response timed out. Try again shortly. | Yes |
 | `HR-RPC-003` | Model catalog could not be loaded | 无法加载模型列表，请重试。 | Couldn't load the model list. Retry. | Yes |
-| `HR-RPC-004` | Switching the conversation's session model failed | 无法切换本会话的模型，请重试。 | Couldn't switch this conversation's model. Retry. | Yes |
+| `HR-RPC-004` | Switching the conversation's session model failed — the switch itself was refused (bad credentials, unknown model). Does **not** cover a slash worker that never started; that is `HR-RPC-007` | 无法切换本会话的模型，请重试。 | Couldn't switch this conversation's model. Retry. | Yes |
 | `HR-RPC-005` | Setting the default model failed | 无法设置默认模型，请重试。 | Couldn't set the default model. Retry. | Yes |
 | `HR-RPC-006` | Changing the conversation's reasoning effort failed | 无法调整推理强度，请重试。 | Couldn't change the reasoning effort. Retry. | Yes |
+| `HR-RPC-007` | The Mac's Hermes could not run a slash command at all — its slash worker died on spawn (`slash.exec` 5030). Every slash command is affected, the model switch among them, so this is a broken Hermes install rather than a refused switch, and retrying cannot help | Mac 上的 Hermes 无法执行命令，请查看详情。 | The Hermes on your Mac can't run commands. See the details. | No |
 | `HR-CONFIG-001` | Configuration could not be loaded | 无法加载配置，请重试。 | Couldn't load the configuration. Retry. | Yes |
 | `HR-CONFIG-002` | Configuration could not be saved | 无法保存配置，请重试。 | Couldn't save the configuration. Retry. | Yes |
 | `HR-CONFIG-003` | Relay URL is invalid | Relay 地址格式无效，请检查后重试。 | The Relay URL is invalid. Check it and retry. | Yes |
@@ -201,6 +206,7 @@ expanded without changing the underlying meaning.
 | `HR-RELEASE-001` | Gateway image prerequisites, source cleanliness, dependency build, or release packaging gate failed | 无法生成可验证的 Gateway 镜像，请检查构建环境和源码状态。 | Couldn't build a verifiable Gateway image. Check the build environment and source state. | Yes (inspect details, fix prerequisites, retry) |
 | `HR-RELEASE-002` | Gateway candidate image identity, architecture, isolation, startup, readiness, or Connector attachment check failed | Gateway 候选镜像未通过身份、隔离或就绪检查。 | The Gateway candidate image failed its identity, isolation, or readiness checks. | Yes (inspect details and retry) |
 | `HR-RELEASE-003` | Gateway candidate image REST, WebSocket, authentication, or release-contract smoke failed | Gateway 候选镜像的端到端验证失败，请检查诊断后重试。 | The Gateway candidate image failed end-to-end verification. Review diagnostics and retry. | Yes (inspect details and retry) |
+| `HR-RELEASE-004` | Desktop managed release archive packaging, Ed25519 signing, or local artifact integrity verification failed | Desktop 受管发布包未通过生成、签名或完整性校验。 | The Desktop managed release failed packaging, signing, or integrity verification. | Yes (inspect details, fix the release input, and retry) |
 | `HR-OPS-001` | Cloud Ops configuration, host platform, dependency, input-file safety, or preflight requirement is invalid | Cloud Ops 配置或主机前置条件无效，请修正后重试。 | The Cloud Ops configuration or host prerequisites are invalid. Fix them and retry. | Yes (fix configuration/prerequisite, retry) |
 | `HR-OPS-002` | OCI bundle manifest, archive hash, image identity, or architecture verification failed | Gateway 制品身份或完整性校验失败，已阻止安装。 | Gateway artifact identity or integrity verification failed, so installation was blocked. | No (replace the artifact) |
 | `HR-OPS-003` | Staging bootstrap, stage recovery, managed-file installation, service start, or smoke did not complete | Staging 初始化未完成，请检查阶段状态后安全重试。 | Staging bootstrap did not complete. Inspect its stage and retry safely. | Yes (inspect recorded stage, retry the same configuration) |
@@ -221,6 +227,7 @@ expanded without changing the underlying meaning.
 | `HR-OPS-018` | Public SPF TXT, Return-Path MX, DKIM TXT, or DMARC TXT records do not match the reviewed mail-domain contract | 邮件域名的 SPF、DKIM、DMARC 公共记录尚未通过验收，请修正 DNS 后重试。 | The mail domain's public SPF, DKIM, and DMARC records did not pass acceptance. Fix DNS and rerun the read-only audit. | Yes (fix DNS and rerun the read-only audit) |
 | `HR-OPS-019` | The bounded account-retention sweep could not complete; the login service remains available and the next scheduled sweep will retry | 账号数据定期清理未完成，登录服务仍可使用，系统将在下一周期重试。 | Account-data maintenance did not complete. Login remains available, and the system will retry on the next cycle. | Yes (inspect the private retention snapshot and database health) |
 | `HR-OPS-020` | Production email-login migration, secret installation, restart, smoke verification, or restoration of the disabled state did not complete | 生产邮箱登录灰度启用未完成，已阻止启用或恢复为账号关闭。请检查灰度阶段后重试。 | The production email-login rollout did not complete. Enablement was blocked or account mode was restored to disabled. Inspect the rollout stage and retry. | Yes (inspect the protected rollout journal and retry only after confirming account mode is disabled) |
+| `HR-OPS-021` | Production single-Mac binding/Desktop-bootstrap enablement, route installation, restart, smoke verification, or restoration of email-only mode did not complete | 生产 Desktop 绑定灰度未完成，已阻止启用或恢复为邮箱登录状态。请检查灰度阶段后重试。 | The production Desktop-binding rollout did not complete. Enablement was blocked or email-only mode was restored. Inspect the rollout stage and retry. | Yes (inspect the protected binding-rollout journal and retry only after confirming email-only mode is restored) |
 | `HR-FILE-001` | A selected attachment could not be read | 无法读取所选文件，请重新选择。 | Couldn't read the selected file. Choose it again. | Yes |
 | `HR-FILE-002` | An exported transcript file could not be written or shared | 无法生成对话文件，请重试。 | Couldn't create the transcript file. Retry. | Yes |
 | `HR-FILE-003` | A Hermes-delivered artifact resolved outside `FILES_ROOT`, or the Mac refused to open it (Connector 403) | 这个文件不在 Mac 允许访问的目录内，无法下载。请让 Hermes 把它放到允许的目录。 | The file sits outside the folder the Mac allows, so it can't be downloaded. Ask Hermes to place it inside that folder. | No (move the file, or widen `FILES_ROOT`) |
@@ -232,14 +239,18 @@ expanded without changing the underlying meaning.
 | `HR-MEDIA-003` | The transcript image could not be rendered or shared | 无法生成对话长图，请重试或改用 Markdown 文件。 | Couldn't render the transcript image. Retry, or share it as a Markdown file. | Yes |
 | `HR-MEDIA-002` | A picked avatar photo could not be decoded, cropped, or encoded (ImageDecoder/BitmapFactory failure, unreadable URI, empty image) | 无法读取所选照片，请换一张再试。 | Couldn't read the selected photo. Try a different one. | Yes |
 | `HR-PERM-003` | Android blocks installation from this source | 需要允许安装未知应用，授权后请重试。 | Permission to install unknown apps is required. Grant it and retry. | Yes |
-| `HR-SESS-001` | Session no longer exists | 会话不存在或已被删除。 | The conversation no longer exists or was deleted. | No |
+| `HR-SESS-001` | Session no longer exists. Also the send path's terminal outcome: upstream reclaimed the conversation (`session.reclaimed`, or `session.resume` → 4007) and it held history, so it could not be silently replaced. The bubble reads 未发送 with this code and offers **no** retry | 会话不存在或已被删除。 | The conversation no longer exists or was deleted. | No |
 | `HR-SESS-002` | Live session handle is stale | 会话连接已失效，正在重新挂接。 | The live conversation handle expired. Reattaching now. | Yes |
 | `HR-SESS-003` | Project folder for a move/create no longer exists on the Mac (`session.workspace.move` 4017, or a derived project without a known path) | 项目文件夹在 Mac 上不存在，请重新加载项目后重试。 | The project folder no longer exists on the Mac. Reload projects and retry. | Yes |
 | `HR-SESS-004` | Session is mid-turn, so its project cannot be changed (`session.workspace.move` 4009) | 会话正在运行，无法移动项目，请等待完成后重试。 | The conversation is running, so its project can't be changed. Wait for it to finish and retry. | Yes |
 | `HR-SESS-005` | Unmapped failure moving a session to another project | 无法移动会话到该项目，请重试。 | Couldn't move the conversation to that project. Retry. | Yes |
-| `HR-SESS-007` | A user message could not be submitted (`prompt.submit`/attachment upload raised, or the live-handle wait timed out); the bubble stays on screen as 未发送 with tap-to-retry | 消息未发送，点按气泡重试。 | The message was not sent. Tap the bubble to retry. | Yes |
+| `HR-SESS-007` | A user message could not be submitted (`prompt.submit`/attachment upload raised, or the live-handle wait timed out); the bubble stays on screen as 未发送 with tap-to-retry. Does **not** cover "the conversation is gone upstream" — that is `HR-SESS-001`, and offering a retry for it would be a lie | 消息未发送，点按气泡重试。 | The message was not sent. Tap the bubble to retry. | Yes |
 | `HR-SESS-006` | New session was requested in a project folder the Mac no longer has; the gateway created it in the default project instead | 项目文件夹在 Mac 上不存在，会话已建在默认项目。 | The project folder no longer exists on the Mac, so the conversation was created in the default project. | No |
 | `HR-SESS-008` | Archiving a conversation from the chat screen failed (`PATCH /api/sessions/{id}` raised); the chat stays open and nothing was archived | 无法归档会话，请重试。 | Couldn't archive the conversation. Retry. | Yes |
+| `HR-SESS-009` | A project edit named an id the gateway no longer has (`projects.*` 5062) — usually deleted from the Mac since the list was fetched | 项目已不存在，请重新加载。 | That project no longer exists. Reload the list. | No |
+| `HR-SESS-010` | The gateway rejected a project name or folder as invalid (`projects.*` 5063), e.g. an empty name | 项目名称无效，请换一个。 | That project name isn't valid. Try another. | No |
+| `HR-SESS-011` | Unmapped failure creating, renaming or removing a project (`projects.*` 5061) | 无法保存项目改动，请重试。 | Couldn't save the project change. Retry. | Yes |
+| `HR-SESS-012` | The Mac could not list a folder while picking a project directory (`GET /api/fs/list` returned an error, or the request failed) | 无法读取该文件夹，请换一个位置。 | Couldn't read that folder. Try another location. | Yes |
 | `HR-CLARIFY-001` | Clarify answer arrived after the request expired server-side | 这个提问已失效，agent 没有收到这次回答，请在输入框直接说明你的选择。 | The clarify question expired before the answer arrived; tell the agent your choice in the composer. | No |
 | `HR-SYNC-001` | Final history reconciliation failed | 无法同步完整会话内容，请重试。 | Couldn't synchronize the complete conversation. Retry. | Yes |
 | `HR-SYNC-002` | Run stopped without a confirmed terminal state (Relay observed `run.interrupted`/`run.unknown`, or the phone marked it interrupted) | 任务停止了，但没有确认完成，请打开会话检查。 | The task stopped without a confirmed completion. Open the conversation to check. | No (open the conversation) |

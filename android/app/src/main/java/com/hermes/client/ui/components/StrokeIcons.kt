@@ -12,7 +12,8 @@ import androidx.compose.ui.unit.dp
 // Shared thin-stroke (1.7dp) icon set — the same brush as the card page's hand-drawn glyphs,
 // for list surfaces that need matching outline icons. Tinted by Icon like any vector.
 
-private fun strokeIcon(name: String, block: PathBuilder.() -> Unit): ImageVector =
+// `internal`, not private: ProjectIcons.kt draws the project glyph set with the same brush.
+internal fun strokeIcon(name: String, block: PathBuilder.() -> Unit): ImageVector =
     ImageVector.Builder(
         name = name,
         defaultWidth = 24.dp, defaultHeight = 24.dp,
@@ -125,6 +126,59 @@ val ThinChevronIcon: ImageVector by lazy {
 // Small-icon compensation (docs/DESIGN.md §4.1): the 1.7dp stroke is tuned for 24dp glyphs. An
 // icon embedded at 16–18dp scales that stroke to ~1.2dp — thinner than the text beside it —
 // so glyphs meant for pills and rows are drawn at 2.4 (≈1.8dp at 18dp), matching labelLarge.
+/**
+ * The two segment glyphs for the Chats / Bots switch (docs/DESIGN.md §4.2, §5.2).
+ *
+ * Both use [smallStrokeIcon]: they render at 18dp inside the segment pill, where the 1.7dp brush
+ * would thin out to ~1.2dp and read lighter than the label beside them (§4.1 small-size rule).
+ *
+ * Drawn as a pair on purpose — same 14x11 body box, same 2.5-unit corner radius, same optical
+ * centre — so that the selected and unselected segments carry equal visual weight. Hollow, like
+ * every glyph in this file: a filled bubble already means "a chat message" inside the transcript.
+ */
+val ChatBubbleStrokeIcon: ImageVector by lazy {
+    smallStrokeIcon("StrokeChatBubble") {
+        // Rounded speech bubble, tail dropping from the lower left.
+        moveTo(5f, 6.5f)
+        arcToRelative(2.5f, 2.5f, 0f, false, true, 2.5f, -2.5f)
+        horizontalLineTo(16.5f)
+        arcToRelative(2.5f, 2.5f, 0f, false, true, 2.5f, 2.5f)
+        verticalLineTo(13.5f)
+        arcToRelative(2.5f, 2.5f, 0f, false, true, -2.5f, 2.5f)
+        horizontalLineTo(10f)
+        lineTo(6.5f, 19.5f)
+        verticalLineTo(16f)
+        horizontalLineTo(7.5f)
+        arcToRelative(2.5f, 2.5f, 0f, false, true, -2.5f, -2.5f)
+        close()
+    }
+}
+
+/** Bot head: the same rounded body box as the bubble, plus an antenna and two eyes. */
+val BotStrokeIcon: ImageVector by lazy {
+    smallStrokeIcon("StrokeBot") {
+        // Antenna.
+        moveTo(12f, 3f)
+        verticalLineTo(6f)
+        // Head.
+        moveTo(7.5f, 6f)
+        horizontalLineTo(16.5f)
+        arcToRelative(2.5f, 2.5f, 0f, false, true, 2.5f, 2.5f)
+        verticalLineTo(15.5f)
+        arcToRelative(2.5f, 2.5f, 0f, false, true, -2.5f, 2.5f)
+        horizontalLineTo(7.5f)
+        arcToRelative(2.5f, 2.5f, 0f, false, true, -2.5f, -2.5f)
+        verticalLineTo(8.5f)
+        arcToRelative(2.5f, 2.5f, 0f, false, true, 2.5f, -2.5f)
+        close()
+        // Eyes — short strokes rather than dots, so they survive the 18dp downscale.
+        moveTo(9.5f, 11f)
+        verticalLineTo(12.5f)
+        moveTo(14.5f, 11f)
+        verticalLineTo(12.5f)
+    }
+}
+
 private fun smallStrokeIcon(name: String, block: PathBuilder.() -> Unit): ImageVector =
     ImageVector.Builder(
         name = name,
@@ -330,5 +384,70 @@ val ApiChannelIcon: ImageVector by lazy {
         moveTo(15f, 8f)
         lineTo(19f, 12f)
         lineTo(15f, 16f)
+    }
+}
+
+// ── Theme options (docs/DESIGN.md §5.1 主题弹层) ────────────────────────────────────────────────
+//
+// The theme sheet's mock draws these as 2px feather glyphs; §4 keeps the repo's 1.7dp brush, the
+// same ruling the card page took. They live here rather than in CardPage.kt because two screens
+// need them now — the sheet and 设置→外观 — which is exactly §4.2's "new icons go in the shared
+// file first".
+
+/**
+ * A desktop monitor on a stand — the card page's remote-node tile, and 「跟随系统」 in the theme
+ * sheet.
+ *
+ * Moved here from CardPage.kt unchanged when the theme sheet needed the same glyph. Writing a
+ * second monitor for the sheet is exactly the duplication §4.2 asks new icons to avoid: two
+ * hand-drawn monitors one screen apart would have drifted the first time either was touched.
+ */
+val DesktopStrokeIcon: ImageVector by lazy {
+    strokeIcon("ThinDesktop") {
+        moveTo(5f, 4f)
+        lineTo(19f, 4f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 21f, y1 = 6f)
+        lineTo(21f, 14f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 19f, y1 = 16f)
+        lineTo(5f, 16f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 3f, y1 = 14f)
+        lineTo(3f, 6f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 5f, y1 = 4f)
+        close()
+        moveTo(12f, 16f); lineTo(12f, 20f)
+        moveTo(8f, 20f); lineTo(16f, 20f)
+    }
+}
+
+/** A rayed sun — 「温润浅色」. */
+val SunStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeSun") {
+        moveTo(16.6f, 12f)
+        arcTo(4.6f, 4.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 7.4f, y1 = 12f)
+        arcTo(4.6f, 4.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 16.6f, y1 = 12f)
+        close()
+        // Eight rays, radius 7.4 → 10.0, so the round caps stay inside the 24 viewport.
+        moveTo(12f, 4.6f); lineTo(12f, 2f)
+        moveTo(12f, 19.4f); lineTo(12f, 22f)
+        moveTo(4.6f, 12f); lineTo(2f, 12f)
+        moveTo(19.4f, 12f); lineTo(22f, 12f)
+        moveTo(6.77f, 6.77f); lineTo(4.93f, 4.93f)
+        moveTo(17.23f, 6.77f); lineTo(19.07f, 4.93f)
+        moveTo(6.77f, 17.23f); lineTo(4.93f, 19.07f)
+        moveTo(17.23f, 17.23f); lineTo(19.07f, 19.07f)
+    }
+}
+
+/**
+ * A crescent — 「黑曜石深色」, and the card page's 主题 row.
+ *
+ * Moved here from CardPage.kt unchanged when the theme sheet became its second consumer.
+ */
+val MoonStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeMoon") {
+        moveTo(20f, 14.5f)
+        arcTo(8.5f, 8.5f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 9.5f, y1 = 4f)
+        arcToRelative(7f, 7f, 0f, isMoreThanHalf = false, isPositiveArc = false, dx1 = 10.5f, dy1 = 10.5f)
+        close()
     }
 }

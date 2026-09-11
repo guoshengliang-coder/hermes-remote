@@ -84,15 +84,15 @@ private data class StartupPalette(
 )
 
 private val LightStartupPalette = StartupPalette(
-    background = Color(0xFFF8FAFD),
-    secondary = Color(0xFF74777F),
-    track = Color(0xFFE7ECF6),
+    background = Color(0xFFFAF9F5),
+    secondary = Color(0xFF7A766C),
+    track = Color(0xFFE9E8E4),
 )
 
 private val DarkStartupPalette = StartupPalette(
-    background = Color(0xFF0D141B),
-    secondary = Color(0xFF9AA0A8),
-    track = Color(0xFF2B323A),
+    background = Color(0xFF0A0D11),
+    secondary = Color(0xFFA8A49C),
+    track = Color(0xFF262C35),
 )
 
 /** Icon-derived progress gradient, anchored to the full track width (not the filled part). */

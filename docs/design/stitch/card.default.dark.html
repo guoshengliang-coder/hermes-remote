@@ -1,0 +1,97 @@
+<!DOCTYPE html><html lang="zh-CN" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport">
+<title>Hermes GO - Drawer</title>
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "paper-base": "#FAF9F5",
+            "paper-surface": "#FFFFFF",
+            "paper-subtle": "#F4F3EE",
+            "primary-blue": "#2563EB",
+            "status-green": "#2E7D32",
+            "status-amber": "#D97706",
+            "ink-dark": "#181C24",
+            "ink-muted": "#605C54",
+            "ink-subtle": "#777268",
+            "line-soft": "#EFEEEA",
+            "line-subtle": "#E9E8E4"
+          },
+          fontFamily: {
+            sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "system-ui", "sans-serif"]
+          }
+        }
+      }
+    };
+  </script>
+<style>
+    @layer base {
+      html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: #FAF9F5;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .pt-safe {
+        padding-top: max(env(safe-area-inset-top, 0px), 16px);
+      }
+      .pb-safe {
+        padding-bottom: max(env(safe-area-inset-bottom, 0px), 14px);
+      }
+    }
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 350, 'GRAD' 0, 'opsz' 20;
+    }
+  </style>
+</head>
+<body class="font-sans text-[#E2E0DB] bg-[#0F1217] antialiased select-none h-screen w-screen relative overflow-hidden">
+<!-- Underlying Session List (Backdrop Surface) -->
+<div aria-hidden="true" class="absolute inset-0 z-0 flex flex-col w-full h-full bg-[#0F1217] text-[#E2E0DB] select-none pointer-events-none" id="underlying-session-list">
+<header class="pt-safe px-4 pb-3 flex items-center justify-between border-b border-[#1E232B]">
+<div class="flex items-center gap-3">
+<div class="w-9 h-9 rounded-full bg-[#161A22] flex items-center justify-center text-[#E2E0DB]">
+<span class="material-symbols-outlined text-[20px]">menu</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[17px] font-semibold tracking-tight text-[#E2E0DB]">会话</span>
+<span class="text-[11px] text-[#8D897E]">已连接 Hermes 网关</span>
+</div>
+</div>
+<div class="flex items-center gap-1 text-[#8D897E]">
+<div class="w-9 h-9 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</div>
+<div class="w-9 h-9 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">add</span>
+</div>
+</div>
+</header>
+<div class="flex-1 px-4 py-3 flex flex-col gap-2.5 opacity-60 filter blur-[1px]"><div class="p-3.5 rounded-2xl bg-[#161A22] shadow-sm border border-[#262C35] flex items-start gap-3"><div class="w-10 h-10 rounded-full bg-[#2563EB]/20 flex items-center justify-center text-[#7BD0FF] shrink-0"><span class="material-symbols-outlined text-[20px]">smart_toy</span></div><div class="flex-1 min-w-0"><div class="flex items-center justify-between"><span class="text-[14px] font-semibold text-[#E2E0DB] truncate">代码重构与架构讨论</span><span class="text-[11px] text-[#8D897E]">14:20</span></div><p class="text-[12.5px] text-[#8D897E] truncate mt-1">已完成 Hermes GO 抽屉底衬与分层规范设计...</p></div></div><div class="p-3.5 rounded-2xl bg-[#161A22] shadow-sm border border-[#262C35] flex items-start gap-3"><div class="w-10 h-10 rounded-full bg-[#1E232B] flex items-center justify-center text-[#E2E0DB] shrink-0"><span class="material-symbols-outlined text-[20px]">terminal</span></div><div class="flex-1 min-w-0"><div class="flex items-center justify-between"><span class="text-[14px] font-semibold text-[#E2E0DB] truncate">网关部署与状态探活</span><span class="text-[11px] text-[#8D897E]">昨天</span></div><p class="text-[12.5px] text-[#8D897E] truncate mt-1">Mac Mini 远程端点心跳正常，延迟保持在 29ms</p></div></div><div class="p-3.5 rounded-2xl bg-[#161A22] shadow-sm border border-[#262C35] flex items-start gap-3"><div class="w-10 h-10 rounded-full bg-[#1E232B] flex items-center justify-center text-[#E2E0DB] shrink-0"><span class="material-symbols-outlined text-[20px]">folder</span></div><div class="flex-1 min-w-0"><div class="flex items-center justify-between"><span class="text-[14px] font-semibold text-[#E2E0DB] truncate">工作空间默认配置</span><span class="text-[11px] text-[#8D897E]">周三</span></div><p class="text-[12.5px] text-[#8D897E] truncate mt-1">初始化 config.json 完成，已切换至主空间...</p></div></div></div>
+</div>
+<!-- Drawer Modal & Overlay Wrapper: Full-bleed top to bottom -->
+<main class="fixed inset-0 z-50 flex w-full h-full min-h-screen bg-black/60 backdrop-blur-[3px] transition-all duration-300">
+<!-- Left Drawer (w-[84%], completely touches top and bottom, rounded-r-3xl, diffused shadow) -->
+<aside aria-label="Hermes Drawer" class="relative flex flex-col w-[84%] max-w-[340px] h-full min-h-screen bg-[#161A22] rounded-r-3xl overflow-hidden pt-safe pb-safe z-10 border-r border-white/10" style="box-shadow: 18px 0 36px -6px rgba(0, 0, 0, 0.7), 6px 0 16px -2px rgba(0, 0, 0, 0.4);"><div class="flex flex-col flex-1 px-5 pt-3 pb-3 justify-between overflow-y-auto"><div class="flex flex-col gap-4"><div class="w-full flex items-center justify-between pt-1 pb-1"><div class="flex items-center gap-2.5"><span class="text-[20px] font-bold tracking-tight text-[#E2E0DB]">Hermes GO</span><span class="font-semibold uppercase select-none rounded border border-white/10" style="font-size: 10.5px; line-height: 1; letter-spacing: 0.05em; background-color: rgb(30, 35, 43); color: rgb(168, 164, 156); padding: 2.5px 6px;">DEV</span></div><div class="flex items-center gap-1"><button aria-label="Settings" class="w-8 h-8 flex items-center justify-center rounded-full bg-[#1E232B] border border-[#262C35] text-[#A8A49C] hover:text-[#E2E0DB] hover:bg-[#262C35] active:scale-95 transition-all cursor-pointer shadow-[0_1px_2px_rgba(0,0,0,0.2)]"><svg class="w-4.5 h-4.5" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24" width="18"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></button></div></div><div class="w-full bg-[#1E232B] border border-[#262C35] rounded-2xl p-3.5 flex items-center justify-between shadow-[0_2px_8px_rgba(0,0,0,0.2)] cursor-pointer active:scale-[0.99] transition-transform"><div class="flex items-center gap-3 min-w-0"><div class="relative w-11 h-11 rounded-full bg-[#1D4ED8] flex items-center justify-center text-white text-[18px] font-bold shrink-0 shadow-sm"><span class="">D</span></div><div class="flex flex-col min-w-0"><div class="flex items-center gap-2"><span class="text-[15.5px] text-[#E2E0DB] font-semibold truncate tracking-tight">芯芯</span></div><span class="text-[12px] text-[#8D897E] truncate mt-0.5">网关启动目录 · 本机</span></div></div><span class="material-symbols-outlined text-[#777268] text-[18px] pl-1 shrink-0">chevron_right</span></div><div class="w-full bg-[#1E232B] rounded-2xl p-3.5 border border-[#262C35] shadow-[0_2px_8px_rgba(0,0,0,0.2)] cursor-pointer active:scale-[0.99] transition-all flex items-center justify-between group hover:border-[#353940]"><div class="flex items-center gap-3 min-w-0"><div class="w-10 h-10 rounded-xl bg-[#262C35] border border-white/5 flex items-center justify-center shrink-0 text-[#E2E0DB]"><span class="material-symbols-outlined text-[20px]">desktop_mac</span></div><div class="flex flex-col min-w-0"><span class="text-[14.5px] font-semibold text-[#E2E0DB] leading-tight truncate">远程节点</span><span class="text-[12px] text-[#8D897E] mt-0.5 truncate">mac-mini (当前)</span></div></div><div class="flex items-center gap-1 text-[#8D897E] shrink-0"><span class="text-[13px] text-[#8D897E] font-medium">29 ms</span><span class="material-symbols-outlined text-[16px] text-[#777268]">chevron_right</span></div></div><div class="flex flex-col w-full divide-y divide-white/5 pt-1"><div class="group flex items-center justify-between px-1 h-[48px] hover:bg-white/5 active:bg-white/10 cursor-pointer transition-colors rounded-lg"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-[#8D897E] text-[20px] group-hover:text-[#7BD0FF] transition-colors">schedule</span><span class="text-[14.5px] text-[#E2E0DB] font-medium">定时任务</span></div><div class="flex items-center gap-1 text-[#8D897E]"><span class="text-[13px] text-[#8D897E]">0 运行中</span><span class="material-symbols-outlined text-[16px] text-[#777268]">chevron_right</span></div></div><div class="group flex items-center justify-between px-1 h-[48px] hover:bg-white/5 active:bg-white/10 cursor-pointer transition-colors rounded-lg"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-[#8D897E] text-[20px] group-hover:text-[#7BD0FF] transition-colors">dark_mode</span><span class="text-[14.5px] text-[#E2E0DB] font-medium">主题</span></div><div class="flex items-center gap-1 text-[#8D897E]"><span class="text-[13px] text-[#8D897E]">随系统</span><span class="material-symbols-outlined text-[16px] text-[#777268]">chevron_right</span></div></div><div class="group flex items-center justify-between px-1 h-[48px] hover:bg-white/5 active:bg-white/10 cursor-pointer transition-colors rounded-lg"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-[#8D897E] text-[20px] group-hover:text-[#7BD0FF] transition-colors">psychology</span><span class="text-[14.5px] text-[#E2E0DB] font-medium">默认模型</span></div><div class="flex items-center gap-1 text-[#8D897E]"><span class="text-[13px] text-[#8D897E]">Claude 3.7</span><span class="material-symbols-outlined text-[16px] text-[#777268]">chevron_right</span></div></div><div class="group flex items-center justify-between px-1 h-[48px] hover:bg-white/5 active:bg-white/10 cursor-pointer transition-colors rounded-lg"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-[#8D897E] text-[20px] group-hover:text-[#7BD0FF] transition-colors">system_update_alt</span><span class="text-[14.5px] text-[#E2E0DB] font-medium">检查更新</span></div><div class="flex items-center gap-1.5 text-[#8D897E]"><span class="w-1.5 h-1.5 rounded-full bg-[#16A34A]"></span><span class="text-[13px] text-[#8D897E]">v0.1.116 (最新)</span><span class="material-symbols-outlined text-[16px] text-[#777268]">chevron_right</span></div></div><div class="group flex items-center justify-between px-1 h-[48px] hover:bg-white/5 active:bg-white/10 cursor-pointer transition-colors rounded-lg"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-[#8D897E] text-[20px] group-hover:text-[#7BD0FF] transition-colors">chat_bubble_outline</span><span class="text-[14.5px] text-[#E2E0DB] font-medium">反馈与建议</span></div><div class="flex items-center gap-1 text-[#8D897E]"><span class="material-symbols-outlined text-[16px] text-[#777268]">chevron_right</span></div></div></div></div><div class="mt-6 flex flex-col items-center justify-center text-center gap-2 pt-2 pb-1 select-none"><div class="flex items-center justify-center gap-2.5 w-full opacity-60"><div class="h-[1px] w-12 bg-gradient-to-r from-transparent to-[#717684]/50"></div><span class="text-[10px] text-[#8A90A0] leading-none select-none">✦</span><div class="h-[1px] w-12 bg-gradient-to-l from-transparent to-[#717684]/50"></div></div><span class="text-[12.5px] font-normal italic tracking-wide text-[#8A90A0]" style="font-family: Georgia, serif; font-style: italic;">Your AI Agent, in Your Pocket</span></div></div></aside>
+<!-- Right Margin: Click-to-dismiss Backdrop Area (16% width) -->
+<div aria-label="Dismiss drawer backdrop" class="flex-1 h-full cursor-pointer" id="drawer-backdrop-dismiss"></div>
+</main>
+<!-- iOS Home Indicator Indicator Placeholder -->
+<footer class="fixed bottom-0 w-full z-50 pb-safe pointer-events-none flex items-center justify-center pb-1">
+<div class="w-32 h-1 bg-white/20 rounded-full"></div>
+</footer>
+
+
+
+
+</body></html>

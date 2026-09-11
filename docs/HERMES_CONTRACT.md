@@ -72,6 +72,15 @@ Mac; the phone holds only its own app token (see `docs/ARCHITECTURE.md`).
 
 ### 3. WebSocket RPC methods
 
+`/api/ws` is not anonymous on Hermes 0.21.0, including a loopback-only `hermes serve` process.
+In loopback mode the upgrade requires the process's exact session token as the `token` query
+parameter. When `dashboard.public_url` names a non-loopback host, the managed private backend must
+also start with `HERMES_DESKTOP=1` plus an operator-supplied `HERMES_DASHBOARD_SESSION_TOKEN`; those
+three facts activate Hermes' Desktop-owned loopback exemption instead of the public ticket gate.
+Hermes GO therefore generates one private installation-local token, starts Hermes with that token,
+and lets only the local Connector read the same token. The value never crosses Gateway and is never
+placed in the signed release.
+
 ```
 session.create   session.resume   session.interrupt   session.workspace.move
 prompt.submit    slash.exec       complete.path       commands.catalog
@@ -82,7 +91,42 @@ process.list     projects.tree    projects.project_sessions
 
 Server events consumed: `message.start` / `message.delta` / `message.complete`,
 `tool.start` / `tool.complete`, `session.info` / `session.lifecycle`,
-`approval.request`, `clarify.request`.
+`approval.request`, `clarify.request`, `session.reclaimed`.
+
+**`session.reclaimed` is the only warning that a conversation died while nobody was looking.**
+Upstream broadcasts it (`tui_gateway/session_lifecycle.py`, `_announce_session_reclaimed`) whenever
+its own housekeeping ends a session the client never asked to close —
+`_RECLAIM_END_REASONS = {idle_timeout, lru_evict, ws_orphan_reap}`. The reason it exists is stated
+in its own source comment: "else its next prompt fails". `ws_orphan_reap` fires 120 s after the
+socket carrying a session drops, and `docs/DIAGNOSTICS.md` records it as the *dominant* way mobile
+sessions end — so this is routine, not an edge case. It is a **global** broadcast carrying the
+durable session id, not the short live handle; match it against the stored id.
+
+Ignoring it costs more than a wasted round trip. Afterwards `prompt.submit` answers **4001** and the
+`session.resume` the client retries with answers **4007**, and those two look identical on the wire
+("session not found") while meaning different things: 4001 is a stale live handle that resuming
+fixes, 4007 is the durable lookup missing from the profile's `state.db` — terminal. HG-29 was
+exactly this, surfaced to the user as a tap-to-retry that could never succeed.
+
+**Upstream strips its own repo root out of every child process's `PYTHONPATH`.**
+`tools/environments/local.py` builds the environment for anything Hermes spawns, and
+`_strip_hermes_owned_pythonpath` (`tools/environments/local_pythonpath.py`) removes the entries it
+recognises as Hermes-owned — the repo root and the runtime's site-packages — so a child Python of a
+different version cannot load the backend's C extensions. This is deliberate upstream behaviour, it
+applies to children started with `sys.executable` too (the slash worker: `tui_gateway/server.py`,
+`[sys.executable, "-m", "tui_gateway.slash_worker", …]`), and we cannot turn it off.
+
+The consequence for us is a hard constraint on packaging: **anything the managed bundle needs a
+child process to import must be importable without `PYTHONPATH`.** Hermes GO's bundle keeps the
+Hermes sources in `app/`, which IS the repo root, so `PYTHONPATH` was its only route — and the strip
+removed it. Every slash command died with `ModuleNotFoundError: No module named 'tui_gateway'`
+(HG-28, managed release 0.3.0). The bundle now also carries a `.pth` in the interpreter's own
+site-packages, a channel the strip does not reach; see `docs/DESKTOP_RELEASE_MANIFEST.md`.
+
+**A new session has no REST row until its first message persists.**
+`GET /api/sessions/<id>/messages` answers `404 {"detail":"Session not found"}` for a zero-message
+session and only turns into `200` once a turn lands. That 404 is not evidence the create failed and
+must not be reported as a history error; it is the normal opening seconds of every new conversation.
 
 **`session.create` and `session.resume` both accept a caller-supplied `source`.** Upstream's
 `_resolve_session_source` (`tui_gateway/server.py`) returns the explicit value unchanged and never
@@ -215,6 +259,35 @@ lives in the **gateway** process. **A channel conversation cannot be pulled back
 than hand-listed a second time: a platform source added upstream then joins the 机器人 segment
 instead of belonging to neither surface.
 
+### 7b. Outbound boundary: which process can reach a platform (verified 2026-09-09)
+
+Four facts, written down because we got this wrong once by generalising from DingTalk — the one
+platform whose out-of-process send is degenerate — to all 33.
+
+1. **The dashboard cannot reach a platform at all.** `hermes dashboard` / `hermes serve` runs
+   agents in-process (`tui_gateway.ws → server._make_agent`, noted at `hermes_cli/main.py`) but
+   **loads no platform adapters**. Outbound delivery is `handle_message` → `self.send()` inside
+   `gateway/platforms/base.py`, which lives only in the `hermes gateway run` process. `qqbot` and
+   `raft` override `handle_message`; both overrides are still adapter-internal.
+   **So a `prompt.submit` from the phone is never delivered to the channel — on any platform.**
+2. **Nothing retries it later either.** `gateway/delivery_ledger.py` records a durable delivery
+   obligation, but only from inside the adapter's own send path. A message the dashboard writes to
+   `state.db` creates no obligation, so no sweep will pick it up.
+3. **Out-of-process sends (`_standalone_send`, used by cron `deliver=` and `hermes send`) split in
+   two.** Feishu, Slack, Telegram, WeCom and ~16 others take a **real `chat_id`** and can reach any
+   conversation. **DingTalk cannot**: it posts to one static `DINGTALK_WEBHOOK_URL` and **ignores
+   `chat_id`**, because the live adapter uses per-conversation webhooks that arrive with each
+   inbound message and do not exist outside that process.
+4. **We cannot use (3) from the app anyway.** There is no send endpoint — every `/api/messaging/*`
+   route is configuration or pairing, and `/test` sends nothing; this repository does not modify
+   upstream; and the session row carries no `chat_id`, only `source` / `display_name` / `chat_type`.
+
+Consequence for any future "send into the channel from the phone" work: it needs **both** a
+`chat_id` on the session row (or an upstream endpoint that replies into the session) **and** a path
+that reaches the live adapter. Until then, cron `deliver=<channel>` is the only delivery we have.
+This is also why the 机器人 conversation carries a one-time dialog rather than a promise
+(`docs/DESIGN.md` §5.16).
+
 ## Upgrade checklist
 
 Run this before adopting a new Hermes, and record the outcome by updating the version table above.
@@ -225,6 +298,11 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
    `MEDIA_DELIVERY_EXTENSIONS`.
 3. Confirm the RPC method names in section 3 still exist, especially `prompt.submit`,
    `session.create`, `slash.exec`, `complete.path`.
+3b. Re-check how Hermes spawns its slash worker and how `tools/environments/local.py` builds that
+   child's environment. If the spawn switches away from `sys.executable`, or the `PYTHONPATH`
+   stripping changes shape, the managed bundle's import path assumption moves with it. Cheapest
+   proof, against an extracted release: with `PYTHONPATH` unset, `<root>/runtime/python/bin/
+   python3.11 -s -c "import tui_gateway.slash_worker"` must succeed.
 4. Confirm `PLATFORM_HINTS` (`agent/prompt_builder.py`) still describes the client surfaces the
    same way — it is what tells the model whether it can deliver attachments at all.
 5. Confirm the `platform_hints` config override still resolves: on the Mac, `_resolve_platform_hint`

@@ -12,8 +12,14 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   capability. The previous Relay URL + App Token + QR setup remains under the explicit Legacy
   connection entry; Mac credentials never enter the app.
 - Account access/refresh material and the random per-install installation ID use encrypted storage
-  separate from legacy credentials. Selecting an owned or shared Mac commits the cloud default and
-  passes an explicit-device end-to-end probe before REST/WebSocket switch to bearer authentication.
+  separate from legacy credentials. Android follows the Gateway capability: the current single-Mac
+  rollout reads `/v2/connector-binding` and uses Bearer on `/api/*` plus `/api/ws`; a future
+  multi-device rollout uses the explicit `/v2/devices/{id}` routes and cloud default selection.
+- When a working Legacy connection opts into account login, Android persists a distinct pending
+  activation state and keeps Legacy authoritative across restart. It switches REST/WebSocket only
+  after the discovered account Mac passes the Bearer end-to-end probe; a missing Mac, failed probe,
+  or invalid pending account session leaves the old connection intact. Invalidation after account
+  transport was already active still fails closed and requires sign-in.
 - Email-code challenges use the server's absolute expiry and resend deadlines: Android restores only
   a still-valid encrypted challenge after process death, never persists the entered code, disables
   early resend, and clears locally expired or malformed challenges before verification.
@@ -278,6 +284,79 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.119 修复开发 Relay 停止后消息无法发送，并让冷启动连接错误进入账号登录
+- Version 0.1.118 修复本地开发连接残留导致消息 SESS-007、且邮箱账号登录无法回到公网 Relay 的问题。
+- Version 0.1.117 会话列表按 Stitch 设计稿重做尺寸与配色（标题字重区分未读、等宽副行、四色分组竖杠、56dp
+  顶栏），修掉顶栏被状态栏压扁的真机缺陷，并临时加入一个会话列表调参页用于定参数。
+- Version 0.1.116 会话列表按设计稿对齐：修掉空状态行造成的异常空白，正在运行/等待处理/加载圈/分组头/提示条五处配色，以及行内三档字的行高字重；新增设计一致性测试（17 色 + 5
+  字体档）。
+- Version 0.1.115 finishes the job 0.1.114 started. That release repainted the app but left two
+  systems untouched, because neither was ever in a re-skin's scope: the type scale and the
+  segmented switch. Text now sets the way the design does — tighter at 16sp and above where it
+  used to be looser, and one weight heavier on titles and labels, so hierarchy comes from weight
+  instead of size alone. Session rows finally read as a title with a subtitle rather than two
+  competing lines: the title steps down to 15sp and the subline to 12sp, and all four lists that
+  show that line — chats, search, a project's chats, the archive — get the same one, because they
+  were quietly disagreeing. The switch between 会话 and 机器人 stops being a slab of brand blue
+  and becomes a raised chip on a sunken track, with its icons back now that there are two segments
+  instead of four; five other screens carried hand-made copies of the old switch and now share the
+  real one, so they cannot drift apart again. Nothing about colour changed in this release.
+- Version 0.1.114 repaints the whole app on warm paper. The ground moves from a cool near-white to
+  #FAF9F5, and pure white is promoted to the raised layer: cards, sheets and menus now sit BRIGHTER
+  than the page instead of one shade darker. Dark mode moves to a warm obsidian. Session groups
+  finally read at a glance — each header carries a small leading bar, and only 需要你处理 is
+  coloured, because a time range is not something that needs you. Counts became chips, the incident
+  banner became an inset card, and the new-chat button turned a neutral near-black so the one thing
+  that creates is not another blue thing among the blues that report state. Three colour faults are
+  fixed along the way, two of which predate this release: raised surfaces used to pick up a blue
+  cast from an undefined tint token; status colours picked the wrong light/dark tier whenever the
+  app was set to Dark on a phone set to Light, leaving "已完成" and "运行失败" below the readable
+  contrast floor; and the home-screen widget still wore the mint green retired back in 0.1.61.
+- Version 0.1.113 completes the Android side of Hermes GO account binding. Email-code login now
+  discovers the Mac already bound by Hermes Go Desktop through the production single-binding
+  contract, then carries both REST and WebSocket traffic over the account bearer session. A working
+  legacy connection stays active until that account route has passed its probe; the pending handoff
+  survives an app restart, and the app switches transport only after the device and route mode can
+  be committed together. The capability gate keeps the same build compatible with the future
+  explicit multi-device routes without calling those disabled endpoints in today's rollout. This
+  release also restores the public notes for the diagnostic-session filtering work that shipped in
+  0.1.97 but was omitted from the update index.
+- Version 0.1.112 turns a project into something you can actually make. Until now a project was
+  a folder that happened to hold chats: it had no name of its own, no colour or glyph, could not
+  span two folders, and did not exist at all until something ran inside it. Hermes has had
+  first-class projects the whole time and the phone simply never read them. 项目 now shows the
+  Mac's own list and can edit it — create a project (name, glyph, colour and a folder you browse
+  to on the Mac), rename or restyle it, add and remove folders and choose which one new chats are
+  created in. Removing one is called 移除分组, not 删除, because that is what it does: the project
+  row goes away while every chat, folder and file stays exactly where it was, and the folder comes
+  straight back as an auto-detected project. Glyphs and colours are the desktop's own, so a
+  project styled on the phone looks the same over there. One limit worth knowing: Hermes keeps
+  projects per installation rather than per identity, so this list belongs to the default identity
+  — switch to another one and 项目 stays the read-only folder view it has always been.
+- Version 0.1.111 makes a bot conversation just a conversation. Opening a DingTalk or Slack row
+  now opens the ordinary chat screen, and the separate read-only transcript page is gone — it was a
+  second renderer over the same history, and it had already missed four things the chat screen
+  handled, most recently the timestamps that prompted this. So the times are there, and so is
+  everything else the chat screen does. You can also type: the page was read-only on a rationale
+  that turned out to be wrong — nothing sent from the phone ever reached the other platform, and
+  nothing could, because outbound delivery lives in a process the phone does not talk to. What is
+  true is that your message joins the shared conversation context, so the person on the other app
+  gets answers shaped by something they never saw; a dialog says that once per channel and then
+  stays out of the way. Three older defects went with it: the model chip named the profile's
+  default model as though it had answered on DingTalk, copying or exporting a channel transcript
+  signed the other person's messages 你, and merely opening one of these conversations spun up a
+  runtime on the Mac and started polling it.
+- Version 0.1.110 makes the Chats screen shorter. 项目 and 已归档 leave the segment row for a new
+  overflow menu beside search, and each becomes a full-screen page — they are low-frequency
+  management actions that were competing for width with the list you actually read, and four cells
+  on a 390dp screen left 91.5dp each (which is why the English archive label had to be the less
+  accurate `Archive`; it is `Archived` again). The row now carries only what is content — which
+  batch of chats you are looking at — so it holds 会话 and 机器人, and when no messaging channel is
+  configured it does not render at all: the screen is a plain list. Search keeps its top-bar slot,
+  because burying it costs a tap without buying any room. A chat opened from Projects or Archived
+  returns to that page instead of bouncing home, so reading several chats inside one project stays
+  in that project; the drilled-in project is remembered for the session but no longer across
+  launches, and creating a chat from inside one still lands in that folder.
 - Version 0.1.109 changes almost nothing you can see, and changes what happens after something
   goes wrong. HG-27 arrived with 5,864 diagnostic entries across 31 hours and still could not say
   why a socket had sat in 「正在连接 Relay…」 for a minute: every silent early-return on the
@@ -758,7 +837,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.109-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.119-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

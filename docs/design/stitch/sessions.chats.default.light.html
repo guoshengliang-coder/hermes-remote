@@ -1,0 +1,370 @@
+<!DOCTYPE html><html lang="en" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport">
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;family=Noto+Sans+SC:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..24,300..600,0..1,0&amp;display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            paper: '#FAF9F6',
+            'paper-subtle': '#F4F2EC',
+            'paper-card': '#FFFFFF',
+            'charcoal': '#1C1917',
+            'charcoal-secondary': '#44403C',
+            'charcoal-muted': '#78716C',
+            'charcoal-faint': '#A8A29E',
+            'warm-border': '#E7E5E4',
+            'warm-border-subtle': '#F0EFEA',
+            'brand-navy': '#1E3A5F',
+            'brand-navy-dark': '#162842',
+            'amber-warm': '#D97706',
+            'amber-deep': '#B45309',
+            'amber-surface': '#FEF3C7',
+            'alert-bg': '#FFF1F2',
+            'alert-border': '#FFE4E6',
+            'alert-text': '#9F1239',
+            'status-green': '#047857',
+            'status-red': '#B91C1C',
+            'status-cyan': '#0369A1'
+          },
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', '"Noto Sans SC"', 'system-ui', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace']
+          },
+          boxShadow: {
+            'soft-elevation': '0 4px 20px -2px rgba(28, 25, 23, 0.05)',
+            'warm-fab': '0 12px 30px -4px rgba(30, 41, 59, 0.28), 0 4px 10px -2px rgba(30, 41, 59, 0.12)',
+            'card-subtle': '0 1px 3px 0 rgba(28, 25, 23, 0.02)'
+          }
+        }
+      }
+    };
+  </script>
+<style>
+    @layer base {
+      html, body {
+        width: 100vw;
+        margin: 0;
+        padding: 0;
+        background-color: #FAF9F6;
+        color: #1C1917;
+        -webkit-tap-highlight-color: transparent;
+      }
+      body {
+        overscroll-behavior: none;
+        min-height: max(884px, 100dvh);
+      }
+      .pb-safe {
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      .pt-safe {
+        padding-top: env(safe-area-inset-top, 0px);
+      }
+    }
+    ::-webkit-scrollbar {
+      display: none;
+    }
+  </style>
+</head>
+<body class="bg-paper text-charcoal font-sans flex flex-col min-h-screen relative selection:bg-amber-100 selection:text-amber-950 antialiased">
+<!-- Top Navigation Bar: Nordic Modern & Editorial Style -->
+<header class="fixed top-0 w-full z-50 bg-paper/90 backdrop-blur-md border-b border-warm-border/60 transition-colors">
+<!-- Status Bar Area -->
+<div class="w-full h-7 px-5 flex items-center justify-between text-charcoal pt-safe select-none">
+<span class="font-mono text-[12px] font-semibold tracking-tight text-charcoal">11:34</span>
+<div class="flex items-center gap-2 text-charcoal-secondary">
+<span class="material-symbols-outlined text-[15px] leading-none">wifi</span>
+<span class="material-symbols-outlined text-[15px] leading-none">signal_cellular_alt</span>
+<span class="material-symbols-outlined text-[16px] leading-none">battery_full</span>
+</div>
+</div>
+<!-- App Bar Header -->
+<div class="h-14 px-4 flex items-center justify-between">
+<!-- Left: 36dp Avatar with double-ring & illuminated online dot -->
+<div class="w-12 flex items-center justify-start">
+<div class="relative w-9 h-9 rounded-full ring-2 ring-warm-border p-0.5 bg-paper cursor-pointer shadow-sm active:scale-95 transition-transform">
+<div class="w-full h-full rounded-full bg-[#EAE8E3] flex items-center justify-center text-charcoal-secondary">
+<span class="material-symbols-outlined text-[19px]">person</span>
+</div>
+<!-- Online status dot with soft glow -->
+<span class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#10B981] ring-2 ring-paper shadow-[0_0_6px_rgba(16,185,129,0.7)]"></span>
+</div>
+</div>
+<!-- Center Title -->
+<h1 class="text-[17px] font-semibold tracking-[-0.01em] text-charcoal text-center flex-1">会话</h1>
+<!-- Right Actions: Subtle Tactile Buttons -->
+<div class="w-20 flex items-center justify-end gap-1">
+<button aria-label="Search" class="w-9 h-9 flex items-center justify-center text-charcoal-secondary hover:text-charcoal hover:bg-stone-200/50 rounded-full transition-all active:scale-95">
+<span class="material-symbols-outlined text-[21px]">search</span>
+</button>
+<button aria-label="More options" class="w-9 h-9 flex items-center justify-center text-charcoal-secondary hover:text-charcoal hover:bg-stone-200/50 rounded-full transition-all active:scale-95">
+<span class="material-symbols-outlined text-[21px]">more_vert</span>
+</button>
+</div>
+</div>
+</header>
+<!-- Main Scroll Container -->
+<main class="flex flex-col relative w-full pt-[88px] pb-28 min-h-screen">
+<div class="flex flex-col w-full">
+<!-- Segmented Control: Warm Editorial Submerged Capsule -->
+<div class="px-4 pt-1.5 pb-3">
+<div class="w-full bg-[#EFECE6] p-1 rounded-xl flex items-center border border-warm-border/50">
+<button class="flex-1 py-1.5 px-3 rounded-lg bg-white text-brand-navy font-medium text-[13.5px] tracking-tight flex items-center justify-center gap-1.5 shadow-[0_1px_3px_rgba(0,0,0,0.06)] border border-stone-200/60 transition-all duration-200" id="seg-chats">
+<span class="material-symbols-outlined text-[17px]">chat_bubble</span>
+<span class="">会话</span>
+</button>
+<button class="flex-1 py-1.5 px-3 rounded-lg text-charcoal-muted font-medium text-[13.5px] tracking-tight flex items-center justify-center gap-1.5 transition-all duration-200 hover:text-charcoal" id="seg-bots">
+<span class="material-symbols-outlined text-[17px]">smart_toy</span>
+<span class="">机器人</span>
+</button>
+</div>
+</div>
+<!-- Single Alert Banner (Slot 1): Soft Apricot/Rose Warm Pill Card -->
+<div class="px-4 pb-3.5">
+<div class="w-full bg-alert-bg border border-alert-border text-alert-text px-3.5 py-2.5 rounded-xl flex items-center justify-between gap-2.5 shadow-card-subtle active:scale-[0.99] transition-transform cursor-pointer">
+<div class="flex items-center gap-2.5 min-w-0">
+<div class="w-6 h-6 rounded-full bg-rose-200/60 flex items-center justify-center shrink-0 text-rose-700">
+<span class="material-symbols-outlined text-[15px]">warning</span>
+</div>
+<span class="text-[13px] font-medium tracking-tight truncate text-stone-800">Slack 未连接 · 3 个定时任务受影响</span>
+</div>
+<span class="material-symbols-outlined text-rose-400 text-[18px] shrink-0 font-light">chevron_right</span>
+</div>
+</div>
+<!-- Main Sessions Stream (Seamless Flow Layout with 1.45 Line-Height & Precision Left Baseline) -->
+<div class="flex flex-col w-full divide-y divide-warm-border/40">
+<!-- Group 1: 需要你处理 (方案 A: 3px * 12px 琥珀金暖色圆角立柱条) -->
+<section class="flex flex-col w-full pt-1.5 pb-2">
+<div class="flex items-center justify-between px-4 py-2 select-none cursor-pointer" onclick="toggleGroup('group-urgent', 'icon-urgent')">
+<div class="flex items-center gap-2">
+<span class="w-[3px] h-3 rounded-full bg-[#D97706] shrink-0"></span>
+<span class="font-mono text-[11px] uppercase tracking-wider font-semibold text-amber-deep">需要你处理</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200/70 text-amber-800 font-mono text-[10.5px] font-semibold">2</span>
+<span class="material-symbols-outlined text-charcoal-muted text-[17px] transition-transform duration-200" id="icon-urgent">expand_less</span>
+</div>
+</div>
+<div class="flex flex-col w-full" id="group-urgent">
+<!-- Row 1 -->
+<div class="px-4 py-3 hover:bg-stone-100/50 active:bg-stone-200/50 transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-semibold text-charcoal truncate tracking-[-0.01em]" style="font-size: 15.5px; font-weight: 600;">审批发布生产环境配置与迁移脚本</h2>
+<div class="flex items-center gap-1.5 mt-0.5 text-charcoal-muted text-[12px]">
+<span class="material-symbols-outlined text-[14px] leading-none shrink-0 text-charcoal-faint">folder</span>
+<span class="font-mono truncate">release-v2.4 · claude-3-5-sonnet</span>
+</div>
+<div class="flex items-center gap-1 mt-1 text-[#C2410C]" style="color: rgb(180, 83, 9);">
+<span class="text-[12px] font-medium tracking-tight">等待你的确认</span>
+</div>
+</div>
+<div class="w-7 flex items-center justify-center shrink-0">
+<span class="w-2.5 h-2.5 rounded-full bg-[#D97706] shadow-[0_0_6px_rgba(217,119,6,0.65)] animate-pulse"></span>
+</div>
+</div>
+<!-- Row 2 -->
+<div class="px-4 py-3 hover:bg-stone-100/50 active:bg-stone-200/50 transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-semibold text-charcoal truncate tracking-[-0.01em]" style="font-size: 15.5px; font-weight: 600;">确认是否清理本地快照</h2>
+<div class="flex items-center gap-1.5 mt-0.5 text-charcoal-muted text-[12px]">
+<span class="font-mono truncate">deepseek-v4-flash</span>
+</div>
+<div class="flex items-center gap-1 mt-1 text-[#C2410C]" style="color: rgb(180, 83, 9);">
+<span class="text-[12px] font-medium tracking-tight">等待你的回答</span>
+</div>
+</div>
+<div class="w-7 flex items-center justify-center shrink-0">
+<span class="w-2.5 h-2.5 rounded-full bg-[#D97706] shadow-[0_0_5px_rgba(217,119,6,0.5)]"></span>
+</div>
+</div>
+</div>
+</section>
+<!-- Group 2: 已置顶 (方案 A: 3px * 12px 科技靛蓝圆角立柱条 #4F46E5) -->
+<section class="flex flex-col w-full pt-2 pb-2">
+<div class="flex items-center justify-between px-4 py-2 select-none cursor-pointer" onclick="toggleGroup('group-pinned', 'icon-pinned')">
+<div class="flex items-center gap-2">
+<span class="w-[3px] h-3 rounded-full bg-[#2563EB] shrink-0"></span>
+<span class="font-mono text-[11px] uppercase tracking-wider font-semibold text-charcoal-secondary">已置顶</span>
+<span class="font-mono text-[10px] text-charcoal-faint tracking-tight font-normal">仅此设备</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-charcoal-muted text-[17px] transition-transform duration-200" id="icon-pinned">expand_less</span>
+</div>
+</div>
+<div class="flex flex-col w-full" id="group-pinned">
+<!-- Row 1 -->
+<div class="px-4 py-3 hover:bg-stone-100/50 active:bg-stone-200/50 transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-semibold text-charcoal truncate tracking-[-0.01em]" style="font-size: 15.5px; font-weight: 500;">查看机器性能负荷与运行状态</h2>
+<div class="flex items-center gap-1 mt-0.5 text-charcoal-muted text-[12px]">
+<span class="text-[11px] leading-none shrink-0 text-[#2563EB]">📌</span>
+<span class="font-mono truncate">deepseek-v4-flash</span>
+</div>
+<div class="flex items-center gap-1 mt-1 text-status-cyan">
+<span class="text-[12px] font-medium font-mono">正在使用 &lt;top-monitor&gt; 工具...</span>
+</div>
+</div>
+<div class="w-7 flex items-center justify-center shrink-0">
+<!-- 18dp Endless Smooth Rotating Micro Loader -->
+<svg class="w-[18px] h-[18px] animate-spin text-[#2563EB]" fill="none" viewBox="0 0 24 24">
+<circle class="opacity-25" cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5"></circle>
+<path class="opacity-90" d="M12 3a9 9 0 0 1 9 9h-2.5a6.5 6.5 0 0 0-6.5-6.5V3z" fill="currentColor"></path>
+</svg>
+</div>
+</div>
+</div>
+</section>
+<!-- Group 3: 今天 (方案 A: 3px * 12px 翡翠绿圆角立柱条 #059669) -->
+<section class="flex flex-col w-full pt-2 pb-2">
+<div class="flex items-center justify-between px-4 py-2 select-none cursor-pointer" onclick="toggleGroup('group-today', 'icon-today')">
+<div class="flex items-center gap-2">
+<span class="w-[3px] h-3 rounded-full bg-[#059669] shrink-0"></span>
+<span class="font-mono text-[11px] uppercase tracking-wider font-semibold text-charcoal-secondary">今天</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="px-2 py-0.5 rounded-md bg-stone-200/60 text-charcoal-muted font-mono text-[10.5px] font-medium">2</span>
+<span class="material-symbols-outlined text-charcoal-muted text-[17px] transition-transform duration-200" id="icon-today">expand_less</span>
+</div>
+</div>
+<div class="flex flex-col w-full" id="group-today">
+<!-- Row 1 -->
+<div class="px-4 py-3 hover:bg-stone-100/50 active:bg-stone-200/50 transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-semibold text-charcoal truncate tracking-[-0.01em]" style="font-size: 15.5px; font-weight: 500;">查看最近7天起风工作室数据</h2>
+<div class="flex items-center gap-1.5 mt-0.5 text-charcoal-muted text-[12px]">
+<span class="material-symbols-outlined text-[14px] leading-none shrink-0 text-charcoal-faint">folder</span>
+<span class="font-mono truncate">xiaomai-daily-report · deepseek-v4-flash</span>
+</div>
+<div class="flex items-center gap-1 mt-1 text-status-green" style="color: rgb(46, 125, 50);">
+<span class="text-[12px] font-medium tracking-tight">已完成</span>
+</div>
+</div>
+<div class="w-7 flex items-center justify-center shrink-0">
+<span class="w-2.5 h-2.5 rounded-full bg-status-green" style="background-color: rgb(46, 125, 50);"></span>
+</div>
+</div>
+<!-- Row 2 -->
+<div class="px-4 py-3 hover:bg-stone-100/50 active:bg-stone-200/50 transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-semibold text-charcoal truncate tracking-[-0.01em]" style="font-size: 15.5px; font-weight: 500;">审查公开项目风险并整理改进计划</h2>
+<div class="flex items-center gap-1.5 mt-0.5 text-charcoal-muted text-[12px]">
+<span class="material-symbols-outlined text-[14px] leading-none shrink-0 text-charcoal-faint">folder</span>
+<span class="font-mono truncate">hermes-remote · gpt-5.6-sol</span>
+</div>
+</div>
+<div class="w-7 shrink-0"></div>
+</div>
+</div>
+</section>
+<!-- Group 4: 前 7 天 (方案 A: 3px * 12px 冷石板灰圆角立柱条 #94A3B8) -->
+<section class="flex flex-col w-full pt-2 pb-2">
+<div class="flex items-center justify-between px-4 py-2 select-none cursor-pointer" onclick="toggleGroup('group-past', 'icon-past')">
+<div class="flex items-center gap-2">
+<span class="w-[3px] h-3 rounded-full bg-[#94A3B8] shrink-0"></span>
+<span class="font-mono text-[11px] uppercase tracking-wider font-semibold text-charcoal-secondary">前 7 天</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="px-2 py-0.5 rounded-md bg-stone-200/60 text-charcoal-muted font-mono text-[10.5px] font-medium">19</span>
+<span class="material-symbols-outlined text-charcoal-muted text-[17px] transition-transform duration-200" id="icon-past">expand_less</span>
+</div>
+</div>
+<div class="flex flex-col w-full" id="group-past">
+<!-- Row 1: Failed Run (Coral red status text, NO dot) -->
+<div class="px-4 py-3 hover:bg-stone-100/50 active:bg-stone-200/50 transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-semibold text-charcoal truncate tracking-[-0.01em]" style="font-size: 15.5px; font-weight: 500;">查看昨天公司数据 #4</h2>
+<div class="flex items-center gap-1 mt-0.5 text-charcoal-muted text-[12px]">
+<span class="font-mono truncate">gpt-5.6-terra</span>
+</div>
+<div class="flex items-center gap-1 mt-1 text-status-red">
+<span class="text-[12px] font-medium">运行失败</span>
+</div>
+</div>
+<div class="w-7 shrink-0"></div>
+</div>
+<!-- Row 2 -->
+<div class="px-4 py-3 hover:bg-stone-100/50 active:bg-stone-200/50 transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-semibold text-charcoal truncate tracking-[-0.01em]" style="font-size: 15.5px; font-weight: 500;">查看昨天公司数据 #3</h2>
+<div class="flex items-center gap-1 mt-0.5 text-charcoal-muted text-[12px]">
+<span class="font-mono truncate">gpt-5.6-terra</span>
+</div>
+</div>
+<div class="w-7 shrink-0"></div>
+</div>
+<!-- Row 3 -->
+<div class="px-4 py-3 hover:bg-stone-100/50 active:bg-stone-200/50 transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-semibold text-charcoal truncate tracking-[-0.01em]" style="font-size: 15.5px; font-weight: 500;">迁移助理迁移 Claude 和 ChatGPT</h2>
+<div class="flex items-center gap-1.5 mt-0.5 text-charcoal-muted text-[12px]">
+<span class="material-symbols-outlined text-[14px] leading-none shrink-0 text-charcoal-faint">folder</span>
+<span class="font-mono truncate">tool-migration · gpt-5.6-terra</span>
+</div>
+</div>
+<div class="w-7 shrink-0"></div>
+</div>
+<!-- Row 4 -->
+<div class="px-4 py-3 hover:bg-stone-100/50 active:bg-stone-200/50 transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-semibold text-charcoal truncate tracking-[-0.01em]" style="font-size: 15.5px; font-weight: 500;">生成公司数据 HTML</h2>
+<div class="flex items-center gap-1.5 mt-0.5 text-charcoal-muted text-[12px]">
+<span class="material-symbols-outlined text-[14px] leading-none shrink-0 text-charcoal-faint">folder</span>
+<span class="font-mono truncate">xiaomai-daily-report · gpt-5.6-terra</span>
+</div>
+</div>
+<div class="w-7 shrink-0"></div>
+</div>
+</div>
+</section>
+</div>
+</div>
+<!-- Script for Accordion & Tab Interactive Behaviors -->
+<script>
+      function toggleGroup(groupId, iconId) {
+        const el = document.getElementById(groupId);
+        const icon = document.getElementById(iconId);
+        if (!el || !icon) return;
+        if (el.classList.contains('hidden')) {
+          el.classList.remove('hidden');
+          icon.style.transform = 'rotate(0deg)';
+        } else {
+          el.classList.add('hidden');
+          icon.style.transform = 'rotate(180deg)';
+        }
+      }
+
+      const segChats = document.getElementById('seg-chats');
+      const segBots = document.getElementById('seg-bots');
+      if (segChats && segBots) {
+        segChats.addEventListener('click', () => {
+          segChats.className = "flex-1 py-1.5 px-3 rounded-lg bg-white text-brand-navy font-medium text-[13.5px] tracking-tight flex items-center justify-center gap-1.5 shadow-[0_1px_3px_rgba(0,0,0,0.06)] border border-stone-200/60 transition-all duration-200";
+          segBots.className = "flex-1 py-1.5 px-3 rounded-lg text-charcoal-muted font-medium text-[13.5px] tracking-tight flex items-center justify-center gap-1.5 transition-all duration-200 hover:text-charcoal";
+        });
+        segBots.addEventListener('click', () => {
+          segBots.className = "flex-1 py-1.5 px-3 rounded-lg bg-white text-brand-navy font-medium text-[13.5px] tracking-tight flex items-center justify-center gap-1.5 shadow-[0_1px_3px_rgba(0,0,0,0.06)] border border-stone-200/60 transition-all duration-200";
+          segChats.className = "flex-1 py-1.5 px-3 rounded-lg text-charcoal-muted font-medium text-[13.5px] tracking-tight flex items-center justify-center gap-1.5 transition-all duration-200 hover:text-charcoal";
+        });
+      }
+    </script>
+</main>
+<!-- Floating Action Button (FAB): Smoked Slate Navy with Soft Diffused Warm Shadow -->
+<div class="fixed bottom-6 right-5 z-40 pb-safe">
+<button aria-label="新建会话" class="w-[52px] h-[52px] rounded-full text-white flex items-center justify-center active:scale-95 transition-all duration-200 border border-white/10" style="background-color: rgb(24, 28, 36); box-shadow: rgba(0, 0, 0, 0.22) 0px 4px 14px, rgba(0, 0, 0, 0.12) 0px 2px 6px;" onmouseover="this.style.backgroundColor='#0f131a'" onmouseout="this.style.backgroundColor='#181c24'"><span class="material-symbols-outlined text-[24px]">add</span></button>
+</div>
+<!-- iOS Home Bar Indicator -->
+<footer class="fixed bottom-0 w-full z-50 pb-safe pointer-events-none">
+<div class="w-full h-4 flex items-center justify-center">
+<div class="w-32 h-1 bg-stone-300 rounded-full"></div>
+</div>
+</footer>
+
+
+
+
+</body></html>

@@ -75,7 +75,9 @@ class ChatViewModel @Inject constructor(
     private val fileRepository: ChatFileRepository,
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
     private val projectPrefs: com.hermes.client.data.repository.ProjectPrefsStore,
+    private val projectCatalog: com.hermes.client.data.repository.ProjectCatalog,
     private val tools: com.hermes.client.data.repository.ToolsRepository,
+    private val botSendNotice: com.hermes.client.data.repository.BotSendNoticeStore,
     private val accountSessions: AccountSessionManager? = null,
     private val conversationDevices: ConversationDeviceStore? = null,
 ) : ViewModel() {
@@ -92,7 +94,27 @@ class ChatViewModel @Inject constructor(
         const val MANUAL_REFRESH_PROBE_SETTLE_MS = 1_500L
         const val LIVE_HANDLE_TIMEOUT_MS = 25_000L
         const val STALE_SESSION_CODE = 4001
+
+        /**
+         * Upstream's durable lookup missed: `session.resume` cannot find this conversation in the
+         * profile's state.db at all. Unlike [STALE_SESSION_CODE] — a live handle that merely went
+         * stale and resumes into a fresh one — this one is terminal: resuming again can only fail.
+         */
+        const val SESSION_NOT_FOUND_CODE = 4007
+
+        /**
+         * `slash.exec` could not run at all: the Mac's Hermes failed to spawn its slash worker
+         * ("slash worker closed pipe"). Distinct from a slash the worker ran and refused.
+         */
+        const val SLASH_WORKER_FAILED_CODE = 5030
     }
+
+    /**
+     * Upstream no longer has this conversation: it broadcast `session.reclaimed`, or `session.resume`
+     * answered [SESSION_NOT_FOUND_CODE]. Distinct from an ordinary send failure because retrying can
+     * never succeed — see [AppErrorCode.SESSION_NOT_FOUND].
+     */
+    private class SessionGoneException(reason: String) : Exception(reason)
 
     private val _state = MutableStateFlow(ChatUiState.empty())
     val state: StateFlow<ChatUiState> = _state.asStateFlow()
@@ -137,13 +159,20 @@ class ChatViewModel @Inject constructor(
             cwd = cwd?.ifBlank { null },
             branch = branch?.ifBlank { null },
             gitRepoRoot = gitRepoRoot?.ifBlank { null },
-            projectLabel = com.hermes.client.ui.sessions.projectLabelOfPath(cwd, gitRepoRoot, defaultProjectPath),
+            // The project's real name when the catalog knows it; the folder basename otherwise.
+            projectLabel = projectCatalog.nameForPath(cwd, gitRepoRoot, defaultProjectPath),
         )
     }
 
-    private fun rebuildWorkspaceProjects(profile: String?) {
-        val scoped = sessions.cachedAllProfiles().filter { profile.isNullOrBlank() || it.profile == profile }
-        _workspaceProjects.value = com.hermes.client.ui.sessions.deriveProjectsFromSessions(scoped, defaultProjectPath)
+    /**
+     * The list behind「移动到项目」. Same source as the Projects page — before this it derived its
+     * own from the session cache, which is why the two disagreed once the page started reading the
+     * gateway. The warm cache is shown first so the sheet is never empty, then the authoritative
+     * list replaces it; a failed fetch keeps the warm one rather than emptying the sheet.
+     */
+    private suspend fun rebuildWorkspaceProjects(profile: String?) {
+        _workspaceProjects.value = projectCatalog.derivedFromCache(profile)
+        runCatching { projectCatalog.refresh() }.onSuccess { _workspaceProjects.value = it }
     }
 
     /**
@@ -238,6 +267,54 @@ class ChatViewModel @Inject constructor(
     // Read on open so the UI can distinguish "following the default" from a session override.
     private val _defaultModel = MutableStateFlow<String?>(null)
     val defaultModel: StateFlow<String?> = _defaultModel.asStateFlow()
+
+    /**
+     * Set when this conversation came from a messaging channel rather than from this phone.
+     * Drives the peer labels, the model chip's third state, hiding handoff, and the one-time
+     * send notice. Null for an ordinary chat, which is every existing behaviour unchanged.
+     */
+    private val _botOrigin = MutableStateFlow<com.hermes.client.ui.sessions.BotOrigin?>(null)
+    val botOrigin: StateFlow<com.hermes.client.ui.sessions.BotOrigin?> = _botOrigin.asStateFlow()
+
+    /**
+     * Set once when a conversation upstream reclaimed was silently replaced by a fresh one. The
+     * screen re-navigates to this id: the runtime (and the message in flight) already moved, but
+     * the navigation entry still names the dead conversation, and going back and forward would
+     * otherwise reopen it.
+     */
+    private val _recreatedSessionId = MutableStateFlow<String?>(null)
+    val recreatedSessionId: StateFlow<String?> = _recreatedSessionId.asStateFlow()
+
+    /** Ids of turns sent from this device this session; see [com.hermes.client.ui.chat.userTurnLabel]. */
+    private val _locallySentIds = MutableStateFlow<Set<String>>(emptySet())
+    val locallySentIds: StateFlow<Set<String>> = _locallySentIds.asStateFlow()
+
+    private val acknowledgedBotChannels = botSendNotice.acknowledged
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptySet())
+
+    /**
+     * True when the next message into this conversation should be preceded by the one-time notice:
+     * a bot conversation on a channel this device has not been told about yet. The composer stays
+     * clean the rest of the time — the price of saying it once is that it has to be said clearly.
+     */
+    val botNoticeNeeded: StateFlow<Boolean> =
+        kotlinx.coroutines.flow.combine(_botOrigin, acknowledgedBotChannels) { origin, acknowledged ->
+            origin != null && origin.source !in acknowledged
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, false)
+
+    /** The person has read the notice for this channel; never show it for that channel again. */
+    fun acknowledgeBotNotice() {
+        val source = _botOrigin.value?.source ?: return
+        viewModelScope.launch { runCatching { botSendNotice.acknowledge(source) } }
+    }
+
+    /**
+     * True while a bot conversation is open and has not been resumed yet. Opening one deliberately
+     * does NOT resume: `bindLiveHandle` starts process polling, and browsing a log should not
+     * materialise an agent runtime — nor poll it — for a conversation another process owns. The
+     * first send resumes instead.
+     */
+    private var resumeDeferred: Boolean = false
     private val _defaultProvider = MutableStateFlow<String?>(null)
     val defaultProvider: StateFlow<String?> = _defaultProvider.asStateFlow()
 
@@ -390,6 +467,26 @@ class ChatViewModel @Inject constructor(
     private var sendJob: Job? = null
     private var refreshJob: Job? = null
     private var runtimeKey: SessionRuntimeKey? = null
+
+    /**
+     * Upstream told us it reclaimed this conversation (`session.reclaimed`, broadcast when its
+     * idle/LRU/WS-orphan reaper collects a session). The next `prompt.submit` would answer
+     * "session not found", so the send path skips straight to recovery instead of spending a
+     * doomed round trip first. Cleared when [open] binds a conversation.
+     */
+    private var sessionReclaimed = false
+
+    /**
+     * Positive evidence that this conversation has nothing to lose: it was opened as a brand-new
+     * session and no server-persisted turn has been seen since. Only such a conversation may be
+     * silently re-created when upstream reaps it. Anything else — including a history fetch that
+     * never completed — counts as "might have history" and stays terminal, because re-creating it
+     * would cut the transcript loose from everything said before.
+     */
+    private var sessionKnownEmpty = false
+
+    /** A re-created conversation's id, held back until the turn that caused it has finished. */
+    private var pendingRecreatedId: String? = null
     private var currentProfile: String? = null
     private var currentDeviceId: String? = null
     private var liveHandleGate = CompletableDeferred<String>()
@@ -462,6 +559,8 @@ class ChatViewModel @Inject constructor(
         runtimeStore.setTitle(key, initialTitle?.takeIf { it.isNotBlank() } ?: cachedMeta?.title)
         _currentModel.value = cachedMeta?.model?.ifBlank { null }
         _currentProvider.value = cachedMeta?.provider?.ifBlank { null }
+        _botOrigin.value = com.hermes.client.ui.sessions.botOriginOf(cachedMeta)
+        _locallySentIds.value = emptySet()
         _workspace.value = null
         _workspaceError.value = null
         viewModelScope.launch {
@@ -473,6 +572,8 @@ class ChatViewModel @Inject constructor(
         _explicitSessionOverride.value = false
         _reasoningEffort.value = null
         val cachedHistory = sessions.cachedHistory(id, profile, currentDeviceId)?.map { it.organizedForDisplay() }
+        sessionReclaimed = false
+        sessionKnownEmpty = isNewSession && cachedHistory.isNullOrEmpty()
         runtimeStore.markHistoryLoading(key, cachedHistory)
         // The memory cache holds ten transcripts and dies with the process, so with ~200 sessions
         // a cold open is the normal case, not the exception. Ask the disk in parallel with the
@@ -485,19 +586,13 @@ class ChatViewModel @Inject constructor(
                 val organized = kotlinx.coroutines.withContext(defaultDispatcher) {
                     stored.map { it.organizedForDisplay() }
                 }
-                if (storedSessionId == id) runtimeStore.acceptCachedHistory(key, organized)
+                if (storedSessionId == id) {
+                    if (organized.isNotEmpty()) sessionKnownEmpty = false
+                    runtimeStore.acceptCachedHistory(key, organized)
+                }
             }
         }
-        collectJob?.cancel()
-        collectJob = viewModelScope.launch {
-            runtimeStore.runtimes
-                .map { it[key] }
-                .filterNotNull()
-                .collect { runtime ->
-                    _state.value = runtime.chat
-                    runtime.liveHandle?.takeIf { it.isNotBlank() }?.let { sessionId = it }
-                }
-        }
+        collectRuntime(key)
         // A share created this session and stashed its text; surface it as the initial composer draft.
         val ps = pendingShareStore.take(id)
         ps?.text?.let { _initialDraft.value = it }
@@ -507,13 +602,24 @@ class ChatViewModel @Inject constructor(
         // "新会话" until Hermes emits session.title after the first prompt.
         viewModelScope.launch {
             val meta = runCatching {
-                sessions.list(profile, currentDeviceId).firstOrNull { it.id == id }
+                sessions.sessionMeta(id, profile, currentDeviceId)
             }.getOrNull()
             if (storedSessionId == id && meta != null) {
                 _sessionTitle.value = displaySessionTitle(meta.title, fallbackTitle)
                 runtimeStore.setTitle(key, meta.title)
                 _currentModel.value = meta.model?.ifBlank { null }
                 _currentProvider.value = meta.provider?.ifBlank { null }
+                com.hermes.client.ui.sessions.botOriginOf(meta)?.let { late ->
+                    if (_botOrigin.value == null) {
+                        // Classified only now — a deep link or a notification opened this before
+                        // any list had been read. The resume it already fired is left alone rather
+                        // than unwound; the next open reads the cache and defers properly.
+                        com.hermes.client.data.diagnostics.DebugLog.log(
+                            "session", "late bot classification for ${'$'}id",
+                        )
+                    }
+                    _botOrigin.value = late
+                }
                 applyWorkspace(meta.cwd, meta.gitBranch, meta.gitRepoRoot)
             }
         }
@@ -525,6 +631,7 @@ class ChatViewModel @Inject constructor(
                     rawHistory.map { it.organizedForDisplay() }
                 }
                 com.hermes.client.data.diagnostics.DebugLog.log("session", "history($id) → ${organizedHistory.size} messages")
+                if (organizedHistory.isNotEmpty()) sessionKnownEmpty = false
                 runtimeStore.acceptHistory(key, organizedHistory, requestStartedAt)
                 runtimeStore.markRead(key)
                 // Do not hold the transcript behind image downloads. Show text and placeholders
@@ -534,25 +641,36 @@ class ChatViewModel @Inject constructor(
                     runtimeStore.acceptHydratedImages(key, hydrated)
                 }
             } catch (e: HermesApiException) {
-                com.hermes.client.data.diagnostics.DebugLog.log("error", "history($id) failed: ${e.code} ${e.message}")
-                if (e.code == 401) { _unauthorized.value = true; return@launch }
-                val message = if (e.errorCode == "HR-BIND-011") {
-                    localized(
-                        appLanguage,
-                        "此 Mac 已无法由当前账号使用，请选择其他设备。（HR-BIND-011）",
-                        "That Mac is no longer available to this account. Choose another device. (HR-BIND-011)",
+                // A session with no persisted turn yet has no REST row either: upstream answers 404
+                // {"detail":"Session not found"} until the first message lands, then 200. That is
+                // the normal opening second of every new conversation, not a failure — reporting it
+                // as one puts "无法加载历史消息" under a chat that is working fine, and buries the
+                // real 404s (a conversation upstream actually reaped) in the noise.
+                if (e.code == 404 && sessionKnownEmpty) {
+                    com.hermes.client.data.diagnostics.DebugLog.log(
+                        "history", "history($id) 404 — new session has no stored turn yet",
                     )
                 } else {
-                    localized(
-                        appLanguage,
-                        "无法加载历史消息（HR-RPC-001）",
-                        "Couldn't load message history (HR-RPC-001)",
+                    com.hermes.client.data.diagnostics.DebugLog.log("error", "history($id) failed: ${e.code} ${e.message}")
+                    if (e.code == 401) { _unauthorized.value = true; return@launch }
+                    val message = if (e.errorCode == "HR-BIND-011") {
+                        localized(
+                            appLanguage,
+                            "此 Mac 已无法由当前账号使用，请选择其他设备。（HR-BIND-011）",
+                            "That Mac is no longer available to this account. Choose another device. (HR-BIND-011)",
+                        )
+                    } else {
+                        localized(
+                            appLanguage,
+                            "无法加载历史消息（HR-RPC-001）",
+                            "Couldn't load message history (HR-RPC-001)",
+                        )
+                    }
+                    runtimeStore.historyFailed(
+                        key,
+                        message,
                     )
                 }
-                runtimeStore.historyFailed(
-                    key,
-                    message,
-                )
             } catch (e: Exception) {
                 // Keep a cached/live transcript visible if history refresh fails.
                 com.hermes.client.data.diagnostics.DebugLog.log("error", "history($id) failed: ${e.message}")
@@ -594,7 +712,13 @@ class ChatViewModel @Inject constructor(
                     if (storedSessionId == id) {
                         _defaultModel.value = defaultModel
                         _defaultProvider.value = null
-                        if (_currentModel.value.isNullOrBlank() && defaultModel != null) {
+                        // Never for a bot conversation: the profile default is this phone's
+                        // setting, not the model that answered on the other app, and writing it
+                        // here made the chip name a model that had never touched that session.
+                        if (_botOrigin.value == null &&
+                            _currentModel.value.isNullOrBlank() &&
+                            defaultModel != null
+                        ) {
                             _currentModel.value = defaultModel
                         }
                         backfillProvidersFromCatalog()
@@ -608,20 +732,23 @@ class ChatViewModel @Inject constructor(
         // Resume is independent from REST history. The composer can be used immediately, but any
         // send awaits this gate so a stored database id is never submitted as a live runtime id.
         val gateForOpen = liveHandleGate
-        resumeJob = viewModelScope.launch {
-            try {
-                val handle = recoverLiveHandle(id, profile, key)
-                if (storedSessionId == id && liveHandleGate === gateForOpen) {
-                    gateForOpen.complete(handle)
+        resumeDeferred = com.hermes.client.ui.sessions.isBotSession(cachedMeta?.source)
+        if (!resumeDeferred) {
+            resumeJob = viewModelScope.launch {
+                try {
+                    val handle = recoverLiveHandle(id, profile, key)
+                    if (storedSessionId == id && liveHandleGate === gateForOpen) {
+                        gateForOpen.complete(handle)
+                    }
+                } catch (cancelled: CancellationException) {
+                    gateForOpen.cancel(cancelled)
+                    throw cancelled
+                } catch (error: Exception) {
+                    com.hermes.client.data.diagnostics.DebugLog.log(
+                        "session", "resume($id) failed: ${error.message}",
+                    )
+                    gateForOpen.completeExceptionally(error)
                 }
-            } catch (cancelled: CancellationException) {
-                gateForOpen.cancel(cancelled)
-                throw cancelled
-            } catch (error: Exception) {
-                com.hermes.client.data.diagnostics.DebugLog.log(
-                    "session", "resume($id) failed: ${error.message}",
-                )
-                gateForOpen.completeExceptionally(error)
             }
         }
         titleJob?.cancel()
@@ -630,6 +757,18 @@ class ChatViewModel @Inject constructor(
                 it.sessionId == null || it.sessionId == sessionId || it.sessionId == storedSessionId
             }
                 .onEach { event ->
+                    // Upstream reclaimed this conversation out from under us (its idle / LRU /
+                    // WS-orphan reaper). It broadcasts this precisely so the next prompt is not
+                    // sent into a session that no longer exists — see the send path, which now
+                    // recovers instead of offering a retry that can never succeed.
+                    if (event.type == "session.reclaimed" &&
+                        (event.sessionId == sessionId || event.sessionId == storedSessionId)
+                    ) {
+                        sessionReclaimed = true
+                        com.hermes.client.data.diagnostics.DebugLog.log(
+                            "session", "upstream reclaimed $storedSessionId; next send will recover",
+                        )
+                    }
                     if (event.type == "session.info" && (event.sessionId == sessionId || event.sessionId == storedSessionId)) {
                         // Live workspace: cwd/branch straight from the gateway. Keep the repo root
                         // we already know when the folder did not change (session.info omits it).
@@ -647,7 +786,7 @@ class ChatViewModel @Inject constructor(
                             // Some gateway versions omit session_id on title events. Never apply that
                             // unscoped title directly: re-read this session's own metadata instead.
                             val meta = runCatching {
-                                sessions.list(profile, currentDeviceId).firstOrNull { it.id == storedSessionId }
+                                sessions.sessionMeta(storedSessionId, profile, currentDeviceId)
                             }.getOrNull()
                             if (this@ChatViewModel.storedSessionId == id && meta != null) {
                                 _sessionTitle.value = displaySessionTitle(meta.title, fallbackTitle)
@@ -721,7 +860,7 @@ class ChatViewModel @Inject constructor(
                 )
                 launch {
                     val metadata = runCatching {
-                        sessions.list(profile, currentDeviceId).firstOrNull { it.id == id }
+                        sessions.sessionMeta(id, profile, currentDeviceId)
                     }.getOrNull()
                     if (runtimeKey == key && metadata != null) {
                         val fallback = localized(appLanguage, "会话", "Chat")
@@ -874,7 +1013,12 @@ class ChatViewModel @Inject constructor(
 
     /** Replays a failed turn as a fresh message: the failed bubble is removed, then sent again. */
     fun retrySend(messageId: String) {
-        val failed = failedSends.remove(messageId) ?: return
+        val failed = failedSends[messageId] ?: return
+        // A terminal failure (the conversation is gone upstream) keeps its bubble and its code.
+        // Re-dispatching would only repeat the same 4001/4007 and replace one dead error with
+        // another; the UI does not offer the tap either, this is the belt to that braces.
+        if (!failed.error.retryable) return
+        failedSends.remove(messageId)
         runtimeKey?.let { runtimeStore.removeMessage(it, messageId) }
             ?: mutateState { it.withoutMessage(messageId) }
         dispatch(failed.text, failed.attachments)
@@ -900,6 +1044,31 @@ class ChatViewModel @Inject constructor(
         val expectedStoredId = storedSessionId
         val expectedProfile = currentProfile
         val gateForSend = liveHandleGate
+        // This turn is ours, not the channel peer's. Recorded before the send so the bubble is
+        // signed correctly the moment it appears, whatever the send goes on to do.
+        if (_botOrigin.value != null) _locallySentIds.value = _locallySentIds.value + messageId
+        // A bot conversation opened without resuming (see [resumeDeferred]). Resume now rather
+        // than letting the gate run out its 25-second timeout on the very first message.
+        if (resumeDeferred && !gateForSend.isCompleted) {
+            resumeDeferred = false
+            resumeJob = viewModelScope.launch {
+                try {
+                    val key = runtimeKey ?: return@launch
+                    val handle = recoverLiveHandle(expectedStoredId, expectedProfile, key)
+                    if (storedSessionId == expectedStoredId && liveHandleGate === gateForSend) {
+                        gateForSend.complete(handle)
+                    }
+                } catch (cancelled: CancellationException) {
+                    gateForSend.cancel(cancelled)
+                    throw cancelled
+                } catch (error: Exception) {
+                    com.hermes.client.data.diagnostics.DebugLog.log(
+                        "session", "deferred resume($expectedStoredId) failed: ${error.message}",
+                    )
+                    gateForSend.completeExceptionally(error)
+                }
+            }
+        }
         sendJob = viewModelScope.launch {
             try {
                 val outgoingImages = atts.filter { it.kind == AttachmentKind.IMAGE }.map { a ->
@@ -955,13 +1124,18 @@ class ChatViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
-                // A gateway error (e.g. "session not found") or the live-handle timeout must surface
-                // ON THE BUBBLE (未发送 + tap-to-retry, HR-SESS-007), never crash and never as a
-                // detached error row. The session goes back to idle — a send that never left the
-                // phone is not a failed run.
+                // A gateway error or the live-handle timeout must surface ON THE BUBBLE (未发送 +
+                // tap-to-retry, HR-SESS-007), never crash and never as a detached error row. The
+                // session goes back to idle — a send that never left the phone is not a failed run.
+                //
+                // One failure is NOT retryable: upstream no longer has the conversation and we were
+                // not able to replace it. Offering "点按重试" there is a lie — every tap repeats the
+                // same 4001/4007 — so it gets its own terminal code instead (HR-SESS-001).
+                val gone = e is SessionGoneException
                 val error = com.hermes.client.data.error.AppError(
-                    com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED,
-                    retryable = true, technicalCause = e.message, stage = "prompt_submit",
+                    if (gone) com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND
+                    else com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED,
+                    retryable = !gone, technicalCause = e.message, stage = "prompt_submit",
                 )
                 com.hermes.client.data.diagnostics.DebugLog.log("session", "send($expectedStoredId) failed: ${e.message}")
                 failedSends[messageId] = FailedSend(text, atts, error)
@@ -979,8 +1153,19 @@ class ChatViewModel @Inject constructor(
                         } else file
                     }
                 }
-                updateDelivery(messageId, com.hermes.client.domain.DeliveryState.FAILED)
+                updateDelivery(
+                    messageId,
+                    if (gone) com.hermes.client.domain.DeliveryState.UNDELIVERABLE
+                    else com.hermes.client.domain.DeliveryState.FAILED,
+                )
                 runtimeKey?.let(runtimeStore::finishLocal) ?: mutateState { it.copy(isGenerating = false) }
+            } finally {
+                // The bubble has reached its final state (sent, failed or undeliverable), so it is
+                // safe to hand the screen the new id and let it re-navigate.
+                pendingRecreatedId?.let { recreated ->
+                    pendingRecreatedId = null
+                    _recreatedSessionId.value = recreated
+                }
             }
         }
     }
@@ -1053,16 +1238,94 @@ class ChatViewModel @Inject constructor(
             }
         }
 
+        // Upstream has reaped this conversation: resuming it again can only fail, so the choice is
+        // between starting a fresh one and admitting defeat. Re-create ONLY with positive evidence
+        // that nothing is being cut loose ([sessionKnownEmpty]) — the user keeps the message they
+        // typed and never notices. A conversation that might hold history is terminal instead, so a
+        // silent re-create can never orphan a transcript.
+        suspend fun recoverFromReclaim(reason: String): String {
+            if (!sessionKnownEmpty) throw SessionGoneException(reason)
+            return recreateConversation(storedId, profile)
+        }
+
         try {
+            if (sessionReclaimed) {
+                com.hermes.client.data.diagnostics.DebugLog.log(
+                    "session", "send($storedId) skipping submit: upstream reclaimed this session",
+                )
+                submitOn(recoverFromReclaim("session reclaimed upstream"))
+                return
+            }
             submitOn(initialHandle)
         } catch (error: GatewayRpcException) {
+            if (error.code == SESSION_NOT_FOUND_CODE) {
+                submitOn(recoverFromReclaim(error.message ?: "session not found"))
+                return
+            }
             if (error.code != STALE_SESSION_CODE) throw error
             com.hermes.client.data.diagnostics.DebugLog.log(
                 "session", "submit rejected as stale; resuming $storedId and retrying once",
             )
             val key = runtimeKey ?: throw error
-            val recovered = recoverLiveHandle(storedId, profile, key)
+            val recovered = try {
+                recoverLiveHandle(storedId, profile, key)
+            } catch (gone: GatewayRpcException) {
+                // 4001 said the live handle was stale; 4007 says the durable session is not there
+                // at all. Only the second one is terminal — the first legitimately resumes.
+                if (gone.code != SESSION_NOT_FOUND_CODE) throw gone
+                com.hermes.client.data.diagnostics.DebugLog.log(
+                    "session", "resume($storedId) → 4007; upstream no longer has this conversation",
+                )
+                recoverFromReclaim(gone.message ?: "session not found")
+            }
             submitOn(recovered)
+        }
+    }
+
+    /**
+     * Replace a conversation upstream reclaimed with a fresh one and carry the pending turn across.
+     * The runtime moves to the new key so the bubble the user is looking at — the message they just
+     * typed — survives the swap, and [recreatedSessionId] tells the screen to re-navigate to the
+     * canonical id so back-navigation and deep links do not resurrect the dead one.
+     */
+    private suspend fun recreateConversation(oldStoredId: String, profile: String?): String {
+        val oldKey = runtimeKey ?: throw SessionGoneException("no runtime bound for $oldStoredId")
+        val created = chat.createSession(profile, _workspace.value?.cwd)
+        val newKey = runtimeStore.rekey(oldKey, created.id)
+        storedSessionId = created.id
+        runtimeKey = newKey
+        sessionReclaimed = false
+        sessionKnownEmpty = true
+        collectRuntime(newKey)
+        val handle = chat.resume(created.id, profile)?.takeIf { it.isNotBlank() }
+            ?: throw SessionGoneException("resume of recreated ${created.id} returned no live handle")
+        sessionId = handle
+        runtimeStore.bindLiveHandle(newKey, handle)
+        liveHandleGate = CompletableDeferred<String>().also { it.complete(handle) }
+        com.hermes.client.data.diagnostics.DebugLog.log(
+            "session", "recreated $oldStoredId as ${created.id} → handle=$handle",
+        )
+        // Parked, not published: publishing navigates, navigating tears this ViewModel down, and
+        // that would cancel the very send we are in the middle of recovering. [dispatch] releases
+        // it once the turn has landed one way or the other.
+        pendingRecreatedId = created.id
+        return handle
+    }
+
+    /**
+     * Mirror one runtime into the screen state. Split out of [open] because a conversation upstream
+     * reclaimed is re-created under a NEW key, and the collector has to follow it there.
+     */
+    private fun collectRuntime(key: SessionRuntimeKey) {
+        collectJob?.cancel()
+        collectJob = viewModelScope.launch {
+            runtimeStore.runtimes
+                .map { it[key] }
+                .filterNotNull()
+                .collect { runtime ->
+                    _state.value = runtime.chat
+                    runtime.liveHandle?.takeIf { it.isNotBlank() }?.let { sessionId = it }
+                }
         }
     }
 
@@ -1277,6 +1540,21 @@ class ChatViewModel @Inject constructor(
      * sheet is dismissed by the caller via [onDone] and the model's remembered reasoning preset
      * is applied. A second tap while one selection is in flight is ignored.
      */
+    /**
+     * Classify a failed `/model …` slash. A worker that never started (`slash.exec` 5030) is not a
+     * refused switch: the Mac's Hermes cannot run ANY slash command, so "请重试" would send the user
+     * round a loop that cannot end — which is exactly what HG-28 looked like from the phone. It gets
+     * its own non-retryable code; everything else keeps the ordinary retryable one.
+     */
+    private fun modelSwitchError(e: Throwable, stage: String): com.hermes.client.data.error.AppError {
+        val workerGone = (e as? GatewayRpcException)?.code == SLASH_WORKER_FAILED_CODE
+        return com.hermes.client.data.error.AppError(
+            if (workerGone) com.hermes.client.data.error.AppErrorCode.SLASH_WORKER_UNAVAILABLE
+            else com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_FAILED,
+            retryable = !workerGone, technicalCause = e.message, stage = stage,
+        )
+    }
+
     fun onSelectFromSheet(provider: String, model: String, onDone: () -> Unit) {
         if (_modelSheet.value.pendingKey != null) return
         val key = com.hermes.client.data.repository.favKey(provider, model)
@@ -1295,10 +1573,7 @@ class ChatViewModel @Inject constructor(
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     _modelSheet.value = _modelSheet.value.copy(
                         pendingKey = null,
-                        error = com.hermes.client.data.error.AppError(
-                            com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_FAILED,
-                            retryable = true, technicalCause = e.message, stage = "model_session_switch",
-                        ),
+                        error = modelSwitchError(e, "model_session_switch"),
                     )
                 }
         }
@@ -1331,10 +1606,7 @@ class ChatViewModel @Inject constructor(
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     _modelSheet.value = _modelSheet.value.copy(
                         pendingKey = null,
-                        error = com.hermes.client.data.error.AppError(
-                            com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_FAILED,
-                            retryable = true, technicalCause = e.message, stage = "model_restore_default",
-                        ),
+                        error = modelSwitchError(e, "model_restore_default"),
                     )
                 }
         }

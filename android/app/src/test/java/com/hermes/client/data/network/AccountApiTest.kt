@@ -94,6 +94,35 @@ class AccountApiTest {
         assertEquals("Office Mac mini", result.items.single().desktopDisplayName)
     }
 
+    @Test fun singular_binding_uses_bearer_and_maps_the_bound_mac() = runTest {
+        server.enqueue(jsonResponse("""{
+          "state":"bound",
+          "binding":{"id":"binding-1","generation":2,"deviceId":"mac-1",
+          "desktopDisplayName":"Office Mac mini","publicKeyFingerprint":"ignored",
+          "connector":{"online":true},"hermes":{"reachable":true,"version":"3.0.0"},
+          "gateway":{"latencyMs":8},"endToEnd":{"healthy":true}}
+        }"""))
+
+        val result = api.binding(baseUrl(), "hga_secret")
+        val request = server.takeRequest()
+
+        assertEquals("/v2/connector-binding", request.target)
+        assertEquals("Bearer hga_secret", request.headers["Authorization"])
+        assertEquals("mac-1", result.binding?.deviceId)
+        assertEquals("owner", result.binding?.asOwnedDevice()?.access)
+    }
+
+    @Test fun singular_binding_probe_uses_unprefixed_status_and_bearer() = runTest {
+        server.enqueue(jsonResponse("""{"version":"test","gatewayRunning":true}"""))
+
+        api.probeSingleBinding(baseUrl(), "hga_secret")
+        val request = server.takeRequest()
+
+        assertEquals("/api/status", request.target)
+        assertEquals("Bearer hga_secret", request.headers["Authorization"])
+        assertEquals(null, request.headers["X-Hermes-Session-Token"])
+    }
+
     @Test fun structured_server_error_exposes_only_stable_contract_fields() = runTest {
         server.enqueue(
             jsonResponse("""{

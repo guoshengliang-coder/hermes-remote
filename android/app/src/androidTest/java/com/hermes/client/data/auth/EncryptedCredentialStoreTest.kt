@@ -84,6 +84,36 @@ class EncryptedCredentialStoreTest {
         afterInvalidation.clearAccountSession(requireReauthentication = false)
     }
 
+    @Test fun pendingSingularRouteStateSurvivesProcessRestartAndClearsWithTheAccount() {
+        store.clearAccountSession(requireReauthentication = false)
+        store.saveAccountSession(
+            AccountSession(
+                baseUrl = "https://relay.example",
+                accountId = "account-1",
+                installationId = "installation-1",
+                installationDisplayName = "Pixel",
+                accessToken = "access",
+                accessExpiresAt = "2099-01-01T00:00:00Z",
+                refreshToken = "refresh",
+                refreshExpiresAt = "2099-02-01T00:00:00Z",
+                activationPending = true,
+                deviceRouteMode = AccountDeviceRouteMode.SINGLE_BINDING,
+            ),
+        )
+
+        val reopened = EncryptedCredentialStore(ApplicationProvider.getApplicationContext())
+        assertTrue(reopened.loadAccountSession()?.activationPending == true)
+        assertEquals(
+            AccountDeviceRouteMode.SINGLE_BINDING,
+            reopened.loadAccountSession()?.deviceRouteMode,
+        )
+
+        reopened.clearAccountSession(requireReauthentication = false)
+        assertNull(
+            EncryptedCredentialStore(ApplicationProvider.getApplicationContext()).loadAccountSession(),
+        )
+    }
+
     @Test fun pendingAccountDeletionRoundTripsWithoutPersistingUserConfirmationOrCode() {
         store.clearAccountSession(requireReauthentication = false)
         val pending = PendingAccountDeletion(

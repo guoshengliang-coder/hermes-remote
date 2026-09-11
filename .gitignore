@@ -22,5 +22,11 @@ outputs/
 desktop/.build/
 desktop/build/
 
+# Python bytecode. scripts/lib/ is plain scripts, so nothing wrote this until a helper there
+# gained a test that compiles it — and an untracked __pycache__/ is enough to make the publisher
+# refuse to run ("Publishing requires a clean worktree"), which is how this was found.
+__pycache__/
+*.py[cod]
+
 # Private machine/deployment context supplied by the project owner.
 environment.md

@@ -41,12 +41,12 @@ struct DiagnosticsView: View {
     }
 
     private var diagnosticSummary: String {
-        let problems = model.health.components.filter {
+        let problems = model.presentedHealth.components.filter {
             $0.level == .failed || $0.level == .degraded || ($0.component.isRequired && $0.level == .unavailable)
         }.count
         return problems == 0
             ? "关键连接检查均已通过"
-            : "已完成 \(model.health.components.count) 项检查，发现 \(problems) 个需要确认的问题"
+            : "已完成 \(model.presentedHealth.components.count) 项检查，发现 \(problems) 个需要确认的问题"
     }
 
     private var checksCard: some View {
@@ -54,7 +54,7 @@ struct DiagnosticsView: View {
             Text("连接检查")
                 .font(.system(size: 17, weight: .bold))
                 .padding(.bottom, 14)
-            ForEach(model.health.components) { item in
+            ForEach(model.presentedHealth.components) { item in
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: statusSymbol(item.level))
                         .foregroundStyle(statusColor(item.level))
@@ -70,7 +70,7 @@ struct DiagnosticsView: View {
                     Spacer()
                 }
                 .padding(.vertical, 10)
-                if item.id != model.health.components.last?.id { Divider() }
+                if item.id != model.presentedHealth.components.last?.id { Divider() }
             }
         }
         .padding(20)
@@ -79,7 +79,7 @@ struct DiagnosticsView: View {
     }
 
     private var issueCard: some View {
-        let issue = model.health.components.first {
+        let issue = model.presentedHealth.components.first {
             $0.level == .failed || $0.level == .degraded || ($0.component.isRequired && $0.level == .unavailable)
         }
         return VStack(alignment: .leading, spacing: 12) {

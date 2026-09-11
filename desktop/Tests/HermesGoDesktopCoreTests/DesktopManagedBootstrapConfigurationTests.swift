@@ -3,6 +3,23 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopManagedBootstrapConfigurationTests: XCTestCase {
+    func testPackagedAppAllowsLocalHealthChecksWithoutDisablingPublicATS() throws {
+        let desktopRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let plistURL = desktopRoot.appendingPathComponent("Packaging/Info.plist")
+        let data = try Data(contentsOf: plistURL)
+        let object = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        )
+        let ats = try XCTUnwrap(object["NSAppTransportSecurity"] as? [String: Any])
+
+        XCTAssertEqual(ats["NSAllowsLocalNetworking"] as? Bool, true)
+        XCTAssertNil(ats["NSAllowsArbitraryLoads"])
+        XCTAssertNil(ats["NSAllowsArbitraryLoadsInWebContent"])
+    }
+
     func testRuntimeContractFreezesOfficialLoopbackServeInterface() {
         let contract = DesktopHermesRuntimeContract.serveV1
 
@@ -13,13 +30,23 @@ final class DesktopManagedBootstrapConfigurationTests: XCTestCase {
         XCTAssertEqual(DesktopHermesRuntimeContract.readyLinePrefix, "HERMES_BACKEND_READY port=")
         XCTAssertEqual(DesktopHermesRuntimeContract.portInUseLinePrefix, "BACKEND_PORT_IN_USE port=")
         XCTAssertEqual(
-            try contract.environmentVariables(hermesHome: URL(fileURLWithPath: "/Users/test/.hermes")),
-            ["HERMES_HOME": "/Users/test/.hermes"]
+            try contract.environmentVariables(
+                hermesHome: URL(fileURLWithPath: "/Users/test/.hermes"),
+                sessionTokenFile: URL(fileURLWithPath: "/Users/test/.hermes-go/secrets/hermes-session-token")
+            ),
+            [
+                "HERMES_HOME": "/Users/test/.hermes",
+                "HERMES_DESKTOP": "1",
+                "HERMES_SESSION_TOKEN_FILE": "/Users/test/.hermes-go/secrets/hermes-session-token",
+            ]
         )
         XCTAssertTrue(contract.isReadyAnnouncement("HERMES_BACKEND_READY port=9119"))
         XCTAssertFalse(contract.isReadyAnnouncement("HERMES_BACKEND_READY port=9120"))
         XCTAssertTrue(contract.isPortConflictAnnouncement("BACKEND_PORT_IN_USE port=9119"))
-        XCTAssertThrowsError(try contract.environmentVariables(hermesHome: URL(fileURLWithPath: "/")))
+        XCTAssertThrowsError(try contract.environmentVariables(
+            hermesHome: URL(fileURLWithPath: "/"),
+            sessionTokenFile: URL(fileURLWithPath: "/tmp/hermes-session-token")
+        ))
     }
 
     func testManagedBootstrapIsDisabledWhenFlagIsAbsentOrZero() {

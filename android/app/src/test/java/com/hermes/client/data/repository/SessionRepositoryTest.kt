@@ -58,6 +58,67 @@ class SessionRepositoryTest {
         assertTrue(repo.hasLoadedAllProfiles())
     }
 
+    /**
+     * The bug this fixes: [SessionRepository.cachedSession] read a cache that [listAllProfiles]
+     * had already filtered messaging sources out of, so every bot conversation resolved to null.
+     * The chat screen then opened with no title and — worse — wrote the profile's default model
+     * into the session as though it were the model that had answered on the other app.
+     */
+    @Test fun a_bot_session_is_resolvable_by_id_after_the_bots_list_was_read() = runTest {
+        coEvery { rest.profileSessions(any(), false) } returns ProfileSessionsDto(
+            listOf(dto("local-1", "cli", 3), dto("bot-1", "dingtalk", 5)),
+        )
+        repo.botSessions()
+
+        val row = repo.cachedSession("bot-1")
+        assertEquals("dingtalk", row?.source)
+    }
+
+    /** …and the Chats list must NOT gain those rows as a side effect of that cache being shared. */
+    @Test fun the_chats_list_still_excludes_messaging_sources_after_the_bots_list_was_read() = runTest {
+        coEvery { rest.profileSessions(any(), false) } returns ProfileSessionsDto(
+            listOf(dto("local-1", "cli", 3), dto("bot-1", "dingtalk", 5)),
+        )
+        repo.botSessions()
+
+        assertEquals(listOf("local-1"), repo.cachedAllProfiles().map { it.id })
+    }
+
+    /**
+     * The Chats screen distinguishes "loaded and empty" from "not fetched yet" with this flag.
+     * Reading the Bots list fills the same cache but answers a different question, so it must not
+     * satisfy that gate — otherwise a Bots-first launch shows an empty Chats list as final.
+     */
+    @Test fun reading_only_the_bots_list_does_not_count_as_having_loaded_the_chats_list() = runTest {
+        coEvery { rest.profileSessions(any(), false) } returns ProfileSessionsDto(
+            listOf(dto("bot-1", "dingtalk", 5)),
+        )
+        repo.botSessions()
+        assertFalse(repo.hasLoadedAllProfiles())
+
+        repo.listAllProfiles()
+        assertTrue(repo.hasLoadedAllProfiles())
+    }
+
+    @Test fun sessionMeta_answers_from_cache_without_a_second_round_trip() = runTest {
+        coEvery { rest.profileSessions(any(), false) } returns ProfileSessionsDto(
+            listOf(dto("bot-1", "dingtalk", 5)),
+        )
+        repo.botSessions()
+
+        assertEquals("dingtalk", repo.sessionMeta("bot-1")?.source)
+        coVerify(exactly = 1) { rest.profileSessions(any(), false) }
+    }
+
+    @Test fun sessionMeta_fetches_when_the_cache_is_cold_and_returns_null_for_an_unknown_id() = runTest {
+        coEvery { rest.profileSessions(any(), false) } returns ProfileSessionsDto(
+            listOf(dto("bot-1", "dingtalk", 5)),
+        )
+
+        assertEquals("dingtalk", repo.sessionMeta("bot-1")?.source)
+        assertEquals(null, repo.sessionMeta("nobody"))
+    }
+
     @Test fun archivedAllProfiles_also_hides_cron_and_empty() = runTest {
         coEvery { rest.profileSessions(any(), true) } returns ProfileSessionsDto(
             sessions = listOf(

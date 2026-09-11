@@ -3,6 +3,7 @@ package com.hermes.client.data.network
 import com.hermes.client.data.auth.GatewayConfig
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.AccountTransportMode
+import com.hermes.client.data.auth.AccountDeviceRouteMode
 import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -109,9 +110,14 @@ class HermesRestApi(
         if (path.startsWith("/api/")) {
             accountSessionManager?.connection(deviceIdOverride)?.let { account ->
                 com.hermes.client.data.diagnostics.DebugLog.setTokenToRedact(account.bearer)
-                val device = java.net.URLEncoder.encode(account.deviceId, Charsets.UTF_8.name())
-                    .replace("+", "%20")
-                val routedPath = "/v2/devices/$device/api/${path.removePrefix("/api/")}"
+                val routedPath = when (account.deviceRouteMode) {
+                    AccountDeviceRouteMode.SINGLE_BINDING -> path
+                    AccountDeviceRouteMode.EXPLICIT_DEVICE -> {
+                        val device = java.net.URLEncoder.encode(account.deviceId, Charsets.UTF_8.name())
+                            .replace("+", "%20")
+                        "/v2/devices/$device/api/${path.removePrefix("/api/")}"
+                    }
+                }
                 return Request.Builder()
                     .url("${account.baseUrl.trimEnd('/')}$routedPath")
                     .header("Authorization", "Bearer ${account.bearer}")
@@ -431,11 +437,27 @@ class HermesRestApi(
         }
 
     /** "&profile=x" (or "?profile=x" when [first]) — empty when profile is null/blank. */
+    private fun encode(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
+
     private fun profileParam(profile: String?, first: Boolean = false): String {
         if (profile.isNullOrBlank()) return ""
         val sep = if (first) "?" else "&"
         return "${sep}profile=${java.net.URLEncoder.encode(profile, "UTF-8")}"
     }
+
+    // ── Filesystem, for picking a project folder ────────────────────────────────────────────
+    // The phone has no file browser of its own, so the folder picker walks the Mac through these.
+    // Upstream never throws on a bad path: `/api/fs/list` answers with an empty list plus an
+    // `error` string (ENOENT/EACCES/...), which the picker surfaces as HR-SESS-012.
+
+    /** One directory level, directories first. [path] must be absolute on the Mac. */
+    suspend fun fsList(path: String): FsListDto = get("/api/fs/list?path=" + encode(path))
+
+    /** The git repo root containing [path], or null when it is not inside a repo. */
+    suspend fun fsGitRoot(path: String): String? = get<FsGitRootDto>("/api/fs/git-root?path=" + encode(path)).root
+
+    /** Where the folder picker opens before the user has navigated anywhere. */
+    suspend fun fsDefaultCwd(): String? = get<FsDefaultCwdDto>("/api/fs/default-cwd").cwd
 
     suspend fun profiles(): List<ProfileDto> = get<ProfilesDto>("/api/profiles").profiles
 

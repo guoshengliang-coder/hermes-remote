@@ -27,6 +27,7 @@ import {
 } from "./session-observer-runner.js";
 import { createConnectorLogger, parseConnectorLogLevel, summarizeHermesFrame } from "./connector-log.js";
 import { ObserverStateStore } from "./session-observer.js";
+import { loadHermesSessionToken } from "./hermes-session-token.js";
 import { describeRejectedPath } from "./file-log.js";
 
 // Launchd captures stdout/stderr without timestamps, which made the 2026-09-01
@@ -899,7 +900,10 @@ class HermesAuth {
 
 const hermesAuth = new HermesAuth({
   baseUrl: hermesBaseUrl,
-  sessionToken: process.env.HERMES_SESSION_TOKEN,
+  sessionToken: loadHermesSessionToken({
+    inline: process.env.HERMES_SESSION_TOKEN,
+    file: process.env.HERMES_SESSION_TOKEN_FILE,
+  }),
   username: process.env.HERMES_BASIC_AUTH_USERNAME,
   password: process.env.HERMES_BASIC_AUTH_PASSWORD,
 });

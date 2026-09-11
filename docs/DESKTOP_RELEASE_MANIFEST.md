@@ -13,7 +13,9 @@ Hermes Go Desktop accepts a managed install only through this sequence:
 4. download each artifact without redirects, with its signed size as a streaming upper bound;
 5. verify the exact filename, byte size, and streaming SHA-256 digest;
 6. list the tar archive before extraction and reject absolute/traversing paths, duplicate normalized
-   paths, symlinks, hard links, devices, FIFOs, and other non-file/non-directory members;
+   paths, symlinks, hard links, devices, FIFOs, and other non-file/non-directory members; both the
+   verbose listing and member count stay bounded at 16 MiB and 65,536 entries so a real Python runtime
+   fits without permitting an unbounded archive walk;
 7. extract into a new permission-restricted staging directory, validate the executable entrypoint,
    then move the complete release into its immutable version directory;
 8. activate with one atomic `current` symlink replacement.
@@ -61,14 +63,47 @@ plus both exact managed LaunchAgents is treated as installed; intermediate state
 mismatches fail closed before another installation.
 
 `hermes-serve-v1` freezes the current official headless interface as
-`hermes serve --host 127.0.0.1 --port 9119`, with only `HERMES_HOME=<absolute non-root path>` supplied
-by the managed launcher. Readiness is the exact line `HERMES_BACKEND_READY port=9119`; the distinct
+`hermes serve --host 127.0.0.1 --port 9119`. The managed launcher supplies
+`HERMES_HOME=<absolute non-root path>`, `HERMES_DESKTOP=1`, and the path of one installation-local
+session-token file. Its signed wrapper validates that the file is regular, current-user owned,
+private, bounded, and canonical before exporting the value to Hermes; the Connector validates and
+reads the same file for REST headers and the `/api/ws?token=` handshake. The token file is generated
+locally at mode `0600`, never enters a manifest or Cloud request, and neither LaunchAgent contains its
+value. Readiness is the exact line `HERMES_BACKEND_READY port=9119`; the distinct
 port collision line is `BACKEND_PORT_IN_USE port=9119`. No provider/model secret belongs in the
 LaunchAgent: Hermes continues reading its profile-scoped state and private `.env` beneath
 `HERMES_HOME`. This contract follows the official
 [Hermes CLI reference](https://github.com/nousresearch/hermes-agent/blob/main/website/docs/reference/cli-commands.md),
 [Desktop guide](https://github.com/nousresearch/hermes-agent/blob/main/website/docs/user-guide/desktop.md),
 and [backend readiness parser](https://github.com/NousResearch/hermes-agent/blob/main/apps/desktop/electron/backend-ready.ts).
+
+Managed release 0.3.1 is the first published immutable release that satisfies this token-file
+contract on both components. The historical 0.3.0 Connector accepts only `HERMES_SESSION_TOKEN` and
+must retain its inline LaunchAgent value; Desktop must not infer current-runtime support merely from
+an embedded manifest URL that points to a newer release.
+
+### Import path: the bundle must not depend on PYTHONPATH
+
+The staged `hermes_server` component keeps the Hermes sources under `app/` and its dependencies
+under `runtime/site-packages/`, and `bin/hermes-server` puts both on `PYTHONPATH`. That is enough
+for the process the launcher starts and **not** enough for the processes that process starts.
+
+Hermes spawns children — the slash worker among them — through
+`tools/environments/local.py`, which deliberately strips the Hermes repo root back out of the
+child's `PYTHONPATH`. In the bundle `app/` is that repo root, so the child was left with no route to
+`tui_gateway` at all: managed release 0.3.0 could not run a single slash command, and the Android
+model picker, which applies a selection with `/model … --session`, failed every time (HG-28).
+
+The bundle therefore also writes `_hermes_go_managed_paths.pth` into the interpreter's own
+site-packages (`runtime/python/lib/python3.11/site-packages/`). `site` processes `.pth` files for
+real site directories on every start of that interpreter, and no `PYTHONPATH` edit can remove them.
+The line derives the bundle root from `sys.prefix` at run time — never a baked-in absolute path,
+which would not survive extraction on another machine — and guards each entry with `isdir` so a
+partially extracted bundle degrades instead of breaking every interpreter start.
+
+**Constraint for anything added later:** if a child process must import it, it has to be reachable
+without `PYTHONPATH`. `scripts/test/desktop-managed-python-path.test.mjs` holds that line, and
+asserts the pre-fix failure first so it cannot pass for the wrong reason.
 
 ## Envelope
 
@@ -144,7 +179,8 @@ query, fragment, encoded slash, or traversal segment.
 ## Local layout and rollback
 
 The managed root contains immutable `releases/<version>` directories, a `current` relative symlink,
-a private Connector credential file, logs, staging, and the migration journal. The account Connector
+a private Connector credential file, a separate private Hermes session-token file, logs, staging,
+and the migration journal. The account Connector
 uses user LaunchAgent label `com.hermesgo.connector`; the legacy label remains
 `com.hermesremote.connector`. The managed Hermes Server uses the separate exact label
 `com.hermesgo.hermes-server`. Its plist executes only the signed Hermes entrypoint with the frozen
@@ -168,6 +204,61 @@ and records the safe terminal state. An ambiguous remote commit stops both manag
 enters manual attention without guessing that legacy should become authoritative.
 
 ## Publication and rollout gates
+
+### Offline packaging and verification
+
+Build the two component inputs from clean, full-commit-pinned Hermes and Hermes GO sources before
+signing. `desktop/Packaging/component-archives.example.json` documents the inputs. The Hermes builder
+copies only an explicit source-directory/metadata allowlist, root Python modules, the selected Python
+runtime, and its site-packages; it never copies `HERMES_HOME`, `.env`, Git data, tests, Node build
+trees, or Desktop releases. The Connector builder carries the production JavaScript only, its two
+runtime dependencies, and an architecture-matched Node executable. Both launchers resolve their
+bundled runtimes relative to the signed release and do not depend on launchd `PATH`.
+
+```bash
+npm run desktop:components:package -- \
+  --config /absolute/protected/path/component-archives.json \
+  --output /absolute/empty/component-output
+```
+
+The component gate refuses dirty or mismatched Git identities, mismatched semantic versions or Mach-O
+architectures, symlink/special-file inputs, more than 65,536 staged entries, more than 2 GiB of staged
+bytes, and existing targets. `BUILD-IDENTITY.json` inside each archive records only public component,
+version, architecture, and full source commit data.
+
+The repository provides an offline publisher for the signed envelope and its exact two archives. It
+does not upload, deploy, enable flags, or alter a Mac. Start from
+`desktop/Packaging/managed-release.example.json`, keep the real configuration and Ed25519 private key
+outside the repository, and give the key file owner-only permissions (`0600`). Both source archives
+must be absolute, regular, non-symlinked tar-gzip files with only files/directories and the declared
+regular-file entrypoint. The publisher refuses existing output targets and removes only files it
+created if a later gate fails.
+
+```bash
+npm run desktop:managed-release:package -- \
+  --config /absolute/protected/path/publisher.json \
+  --output /absolute/empty/output/directory
+```
+
+Success prints `DESKTOP_MANAGED_RELEASE_OK`, the manifest/artifact paths and hashes, and the derived
+unpadded-base64url public key. The private key and its path are never printed. Before upload, verify
+the copied files independently using only the public key printed by the packaging gate:
+
+```bash
+npm run desktop:managed-release:verify -- \
+  --manifest /absolute/output/Hermes-Desktop-0.3.0-arm64.manifest.json \
+  --artifacts /absolute/output \
+  --key-id desktop-internal-2026-a \
+  --public-key '<unpadded-base64url-public-key>' \
+  --origin https://downloads.example \
+  --channel internal \
+  --architecture arm64
+```
+
+The verifier rechecks the Ed25519 signature over the exact payload bytes, strict field set, lifetime,
+origin, archive names and entrypoints, byte sizes, and SHA-256 digests. Any publisher or verifier
+failure is emitted as the bilingual, retryable `HR-RELEASE-004` diagnostic. The example values are
+documentation placeholders and are not approved production identities.
 
 A real release still requires all of the following outside this local implementation:
 

@@ -20,12 +20,19 @@ public enum DesktopHermesRuntimeContract: String, Equatable, Sendable {
         URL(string: "http://\(Self.loopbackHost):\(Self.loopbackPort)")!
     }
 
-    public func environmentVariables(hermesHome: URL) throws -> [String: String] {
+    public func environmentVariables(hermesHome: URL, sessionTokenFile: URL) throws -> [String: String] {
         let home = hermesHome.standardizedFileURL
+        let tokenFile = sessionTokenFile.standardizedFileURL
         guard home.isFileURL, home.path.hasPrefix("/"), home.path != "/",
-              !home.path.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+              tokenFile.isFileURL, tokenFile.path.hasPrefix("/"), tokenFile.path != "/",
+              !home.path.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
+              !tokenFile.path.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
         else { throw DesktopReleaseVerificationError.invalidConfiguration }
-        return ["HERMES_HOME": home.path]
+        return [
+            "HERMES_HOME": home.path,
+            "HERMES_DESKTOP": "1",
+            "HERMES_SESSION_TOKEN_FILE": tokenFile.path,
+        ]
     }
 
     public func isReadyAnnouncement(_ line: String) -> Bool {

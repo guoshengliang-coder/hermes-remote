@@ -2,9 +2,12 @@ package com.hermes.client.ui.sessions
 
 import com.hermes.client.domain.Session
 
-/** Which list the Chats screen shows: flat recency, the project tree, or archived sessions. */
-// BOTS sits before ARCHIVED: it is warmer than the archive, and the archive keeps the far end.
-enum class ViewMode { SESSIONS, PROJECTS, BOTS, ARCHIVED }
+/**
+ * Which list the Chats screen shows. Only the two that are CONTENT — interactive chats and the
+ * read-only bot transcripts — are segments here; Projects and Archive moved to the overflow menu
+ * and their own full-screen pages (docs/DESIGN.md §5.16, 2026-09-09).
+ */
+enum class ViewMode { SESSIONS, BOTS }
 
 /** Flat, most-recent-first order for Sessions mode. Sessions with no [Session.lastActive] sort last. */
 fun sessionsByRecency(sessions: List<Session>): List<Session> =

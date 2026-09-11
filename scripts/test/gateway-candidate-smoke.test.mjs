@@ -9,6 +9,7 @@ import {
   gatewaySmokeRoutePolicy,
   gatewayRuntimePolicy,
   GatewayCandidateSmokeError,
+  verifyGatewayCapabilities,
   waitForGatewayForwarding,
 } from "../lib/gateway-candidate-smoke.mjs";
 import {
@@ -130,6 +131,8 @@ test("candidate smoke uses the exact readiness contract for the preserved runtim
     },
     accountAuthEnabled: false,
     accountProviders: null,
+    bindingEnabled: false,
+    desktopBootstrapRuntimeContract: null,
   });
   assert.deepEqual(gatewayRuntimePolicy("email_otp"), {
     runtimeMode: "email_otp",
@@ -144,12 +147,56 @@ test("candidate smoke uses the exact readiness contract for the preserved runtim
     },
     accountAuthEnabled: true,
     accountProviders: ["email_otp"],
+    bindingEnabled: false,
+    desktopBootstrapRuntimeContract: null,
+  });
+  assert.deepEqual(gatewayRuntimePolicy("email_binding"), {
+    runtimeMode: "email_binding",
+    readiness: {
+      status: "ready",
+      checks: {
+        config: "ok",
+        database: "ok",
+        migrations: "ok",
+        postgresql: "supported",
+      },
+    },
+    accountAuthEnabled: true,
+    accountProviders: ["email_otp"],
+    bindingEnabled: true,
+    desktopBootstrapRuntimeContract: "hermes-serve-v1",
   });
   assert.throws(
     () => gatewayRuntimePolicy("binding"),
     (error) => error instanceof GatewayCandidateSmokeError
       && error.message === "smoke_check=configuration",
   );
+});
+
+test("candidate smoke accepts only the exact email-binding capability surface", () => {
+  const policy = gatewayRuntimePolicy("email_binding");
+  const capabilities = {
+    accountAuth: { enabled: true, providers: ["email_otp"] },
+    binding: { enabled: true, replacement: true, maxActiveConnectorsPerAccount: 1 },
+    desktopBootstrap: { runtimeContract: "hermes-serve-v1" },
+    legacy: { appTokenAccepted: true, connectorTokenAccepted: true },
+    server: { version: "0.4.15" },
+  };
+  assert.doesNotThrow(() => verifyGatewayCapabilities(capabilities, policy, "0.4.15"));
+
+  for (const mutation of [
+    (value) => { value.binding.enabled = false; },
+    (value) => { value.binding.replacement = false; },
+    (value) => { value.desktopBootstrap.runtimeContract = "other-contract"; },
+  ]) {
+    const changed = structuredClone(capabilities);
+    mutation(changed);
+    assert.throws(
+      () => verifyGatewayCapabilities(changed, policy, "0.4.15"),
+      (error) => error instanceof GatewayCandidateSmokeError
+        && error.message === "smoke_check=capabilities",
+    );
+  }
 });
 
 test("candidate forwarding readiness has a bounded stable timeout", async () => {

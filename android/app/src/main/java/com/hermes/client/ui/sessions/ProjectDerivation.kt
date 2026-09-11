@@ -7,10 +7,28 @@ import com.hermes.client.domain.Session
 
 /**
  * Group id for the DEFAULT project: the gateway's launch directory. Every session the phone
- * creates from the Sessions segment lands here (no explicit cwd), as does any desktop session
+ * creates from the Chats list lands here (no explicit cwd), as does any desktop session
  * started without a folder. It is a real project, not "no project" — it is always listed first.
  */
 const val DEFAULT_PROJECT_ID = "__default_project__"
+
+/**
+ * The `cwd` a new chat should be created in (docs/DESIGN.md §5.3, one rule): drilled into a real
+ * project → that project's folder; anywhere else — the Chats list, the project overview, the
+ * default project — → null, meaning the gateway's launch directory. No inference, no picker.
+ */
+fun projectCreationCwd(scope: Project?): String? =
+    scope?.takeIf { it.id != DEFAULT_PROJECT_ID }?.path
+
+/**
+ * Every folder a project owns: its primary path plus each repo the tree lists under it. Upstream
+ * projects can span several folders, so membership can never be decided by [Project.path] alone.
+ */
+fun Project.folderPaths(): List<String> =
+    (listOfNotNull(path) + repos.mapNotNull { it.path })
+        .map { it.trimEnd('/', '\\') }
+        .filter { it.isNotBlank() }
+        .distinct()
 
 /** The path a session is grouped by: the resolved git repo root, else its working directory. */
 fun projectKeyOf(session: Session): String? =
@@ -83,6 +101,9 @@ private fun buildProject(id: String, label: String, path: String?, rows: List<Se
         label = label,
         path = path,
         color = null,
+        icon = null,
+        // Derived projects are folders that happen to hold sessions, not rows in the gateway's
+        // projects.db — so they can never be renamed, recoloured or removed.
         isAuto = true,
         sessionCount = rows.size,
         lastActive = rows.mapNotNull { it.lastActive }.maxOrNull(),

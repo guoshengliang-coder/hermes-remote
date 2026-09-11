@@ -11,6 +11,9 @@ enum class AppErrorCode(val value: String) {
     MODEL_SWITCH_FAILED("HR-RPC-004"),
     MODEL_DEFAULT_FAILED("HR-RPC-005"),
     MODEL_REASONING_FAILED("HR-RPC-006"),
+    // Not a refused switch: the Mac's Hermes could not start its slash worker at all, so every
+    // slash command is dead, not just this one. Telling the user to retry would be false.
+    SLASH_WORKER_UNAVAILABLE("HR-RPC-007"),
     CONFIG_READ_FAILED("HR-CONFIG-001"),
     CONFIG_WRITE_FAILED("HR-CONFIG-002"),
     CONFIG_INVALID_URL("HR-CONFIG-003"),
@@ -44,6 +47,10 @@ enum class AppErrorCode(val value: String) {
     PROJECT_FELL_BACK_TO_DEFAULT("HR-SESS-006"),
     MESSAGE_SEND_FAILED("HR-SESS-007"),
     SESSION_ARCHIVE_FAILED("HR-SESS-008"),
+    PROJECT_NOT_FOUND("HR-SESS-009"),
+    PROJECT_NAME_INVALID("HR-SESS-010"),
+    PROJECT_SAVE_FAILED("HR-SESS-011"),
+    FOLDER_BROWSE_FAILED("HR-SESS-012"),
     INSTALL_PERMISSION_REQUIRED("HR-PERM-003"),
     HISTORY_INCOMPLETE("HR-SYNC-001"),
     RUN_UNCONFIRMED("HR-SYNC-002"),

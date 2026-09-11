@@ -18,6 +18,9 @@ The current automated suite covers:
 - legacy launchd/install/log discovery through injected command execution;
 - log/header/query/known-secret redaction;
 - profile validation that rejects insecure remote HTTP, URL credentials, queries, and fragments;
+- that the staged Hermes component is importable by a **child** process with no `PYTHONPATH`
+  (`scripts/test/desktop-managed-python-path.test.mjs`) — upstream strips the repo root out of every
+  child environment, so a bundle that relies on `PYTHONPATH` alone cannot run slash commands;
 - exact Android v1 JSON payload compatibility;
 - Core Image QR output decoded back to the exact v1 payload with the native QR detector, including payload-size rejection;
 - authenticated `/api/status` request path and header behavior;
@@ -52,11 +55,21 @@ The current automated suite covers:
   after lost reauthentication or invitation responses, without persisting the six-digit code;
 - strict signed Desktop manifest parsing, pinned Ed25519 keys, tamper/expiry/origin/architecture and
   unknown-field rejection;
+- offline managed-release publication with owner-only Ed25519 key custody, exact two-archive output,
+  independent public-key verification, no-overwrite/partial-cleanup behavior, and redacted
+  `HR-RELEASE-004` diagnostics;
+- component-archive construction from exact clean Git identities, an allowlisted secret-free Hermes
+  source/runtime boundary, production-only Connector JavaScript, bundled architecture-matched
+  runtimes, relative launchers, bounded trees, and no-overwrite cleanup;
 - redirect-free bounded downloads, exact size and streaming SHA-256 artifact validation;
-- tar member preflight, including traversal/link/special-file rejection before extraction;
+- tar member preflight, including traversal/link/special-file rejection before extraction, realistic
+  dependency trees above the former 4,096-entry limit, and rejection beyond the new 65,536 bound;
 - private credential/LaunchAgent writes, immutable release staging, atomic activation and rollback;
 - a rolled-back, app-marked inactive release can be atomically replaced by a freshly verified
   same-version retry, while active, unmarked, mismatched, or unsafe directories remain immutable;
+- a terminal rollback can resume an already committed Cloud binding only when its recorded ID,
+  generation, and retained machine-key fingerprint all match; it performs no replacement or second
+  remote confirmation, while every mismatch remains blocked;
 - acquisition ordering and lifecycle: private roots exist before verifier pinning, both signed
   components are required, digest/extraction failures remove only the current UUID workspace, and
   explicit discard preserves the parent workspace;
@@ -70,17 +83,53 @@ The current automated suite covers:
 - exact legacy/account user LaunchAgent labels, duplicate-Connector prevention, health-gated binding
   confirmation, lost-response idempotency, automatic rollback, ambiguous-commit stop, and restart
   recovery;
+- persistent legacy-label disablement before managed startup, matching re-enablement before rollback,
+  and startup repair that suppresses a Migration Assistant-restored duplicate only when an exact
+  `account_active` journal and both managed services prove the committed authority;
+- bounded launchd convergence after every managed bootstrap/bootout, including delayed legacy
+  removal before managed startup or rollback decisions;
 - signed Hermes entrypoint-only plist generation, separate exact Hermes/Connector labels, Hermes-first
   startup, process-specific post-checkpoint ready evidence plus loopback health, bounded/symlink-safe
   log reads, Connector suppression on Hermes timeout, and reverse-order rollback;
 - default-off packaged bootstrap configuration, strict HTTPS/key/channel/architecture validation,
-  exact `hermes-serve-v1` loopback arguments and sentinels, absent/mismatched Gateway capability
-  rejection, and readiness only when both gates match;
+  exact `hermes-serve-v1` loopback arguments, Desktop marker, private session-token file path and
+  sentinels, absent/mismatched Gateway capability rejection, and readiness only when both gates match;
+- private installation-local Hermes token creation/reuse, unsafe file rejection, no token value in
+  either LaunchAgent, signed-wrapper file validation, and Connector file loading with no symlink or
+  group/world-readable fallback;
+- committed pre-contract token migration preserving the existing 64-character local credential,
+  removing both supported inline field names, writing only the canonical `0600` token file reference,
+  and recording completion only after ordered service restart plus local/account health;
+- managed release 0.3.0 compatibility: startup returns before account refresh, file mutation, or
+  service restart because its packaged Connector does not consume `HERMES_SESSION_TOKEN_FILE`; 0.3.1
+  is the first immutable managed release admitted to the token-file migration;
+- power-loss resume from a matching half-migrated plist pair, completed-state idempotency, rejection
+  of mismatched inline values or account binding generation before mutation, and injected readiness
+  failure that restores the exact old plist/token bytes and running service pair;
 - an existing responder on reserved port 9119, including 401/403, blocks clean install;
+- packaged ATS configuration explicitly permits local-network health probes while leaving arbitrary
+  public and WebView HTTP loads disabled;
+- candidate Hermes readiness uses a dedicated ephemeral session that explicitly disables HTTP, HTTPS,
+  SOCKS, FTP, PAC, and automatic proxy discovery, so configured proxies cannot intercept or stall the
+  `127.0.0.1:9119` commit gate;
+- the production migration coordinator passes a 75-poll window to candidate readiness, covering the
+  measured 35-second physical-Mac cold start while tests can still inject shorter deterministic limits;
 - restart inspection recognizes only an `account_active` journal plus both exact managed LaunchAgents
   as active; intermediate journals recover before a second install and mismatches fail closed;
+- overview Agent reduction prefers that exact active managed installation over a stopped legacy
+  label, reports a transferred managed service as running-but-unverified until account sign-in, and
+  fails closed when the signed-in binding ID or generation differs;
+- a newly confirmed run atomically replaces only a terminal `legacy_active` or `clean_uninstalled`
+  rollback journal; intermediate, active, and manual-attention journals reject a different run ID;
+- a revoked pending binding is recreated only when its generation matches the same Desktop's terminal
+  `legacy_active`/`clean_uninstalled` rollback journal; missing or mismatched proof fails closed with
+  `HR-BIND-006`, remains visible through the migration presentation boundary, and does not call binding
+  creation;
 - existing-install observation/recovery remains available when new-install rollout is disabled, and
   active state must match the current account's exact binding ID/generation before it is claimed;
+- a recognized running legacy Connector uses its own configured Hermes status URL for the final
+  migration preflight and can enter the signed two-stage migration only while that health check and
+  the complete managed-install capability agree; stopped/unhealthy or unsigned cases stay read-only;
 - bilingual `HR-MIGRATE-001` through `HR-MIGRATE-005` terminal-state mapping.
 
 Remaining email-first release acceptance requires live-provider tests for resend/cooldown, expiry,
@@ -98,6 +147,9 @@ the project-wide `ERROR_HANDLING.md` contract.
 | Case | Expected result | Status |
 |---|---|---|
 | Existing Connector running | Desktop observes it and does not launch a replacement | Verified on target Mac 2026-09-02; PID and launch count unchanged |
+| Existing Connector migration gate | Healthy configured Hermes plus matching signed-release capability exposes preparation; stopped/unhealthy/unsigned cases preserve legacy | Automated; packaged target-Mac migration still pending |
+| Migration Assistant preserves managed services | Overview reports the effective managed Agent rather than the stopped legacy label; missing this-device-only account credentials require sign-in; a restored legacy label is persistently suppressed only for a proven `account_active` installation | Desktop 0.2.4 packaged reboot passed on migrated Mac 2026-09-11: only managed labels recovered, legacy stayed disabled/unloaded, and post-reboot Android REST/WebSocket carried bidirectional traffic |
+| Pre-contract managed token storage | A committed matching installation moves the existing token from both `0600` plists to the `0600` private file, restarts Hermes then Connector, and commits only after both health proofs; injected failure restores the old configuration | Automated; packaged upgrade on the migrated Mac pending |
 | Existing Connector absent | UI reports not detected and offers no destructive action | Verified 2026-09-02 |
 | Gateway available | Gateway layer is healthy with safe latency | Verified on target Mac 2026-09-02; 15–18 ms observed |
 | Gateway offline/DNS failure | Only Gateway layer fails; Hermes wording remains accurate | Pending fault injection |
@@ -113,6 +165,7 @@ the project-wide `ERROR_HANDLING.md` contract.
 | v1 QR payload | JSON contains only compatible `v`, `url`, and `token` fields | Automated 2026-09-02 |
 | QR reveal | Real QR is hidden by default and carries an explicit long-lived-token warning | Local + target UI verified 2026-09-02; Android scan pending |
 | End-to-end success | Saved App Token reaches Gateway → Connector → Hermes through `/api/status` | Pending target production-token check |
+| Account-mode presentation | A signed-in account omits the legacy App-Token probe from Overview, Diagnostics, and aggregate health while preserving the underlying legacy profile for rollback | Automated |
 | Account mode disabled | Account & Devices reports unavailable and legacy connection remains usable | Automated core behavior; packaged UI inspection pending |
 | Email account login | Email challenge and six-digit exchange create/restore only the Desktop management session | Controller/API automated; live delivery and packaged UI pending |
 | Browser OAuth loopback | Listener binds an ephemeral `127.0.0.1` port and rejects mismatched state | Automated locally; live Google client pending |
@@ -124,6 +177,7 @@ the project-wide `ERROR_HANDLING.md` contract.
 | Owner revokes / recipient leaves | Matching access and live stream end; owner, other grantees, Connector, and Hermes continue | Gateway automated; packaged Desktop and multi-node run pending |
 | Account deletion off | No Desktop danger-zone action appears and the route is not called | Core/API automated; packaged UI pending |
 | Permanent account deletion | Typed `DELETE`, acknowledgement, and fresh email code precede immediate Cloud logout; success and recovered ambiguous completion land on “deletion submitted”; the explicit other-email exit reaches an empty sign-in flow, while local Hermes remains intact | Core/API/PostgreSQL automated; disposable packaged-account and privacy review pending |
+| Android account-mode cutover | Android signs in by email, selects the intended owned/shared Mac, proves REST and WebSocket traffic, then Desktop migrates; protected Connector status matches the exact binding/generation before and after Desktop/Mac restart | Primary single-phone 0.1.113 path accepted 2026-09-10; migrated-Mac reboot plus post-reboot account REST/WebSocket accepted 2026-09-11; activation-interruption and multi-phone/shared-Mac matrices remain pending |
 
 The first real-app check verified that the ad-hoc app launches and remains running. The target Mac run
 then verified the installed DMG against a live legacy Connector without changing its PID, launch count,
@@ -135,6 +189,40 @@ The `0.2.0-dev` target upgrade additionally verified Keychain persistence across
 reveal, and the invalid-token UI mapping without restarting the legacy Connector. The disposable Token
 and temporary rollback package were removed after the run. A real production Token was deliberately
 not retrieved as part of this test, so the successful end-to-end and Android scan rows remain pending.
+
+## Android-account coordinated acceptance
+
+Run this matrix only after the Android account branch has passed its package gate. Do not migrate the
+Mac merely because email login or `/v2/devices` succeeds.
+
+1. Keep the legacy Connector active. Install the versioned Android test artifact, sign in with email,
+   and confirm the intended owned or shared Mac is listed without importing a legacy App Token.
+2. Record the protected `/internal/account-connectors` snapshot and the authenticated Android device
+   row. The former may show zero account connections before migration; `/relay-health` must still show
+   the expected legacy Connector.
+3. Complete the Desktop's two-confirmation migration. Require an `account_active` journal, both exact
+   managed LaunchAgents, healthy local Hermes, and an internal snapshot row whose binding UUID and
+   generation match Desktop state. Before any later token-storage repair, record the active managed
+   release and require the signed runtime capability boundary; 0.3.0 must remain unchanged.
+4. From Android, exercise one REST status request, one real WebSocket session, **and one slash
+   command** through the selected device **before calling the Desktop candidate accepted or
+   proceeding to a reboot**. An established Connector control socket and a loopback HTTP 200 do not
+   satisfy this gate. For a shared Mac, repeat using the grantee account and confirm revocation
+   closes only that grantee's live stream.
+
+   The slash command is not padding. A prompt exercises the gateway in-process; a slash command is
+   the only thing that makes Hermes spawn a **child** process, and a child gets a different
+   environment from its parent. Managed release 0.3.0 served prompts perfectly and could not run a
+   single slash command, because the child could not import `tui_gateway` — and nothing in this
+   matrix would have caught it (HG-28). Switching the model in the Android model picker is the
+   cheapest way to exercise it: it sends `/model … --session`. A failure appears as `slash.exec`
+   error 5030 in the device diagnostics and `HR-RPC-007` on screen.
+5. Restart Android and Desktop independently, then reboot the Mac. Require the same account binding,
+   automatic managed-service recovery, a newer process-local `connectedAt`, and successful Android
+   REST/WebSocket traffic without re-entering a legacy Token.
+6. On any failed gate, capture redacted diagnostics and use the journaled Desktop rollback. Confirm
+   the legacy Connector returns, `/relay-health` reports it online, and the old Android path remains
+   usable. Do not call a mixed legacy/account state successful.
 
 ## Later takeover gate
 

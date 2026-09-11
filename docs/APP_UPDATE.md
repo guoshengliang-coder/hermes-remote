@@ -54,7 +54,12 @@ downgrade is not supported.”
 > *Incident: 0.1.97 was allocated twice and published never* below before bumping anything.
 
 1. The integration agent bumps `appVersionName` and `appVersionCode`, updates `android/README.md`, and
-   adds `android/releases/<version>.json` containing only channel and release notes.
+   adds `android/releases/<version>.json` containing only channel and release notes. Do this with
+   `node scripts/bump-android-release.mjs --notes-file <notes> --summary "<README entry>"`, which
+   writes all three and fails closed on the two ways this went wrong by hand: allocating from a tree
+   that is not the current `origin/main`, and reusing a number an existing release file or `origin`
+   tag already carries. It validates the notes against `release-server/src/schema.mjs` at allocation
+   time rather than at upload. It deliberately does not commit, tag, build, or publish.
 2. Commit the release, push it to `origin/main`, and confirm the worktree is clean. With the canonical
    key provisioned, run `scripts/publish-android-apk.sh`. The publisher refuses a dirty worktree or a
    `HEAD` different from `origin/main`. Authentication comes only from ssh-agent/key or caller-injected
@@ -175,6 +180,39 @@ closed before mutating the data root when the next release would exceed the cap.
 removes a registered APK. Retention is an explicit operator decision: archive the metadata and artifact,
 remove only a reviewed non-current entry through a dedicated maintenance change, validate the resulting
 index, and preserve rollback data before publishing again.
+
+### Retiring old releases
+
+```bash
+scripts/retire-android-releases.sh --keep 10 --dry-run   # prints what would go
+scripts/retire-android-releases.sh --keep 10
+```
+
+Keeps the newest `--keep` entries and retires the rest. It runs under the same guards as the
+publisher — allow-listed host and data root, clean worktree, `HEAD == origin/main` — and executes
+`deploy/publish-release.mjs --retire` from that commit rather than the copy installed on the
+server, for the same reason publishing does.
+
+**Nothing is deleted.** A retired APK is renamed into `$RELEASE_DATA_ROOT/archive`, off the served
+path but still on disk; the prior index is left in `index.json.prev`; and the release notes for
+every version live in `android/releases/<version>.json` in this repository, permanently. To bring
+one back, move the file out of `archive/` and re-run the idempotent publisher — never hand-edit the
+index.
+
+The index is written before the files move, so a client reading mid-operation sees a valid index
+whose every entry still resolves. The reverse order would serve 404s. Afterwards the script checks
+from the public URL, not from the box, that the surviving count is right and that every surviving
+entry returns HTTP 200.
+
+**What retiring costs a device.** `classifyVersion` matches each index entry against the installed
+versionCode, so a phone whose version is no longer listed simply has no "current" row — higher
+versions are still offered and the update path is unaffected. What it loses is "Export APK" for
+those old rows, which only ever worked when the device had kept the file locally anyway (the client
+keeps the newest five). Rolling a channel back does not depend on old entries either: the runbook
+below re-publishes old code under a **new, higher** version.
+
+`--keep 10` matches what the update page already surfaces — the newest ten render under the
+recommended card and anything older sits behind a reveal.
 
 Publication validates everything before replacing the index, so failures leave the prior index usable.
 An APK rename followed by an index failure may leave an unreferenced file; it is not downloadable and

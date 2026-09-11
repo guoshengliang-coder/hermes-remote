@@ -131,7 +131,17 @@ class MainActivity : ComponentActivity() {
                 com.hermes.client.ui.components.LocalAvatarDir provides profileIdentityStore.avatarDir,
             ) {
                 HermesTheme(darkTheme = dark) {
-                    CompositionLocalProvider(LocalToolCallTechnical provides technical) {
+                    // TUNING-TEMP: the session-list tuning panel's values, read live so the list
+                    // restyles while the panel is open. Its defaults equal what the theme ships,
+                    // so an untouched panel changes nothing. Remove with ui/tuning/.
+                    val tuningStore = remember { com.hermes.client.ui.tuning.SessionListTuningStore(this@MainActivity) }
+                    val tuning by tuningStore.tuning.collectAsState(
+                        initial = com.hermes.client.ui.tuning.SessionListTuning(),
+                    )
+                    CompositionLocalProvider(
+                        LocalToolCallTechnical provides technical,
+                        com.hermes.client.ui.tuning.LocalSessionListTuning provides tuning, // TUNING-TEMP
+                    ) {
                         Surface {
                             // If the previous run crashed, show the saved trace first so it can be
                             // shared, then continue into the app once dismissed.
@@ -202,6 +212,7 @@ class MainActivity : ComponentActivity() {
                                             AccountTransportMode.REAUTHENTICATION_REQUIRED,
                                             AccountTransportMode.ACCOUNT_DELETION_COMMITTED -> chat.disconnect()
                                             AccountTransportMode.ACCOUNT,
+                                            AccountTransportMode.ACCOUNT_PENDING,
                                             AccountTransportMode.LEGACY -> Unit
                                         }
                                     }
@@ -234,6 +245,7 @@ class MainActivity : ComponentActivity() {
                                             onDeepLinkConsumed = { pendingRoute.value = null },
                                             configurationRepair = (startupState as? StartupUiState.RepairRequired)?.failure,
                                             accountSetupRepairRequired =
+                                                (startupState as? StartupUiState.RepairRequired)?.accountSetup == true ||
                                                 accountSessions.transportMode() ==
                                                     AccountTransportMode.REAUTHENTICATION_REQUIRED ||
                                                     accountSessions.transportMode() ==
@@ -440,6 +452,7 @@ class MainActivity : ComponentActivity() {
     private fun hasConnectionConfiguration(): Boolean =
         when (accountSessions.transportMode()) {
             AccountTransportMode.ACCOUNT -> true
+            AccountTransportMode.ACCOUNT_PENDING,
             AccountTransportMode.LEGACY ->
                 runCatching { credentialStore.load() }.getOrNull() != null
             AccountTransportMode.DEVICE_SELECTION_REQUIRED,

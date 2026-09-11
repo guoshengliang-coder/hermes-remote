@@ -37,20 +37,30 @@ class SessionsViewModelTest {
     private val runtimeStore = mockk<SessionRuntimeStore>(relaxed = true)
     private val toolsRepo = mockk<com.hermes.client.data.repository.ToolsRepository>(relaxed = true)
     private val projectPrefs = mockk<com.hermes.client.data.repository.ProjectPrefsStore>(relaxed = true)
+    private val projectsRepo = mockk<com.hermes.client.data.repository.ProjectsRepository>(relaxed = true)
+    // The catalog is the real one: it is the shared decision the Projects page, both pickers and
+    // every row's project name now run through, so faking it would test nothing.
+    private val projectCatalog by lazy {
+        com.hermes.client.data.repository.ProjectCatalog(projectsRepo, sessionRepo, profileManager, projectPrefs)
+    }
     private val defaultPathFlow = MutableStateFlow<String?>(null)
+    // Controllable so tests can switch tenants and watch the scoped lists follow.
+    private val activeProfileFlow = MutableStateFlow<String?>("personal")
     // Controllable so tests can flip the persisted view mode (drives the VM's launch/toggle load).
     private val modeFlow = MutableStateFlow(ViewMode.SESSIONS)
 
     @Before fun setUp() {
         Dispatchers.setMain(StandardTestDispatcher())
         every { chatRepo.events } returns kotlinx.coroutines.flow.MutableSharedFlow()
-        every { profileManager.active } returns MutableStateFlow<String?>("personal")
+        every { profileManager.active } returns activeProfileFlow
+        // No profile is marked default, so projectsAreManaged() falls back to the "default" name —
+        // the tests' active profile is "personal", which keeps the derived (unmanaged) path.
+        every { profileManager.list } returns MutableStateFlow(emptyList())
         every { pinStore.pinned } returns MutableStateFlow<Set<String>>(emptySet())
         every { viewModeStore.mode } returns modeFlow
         every { runtimeStore.runtimes } returns MutableStateFlow(emptyMap())
         every { projectPrefs.defaultProjectPath } returns defaultPathFlow
         every { projectPrefs.introSeen } returns MutableStateFlow<Set<String>>(emptySet())
-        every { projectPrefs.projectScope } returns MutableStateFlow<String?>(null)
     }
 
     private fun session(id: String, title: String, profile: String = "personal") = Session(
@@ -60,7 +70,7 @@ class SessionsViewModelTest {
 
     private fun buildVm(accountSessions: com.hermes.client.data.auth.AccountSessionManager? = null) = SessionsViewModel(
         sessionRepo, chatRepo, profileManager, pinStore, viewModeStore, runtimeStore, toolsRepo, projectPrefs,
-        accountSessions,
+        projectsRepo, projectCatalog, accountSessions,
     )
 
     private fun repoSession(id: String, repo: String?, profile: String = "personal") = Session(
@@ -108,9 +118,9 @@ class SessionsViewModelTest {
         assertNull(vm.switchFailed.value)
     }
 
-    // Ported from the deleted ArchivedSessionsViewModelTest: the ARCHIVED segment loads the
+    // Ported from the deleted ArchivedSessionsViewModelTest: the Archived page loads the
     // active profile's archived sessions, and unarchive re-pulls both lists.
-    @Test fun archived_segment_loads_scoped_list_and_unarchive_reloads() = runTest {
+    @Test fun archived_page_loads_scoped_list_and_unarchive_reloads() = runTest {
         coEvery { sessionRepo.listAllProfiles() } returns emptyList()
         coEvery { sessionRepo.archivedAllProfiles() } returns listOf(
             session("x", "Old chat", profile = "personal"),
@@ -339,10 +349,10 @@ class SessionsViewModelTest {
         val vm = buildVm()
         advanceUntilIdle()
 
-        vm.setViewMode(ViewMode.PROJECTS)
+        vm.setViewMode(ViewMode.BOTS)
         advanceUntilIdle()
 
-        io.mockk.coVerify { viewModeStore.set(ViewMode.PROJECTS) }
+        io.mockk.coVerify { viewModeStore.set(ViewMode.BOTS) }
     }
 
     @Test fun projects_derive_only_from_the_active_profiles_sessions() = runTest {
@@ -355,7 +365,7 @@ class SessionsViewModelTest {
         val vm = buildVm()
         advanceUntilIdle()
 
-        modeFlow.value = ViewMode.PROJECTS // persisted mode flips to Projects
+        vm.loadProjectTree() // what opening the Projects page does
         advanceUntilIdle()
 
         // The default project is always derived (first); the other tenant's repo is absent.
@@ -365,17 +375,207 @@ class SessionsViewModelTest {
         )
     }
 
-    // Regression: a cold launch restored into Projects mode must build the tree, not show a
-    // spurious "No projects". Previously only a toggle tap loaded it.
-    @Test fun projects_build_on_cold_launch_when_persisted_mode_is_projects() = runTest {
+    // A profile switch rebuilds a tree that has already been loaded, so returning to the
+    // Projects page after switching tenants never shows the previous tenant's folders. An
+    // untouched tree is left alone — the page fetches for itself when it is opened.
+    @Test fun profile_switch_rebuilds_an_already_loaded_tree() = runTest {
         coEvery { sessionRepo.listAllProfiles() } returns listOf(
             repoSession("x", "/u/andrew/personal/inbound", profile = "personal"),
         )
-        modeFlow.value = ViewMode.PROJECTS // persisted as Projects before the VM is even built
+        val vm = buildVm()
+        advanceUntilIdle()
+        assertTrue(vm.projectsState.value.tree.isEmpty()) // nobody opened Projects yet
+
+        vm.loadProjectTree()
+        advanceUntilIdle()
+        assertEquals(listOf(DEFAULT_PROJECT_ID, "/u/andrew/personal/inbound"), vm.projectsState.value.tree.map { it.id })
+
+        coEvery { sessionRepo.listAllProfiles() } returns listOf(
+            repoSession("y", "/u/andrew/work/acme", profile = "work"),
+        )
+        activeProfileFlow.value = "work"
+        advanceUntilIdle()
+        assertEquals(listOf(DEFAULT_PROJECT_ID, "/u/andrew/work/acme"), vm.projectsState.value.tree.map { it.id })
+    }
+
+    // The Chats list recovers the same way in either segment — Bots reads the same
+    // cross-profile list and filters it client-side.
+    @Test fun foregroundRecoveryRefreshesTheListInEitherSegment() = runTest {
+        modeFlow.value = ViewMode.BOTS
+        coEvery { sessionRepo.listAllProfiles() } returns listOf(session("s1", "Hi"))
         val vm = buildVm()
         advanceUntilIdle()
 
-        assertEquals(listOf(DEFAULT_PROJECT_ID, "/u/andrew/personal/inbound"), vm.projectsState.value.tree.map { it.id })
+        coEvery { sessionRepo.listAllProfiles() } returns listOf(session("s1", "Hi"), session("s2", "There"))
+        assertTrue(vm.recoverForForeground())
+        assertEquals(setOf("s1", "s2"), vm.state.value.sessions.map { it.id }.toSet())
+    }
+
+    @Test fun foregroundRecoveryRefreshesTheArchiveAndReportsFailure() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        coEvery { sessionRepo.archivedAllProfiles() } returns listOf(
+            session("x", "Old chat", profile = "personal"),
+            session("y", "Other tenant", profile = "work"),
+        )
+        val vm = buildVm()
+        advanceUntilIdle()
+
+        assertTrue(vm.recoverArchivedForForeground())
+        assertEquals(listOf("x"), vm.archivedState.value.sessions.map { it.id })
+
+        coEvery { sessionRepo.archivedAllProfiles() } throws RuntimeException("net down")
+        assertFalse(vm.recoverArchivedForForeground())
+        assertTrue(vm.archivedState.value.error != null)
+    }
+
+    // ── The two project data sources ───────────────────────────────────────────────────────
+    // Upstream's projects.* take no profile param and always resolve the DEFAULT profile's
+    // projects.db, so only that tenant may read and edit the gateway's list.
+
+    private fun serverProject(id: String, label: String, path: String, auto: Boolean = false) =
+        com.hermes.client.domain.Project(
+            id = id, label = label, path = path, color = "hsl(30 68% 58%)", icon = "rocket",
+            isAuto = auto, sessionCount = 2, lastActive = null,
+            repos = emptyList(), previewSessions = emptyList(),
+        )
+
+    @Test fun the_default_profile_reads_the_gateways_own_project_list() = runTest {
+        every { profileManager.list } returns MutableStateFlow(
+            listOf(com.hermes.client.data.network.ProfileDto(name = "personal", isDefault = true)),
+        )
+        coEvery { projectsRepo.tree(any()) } returns com.hermes.client.domain.ProjectTree(
+            projects = listOf(serverProject("p_a1", "Hermes Remote", "/u/andrew/hr")),
+            activeId = null,
+        )
+        val vm = buildVm()
+        advanceUntilIdle()
+        vm.loadProjectTree()
+        advanceUntilIdle()
+
+        assertTrue(vm.projectsState.value.managed)
+        assertEquals(listOf("p_a1"), vm.projectsState.value.tree.map { it.id })
+        // The name, glyph and colour only exist server-side — derivation can never produce them.
+        assertEquals("Hermes Remote", vm.projectsState.value.tree.single().label)
+        assertEquals("rocket", vm.projectsState.value.tree.single().icon)
+        io.mockk.coVerify { projectsRepo.tree(any()) }
+    }
+
+    @Test fun another_profile_stays_on_the_derived_read_only_list() = runTest {
+        every { profileManager.list } returns MutableStateFlow(
+            listOf(com.hermes.client.data.network.ProfileDto(name = "work", isDefault = true)),
+        )
+        coEvery { sessionRepo.listAllProfiles() } returns listOf(
+            repoSession("x", "/u/andrew/personal/inbound", profile = "personal"),
+        )
+        val vm = buildVm()
+        advanceUntilIdle()
+        vm.loadProjectTree()
+        advanceUntilIdle()
+
+        assertFalse(vm.projectsState.value.managed)
+        assertEquals(
+            listOf(DEFAULT_PROJECT_ID, "/u/andrew/personal/inbound"),
+            vm.projectsState.value.tree.map { it.id },
+        )
+        io.mockk.coVerify(exactly = 0) { projectsRepo.tree(any()) }
+    }
+
+    /**
+     * Upstream calls the no-project bucket `__no_project__`; this app has always called it
+     * 「默认项目」, pins it first and creates into it with no cwd. Renaming it on the way in keeps
+     * every one of those conventions working against the server list.
+     */
+    @Test fun the_upstream_no_project_bucket_becomes_this_apps_default_project() = runTest {
+        every { profileManager.list } returns MutableStateFlow(
+            listOf(com.hermes.client.data.network.ProfileDto(name = "personal", isDefault = true)),
+        )
+        coEvery { projectsRepo.tree(any()) } returns com.hermes.client.domain.ProjectTree(
+            projects = listOf(
+                serverProject("p_a1", "Hermes Remote", "/u/andrew/hr"),
+                serverProject("__no_project__", "Home", "/u/andrew").copy(isNoProject = true),
+            ),
+            activeId = null,
+        )
+        val vm = buildVm()
+        advanceUntilIdle()
+        vm.loadProjectTree()
+        advanceUntilIdle()
+
+        // Renamed AND pulled to the front, which is where the design pins it.
+        assertEquals(DEFAULT_PROJECT_ID, vm.projectsState.value.tree.first().id)
+        assertEquals(listOf(DEFAULT_PROJECT_ID, "p_a1"), vm.projectsState.value.tree.map { it.id })
+    }
+
+    @Test fun creating_a_project_writes_it_then_rebuilds_the_list() = runTest {
+        every { profileManager.list } returns MutableStateFlow(
+            listOf(com.hermes.client.data.network.ProfileDto(name = "personal", isDefault = true)),
+        )
+        coEvery { projectsRepo.tree(any()) } returns com.hermes.client.domain.ProjectTree(emptyList(), null)
+        val vm = buildVm()
+        advanceUntilIdle()
+
+        vm.createProject("Hermes Remote", "/u/andrew/hr", "rocket", "hsl(30 68% 58%)")
+        advanceUntilIdle()
+
+        io.mockk.coVerify { projectsRepo.create("Hermes Remote", "/u/andrew/hr", "rocket", "hsl(30 68% 58%)") }
+        // Membership is recomputed by path upstream, so the list has to be re-read, not patched.
+        io.mockk.coVerify(atLeast = 1) { projectsRepo.tree(any()) }
+    }
+
+    /** A rejected edit surfaces as a registered code and never blanks the list already on screen. */
+    @Test fun a_failed_edit_reports_a_code_and_keeps_the_list() = runTest {
+        every { profileManager.list } returns MutableStateFlow(
+            listOf(com.hermes.client.data.network.ProfileDto(name = "personal", isDefault = true)),
+        )
+        coEvery { projectsRepo.tree(any()) } returns com.hermes.client.domain.ProjectTree(
+            projects = listOf(serverProject("p_a1", "Hermes Remote", "/u/andrew/hr")),
+            activeId = null,
+        )
+        coEvery { projectsRepo.update(any(), any(), any(), any()) } throws
+            com.hermes.client.data.network.GatewayRpcException(5063, "name required")
+        val vm = buildVm()
+        advanceUntilIdle()
+        vm.loadProjectTree()
+        advanceUntilIdle()
+
+        vm.updateProject("p_a1", name = "")
+        advanceUntilIdle()
+
+        assertEquals(
+            com.hermes.client.data.error.AppErrorCode.PROJECT_NAME_INVALID,
+            vm.projectsState.value.editError?.code,
+        )
+        assertEquals(listOf("p_a1"), vm.projectsState.value.tree.map { it.id })
+        assertNull(vm.projectsState.value.error)
+
+        vm.clearProjectEditError()
+        assertNull(vm.projectsState.value.editError)
+    }
+
+    /** Removing the grouping must also leave the project you were standing inside. */
+    @Test fun removing_the_open_project_exits_the_drill_in() = runTest {
+        every { profileManager.list } returns MutableStateFlow(
+            listOf(com.hermes.client.data.network.ProfileDto(name = "personal", isDefault = true)),
+        )
+        coEvery { projectsRepo.tree(any()) } returns com.hermes.client.domain.ProjectTree(
+            projects = listOf(serverProject("p_a1", "Hermes Remote", "/u/andrew/hr")),
+            activeId = null,
+        )
+        coEvery { projectsRepo.projectSessions("p_a1") } returns null
+        val vm = buildVm()
+        advanceUntilIdle()
+        vm.loadProjectTree()
+        advanceUntilIdle()
+        vm.enterProject(vm.projectsState.value.tree.single())
+        advanceUntilIdle()
+        assertEquals("p_a1", vm.projectsState.value.scope?.id)
+
+        coEvery { projectsRepo.tree(any()) } returns com.hermes.client.domain.ProjectTree(emptyList(), null)
+        vm.deleteProject("p_a1")
+        advanceUntilIdle()
+
+        assertNull(vm.projectsState.value.scope)
+        io.mockk.coVerify { projectsRepo.delete("p_a1") }
     }
 
     @Test fun loadProjectTree_sets_error_on_failure() = runTest {
@@ -395,7 +595,8 @@ class SessionsViewModelTest {
         coEvery { sessionRepo.listAllProfiles() } returns emptyList()
         // A derived project already carries its sessions — enterProject just scopes to it (no fetch).
         val project = com.hermes.client.domain.Project(
-            "/u/andrew/p", "p", "/u/andrew/p", null, true, 1, null,
+            id = "/u/andrew/p", label = "p", path = "/u/andrew/p", color = null, icon = null,
+            isAuto = true, sessionCount = 1, lastActive = null,
             repos = listOf(
                 com.hermes.client.domain.ProjectRepo("/u/andrew/p", "p", "/u/andrew/p", 1, listOf(
                     com.hermes.client.domain.ProjectLane("all", "", null, true, listOf(session("s1", "Hi"))),
@@ -416,11 +617,12 @@ class SessionsViewModelTest {
     }
 
     @Test fun foregroundRecoveryKeepsTheOpenProjectAndRefreshesItsSessions() = runTest {
-        modeFlow.value = ViewMode.PROJECTS
         coEvery { sessionRepo.listAllProfiles() } returns listOf(
             repoSession("s1", "/u/andrew/p"),
         )
         val vm = buildVm()
+        advanceUntilIdle()
+        vm.loadProjectTree()
         advanceUntilIdle()
         vm.enterProject(vm.projectsState.value.tree.single { it.id != DEFAULT_PROJECT_ID })
 
@@ -428,7 +630,7 @@ class SessionsViewModelTest {
             repoSession("s1", "/u/andrew/p"),
             repoSession("s2", "/u/andrew/p"),
         )
-        assertTrue(vm.recoverForForeground())
+        assertTrue(vm.recoverProjectsForForeground())
 
         assertEquals("/u/andrew/p", vm.projectsState.value.scope?.id)
         val ids = vm.projectsState.value.scope?.repos?.single()?.lanes?.single()?.sessions

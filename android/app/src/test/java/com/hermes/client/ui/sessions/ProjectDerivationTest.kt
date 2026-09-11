@@ -129,4 +129,20 @@ class ProjectDerivationTest {
         assertEquals("/u/proj", projectOf(sessions[0], projects)?.id)
         assertEquals(DEFAULT_PROJECT_ID, projectOf(sessions[1], projects)?.id)
     }
+
+    // The FAB's one rule (docs/DESIGN.md §5.3). It lived inside a composable until Projects
+    // became its own page, so it was never testable before.
+    private fun project(id: String, path: String?) = com.hermes.client.domain.Project(
+        id = id, label = "p", path = path, color = null, icon = null, isAuto = true,
+        sessionCount = 0, lastActive = null, repos = emptyList(), previewSessions = emptyList(),
+    )
+
+    @Test fun new_chats_land_in_the_drilled_in_project_and_nowhere_else() {
+        // The Chats list and the project overview: the gateway's launch directory.
+        assertNull(projectCreationCwd(null))
+        // The default project IS the launch directory — do not send its path explicitly.
+        assertNull(projectCreationCwd(project(DEFAULT_PROJECT_ID, "/u/andrew")))
+        // Drilled into a real project: create there.
+        assertEquals("/u/andrew/repo", projectCreationCwd(project("/u/andrew/repo", "/u/andrew/repo")))
+    }
 }
