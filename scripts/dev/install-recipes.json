@@ -31,6 +31,63 @@
         "version": "0.1.116",
         "first_action": "tick '已了解应用的风险检测结果'"
       }
+    },
+    {
+      "id": "honor-unknown-source-dialog",
+      "vendor": "HONOR",
+      "observed": "2026-09-11, HONOR CLK-AN00, Android 14 (SDK 34); first resolved by an AI session via --inspect/--tap-text",
+      "notes": "First of HONOR's pages: a bottom dialog accepting responsibility for an app of unknown origin. It is a separate window, so the UI tree holds only the warning and 取消/继续 — no app name or version. require_app is therefore off; the adb install-session check (size of this APK) is what proves the install is ours.",
+      "installer": [
+        "com.android.packageinstaller"
+      ],
+      "require_all": [
+        "来历不明的应用很可能会损害您的手机和个人数据",
+        "继续",
+        "取消"
+      ],
+      "require_app": false,
+      "steps": [
+        {
+          "tap": "继续"
+        }
+      ],
+      "fixture": {
+        "file": "honor-unknown-source-dialog.xml",
+        "foreground": "com.android.packageinstaller",
+        "label": "Hermes GO",
+        "version": "0.1.116",
+        "first_action": "press '继续'"
+      }
+    },
+    {
+      "id": "honor-unreviewed-app",
+      "vendor": "HONOR",
+      "observed": "2026-09-11, HONOR CLK-AN00, Android 14 (SDK 34); first resolved by an AI session via --inspect/--tap-text",
+      "notes": "Second page: 未经荣耀安全审核. Also carries a 安全模式「开启」 upsell and a large 「玩过该游戏的也爱玩」 button directly above 「继续安装」 — neither is touched; a coordinate guess off the screenshot would risk the latter.",
+      "installer": [
+        "com.android.packageinstaller"
+      ],
+      "require_all": [
+        "未经荣耀安全审核",
+        "已了解此应用未经荣耀应用市场检测，可能存在风险。",
+        "继续安装"
+      ],
+      "require_app": true,
+      "steps": [
+        {
+          "check": "已了解此应用未经荣耀应用市场检测，可能存在风险。"
+        },
+        {
+          "tap": "继续安装"
+        }
+      ],
+      "fixture": {
+        "file": "honor-unreviewed-app.xml",
+        "foreground": "com.android.packageinstaller",
+        "label": "Hermes GO",
+        "version": "0.1.116",
+        "first_action": "tick '已了解此应用未经荣耀应用市场检测，可能存在风险。'"
+      }
     }
   ]
 }

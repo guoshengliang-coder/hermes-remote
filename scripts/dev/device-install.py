@@ -225,6 +225,40 @@ def checkbox_state(nodes, label):
     return clickable_target(node), None
 
 
+def adb_session_sizes(serial):
+    """Sizes of the install sessions adb itself started and the phone still holds open.
+
+    Page text alone cannot prove whose install is waiting: HONOR's first dialog is its own
+    window, so the UI tree holds only the warning and two buttons — no app name, no version.
+    The package manager's session list can: an install started by adb (initiator
+    com.android.shell / uid 2000) whose size is this APK's exact byte count is ours.
+    """
+    out = adb(serial, "shell", "dumpsys", "package", timeout=60)
+    start = out.find("Active install sessions:")
+    if start < 0:
+        return []
+    blocks, current = [], None
+    for line in out[start:].splitlines()[1:]:
+        if line.strip() and not line.startswith(" "):
+            break                                  # next top-level section
+        if re.match(r"\s+(Active )?Session \d+:", line):
+            current = []
+            blocks.append(current)
+        elif current is not None:
+            current.append(line)
+    sizes = []
+    for block in blocks:
+        text = " ".join(block)
+        if "mDestroyed=true" in text:
+            continue
+        from_adb = ("installInitiatingPackageName=com.android.shell" in text
+                    or "mOriginalInstallerUid=2000" in text)
+        size = re.search(r"sizeBytes=(\d+)", text)
+        if from_adb and size:
+            sizes.append(int(size.group(1)))
+    return sizes
+
+
 # ---- recipes ----------------------------------------------------------------------------------
 
 def load_recipes(path=RECIPES):
@@ -283,6 +317,7 @@ def apk_identity(apk):
     signing = subprocess.run([build_tool("apksigner"), "verify", "--print-certs", str(apk)],
                              capture_output=True, text=True).stdout
     info["cert"] = apk_signing.parse(signing)
+    info["size"] = Path(apk).stat().st_size
     return info
 
 
@@ -360,6 +395,11 @@ def install(serial, apk, info, recipes, timeout):
                 raise Attention("no recipe matches this page")
             kind, target, what, key = next_action(recipe, nodes, done)
             if kind == "tap":
+                sizes = adb_session_sizes(serial)
+                if info["size"] not in sizes:
+                    raise Attention("no pending adb install of {} bytes (sessions: {}) — not "
+                                    "confirming a page that may belong to another install".format(
+                                        info["size"], sizes or "none"))
                 taps_on_page[signature] = taps_on_page.get(signature, 0) + 1
                 if taps_on_page[signature] > 3:
                     raise Attention("tapped {} three times and the page did not change".format(what))
@@ -391,7 +431,7 @@ def install(serial, apk, info, recipes, timeout):
                 print("NEEDS_ATTENTION serial={} reason={} foreground={} evidence={} ui={}".format(
                     serial, why, fg, shot, evidence / (name + ".xml")))
                 print("  resolve with: {} --inspect --serial {}   then   --tap-text '<label>' "
-                      "--serial {}".format(Path(__file__).relative_to(ROOT), serial, serial))
+                      "--serial {}".format(Path(__file__).resolve().relative_to(ROOT), serial, serial))
                 print("  still waiting; the install continues as soon as the page moves on")
         time.sleep(1.2)
 
@@ -417,6 +457,14 @@ def inspect(serial):
     shot = screenshot(serial, out / "inspect.png")
     (out / "inspect.xml").write_text(xml, encoding="utf-8")
     print("foreground: {}{}".format(fg, "   (installer)" if is_installer(fg) else ""))
+    if is_installer(fg):
+        # The page may not name the app (HONOR's first dialog doesn't); the session list says
+        # whose install is waiting. Compare with the newest staged APK's size.
+        sizes = adb_session_sizes(serial)
+        staged = sorted(ROOT.glob(APK_GLOB), key=lambda p: p.stat().st_mtime, reverse=True)
+        mine = staged[0].stat().st_size if staged else None
+        print("pending adb installs (bytes): {}   newest staged APK: {}{}".format(
+            sizes or "none", mine, "   -> ours" if mine in sizes else ""))
     if RED_LINE.search(page_text(nodes)):
         print("RED LINE: this page asks for credentials or payment — --tap-text will refuse")
     for n in nodes:
@@ -457,8 +505,10 @@ def self_test():
         f = recipe["fixture"]
         checks = [
             ("matches its page", recipe_matches(recipe, f["foreground"], text, f["label"], f["version"])),
-            ("ignores another app's install", not recipe_matches(recipe, f["foreground"], text,
-                                                                 "Some Other App", f["version"])),
+            ("ignores another app's install" if recipe.get("require_app", True) else
+             "page names no app — guarded at runtime by the adb install-session check",
+             not recipe_matches(recipe, f["foreground"], text, "Some Other App", f["version"])
+             if recipe.get("require_app", True) else True),
             ("ignores a non-installer foreground", not recipe_matches(recipe, "com.example.launcher",
                                                                       text, f["label"], f["version"])),
             ("no red-line text on its page", not RED_LINE.search(text)),
