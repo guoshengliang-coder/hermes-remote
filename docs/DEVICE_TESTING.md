@@ -1,11 +1,17 @@
-# Android 真机操作手册
+# Android 真机与开发机操作手册
 
 `AGENTS.md` 定**哪几层验证要跑**（L1/L2/L3），`docs/DESIGN.md §7` 定 **UI 改动的验证规程**，
-`docs/ANDROID_SMOKE.md` 记**规程跑不到、仍待设备确认的用例**。这份文件只管一件事：**怎么把一台
-真机操作起来** —— 装哪个包、各家 ROM 装机时要点什么、怎么连到本地后端、测完怎么复原。
+`docs/ANDROID_SMOKE.md` 记**规程跑不到、仍待设备确认的用例**。这份文件管的是**动手那一层**：
+怎么把一台真机操作起来（装哪个包、各家 ROM 装机时要点什么、怎么连到本地后端、测完怎么复原），
+以及一台开发机缺了哪一层时怎么补、哪些事已经实测过不必再试。
 
 这些经验原先只存在某一台开发机的私有笔记里，换一台机器、换一个 agent 就要重踩一遍。凡是在
-真机上踩到的新坑，**写回这里**，不要只留在对话或本机笔记里。
+真机或开发机上踩到的新坑、测出的结论，**写回这里**，不要只留在对话或本机笔记里。
+
+**写什么、不写什么。** 写对任何参与这个项目的人都成立的事，包括"在 macOS 上会这样"。不写只属于
+某一台机器或某个人的事实 —— 内存多大、连着哪几台手机、装了哪些 AVD，这些 `android-capabilities.sh`
+运行时就能读到，写死只会过时；代理端口、个人习惯也不写。密码、token 与 `environment.md` 的内容
+永远不进这里（见 `AGENTS.md`）。
 
 ## 0. 先问本机有什么
 
@@ -172,3 +178,58 @@ adb -s <serial> shell rm /sdcard/Pictures/<测试图片>
 **`pm clear com.hermes.remote` 会清掉这台手机上 App 的全部数据，包括真实的连接配置和账号。**
 开发用的手机上通常装着日常在用的版本，只有在你确定这台手机上没有要保留的状态、或者主人明确
 同意时才执行。覆盖安装（`install -r`）本身不会清数据。
+
+## 7. 本机缺一层时怎么补
+
+`android-capabilities.sh` 会说缺哪一层。L2 缺的是手机或授权（见 §5）；**L3 缺的是模拟器**，按下面补。
+几个 GB 的下载，每台机器装一次，不进 git。
+
+1. **查镜像包名。** 包名带次版本号（`android-37.0`，不是 `android-37`，猜错只会得到一句 `not found`）；
+   ABI 跟随本机 CPU（Apple 芯片用 `arm64-v8a`，Intel 用 `x86_64`）：
+
+   ```bash
+   sdkmanager --list | grep 'system-images.*arm64-v8a'
+   ```
+
+2. **装模拟器和镜像**，镜像选与 `targetSdk` 一致的 `google_apis` 版本：
+
+   ```bash
+   yes | sdkmanager --install emulator 'system-images;android-37.0;google_apis;arm64-v8a'
+   ```
+
+3. **建 AVD**，只用 Pixel 设备定义（HONOR 折叠屏 AVD 已整体弃用）：
+
+   ```bash
+   echo no | avdmanager create avd -n Pixel_API_37 -k 'system-images;android-37.0;google_apis;arm64-v8a' -d pixel_9
+   ```
+
+4. `./scripts/dev/emulator.sh start`，再跑一次 `android-capabilities.sh` 确认 L3 变成 available。
+
+踩过的坑：
+
+- **设了代理时 sdkmanager 可能下载失败**，报 `Failed to connect to https://dl.google.com/…: Connection refused`。
+  先测直连能不能到：
+
+  ```bash
+  curl -sS -o /dev/null -w '%{http_code} %{time_total}s\n' --noproxy '*' https://dl.google.com/android/repository/repository2-3.xml
+  ```
+
+  直连通的话，就在去掉代理变量的环境里跑 sdkmanager：
+
+  ```bash
+  env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy sdkmanager --install …
+  ```
+
+  2026-09-11 在一台开发机上，直连 0.14 秒拿到 200，走代理 6.6 秒，而 sdkmanager 经代理直接失败。
+- **macOS 没有 GNU `timeout`。** 用它包一条命令会得到 `command not found`，看起来像"超时没有输出"，
+  很容易误判成网络问题。
+- sdkmanager 会提示自己已弃用、改用同目录下的 `android sdk`；截至 2026-09-11 仍可正常使用。
+
+## 8. 实测过的结论（别再重复试）
+
+- **调大 Gradle heap 不会让构建变快。** 把 `org.gradle.jvmargs` 从 `-Xmx2048m` 提到 `-Xmx4096m`
+  （写在 `~/.gradle/gradle.properties`，它的优先级高于项目根的 `gradle.properties`，实测生效），
+  冷构建 `:app:testDebugUnitTest --rerun-tasks` 从 66 秒变成 67 秒，在误差之内（M4 / 24 GB，2026-09-11）。
+  2048m 确实偏紧：Kotlin 编译守护进程**继承**这个值，峰值用到 1703 MB（83%），放开后用到 2339 MB。
+  但时间花在 KSP、Hilt、Kotlin 编译的 CPU 上，不在 GC 上。调大只算防 OOM 的保险；项目里那份保持
+  `-Xmx2048m`，因为 CI runner 也读它。想提速先测量，别从 heap 下手。
