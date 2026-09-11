@@ -83,5 +83,14 @@ test('keep below 1 is refused, so the current release can never be dropped', () 
 
 test('the interpreter actually parses it — the bug that started this', () => {
   // py_compile is what would have caught the f-string backslash before it reached production.
-  execFileSync('python3', ['-m', 'py_compile', REPORT]);
+  //
+  // The output goes to a temp file, NOT the default scripts/lib/__pycache__/. Writing it in place
+  // left an untracked directory in the source tree, and the publisher refuses to run against a
+  // dirty worktree — so this test, added to catch a release bug, blocked the release instead.
+  const cfile = path.join(mkdtempSync(path.join(tmpdir(), 'pyc-')), 'report.pyc');
+  execFileSync('python3', [
+    '-c',
+    'import py_compile,sys; py_compile.compile(sys.argv[1], cfile=sys.argv[2], doraise=True)',
+    REPORT, cfile,
+  ]);
 });
