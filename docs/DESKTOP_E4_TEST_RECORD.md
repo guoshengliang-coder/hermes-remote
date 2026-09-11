@@ -5,8 +5,8 @@ Status: E4-D local multi-device UX, signed bootstrap, packaged orchestration, ac
 binding, rollback, and restart recovery are complete. Android account continuity and managed account
 mode were subsequently proven on the physical Mac. The corrective internal 0.3.1 arm64 release is
 published and Desktop 0.2.4 is installed on the migrated Mac. Its packaged reboot preserved the
-single-Connector invariant; post-reboot Android account REST/WebSocket traffic, Developer ID
-signing/notarization, and clean-Mac acceptance remain pending.
+single-Connector invariant, and post-reboot Android account REST/WebSocket traffic passed. Developer
+ID signing/notarization and clean-Mac acceptance remain pending.
 
 ## E4-E offline release publisher
 
@@ -289,7 +289,7 @@ pair and let Desktop suppress a transferred duplicate at startup only when the d
 exactly `account_active` and both managed labels are already loaded. Intermediate and incomplete
 states remain inert or fail closed. A packaged run of the corrected Desktop followed by a full Mac
 reboot passed on 2026-09-11 as recorded below. Android REST/WebSocket verification after that reboot
-remains pending.
+also passed later that morning.
 
 ## 2026-09-11 Desktop 0.2.4 migrated-Mac reboot acceptance
 
@@ -316,9 +316,15 @@ unloaded; the journal stayed `account_active`, generation 7, managed release 0.3
 legacy Connector. The protected loopback check again returned HTTP 200/version 0.21.0 and the
 Connector again held an established TLS connection.
 
-The attached HONOR CLK-AN00 contained Android 0.1.89/build 90, which predates account-mode
-acceptance and cannot close the post-reboot account transport gate. No screenshot or user content was
-exported. The accepted Android 0.1.113 account client, or a later account-capable build signed into
-the same account, must still perform one REST status request and one real WebSocket session through
-this Mac. This remains an internal ad-hoc Desktop build and is not Developer ID signed, notarized,
-stapled, or approved for public distribution.
+The attached HONOR CLK-AN00 contained Android 0.1.89/build 90, which predates account mode and was not
+used for acceptance. The operator instead used an account-capable Android client signed into the same
+account, refreshed status successfully, and opened a real session. Relative to the pre-action
+Connector log baseline, this created one new `/api/ws` tunnel at 2026-09-11T02:12:55.296Z. Before the
+phone-side connection ended 45 seconds later, the tunnel carried 1,572 Hermes-to-phone frames and 28
+phone-to-Hermes frames with no `tunnel.local_error` or `tunnel.open_failed` event. The phone-side
+abnormal close code 1006 was mapped to the Connector's safe local close code 1011 after the verified
+exchange; it did not restart either managed service or revive the legacy Connector.
+
+This closes the Migration Assistant packaged-reboot and Android account REST/WebSocket gate. No
+screenshot or user content was exported. This remains an internal ad-hoc Desktop build and is not
+Developer ID signed, notarized, stapled, or approved for public distribution.
