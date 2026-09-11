@@ -347,3 +347,28 @@ locally. The canonical asset comparison, complete 185-test Desktop suite, releas
 strict ad-hoc codesign verification, and `git diff --check` also passed. Packaged 0.2.5 evidence,
 target-Mac migration, reboot persistence, and post-migration Android traffic remain pending at this
 point; no target service or production setting was changed by this source iteration.
+
+## 2026-09-11 Desktop 0.2.5 physical compatibility failure and rollback
+
+PR #176 merged the pre-contract token migration and PR #178 released Desktop 0.2.5/build 8 after the
+185-test Desktop suite, asset gate, release build, codesign verification, DMG verification, PR checks,
+and post-merge CI/SAST passed. The configured arm64 DMG was independently hash- and image-verified on
+`LGS-MACMINI`, then installed with the prior 0.2.4/build 7 app retained for rollback.
+
+After Keychain access allowed startup recovery to run, Desktop moved the active managed 0.3.0
+installation to `HERMES_SESSION_TOKEN_FILE`, restarted Hermes and Connector, observed new PIDs,
+received authenticated loopback HTTP 200 from Hermes 0.21.0, retained a Connector control connection
+to the Gateway, and wrote the completion marker. Those signals were insufficient: managed release
+0.3.0 contains Connector 0.1.2, which does not consume the file environment variable. Each Android
+WebSocket tunnel therefore reached the Connector but failed its local Hermes upgrade with HTTP 403,
+surfacing `HR-CONN-002`. The Cloud binding health accepted by startup was not required to be newer than
+the Connector restart, so its previous healthy value did not catch the broken per-tunnel path.
+
+The operator stopped Desktop 0.2.5, preserved its app and migrated files in an owner-only recovery
+directory, restored the two inline-token LaunchAgents, restarted Hermes before Connector, and restored
+Desktop 0.2.4/build 7. Authenticated loopback HTTP returned 200, a direct `/api/ws?token=` upgrade
+returned 101, Connector re-established its upstream connection, and the Android client worked again.
+Desktop 0.2.5 is withdrawn and must not be reinstalled. The corrective source refuses token-file
+migration for managed releases older than 0.3.1 before account refresh, file mutation, or service
+restart, and adds 0.3.0 as an explicit regression fixture. A replacement Desktop release remains
+pending its own version gate and physical Android REST/WebSocket acceptance.

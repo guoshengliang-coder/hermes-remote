@@ -290,6 +290,9 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
               let previewBindingID = preview.bindingID,
               let previewGeneration = preview.bindingGeneration
         else { return false }
+        guard Self.supportsSessionTokenFile(releaseVersion: preview.releaseVersion) else {
+            return false
+        }
         let operationLease = try journal.acquireOperationLease()
         defer { withExtendedLifetime(operationLease) {} }
         guard let recorded = try journal.load(),
@@ -525,6 +528,19 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             && binding.connector.online
             && binding.hermes.reachable == true
             && binding.endToEnd.healthy == true
+    }
+
+    private static func supportsSessionTokenFile(releaseVersion: String) -> Bool {
+        // Managed release 0.3.1 is the first immutable package whose Hermes wrapper and Connector
+        // both consume HERMES_SESSION_TOKEN_FILE. Release 0.3.0's Connector accepts only the inline
+        // token, so rewriting its LaunchAgent leaves its Gateway control socket online while every
+        // tunneled local WebSocket fails authentication.
+        let firstSessionTokenFileRelease = [0, 3, 1]
+        let components = releaseVersion.split(separator: ".", omittingEmptySubsequences: false)
+        guard components.count == 3 else { return false }
+        let parsed = components.compactMap { Int($0) }
+        guard parsed.count == 3 else { return false }
+        return parsed.lexicographicallyPrecedes(firstSessionTokenFileRelease) == false
     }
 
     private func hasExactBoundBinding(
