@@ -365,3 +365,49 @@ val CardFooter = TextStyle(
     lineHeight = 18.sp,
     letterSpacing = 0.3.sp,
 )
+
+// ── Card page · theme sheet (Stitch 基线-卡片页/主题设置 / 暗夜) ─────────────────────────────────
+//
+// Same reading rule as the card-page steps above: the class is the spec, line height is 1.5 unless
+// the element says otherwise, `tracking-tight` is −0.025em at the step's size.
+
+/** 「外观与主题」: `text-lg font-semibold tracking-tight`. */
+val CardThemeTitle = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 18.sp,
+    lineHeight = 27.sp,
+    letterSpacing = (-0.45).sp,
+)
+
+/** An option's name: `text-sm font-semibold`, no tracking class — so NOT [CardNodeTitle]. */
+val CardThemeOptionTitle = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 14.sp,
+    lineHeight = 21.sp,
+    letterSpacing = 0.sp,
+)
+
+/** 「当前使用」: `text-[10px] font-semibold`. The build chip is 11/500 now, so this is its own step. */
+val CardThemeBadge = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 10.sp,
+    lineHeight = 15.sp,
+    letterSpacing = 0.sp,
+)
+
+/**
+ * The save button's label: `text-sm font-medium`.
+ *
+ * Geometry from the light mock, as always. The dark mock sets the same button 600 with
+ * `tracking-wide`; recorded in the lock file's `pairs`.
+ */
+val CardThemeCta = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 14.sp,
+    lineHeight = 21.sp,
+    letterSpacing = 0.sp,
+)

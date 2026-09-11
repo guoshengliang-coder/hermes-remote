@@ -386,3 +386,68 @@ val ApiChannelIcon: ImageVector by lazy {
         lineTo(15f, 16f)
     }
 }
+
+// ── Theme options (docs/DESIGN.md §5.1 主题弹层) ────────────────────────────────────────────────
+//
+// The theme sheet's mock draws these as 2px feather glyphs; §4 keeps the repo's 1.7dp brush, the
+// same ruling the card page took. They live here rather than in CardPage.kt because two screens
+// need them now — the sheet and 设置→外观 — which is exactly §4.2's "new icons go in the shared
+// file first".
+
+/**
+ * A desktop monitor on a stand — the card page's remote-node tile, and 「跟随系统」 in the theme
+ * sheet.
+ *
+ * Moved here from CardPage.kt unchanged when the theme sheet needed the same glyph. Writing a
+ * second monitor for the sheet is exactly the duplication §4.2 asks new icons to avoid: two
+ * hand-drawn monitors one screen apart would have drifted the first time either was touched.
+ */
+val DesktopStrokeIcon: ImageVector by lazy {
+    strokeIcon("ThinDesktop") {
+        moveTo(5f, 4f)
+        lineTo(19f, 4f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 21f, y1 = 6f)
+        lineTo(21f, 14f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 19f, y1 = 16f)
+        lineTo(5f, 16f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 3f, y1 = 14f)
+        lineTo(3f, 6f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 5f, y1 = 4f)
+        close()
+        moveTo(12f, 16f); lineTo(12f, 20f)
+        moveTo(8f, 20f); lineTo(16f, 20f)
+    }
+}
+
+/** A rayed sun — 「温润浅色」. */
+val SunStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeSun") {
+        moveTo(16.6f, 12f)
+        arcTo(4.6f, 4.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 7.4f, y1 = 12f)
+        arcTo(4.6f, 4.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 16.6f, y1 = 12f)
+        close()
+        // Eight rays, radius 7.4 → 10.0, so the round caps stay inside the 24 viewport.
+        moveTo(12f, 4.6f); lineTo(12f, 2f)
+        moveTo(12f, 19.4f); lineTo(12f, 22f)
+        moveTo(4.6f, 12f); lineTo(2f, 12f)
+        moveTo(19.4f, 12f); lineTo(22f, 12f)
+        moveTo(6.77f, 6.77f); lineTo(4.93f, 4.93f)
+        moveTo(17.23f, 6.77f); lineTo(19.07f, 4.93f)
+        moveTo(6.77f, 17.23f); lineTo(4.93f, 19.07f)
+        moveTo(17.23f, 17.23f); lineTo(19.07f, 19.07f)
+    }
+}
+
+/**
+ * A crescent — 「黑曜石深色」, and the card page's 主题 row.
+ *
+ * Moved here from CardPage.kt unchanged when the theme sheet became its second consumer.
+ */
+val MoonStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeMoon") {
+        moveTo(20f, 14.5f)
+        arcTo(8.5f, 8.5f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 9.5f, y1 = 4f)
+        arcToRelative(7f, 7f, 0f, isMoreThanHalf = false, isPositiveArc = false, dx1 = 10.5f, dy1 = 10.5f)
+        close()
+    }
+}

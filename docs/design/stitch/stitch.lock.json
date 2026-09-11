@@ -206,6 +206,105 @@
         "change": "模型行标题「模型」→「默认模型」",
         "decision": "照稿改文案（Default model）。",
         "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "主题弹层由「titleMedium 标题 + 三个 RadioButton ListItem」重做为「标题 + 关闭钮 + 三张带图标与说明的选项卡 + 底部实心按钮」",
+        "decision": "照稿。选项卡 16dp 圆角、14dp 内距、1px 发丝描边；40dp 图标章 12dp 圆角、内嵌 20dp 图标；标题 14/600、说明 12/400（复用 CardIdentitySub）、行尾 20dp 单选点；列表 px-5 py-3、卡间距 8；按钮通栏 48dp、12dp 圆角、页脚 px-6 pt-4 pb-6。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "稿同时新增关闭 ✕ 与底部通栏「完成」按钮，且选中项带「当前使用」徽标",
+        "decision": "产品裁决 2026-09-11：弹层里的选择是暂态，按底部按钮才写库并关闭；✕ / 下滑 / 遮罩 / 返回一律取消，什么都不写。这也让徽标有了独立语义（单选点 = 待提交，徽标 = 当前生效）。按钮文案改「保存 / Save」—— 按下才生效时「完成」是不诚实的标签。这是本轮唯一一处主动改稿上的字。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "选中单选点的画法两稿不一致（浅色实心点无外环 / 暗色环+点）",
+        "decision": "取暗色稿的环+点，M3 单选的常规形态；浅色稿那个 inset 白环在白卡上等于不可见，判为渲染副产物而非设计意图。墨色取 card.theme.accent。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "图标着色：浅色稿三条规则（跟随系统 #181C24、太阳 #824500 琥珀、月亮 #1B1C1A），暗色稿一条",
+        "decision": "取暗色稿那条：未选 onSurfaceVariant、选中 onSurface，浅暗同一条规则。浅色稿的琥珀太阳判为噪声 —— 它既不是选中态也不对应任何语义。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "「当前使用」徽标只在暗色稿里有",
+        "decision": "浅色稿把标题右侧留成了空 span，判为漏画。两版都加（产品裁决 2026-09-11）。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "主题改名「跟随系统 / 温润浅色 / 黑曜石深色」",
+        "decision": "全线采用（产品裁决 2026-09-11）：弹层、卡片页「主题」行右值、设置→外观。设置→外观的颜色模式随之由三段胶囊换成同一套选项卡列表 —— SegmentedCapsule 是 maxLines=1 省略号，英文 Obsidian dark 在 fontScale 1.3 下必截断，换掉正好消掉这个风险。卡片页原本说「随系统」、设置页说「跟随系统」，这次一并收敛。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "强调色（选中单选点、底部按钮底）是近黑 #181C24 / 近白 #E2E0DB，不是品牌蓝",
+        "decision": "照稿。§1 原则 3「chrome 一律品牌色」的第二个例外，理由与 FAB 同：主题选择不是运行态，一块品牌蓝在满是蓝色状态信号的应用里会被读成又一个状态。已写进 §5.1。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "抓手 36×6，浅 #DBDAD6 / 暗 #423F3A",
+        "decision": "不改。SheetCloseHandle 是全局共用组件，点击关闭与下拉关闭都挂在它上面（§5.8），不为单张稿分叉。有意偏离。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "图标是 2px feather 描边（显示器 / 太阳 / 月亮）",
+        "decision": "沿用本仓 1.7dp 描边体系（§4），与 card.default.* 的同一条裁决。月亮复用卡片页已有的 MoonIcon，三枚一并提升进公共 StrokeIcons.kt。有意偏离。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "弹层背后的底图把「主题」行改名「外观主题」，右值用品牌蓝",
+        "decision": "底图画的是与本项目无关的「控制台与状态」占位界面，且浅暗两稿自相矛盾（暗稿右值是次要色）。行名与右值颜色都不动。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "稿底部画了 24dp 区 + 128×4 药丸的手势导航条",
+        "decision": "那是稿子模拟的系统导航条，不是应用 UI。实现用 navigationBarsPadding()。",
+        "status": "rejected"
       }
     ]
   },
@@ -488,6 +587,70 @@
         "抽屉 #161A22、卡片 #1E232B + #262C35 描边、行分隔线 white/5、图标底块 #262C35 + white/5 描边，均已折成不透明值入 fixture。",
         "页脚细线与标语暗夜稿给的是冷灰 #717684 / #8A90A0，§2.1 禁止冷灰，改用 outline 暖档 #8D897E（fixture 记为有理由偏离）。"
       ]
+    },
+    {
+      "key": "card.default.theme-sheet.light",
+      "screenId": "ab85a7b6e32340999142498926362272",
+      "stitchLabel": "基线-卡片页/主题设置",
+      "stitchTitle": "Hermes 主题选择底部弹单 (温润浅色版)",
+      "page": "card",
+      "view": null,
+      "state": "default",
+      "overlay": "theme-sheet",
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.1 卡片页 · 主题弹层",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/nav/CardPage.kt",
+        "android/app/src/main/java/com/hermes/client/ui/settings/ThemeOptions.kt",
+        "android/app/src/main/java/com/hermes/client/ui/settings/AppearanceScreen.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（card.theme.* 的 design 列从本稿抽取）",
+      "html": "card.default.theme-sheet.light.html",
+      "sha256": "ddc5561623416bff5bd5bbc3c3e7495da5445ddacdc8791e89b2367ef1dca8e2",
+      "canvasHeightCssPx": 844,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "浅色几何真源；暗色稿只取颜色，配对差异见 pairs。2026-09-11 第四次拉取时打标为候选，同日裁决入库。",
+        "结构：抓手 → 标题「外观与主题」+ 32dp 关闭钮 → 三张选项卡（40dp 图标章 + 标题 + 说明副行 + 行尾单选点）→ 通栏 48dp 实心按钮。替换原来的「titleMedium 标题 + 三个 RadioButton ListItem」。",
+        "交互改为暂态提交（产品裁决 2026-09-11）：点选项只改弹层内的待提交选择，按底部按钮才写库并关闭；✕ / 下滑 / 遮罩 / 返回一律取消，不写任何东西。单选点 = 待提交的选择，「当前使用」徽标 = 当前真正生效的主题 —— 两者在未改动时重合、改动后分离，徽标因此不是单选点的复述。按钮文案随之写「保存」而非稿上的「完成」。",
+        "稿自身三处不一致，一律按暗色稿收敛（见 specChanges）：选中单选点、图标着色规则、「当前使用」徽标的有无。",
+        "主题名随本稿全线改为「跟随系统 / 温润浅色 / 黑曜石深色」；设置→外观的三段胶囊换成同一套选项卡列表，但那是一张页面、没有保存按钮，仍是选中即写库。同一套呈现、两套提交语义。",
+        "图标沿用本仓 1.7dp 描边体系（稿是 2px feather），与 card.default.* 同一裁决。抓手保持全局 SheetCloseHandle 的 32×4dp，不为单张稿分叉。",
+        "稿底部的手势导航条是屏幕模拟，不实现；弹层背后的「控制台与状态」底图与本项目无关，其中「主题行改名外观主题 + 右值品牌蓝」浅暗两稿自相矛盾，驳回。"
+      ]
+    },
+    {
+      "key": "card.default.theme-sheet.dark",
+      "screenId": "795544474e1f4d708277208e7d79ec16",
+      "stitchLabel": "基线-卡片页/主题设置/暗夜",
+      "stitchTitle": "Hermes 主题选择底部弹单 (黑曜石深色版)",
+      "page": "card",
+      "view": null,
+      "state": "default",
+      "overlay": "theme-sheet",
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.1 卡片页 · 主题弹层",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/nav/CardPage.kt",
+        "android/app/src/main/java/com/hermes/client/ui/settings/ThemeOptions.kt",
+        "android/app/src/main/java/com/hermes/client/ui/settings/AppearanceScreen.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（card.theme.* 的 design 列从本稿抽取）",
+      "html": "card.default.theme-sheet.dark.html",
+      "sha256": "e8aa5539ea8561bb56c98d9f90805b9a5bf183a045bccf072c8e4109784832ac",
+      "canvasHeightCssPx": 844,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "只取颜色；几何以浅色稿为准，差异见 pairs。",
+        "弹层 #1E232B、选项卡 #161A22 + #2E343D 描边、图标章 #0F1217、选中单选点与按钮底 #E2E0DB、按钮字 #0F1217、「当前使用」徽标 #262C35 —— 均已入 fixture 的 card.theme.* 段。浅色稿没画徽标底色，浅档由 #EFEEEA 推得。",
+        "层级：浅色弹层与选项卡同为纯白、靠 1px 发丝线划界；暗色选项卡比弹层低一阶。统一表述为「选项卡永不高于弹层，边界由发丝线承担」（§5.1）—— 与 §2.3「卡比底亮」不同，因为弹层本身已是抬起层。"
+      ]
     }
   ],
   "pairs": [
@@ -529,29 +692,19 @@
         "节点右侧毫秒数与箭头间距：浅 gap-1.5(6) / 暗 gap-1(4) —— 取 6",
         "页脚：浅 40dp/0.5px 细线、不透明度 40、标语 12px；暗 48dp/1px、不透明度 60、标语 12.5px —— 以浅色为准"
       ]
-    }
-  ],
-  "candidates": [
-    {
-      "key": "card.default.theme-sheet.light",
-      "screenId": "ab85a7b6e32340999142498926362272",
-      "stitchLabel": "基线-卡片页/主题设置",
-      "stitchTitle": "Hermes 主题选择底部弹单 (温润浅色版)",
-      "sha256": "ddc5561623416bff5bd5bbc3c3e7495da5445ddacdc8791e89b2367ef1dca8e2",
-      "canvasHeightCssPx": 844,
-      "status": "pending",
-      "note": "2026-09-11 第四次拉取时新打标。主题弹层被重做：标题「外观与主题」+ 关闭钮、三张带图标与说明的选项卡、底部实心「完成」按钮 —— 与现有 ModalBottomSheet（三个 RadioButton ListItem，§5.1 末条）差距很大，属独立改动，未在本轮实现。"
     },
     {
-      "key": "card.default.theme-sheet.dark",
-      "screenId": "795544474e1f4d708277208e7d79ec16",
-      "stitchLabel": "基线-卡片页/主题设置/暗夜",
-      "stitchTitle": "Hermes 主题选择底部弹单 (黑曜石深色版)",
-      "sha256": "e8aa5539ea8561bb56c98d9f90805b9a5bf183a045bccf072c8e4109784832ac",
-      "canvasHeightCssPx": 844,
-      "status": "pending",
-      "note": "同上，暗夜版。两张的画布背景画的是另一套「控制台与状态」界面，与本项目无关，只看弹层本身。"
+      "light": "card.default.theme-sheet.light",
+      "dark": "card.default.theme-sheet.dark",
+      "geometryDiff": [
+        "选项卡间距：浅 space-y-2(8) / 暗 space-y-3(12) —— 取 8",
+        "页脚上内距：浅 pt-4(16) / 暗 pt-3(12) —— 取 16。选项列表上下内距两版同为 12",
+        "底部按钮字：浅 14px/500 / 暗 14px/600 + tracking-wide —— 取浅色 500、字距 0",
+        "选中单选点：浅色是 20dp 实心 #181C24 + inset 4px 白，渲染出来是一个无外环的 12dp 实心点；暗色是 2px 环 + 8dp 点 —— 这一处例外地取暗色画法（见 specChanges），是全库唯一一处几何不以浅色稿为准",
+        "「当前使用」徽标：只有暗色稿画了；浅色稿把标题右侧留成空 span —— 判为浅色稿漏画，两版都加"
+      ]
     }
   ],
-  "notCovered": "见 docs/DESIGN.md §5.2「Stitch 不覆盖清单」"
+  "candidates": [],
+    "notCovered": "见 docs/DESIGN.md §5.2「Stitch 不覆盖清单」"
 }

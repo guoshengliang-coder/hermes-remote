@@ -145,6 +145,11 @@ adb -s <serial> exec-out screencap -p > screen.png
 `http://127.0.0.1:8787`，token 填 `dev-app-token`。端口被别的项目占用时用
 `HERMES_DEV_GATEWAY_PORT=<port>`，`emulator.sh` 会跟随同一个变量。
 
+- **新建的 worktree 里也没有 `node_modules`**（和 §1 的 `local.properties` 是同一类坑）。这时
+  `dev-stack.sh start` 只会说 `gateway/dist missing — run npm run build`，而 `npm run build` 又会
+  先报一堆 `Cannot find module 'pg' / 'svix'`。顺序是 **`npm install` → `npm run build` →
+  `dev-stack.sh start`**，三步都在 worktree 根目录跑。
+
 - 在 Claude Code 里用后台方式启动，否则它会随命令超时一起被杀掉。日志在
   `$TMPDIR/hermes-dev-stack/`，不在 `/tmp`。
 - mock 把每一条回复都流进同一个固定会话「Mock 会话」，不管你从哪个会话发出；其它会话会一直

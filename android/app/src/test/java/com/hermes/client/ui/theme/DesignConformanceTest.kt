@@ -115,6 +115,14 @@ class DesignConformanceTest {
                 "cardIconTileBorder" -> if (dark) CardIconTileBorderDark else CardIconTileBorderLight
                 "cardDotGood" -> CardDotGood
                 "cardFooterRule" -> if (dark) CardFooterRuleDark else CardFooterRuleLight
+                // Card page · theme sheet (docs/DESIGN.md §5.1 主题弹层).
+                "cardThemeSheet" -> if (dark) CardThemeSheetDark else CardThemeSheetLight
+                "cardThemeOption" -> if (dark) CardThemeOptionDark else CardThemeOptionLight
+                "cardThemeBorder" -> if (dark) CardThemeBorderDark else CardThemeBorderLight
+                "cardThemeIconTile" -> if (dark) CardThemeIconTileDark else CardThemeIconTileLight
+                "cardThemeAccent" -> if (dark) CardThemeAccentDark else CardThemeAccentLight
+                "cardThemeAccentInk" -> if (dark) CardThemeAccentInkDark else CardThemeAccentInkLight
+                "cardThemeBadge" -> if (dark) CardThemeBadgeDark else CardThemeBadgeLight
                 else -> error("unknown tiles role '$name' in ref '$ref'")
             }.toArgb()
             else -> error("unknown ref kind '$kind' in ref '$ref'")
@@ -143,6 +151,10 @@ class DesignConformanceTest {
             "CardRowTitle" -> CardRowTitle
             "CardRowValue" -> CardRowValue
             "CardFooter" -> CardFooter
+            "CardThemeTitle" -> CardThemeTitle
+            "CardThemeOptionTitle" -> CardThemeOptionTitle
+            "CardThemeBadge" -> CardThemeBadge
+            "CardThemeCta" -> CardThemeCta
             "labelMedium" -> HermesTypography.labelMedium
             "bodyLarge" -> HermesTypography.bodyLarge
             "titleMedium" -> HermesTypography.titleMedium
