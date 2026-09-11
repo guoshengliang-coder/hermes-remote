@@ -121,7 +121,9 @@ if [ -x "$ADB" ]; then
     case "${state:-}" in
       device) ;;
       unauthorized|offline)
-        HR_DEVICE_PROBLEM="$serial is $state — accept the USB-debugging prompt, or reconnect it"
+        # Accumulate: with several phones, more than one can be stuck at once, and keeping
+        # only the last one hid the others.
+        HR_DEVICE_PROBLEM="${HR_DEVICE_PROBLEM:+$HR_DEVICE_PROBLEM; }$serial is $state"
         continue ;;
       *) continue ;;
     esac
@@ -195,10 +197,11 @@ if [ "$HR_DEVICE_COUNT" -gt 0 ] && [ "$HR_TARGET_SDK" -gt 0 ] \
   HR_TARGETSDK_GAP=1
 fi
 
-# One serial per line, for iterating over every attached phone. This exists instead of
-# telling callers to split $HR_DEVICE_SERIALS: that relies on word splitting, which zsh —
-# the default shell on these machines — does not perform on an unquoted variable, so the
-# obvious `for s in $HR_DEVICE_SERIALS` silently treats every serial as one item there.
+# One serial per line, for iterating over every attached phone. Consume it as
+# `for s in $(... --serials)`, not by splitting $HR_DEVICE_SERIALS (zsh does not word-split an
+# unquoted variable, so all serials arrive as one item) and not by piping into `while read`
+# (`adb shell` inside the loop reads stdin and swallows the remaining serials — only the
+# first device runs). Both failures are silent; both were observed on real phones.
 if [ "${1:-}" = "--serials" ]; then
   for s in $HR_DEVICE_SERIALS; do echo "$s"; done
   exit 0
@@ -237,9 +240,16 @@ if [ "$HR_L2_STATUS" = available ]; then
     echo "                   (ANDROID_SERIAL=<serial> picks the default target)"
   fi
 elif [ -n "$HR_DEVICE_PROBLEM" ]; then
-  echo "L2 device        : unavailable ($HR_DEVICE_PROBLEM)"
+  echo "L2 device        : unavailable ($HR_DEVICE_PROBLEM — accept the USB-debugging prompt, or reconnect)"
 else
   echo "L2 device        : unavailable (no physical device attached)"
+fi
+# A stuck phone next to a working one used to vanish from the report entirely: the problem
+# line only printed when NO device was usable. With several phones that is the common case —
+# plug a second one in and it sits at "unauthorized" until someone taps the dialog on it —
+# and the reader would conclude it is not connected at all.
+if [ "$HR_L2_STATUS" = available ] && [ -n "$HR_DEVICE_PROBLEM" ]; then
+  echo "                   not usable: $HR_DEVICE_PROBLEM — accept the USB-debugging prompt, or reconnect"
 fi
 if [ "$HR_L3_STATUS" = available ]; then
   echo "L3 emulator      : available (avds: $HR_EMU_AVDS; guest ${HR_EMU_RAM_MB}MB, concurrent-build=$HR_EMU_ALLOW_CONCURRENT)"
@@ -271,4 +281,8 @@ if [ "$HR_TARGETSDK_GAP" = "1" ]; then
   fi
   echo "     targetSdk-gated platform behaviour cannot be verified on hardware here."
   echo "     Use L3, or declare it unverified."
+  # An unauthorized phone's SDK cannot be read, so it is not counted — and it may be the
+  # very device that would close the gap. Say so rather than state the gap as settled.
+  [ -n "$HR_DEVICE_PROBLEM" ] && \
+    echo "     (devices not yet usable are not counted — authorize them and re-run)"
 fi
