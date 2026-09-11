@@ -3,7 +3,9 @@
     "设计源每个带颜色角色的取值，与实现的对应取值。DesignConformanceTest 读这份文件。",
     "design = Stitch 原稿的实测值；impl = 本仓当前应有的值；ref = 实现侧从哪里取。",
     "两者不同的行必须写 reason —— 测试会强制这一点，不写就红。",
-    "设计源：projects/8017882098155799612 screens/446ebc32（浅）与 971314ea（暗夜），2026-09-10 抽取。",
+    "设计源：projects/8017882098155799612 screens/446ebc32（浅）与 971314ea（暗夜），2026-09-10 抽取；",
+    "2026-09-11 第二次拉取（标签改为 基线- 格式后稿子有改动）更新了 status.waiting / status.completed / fab.container 的 design 列",
+    "和 type 的 row.title 两档。原件与哈希见 docs/design/stitch/stitch.lock.json，裁决见其 specChanges。",
     "",
     "type 段是排版档位，与 roles 段同一套规则：四元组 [字号, 字重, 行高, 字距]，单位 px/sp，",
     "不同必须写 reason。行高取设计稿行容器的 leading-[1.45]（稿里三档都不自带 leading）。",
@@ -14,43 +16,49 @@
       "design": ["#0369A1", "#67E8F9"], "impl": ["#0369A1", "#67E8F9"], "reason": "" },
 
     { "role": "status.waiting", "ref": "status:WARN",
-      "design": ["#C2410C", "#FBBF24"], "impl": ["#C2410C", "#FBBF24"], "reason": "" },
+      "design": ["#B45309", "#FBBF24"], "impl": ["#B45309", "#FBBF24"],
+      "reason": "" },
 
     { "role": "status.completed", "ref": "status:GOOD",
-      "design": ["#047857", "#34D399"], "impl": ["#2E7D32", "#7CDC80"],
-      "reason": "稿子的绿色相 163，超出 StatusColorsTest 钉死的 90–150「绿」判定带；且同族的 #16A34A 作 12sp 文字只有 3.13。" },
+      "design": ["#2E7D32", "#34D399"], "impl": ["#2E7D32", "#34D399"],
+      "reason": "浅色一致。深色采用稿子的 #34D399（色相 163，2026-09-11 起不再受 StatusColorsTest 的 90–150 绿判定带约束）。" },
 
     { "role": "status.failed", "ref": "status:BAD",
-      "design": ["#B91C1C", "#F87171"], "impl": ["#C62828", "#FFB4AB"],
-      "reason": "视觉等同，沿用 M3 error 家族值以与对话框、删除确认保持同源。" },
+      "design": ["#B91C1C", "#F87171"], "impl": ["#B91C1C", "#F87171"],
+      "reason": "" },
 
     { "role": "header.needsYou", "ref": "status:WARN",
-      "design": ["#B45309", "#FBBF24"], "impl": ["#C2410C", "#FBBF24"],
-      "reason": "设计源用三个相近的琥珀（圆点/立柱、组头、状态行各一），这里收敛成一个：最深的那个同时满足图形下限，三个琥珀读者无法据此区分。" },
+      "design": ["#B45309", "#FBBF24"], "impl": ["#B45309", "#FBBF24"],
+      "reason": "" },
 
     { "role": "header.neutral", "ref": "scheme:onSurfaceVariant",
       "design": ["#44403C", "#8C8882"], "impl": ["#494641", "#A8A49C"],
       "reason": "走 token 而非字面量（§2.1）；与设计值同为中性次要文字层级，浅色 8.92 / 深色 7.55。" },
 
-    { "role": "pillar.needsYou", "ref": "status:WARN",
-      "design": ["#D97706", "#F59E0B"], "impl": ["#C2410C", "#FBBF24"],
-      "reason": "与 header.needsYou 同源。设计源的 #D97706 在纸底上只有 3.02，正压图形下限。" },
+    { "role": "pillar.needsYou", "ref": "warnGraphic:WARN",
+      "design": ["#D97706", "#F59E0B"], "impl": ["#D97706", "#F59E0B"],
+      "reason": "图形档：稿子给标记与文字两个不同的琥珀，这里照做（StatusColors.warnGraphicArgb）。浅色 3.02:1，低于旧的 3:1 图形下限，该下限已于 2026-09-11 废除。" },
 
-    { "role": "pillar.pinned", "ref": "scheme:outline",
-      "design": ["#2563EB", "#3B82F6"], "impl": ["#777268", "#8D897E"],
-      "reason": "定案：只让「需要你处理」带颜色，其余中性两档（§2.7 第 2 条）。" },
+    { "role": "pillar.pinned", "ref": "tiles:pillarPinned",
+      "design": ["#2563EB", "#3B82F6"], "impl": ["#2563EB", "#3B82F6"],
+      "reason": "" },
 
-    { "role": "pillar.time", "ref": "scheme:outlineVariant",
-      "design": ["#059669", "#64748B"], "impl": ["#C9C7C2", "#423F3A"],
-      "reason": "设计源给时间桶用绿，会与同屏「已完成」的绿撞车，深色下 #34D399 完全同色。" },
+    { "role": "pillar.today", "ref": "tiles:pillarToday",
+      "design": ["#059669", "#34D399"], "impl": ["#059669", "#34D399"],
+      "reason": "",
+      "note": "深色 #34D399 与 status-good 深色档完全同色 —— 稿子自己就是这样画的（今天立柱与「已完成」圆点同一支薄荷绿）。2026-09-11 产品负责人要求恢复彩色立柱时接受了这一点。" },
+
+    { "role": "pillar.older", "ref": "tiles:pillarOlder",
+      "design": ["#94A3B8", "#64748B"], "impl": ["#94A3B8", "#64748B"],
+      "reason": "" },
 
     { "role": "subline.text", "ref": "scheme:outline",
       "design": ["#78716C", "#8C8882"], "impl": ["#777268", "#8D897E"],
       "reason": "走 token；浅色档为达文字 4.5 下限压深了一步（#7A766C 只有 4.30）。" },
 
-    { "role": "subline.faint", "ref": "scheme:outline",
-      "design": ["#A8A29E", "#64615B"], "impl": ["#777268", "#8D897E"],
-      "reason": "设计源的第三档在纸底上只有 2.39，低于图形元素 3:1 的下限；图标与注记合用 subline.text 那一档。" },
+    { "role": "subline.faint", "ref": "tiles:sublineFaint",
+      "design": ["#A8A29E", "#64615B"], "impl": ["#A8A29E", "#64615B"],
+      "reason": "采用稿子的第三档（纸底 2.39:1）。文字与图形对比度下限已于 2026-09-11 废除。" },
 
     { "role": "row.title", "ref": "scheme:onSurface",
       "design": ["#1C1917", "#E2E0DB"], "impl": ["#1B1C1A", "#E2E0DB"],
@@ -65,7 +73,8 @@
       "reason": "" },
 
     { "role": "fab.container", "ref": "tiles:fab",
-      "design": ["#181C24", "#1E232B"], "impl": ["#181C24", "#1E232B"], "reason": "" },
+      "design": ["#181C24", "#181C24"], "impl": ["#181C24", "#181C24"],
+      "reason": "" },
 
     { "role": "incident.container", "ref": "tiles:incidentBg",
       "design": ["#FFF1F2", "#2A1B1D"], "impl": ["#FFF1F2", "#2A1B1D"], "reason": "" },
@@ -76,9 +85,14 @@
 
   "type": [
     { "role": "row.title", "ref": "type:SessionRowTitle",
-      "design": ["15", "600", "21.75", "-0.15"], "impl": ["15", "600", "21.75", "-0.15"],
+      "design": ["15.5", "600", "22.475", "-0.155"], "impl": ["15.5", "600", "22.475", "-0.155"],
       "reason": "",
-      "note": "稿与设计系统冲突：系统 title-md 写 15px/500/20px/0em，稿子的 <h2> 是 15px/600/-0.01em。按 2026-09-11 决策以稿为准。" },
+      "note": "稿与设计系统冲突：系统 title-md 写 15px/500/20px/0em，稿子的 <h2> 第一次拉取是 15px/600/-0.01em。按 2026-09-11 决策以稿为准。" },
+
+    { "role": "row.title.read", "ref": "type:SessionRowTitleRead",
+      "design": ["15.5", "500", "22.475", "-0.155"], "impl": ["15.5", "500", "22.475", "-0.155"],
+      "reason": "",
+      "note": "字重按未读态区分：未读 600 / 已读 500，对应设计师系统的 session-title-unread / session-title-normal。" },
 
     { "role": "row.subline", "ref": "type:SessionRowSubline",
       "design": ["12", "400", "17.4", "0"], "impl": ["12", "400", "17.4", "0"],
@@ -89,10 +103,25 @@
       "reason": "",
       "note": "0.1.115 之前借 labelMedium（12/600/+0.48），字重与字距方向都相反。labelMedium 同时供分组头用，那里的稿是宽字距大写，故拆出专用样式而不是改 token。" },
 
-    { "role": "group.header", "ref": "type:labelMedium",
-      "design": ["11", "600", "14", "0.22"], "impl": ["12", "600", "16", "0.48"],
-      "reason": "稿子的分组头是 11px 等宽大写；本仓不打包等宽字族，11sp 非大写中文在真机上偏小，保留 12sp。字距按稿的 tracking-wider 方向（同为正）但按 12sp 折算。",
-      "note": "" },
+    { "role": "group.header", "ref": "type:SessionGroupHeader",
+      "design": ["11", "600", "14", "0.55"], "impl": ["11", "600", "14", "0.55"],
+      "reason": "",
+      "note": "字距是稿子的 tracking-wider（0.05em）按 11px 折算。2026-09-11 之前是 12sp/labelMedium 并附「不打包等宽」的偏离说明；两条都随下限废除一起改掉了，JetBrains Mono 现已打包。" },
+
+    { "role": "group.count", "ref": "type:SessionGroupCount",
+      "design": ["10.5", "500", "14", "0"], "impl": ["10.5", "500", "14", "0"],
+      "reason": "",
+      "note": "「需要你处理」那一组把字重提到 600，在 SectionHeader 里用 copy() 就地改，不单列一档。" },
+
+    { "role": "group.note", "ref": "type:SessionGroupNote",
+      "design": ["10", "400", "13", "-0.1"], "impl": ["10", "400", "13", "-0.1"],
+      "reason": "",
+      "note": "「仅此设备」。稿子没给行高，13 是按这一档自身比例取的。" },
+
+    { "role": "segment.label", "ref": "type:SegmentLabel",
+      "design": ["13.5", "500", "19.575", "-0.135"], "impl": ["13.5", "500", "19.575", "-0.135"],
+      "reason": "",
+      "note": "2026-09-11 之前借 titleSmall（13/600/+0.26）—— 字号、字重、字距三样都与稿子不同向。" },
 
     { "role": "chat.body", "ref": "type:bodyLarge",
       "design": ["15", "400", "22", "0"], "impl": ["16", "400", "24", "0"],

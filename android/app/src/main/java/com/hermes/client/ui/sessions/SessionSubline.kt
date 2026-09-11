@@ -55,13 +55,13 @@ fun SessionSubline(
     val parts = sessionSublineParts(session, lead, defaultProjectPath, projectName)
     if (parts.isEmpty && !pinned) return
     // One step lighter than ListItem's onSurfaceVariant, matching the design's "muted" tier
-    // (decision 2026-09-10). The design puts the folder glyph and the "device only" note a further
-    // step down again at #A8A29E — NOT adopted: that measures 2.39:1 on paper, under the 3:1 floor
-    // a graphic owes. Icon and text share this one tier instead.
+    // (decision 2026-09-10). The glyph goes a further step down to the design's faint tier
+    // (SublineFaint) — 2.39:1 on paper, adopted 2026-09-11 when the contrast floors were dropped
+    // in favour of following the mock exactly (docs/DESIGN.md §7 item 8).
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.outline,
     ) {
-        androidx.compose.material3.ProvideTextStyle(com.hermes.client.ui.theme.SessionRowSubline) {
+        androidx.compose.material3.ProvideTextStyle(com.hermes.client.ui.tuning.tunedSubline()) { // TUNING-TEMP
             SublineContent(parts, lead, pinned, modifier)
         }
     }
@@ -108,7 +108,7 @@ private fun SublineBody(parts: SessionSublineParts, lead: SublineLead, modifier:
             Icon(
                 if (lead == SublineLead.BRANCH) BranchStrokeIcon else FolderStrokeIcon,
                 contentDescription = null,
-                tint = LocalContentColor.current,
+                tint = com.hermes.client.ui.theme.sublineFaintColor(),
                 modifier = Modifier.size(14.dp),
             )
             Text(leadText, maxLines = 1, overflow = TextOverflow.Ellipsis)

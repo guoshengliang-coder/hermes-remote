@@ -9,6 +9,7 @@ import androidx.compose.material3.TopAppBarColors
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
 /**
  * App bar tinted by the active profile's accent (chrome-only per the design decision). The
@@ -37,6 +38,15 @@ fun HermesTopBar(
     )
     if (centered) {
         androidx.compose.material3.CenterAlignedTopAppBar(
+            // 56dp, the mock's `h-14`, against Material's 64dp default. Only the centred bar —
+            // that is the one the session-list mock specifies (docs/DESIGN.md §5.2).
+            //
+            // `expandedHeight`, NOT `Modifier.height`. The bar draws its own status-bar inset
+            // inside its container, so constraining the whole composable to 56dp spends most of
+            // that on the inset and squashes the content row: on a HONOR CLK-AN00 the title was
+            // vertically clipped and sat flush against the first group header. The mock has the
+            // same split — `h-14` is the content row, `pt-safe` is separate.
+            expandedHeight = 56.dp,
             modifier = modifier,
             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                 containerColor = barBg,

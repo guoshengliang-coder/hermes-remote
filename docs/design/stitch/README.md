@@ -1,0 +1,114 @@
+# Stitch 基线快照
+
+> For agents: this directory pins the Stitch screens that `docs/DESIGN.md` treats as the visual
+> design source. The rules (labels, keys, what counts as a baseline) live in `docs/DESIGN.md` §7
+> item 8; this file is only the mechanics — how to pull, render, hash and compare. Stitch is
+> read-only for agents.
+
+## 目录里有什么
+
+| 文件 | 内容 |
+|---|---|
+| `stitch.lock.json` | 索引：屏幕 ID → 键 → DESIGN.md 章节 → 代码文件 → HTML 哈希 → 实现状态；`pairs` 记浅暗配对的几何差异 |
+| `<key>.html` | Stitch 导出的 HTML 原文，一字不改。文本，`git diff` 可读 |
+| `<key>.png` | 设计尺寸渲染：390 CSS px 宽 @2x，高度取 Stitch 画布高度的一半 |
+| `<key>.roborazzi.png` | 叠图尺寸渲染：411×891 CSS px @2.625x = 1078 px 宽，与 `android/app/screenshots/` 的 golden 同尺寸 |
+
+键的格式是 `page.view.state[.overlay].theme`，例如 `sessions.chats.default.more-menu.dark`。
+同一个键也用作截图用例名。
+
+## 拉取（通过 Stitch MCP，由人发起）
+
+1. `list_projects` → 记下「Hermes GO」的 `updateTime`，与锁文件 `project.updateTimeAtPull` 比较。
+   没变可以直接停。
+2. `get_project`（或 `list_screens`）→ `screenInstances` 里带 `label` 的条目。只看 `基线-` 与
+   `候选-` 前缀（格式 `基线-页面/状态或弹层/暗夜`，见 DESIGN.md §7 第 8 条）；无标签、`hidden: true`
+   的忽略。
+3. 对每张要入库的屏幕 `get_screen` → `htmlCode.downloadUrl` 是带签名的临时地址，当场 `curl` 下载，
+   存为 `<key>.html`。缩略图 `screenshot.downloadUrl` 只有 163×512，**不要用它做任何比对**。
+4. `shasum -a 256 <key>.html`，与锁文件 `sha256` 比较。变了的屏幕做第 5 步。
+5. 渲染（见下）并跑配对检查：把浅暗两版去掉颜色类后 diff，只看几何类
+   （`text-[..px]`、`font-*`、`p*-`、`gap-`、`rounded*`、`w-/h-`、`leading-`、`tracking-`）。
+6. 报告固定四段：**新增基线 / 候选待裁决 / 已有基线的规格变更 / 浅暗配对的几何差异**。
+   没有内容的段写「无」。规格变更先落到 `android/app/src/test/resources/design-conformance.json`，
+   再改 `docs/DESIGN.md`，再改代码。
+
+## 渲染
+
+```bash
+# 设计尺寸（高度 = Stitch 画布 height / 2）
+scripts/design/stitch-render.sh docs/design/stitch/<key>.html docs/design/stitch/<key>.png \
+  --width 390 --height 1223 --scale 2
+
+# 叠图尺寸（与 Roborazzi golden 同尺寸）
+scripts/design/stitch-render.sh docs/design/stitch/<key>.html docs/design/stitch/<key>.roborazzi.png \
+  --width 411 --height 891 --scale 2.625
+```
+
+脚本只依赖本机的 Google Chrome 和 macOS 自带的 `sips`。Chrome 桌面窗口最窄约 500 px，脚本用
+居中的 iframe 绕过这一点，细节见脚本头部注释。
+
+**网络依赖**：HTML 引用 Google Fonts（Plus Jakarta Sans / JetBrains Mono / Noto Sans SC /
+Material Symbols）和 Tailwind CDN。离线渲染会静默退到系统字体，图就不是参照了。提交前看一眼
+标题字形：Plus Jakarta Sans 与 PingFang 一眼可辨。字体和 Tailwind 没有 vendoring 进仓库 —— Noto
+Sans SC 按 unicode-range 拆成四百多个子集，体量不值得；参照 PNG 已经提交，读的人不需要重渲。
+
+## 比对
+
+- **几何**：把 `<key>.roborazzi.png` 与对应 golden 在 Preview 里叠看，或临时把参照图放到 golden 的
+  文件名下跑 `./gradlew :app:compareRoborazziDebug` 拿差异图（跑完把 golden 换回来）。
+- **数值**：`design-conformance.json` 的 `design` 列直接从 HTML 类名读，1 CSS px = 1 dp
+  （`docs/DESIGN.md` §3.4）。
+- **观感**：真机（L2）。字体三方不同，像素不会全等，叠图只看几何。
+
+## 设计系统反向同步（仓库 → Stitch）
+
+载体是本目录的 `design-system.md`。它的每个颜色和排版值都被 `DesignSystemExportTest` 钉在代码上，
+所以推给 Stitch 的永远是 app 真正渲染的值；被否定的方案在正文「组件硬规则」里写成正向规则。
+
+```bash
+node scripts/design/stitch-design-system.mjs --summary            # 给产品负责人看的预览
+node scripts/design/stitch-design-system.mjs --base64 /tmp/ds.b64   # upload_design_md 的 designMdBase64
+node scripts/design/stitch-design-system.mjs --rules  /tmp/rules.txt # 正文规则，拼进生成 prompt
+node scripts/design/stitch-design-system.mjs --payload /tmp/ds.json # 结构化载荷（见下：目前用不上）
+node scripts/design/stitch-design-system.mjs --check               # front matter 哈希 == 锁文件记录
+```
+
+### 这条通道只承载 token（实测 2026-09-11）
+
+首次推送后逐字回读，结果记在 `stitch.lock.json` 的 `designSystem.pushFidelity`。要点：
+
+- **活下来的**：13 档排版逐值一致；`designMd` 里原样保留了我们的 front matter 全文；字体、圆角、
+  主色与次色覆盖都对。
+- **没活下来的**：**正文 123 行规则全部丢弃**（回读文件里零条散文）；`theme.spacing` 被换成通用七档；
+  名字被英译；`overrideNeutralColor`（暖纸的来源）与 `overrideTertiaryColor` 未保存；designMd 被前置
+  一段 Stitch 自推的 M3 YAML，改掉 7 个角色值。
+- `update_design_system` 对每个载荷都返回 invalid argument，**改不回来**。
+
+所以：**漂移只看 front matter 哈希**（改正文不算漂移，它本来就没出过门），**规则靠 `--rules` 拼进
+每次生成的 prompt**。
+
+### 推送步骤（每一步由人发起，第 3 步前必须把 `--summary` 给产品负责人看）
+
+1. 改 `design-system.md`（通常是因为代码的 token 变了、测试报红）；跑
+   `./gradlew :app:testDebugUnitTest --tests '*DesignSystemExportTest*'` 与 `npm run test:scripts`。
+2. 把新的 `sha256` 与 `frontMatterSha256` 写进 `stitch.lock.json` 的 `designSystem`，提交。
+3. 只有 **front matter 变了**才需要重推（正文改动不必）：`upload_design_md` →
+   `create_design_system_from_design_md`，**新建**，不覆盖设计师已有的那几套。
+4. 把 assetId、`pushedFrontMatterSha256`、`pushedAt` 记进锁文件，并回读一次核对
+   `pushFidelity`，提交。产品负责人在 Stitch 网页里把它设为项目当前设计系统（MCP 没有这个接口）。
+5. 之后每次拉取，把 `get_project().designTheme.designMd` 的 front matter 与本文件比较，不一致就在
+   报告里加「设计系统漂移」一段。
+
+## 刷新页面（只逐张，不批量）
+
+需要让某张稿子按最新规范修正时：`edit_screens` 只选那一张、提示只写要改的几处，**并把
+`--rules` 的内容一起拼进 prompt**（设计系统不带规则，见上）；完成后立即按上面的拉取步骤下载、
+diff、出报告；产品负责人在 Stitch 里看过后决定接受（更新快照与锁文件）或改回。
+`apply_design_system` 只用于尚未打 `基线-` 标签的候选稿。理由见 DESIGN.md §7 第 8 条。
+
+## 首批基线（2026-09-11）
+
+会话列表浅 / 暗、「更多」菜单浅 / 暗、全局搜索浅 / 暗，共 6 张。Stitch 标签已于 2026-09-11 由
+产品负责人改为 `基线-…` 格式（锁文件 `stitchLabel` 记的是拉取时的原文）。改标签要在 Stitch 网页里做，
+MCP 没有改标签的接口。

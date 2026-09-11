@@ -93,11 +93,18 @@ class DesignConformanceTest {
                 "outlineVariant" -> scheme.outlineVariant
                 else -> error("unknown scheme role '$name' in ref '$ref'")
             }.toArgb()
+            // The graphic tier of WARN: the pillar and the waiting dot, which the design source
+            // paints a brighter amber than the words beside them.
+            "warnGraphic" -> warnGraphicArgb(dark)
             "tiles" -> when (name) {
                 "fab" -> if (dark) FabContainerDark else FabContainerLight
                 "spinner" -> if (dark) SpinnerDark else SpinnerLight
                 "incidentBg" -> if (dark) IncidentContainerDark else IncidentContainerLight
                 "incidentInk" -> if (dark) OnIncidentDark else OnIncidentLight
+                "sublineFaint" -> if (dark) SublineFaintDark else SublineFaintLight
+                "pillarPinned" -> if (dark) PillarPinnedDark else PillarPinnedLight
+                "pillarToday" -> if (dark) PillarTodayDark else PillarTodayLight
+                "pillarOlder" -> if (dark) PillarOlderDark else PillarOlderLight
                 else -> error("unknown tiles role '$name' in ref '$ref'")
             }.toArgb()
             else -> error("unknown ref kind '$kind' in ref '$ref'")
@@ -111,8 +118,13 @@ class DesignConformanceTest {
         check(kind == "type") { "unknown ref kind '$kind' in ref '$ref'" }
         val style: TextStyle = when (name) {
             "SessionRowTitle" -> SessionRowTitle
+            "SessionRowTitleRead" -> SessionRowTitleRead
             "SessionRowSubline" -> SessionRowSubline
             "SessionRowStatus" -> SessionRowStatus
+            "SessionGroupHeader" -> SessionGroupHeader
+            "SessionGroupCount" -> SessionGroupCount
+            "SessionGroupNote" -> SessionGroupNote
+            "SegmentLabel" -> SegmentLabel
             "labelMedium" -> HermesTypography.labelMedium
             "bodyLarge" -> HermesTypography.bodyLarge
             "titleMedium" -> HermesTypography.titleMedium

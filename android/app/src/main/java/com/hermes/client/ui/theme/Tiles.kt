@@ -42,7 +42,7 @@ fun tileColor(): Color =
  * on both tiers (17.07:1 light, 15.24:1 dark) — pinned by FabColorTest.
  */
 internal val FabContainerLight = Color(0xFF181C24)
-internal val FabContainerDark = Color(0xFF1E232B)
+internal val FabContainerDark = Color(0xFF181C24)
 
 /**
  * Dark needs a hairline; light does not. A near-black fill separates from warm paper on its own
@@ -106,6 +106,51 @@ fun onIncidentColor(): Color =
     if (isDarkSurface()) OnIncidentDark else OnIncidentLight
 
 /** Dark shadows are invisible, so the dark tier carries the card on fill alone. */
+/**
+ * The session subline's faintest tier — the folder glyph and the 「仅此设备」note
+ * (docs/DESIGN.md §5.2). The design source's `#A8A29E`, which is 2.39:1 on warm paper: below both
+ * the 4.5:1 text floor and the 3:1 graphic one. Adopted anyway on 2026-09-11, when following the
+ * mock exactly replaced the floors (§7 item 8). If it disappears on a real screen, that is the
+ * trade being paid, not a bug.
+ */
+internal val SublineFaintLight = Color(0xFFA8A29E)
+internal val SublineFaintDark = Color(0xFF64615B)
+
+@Composable
+fun sublineFaintColor(): Color = if (isDarkSurface()) SublineFaintDark else SublineFaintLight
+
+/**
+ * The group-header pillars (docs/DESIGN.md §5.2). Four colours, one per group, straight from the
+ * design source — the 2026-09-10 "only 需要你处理 carries a hue" rule was reversed on 2026-09-11
+ * because an all-neutral list of headers reads flat.
+ *
+ * Only the PILLAR is coloured. Header labels and count chips stay neutral for every group except
+ * 需要你处理, which is what the mock does and what keeps "this one needs action" the loudest thing
+ * on the screen rather than one of four competing hues.
+ *
+ * 需要你处理's pillar is the graphic amber and lives in StatusColors, next to the dot it matches.
+ *
+ * **Known collision, accepted**: the dark 今天 pillar is `#34D399`, which is exactly the dark
+ * `StatusTone.GOOD` a 「已完成」 dot draws. The design source has this collision too — it paints
+ * both with its mint. Recorded here rather than quietly resolved, because the rule since
+ * 2026-09-11 is that the mock wins.
+ */
+internal val PillarPinnedLight = Color(0xFF2563EB)
+internal val PillarPinnedDark = Color(0xFF3B82F6)
+internal val PillarTodayLight = Color(0xFF059669)
+internal val PillarTodayDark = Color(0xFF34D399)
+internal val PillarOlderLight = Color(0xFF94A3B8)
+internal val PillarOlderDark = Color(0xFF64748B)
+
+@Composable
+fun pillarPinnedColor(): Color = if (isDarkSurface()) PillarPinnedDark else PillarPinnedLight
+
+@Composable
+fun pillarTodayColor(): Color = if (isDarkSurface()) PillarTodayDark else PillarTodayLight
+
+@Composable
+fun pillarOlderColor(): Color = if (isDarkSurface()) PillarOlderDark else PillarOlderLight
+
 @Composable
 fun tileShadow(): Dp = if (isDarkSurface()) 0.dp else 1.dp
 

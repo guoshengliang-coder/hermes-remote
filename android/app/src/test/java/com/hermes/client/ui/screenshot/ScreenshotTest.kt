@@ -522,13 +522,17 @@ class ScreenshotTest {
                 androidx.compose.material3.Text(title, style = com.hermes.client.ui.theme.SessionRowTitle)
             },
             supportingContent = {
+                // Same 2dp / 4dp rhythm the production row uses (docs/DESIGN.md §5.2) — this
+                // probe is only worth anything if it measures the real thing.
                 androidx.compose.foundation.layout.Column {
+                    androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.size(2.dp))
                     SessionSubline(listSession(title, repo), defaultProjectPath = "/Users/me")
                     // Same gate production uses: blank means no line at all, not an empty one.
                     status?.takeIf { it.isNotBlank() }?.let {
+                        androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.size(4.dp))
                         androidx.compose.material3.Text(
                             it,
-                            style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+                            style = com.hermes.client.ui.theme.SessionRowStatus,
                         )
                     }
                 }
@@ -551,6 +555,59 @@ class ScreenshotTest {
             // a line? If it does, a row can be 88dp tall while showing only two lines of content.
             ProbeRow(androidx.compose.ui.graphics.Color(0xFFD0F0FF), "空状态串", "/u/xiaomai", status = "")
             ProbeRow(androidx.compose.ui.graphics.Color(0xFFF0D0FF), "无状态槽", "/u/xiaomai", status = null)
+        }
+    }
+
+    // All four group headers in one picture. The amber one is the only coloured pillar in the
+    // product, and it only ever appears when a session is actually waiting on you — which the
+    // local mock can hold for about six seconds, so it has never been caught on a device
+    // (docs/ANDROID_SMOKE.md A-01). This is the one place its colour can be looked at.
+    @androidx.compose.runtime.Composable
+    private fun SectionHeaders() {
+        androidx.compose.foundation.layout.Column {
+            com.hermes.client.ui.sessions.SectionHeader(
+                "需要你处理", 2, com.hermes.client.ui.sessions.SectionTone.NEEDS_YOU, onToggle = {},
+            )
+            com.hermes.client.ui.sessions.SectionHeader(
+                "已置顶", 1, com.hermes.client.ui.sessions.SectionTone.PINNED, note = "仅此设备", onToggle = {},
+            )
+            com.hermes.client.ui.sessions.SectionHeader(
+                "今天", 4, com.hermes.client.ui.sessions.SectionTone.TODAY, onToggle = {},
+            )
+            com.hermes.client.ui.sessions.SectionHeader(
+                "前 7 天", 19, com.hermes.client.ui.sessions.SectionTone.OLDER, collapsed = true, onToggle = {},
+            )
+        }
+    }
+
+    @Test fun sectionHeaderTones() = snap("section-header-tones") { SectionHeaders() }
+
+    @Test fun sectionHeaderTonesDark() = snap("section-header-tones-dark", darkTheme = true) { SectionHeaders() }
+
+    // The two title tiers side by side, same string, so the ONLY difference in the picture is the
+    // weight (docs/DESIGN.md §5.2: unread 600, read 500). Worth a golden of its own because the
+    // difference is easy to doubt on a screen — CJK at Medium already reads fairly heavy — and
+    // because nothing else pins that the read tier is the one a list of read rows gets.
+    @Test fun sessionRowTitleTiers() = snap("session-row-title-tiers") {
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+            for ((label, style) in listOf(
+                "未读 600" to com.hermes.client.ui.theme.SessionRowTitle,
+                "已读 500" to com.hermes.client.ui.theme.SessionRowTitleRead,
+            )) {
+                androidx.compose.material3.Text(
+                    label,
+                    style = com.hermes.client.ui.theme.SessionGroupHeader,
+                    modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                androidx.compose.material3.ListItem(
+                    headlineContent = {
+                        androidx.compose.material3.Text("重构 gateway 路由中间件 Refactor", style = style)
+                    },
+                    supportingContent = {
+                        SessionSubline(listSession("t-$label", "/u/hermes-remote"), defaultProjectPath = "/Users/me")
+                    },
+                )
+            }
         }
     }
 

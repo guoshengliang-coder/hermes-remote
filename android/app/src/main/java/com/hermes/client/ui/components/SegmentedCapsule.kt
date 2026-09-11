@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.hermes.client.ui.theme.SegmentLabel
 import com.hermes.client.ui.theme.isDarkSurface
 import com.hermes.client.ui.theme.tileShadow
 
@@ -78,10 +79,11 @@ fun <T> SegmentedCapsule(
                         // Height comes from the CONTENT plus this minimum — never fillMaxSize,
                         // which takes whatever the parent offers and lets the row stretch to the
                         // viewport. heightIn, not height, so fontScale 1.3 has room to grow.
+                        // py-1.5 px-3 and a 17px glyph, per the session-list mock.
                         Modifier
                             .fillMaxWidth()
                             .heightIn(min = 32.dp)
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -89,13 +91,16 @@ fun <T> SegmentedCapsule(
                             androidx.compose.material3.Icon(
                                 it(option),
                                 contentDescription = null,
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size(17.dp),
                             )
                             androidx.compose.foundation.layout.Spacer(Modifier.size(6.dp))
                         }
                         Text(
                             label(option),
-                            style = MaterialTheme.typography.titleSmall,
+                            // 13.5sp / 500 / tracking-tight — the mock separates the selected
+                            // segment by elevation, not by a heavier label, so titleSmall's 600
+                            // was one emphasis too many.
+                            style = SegmentLabel,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )

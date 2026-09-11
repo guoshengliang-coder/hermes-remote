@@ -33,6 +33,16 @@ jobs:
       - name: Run Semgrep Community Edition
         env:
           SEMGREP_SEND_METRICS: "off"
+        # docs/design/stitch/*.html are verbatim Stitch exports, pinned by sha256 in
+        # stitch.lock.json and never served to anyone: they are opened from file:// by
+        # scripts/design/stitch-render.sh to produce reference PNGs. They load Tailwind and
+        # Google Fonts from a CDN without an `integrity` attribute, which trips
+        # html.security.audit.missing-integrity six times. Adding the attribute is not an
+        # option — the whole point of these files is that they are byte-identical to what
+        # Stitch produced, so editing them breaks the hash that detects design changes.
+        # Residual risk accepted: a compromised CDN could run script inside the headless
+        # Chrome that renders them locally. Narrow exclusion rather than a .semgrepignore,
+        # which would replace semgrep's built-in ignore set (225 files on the last run).
         run: >-
           semgrep scan
           --config p/default
@@ -40,4 +50,5 @@ jobs:
           --metrics off
           --timeout 60
           --max-target-bytes 1000000
+          --exclude 'docs/design/stitch/*.html'
           .
