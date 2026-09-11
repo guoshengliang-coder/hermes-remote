@@ -558,6 +558,33 @@ class ScreenshotTest {
         }
     }
 
+    // The two title tiers side by side, same string, so the ONLY difference in the picture is the
+    // weight (docs/DESIGN.md §5.2: unread 600, read 500). Worth a golden of its own because the
+    // difference is easy to doubt on a screen — CJK at Medium already reads fairly heavy — and
+    // because nothing else pins that the read tier is the one a list of read rows gets.
+    @Test fun sessionRowTitleTiers() = snap("session-row-title-tiers") {
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+            for ((label, style) in listOf(
+                "未读 600" to com.hermes.client.ui.theme.SessionRowTitle,
+                "已读 500" to com.hermes.client.ui.theme.SessionRowTitleRead,
+            )) {
+                androidx.compose.material3.Text(
+                    label,
+                    style = com.hermes.client.ui.theme.SessionGroupHeader,
+                    modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                androidx.compose.material3.ListItem(
+                    headlineContent = {
+                        androidx.compose.material3.Text("重构 gateway 路由中间件 Refactor", style = style)
+                    },
+                    supportingContent = {
+                        SessionSubline(listSession("t-$label", "/u/hermes-remote"), defaultProjectPath = "/Users/me")
+                    },
+                )
+            }
+        }
+    }
+
     @Test fun sessionRowsPinnedSubline() = snap("session-rows-pinned") {
         val defaultPath = "/Users/me"
         androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {

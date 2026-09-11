@@ -222,7 +222,9 @@ fun SessionsScreen(
                                 }
                                 items(section.sessions, key = { "bot-${it.id}" }) { s ->
                                     ListItem(
-                                        headlineContent = { Text(s.title, style = com.hermes.client.ui.theme.SessionRowTitle) },
+                                        // The read tier: this list carries no unread state, and the
+                                        // heavier tier is what unread MEANS (docs/DESIGN.md §5.2).
+                                        headlineContent = { Text(s.title, style = com.hermes.client.ui.theme.SessionRowTitleRead) },
                                         supportingContent = {
                                             Text(
                                                 localized(language, "${s.messageCount} 条", "${s.messageCount} messages"),
