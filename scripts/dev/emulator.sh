@@ -158,7 +158,9 @@ case "${1:-}" in
     # case into a silent exit 1 that cleans up nothing.
     if [ -x "$ADB" ]; then
       "$ADB" devices 2>/dev/null | awk '/^emulator-/{print $1}' | while read -r s; do
-        "$ADB" -s "$s" emu kill >/dev/null 2>&1 || true
+        # </dev/null: adb reads stdin, and inside a `while read` it would swallow the
+        # remaining serials so only the first emulator got the kill.
+        "$ADB" -s "$s" emu kill </dev/null >/dev/null 2>&1 || true
       done
       sleep 2
     fi

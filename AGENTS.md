@@ -187,15 +187,20 @@ layered, and the layers are **not** interchangeable — each covers something th
   | Notifications, background survival, battery optimisation, permission prompts | **every vendor ROM you have** | This is precisely where vendors diverge — a HONOR result does not carry to a Xiaomi. This is the reason to own more than one phone |
   | `targetSdk`-gated platform behaviour | **one device at or above `targetSdk`** (or L3) | Platform behaviour, not vendor behaviour; one device that reaches it closes the gap for everyone |
 
-  To act on every attached device, read the serials from the probe rather than hard-coding them.
-  Use `--serials` (one per line) rather than splitting `$HR_DEVICE_SERIALS` — zsh does not word-split
-  an unquoted variable, so the loop would silently run once with every serial glued together:
+  To act on every attached device, read the serials from the probe rather than hard-coding them,
+  and loop with `for` over a command substitution:
 
   ```bash
-  ./scripts/dev/android-capabilities.sh --serials | while read -r s; do
+  for s in $(./scripts/dev/android-capabilities.sh --serials); do
     adb -s "$s" install -r <apk>
   done
   ```
+
+  Both obvious alternatives silently run the body **once** on these machines. `for s in
+  $HR_DEVICE_SERIALS` fails because zsh does not word-split an unquoted variable, so every serial
+  arrives glued together. `... --serials | while read -r s` fails because `adb shell` reads stdin
+  and swallows the serials still waiting in the pipe. (zsh does split a command substitution, so
+  the form above works in zsh and bash alike.)
 - **L3 — emulator.** Platform behaviour gated on `targetSdk`, clean-install state, and the
   size/density matrix. A device running below `targetSdk` cannot exercise those paths at all.
 
