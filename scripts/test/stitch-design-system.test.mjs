@@ -6,8 +6,10 @@ import {
   LOCK_FILE,
   buildPayload,
   checkAgainstLock,
+  frontMatterSha256,
   parseFrontMatter,
   roundnessFor,
+  rules,
   sha256,
   splitFrontMatter,
   summary,
@@ -77,18 +79,42 @@ test('roundness maps from the smallest corner step', () => {
 });
 
 test('lock check distinguishes never-pushed, in-sync and drifted', () => {
-  const h = sha256(SAMPLE);
+  const h = frontMatterSha256(SAMPLE);
   assert.equal(checkAgainstLock(SAMPLE, JSON.stringify({})).ok, false);
-  assert.equal(checkAgainstLock(SAMPLE, JSON.stringify({ designSystem: { sha256: 'nope' } })).ok, false);
-  const never = checkAgainstLock(SAMPLE, JSON.stringify({ designSystem: { sha256: h } }));
+  assert.equal(checkAgainstLock(SAMPLE, JSON.stringify({ designSystem: { frontMatterSha256: 'nope' } })).ok, false);
+  const never = checkAgainstLock(SAMPLE, JSON.stringify({ designSystem: { frontMatterSha256: h } }));
   assert.equal(never.ok, true);
   assert.match(never.reason, /never pushed/);
-  const synced = checkAgainstLock(SAMPLE, JSON.stringify({ designSystem: { sha256: h, pushedSha256: h, assetId: 'a1' } }));
+  const synced = checkAgainstLock(SAMPLE, JSON.stringify({ designSystem: { frontMatterSha256: h, pushedFrontMatterSha256: h, assetId: 'a1' } }));
   assert.equal(synced.ok, true);
   assert.match(synced.reason, /a1/);
-  const drift = checkAgainstLock(SAMPLE, JSON.stringify({ designSystem: { sha256: h, pushedSha256: 'old', pushedAt: 'x' } }));
+  const drift = checkAgainstLock(SAMPLE, JSON.stringify({ designSystem: { frontMatterSha256: h, pushedFrontMatterSha256: 'old', pushedAt: 'x' } }));
   assert.equal(drift.ok, false);
   assert.match(drift.reason, /push again/);
+});
+
+test('editing prose is not drift, editing a token is', () => {
+  const h = frontMatterSha256(SAMPLE);
+  const lock = JSON.stringify({ designSystem: { frontMatterSha256: h, pushedFrontMatterSha256: h, assetId: 'a1' } });
+  const proseEdit = SAMPLE.replace('# body', '# body\n\nan extra paragraph the channel never carries');
+  assert.equal(checkAgainstLock(proseEdit, lock).ok, true);
+  const tokenEdit = SAMPLE.replace("primary: '#004ac6'", "primary: '#ff0000'");
+  assert.equal(checkAgainstLock(tokenEdit, lock).ok, false);
+});
+
+test('rules() keeps the constraints and drops the repo-facing framing', () => {
+  const md = readFileSync(DESIGN_SYSTEM_MD, 'utf8');
+  const r = rules(md);
+  // No front matter, no test-pinning blockquote, no repo-vs-mock section.
+  assert.ok(!r.startsWith('---'));
+  assert.ok(!r.includes('DesignSystemExportTest'));
+  assert.ok(!r.includes('与本仓不一致时怎么办'));
+  // Every rule a generator must not violate is still there, including the rejected ones.
+  for (const rule of ['不加描边', '中性近黑', '时间桶绝不用绿', '不用等宽字体', '描边式', '48dp']) {
+    assert.ok(r.includes(rule), `rules() lost: ${rule}`);
+  }
+  // And the values, since a generator needs them alongside the constraints.
+  assert.ok(r.includes('#FAF9F5') && r.includes('status-running'));
 });
 
 test('the committed design-system.md parses and matches its lock record', () => {

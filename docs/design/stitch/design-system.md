@@ -165,8 +165,7 @@ Hermes GO 是给技术操作者用的 Android 客户端：暖纸面、蓝色品�
 
 ## 颜色：浅暗双档角色表
 
-front matter 只能放一套颜色（Stitch 的格式限制），那是浅色档；两档的真值都在下表，
-`DesignSystemExportTest` 同时核对 front matter 与本表。
+front matter 只能放一套颜色（Stitch 的格式限制），那是浅色档；两档的真值都在下表。
 
 | 角色 | 浅色 | 深色 |
 |---|---|---|

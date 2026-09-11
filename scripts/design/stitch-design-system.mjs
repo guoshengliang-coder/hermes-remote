@@ -12,10 +12,19 @@
 //   node scripts/design/stitch-design-system.mjs --summary          human-readable preview
 //   node scripts/design/stitch-design-system.mjs --payload out.json  MCP payload (create/update)
 //   node scripts/design/stitch-design-system.mjs --base64 out.txt    designMdBase64 for upload_design_md
+//   node scripts/design/stitch-design-system.mjs --rules out.txt     prose rules only, for a prompt
 //   node scripts/design/stitch-design-system.mjs --check             committed sha256 == lock sha256
 //
 // The agent then calls the MCP with the payload and records the returned asset id plus the
 // sha256 in stitch.lock.json `designSystem`. Agents never push without the user seeing --summary.
+//
+// MEASURED 2026-09-11 (stitch.lock.json `designSystem.pushFidelity`): the design-system channel
+// carries TOKENS ONLY. `create_design_system_from_design_md` keeps the front matter verbatim
+// inside designMd but prepends its own re-derived M3 block (7 colour roles changed, 15 added),
+// genericises `theme.spacing` to 7 tokens, translates displayName, and **drops every line of
+// prose**. `update_design_system` rejects all payloads tried, minimal included, so the result
+// cannot be corrected over MCP. That is why `--rules` exists: the component hard rules have to
+// ride in the `prompt` of each edit_screens / generate call instead.
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -30,6 +39,17 @@ export const STITCH_FONT = 'ROBOTO_FLEX';
 
 export function sha256(text) {
   return createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+/**
+ * Hash of the front matter alone — the part of this file that actually reaches Stitch.
+ *
+ * The drift check keys on this rather than on the whole file because the measurement above
+ * showed the design-system channel carries tokens only: editing the prose changes nothing in
+ * Stitch, so it must not be reported as drift, while changing a single colour must be.
+ */
+export function frontMatterSha256(md) {
+  return sha256(splitFrontMatter(md).frontMatter);
 }
 
 /** Split the YAML front matter from the body. Throws when the file does not start with one. */
@@ -133,12 +153,32 @@ export function buildPayload(md) {
   };
 }
 
+/**
+ * The prose rules, with the markdown body's repo-facing framing stripped — what a generation
+ * prompt should carry. The design-system channel drops prose entirely (see the header note), so
+ * this is the only way the "do it this way, not that way" rules reach a generated screen.
+ *
+ * Drops: the front matter, the blockquote that tells a repo reader the file is test-pinned, and
+ * the trailing section about resolving repo-vs-mock conflicts. Keeps the colour table and every
+ * rule section, because a screen generator needs both the values and the constraints.
+ */
+export function rules(md) {
+  const { body } = splitFrontMatter(md);
+  const kept = body
+    .split('\n')
+    .filter((l) => !l.startsWith('> '))
+    .join('\n');
+  const cut = kept.indexOf('\n## 与本仓不一致时怎么办');
+  const text = (cut >= 0 ? kept.slice(0, cut) : kept).trim();
+  return `${text}\n`;
+}
+
 export function summary(md) {
   const p = buildPayload(md);
   const t = p.designSystem.theme;
   const lines = [
     `name:      ${p.displayName}`,
-    `sha256:    ${p.sha256}`,
+    `sha256:    ${p.sha256}  (front matter ${frontMatterSha256(md)})`,
     `mode/font: ${t.colorMode} / ${t.headlineFont} (body ${t.bodyFont}, label ${t.labelFont})`,
     `roundness: ${t.roundness}   seed/primary ${t.customColor}   neutral ${t.overrideNeutralColor}   secondary ${t.overrideSecondaryColor}   tertiary ${t.overrideTertiaryColor}`,
     `colors:    ${Object.keys(parseFrontMatter(splitFrontMatter(md).frontMatter).colors).length} light roles in front matter`,
@@ -153,14 +193,19 @@ export function checkAgainstLock(md, lockJson) {
   const lock = JSON.parse(lockJson);
   const rec = lock.designSystem;
   if (!rec) return { ok: false, reason: 'stitch.lock.json has no designSystem section' };
-  const actual = sha256(md);
-  if (rec.sha256 !== actual) {
-    return { ok: false, reason: `committed design-system.md sha256 ${actual} != lock ${rec.sha256}` };
+  const fm = frontMatterSha256(md);
+  if (rec.frontMatterSha256 !== fm) {
+    return { ok: false, reason: `front matter sha256 ${fm} != lock ${rec.frontMatterSha256} — regenerate the lock record` };
   }
-  if (rec.pushedSha256 && rec.pushedSha256 !== actual) {
-    return { ok: false, reason: `Stitch holds ${rec.pushedSha256} (pushed ${rec.pushedAt}); the file has moved on — push again` };
+  if (rec.pushedFrontMatterSha256 && rec.pushedFrontMatterSha256 !== fm) {
+    return { ok: false, reason: `Stitch asset ${rec.assetId} holds tokens ${rec.pushedFrontMatterSha256} (pushed ${rec.pushedAt}); the tokens have moved on — push again` };
   }
-  return { ok: true, reason: rec.pushedSha256 ? `in sync with Stitch asset ${rec.assetId}` : 'recorded, never pushed' };
+  return {
+    ok: true,
+    reason: rec.pushedFrontMatterSha256
+      ? `tokens in sync with Stitch asset ${rec.assetId}`
+      : 'recorded, never pushed',
+  };
 }
 
 function main(argv) {
@@ -172,6 +217,7 @@ function main(argv) {
     if (a === '--summary') { console.log(summary(md)); continue; }
     if (a === '--payload') { const out = args.shift(); const p = buildPayload(md); writeFileSync(out, JSON.stringify({ designSystem: p.designSystem }, null, 2)); console.log(`wrote ${out}`); continue; }
     if (a === '--base64') { const out = args.shift(); writeFileSync(out, buildPayload(md).designMdBase64); console.log(`wrote ${out}`); continue; }
+    if (a === '--rules') { const out = args.shift(); const r = rules(md); writeFileSync(out, r); console.log(`wrote ${out} (${r.length} chars)`); continue; }
     if (a === '--check') {
       const r = checkAgainstLock(md, readFileSync(LOCK_FILE, 'utf8'));
       console.log(`${r.ok ? 'OK' : 'DRIFT'}: ${r.reason}`);

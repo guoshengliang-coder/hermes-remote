@@ -46,15 +46,37 @@
   },
   "canvas": { "widthCssPx": 390, "note": "1 CSS px = 1 dp（DESIGN.md §3.4）；Stitch 元数据里的 width 780 / height 是 2x 像素" },
   "designSystem": {
-    "_": "仓库 → Stitch 的反向同步记录（DESIGN.md §7 第 8 条）。sha256 = 当前提交的 design-system.md；pushedSha256 / assetId / pushedAt 在推送后写入。scripts/design/stitch-design-system.mjs --check 核对。",
+    "_": "仓库 → Stitch 的反向同步记录（DESIGN.md §7 第 8 条）。漂移以 frontMatterSha256 为准而非整文件：实测这条通道只承载 token，改正文在 Stitch 那边什么都不会变（见 pushFidelity）。scripts/design/stitch-design-system.mjs --check 核对。",
     "file": "design-system.md",
-    "sha256": "7c41a1a56cdda3cd5eeb56d5f0b4887d3e4c6d78c79076f2b1b4b23441ec942d",
+    "sha256": "b3b32ce0264b6ea5a0fa3b013a8dc073ddb780a2ad83a07a61af048c65dcecaa",
+    "frontMatterSha256": "7e0f37cc751c09a8bb0f1327c998da3c5cd7bc51b8f507a9744a5b0fd36421f9",
     "pinnedBy": "android/app/src/test/java/com/hermes/client/ui/theme/DesignSystemExportTest.kt",
-    "assetId": null,
-    "pushedSha256": null,
-    "pushedAt": null,
+    "assetId": "8a7217d53f5e4f8399c25714f8833e79",
+    "pushedFrontMatterSha256": "7e0f37cc751c09a8bb0f1327c998da3c5cd7bc51b8f507a9744a5b0fd36421f9",
+    "pushedFileSha256": "7c41a1a56cdda3cd5eeb56d5f0b4887d3e4c6d78c79076f2b1b4b23441ec942d",
+    "pushedAt": "2026-09-11",
+    "pushedVia": "upload_design_md → create_design_system_from_design_md（项目 8017882098155799612）",
+    "activeInStitch": false,
+    "activeNote": "MCP 没有「设为项目当前设计系统」的接口，需产品负责人在 Stitch 网页里手动选中。",
+    "pushFidelity": {
+      "_": "2026-09-11 推送后逐字回读的结果。结论：这条通道只承载 token，正文规则一行都没进去。",
+      "verbatim": [
+        "theme.typography：13 档全部逐值一致（含 session-row-* 三档）",
+        "designMd 的第二段 YAML 是我们的 front matter 逐字原文（40 色 / 13 档 / 6 圆角 / 20 间距）",
+        "headlineFont / bodyFont / labelFont = ROBOTO_FLEX，roundness = ROUND_EIGHT，customColor 与 overridePrimaryColor = #004ac6，overrideSecondaryColor = #605c54"
+      ],
+      "lost": [
+        "**正文 123 行 / 4611 字全部丢弃** —— 组件硬规则（含被否定项写成的正向规则）一条没留，回读文件里零条散文",
+        "theme.spacing 被换成通用七档（gutter / margin / space-xs…xl），我们的 20 个组件 token 只活在 designMd 文本里",
+        "displayName 被英译成「Warehouse Baseline」",
+        "overrideTertiaryColor 与 overrideNeutralColor 未保存（后者 #faf9f5 正是暖纸的来源）",
+        "designMd 被前置了一段 Stitch 自己按种子色重推的 M3 YAML：改了 7 个角色（primary #004ac6→#003594、surface-tint #ffffff→#1b55d0、secondary #605c54→#625e56、on-error-container #410002→#93000a、background #faf9f5→#faf8ff、on-background #1b1c1a→#191b23、surface-variant #e3e2df→#e2e2ec），丢了 spinner，另加了 15 个 fixed / inverse 角色"
+      ],
+      "cannotCorrect": "update_design_system 对试过的每一个载荷都返回「Request contains an invalid argument」，包括只带五个必填字段的最小载荷，因此无法通过 MCP 修正上面这些。未继续试探，以免对用户账号反复写入。",
+      "consequence": "规则不能走设计系统通道，只能随每次 edit_screens / generate 的 prompt 传入：`stitch-design-system.mjs --rules` 就是为此而加。"
+    },
     "supersedes": {
-      "note": "Stitch 项目里已有 5 套设计系统，推送时不覆盖任何一套，只新建；下面两套是设计师的现行版本，供对照。",
+      "note": "Stitch 项目里原有 5 套设计系统，本次只新建、未覆盖任何一套；下面两套是设计师的现行版本，供对照。",
       "designerSystems": ["assets/6ad9f3cd05f44c5087b8b69f7bc3091b Hermes Mobile System（DESIGN.md §2.1 点名的设计源）", "assets/d5a4e85e25b741c5876464ee688cb3e3 Warm Paper Agent（定义了 session-title-unread 600 / session-title-normal 500）"]
     }
   },

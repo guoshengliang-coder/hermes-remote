@@ -1544,9 +1544,19 @@ L2 真机、L3 模拟器。开工前先问本机具备哪几层，不要假设�
      硬规则 —— 被否定的方案在这里写成「应当如何」的正向规则）。`DesignSystemExportTest` 钉住它与
      `Color.kt` / `StatusColors.kt` / `Tiles.kt` / `Type.kt` 逐值相等，漂了构建就红；
      `scripts/design/stitch-design-system.mjs` 把它确定性地转成 MCP 载荷（`--summary` 给人看、
-     `--payload` 给机器用、`--check` 核对锁文件哈希）。推送**只创建新的设计系统、不覆盖设计师已有的**，
-     推送后把返回的 assetId、sha256、时间记进锁文件 `designSystem`；拉取时把项目当前 designMd 与本文件
-     比对，作为报告的第五段「设计系统漂移」。步骤见 `docs/design/stitch/README.md`。
+     `--payload` / `--base64` 给机器用、`--rules` 取正文、`--check` 核对锁文件）。推送**只创建新的设计
+     系统、不覆盖设计师已有的**，推送后把 assetId 与哈希记进锁文件 `designSystem`。
+   - **这条通道只承载 token，正文规则进不去**（实测 2026-09-11，首次推送后逐字回读，证据在锁文件的
+     `designSystem.pushFidelity`）。`create_design_system_from_design_md` 保住了 13 档排版与
+     front matter 原文，但**把 123 行正文规则整段丢弃**，把 `theme.spacing` 换成通用七档，把名字英译成
+     「Warehouse Baseline」，丢掉 `overrideNeutralColor`（暖纸就是它给的），还前置了一段自己按种子色
+     重推的 M3 YAML、改掉 7 个角色值。`update_design_system` 对每一个载荷（含最小载荷）都返回
+     invalid argument，**无法据此修正**。两条推论写进规程：
+     ① 漂移检查只比 front matter 的哈希（`frontMatterSha256`），改正文不算漂移 —— 它本来就没出过门；
+     ② **组件硬规则随每次生成的 prompt 传入**，用 `--rules` 取（它会剥掉面向仓库的那几段），
+     不要指望设计系统替你记住「搜索框不加描边」这类约束。
+   - 拉取时把项目当前 designMd 的 front matter 与本文件比对，作为报告的第五段「设计系统漂移」。
+     步骤见 `docs/design/stitch/README.md`。
    - **页面刷新逐张、显式、可审，不做全项目自动刷新**（决策 2026-09-11）：需要修正某张稿时用
      `edit_screens` 给一段只改那几处的提示，完成后立即拉取、与快照 diff、出报告，产品负责人在 Stitch
      里看过再定是否接受为新基线；不接受就对照仓库快照改回去。`apply_design_system` 只允许用在尚未入库的
