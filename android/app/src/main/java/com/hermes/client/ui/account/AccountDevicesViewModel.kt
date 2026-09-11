@@ -21,6 +21,7 @@ import com.hermes.client.data.network.AccountDevicesResponseDto
 import com.hermes.client.data.network.asOwnedDevice
 import com.hermes.client.data.repository.ChatRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.net.URI
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
@@ -789,8 +790,15 @@ class AccountDevicesViewModel @Inject constructor(
     private fun accountBaseUrl(): String = sessions.session.value?.baseUrl
         ?: store.loadPendingEmailChallenge()?.baseUrl
         ?: store.lastAccountBaseUrl()
-        ?: runCatching { legacyCredentials.load()?.baseUrl }.getOrNull()
+        ?: runCatching { legacyCredentials.load()?.baseUrl }
+            .getOrNull()
+            ?.takeUnless(::isLoopbackGateway)
         ?: DEFAULT_REMOTE_GATEWAY_URL
+
+    private fun isLoopbackGateway(baseUrl: String): Boolean = runCatching {
+        URI(baseUrl).host?.removePrefix("[")?.removeSuffix("]")?.lowercase() in
+            setOf("127.0.0.1", "localhost", "::1")
+    }.getOrDefault(false)
 
     /** Account-control errors use the same session/device recovery as Hermes REST responses. */
     private fun handleAuthenticatedAccountError(error: AccountApiException, rejectedDeviceId: String?) {
