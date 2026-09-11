@@ -56,6 +56,9 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 | `[ws] reconnect scheduled in Nms (gen=N, attempt=N)` | 退避已排期 | 每次断开 |
 | `[ws] reconnect dropped (gen=N): <原因>` | **排期的重连没有执行，以及为什么** | 见下 |
 | `[ws] close() requested: <理由>` / `cancelNow()` | App 主动关闭，以及是哪一个调用方 | 退后台 / 关通知 |
+| `[session] upstream reclaimed <id>; next send will recover` | 上游把这个会话回收了（`event session.reclaimed`），它之后的任何 prompt 都会失败 | 掉线超过 120s 后重连 |
+| `[session] recreated <旧id> as <新id> → handle=…` | 被回收的空会话已被静默换成新会话，消息照常送达 | 承接上一行 |
+| `[ws] rpc#N session.create ← ok (…ms)` | 会话确实建出来了。**只有 `session.create` 记回包**，别的方法成功时不记 | 每次新建 |
 | `[lifecycle] app foregrounded` / `app backgrounded` | 前后台切换 | 每次 |
 | `[lifecycle] monitoring mode <MODE>` | 保活策略每次选定的模式 | 每次变化 |
 
@@ -80,6 +83,17 @@ HG-27 就停在这里：那一版还没有这些行，四处缺陷叠加，只�
 `opening socket`。若换来的是 `reconnect dropped`，那一行会说明是 App 主动关闭（对应前面的
 `close() requested: …`，多半是退到后台，属正常省电）还是被更新的一代顶掉。两者都没有、日志就此
 停住，才是真的异常。
+
+**消息发不出去、点重试也没用（HG-29）**：先找 `event session.reclaimed session=<id>`。有这一行，
+答案就结束了 —— 上游的孤儿回收器（掉线 120 秒后触发，见第 1 问的 `ws_orphan_reap`）已经把这个会话
+收走，之后 `prompt.submit` 必答 4001、跟着的 `session.resume` 必答 4007。两者在日志里都写作
+"session not found"，但含义不同：**4001 是 live handle 过期（resume 一次就好），4007 是持久会话在
+该 profile 的 state.db 里根本不存在（终态，重试永远不会成功）**。0.1.119 起客户端会处理这个事件：
+空会话静默重建（看 `recreated … as …`），有历史的会话报终态 `SESS-001` 且不再给重试。
+
+顺带一个**不是**故障的现象：新会话在首条消息落库前，`GET /api/sessions/<id>/messages` 一直返回
+404 `{"detail":"Session not found"}`，首条消息发出后立刻变 200。这不代表 create 失败。0.1.119 起
+这种 404 记在 `[history]` 而不是 `[error]`，也不再弹「无法加载历史消息」。
 
 判读：
 - 列表卡「思考中」但没有任何 `→COMPLETED_UNREAD` / `→IDLE` 行 → 终止信号一条都没到，去第 2 问。

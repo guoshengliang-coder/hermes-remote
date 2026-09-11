@@ -467,8 +467,10 @@ class ScreenshotTest {
     private fun userTurn(id: String, text: String, delivery: com.hermes.client.domain.DeliveryState) =
         com.hermes.client.domain.ChatMessage(id = id, role = com.hermes.client.domain.Role.USER, text = text, delivery = delivery)
 
-    // Delivery three-state: sent (solid), sending (dimmed + tail ring, revealed after 250ms) and
-    // not-sent (dimmed + error mark + tap-to-retry line). Bubbles are laid out in a plain Column:
+    // Delivery states: sent (solid), sending (dimmed + tail ring, revealed after 250ms), not-sent
+    // (dimmed + error mark + tap-to-retry line) and undeliverable — which must be visibly NOT the
+    // same offer as not-sent: same dimming and error mark, different copy, no retry (HG-29).
+    // Bubbles are laid out in a plain Column:
     // capturing the reverse-layout LazyColumn under Robolectric paints a stray copy of the last
     // row at the top of the image (a capture artifact, not visible on device). The ring's
     // breathing is switched off through LocalDeliveryMotionEnabled so the clock can settle.
@@ -484,6 +486,7 @@ class ScreenshotTest {
                     userTurn("h-1", "已发送的消息", com.hermes.client.domain.DeliveryState.SENT),
                     userTurn("u-2", "发送中的消息", com.hermes.client.domain.DeliveryState.SENDING),
                     userTurn("u-3", "未发送的消息", com.hermes.client.domain.DeliveryState.FAILED),
+                    userTurn("u-4", "会话已消失的消息", com.hermes.client.domain.DeliveryState.UNDELIVERABLE),
                 ).forEach { msg ->
                     com.hermes.client.ui.chat.UserBubble(
                         msg = msg,
@@ -494,7 +497,11 @@ class ScreenshotTest {
                         savingImageId = null,
                         onFileOpen = {},
                         onFileShare = {},
-                        sendDiagnostic = if (msg.delivery == com.hermes.client.domain.DeliveryState.FAILED) "code=HR-SESS-007" else null,
+                        sendDiagnostic = when (msg.delivery) {
+                            com.hermes.client.domain.DeliveryState.FAILED -> "code=HR-SESS-007"
+                            com.hermes.client.domain.DeliveryState.UNDELIVERABLE -> "code=HR-SESS-001"
+                            else -> null
+                        },
                     )
                 }
             }
