@@ -435,3 +435,25 @@ Nothing in this candidate step was uploaded, installed, launched on the target M
 Coordinated physical acceptance still needs the managed upgrade plus `/model`, `/compact`, a normal
 prompt, Android REST/WebSocket traffic, rollback, and restart checks. Developer ID signing,
 notarization, stapling, and clean-Mac launch acceptance also remain required for public distribution.
+
+## 2026-09-12 managed release 0.3.2 publication
+
+After PR #197 merged Desktop 0.2.7/build 10 as
+`21f810f03c06f0fd80db2f08fcf5b3decdc15877` and both post-merge CI and SAST passed, the owner
+authorized publication of managed release 0.3.2. The three previously verified candidate files were
+uploaded to an owner-only staging directory on the HK host, re-hashed there, installed as root-owned
+mode-0644 files under a new mode-0755 `/srv/hermes-desktop-releases/0.3.2` directory, and exposed only
+through three exact GET/HEAD Nginx locations. The route file was replaced only after its previous hash
+matched the audited value; `nginx -t` passed, reload completed, and Nginx remained active.
+
+All three immutable HTTPS URLs returned HTTP 200 with the declared content lengths, JSON/gzip content
+types, one-year immutable cache policy, and `nosniff`. A full public re-download reproduced the exact
+candidate sizes and SHA-256 hashes recorded above, and the independent Ed25519 verifier accepted the
+downloaded manifest plus both downloaded archives. The 0.3.0 and 0.3.1 manifests remained available,
+and the 0.3.2 directory itself returned 404 instead of exposing a listing. The Relay health endpoint
+continued to respond successfully after the Nginx reload. Temporary upload and route-backup files were
+removed after verification.
+
+This publication did not install Desktop 0.2.7, switch the target Mac from managed release 0.3.0,
+restart either managed service, or perform the deferred physical acceptance. Those steps remain gated
+on the Mac becoming available.
