@@ -3,8 +3,8 @@
 Current internal test release candidate: **0.2.7** (build 10). It retains the 0.2.6 token-migration
 guard and is configured for managed release 0.3.2, whose bundled Python makes the Hermes slash worker
 importable after upstream clears `PYTHONPATH`. This restores `/model`, `/compact`, and user-entered
-slash commands on a managed installation. Desktop 0.2.7 and managed release 0.3.2 remain offline
-until their coordinated physical acceptance and publication gates pass.
+slash commands on a managed installation. Managed release 0.3.2 is published at its immutable
+internal URL. Desktop 0.2.7 remains offline until the coordinated physical acceptance gate passes.
 
 Desktop 0.2.6 (build 9) skips the startup token-file migration for managed releases older than 0.3.1,
 preserving their inline session token and running services.
