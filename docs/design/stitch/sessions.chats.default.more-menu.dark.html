@@ -1,0 +1,339 @@
+<!DOCTYPE html><html lang="en" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport">
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;family=Noto+Sans+SC:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..24,300..600,0..1,0&amp;display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            paper: '#141619',
+            'paper-card': '#1C1E22',
+            'charcoal': '#EDEDE9',
+            'charcoal-secondary': '#E2E0DB',
+            'charcoal-muted': '#8C8882',
+            'charcoal-faint': '#64615B',
+            'warm-border': 'rgba(255, 255, 255, 0.06)',
+            'status-green': '#34D399',
+            'status-red': '#F87171',
+            'status-cyan': '#67E8F9'
+          },
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', '"Noto Sans SC"', 'system-ui', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace']
+          },
+          boxShadow: {
+            'menu-dark': '0 12px 36px -4px rgba(0, 0, 0, 0.65), 0 4px 14px -2px rgba(0, 0, 0, 0.45)',
+            'warm-fab': '0 8px 25px rgba(49, 46, 129, 0.5)'
+          }
+        }
+      }
+    };
+  </script>
+<style>
+    @layer base {
+      html, body {
+        width: 100vw;
+        margin: 0;
+        padding: 0;
+        background-color: #10141a;
+        color: #E2E0DB;
+        -webkit-tap-highlight-color: transparent;
+      }
+      body {
+        overscroll-behavior: none;
+        min-height: max(884px, 100dvh);
+      }
+      .pb-safe {
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      .pt-safe {
+        padding-top: env(safe-area-inset-top, 0px);
+      }
+    }
+    ::-webkit-scrollbar {
+      display: none;
+    }
+  </style>
+</head>
+<body class="bg-[#10141a] text-[#E2E0DB] font-sans flex flex-col min-h-screen relative selection:bg-amber-950/40 selection:text-amber-200 antialiased">
+<!-- Top Navigation Bar: Nordic Modern & Dark Tech Editorial Style -->
+<header class="fixed top-0 w-full z-50 bg-[#161a22]/95 backdrop-blur-md border-b border-white/[0.06] transition-colors">
+<!-- Status Bar Area -->
+<div class="w-full h-7 px-5 flex items-center justify-between pt-safe select-none">
+<span class="font-mono text-[12px] font-semibold tracking-tight text-[#E2E0DB]">11:34</span>
+<div class="flex items-center gap-2 text-[#949089]">
+<span class="material-symbols-outlined text-[15px] leading-none">wifi</span>
+<span class="material-symbols-outlined text-[15px] leading-none">signal_cellular_alt</span>
+<span class="material-symbols-outlined text-[16px] leading-none">battery_full</span>
+</div>
+</div>
+<!-- App Bar Header -->
+<div class="h-14 px-4 flex items-center justify-between">
+<!-- Left: 36dp Avatar with double-ring & illuminated online dot -->
+<div class="w-12 flex items-center justify-start">
+<div class="relative w-9 h-9 rounded-full ring-2 ring-white/10 p-0.5 bg-[#1C1E22] cursor-pointer shadow-sm active:scale-95 transition-transform">
+<div class="w-full h-full rounded-full bg-[#26292E] flex items-center justify-center text-[#949089]">
+<span class="material-symbols-outlined text-[19px]">person</span>
+</div>
+<!-- Online status dot with soft glow -->
+<span class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#10B981] ring-2 ring-[#161a22] shadow-[0_0_6px_rgba(16,185,129,0.7)]"></span>
+</div>
+</div>
+<!-- Center Title -->
+<h1 class="text-[17px] font-semibold tracking-[-0.01em] text-[#EDEDE9] text-center flex-1">会话</h1>
+<!-- Right Actions: Subtle Tactile Buttons -->
+<div class="w-20 flex items-center justify-end gap-1">
+<button aria-label="Search" class="w-9 h-9 flex items-center justify-center text-[#949089] hover:text-[#E2E0DB] hover:bg-white/[0.06] rounded-full transition-all active:scale-95">
+<span class="material-symbols-outlined text-[21px]">search</span>
+</button>
+<!-- More Options Button: Active State in Dark Mode -->
+<button aria-label="More options" class="w-9 h-9 flex items-center justify-center text-[#EDEDE9] bg-[#2a313d] ring-1 ring-[#3B82F6]/40 rounded-full transition-all active:scale-95"><span class="material-symbols-outlined text-[21px] text-[#3B82F6]">more_vert</span></button>
+</div>
+</div>
+</header>
+<!-- Semi-transparent Gesture Interception Mask (Maintains normal contrast and clarity without heavy blur) -->
+<div class="fixed inset-0 z-40 bg-[#0a0d12]/30 pointer-events-auto cursor-pointer" id="menu-backdrop" onclick="this.classList.add('hidden'); document.getElementById('more-dropdown-menu').classList.add('hidden');"></div>
+<!-- Dropdown Menu Container: Obsidian Surface precisely anchored under the More button -->
+<div class="fixed right-4 top-[68px] z-50 w-[176px] rounded-2xl bg-[#1E232B] border border-white/[0.08] shadow-[0_12px_36px_-4px_rgba(0,0,0,0.7),0_0_15px_rgba(59,130,246,0.15)] py-1.5 overflow-hidden transition-all duration-150" id="more-dropdown-menu"><button class="w-full h-11 px-4 flex items-center gap-3 text-[#EDEDE9] hover:bg-[#2563EB]/15 active:bg-[#2563EB]/25 text-left transition-colors cursor-pointer group"><span class="material-symbols-outlined text-[20px] text-[#8C8882] group-hover:text-[#3B82F6] shrink-0 transition-colors">folder</span><span class="text-[14px] font-medium tracking-tight group-hover:text-white transition-colors">项目</span></button><div class="mx-3 border-b border-white/[0.06]"></div><button class="w-full h-11 px-4 flex items-center gap-3 text-[#EDEDE9] hover:bg-[#2563EB]/15 active:bg-[#2563EB]/25 text-left transition-colors cursor-pointer group"><span class="material-symbols-outlined text-[20px] text-[#8C8882] group-hover:text-[#3B82F6] shrink-0 transition-colors">inventory_2</span><span class="text-[14px] font-medium tracking-tight group-hover:text-white transition-colors">已归档</span></button></div>
+<!-- Main Scroll Container -->
+<main class="flex flex-col relative w-full pt-[88px] pb-28 min-h-screen">
+<div class="flex flex-col w-full">
+<!-- Segmented Control: Warm Editorial Submerged Capsule -->
+<div class="px-4 pt-1.5 pb-3">
+<div class="w-full bg-[#1C1E22] p-1 rounded-xl flex items-center border border-white/[0.05]">
+<button class="flex-1 py-1.5 px-3 rounded-lg bg-[#2A2D32] text-[#EDEDE9] font-medium text-[13.5px] tracking-tight flex items-center justify-center gap-1.5 shadow-[0_1px_3px_rgba(0,0,0,0.3)] border border-white/[0.08] transition-all duration-200" id="seg-chats">
+<span class="material-symbols-outlined text-[17px]">chat_bubble</span>
+<span class="">会话</span>
+</button>
+<button class="flex-1 py-1.5 px-3 rounded-lg text-[#8C8882] font-medium text-[13.5px] tracking-tight flex items-center justify-center gap-1.5 transition-all duration-200 hover:text-[#E2E0DB]" id="seg-bots">
+<span class="material-symbols-outlined text-[17px]">smart_toy</span>
+<span class="">机器人</span>
+</button>
+</div>
+</div>
+<!-- Single Alert Banner (Slot 1): Soft Apricot/Rose Warm Pill Card in Error Container -->
+<div class="px-4 pb-3.5">
+<div class="w-full bg-[#2A1B1D] border border-rose-900/40 text-[#FCA5A5] px-3.5 py-2.5 rounded-xl flex items-center justify-between gap-2.5 shadow-sm active:scale-[0.99] transition-transform cursor-pointer">
+<div class="flex items-center gap-2.5 min-w-0">
+<div class="w-6 h-6 rounded-full bg-rose-950/80 border border-rose-800/40 flex items-center justify-center shrink-0 text-rose-300">
+<span class="material-symbols-outlined text-[15px]">warning</span>
+</div>
+<span class="text-[13px] font-medium tracking-tight truncate text-rose-200/90">Slack 未连接 · 3 个定时任务受影响</span>
+</div>
+<span class="material-symbols-outlined text-rose-400/80 text-[18px] shrink-0 font-light">chevron_right</span>
+</div>
+</div>
+<!-- Main Sessions Stream (Seamless Flow Layout with 1.45 Line-Height & Precision Left Baseline) -->
+<div class="flex flex-col w-full divide-y divide-white/[0.05]">
+<!-- Group 1: 需要你处理 (方案 A: 3px * 12px 琥珀金暖色圆角立柱条) -->
+<section class="flex flex-col w-full pt-1.5 pb-2">
+<div class="flex items-center justify-between px-4 py-2 select-none cursor-pointer" onclick="toggleGroup('group-urgent', 'icon-urgent')">
+<div class="flex items-center gap-2">
+<span class="w-[3px] h-3 rounded-full bg-[#F59E0B] shrink-0 shadow-[0_0_8px_rgba(245,158,11,0.5)]"></span>
+<span class="font-mono text-[11px] uppercase tracking-wider font-semibold text-[#FBBF24]">需要你处理</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="px-2 py-0.5 rounded-md bg-amber-950/60 border border-amber-500/30 text-amber-300 font-mono text-[10.5px] font-semibold">2</span>
+<span class="material-symbols-outlined text-[#8C8882] text-[17px] transition-transform duration-200" id="icon-urgent">expand_less</span>
+</div>
+</div>
+<div class="flex flex-col w-full" id="group-urgent">
+<!-- Row 1 -->
+<div class="px-4 py-3 hover:bg-white/[0.02] active:bg-white/[0.04] transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-medium text-[#E2E0DB] truncate tracking-[-0.01em]">审批发布生产环境配置与迁移脚本</h2>
+<div class="flex items-center gap-1.5 mt-0.5 text-[#8C8882] text-[12px]">
+<span class="material-symbols-outlined text-[14px] leading-none shrink-0 text-[#64615B]">folder</span>
+<span class="font-mono truncate">release-v2.4 · claude-3-5-sonnet</span>
+</div>
+<div class="flex items-center gap-1 mt-1 text-[#FBBF24]">
+<span class="text-[12px] font-medium tracking-tight">等待你的确认</span>
+</div>
+</div>
+<div class="w-7 flex items-center justify-center shrink-0">
+<span class="w-2.5 h-2.5 rounded-full bg-[#F59E0B] shadow-[0_0_8px_rgba(245,158,11,0.7)] animate-pulse"></span>
+</div>
+</div>
+<!-- Row 2 -->
+<div class="px-4 py-3 hover:bg-white/[0.02] active:bg-white/[0.04] transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-medium text-[#E2E0DB] truncate tracking-[-0.01em]">确认是否清理本地快照</h2>
+<div class="flex items-center gap-1.5 mt-0.5 text-[#8C8882] text-[12px]">
+<span class="font-mono truncate">deepseek-v4-flash</span>
+</div>
+<div class="flex items-center gap-1 mt-1 text-[#FBBF24]">
+<span class="text-[12px] font-medium tracking-tight">等待你的回答</span>
+</div>
+</div>
+<div class="w-7 flex items-center justify-center shrink-0">
+<span class="w-2.5 h-2.5 rounded-full bg-[#F59E0B] shadow-[0_0_6px_rgba(245,158,11,0.5)]"></span>
+</div>
+</div>
+</div>
+</section>
+<!-- Group 2: 已置顶 (方案 A: 3px * 12px 科技靛蓝圆角立柱条 #4F46E5) -->
+<section class="flex flex-col w-full pt-2 pb-2">
+<div class="flex items-center justify-between px-4 py-2 select-none cursor-pointer" onclick="toggleGroup('group-pinned', 'icon-pinned')">
+<div class="flex items-center gap-2"><span class="w-[3px] h-3 rounded-full bg-[#3B82F6] shrink-0 shadow-[0_0_8px_rgba(59,130,246,0.5)]"></span><span class="font-mono text-[11px] uppercase tracking-wider font-semibold text-[#3B82F6]">已置顶</span><span class="font-mono text-[10px] text-[#64615B] tracking-tight font-normal">仅此设备</span></div>
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[#8C8882] text-[17px] transition-transform duration-200" id="icon-pinned">expand_less</span>
+</div>
+</div>
+<div class="flex flex-col w-full" id="group-pinned">
+<!-- Row 1 -->
+<div class="px-4 py-3 hover:bg-white/[0.02] active:bg-white/[0.04] transition-colors flex items-center justify-between gap-3 cursor-pointer"><div class="flex flex-col min-w-0 flex-1 leading-[1.45]"><h2 class="text-[15px] font-medium text-[#E2E0DB] truncate tracking-[-0.01em]">查看机器性能负荷与运行状态</h2><div class="flex items-center gap-1 mt-0.5 text-[#8C8882] text-[12px]"><span class="material-symbols-outlined text-[13px] leading-none shrink-0 text-[#3B82F6]">push_pin</span><span class="font-mono truncate">deepseek-v4-flash</span></div><div class="flex items-center gap-1 mt-1 text-[#67E8F9]"><span class="text-[12px] font-medium font-mono">正在使用 &lt;top-monitor&gt; 工具...</span></div></div><div class="w-7 flex items-center justify-center shrink-0"><svg class="w-[18px] h-[18px] animate-spin text-[#3B82F6]" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5"></circle><path class="opacity-90" d="M12 3a9 9 0 0 1 9 9h-2.5a6.5 6.5 0 0 0-6.5-6.5V3z" fill="currentColor"></path></svg></div></div>
+</div>
+</section>
+<!-- Group 3: 今天 (方案 A: 3px * 12px 翡翠绿圆角立柱条 #059669) -->
+<section class="flex flex-col w-full pt-2 pb-2">
+<div class="flex items-center justify-between px-4 py-2 select-none cursor-pointer" onclick="toggleGroup('group-today', 'icon-today')">
+<div class="flex items-center gap-2">
+<span class="w-[3px] h-3 rounded-full bg-[#34D399] shrink-0 shadow-[0_0_8px_rgba(52,211,153,0.4)]"></span>
+<span class="font-mono text-[11px] uppercase tracking-wider font-semibold text-[#34D399]">今天</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="px-2 py-0.5 rounded-md bg-white/[0.06] text-[#8C8882] font-mono text-[10.5px] font-medium">2</span>
+<span class="material-symbols-outlined text-[#8C8882] text-[17px] transition-transform duration-200" id="icon-today">expand_less</span>
+</div>
+</div>
+<div class="flex flex-col w-full" id="group-today">
+<!-- Row 1 -->
+<div class="px-4 py-3 hover:bg-white/[0.02] active:bg-white/[0.04] transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-medium text-[#E2E0DB] truncate tracking-[-0.01em]">查看最近7天起风工作室数据</h2>
+<div class="flex items-center gap-1.5 mt-0.5 text-[#8C8882] text-[12px]">
+<span class="material-symbols-outlined text-[14px] leading-none shrink-0 text-[#64615B]">folder</span>
+<span class="font-mono truncate">xiaomai-daily-report · deepseek-v4-flash</span>
+</div>
+<div class="flex items-center gap-1 mt-1 text-[#34D399]">
+<span class="text-[12px] font-medium tracking-tight">已完成</span>
+</div>
+</div>
+<div class="w-7 flex items-center justify-center shrink-0">
+<span class="w-2.5 h-2.5 rounded-full bg-[#34D399] shadow-[0_0_6px_rgba(52,211,153,0.6)]"></span>
+</div>
+</div>
+<!-- Row 2 -->
+<div class="px-4 py-3 hover:bg-white/[0.02] active:bg-white/[0.04] transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-medium text-[#E2E0DB] truncate tracking-[-0.01em]">审查公开项目风险并整理改进计划</h2>
+<div class="flex items-center gap-1.5 mt-0.5 text-[#8C8882] text-[12px]">
+<span class="material-symbols-outlined text-[14px] leading-none shrink-0 text-[#64615B]">folder</span>
+<span class="font-mono truncate">hermes-remote · gpt-5.6-sol</span>
+</div>
+</div>
+<div class="w-7 shrink-0"></div>
+</div>
+</div>
+</section>
+<!-- Group 4: 前 7 天 (方案 A: 3px * 12px 冷石板灰圆角立柱条 #94A3B8) -->
+<section class="flex flex-col w-full pt-2 pb-2">
+<div class="flex items-center justify-between px-4 py-2 select-none cursor-pointer" onclick="toggleGroup('group-past', 'icon-past')">
+<div class="flex items-center gap-2">
+<span class="w-[3px] h-3 rounded-full bg-[#64748B]/60 shrink-0"></span>
+<span class="font-mono text-[11px] uppercase tracking-wider font-semibold text-[#8C8882]">前 7 天</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="px-2 py-0.5 rounded-md bg-white/[0.06] text-[#8C8882] font-mono text-[10.5px] font-medium">19</span>
+<span class="material-symbols-outlined text-[#8C8882] text-[17px] transition-transform duration-200" id="icon-past">expand_less</span>
+</div>
+</div>
+<div class="flex flex-col w-full" id="group-past">
+<!-- Row 1: Failed Run (Coral red status text) -->
+<div class="px-4 py-3 hover:bg-white/[0.02] active:bg-white/[0.04] transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-medium text-[#E2E0DB] truncate tracking-[-0.01em]">查看昨天公司数据 #4</h2>
+<div class="flex items-center gap-1 mt-0.5 text-[#8C8882] text-[12px]">
+<span class="font-mono truncate">gpt-5.6-terra</span>
+</div>
+<div class="flex items-center gap-1 mt-1 text-[#F87171]">
+<span class="text-[12px] font-medium">运行失败</span>
+</div>
+</div>
+<div class="w-7 shrink-0"></div>
+</div>
+<!-- Row 2 -->
+<div class="px-4 py-3 hover:bg-white/[0.02] active:bg-white/[0.04] transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-medium text-[#E2E0DB] truncate tracking-[-0.01em]">查看昨天公司数据 #3</h2>
+<div class="flex items-center gap-1 mt-0.5 text-[#8C8882] text-[12px]">
+<span class="font-mono truncate">gpt-5.6-terra</span>
+</div>
+</div>
+<div class="w-7 shrink-0"></div>
+</div>
+<!-- Row 3 -->
+<div class="px-4 py-3 hover:bg-white/[0.02] active:bg-white/[0.04] transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-medium text-[#E2E0DB] truncate tracking-[-0.01em]">迁移助理迁移 Claude 和 ChatGPT</h2>
+<div class="flex items-center gap-1.5 mt-0.5 text-[#8C8882] text-[12px]">
+<span class="material-symbols-outlined text-[14px] leading-none shrink-0 text-[#64615B]">folder</span>
+<span class="font-mono truncate">tool-migration · gpt-5.6-terra</span>
+</div>
+</div>
+<div class="w-7 shrink-0"></div>
+</div>
+<!-- Row 4 -->
+<div class="px-4 py-3 hover:bg-white/[0.02] active:bg-white/[0.04] transition-colors flex items-center justify-between gap-3 cursor-pointer">
+<div class="flex flex-col min-w-0 flex-1 leading-[1.45]">
+<h2 class="text-[15px] font-medium text-[#E2E0DB] truncate tracking-[-0.01em]">生成公司数据 HTML</h2>
+<div class="flex items-center gap-1.5 mt-0.5 text-[#8C8882] text-[12px]">
+<span class="material-symbols-outlined text-[14px] leading-none shrink-0 text-[#64615B]">folder</span>
+<span class="font-mono truncate">xiaomai-daily-report · gpt-5.6-terra</span>
+</div>
+</div>
+<div class="w-7 shrink-0"></div>
+</div>
+</div>
+</section>
+</div>
+</div>
+<script>
+      function toggleGroup(groupId, iconId) {
+        const el = document.getElementById(groupId);
+        const icon = document.getElementById(iconId);
+        if (!el || !icon) return;
+        if (el.classList.contains('hidden')) {
+          el.classList.remove('hidden');
+          icon.style.transform = 'rotate(0deg)';
+        } else {
+          el.classList.add('hidden');
+          icon.style.transform = 'rotate(180deg)';
+        }
+      }
+
+      const segChats = document.getElementById('seg-chats');
+      const segBots = document.getElementById('seg-bots');
+      if (segChats && segBots) {
+        segChats.addEventListener('click', () => {
+          segChats.className = "flex-1 py-1.5 px-3 rounded-lg bg-[#2A2D32] text-[#EDEDE9] font-medium text-[13.5px] tracking-tight flex items-center justify-center gap-1.5 shadow-[0_1px_3px_rgba(0,0,0,0.3)] border border-white/[0.08] transition-all duration-200";
+          segBots.className = "flex-1 py-1.5 px-3 rounded-lg text-[#8C8882] font-medium text-[13.5px] tracking-tight flex items-center justify-center gap-1.5 transition-all duration-200 hover:text-[#E2E0DB]";
+        });
+        segBots.addEventListener('click', () => {
+          segBots.className = "flex-1 py-1.5 px-3 rounded-lg bg-[#2A2D32] text-[#EDEDE9] font-medium text-[13.5px] tracking-tight flex items-center justify-center gap-1.5 shadow-[0_1px_3px_rgba(0,0,0,0.3)] border border-white/[0.08] transition-all duration-200";
+          segChats.className = "flex-1 py-1.5 px-3 rounded-lg text-[#8C8882] font-medium text-[13.5px] tracking-tight flex items-center justify-center gap-1.5 transition-all duration-200 hover:text-[#E2E0DB]";
+        });
+      }
+    </script>
+</main>
+<!-- Floating Action Button (FAB): Smoked Slate Indigo with Soft Glow in Dark Mode -->
+<div class="fixed bottom-6 right-5 z-30 pb-safe">
+<button aria-label="新建会话" class="w-14 h-14 rounded-full text-white flex items-center justify-center active:scale-95 transition-all duration-200 cursor-pointer" style="background-color: rgb(30, 35, 43); border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: rgba(0, 0, 0, 0.5) 0px 10px 25px -3px;"><span class="material-symbols-outlined text-[28px] text-white leading-none">add</span></button>
+</div>
+<!-- iOS Home Bar Indicator -->
+<footer class="fixed bottom-0 w-full z-50 pb-safe pointer-events-none">
+<div class="w-full h-4 flex items-center justify-center">
+<div class="w-32 h-1 bg-white/20 rounded-full"></div>
+</div>
+</footer>
+
+
+
+
+</body></html>

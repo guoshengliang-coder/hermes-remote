@@ -1,0 +1,280 @@
+<!DOCTYPE html><html lang="zh-CN" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
+<title>Hermes Agent - 全屏搜索</title>
+<!-- BEGIN: Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            surface: {
+              DEFAULT: '#FAF9F6',
+              paper: '#FBF9F5',
+              variant: '#F0ECE4',
+              hover: '#EAE5DB',
+              subtle: '#F4F0E8'
+            },
+            warmGray: {
+              line: '#EAE5DC',
+              muted: '#A8A29E',
+              sub: '#78716C',
+              body: '#57534E',
+              ink: '#1C1917'
+            },
+            brand: {
+              DEFAULT: '#4F46E5',
+              dark: '#4338CA',
+              light: '#EEF2FF',
+              accent: '#6366F1'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', '"PingFang SC"', '"Hiragino Sans GB"', '"Microsoft YaHei"', 'sans-serif']
+          }
+        }
+      }
+    };
+  </script>
+<!-- END: Tailwind CSS CDN -->
+<!-- BEGIN: Custom Typography Styles -->
+<style data-purpose="typography">
+    body {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", Roboto, sans-serif;
+    }
+    mark {
+      background-color: transparent !important;
+      color: #4F46E5 !important;
+      font-weight: 600 !important;
+    }
+  </style>
+<!-- END: Custom Typography Styles -->
+<!-- BEGIN: Layout & Micro-interactions Styles -->
+<style data-purpose="layout-and-interactions">
+    /* Subtle pulsing loader for server-side search stream */
+    @keyframes progress-shimmer {
+      0% { transform: translateX(-100%); }
+      50% { transform: translateX(20%); }
+      100% { transform: translateX(200%); }
+    }
+    .animate-progress-shimmer {
+      animation: progress-shimmer 1.8s infinite cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    /* Soft tap feedback */
+    .touch-ripple:active {
+      background-color: rgba(0, 0, 0, 0.03);
+    }
+  </style>
+<!-- END: Layout & Micro-interactions Styles -->
+</head>
+<body class="bg-[#10141a] text-[#dfe2eb] flex justify-center min-h-screen select-none">
+<!-- BEGIN: MobileDeviceFrame -->
+<main class="w-full max-w-[430px] min-h-screen bg-[#10141a] flex flex-col relative pb-8">
+<!-- BEGIN: AndroidStatusBar -->
+<header class="w-full pt-2 px-6 flex justify-between items-center text-[#e2e8f0] select-none shrink-0" data-purpose="status-bar">
+<span class="text-sm font-semibold tracking-tight">11:34</span>
+<div class="flex items-center space-x-2 text-[#e2e8f0]">
+<!-- WiFi Icon -->
+<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+<path d="M12 4C7.31 4 3.07 5.9 0 8.98L12 21 24 8.98A16.88 16.88 0 0 0 12 4zm0 2.9c3.7 0 7.07 1.45 9.58 3.84L12 19.34 2.42 10.74A14.28 14.28 0 0 1 12 6.9z"></path>
+</svg>
+<!-- Cellular Signal Icon -->
+<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+<path d="M2 22h20V2L2 22z"></path>
+</svg>
+<!-- Battery Icon -->
+<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+<path d="M16 4h-2V2h-4v2H8c-.55 0-1 .45-1 1v16c0 .55.45 1 1 1h8c.55 0 1-.45 1-1V5c0-.55-.45-1-1-1z"></path>
+</svg>
+</div>
+</header>
+<!-- END: AndroidStatusBar -->
+<!-- BEGIN: TopSearchHeader -->
+<section class="sticky top-0 z-30 bg-[#10141a]/95 backdrop-blur-md pt-2.5 pb-2.5 px-3 flex items-center gap-2" data-purpose="top-search-bar">
+<!-- Back Navigation Button -->
+<button aria-label="返回" class="w-10 h-10 flex items-center justify-center text-[#cbd5e1] hover:text-white rounded-full transition-colors shrink-0">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+<line x1="19" x2="5" y1="12" y2="12"></line>
+<polyline points="12 19 5 12 12 5"></polyline>
+</svg>
+</button>
+<!-- Standard Hermes Search Box in Dark Elevated Surface -->
+<div class="flex-1 h-[40px] bg-[#1a202c] border border-[#2d3748] rounded-[18px] flex items-center px-3.5 gap-2.5 focus-within:border-[#3b82f6] transition-all">
+<!-- 18dp Search Icon -->
+<svg class="w-[18px] h-[18px] text-[#94a3b8] shrink-0" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+<circle cx="11" cy="11" r="8"></circle>
+<line x1="21" x2="16.65" y1="21"></line>
+</svg>
+<!-- Search Input Field -->
+<input aria-label="搜索输入" class="flex-1 bg-transparent border-0 p-0 text-[15px] leading-none text-[#f1f5f9] focus:ring-0 focus:outline-none placeholder:text-[#64748b]" placeholder="搜索会话、消息与代码..." type="text" value="数据">
+<!-- Clear Keyword Button -->
+<button aria-label="清空关键词" class="w-5 h-5 rounded-full bg-[#2d3748] text-[#94a3b8] hover:text-[#f1f5f9] flex items-center justify-center active:scale-95 transition-transform shrink-0">
+<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" viewBox="0 0 24 24">
+<line x1="18" x2="6" y1="6" y2="18"></line>
+<line x1="6" x2="18" y1="6" y2="18"></line>
+</svg>
+</button>
+</div>
+<!-- Quick Cancel Action -->
+<button class="px-2 py-2 text-[15px] font-normal text-[#cbd5e1] hover:text-[#f1f5f9] shrink-0">
+  取消
+</button>
+</section>
+<!-- END: TopSearchHeader -->
+<!-- BEGIN: SearchResultsContainer -->
+<div class="flex-1 flex flex-col overflow-y-auto" data-purpose="search-results-list">
+<!-- SECTION 1: Local Title Matches -->
+<!-- BEGIN: SectionTitleMatches -->
+<section class="pt-2 pb-1" data-purpose="section-title-matches">
+<!-- Section Header with badge -->
+<div class="px-4.5 py-2 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<h2 class="text-xs font-semibold tracking-wider text-[#f1f5f9] uppercase">标题匹配</h2>
+<span class="text-[11px] text-accessible-neutral" style="color: rgb(140, 136, 130);">本地索引</span>
+</div>
+<span class="text-[11px] text-accessible-neutral" style="color: rgb(140, 136, 130);">本地索引</span>
+</div>
+<!-- Result Item 1 -->
+<article class="px-4 py-3 cursor-pointer hover:bg-[#181c24]/50 transition-colors" data-purpose="title-match-item">
+<div class="flex items-start justify-between gap-3">
+<div class="flex-1 min-w-0">
+<h3 class="text-[15.5px] font-medium text-[#f8fafc] leading-snug tracking-tight truncate">
+  查看昨天公司<mark class="text-[#60a5fa] font-medium bg-transparent" style="font-weight: 500; background-color: transparent; color: rgb(96, 165, 250) !important;">数据</mark> #4
+</h3>
+<!-- Sub-line: Repo / Model context -->
+<div class="flex items-center gap-1.5 mt-1 text-[13px] text-accessible-neutral" style="color: rgb(140, 136, 130);"><svg class="w-3.5 h-3.5 shrink-0" style="color: #8C8882;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" stroke-linecap="round" stroke-linejoin="round"></path></svg><span class="truncate">xiaomai-daily-report · gpt-5.6-terra</span></div>
+<!-- Status line -->
+<p class="mt-1 text-[12.5px] text-accessible-failed font-normal" style="color: rgb(255, 180, 171);">运行失败</p>
+</div>
+<!-- Status indicator dot (failed) -->
+<span class="w-2 h-2 rounded-full bg-[#f87171] mt-1.5 shrink-0 opacity-90"></span>
+</div>
+</article>
+<!-- Subtle hairline divider -->
+<div class="mx-4 border-t border-[#1f2735]"></div>
+<!-- Result Item 2 -->
+<article class="px-4 py-3 cursor-pointer hover:bg-[#181c24]/50 transition-colors" data-purpose="title-match-item">
+<div class="flex items-start justify-between gap-3">
+<div class="flex-1 min-w-0">
+<h3 class="text-[15.5px] font-medium text-[#f8fafc] leading-snug tracking-tight truncate">
+  查看最近7天起风工作室<mark class="text-[#60a5fa] font-medium bg-transparent" style="font-weight: 500; background-color: transparent; color: rgb(96, 165, 250) !important;">数据</mark>
+</h3>
+<!-- Sub-line: Repo / Model context -->
+<div class="flex items-center gap-1.5 mt-1 text-[13px] text-accessible-neutral" style="color: rgb(140, 136, 130);"><svg class="w-3.5 h-3.5 shrink-0" style="color: #8C8882;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" stroke-linecap="round" stroke-linejoin="round"></path></svg><span class="truncate">xiaomai-daily-report · deepseek-v4-flash</span></div>
+<!-- Status line -->
+<p class="mt-1 text-[12.5px] text-accessible-success font-normal" style="color: rgb(124, 220, 128);">已完成</p>
+</div>
+<!-- Status indicator dot (completed) -->
+<span class="w-2 h-2 rounded-full bg-accessible-success mt-1.5 shrink-0" style="background-color: rgb(124, 220, 128);"></span>
+</div>
+</article>
+</section>
+<!-- END: SectionTitleMatches -->
+<!-- Section Divider Gap -->
+<div class="h-2 bg-[#141923] my-1"></div>
+<!-- SECTION 2: Server-side Message Context Matches -->
+<!-- BEGIN: SectionMessageMatches -->
+<section class="pt-2 pb-2" data-purpose="section-message-matches">
+<!-- Section Header with Long-Polling Status & Subtle 2dp Shimmer Progress -->
+<div class="relative px-4.5 py-2">
+<!-- 2dp Micro Progress Indicator at Top of Stream Section -->
+<div class="absolute top-0 left-0 right-0 h-[2px] bg-[#1f2735] overflow-hidden">
+<div class="h-full w-1/3 bg-gradient-to-r from-[#3b82f6]/20 via-[#3b82f6] to-[#3b82f6]/30 animate-progress-shimmer"></div>
+</div>
+<div class="flex items-center justify-between mt-1">
+<div class="flex items-center gap-2">
+<h2 class="text-xs font-semibold tracking-wider text-[#f1f5f9] uppercase">消息匹配</h2>
+<span class="inline-flex items-center justify-center px-1.5 py-0.5 text-[11px] font-medium leading-none rounded-full bg-[#242b38] text-[#94a3b8]">
+  3
+</span>
+</div>
+<div class="flex items-center gap-1.5 text-[11.5px] text-[#60a5fa] font-medium">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#60a5fa] opacity-60"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-[#3b82f6]"></span>
+</span>
+<span class="">服务端长轮询中...</span>
+</div>
+</div>
+</div>
+<!-- Message Item 1: With Context Fragment & Archived Badge -->
+<article class="px-4 py-3 cursor-pointer hover:bg-[#181c24]/50 transition-colors" data-purpose="message-match-item">
+<!-- Line 1: Title + Archive Badge + Relative Time -->
+<div class="flex items-center justify-between gap-2">
+<div class="flex items-center gap-2 min-w-0 flex-1">
+<h3 class="text-[14.5px] font-semibold text-[#f8fafc] truncate">
+  财务核算对账日常排查
+</h3>
+<!-- Archived Tag -->
+<span class="inline-flex items-center px-1.5 py-0.2 text-[10.5px] font-medium text-[#94a3b8] bg-[#242c3d] rounded border border-[#2d3748] shrink-0">
+  已归档
+</span>
+</div>
+<time class="text-[12px] text-accessible-neutral whitespace-nowrap shrink-0" style="color: rgb(140, 136, 130);">昨天 18:24</time>
+</div>
+<!-- Line 2: Hit Context snippet with dark bubble -->
+<p class="mt-2 text-[13px] leading-relaxed text-[#cbd5e1] line-clamp-2 bg-[#181e29] border border-[#232b3a] rounded px-2.5 py-1.5 border-l-2 border-l-[#3b82f6]">
+  ...检查野马 ¥28.61 万是否与平台结算收敛；若平台侧仍为零，才按<mark class="text-[#60a5fa] font-medium bg-transparent" style="font-weight: 500; background-color: transparent; color: rgb(96, 165, 250) !important;">数据</mark>链路故障升级。现在不应据此调整对账...
+</p>
+<!-- Line 3: Folder metadata -->
+<div class="mt-2 flex items-center gap-1.5 text-[12px] text-accessible-neutral" style="color: rgb(140, 136, 130);"><svg class="w-3.5 h-3.5 shrink-0" style="color: #8C8882;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" stroke-linecap="round" stroke-linejoin="round"></path></svg><span class="truncate">xiaomai-daily-report</span></div>
+</article>
+<!-- Subtle dark hairline divider -->
+<div class="mx-4 border-t border-[#1f2735]"></div>
+<!-- Message Item 2: Code Snippet Context Match -->
+<article class="px-4 py-3 cursor-pointer hover:bg-[#181c24]/50 transition-colors" data-purpose="message-match-item">
+<div class="flex items-center justify-between gap-2">
+<div class="flex items-center gap-2 min-w-0 flex-1">
+<h3 class="text-[14.5px] font-semibold text-[#f8fafc] truncate">
+  生产环境指标报表脚本更新
+</h3>
+</div>
+<time class="text-[12px] text-accessible-neutral whitespace-nowrap shrink-0" style="color: rgb(140, 136, 130);">3天前</time>
+</div>
+<!-- Snippet excerpt -->
+<p class="mt-2 text-[13px] leading-relaxed text-[#cbd5e1] line-clamp-2 bg-[#181e29] border border-[#232b3a] rounded px-2.5 py-1.5 border-l-2 border-l-[#3b82f6] font-mono text-[12px]">
+  ...SELECT source, COUNT(*) as total_events FROM <mark class="text-[#60a5fa] font-medium bg-transparent" style="font-weight: 500; background-color: transparent; color: rgb(96, 165, 250) !important;">数据</mark>_warehouse_log GROUP BY source HAVING status = 'ERROR'...
+</p>
+<!-- Line 3: Folder metadata -->
+<div class="mt-2 flex items-center gap-1.5 text-[12px] text-accessible-neutral" style="color: rgb(140, 136, 130);"><svg class="w-3.5 h-3.5 shrink-0" style="color: #8C8882;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" stroke-linecap="round" stroke-linejoin="round"></path></svg><span class="truncate">hermes-remote · release-v2.4</span></div>
+</article>
+<!-- Subtle dark hairline divider -->
+<div class="mx-4 border-t border-[#1f2735]"></div>
+<!-- Message Item 3: Conversational Prompt Context Match -->
+<article class="px-4 py-3 cursor-pointer hover:bg-[#181c24]/50 transition-colors" data-purpose="message-match-item">
+<div class="flex items-center justify-between gap-2">
+<div class="flex items-center gap-2 min-w-0 flex-1">
+<h3 class="text-[14.5px] font-semibold text-[#f8fafc] truncate">
+  分析上周大促转化漏斗
+</h3>
+</div>
+<time class="text-[12px] text-accessible-neutral whitespace-nowrap shrink-0" style="color: rgb(140, 136, 130);">4月12日</time>
+</div>
+<!-- Snippet excerpt -->
+<p class="mt-2 text-[13px] leading-relaxed text-[#cbd5e1] line-clamp-2 bg-[#181e29] border border-[#232b3a] rounded px-2.5 py-1.5 border-l-2 border-l-[#3b82f6]">
+  ...根据当前导出解析，加购到支付环节损失较大，建议针对行为埋点<mark class="text-[#60a5fa] font-medium bg-transparent" style="font-weight: 500; background-color: transparent; color: rgb(96, 165, 250) !important;">数据</mark>重新进行分群校验...
+</p>
+<!-- Line 3: Folder metadata -->
+<div class="mt-2 flex items-center gap-1.5 text-[12px] text-accessible-neutral" style="color: rgb(140, 136, 130);"><svg class="w-3.5 h-3.5 shrink-0" style="color: #8C8882;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" stroke-linecap="round" stroke-linejoin="round"></path></svg><span class="truncate">analytics-hub · deepseek-v4-flash</span></div>
+</article>
+</section>
+<!-- END: SectionMessageMatches -->
+<!-- Bottom padding filler for scrolling comfort -->
+<div class="py-6 text-center text-xs text-accessible-neutral" style="color: rgb(140, 136, 130);">共找到 2 个标题，3 条消息记录</div>
+</div>
+<!-- END: SearchResultsContainer -->
+<!-- BEGIN: AndroidGestureBar -->
+<footer class="w-full h-7 flex items-center justify-center shrink-0 bg-transparent" data-purpose="system-gesture-bar">
+<div class="w-32 h-1 bg-[#475569]/60 rounded-full"></div>
+</footer>
+<!-- END: AndroidGestureBar -->
+</main>
+<!-- END: MobileDeviceFrame -->
+
+
+
+
+</body></html>

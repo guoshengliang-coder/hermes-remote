@@ -1,0 +1,153 @@
+{
+  "_": [
+    "Stitch 基线索引。规则见 docs/DESIGN.md §7 第 8 条，机械步骤见本目录 README.md。",
+    "screenId 是唯一稳定的键；stitchLabel / stitchTitle 只是拉取时的原文，Stitch 里改了不影响追踪。",
+    "key = page.view.state[.overlay].theme，同时是本目录的文件名与截图用例名。",
+    "sha256 是 <key>.html 的哈希；拉取时重新下载并比对，变了才进入「规格变更」段。",
+    "implemented: implemented | partial | design-only。design-only 的界面不得凭空造 UI（§7 第 8 条）。",
+    "pairs 记同一屏幕浅暗两版的几何差异：几何以浅色稿为准，暗色稿只取颜色。"
+  ],
+  "project": {
+    "id": "8017882098155799612",
+    "title": "Hermes GO",
+    "updateTimeAtPull": "2026-09-10T14:49:48.040372Z"
+  },
+  "pulledAt": "2026-09-11",
+  "canvas": { "widthCssPx": 390, "note": "1 CSS px = 1 dp（DESIGN.md §3.4）；Stitch 元数据里的 width 780 / height 是 2x 像素" },
+  "screens": [
+    {
+      "key": "sessions.chats.default.light",
+      "screenId": "446ebc3297a645909fc6551848c2d9c8",
+      "stitchLabel": "会话列表界面",
+      "stitchTitle": "会话列表分组优化 - 方案A：语义垂直色彩立柱版",
+      "page": "sessions", "view": "chats", "state": "default", "overlay": null, "theme": "light",
+      "design": "docs/DESIGN.md §5.2",
+      "code": ["android/app/src/main/java/com/hermes/client/ui/sessions/SessionsScreen.kt"],
+      "conformance": "android/app/src/test/resources/design-conformance.json（roles / type 的 design 列从本稿抽取）",
+      "html": "sessions.chats.default.light.html",
+      "sha256": "967b575c3713632f2c384acb2cf02fe96b3449da4647db1f3e003a5bb9e6fb22",
+      "canvasHeightCssPx": 1223,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": ["waiting-confirm", "waiting-answer", "running-tool", "completed", "failed", "idle"],
+      "notes": [
+        "本稿是浅色几何真源；暗色稿的几何差异见 pairs。",
+        "「Slack 未连接 · 3 个定时任务受影响」是示意文案，真实文案走错误码目录（§7 第 8 条）。",
+        "组头 11px 等宽大写 / 徽章 10.5px / 顶栏图标按钮 36dp 低于无障碍下限，按 fixture 与 §5.2 的既定偏离处理。"
+      ]
+    },
+    {
+      "key": "sessions.chats.default.dark",
+      "screenId": "971314ea6d794c49b45cce7adbaea110",
+      "stitchLabel": "Hermes 会话页 - 温润极客暗夜阅读版 (深色模式)",
+      "stitchTitle": "Hermes 会话页 - 温润极客暗夜阅读版 (深色模式)",
+      "page": "sessions", "view": "chats", "state": "default", "overlay": null, "theme": "dark",
+      "design": "docs/DESIGN.md §5.2、§2.1、§2.7",
+      "code": ["android/app/src/main/java/com/hermes/client/ui/sessions/SessionsScreen.kt", "android/app/src/main/java/com/hermes/client/ui/theme/Color.kt", "android/app/src/main/java/com/hermes/client/ui/theme/StatusColors.kt"],
+      "conformance": "android/app/src/test/resources/design-conformance.json（roles 的暗色列）",
+      "html": "sessions.chats.default.dark.html",
+      "sha256": "c36a6f1c47505cb60f60bdc4a2f779df903f6b64633675c5bb4df864ae7984dd",
+      "canvasHeightCssPx": 1223,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": ["waiting-confirm", "waiting-answer", "running-tool", "completed", "failed", "idle"],
+      "notes": ["只取颜色；几何以浅色稿为准。"]
+    },
+    {
+      "key": "sessions.chats.default.more-menu.light",
+      "screenId": "3800f060cc204be5bb90124fe12e5d0c",
+      "stitchLabel": "会话列表界面-更多菜单",
+      "stitchTitle": "会话页 - 顶栏「更多」下拉菜单弹出态",
+      "page": "sessions", "view": "chats", "state": "default", "overlay": "more-menu", "theme": "light",
+      "design": "docs/DESIGN.md §5.2（顶栏）、§5.16（「更多」承载项目与已归档）",
+      "code": ["android/app/src/main/java/com/hermes/client/ui/sessions/SessionsScreen.kt（ChatsTopBar）"],
+      "html": "sessions.chats.default.more-menu.light.html",
+      "sha256": "f32f5fab9090674ec04775fb39c5b07a72e10f8d9e0f06e922441b21b43c0d18",
+      "canvasHeightCssPx": 1223,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "菜单：锚定按钮下方 top-[68px] right-4，宽 172dp，圆角 16dp（rounded-2xl），两项各高 44dp（h-11），项间分隔线 mx-3；遮罩 rgba(28,25,23,0.12)。",
+        "本仓菜单用 DropdownMenu 圆角 16dp、20dp 图标（§5.4 同形），稿里图标 19px —— 视为同一档，未记偏离。"
+      ]
+    },
+    {
+      "key": "sessions.chats.default.more-menu.dark",
+      "screenId": "fb468bd5383541ac98a3eac1618d439f",
+      "stitchLabel": "会话列表界面-更多",
+      "stitchTitle": "会话页 - 顶栏「更多」下拉菜单弹出态 (温润极客暗夜版)",
+      "page": "sessions", "view": "chats", "state": "default", "overlay": "more-menu", "theme": "dark",
+      "design": "docs/DESIGN.md §5.2、§5.16",
+      "code": ["android/app/src/main/java/com/hermes/client/ui/sessions/SessionsScreen.kt（ChatsTopBar）"],
+      "html": "sessions.chats.default.more-menu.dark.html",
+      "sha256": "9d24523993a0f621557201d480a7c6487ac47a67bbb02454559ef68237b5f1c2",
+      "canvasHeightCssPx": 1223,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": ["只取颜色；几何以浅色稿为准（见 pairs：菜单宽 176 vs 172、FAB 56 vs 52 等都是暗色稿漂了）。"]
+    },
+    {
+      "key": "search.results.light",
+      "screenId": "e64644f1ecd74ee7afa2fd1f5490406c",
+      "stitchLabel": "会话列表-搜索界面",
+      "stitchTitle": "Hermes 会话 - 全屏搜索页 (温润纸质浅色版)",
+      "page": "search", "view": null, "state": "results", "overlay": null, "theme": "light",
+      "design": "docs/DESIGN.md §5.2 搜索页",
+      "code": ["android/app/src/main/java/com/hermes/client/ui/sessions/SearchScreen.kt", "android/app/src/main/java/com/hermes/client/ui/sessions/SearchResultRows.kt", "android/app/src/main/java/com/hermes/client/ui/components/SearchField.kt"],
+      "html": "search.results.light.html",
+      "sha256": "55199321a626e29612f6900d55001d69e5e862fb21dd69d9a9be2d588aa5546d",
+      "canvasHeightCssPx": 913,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversStates": ["title-matches", "message-matches-searching", "archived-badge", "code-snippet", "footer-count"],
+      "notes": [
+        "稿子 bug：段头用了 Tailwind 不存在的 px-4.5，渲染时段头贴左边缘（见 search.results.light.png）。意图是 18dp；实现按 §5.2 的 16dp 页边距，不照抄。",
+        "搜索框 40dp 高、18dp 圆角、surfaceVariant 填充，与 §5.2 的 SearchField 一致。",
+        "消息匹配段头的 2dp 流光进度条与「服务端长轮询中...」对应 §5.2 的 Searching 态（本仓文案是「搜索中…」）。",
+        "结果行间有分隔线：是 §5.2「无分隔线」规则的例外，稿与文档一致。"
+      ]
+    },
+    {
+      "key": "search.results.dark",
+      "screenId": "b293dacfbca246f7ae3fc8792bf1da4b",
+      "stitchLabel": "会话列表-搜索界面（暗夜）",
+      "stitchTitle": "Hermes 会话 - 全屏搜索页 (温润极客暗夜版)",
+      "page": "search", "view": null, "state": "results", "overlay": null, "theme": "dark",
+      "design": "docs/DESIGN.md §5.2 搜索页",
+      "code": ["android/app/src/main/java/com/hermes/client/ui/sessions/SearchScreen.kt"],
+      "html": "search.results.dark.html",
+      "sha256": "6b794df2d21d4675e378d2703a296afb6e88e0b646b6fa940419036296c9db4f",
+      "canvasHeightCssPx": 920,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": ["只取颜色；几何以浅色稿为准。暗色稿把段头右侧的计数徽章换成了「本地索引」文字，属内容差异，不采纳。"]
+    }
+  ],
+  "pairs": [
+    {
+      "light": "sessions.chats.default.light", "dark": "sessions.chats.default.dark",
+      "geometryDiff": [
+        "行标题 <h2>：浅 font-semibold(600) / 暗 font-medium(500) —— 以浅色为准，fixture type.row.title = 600",
+        "FAB 加号：浅 24px / 暗 28px —— §5.2 定案 28dp（采暗色值，理由见 §2.7 第 1 条）"
+      ]
+    },
+    {
+      "light": "sessions.chats.default.more-menu.light", "dark": "sessions.chats.default.more-menu.dark",
+      "geometryDiff": [
+        "行标题字重 600 / 500，FAB 加号 24 / 28 —— 同上",
+        "菜单宽 w-[172px] / w-[176px]；菜单项图标 19px / 20px；暗色多一处 duration-150 淡入 —— 以浅色为准，图标按本仓 20dp",
+        "FAB 容器 52px / 56dp(w-14) —— §5.2 未记录 FAB 直径，NewSessionFab 以代码为准，待下次 fixture 抽取时补 role"
+      ]
+    },
+    {
+      "light": "search.results.light", "dark": "search.results.dark",
+      "geometryDiff": [
+        "结果标题字重 600 / 500 —— 以浅色为准",
+        "段头右侧：浅色计数徽章（px-1.5 py-0.5 rounded-full）/ 暗色「本地索引」文字 —— 内容差异，以浅色为准",
+        "片段容器 px-2 / px-2.5 —— 以浅色为准"
+      ]
+    }
+  ],
+  "candidates": [],
+  "notCovered": "见 docs/DESIGN.md §5.2「Stitch 不覆盖清单」"
+}
