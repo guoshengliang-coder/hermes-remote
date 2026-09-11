@@ -101,6 +101,12 @@ class ChatViewModel @Inject constructor(
          * stale and resumes into a fresh one — this one is terminal: resuming again can only fail.
          */
         const val SESSION_NOT_FOUND_CODE = 4007
+
+        /**
+         * `slash.exec` could not run at all: the Mac's Hermes failed to spawn its slash worker
+         * ("slash worker closed pipe"). Distinct from a slash the worker ran and refused.
+         */
+        const val SLASH_WORKER_FAILED_CODE = 5030
     }
 
     /**
@@ -1534,6 +1540,21 @@ class ChatViewModel @Inject constructor(
      * sheet is dismissed by the caller via [onDone] and the model's remembered reasoning preset
      * is applied. A second tap while one selection is in flight is ignored.
      */
+    /**
+     * Classify a failed `/model …` slash. A worker that never started (`slash.exec` 5030) is not a
+     * refused switch: the Mac's Hermes cannot run ANY slash command, so "请重试" would send the user
+     * round a loop that cannot end — which is exactly what HG-28 looked like from the phone. It gets
+     * its own non-retryable code; everything else keeps the ordinary retryable one.
+     */
+    private fun modelSwitchError(e: Throwable, stage: String): com.hermes.client.data.error.AppError {
+        val workerGone = (e as? GatewayRpcException)?.code == SLASH_WORKER_FAILED_CODE
+        return com.hermes.client.data.error.AppError(
+            if (workerGone) com.hermes.client.data.error.AppErrorCode.SLASH_WORKER_UNAVAILABLE
+            else com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_FAILED,
+            retryable = !workerGone, technicalCause = e.message, stage = stage,
+        )
+    }
+
     fun onSelectFromSheet(provider: String, model: String, onDone: () -> Unit) {
         if (_modelSheet.value.pendingKey != null) return
         val key = com.hermes.client.data.repository.favKey(provider, model)
@@ -1552,10 +1573,7 @@ class ChatViewModel @Inject constructor(
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     _modelSheet.value = _modelSheet.value.copy(
                         pendingKey = null,
-                        error = com.hermes.client.data.error.AppError(
-                            com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_FAILED,
-                            retryable = true, technicalCause = e.message, stage = "model_session_switch",
-                        ),
+                        error = modelSwitchError(e, "model_session_switch"),
                     )
                 }
         }
@@ -1588,10 +1606,7 @@ class ChatViewModel @Inject constructor(
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     _modelSheet.value = _modelSheet.value.copy(
                         pendingKey = null,
-                        error = com.hermes.client.data.error.AppError(
-                            com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_FAILED,
-                            retryable = true, technicalCause = e.message, stage = "model_restore_default",
-                        ),
+                        error = modelSwitchError(e, "model_restore_default"),
                     )
                 }
         }

@@ -183,9 +183,10 @@ expanded without changing the underlying meaning.
 | `HR-RPC-001` | Gateway RPC returned an unmapped remote error | Relay 请求失败，请查看详情后重试。 | The Relay request failed. Review the details and retry. | Depends |
 | `HR-RPC-002` | Gateway RPC response timed out | Relay 响应超时，请稍后重试。 | The Relay response timed out. Try again shortly. | Yes |
 | `HR-RPC-003` | Model catalog could not be loaded | 无法加载模型列表，请重试。 | Couldn't load the model list. Retry. | Yes |
-| `HR-RPC-004` | Switching the conversation's session model failed | 无法切换本会话的模型，请重试。 | Couldn't switch this conversation's model. Retry. | Yes |
+| `HR-RPC-004` | Switching the conversation's session model failed — the switch itself was refused (bad credentials, unknown model). Does **not** cover a slash worker that never started; that is `HR-RPC-007` | 无法切换本会话的模型，请重试。 | Couldn't switch this conversation's model. Retry. | Yes |
 | `HR-RPC-005` | Setting the default model failed | 无法设置默认模型，请重试。 | Couldn't set the default model. Retry. | Yes |
 | `HR-RPC-006` | Changing the conversation's reasoning effort failed | 无法调整推理强度，请重试。 | Couldn't change the reasoning effort. Retry. | Yes |
+| `HR-RPC-007` | The Mac's Hermes could not run a slash command at all — its slash worker died on spawn (`slash.exec` 5030). Every slash command is affected, the model switch among them, so this is a broken Hermes install rather than a refused switch, and retrying cannot help | Mac 上的 Hermes 无法执行命令，请查看详情。 | The Hermes on your Mac can't run commands. See the details. | No |
 | `HR-CONFIG-001` | Configuration could not be loaded | 无法加载配置，请重试。 | Couldn't load the configuration. Retry. | Yes |
 | `HR-CONFIG-002` | Configuration could not be saved | 无法保存配置，请重试。 | Couldn't save the configuration. Retry. | Yes |
 | `HR-CONFIG-003` | Relay URL is invalid | Relay 地址格式无效，请检查后重试。 | The Relay URL is invalid. Check it and retry. | Yes |

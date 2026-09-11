@@ -50,9 +50,24 @@ test("component builder creates source-pinned relocatable Hermes and Connector a
   assert.match(hermesNames, /runtime\/python\/bin\/python3\.11/);
   assert.match(hermesNames, /runtime\/read-private-session-token\.py/);
   assert.match(hermesNames, /runtime\/site-packages\/dependency\.py/);
+  // The Hermes sources must be reachable without PYTHONPATH: upstream strips the repo root from
+  // every child process it spawns, and the slash worker is one (HG-28). The behavioural proof
+  // lives in desktop-managed-python-path.test.mjs; this only guards the file's presence.
+  assert.match(hermesNames, /runtime\/python\/lib\/python3\.11\/site-packages\/_hermes_go_managed_paths\.pth/);
   assert.doesNotMatch(hermesNames, /\.git|\.env|private\.pem|node_modules/);
 
   run("/usr/bin/tar", ["-xzf", result.artifacts[0].path, "-C", extracted]);
+  const sitePath = await readFile(
+    path.join(extracted, "runtime/python/lib/python3.11/site-packages/_hermes_go_managed_paths.pth"),
+    "utf8",
+  );
+  // Derived from sys.prefix at run time, never baked in: the Desktop extracts the release to a
+  // path the build machine never sees.
+  assert.match(sitePath, /sys\.prefix/);
+  assert.match(sitePath, /"app"/);
+  assert.equal(sitePath.startsWith("import "), true);
+  assert.equal(sitePath.trimEnd().includes("\n"), false, "a .pth is one line; a second line is data, not code");
+
   const hermesLauncher = await readFile(path.join(extracted, "bin/hermes-server"), "utf8");
   const tokenReader = await readFile(path.join(extracted, "runtime/read-private-session-token.py"), "utf8");
   assert.match(hermesLauncher, /HERMES_DASHBOARD_SESSION_TOKEN/);
