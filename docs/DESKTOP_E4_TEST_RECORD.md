@@ -403,3 +403,35 @@ deferred the Mac reboot while the host is doing other work. Full acceptance stil
 baseline, launchd recovery after that reboot, confirmation that the 0.3.0 inline-token layout remains
 unchanged, and another Android REST/WebSocket exchange with clean tunnel telemetry. This remains an
 internal ad-hoc build and is not approved for public distribution.
+
+## 2026-09-12 managed release 0.3.2 and Desktop 0.2.7 offline candidates
+
+PR #196 merged the HG28 packaging correction in `9c6f3b271f8b999b3192c93f69ac7b113039711d`.
+From a clean detached checkout of `origin/main` at
+`4224188449d63dc42fdaaaaf31284e52cdbbdfde`, the component packager rebuilt Hermes Server 0.21.0
+from upstream `f159e581c7afd22a5c94652c569e3859f1b994d2` and Connector 0.1.3. The signed internal 0.3.2
+candidate passed the independent public-key verifier. Its immutable offline artifacts are:
+
+- manifest: 1,306 bytes, SHA-256
+  `aec0180acac9f7d38744d5efcb901f6e850a201150ecabfe59aa5ce93cbba295`;
+- Hermes Server: 285,058,184 bytes, SHA-256
+  `86c411c17ac9e3fa3f4bdc26c51578a2fb92de959b0881fef258df67bbd88b58`;
+- Connector: 37,056,988 bytes, SHA-256
+  `f2f0faabb50ad21f3cfefb46d1b47fbd3c9dcce8786bb2c68906204fea874758`.
+
+The final Hermes archive was extracted to a new directory and started with an empty environment.
+Its bundled Python imported `tui_gateway.slash_worker` with `PYTHONPATH` absent, proving the exact
+child-process boundary that failed in managed releases 0.3.0 and 0.3.1. The focused packaging and
+relocation suite passed 7 tests, including the pre-fix failure proof and partial-extraction behavior.
+
+Desktop 0.2.7/build 10 is the coordinated app candidate because configured Desktop builds pin an
+immutable manifest URL. The canonical asset check and all 186 Desktop tests passed. Its configured
+app embeds the 0.3.2 manifest URL, `internal` channel, `arm64` architecture, approved key ID, and
+`hermes-serve-v1` contract; strict ad-hoc codesign verification passed. The 2,072,617-byte DMG passed
+`hdiutil verify` and has SHA-256
+`4c4f39462d3183e2137e363f0652a677138b01e40c7bc847be46f5988b4925a4`.
+
+Nothing in this candidate step was uploaded, installed, launched on the target Mac, or deployed.
+Coordinated physical acceptance still needs the managed upgrade plus `/model`, `/compact`, a normal
+prompt, Android REST/WebSocket traffic, rollback, and restart checks. Developer ID signing,
+notarization, stapling, and clean-Mac launch acceptance also remain required for public distribution.

@@ -1,7 +1,13 @@
 # Hermes Go Desktop
 
-Current internal test release: **0.2.6** (build 9). It skips the startup token-file migration for
-managed releases older than 0.3.1, preserving their inline session token and running services.
+Current internal test release candidate: **0.2.7** (build 10). It retains the 0.2.6 token-migration
+guard and is configured for managed release 0.3.2, whose bundled Python makes the Hermes slash worker
+importable after upstream clears `PYTHONPATH`. This restores `/model`, `/compact`, and user-entered
+slash commands on a managed installation. Desktop 0.2.7 and managed release 0.3.2 remain offline
+until their coordinated physical acceptance and publication gates pass.
+
+Desktop 0.2.6 (build 9) skips the startup token-file migration for managed releases older than 0.3.1,
+preserving their inline session token and running services.
 Desktop 0.2.5/build 8 remains withdrawn after a physical target found that it moved the active
 managed 0.3.0 Connector to a token-file contract that release did not support. Its Gateway control
 connection remained online while Android WebSocket tunnels failed local authentication with
