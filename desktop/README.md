@@ -10,6 +10,14 @@ Assistant restores both labels. While the account is signed in, legacy App-Token
 removed from Overview, Diagnostics, and aggregate status. Public distribution still requires
 Developer ID signing, notarization, stapling, and clean-Mac acceptance.
 
+The next maintenance source also repairs committed managed installations created before the private
+session-token file contract. On startup it preserves the existing high-entropy local token, removes
+that value from both owner-only LaunchAgent plists, writes it to the owner-only managed secrets file,
+then restarts Hermes before Connector and requires both local readiness and the exact bound account
+health before recording completion. A partial write or failed health proof restores the exact prior
+plists/token state and restarts that configuration; mismatched plist values or account bindings fail
+closed with the existing migration diagnostic.
+
 Hermes Go Desktop is the native macOS companion for the existing Hermes Remote Connector. The local
 I3-A alpha still runs in **compatibility observation mode**: it reads the current user-level launchd status,
 non-secret Connector settings, public Relay health, local Hermes reachability, and sanitized logs.
@@ -73,6 +81,11 @@ pass, and the legacy connection remains available. Local evidence and remaining 
   before rollback restore. On Desktop startup, an exact `account_active` journal plus both loaded
   managed services may suppress a transferred legacy label; no intermediate or mismatched state may
   use that repair.
+- An exact committed installation without the session-token contract marker is reconciled once at
+  Desktop startup. Both managed LaunchAgents must be owner-only, point to the current managed
+  executables and exact log paths, and either agree on the same valid inline token or already agree on
+  the canonical private token file. The current account binding ID and generation must match before
+  any file or service mutation.
 - Download/verification occurs before the exact version confirmation and cannot mutate installation,
   credentials, LaunchAgents, processes, or bindings. Closing the confirmation removes the private
   workspace. A committed install that cannot clean temporary files exposes only a cleanup retry and

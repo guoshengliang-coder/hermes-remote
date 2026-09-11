@@ -328,3 +328,22 @@ exchange; it did not restart either managed service or revive the legacy Connect
 This closes the Migration Assistant packaged-reboot and Android account REST/WebSocket gate. No
 screenshot or user content was exported. This remains an internal ad-hoc Desktop build and is not
 Developer ID signed, notarized, stapled, or approved for public distribution.
+
+## 2026-09-11 pre-contract session-token migration regression
+
+The next Desktop maintenance source adds an always-available startup repair for the migrated Mac's
+remaining pre-contract credential layout. The repair requires the exact committed journal binding and
+both running managed labels, preserves the shared local token rather than rotating it, atomically
+removes the inline value from both owner-only LaunchAgent plists, and writes only its canonical private
+file path. Hermes restarts and proves a fresh readiness marker plus authenticated loopback health before
+Connector starts; the same binding ID/generation must then regain Connector, Hermes, and end-to-end
+health before an owner-only completion marker is written.
+
+Temporary-root regression tests cover the complete inline pair, a matching half migration after a
+simulated power loss, an already completed idempotent state, mismatched inline values, mismatched account
+generation, exact stop/start order, and a failed candidate readiness proof followed by byte-for-byte
+plist/token rollback and restored service health. The focused 28-test installer/coordinator set passed
+locally. The canonical asset comparison, complete 185-test Desktop suite, release-mode app assembly,
+strict ad-hoc codesign verification, and `git diff --check` also passed. Packaged 0.2.5 evidence,
+target-Mac migration, reboot persistence, and post-migration Android traffic remain pending at this
+point; no target service or production setting was changed by this source iteration.
