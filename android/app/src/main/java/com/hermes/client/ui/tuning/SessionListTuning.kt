@@ -57,8 +57,17 @@ data class SessionListTuning(
     val headerWeight: Int = 600,
     val headerTrackingSp: Float = 0.55f,
     // Spacing — what makes rows feel tight or loose.
-    val rowMinHeightDp: Float = 72f,
-    val rowPaddingVDp: Float = 8f,
+    //
+    // rowHeightDp is the row's EXACT height, not a minimum, and 72 means "leave Material alone".
+    // Material's ListItem enforces its own floor (56 one-line / 72 two-line / 88 three-line), so a
+    // minimum could only ever make rows taller — useless for the question actually being asked,
+    // which is whether the list should be tighter. An exact height on the outer modifier gives the
+    // ListItem fixed constraints, which overrides that floor in both directions.
+    //
+    // The default is therefore special-cased to apply no modifier at all, so an untouched panel
+    // renders exactly what ships. Away from the default, content taller than the height clips —
+    // acceptable while tuning, which is the only time this is non-default.
+    val rowHeightDp: Float = 72f,
     val sublineGapDp: Float = 2f,
     val statusGapDp: Float = 4f,
     val headerPaddingVDp: Float = 8f,
@@ -124,8 +133,7 @@ fun SessionListTuning.asReport(): String {
         row("headerSizeSp", headerSizeSp, d.headerSizeSp)
         row("headerWeight", headerWeight, d.headerWeight)
         row("headerTrackingSp", headerTrackingSp, d.headerTrackingSp)
-        row("rowMinHeightDp", rowMinHeightDp, d.rowMinHeightDp)
-        row("rowPaddingVDp", rowPaddingVDp, d.rowPaddingVDp)
+        row("rowHeightDp", rowHeightDp, d.rowHeightDp)
         row("sublineGapDp", sublineGapDp, d.sublineGapDp)
         row("statusGapDp", statusGapDp, d.statusGapDp)
         row("headerPaddingVDp", headerPaddingVDp, d.headerPaddingVDp)
@@ -213,8 +221,16 @@ fun tunedGroupHeader(): TextStyle {
     )
 }
 
-@Composable fun tunedRowMinHeight(): Dp = LocalSessionListTuning.current.rowMinHeightDp.dp
-@Composable fun tunedRowPaddingV(): Dp = LocalSessionListTuning.current.rowPaddingVDp.dp
+/**
+ * The row height to force, or null to leave Material's own sizing alone.
+ *
+ * Null at the default is what keeps an untouched panel pixel-identical to what ships: no
+ * modifier is applied at all, so ListItem picks its height exactly as it does in production.
+ */
+@Composable fun tunedRowHeightOrNull(): Dp? {
+    val t = LocalSessionListTuning.current
+    return if (t.rowHeightDp == SessionListTuning().rowHeightDp) null else t.rowHeightDp.dp
+}
 @Composable fun tunedSublineGap(): Dp = LocalSessionListTuning.current.sublineGapDp.dp
 @Composable fun tunedStatusGap(): Dp = LocalSessionListTuning.current.statusGapDp.dp
 @Composable fun tunedHeaderPaddingV(): Dp = LocalSessionListTuning.current.headerPaddingVDp.dp
