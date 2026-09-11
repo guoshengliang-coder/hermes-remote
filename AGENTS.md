@@ -178,8 +178,24 @@ layered, and the layers are **not** interchangeable — each covers something th
   attached. `docs/DESIGN.md` settles look-and-feel disputes on a device, never on an emulator.
   Several phones may be attached at once, and they do **not** substitute for one another: name the
   device a result came from instead of writing "verified on device", because ROM behaviour is
-  exactly what differs between vendors. One device at or above `targetSdk` closes the targetSdk
-  gap for everyone; `ANDROID_SERIAL=<serial>` picks which one the tooling targets by default.
+  exactly what differs between vendors. `ANDROID_SERIAL=<serial>` picks which one the tooling
+  targets by default. How many phones a change actually needs:
+
+  | Change | Devices needed | Why |
+  |---|---|---|
+  | Visual, layout, copy | **one**, any | L1 already covers theme/`fontScale`/density combinations; the phone is here to settle final look-and-feel, not to be a matrix |
+  | Notifications, background survival, battery optimisation, permission prompts | **every vendor ROM you have** | This is precisely where vendors diverge — a HONOR result does not carry to a Xiaomi. This is the reason to own more than one phone |
+  | `targetSdk`-gated platform behaviour | **one device at or above `targetSdk`** (or L3) | Platform behaviour, not vendor behaviour; one device that reaches it closes the gap for everyone |
+
+  To act on every attached device, read the serials from the probe rather than hard-coding them.
+  Use `--serials` (one per line) rather than splitting `$HR_DEVICE_SERIALS` — zsh does not word-split
+  an unquoted variable, so the loop would silently run once with every serial glued together:
+
+  ```bash
+  ./scripts/dev/android-capabilities.sh --serials | while read -r s; do
+    adb -s "$s" install -r <apk>
+  done
+  ```
 - **L3 — emulator.** Platform behaviour gated on `targetSdk`, clean-install state, and the
   size/density matrix. A device running below `targetSdk` cannot exercise those paths at all.
 

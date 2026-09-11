@@ -16,6 +16,7 @@
 # Usage:
 #   ./scripts/dev/android-capabilities.sh            human-readable report (paste into handoff)
 #   ./scripts/dev/android-capabilities.sh --export   HR_* shell assignments for `eval`
+#   ./scripts/dev/android-capabilities.sh --serials  one physical-device serial per line
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -192,6 +193,15 @@ HR_TARGETSDK_GAP=0
 if [ "$HR_DEVICE_COUNT" -gt 0 ] && [ "$HR_TARGET_SDK" -gt 0 ] \
    && [ "$HR_DEVICE_MAX_SDK" -lt "$HR_TARGET_SDK" ]; then
   HR_TARGETSDK_GAP=1
+fi
+
+# One serial per line, for iterating over every attached phone. This exists instead of
+# telling callers to split $HR_DEVICE_SERIALS: that relies on word splitting, which zsh —
+# the default shell on these machines — does not perform on an unquoted variable, so the
+# obvious `for s in $HR_DEVICE_SERIALS` silently treats every serial as one item there.
+if [ "${1:-}" = "--serials" ]; then
+  for s in $HR_DEVICE_SERIALS; do echo "$s"; done
+  exit 0
 fi
 
 if [ "${1:-}" = "--export" ]; then
