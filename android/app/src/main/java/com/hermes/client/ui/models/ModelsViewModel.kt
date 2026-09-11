@@ -8,7 +8,9 @@ import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.error.AppError
 import com.hermes.client.data.error.AppErrorCode
+import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.LocalizedText
+import com.hermes.client.ui.localization.localizedMessage
 import com.hermes.client.ui.localization.localizedText
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,7 +25,6 @@ data class ModelsUiState(
     val loading: Boolean = true,
     val error: AppError? = null,
     val message: LocalizedText? = null,
-    val query: String = "",
     // The profile's configured default — this screen edits exactly that slot, so it must show it.
     val defaultModel: String? = null,
     val defaultProvider: String? = null,
@@ -139,8 +140,6 @@ class ModelsViewModel @Inject constructor(
         )
     }
 
-    fun onQuery(q: String) { _state.value = _state.value.copy(query = q) }
-
     fun toggleFavorite(provider: String, model: String) =
         viewModelScope.launch { favoritesStore.toggle(provider, model) }
 
@@ -160,10 +159,22 @@ class ModelsViewModel @Inject constructor(
                     )
                     catalogStore.refresh(force = true)
                 }
-                .onFailure {
+                .onFailure { failure ->
+                    // Through the shared error model rather than a hand-written string with the
+                    // code glued on: localizedMessage appends the code itself, and the snackbar
+                    // was the last place in this screen still spelling one out by hand.
+                    val error = AppError(
+                        AppErrorCode.MODEL_DEFAULT_FAILED,
+                        retryable = true,
+                        technicalCause = failure.message,
+                        stage = "models_set_default",
+                    )
                     _state.value = _state.value.copy(
                         pendingKey = null,
-                        message = localizedText("设置默认模型失败（HR-RPC-005）", "Couldn't set the default model (HR-RPC-005)"),
+                        message = localizedText(
+                            error.localizedMessage(AppLanguage.ZH),
+                            error.localizedMessage(AppLanguage.EN),
+                        ),
                     )
                 }
         }

@@ -1558,16 +1558,23 @@ fun ChatScreen(
         // pinned open, the current group open, everything else collapsed to one scannable line.
         var expandedGroups by remember(sessionId) { mutableStateOf<Set<String>?>(null) }
         val effectiveExpanded = expandedGroups ?: setOfNotNull(resolvedCurrentProvider)
-        val items = com.hermes.client.ui.models.modelSelectorRows(
-            providers = providers, favorites = favorites, query = modelSheet.query,
+        val groups = com.hermes.client.ui.models.modelSelectorGroups(
+            providers = providers, favorites = favorites,
             currentProvider = resolvedCurrentProvider, currentModel = currentModel,
             expandedGroups = effectiveExpanded,
             presets = reasoningPresets,
         )
+        val recents by vm.recentModels.collectAsStateWithLifecycle()
+        // Provider display names come from the live catalogue, never from what was stored.
+        val recentChips = recents.map { r ->
+            r.copy(providerLabel = providers.firstOrNull { it.slug == r.provider }?.name ?: r.provider)
+        }
         val currentSummary = currentModel?.takeIf { it.isNotBlank() }?.let { model ->
             com.hermes.client.ui.models.CurrentModelSummary(
                 model = model,
-                provider = resolvedCurrentProvider,
+                provider = providers.firstOrNull { it.slug == resolvedCurrentProvider }?.name
+                    ?: resolvedCurrentProvider,
+                badgeText = localized(language, "当前使用", "In use"),
                 scopeText = if (modelOverridden) {
                     val default = defaultModel
                     if (default != null) localized(language, "此对话覆盖（默认是 $default）", "This chat override (default: $default)")
@@ -1577,8 +1584,7 @@ fun ChatScreen(
             )
         }
         com.hermes.client.ui.models.ModelSelectorSheet(
-            items = items,
-            query = modelSheet.query, onQueryChange = vm::onSheetQuery,
+            groups = groups,
             onToggleFavorite = vm::toggleFavorite,
             onSelect = { p, m ->
                 vm.onSelectFromSheet(p, m) {
@@ -1594,11 +1600,12 @@ fun ChatScreen(
             },
             pendingKey = modelSheet.pendingKey,
             error = modelSheet.error?.localizedMessage(language),
-            onDismiss = { modelSheetOpen = false; retryAfterModelSwitch = false; vm.onSheetQuery("") },
+            onDismiss = { modelSheetOpen = false; retryAfterModelSwitch = false },
             onRefresh = { vm.ensureProviders(force = true) },
             refreshing = catalogRefreshing,
             currentSummary = currentSummary,
             onRestoreDefault = { vm.restoreDefaultModel { modelSheetOpen = false } },
+            recents = recentChips,
             reasoningEffort = sheetReasoning,
             onSelectReasoning = vm::setReasoning,
             reasoningPending = reasoningPending,

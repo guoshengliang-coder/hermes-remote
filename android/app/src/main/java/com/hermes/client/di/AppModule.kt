@@ -410,6 +410,13 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideModelRecentsStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.ModelRecentsStore =
+        com.hermes.client.data.repository.ModelRecentsStore(context)
+
+    @Provides
+    @Singleton
     fun provideReasoningPresetStore(
         @ApplicationContext context: Context,
     ): com.hermes.client.data.repository.ReasoningPresetStore =

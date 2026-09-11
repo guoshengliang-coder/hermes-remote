@@ -411,3 +411,131 @@ val CardThemeCta = TextStyle(
     lineHeight = 21.sp,
     letterSpacing = 0.sp,
 )
+
+// ── 模型选择 (docs/DESIGN.md §5.17, Stitch 基线-模型选择, 2026-09-12) ────────────────────────────
+//
+// Same transcription rules as the card page above. One extra Tailwind subtlety this screen leans
+// on: `text-xs` is a PAIRED step (12px/16px), while `text-[12px]` is an arbitrary one and inherits
+// Preflight's 1.5 (12px/18px). The mock uses both, deliberately — the tight 16px pairing is for
+// chips and buttons that must not grow their container, the loose 18px one for the card's subline.
+// Sans throughout except [ModelGroupCount], the one thing the mock marks `font-mono`.
+
+/** 「选择模型」: `text-[19px] font-bold tracking-tight`. */
+val ModelSheetTitle = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Bold,
+    fontSize = 19.sp,
+    lineHeight = 28.5.sp,
+    letterSpacing = (-0.475).sp,
+)
+
+/** The status card's model name: `text-[16px] font-bold tracking-tight`. */
+val ModelCardName = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Bold,
+    fontSize = 16.sp,
+    lineHeight = 24.sp,
+    letterSpacing = (-0.4).sp,
+)
+
+/** Its provider line: `text-[12px]`, the loose pairing. */
+val ModelCardProvider = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Normal,
+    fontSize = 12.sp,
+    lineHeight = 18.sp,
+    letterSpacing = 0.sp,
+)
+
+/** 「恢复默认」 and the effort dropdown's value: `text-xs`, the tight pairing. */
+val ModelCardAction = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 12.sp,
+    lineHeight = 16.sp,
+    letterSpacing = 0.sp,
+)
+
+/** The dropdown's current value, one weight up from [ModelCardAction]: `text-xs font-semibold`. */
+val ModelEffortValue = ModelCardAction.copy(fontWeight = FontWeight.SemiBold)
+
+/** 「推理强度」: `text-[13px] font-medium`. */
+val ModelEffortLabel = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 13.sp,
+    lineHeight = 19.5.sp,
+    letterSpacing = 0.sp,
+)
+
+/** 「当前使用」, 「固定顶部」: `text-[11px] font-medium`. */
+val ModelBadge = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 11.sp,
+    lineHeight = 16.5.sp,
+    letterSpacing = 0.sp,
+)
+
+/** The in-row badges 「前次生效」/「切换中…」: `text-[10px]`, 500 neutral and 600 on the tint. */
+val ModelRowBadge = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 10.sp,
+    lineHeight = 15.sp,
+    letterSpacing = 0.sp,
+)
+
+/** A provider card's title: `text-xs font-bold tracking-tight`. */
+val ModelGroupTitle = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Bold,
+    fontSize = 12.sp,
+    lineHeight = 16.sp,
+    letterSpacing = (-0.3).sp,
+)
+
+/** 「N 项」: `text-[11px] font-mono font-medium` — the one mono step on this screen. */
+val ModelGroupCount = TextStyle(
+    fontFamily = HermesMono,
+    fontWeight = FontWeight.Medium,
+    fontSize = 11.sp,
+    lineHeight = 16.5.sp,
+    letterSpacing = 0.sp,
+)
+
+/** A model row's name: `text-[13.5px] font-medium`, 600 on the selected row. */
+val ModelRowName = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 13.5.sp,
+    lineHeight = 20.25.sp,
+    letterSpacing = 0.sp,
+)
+
+/** A model row's provider line: `text-[11px]`. */
+val ModelRowProvider = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Normal,
+    fontSize = 11.sp,
+    lineHeight = 16.5.sp,
+    letterSpacing = 0.sp,
+)
+
+/** 「快捷切换」: `text-[11px] font-medium`. */
+val ModelQuickLabel = ModelBadge
+
+/** 「正在切换至 X」: `text-[10px] font-medium`. */
+val ModelQuickStatus = ModelRowBadge
+
+/** A quick-switch chip's model name: `text-xs font-medium`, 600 when it is the one in flight. */
+val ModelQuickChip = ModelCardAction
+
+/** The provider suffix inside a chip: `text-[10px] font-normal`. */
+val ModelQuickChipProvider = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Normal,
+    fontSize = 10.sp,
+    lineHeight = 15.sp,
+    letterSpacing = 0.sp,
+)

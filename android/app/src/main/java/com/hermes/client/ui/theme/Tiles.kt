@@ -298,3 +298,110 @@ internal val CardThemeBadgeDark = Color(0xFF262C35)
 @Composable fun cardThemeAccentColor(): Color = if (isDarkSurface()) CardThemeAccentDark else CardThemeAccentLight
 @Composable fun cardThemeAccentInkColor(): Color = if (isDarkSurface()) CardThemeAccentInkDark else CardThemeAccentInkLight
 @Composable fun cardThemeBadgeColor(): Color = if (isDarkSurface()) CardThemeBadgeDark else CardThemeBadgeLight
+
+// ── 模型选择 (docs/DESIGN.md §5.17, Stitch 基线-模型选择 / 暗夜, 2026-09-12) ─────────────────────
+//
+// Its own family for the same reason `card*` and `cardTheme*` are theirs: every value below is
+// read off the model-selection mock, and that mock disagrees with the card page's about what a
+// card is filled with (#161A22 here, #1E232B there). One family per screen, no silent sharing.
+//
+// THE LIGHT TIER IS NOT THE MOCK'S. The mock draws its neutrals from Tailwind's COLD `neutral`
+// ramp — #FAFAFA / #F5F5F5 / #E5E5E5 / #A3A3A3 / #737373 — on a warm paper ground. §2.1 bans cold
+// neutrals on warm paper, and the card page already resolved this the same way. Each cold step is
+// therefore swapped for the repo's warm step of equal lightness, once, here:
+//
+//     #FAFAFA → #F4F4F0   #F5F5F5 → #EFEEEA   #E5E5E5 → #ECEBE8
+//     #A3A3A3 → #A8A29E   #737373 → #605C54   #D4D4D4 → #C9C7C2
+//
+// The DARK tier needs no such swap — the mock's dark neutrals already are this repo's ladder
+// (#161A22 = surfaceContainerLow, #1A1F27 = surfaceContainer, #1E232B = surfaceContainerHigh,
+// #262C35 = surfaceContainerHighest, #8D897E = outline, #A8A49C = onSurfaceVariant) — so it is
+// transcribed verbatim. Every swap is recorded row by row in design-conformance.json.
+//
+// The blues are NOT swapped. §2.1 bans cold NEUTRALS; a brand-blue tint is the brand colour.
+
+/** The status card and every provider card. Light is white on paper; dark recesses one step. */
+internal val ModelCardLight = Color(0xFFFFFFFF)
+internal val ModelCardDark = Color(0xFF161A22)
+
+/** The card's hairline ring. */
+internal val ModelCardBorderLight = Color(0xFFECEBE8)
+internal val ModelCardBorderDark = Color(0xFF262C35)
+
+/** Inside a card: under the title bar, between rows, above the reasoning row. */
+internal val ModelDividerLight = Color(0xFFEFEEEA)
+internal val ModelDividerDark = Color(0xFF262C35)
+
+/** A provider card's title bar — one step off the card fill, not off the ground. */
+internal val ModelBarLight = Color(0xFFF4F4F0)
+internal val ModelBarDark = Color(0xFF1A1F27)
+
+/** Recessed slots ON a card: the reasoning row, the small neutral badges, the ✕ button. */
+internal val ModelInsetLight = Color(0xFFEFEEEA)
+internal val ModelInsetDark = Color(0xFF1E232B)
+
+/** Badge text, the reasoning label, a quick-switch chip's model name. */
+internal val ModelInkMutedLight = Color(0xFF605C54)
+internal val ModelInkMutedDark = Color(0xFFA8A49C)
+
+/** The faintest step: every provider subline, the 「N 项」 count, the 固定顶部 note. */
+internal val ModelInkFaintLight = Color(0xFFA8A29E)
+internal val ModelInkFaintDark = Color(0xFF8D897E)
+
+/**
+ * The brand accent: the status card's 6dp stripe, the effort dot, the in-flight spinner.
+ *
+ * Numerically the same pair as [SpinnerLight]/[SpinnerDark] and [PillarPinnedLight]/[PillarPinnedDark]
+ * — three mocks independently landed on the same cobalt. Kept as its own pair rather than aliased,
+ * because nothing says the model sheet's accent has to move when the session list's pillar does.
+ */
+internal val ModelAccentLight = Color(0xFF2563EB)
+internal val ModelAccentDark = Color(0xFF3B82F6)
+
+/** Ink on the accent tint: the selected row's name, 「正在切换至 X」, 「恢复默认」. */
+internal val ModelAccentInkLight = Color(0xFF1D4ED8)
+internal val ModelAccentInkDark = Color(0xFF60A5FA)
+
+/** The selected row / chip: a blue tint, and the ring that carries it in both tiers. */
+internal val ModelCurrentFillLight = Color(0xFFEFF6FF)
+internal val ModelCurrentFillDark = Color(0xFF0C1A30)
+internal val ModelCurrentBorderLight = Color(0xFFBFDBFE)
+internal val ModelCurrentBorderDark = Color(0xFF3B82F6)
+
+/** The 「切换中…」 badge's fill — one step deeper than the row tint it sits on. */
+internal val ModelSwitchChipLight = Color(0xFFDBEAFE)
+internal val ModelSwitchChipDark = Color(0xFF142A4D)
+
+/**
+ * The favourite star. Amber, where this app has painted it brand blue since it shipped: the mock
+ * is explicit (`text-amber-500` / `#FBBF24`) and a blue star on a sheet whose selection state is
+ * also blue made "starred" and "in use" the same colour.
+ *
+ * The dark value is exactly `StatusTone.WARN`'s dark text step. A coincidence of two mocks, not a
+ * shared token — a star is not a warning.
+ */
+internal val ModelStarLight = Color(0xFFF59E0B)
+internal val ModelStarDark = Color(0xFFFBBF24)
+
+/** An unstarred star: present, clearly off, and not competing with the row's text. */
+internal val ModelStarOffLight = Color(0xFFC9C7C2)
+internal val ModelStarOffDark = Color(0xFF423F3A)
+
+@Composable fun modelCardColor(): Color = if (isDarkSurface()) ModelCardDark else ModelCardLight
+@Composable fun modelCardBorderColor(): Color = if (isDarkSurface()) ModelCardBorderDark else ModelCardBorderLight
+@Composable fun modelDividerColor(): Color = if (isDarkSurface()) ModelDividerDark else ModelDividerLight
+@Composable fun modelBarColor(): Color = if (isDarkSurface()) ModelBarDark else ModelBarLight
+@Composable fun modelInsetColor(): Color = if (isDarkSurface()) ModelInsetDark else ModelInsetLight
+@Composable fun modelInkMutedColor(): Color = if (isDarkSurface()) ModelInkMutedDark else ModelInkMutedLight
+@Composable fun modelInkFaintColor(): Color = if (isDarkSurface()) ModelInkFaintDark else ModelInkFaintLight
+@Composable fun modelAccentColor(): Color = if (isDarkSurface()) ModelAccentDark else ModelAccentLight
+@Composable fun modelAccentInkColor(): Color = if (isDarkSurface()) ModelAccentInkDark else ModelAccentInkLight
+@Composable fun modelCurrentFillColor(): Color = if (isDarkSurface()) ModelCurrentFillDark else ModelCurrentFillLight
+@Composable fun modelCurrentBorderColor(): Color = if (isDarkSurface()) ModelCurrentBorderDark else ModelCurrentBorderLight
+@Composable fun modelSwitchChipColor(): Color = if (isDarkSurface()) ModelSwitchChipDark else ModelSwitchChipLight
+@Composable fun modelStarColor(): Color = if (isDarkSurface()) ModelStarDark else ModelStarLight
+@Composable fun modelStarOffColor(): Color = if (isDarkSurface()) ModelStarOffDark else ModelStarOffLight
+
+/** The mock's `shadow-warm-sm` — a whisper in light, nothing in dark (the ring carries it there). */
+@Composable
+fun modelCardShadow(): Dp = if (isDarkSurface()) 0.dp else 1.dp
