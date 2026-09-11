@@ -426,6 +426,33 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         ])
     }
 
+    func testCommittedInlineTokenMigrationSkipsReleaseBeforeTokenFileContract() async throws {
+        let fixture = try Fixture(
+            legacyRunning: false,
+            resumeBoundBinding: true,
+            manifestVersion: "0.3.0"
+        )
+        defer { fixture.cleanup() }
+        let token = String(repeating: "d", count: 64)
+        try fixture.installCommittedManagedServices(inlineToken: token)
+        let originalHermes = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+        let originalConnector = try Data(contentsOf: fixture.layout.connectorLaunchAgent)
+
+        let migrated = try await fixture.coordinator.reconcileCommittedHermesSessionTokenStorage()
+
+        XCTAssertFalse(migrated)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), originalHermes)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.connectorLaunchAgent), originalConnector)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.hermesSessionToken.path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.layout.hermesSessionTokenContractMarker.path
+        ))
+        XCTAssertTrue(fixture.serviceMutations().isEmpty)
+        XCTAssertEqual(fixture.readiness.waitCount(), 0)
+        let accountRefreshes = await fixture.account.refreshCount()
+        XCTAssertEqual(accountRefreshes, 0)
+    }
+
     func testCommittedTokenMigrationHealthFailureRestoresInlineFilesAndRunningServices() async throws {
         let fixture = try Fixture(
             legacyRunning: false,
@@ -516,7 +543,8 @@ private final class Fixture {
         ambiguousCommit: Bool = false,
         hermesHealthy: Bool = true,
         resumeBoundBinding: Bool = false,
-        hermesReadinessResponses: [Bool]? = nil
+        hermesReadinessResponses: [Bool]? = nil,
+        manifestVersion: String = "1.2.3"
     ) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("hermes-migration-coordinator-\(UUID().uuidString)", isDirectory: true)
@@ -550,7 +578,7 @@ private final class Fixture {
             maximumHealthPolls: 2,
             healthPollDelayNanoseconds: 0
         )
-        manifest = Self.manifest()
+        manifest = Self.manifest(releaseVersion: manifestVersion)
         sources = try Self.sources(root: root)
         try FileManager.default.createDirectory(at: layout.launchAgentsRoot, withIntermediateDirectories: true)
         let connectorExecutable = root.appendingPathComponent(
@@ -694,9 +722,9 @@ private final class Fixture {
         return result
     }
 
-    private static func manifest() -> DesktopReleaseManifest {
+    private static func manifest(releaseVersion: String) -> DesktopReleaseManifest {
         DesktopReleaseManifest(
-            releaseVersion: "1.2.3",
+            releaseVersion: releaseVersion,
             channel: "internal",
             architecture: "arm64",
             minimumMacOS: "14.0",
@@ -719,6 +747,7 @@ private final class Fixture {
 private actor MigrationAccountFake: DesktopBindingCoordinating {
     private let bindingID: String
     private var began = 0
+    private var refreshes = 0
     private var confirmations = 0
     private var committed = false
     private let ambiguousCommit: Bool
@@ -747,6 +776,7 @@ private actor MigrationAccountFake: DesktopBindingCoordinating {
     }
 
     func refresh() async throws -> DesktopAccountState {
+        refreshes += 1
         if ambiguousCommit, confirmationAttempted { return .signedOut }
         return committed || resumeBoundBinding
             ? committedState()
@@ -762,6 +792,7 @@ private actor MigrationAccountFake: DesktopBindingCoordinating {
     }
 
     func beginCount() -> Int { began }
+    func refreshCount() -> Int { refreshes }
     func confirmCount() -> Int { confirmations }
     func retryReferences() -> [(id: String?, generation: Int?)] { recordedRetryReferences }
 
