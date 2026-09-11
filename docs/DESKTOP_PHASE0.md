@@ -381,8 +381,9 @@ by this UI-only step.
 - Desktop 0.2.4/build 7 packaged this correction. Installation and a full Mac reboot preserved the
   `account_active` generation-7 journal, automatically restored only managed Hermes and Connector,
   kept the legacy label persistently disabled/unloaded, returned authenticated local Hermes HTTP 200,
-  and re-established Connector TLS. Android account REST/WebSocket traffic after that reboot is the
-  remaining physical migration gate.
+  and re-established Connector TLS. The account-capable Android client then refreshed status and
+  opened `/api/ws`; Connector telemetry recorded 1,572 frames to the phone and 28 frames from it with
+  no tunnel error. This closes the physical Migration Assistant gate.
 
 ### Account-mode presentation release — 2026-09-10
 
@@ -414,6 +415,8 @@ by this UI-only step.
   started only those two managed labels, left the legacy Connector disabled/unloaded, preserved the
   exact account journal/binding generation, returned authenticated Hermes HTTP 200/version 0.21.0,
   and established Connector TLS. Opening Desktop 0.2.4 after login preserved that state.
-- The attached HONOR test phone carried Android 0.1.89, so it was not used to claim account-mode
-  REST/WebSocket acceptance. That post-reboot phone check, Developer ID signing, notarization,
-  stapling, and clean-Mac acceptance remain pending.
+- The attached HONOR test phone carried Android 0.1.89 and was not used for account-mode acceptance.
+  The operator used a separate account-capable Android client to refresh REST status and open a real
+  WebSocket session. Connector telemetry recorded one new `/api/ws` tunnel carrying 1,572 frames to
+  the phone and 28 frames from it without a tunnel error, closing the post-reboot phone check.
+- Developer ID signing, notarization, stapling, and clean-Mac acceptance remain pending.
