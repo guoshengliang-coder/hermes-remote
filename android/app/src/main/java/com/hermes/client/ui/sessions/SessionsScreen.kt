@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -695,7 +696,7 @@ internal fun SectionHeader(
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun SessionRow(
+internal fun SessionRow(
     session: Session,
     isPinned: Boolean,
     defaultProjectPath: String?,
@@ -761,7 +762,11 @@ private fun SessionRow(
             },
             trailingContent = trailing,
             // Tap opens the session; long-press opens the management menu.
-            modifier = Modifier.combinedClickable(
+            // TUNING-TEMP: an exact height from the panel, or nothing at all at its default so
+            // Material sizes the row as it does in production.
+            modifier = (com.hermes.client.ui.tuning.tunedRowHeightOrNull()
+                ?.let { Modifier.height(it) } ?: Modifier)
+                .combinedClickable(
                 onClick = onOpen,
                 onLongClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)

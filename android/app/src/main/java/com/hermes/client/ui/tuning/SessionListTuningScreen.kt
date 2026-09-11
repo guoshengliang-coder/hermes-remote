@@ -111,8 +111,7 @@ fun SessionListTuningScreen(
             Stepper("headerTrackingSp", tuning.headerTrackingSp, d.headerTrackingSp, 0.05f, min = -2f, max = 3f) { onChange(tuning.copy(headerTrackingSp = it)) }
 
             Section(localized(language, "间距", "Spacing"))
-            Stepper("rowMinHeightDp", tuning.rowMinHeightDp, d.rowMinHeightDp, 2f, min = 40f, max = 140f) { onChange(tuning.copy(rowMinHeightDp = it)) }
-            Stepper("rowPaddingVDp", tuning.rowPaddingVDp, d.rowPaddingVDp, 1f, min = 0f, max = 32f) { onChange(tuning.copy(rowPaddingVDp = it)) }
+            Stepper("rowHeightDp（行高，决定行间疏密）", tuning.rowHeightDp, d.rowHeightDp, 2f, min = 40f, max = 140f) { onChange(tuning.copy(rowHeightDp = it)) }
             Stepper("sublineGapDp", tuning.sublineGapDp, d.sublineGapDp, 1f, min = 0f, max = 24f) { onChange(tuning.copy(sublineGapDp = it)) }
             Stepper("statusGapDp", tuning.statusGapDp, d.statusGapDp, 1f, min = 0f, max = 24f) { onChange(tuning.copy(statusGapDp = it)) }
             Stepper("headerPaddingVDp", tuning.headerPaddingVDp, d.headerPaddingVDp, 1f, min = 0f, max = 32f) { onChange(tuning.copy(headerPaddingVDp = it)) }
