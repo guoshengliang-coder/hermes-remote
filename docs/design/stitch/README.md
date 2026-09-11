@@ -21,8 +21,9 @@
 
 1. `list_projects` → 记下「Hermes GO」的 `updateTime`，与锁文件 `project.updateTimeAtPull` 比较。
    没变可以直接停。
-2. `get_project`（或 `list_screens`）→ `screenInstances` 里带 `label` 的条目。只看 `基线：` 与
-   `候选：` 前缀；无标签、`hidden: true` 的忽略。
+2. `get_project`（或 `list_screens`）→ `screenInstances` 里带 `label` 的条目。只看 `基线-` 与
+   `候选-` 前缀（格式 `基线-页面/状态或弹层/暗夜`，见 DESIGN.md §7 第 8 条）；无标签、`hidden: true`
+   的忽略。
 3. 对每张要入库的屏幕 `get_screen` → `htmlCode.downloadUrl` 是带签名的临时地址，当场 `curl` 下载，
    存为 `<key>.html`。缩略图 `screenshot.downloadUrl` 只有 163×512，**不要用它做任何比对**。
 4. `shasum -a 256 <key>.html`，与锁文件 `sha256` 比较。变了的屏幕做第 5 步。
@@ -62,6 +63,6 @@ Sans SC 按 unicode-range 拆成四百多个子集，体量不值得；参照 PN
 
 ## 首批基线（2026-09-11）
 
-会话列表浅 / 暗、「更多」菜单浅 / 暗、搜索结果浅 / 暗，共 6 张，Stitch 标签仍是旧格式
-（「会话列表界面」等），锁文件 `stitchLabel` 记的是拉取时的原文。改标签要在 Stitch 网页里做，
+会话列表浅 / 暗、「更多」菜单浅 / 暗、全局搜索浅 / 暗，共 6 张。Stitch 标签已于 2026-09-11 由
+产品负责人改为 `基线-…` 格式（锁文件 `stitchLabel` 记的是拉取时的原文）。改标签要在 Stitch 网页里做，
 MCP 没有改标签的接口。

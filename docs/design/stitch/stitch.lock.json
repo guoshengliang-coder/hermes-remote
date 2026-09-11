@@ -10,23 +10,48 @@
   "project": {
     "id": "8017882098155799612",
     "title": "Hermes GO",
-    "updateTimeAtPull": "2026-09-10T14:49:48.040372Z"
+    "updateTimeAtPull": "2026-09-11T02:37:17.623342Z"
   },
   "pulledAt": "2026-09-11",
+  "pullHistory": [
+    { "at": "2026-09-11 (第一次)", "projectUpdateTime": "2026-09-10T14:49:48.040372Z", "result": "6 张入库" },
+    { "at": "2026-09-11 (第二次，标签改为 基线- 格式后)", "projectUpdateTime": "2026-09-11T02:37:17.623342Z",
+      "result": "标签 6/6 符合新格式；5 张 HTML 内容变化（见 specChanges），仅 sessions.chats.default.more-menu.light 未变" }
+  ],
+  "specChanges": {
+    "_": "第二次拉取发现的、尚未落到 design-conformance.json / DESIGN.md / 代码的规格变更。需产品负责人确认是有意改稿还是误改；确认后按 §7 第 8 条顺序落地。",
+    "pending": [
+      { "screens": ["sessions.chats.default.light", "sessions.chats.default.dark"],
+        "change": "行标题 15px → 15.5px（浅色用内联 style，暗色改类名）；字重改为按分组区分：「需要你处理」两行 600，其余行 500",
+        "conflictsWith": "fixture type.row.title = 15/600/21.75/-0.15（且 §5.2 的字号表）；行高若仍按 leading 1.45 应为 22.475" },
+      { "screens": ["sessions.chats.default.light"],
+        "change": "状态色改为内联覆盖：等待 = #B45309、已完成 = #2E7D32（与本仓 StatusColors 的 GOOD 相同）",
+        "conflictsWith": "fixture roles status.waiting design=#C2410C、status.completed design=#047857 —— 稿子向实现靠拢，fixture 的 design 列需要更新，impl 不变" },
+      { "screens": ["sessions.chats.default.dark", "sessions.chats.default.more-menu.dark"],
+        "change": "FAB 改为 56dp（w-14）、底色 #181C24、1px 白 12% 描边、28dp 描边式 SVG 加号（stroke 2.2）替代 Material Symbol",
+        "conflictsWith": "无冲突：与 §5.2 / §2.7 第 1 条的 FAB 定案一致（近黑 + 白色 28dp 加号 + 深色描边）；暗色底色 #181C24 与本仓深色档 #1E232B 不同，fixture fab.container 深色列需裁决" },
+      { "screens": ["search.results.light"],
+        "change": "查询词高亮字重 semibold → medium；底部汇总文字色 → #64748B",
+        "conflictsWith": "§5.2 搜索页：高亮 = primary 色 + Medium 字重 —— 稿子改后与文档一致，无需改代码" },
+      { "screens": ["search.results.dark"],
+        "change": "搜索框加 0.5px 白 8% 描边；底部汇总文字色 → #94A3B8",
+        "conflictsWith": "SearchField 是全 app 唯一形态（填充式、无描边）；0.5px 描边需裁决是否采纳" }
+    ]
+  },
   "canvas": { "widthCssPx": 390, "note": "1 CSS px = 1 dp（DESIGN.md §3.4）；Stitch 元数据里的 width 780 / height 是 2x 像素" },
   "screens": [
     {
       "key": "sessions.chats.default.light",
       "screenId": "446ebc3297a645909fc6551848c2d9c8",
-      "stitchLabel": "会话列表界面",
+      "stitchLabel": "基线-会话列表",
       "stitchTitle": "会话列表分组优化 - 方案A：语义垂直色彩立柱版",
       "page": "sessions", "view": "chats", "state": "default", "overlay": null, "theme": "light",
       "design": "docs/DESIGN.md §5.2",
       "code": ["android/app/src/main/java/com/hermes/client/ui/sessions/SessionsScreen.kt"],
       "conformance": "android/app/src/test/resources/design-conformance.json（roles / type 的 design 列从本稿抽取）",
       "html": "sessions.chats.default.light.html",
-      "sha256": "967b575c3713632f2c384acb2cf02fe96b3449da4647db1f3e003a5bb9e6fb22",
-      "canvasHeightCssPx": 1223,
+      "sha256": "bd68d1153fccc0cd9b539c2b21a1f968fac434ed8187da0c9c809606461ab877",
+      "canvasHeightCssPx": 1229,
       "status": "baseline",
       "implemented": "implemented",
       "coversRowStates": ["waiting-confirm", "waiting-answer", "running-tool", "completed", "failed", "idle"],
@@ -39,15 +64,15 @@
     {
       "key": "sessions.chats.default.dark",
       "screenId": "971314ea6d794c49b45cce7adbaea110",
-      "stitchLabel": "Hermes 会话页 - 温润极客暗夜阅读版 (深色模式)",
+      "stitchLabel": "基线-会话列表/暗夜",
       "stitchTitle": "Hermes 会话页 - 温润极客暗夜阅读版 (深色模式)",
       "page": "sessions", "view": "chats", "state": "default", "overlay": null, "theme": "dark",
       "design": "docs/DESIGN.md §5.2、§2.1、§2.7",
       "code": ["android/app/src/main/java/com/hermes/client/ui/sessions/SessionsScreen.kt", "android/app/src/main/java/com/hermes/client/ui/theme/Color.kt", "android/app/src/main/java/com/hermes/client/ui/theme/StatusColors.kt"],
       "conformance": "android/app/src/test/resources/design-conformance.json（roles 的暗色列）",
       "html": "sessions.chats.default.dark.html",
-      "sha256": "c36a6f1c47505cb60f60bdc4a2f779df903f6b64633675c5bb4df864ae7984dd",
-      "canvasHeightCssPx": 1223,
+      "sha256": "aea4d75e4306c92d0e967d1707dcb298994950b960972ad942d79194c9b62484",
+      "canvasHeightCssPx": 1229,
       "status": "baseline",
       "implemented": "implemented",
       "coversRowStates": ["waiting-confirm", "waiting-answer", "running-tool", "completed", "failed", "idle"],
@@ -56,7 +81,7 @@
     {
       "key": "sessions.chats.default.more-menu.light",
       "screenId": "3800f060cc204be5bb90124fe12e5d0c",
-      "stitchLabel": "会话列表界面-更多菜单",
+      "stitchLabel": "基线-会话列表/更多菜单",
       "stitchTitle": "会话页 - 顶栏「更多」下拉菜单弹出态",
       "page": "sessions", "view": "chats", "state": "default", "overlay": "more-menu", "theme": "light",
       "design": "docs/DESIGN.md §5.2（顶栏）、§5.16（「更多」承载项目与已归档）",
@@ -74,13 +99,13 @@
     {
       "key": "sessions.chats.default.more-menu.dark",
       "screenId": "fb468bd5383541ac98a3eac1618d439f",
-      "stitchLabel": "会话列表界面-更多",
+      "stitchLabel": "基线-会话列表/更多菜单/暗夜",
       "stitchTitle": "会话页 - 顶栏「更多」下拉菜单弹出态 (温润极客暗夜版)",
       "page": "sessions", "view": "chats", "state": "default", "overlay": "more-menu", "theme": "dark",
       "design": "docs/DESIGN.md §5.2、§5.16",
       "code": ["android/app/src/main/java/com/hermes/client/ui/sessions/SessionsScreen.kt（ChatsTopBar）"],
       "html": "sessions.chats.default.more-menu.dark.html",
-      "sha256": "9d24523993a0f621557201d480a7c6487ac47a67bbb02454559ef68237b5f1c2",
+      "sha256": "c3a9db46f5629b0712ae978b375e8c278f1930bb2d76d92d5661e20dd9bc304c",
       "canvasHeightCssPx": 1223,
       "status": "baseline",
       "implemented": "implemented",
@@ -89,13 +114,13 @@
     {
       "key": "search.results.light",
       "screenId": "e64644f1ecd74ee7afa2fd1f5490406c",
-      "stitchLabel": "会话列表-搜索界面",
+      "stitchLabel": "基线-全局搜索",
       "stitchTitle": "Hermes 会话 - 全屏搜索页 (温润纸质浅色版)",
       "page": "search", "view": null, "state": "results", "overlay": null, "theme": "light",
       "design": "docs/DESIGN.md §5.2 搜索页",
       "code": ["android/app/src/main/java/com/hermes/client/ui/sessions/SearchScreen.kt", "android/app/src/main/java/com/hermes/client/ui/sessions/SearchResultRows.kt", "android/app/src/main/java/com/hermes/client/ui/components/SearchField.kt"],
       "html": "search.results.light.html",
-      "sha256": "55199321a626e29612f6900d55001d69e5e862fb21dd69d9a9be2d588aa5546d",
+      "sha256": "17bc311a55deaf2c2001a20fa009a2aaa3c6fc8fa2bd5a65b5194368d35b3769",
       "canvasHeightCssPx": 913,
       "status": "baseline",
       "implemented": "implemented",
@@ -110,13 +135,13 @@
     {
       "key": "search.results.dark",
       "screenId": "b293dacfbca246f7ae3fc8792bf1da4b",
-      "stitchLabel": "会话列表-搜索界面（暗夜）",
+      "stitchLabel": "基线-全局搜索/暗夜",
       "stitchTitle": "Hermes 会话 - 全屏搜索页 (温润极客暗夜版)",
       "page": "search", "view": null, "state": "results", "overlay": null, "theme": "dark",
       "design": "docs/DESIGN.md §5.2 搜索页",
       "code": ["android/app/src/main/java/com/hermes/client/ui/sessions/SearchScreen.kt"],
       "html": "search.results.dark.html",
-      "sha256": "6b794df2d21d4675e378d2703a296afb6e88e0b646b6fa940419036296c9db4f",
+      "sha256": "4e90b43e046bcb0547b188bb91cac95392911dc9c160340559add07a801530a7",
       "canvasHeightCssPx": 920,
       "status": "baseline",
       "implemented": "implemented",
@@ -127,16 +152,17 @@
     {
       "light": "sessions.chats.default.light", "dark": "sessions.chats.default.dark",
       "geometryDiff": [
-        "行标题 <h2>：浅 font-semibold(600) / 暗 font-medium(500) —— 以浅色为准，fixture type.row.title = 600",
-        "FAB 加号：浅 24px / 暗 28px —— §5.2 定案 28dp（采暗色值，理由见 §2.7 第 1 条）"
+        "（第二次拉取后）行标题两版一致：15.5px，「需要你处理」两行 600、其余 500 —— 浅色用内联 style、暗色用类名，表达不同但值相同；是否采纳见 specChanges",
+        "FAB：浅 52dp + Material 加号 24px / 暗 56dp + 描边 SVG 加号 28dp —— 暗色版与 §5.2 定案一致，浅色稿未同步改；实现以定案为准",
+        "（第一次拉取时）行标题曾是浅 600 / 暗 500 整列不一致，第二次已由稿子自行收敛"
       ]
     },
     {
       "light": "sessions.chats.default.more-menu.light", "dark": "sessions.chats.default.more-menu.dark",
       "geometryDiff": [
-        "行标题字重 600 / 500，FAB 加号 24 / 28 —— 同上",
+        "行标题字重：浅 600 整列 / 暗 600、500 混用 —— 浅色的更多菜单稿未随列表稿更新（它是唯一没变的一张）；以列表稿为准",
         "菜单宽 w-[172px] / w-[176px]；菜单项图标 19px / 20px；暗色多一处 duration-150 淡入 —— 以浅色为准，图标按本仓 20dp",
-        "FAB 容器 52px / 56dp(w-14) —— §5.2 未记录 FAB 直径，NewSessionFab 以代码为准，待下次 fixture 抽取时补 role"
+        "FAB：浅 52dp + Material 加号 24px / 暗 56dp + 描边 SVG 加号 28dp（第二次拉取起）—— 暗色版与 §5.2 定案一致；§5.2 未记录 FAB 直径，NewSessionFab 以代码为准，待下次 fixture 抽取时补 role"
       ]
     },
     {
