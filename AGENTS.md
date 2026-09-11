@@ -176,6 +176,10 @@ layered, and the layers are **not** interchangeable — each covers something th
 - **L2 — attached physical device.** Real look-and-feel, gestures, and vendor ROM behaviour
   (notification delivery, background survival, battery optimisation). Run it whenever a device is
   attached. `docs/DESIGN.md` settles look-and-feel disputes on a device, never on an emulator.
+  Several phones may be attached at once, and they do **not** substitute for one another: name the
+  device a result came from instead of writing "verified on device", because ROM behaviour is
+  exactly what differs between vendors. One device at or above `targetSdk` closes the targetSdk
+  gap for everyone; `ANDROID_SERIAL=<serial>` picks which one the tooling targets by default.
 - **L3 — emulator.** Platform behaviour gated on `targetSdk`, clean-install state, and the
   size/density matrix. A device running below `targetSdk` cannot exercise those paths at all.
 
@@ -223,7 +227,8 @@ machine launch check.
 - For Android artifacts, confirm the signing certificate matches `docs/SIGNING.md`.
 - Report tests run, tests not run, the versioned APK path when applicable, and any deployment performed.
 - For Android UI or behaviour work, state which verification layers ran (L1/L2/L3) and which were
-  skipped or unavailable on this host. `./scripts/dev/android-capabilities.sh` prints that summary.
+  skipped or unavailable on this host, naming the device or emulator each L2/L3 result came from.
+  `./scripts/dev/android-capabilities.sh` prints that summary.
 - Commit and push only when the user or orchestrating workflow authorizes it. Never include
   `environment.md` in a commit.
 
