@@ -24,6 +24,12 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "无法设置默认模型，请重试。", "Couldn't set the default model. Retry.")
         AppErrorCode.MODEL_REASONING_FAILED ->
             localized(language, "无法调整推理强度，请重试。", "Couldn't change the reasoning effort. Retry.")
+        AppErrorCode.SLASH_WORKER_UNAVAILABLE ->
+            localized(
+                language,
+                "Mac 上的 Hermes 无法执行命令，请查看详情。",
+                "The Hermes on your Mac can't run commands. See the details.",
+            )
         AppErrorCode.CONFIG_READ_FAILED ->
             localized(language, "无法加载配置，请重试。", "Couldn't load the configuration. Retry.")
         AppErrorCode.CONFIG_WRITE_FAILED ->

@@ -18,6 +18,9 @@ The current automated suite covers:
 - legacy launchd/install/log discovery through injected command execution;
 - log/header/query/known-secret redaction;
 - profile validation that rejects insecure remote HTTP, URL credentials, queries, and fragments;
+- that the staged Hermes component is importable by a **child** process with no `PYTHONPATH`
+  (`scripts/test/desktop-managed-python-path.test.mjs`) — upstream strips the repo root out of every
+  child environment, so a bundle that relies on `PYTHONPATH` alone cannot run slash commands;
 - exact Android v1 JSON payload compatibility;
 - Core Image QR output decoded back to the exact v1 payload with the native QR detector, including payload-size rejection;
 - authenticated `/api/status` request path and header behavior;
@@ -201,10 +204,19 @@ Mac merely because email login or `/v2/devices` succeeds.
    managed LaunchAgents, healthy local Hermes, and an internal snapshot row whose binding UUID and
    generation match Desktop state. Before any later token-storage repair, record the active managed
    release and require the signed runtime capability boundary; 0.3.0 must remain unchanged.
-4. From Android, exercise one REST status request and one real WebSocket session through the selected
-   device **before calling the Desktop candidate accepted or proceeding to a reboot**. An established
-   Connector control socket and a loopback HTTP 200 do not satisfy this gate. For a shared Mac, repeat
-   using the grantee account and confirm revocation closes only that grantee's live stream.
+4. From Android, exercise one REST status request, one real WebSocket session, **and one slash
+   command** through the selected device **before calling the Desktop candidate accepted or
+   proceeding to a reboot**. An established Connector control socket and a loopback HTTP 200 do not
+   satisfy this gate. For a shared Mac, repeat using the grantee account and confirm revocation
+   closes only that grantee's live stream.
+
+   The slash command is not padding. A prompt exercises the gateway in-process; a slash command is
+   the only thing that makes Hermes spawn a **child** process, and a child gets a different
+   environment from its parent. Managed release 0.3.0 served prompts perfectly and could not run a
+   single slash command, because the child could not import `tui_gateway` — and nothing in this
+   matrix would have caught it (HG-28). Switching the model in the Android model picker is the
+   cheapest way to exercise it: it sends `/model … --session`. A failure appears as `slash.exec`
+   error 5030 in the device diagnostics and `HR-RPC-007` on screen.
 5. Restart Android and Desktop independently, then reboot the Mac. Require the same account binding,
    automatic managed-service recovery, a newer process-local `connectedAt`, and successful Android
    REST/WebSocket traffic without re-entering a legacy Token.

@@ -82,6 +82,29 @@ contract on both components. The historical 0.3.0 Connector accepts only `HERMES
 must retain its inline LaunchAgent value; Desktop must not infer current-runtime support merely from
 an embedded manifest URL that points to a newer release.
 
+### Import path: the bundle must not depend on PYTHONPATH
+
+The staged `hermes_server` component keeps the Hermes sources under `app/` and its dependencies
+under `runtime/site-packages/`, and `bin/hermes-server` puts both on `PYTHONPATH`. That is enough
+for the process the launcher starts and **not** enough for the processes that process starts.
+
+Hermes spawns children — the slash worker among them — through
+`tools/environments/local.py`, which deliberately strips the Hermes repo root back out of the
+child's `PYTHONPATH`. In the bundle `app/` is that repo root, so the child was left with no route to
+`tui_gateway` at all: managed release 0.3.0 could not run a single slash command, and the Android
+model picker, which applies a selection with `/model … --session`, failed every time (HG-28).
+
+The bundle therefore also writes `_hermes_go_managed_paths.pth` into the interpreter's own
+site-packages (`runtime/python/lib/python3.11/site-packages/`). `site` processes `.pth` files for
+real site directories on every start of that interpreter, and no `PYTHONPATH` edit can remove them.
+The line derives the bundle root from `sys.prefix` at run time — never a baked-in absolute path,
+which would not survive extraction on another machine — and guards each entry with `isdir` so a
+partially extracted bundle degrades instead of breaking every interpreter start.
+
+**Constraint for anything added later:** if a child process must import it, it has to be reachable
+without `PYTHONPATH`. `scripts/test/desktop-managed-python-path.test.mjs` holds that line, and
+asserts the pre-fix failure first so it cannot pass for the wrong reason.
+
 ## Envelope
 
 The UTF-8 JSON envelope has exactly four fields:

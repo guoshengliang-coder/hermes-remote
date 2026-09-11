@@ -108,6 +108,21 @@ Ignoring it costs more than a wasted round trip. Afterwards `prompt.submit` answ
 fixes, 4007 is the durable lookup missing from the profile's `state.db` — terminal. HG-29 was
 exactly this, surfaced to the user as a tap-to-retry that could never succeed.
 
+**Upstream strips its own repo root out of every child process's `PYTHONPATH`.**
+`tools/environments/local.py` builds the environment for anything Hermes spawns, and
+`_strip_hermes_owned_pythonpath` (`tools/environments/local_pythonpath.py`) removes the entries it
+recognises as Hermes-owned — the repo root and the runtime's site-packages — so a child Python of a
+different version cannot load the backend's C extensions. This is deliberate upstream behaviour, it
+applies to children started with `sys.executable` too (the slash worker: `tui_gateway/server.py`,
+`[sys.executable, "-m", "tui_gateway.slash_worker", …]`), and we cannot turn it off.
+
+The consequence for us is a hard constraint on packaging: **anything the managed bundle needs a
+child process to import must be importable without `PYTHONPATH`.** Hermes GO's bundle keeps the
+Hermes sources in `app/`, which IS the repo root, so `PYTHONPATH` was its only route — and the strip
+removed it. Every slash command died with `ModuleNotFoundError: No module named 'tui_gateway'`
+(HG-28, managed release 0.3.0). The bundle now also carries a `.pth` in the interpreter's own
+site-packages, a channel the strip does not reach; see `docs/DESKTOP_RELEASE_MANIFEST.md`.
+
 **A new session has no REST row until its first message persists.**
 `GET /api/sessions/<id>/messages` answers `404 {"detail":"Session not found"}` for a zero-message
 session and only turns into `200` once a turn lands. That 404 is not evidence the create failed and
@@ -283,6 +298,11 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
    `MEDIA_DELIVERY_EXTENSIONS`.
 3. Confirm the RPC method names in section 3 still exist, especially `prompt.submit`,
    `session.create`, `slash.exec`, `complete.path`.
+3b. Re-check how Hermes spawns its slash worker and how `tools/environments/local.py` builds that
+   child's environment. If the spawn switches away from `sys.executable`, or the `PYTHONPATH`
+   stripping changes shape, the managed bundle's import path assumption moves with it. Cheapest
+   proof, against an extracted release: with `PYTHONPATH` unset, `<root>/runtime/python/bin/
+   python3.11 -s -c "import tui_gateway.slash_worker"` must succeed.
 4. Confirm `PLATFORM_HINTS` (`agent/prompt_builder.py`) still describes the client surfaces the
    same way — it is what tells the model whether it can deliver attachments at all.
 5. Confirm the `platform_hints` config override still resolves: on the Mac, `_resolve_platform_hint`

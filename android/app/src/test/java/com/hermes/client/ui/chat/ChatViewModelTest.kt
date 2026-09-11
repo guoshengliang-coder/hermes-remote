@@ -878,11 +878,11 @@ class ChatViewModelTest {
         assertTrue("onDone must be invoked so the caller dismisses the sheet", onDoneCalled)
     }
 
-    // A worker failure ("slash worker closed pipe") throws — it must surface in the sheet's error
-    // (not the chat transcript), and the sheet must stay open (onDone not invoked) so the user can
-    // retry or pick a different model.
+    // A refused switch surfaces in the sheet's error (not the chat transcript), and the sheet stays
+    // open (onDone not invoked) so the user can retry or pick a different model.
     @Test fun onSelectFromSheet_failure_surfaces_sheet_error() = runTest {
-        coEvery { chatRepo.slashExec("s1", any()) } throws RuntimeException("slash worker closed pipe")
+        coEvery { chatRepo.slashExec("s1", any()) } throws
+            com.hermes.client.data.network.GatewayRpcException(5000, "could not resolve credentials")
         val vm = buildVm()
         vm.open("s1"); advanceUntilIdle()
 
@@ -890,7 +890,57 @@ class ChatViewModelTest {
         vm.onSelectFromSheet("anthropic", "opus") { onDoneCalled = true }
         advanceUntilIdle()
 
-        assertTrue("a failed switch must surface a sheet error", vm.modelSheet.value.error != null)
+        val error = vm.modelSheet.value.error
+        assertEquals("HR-RPC-004", error?.code?.value)
+        assertTrue("a refused switch is worth retrying", error?.retryable == true)
+        assertFalse("the sheet must stay open on failure", onDoneCalled)
+    }
+
+    // HG-28. `slash.exec` 5030 means the Mac's Hermes could not start its slash worker at all — the
+    // managed 0.3.0 bundle shipped sources that its own child processes could not import, so every
+    // slash command was dead. Collapsing that into HR-RPC-004 told the user "请重试" for something
+    // no number of retries could fix; it needs its own non-retryable code.
+    @Test fun onSelectFromSheet_maps_a_dead_slash_worker_to_its_own_terminal_code() = runTest {
+        coEvery { chatRepo.slashExec("s1", any()) } throws
+            com.hermes.client.data.network.GatewayRpcException(
+                5030,
+                "slash worker closed pipe: ... (ModuleNotFoundError: No module named 'tui_gateway')",
+            )
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+
+        var onDoneCalled = false
+        vm.onSelectFromSheet("anthropic", "opus") { onDoneCalled = true }
+        advanceUntilIdle()
+
+        val error = vm.modelSheet.value.error
+        assertEquals("HR-RPC-007", error?.code?.value)
+        assertFalse("retrying a worker that cannot start is a lie", error?.retryable == true)
+        assertFalse("the sheet must stay open on failure", onDoneCalled)
+        assertTrue(
+            "the cause must survive for diagnostics",
+            error?.technicalCause?.contains("tui_gateway") == true,
+        )
+    }
+
+    // "恢复默认" runs the same slash, so it must classify failures the same way.
+    @Test fun restoreDefaultModel_maps_a_dead_slash_worker_to_its_own_terminal_code() = runTest {
+        coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "def-model") }
+        coEvery { modelRepo.providers(any()) } returns listOf(
+            com.hermes.client.data.network.ModelProviderDto(
+                slug = "prov", isCurrent = true, models = listOf("def-model"),
+            ),
+        )
+        coEvery { chatRepo.slashExec("s1", any()) } throws
+            com.hermes.client.data.network.GatewayRpcException(5030, "slash worker closed pipe")
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+
+        var onDoneCalled = false
+        vm.restoreDefaultModel { onDoneCalled = true }
+        advanceUntilIdle()
+
+        assertEquals("HR-RPC-007", vm.modelSheet.value.error?.code?.value)
         assertFalse("the sheet must stay open on failure", onDoneCalled)
     }
 

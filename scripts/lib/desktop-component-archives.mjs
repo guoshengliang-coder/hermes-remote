@@ -148,6 +148,36 @@ export async function loadComponentConfig(configPath) {
   return config;
 }
 
+/**
+ * Name of the `.pth` dropped into the bundled interpreter's own site-packages.
+ * `_` first so `site` processes it before anything a dependency ships.
+ */
+export const MANAGED_SITE_PATH_FILE = "_hermes_go_managed_paths.pth";
+
+/**
+ * A `.pth` that puts the bundle's `app/` and `runtime/site-packages/` on `sys.path` for EVERY
+ * process started with this interpreter — not just the ones the launcher starts.
+ *
+ * The launcher's `PYTHONPATH` is not enough, and this is not belt-and-braces. Hermes spawns its
+ * slash worker as a child of `sys.executable` and builds that child's environment through
+ * `tools/environments/local.py`, which deliberately strips the Hermes repo root back out of
+ * `PYTHONPATH` (so a child Python of a different version cannot load the backend's C extensions).
+ * In a normal editable install that is harmless, because `tui_gateway` lives in site-packages. In
+ * this bundle `app/` IS the repo root and `PYTHONPATH` is its only route, so the strip left the
+ * worker unable to import `tui_gateway` at all — every slash command (`/model`, `/compact`, …)
+ * died with `ModuleNotFoundError` (HG-28).
+ *
+ * `site` processes `.pth` files for real site directories, which `PYTHONPATH` entries are not, so
+ * the path arrives through a channel the strip does not touch. The root is derived from
+ * `sys.prefix` at run time rather than baked in, so the bundle stays relocatable, and each entry
+ * is guarded by `isdir` so a partially-extracted bundle degrades instead of raising on startup.
+ */
+export function managedSitePathLine() {
+  return 'import os, sys; _r = os.path.dirname(os.path.dirname(sys.prefix)); ' +
+    '[sys.path.insert(0, _p) for _p in (os.path.join(_r, "runtime", "site-packages"), ' +
+    'os.path.join(_r, "app")) if os.path.isdir(_p) and _p not in sys.path]\n';
+}
+
 async function stageHermes({ destination, hermesRoot, pythonRoot, sitePackages, version, sourceCommit, architecture }) {
   await mkdir(path.join(destination, "bin"), { recursive: true, mode: 0o700 });
   await mkdir(path.join(destination, "runtime/python/bin"), { recursive: true, mode: 0o700 });
@@ -158,6 +188,11 @@ async function stageHermes({ destination, hermesRoot, pythonRoot, sitePackages, 
   await copyStrict(path.join(pythonRoot, "bin/python3.11"), path.join(destination, "runtime/python/bin/python3.11"));
   await copyStrict(path.join(pythonRoot, "lib/python3.11"), path.join(destination, "runtime/python/lib/python3.11"));
   await copyStrict(sitePackages, path.join(destination, "runtime/site-packages"));
+  const interpreterSitePackages = path.join(destination, "runtime/python/lib/python3.11/site-packages");
+  await mkdir(interpreterSitePackages, { recursive: true, mode: 0o755 });
+  await writeFile(path.join(interpreterSitePackages, MANAGED_SITE_PATH_FILE), managedSitePathLine(), {
+    mode: 0o644,
+  });
   for (const directory of HERMES_SOURCE_DIRECTORIES) {
     await copyStrict(
       path.join(hermesRoot, directory),
