@@ -225,8 +225,12 @@ HR_FORCE_TIER=low ./scripts/dev/emulator.sh start   # exercise the small-host pa
 logic: the low/mid branches are otherwise only ever executed on whichever machine happens to be
 small, so they rot unnoticed on the machine you develop on.
 
+When the probe reports a layer missing, `docs/DEVICE_TESTING.md` §7 says how to add it on that machine.
+
 To give one machine a larger Gradle heap, set it in `~/.gradle/gradle.properties` (per-user, outside
-the repository), not in the committed one.
+the repository), not in the committed one — but do not expect it to speed builds up: measured, it
+did not (`docs/DEVICE_TESTING.md` §8). Knowledge about hosts and devices that holds for anyone on
+this project goes into that document, not into one machine's private notes.
 
 Report which layers ran and which did not. Do not claim device verification when only JVM tests were
 run. When a layer is unavailable on the host, or the attached device's SDK is below `targetSdk`, say
