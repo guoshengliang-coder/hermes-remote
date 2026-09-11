@@ -169,6 +169,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 }
             }
             _ = try journal.transition(runID: runID, to: .accountActive)
+            try installer.commitHermesSessionTokenFileMigration()
             return DesktopMigrationOutcome(
                 runID: UUID(uuidString: runID)!.uuidString.lowercased(),
                 releaseVersion: manifest.releaseVersion,
@@ -279,6 +280,74 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         return services.legacyLoaded
     }
 
+    /// Moves a committed pre-contract installation from inline LaunchAgent credentials to the
+    /// private token-file contract. The service restart and both health proofs are part of the
+    /// transaction; any failure restores the exact previous files and restarts that configuration.
+    @discardableResult
+    public func reconcileCommittedHermesSessionTokenStorage() async throws -> Bool {
+        guard let preview = try journal.loadReadOnly(),
+              preview.state == .accountActive,
+              let previewBindingID = preview.bindingID,
+              let previewGeneration = preview.bindingGeneration
+        else { return false }
+        let operationLease = try journal.acquireOperationLease()
+        defer { withExtendedLifetime(operationLease) {} }
+        guard let recorded = try journal.load(),
+              recorded.state == .accountActive,
+              recorded.bindingID == previewBindingID,
+              recorded.bindingGeneration == previewGeneration
+        else { return false }
+
+        let preflight = try await account.refresh()
+        guard hasExactBoundBinding(
+            preflight,
+            bindingID: previewBindingID,
+            generation: previewGeneration
+        ) else { throw DesktopMigrationCoordinatorError.invalidBindingState }
+
+        let services = launchAgent.inspectAllowingDuplicateConnector()
+        guard services.accountLoaded, services.hermesLoaded else {
+            throw DesktopMigrationCoordinatorError.invalidStartingState
+        }
+        if services.legacyLoaded {
+            try launchAgent.suppressTransferredLegacyForActiveManagedInstallation()
+        }
+        guard let migration = try installer.prepareHermesSessionTokenFileMigration() else {
+            return false
+        }
+
+        do {
+            let checkpoint = try hermesReadiness.checkpoint(logURL: migration.hermesLogURL)
+            try launchAgent.stopAccount()
+            try launchAgent.stopHermes()
+            try launchAgent.startHermes(plistURL: migration.hermesLaunchAgentURL)
+            guard try await hermesReadiness.waitUntilReady(
+                checkpoint: checkpoint,
+                contract: .serveV1,
+                maximumAttempts: maximumHealthPolls,
+                delayNanoseconds: healthPollDelayNanoseconds
+            ) else { throw DesktopMigrationCoordinatorError.hermesHealthTimedOut }
+            try launchAgent.startAccount(plistURL: migration.connectorLaunchAgentURL)
+            try await waitForExistingCommittedBinding(
+                bindingID: previewBindingID,
+                generation: previewGeneration
+            )
+            try installer.commitHermesSessionTokenFileMigration()
+            return true
+        } catch {
+            do {
+                try await rollbackHermesSessionTokenFileMigration(
+                    migration,
+                    bindingID: previewBindingID,
+                    generation: previewGeneration
+                )
+            } catch {
+                throw DesktopMigrationCoordinatorError.rollbackFailed
+            }
+            throw error
+        }
+    }
+
     private func waitForCandidate(bindingID: String, generation: Int, runID: String) async throws {
         var authenticated = false
         for attempt in 0..<maximumHealthPolls {
@@ -326,6 +395,46 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             }
         }
         throw DesktopMigrationCoordinatorError.healthTimedOut
+    }
+
+    private func waitForExistingCommittedBinding(bindingID: String, generation: Int) async throws {
+        for attempt in 0..<maximumHealthPolls {
+            let state = try await account.refresh()
+            guard hasExactBoundBinding(state, bindingID: bindingID, generation: generation) else {
+                throw DesktopMigrationCoordinatorError.invalidBindingState
+            }
+            if isCommitted(state, bindingID: bindingID, generation: generation) { return }
+            if attempt + 1 < maximumHealthPolls, healthPollDelayNanoseconds > 0 {
+                try await Task.sleep(nanoseconds: healthPollDelayNanoseconds)
+            }
+        }
+        throw DesktopMigrationCoordinatorError.healthTimedOut
+    }
+
+    private func rollbackHermesSessionTokenFileMigration(
+        _ migration: DesktopHermesSessionTokenMigration,
+        bindingID: String,
+        generation: Int
+    ) async throws {
+        var services = launchAgent.inspectAllowingDuplicateConnector()
+        guard !services.legacyLoaded else {
+            throw DesktopMigrationCoordinatorError.invalidStartingState
+        }
+        if services.accountLoaded { try launchAgent.stopAccount() }
+        services = launchAgent.inspectAllowingDuplicateConnector()
+        if services.hermesLoaded { try launchAgent.stopHermes() }
+        try installer.rollbackHermesSessionTokenFileMigration(migration)
+
+        let checkpoint = try hermesReadiness.checkpoint(logURL: migration.hermesLogURL)
+        try launchAgent.startHermes(plistURL: migration.hermesLaunchAgentURL)
+        guard try await hermesReadiness.waitUntilReady(
+            checkpoint: checkpoint,
+            contract: .serveV1,
+            maximumAttempts: maximumHealthPolls,
+            delayNanoseconds: healthPollDelayNanoseconds
+        ) else { throw DesktopMigrationCoordinatorError.hermesHealthTimedOut }
+        try launchAgent.startAccount(plistURL: migration.connectorLaunchAgentURL)
+        try await waitForExistingCommittedBinding(bindingID: bindingID, generation: generation)
     }
 
     private func rollback(
@@ -416,6 +525,18 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             && binding.connector.online
             && binding.hermes.reachable == true
             && binding.endToEnd.healthy == true
+    }
+
+    private func hasExactBoundBinding(
+        _ state: DesktopAccountState,
+        bindingID: String,
+        generation: Int
+    ) -> Bool {
+        guard case .signedIn(let dashboard) = state,
+              dashboard.binding.state == "bound",
+              let binding = dashboard.binding.binding
+        else { return false }
+        return binding.id == bindingID && binding.generation == generation
     }
 
     private func isPending(_ state: DesktopAccountState, bindingID: String, generation: Int) -> Bool {

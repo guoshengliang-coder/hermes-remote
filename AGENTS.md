@@ -61,8 +61,9 @@ branch; and the separation of the merge, version and publish gates. Read it befo
 - `deploy/`: deployment and service templates; never store live credentials here.
 - `docs/`: architecture, environment shape, deployment record, smoke-test instructions, the
   cross-subproject integration rules (`docs/INTEGRATION.md`), the Android UI design contract
-  (`docs/DESIGN.md`), the upstream Hermes contract inventory (`docs/HERMES_CONTRACT.md`), and the
-  read-only incident runbook for session-state problems (`docs/DIAGNOSTICS.md`).
+  (`docs/DESIGN.md`), the upstream Hermes contract inventory (`docs/HERMES_CONTRACT.md`), the
+  read-only incident runbook for session-state problems (`docs/DIAGNOSTICS.md`), and the hands-on
+  guide for operating a physical Android device (`docs/DEVICE_TESTING.md`).
 
 `docs/HERMES_CONTRACT.md` inventories what this repository consumes from **upstream Hermes** — wire
 field names, RPC methods, text grammars, and one hand-copied constant — none of which we own or can
@@ -179,7 +180,13 @@ layered, and the layers are **not** interchangeable — each covers something th
   Several phones may be attached at once, and they do **not** substitute for one another: name the
   device a result came from instead of writing "verified on device", because ROM behaviour is
   exactly what differs between vendors. `ANDROID_SERIAL=<serial>` picks which one the tooling
-  targets by default. How many phones a change actually needs:
+  targets by default. How to operate a phone — which APK to install, each vendor's install
+  confirmation page, the dev stack, and restoring the phone afterwards — is in
+  `docs/DEVICE_TESTING.md`; write new device gotchas back there. Install with
+  `scripts/dev/device-install.py`: it confirms install pages it has a recipe for, and on an unknown
+  page stops, reports `NEEDS_ATTENTION` and waits for an AI session or a person to resolve it; the
+  doc defines what may be confirmed and when a resolved page becomes a recipe. How many phones a
+  change needs:
 
   | Change | Devices needed | Why |
   |---|---|---|
@@ -218,8 +225,12 @@ HR_FORCE_TIER=low ./scripts/dev/emulator.sh start   # exercise the small-host pa
 logic: the low/mid branches are otherwise only ever executed on whichever machine happens to be
 small, so they rot unnoticed on the machine you develop on.
 
+When the probe reports a layer missing, `docs/DEVICE_TESTING.md` §7 says how to add it on that machine.
+
 To give one machine a larger Gradle heap, set it in `~/.gradle/gradle.properties` (per-user, outside
-the repository), not in the committed one.
+the repository), not in the committed one — but do not expect it to speed builds up: measured, it
+did not (`docs/DEVICE_TESTING.md` §8). Knowledge about hosts and devices that holds for anyone on
+this project goes into that document, not into one machine's private notes.
 
 Report which layers ran and which did not. Do not claim device verification when only JVM tests were
 run. When a layer is unavailable on the host, or the attached device's SDK is below `targetSdk`, say

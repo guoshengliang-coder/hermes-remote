@@ -94,6 +94,12 @@ The current automated suite covers:
 - private installation-local Hermes token creation/reuse, unsafe file rejection, no token value in
   either LaunchAgent, signed-wrapper file validation, and Connector file loading with no symlink or
   group/world-readable fallback;
+- committed pre-contract token migration preserving the existing 64-character local credential,
+  removing both supported inline field names, writing only the canonical `0600` token file reference,
+  and recording completion only after ordered service restart plus local/account health;
+- power-loss resume from a matching half-migrated plist pair, completed-state idempotency, rejection
+  of mismatched inline values or account binding generation before mutation, and injected readiness
+  failure that restores the exact old plist/token bytes and running service pair;
 - an existing responder on reserved port 9119, including 401/403, blocks clean install;
 - packaged ATS configuration explicitly permits local-network health probes while leaving arbitrary
   public and WebView HTTP loads disabled;
@@ -137,6 +143,7 @@ the project-wide `ERROR_HANDLING.md` contract.
 | Existing Connector running | Desktop observes it and does not launch a replacement | Verified on target Mac 2026-09-02; PID and launch count unchanged |
 | Existing Connector migration gate | Healthy configured Hermes plus matching signed-release capability exposes preparation; stopped/unhealthy/unsigned cases preserve legacy | Automated; packaged target-Mac migration still pending |
 | Migration Assistant preserves managed services | Overview reports the effective managed Agent rather than the stopped legacy label; missing this-device-only account credentials require sign-in; a restored legacy label is persistently suppressed only for a proven `account_active` installation | Desktop 0.2.4 packaged reboot passed on migrated Mac 2026-09-11: only managed labels recovered, legacy stayed disabled/unloaded, and post-reboot Android REST/WebSocket carried bidirectional traffic |
+| Pre-contract managed token storage | A committed matching installation moves the existing token from both `0600` plists to the `0600` private file, restarts Hermes then Connector, and commits only after both health proofs; injected failure restores the old configuration | Automated; packaged upgrade on the migrated Mac pending |
 | Existing Connector absent | UI reports not detected and offers no destructive action | Verified 2026-09-02 |
 | Gateway available | Gateway layer is healthy with safe latency | Verified on target Mac 2026-09-02; 15–18 ms observed |
 | Gateway offline/DNS failure | Only Gateway layer fails; Hermes wording remains accurate | Pending fault injection |
