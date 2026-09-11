@@ -147,7 +147,47 @@
     { "role": "card.footer.rule", "ref": "tiles:cardFooterRule",
       "design": ["#777268", "#8A90A0"], "impl": ["#777268", "#8D897E"],
       "reason": "暗夜稿给页脚细线与标语用了冷灰 #8A90A0 / #717684；§2.1 禁止暖纸体系里出现冷灰，改用 outline 的暖档。",
-      "note": "浅色一致。" }
+      "note": "浅色一致。" },
+
+    { "role": "card.theme.sheet", "ref": "tiles:cardThemeSheet",
+      "design": ["#FFFFFF", "#1E232B"], "impl": ["#FFFFFF", "#1E232B"],
+      "reason": "",
+      "note": "主题弹层（screens/ab85a7b6 浅 / 79554447 暗夜）。弹层容器本身。暗档与 card.tile 同值，浅档不同 —— 第二次拉取把抽屉里的卡降为纸色 #F4F3EE，弹层稿仍是纯白。" },
+
+    { "role": "card.theme.option", "ref": "tiles:cardThemeOption",
+      "design": ["#FFFFFF", "#161A22"], "impl": ["#FFFFFF", "#161A22"],
+      "reason": "",
+      "note": "一张选项卡。浅色与弹层同色、靠发丝线划界；暗色比弹层低一阶。规则「选项卡永不高于弹层」在两档都成立。" },
+
+    { "role": "card.theme.border", "ref": "tiles:cardThemeBorder",
+      "design": ["#E9E8E4", "#2E343D"], "impl": ["#E9E8E4", "#2E343D"],
+      "reason": "",
+      "note": "选项卡、图标章、「当前使用」徽标共用同一条发丝线。" },
+
+    { "role": "card.theme.icon-tile", "ref": "tiles:cardThemeIconTile",
+      "design": ["#F4F4F0", "#0F1217"], "impl": ["#F4F4F0", "#0F1217"],
+      "reason": "",
+      "note": "每张选项卡左侧 40dp 图标章。与卡片页的 card.icon-tile 不同值，各自取各自的稿。" },
+
+    { "role": "card.theme.accent", "ref": "tiles:cardThemeAccent",
+      "design": ["#181C24", "#E2E0DB"], "impl": ["#181C24", "#E2E0DB"],
+      "reason": "",
+      "note": "选中单选点与保存按钮底。§1 原则3「chrome 一律品牌色」的第二个例外（第一个是 FAB），理由同 FAB：主题选择不是运行态。浅档与 FabContainerLight 同值，仍单列 —— 两者语义无关，动一个不该拖着另一个。" },
+
+    { "role": "card.theme.accent.ink", "ref": "tiles:cardThemeAccentInk",
+      "design": ["#FFFFFF", "#0F1217"], "impl": ["#FFFFFF", "#0F1217"],
+      "reason": "",
+      "note": "保存按钮的字。压在 card.theme.accent 上 17.07:1（浅）/ 15.71:1（暗）。" },
+
+    { "role": "card.theme.badge", "ref": "tiles:cardThemeBadge",
+      "design": ["#EFEEEA", "#262C35"], "impl": ["#EFEEEA", "#262C35"],
+      "reason": "",
+      "note": "「当前使用」徽标底。浅色稿没画这枚徽标（标题右侧留成空 span，判为漏画），浅档由同页的 card.chip 推得；暗档 #262C35 是稿上的值。徽标的字取 onSurface、描边取 card.theme.border。" },
+
+    { "role": "card.theme.radio.off", "ref": "scheme:outlineVariant",
+      "design": ["#C9C7C2", "#423F3A"], "impl": ["#C9C7C2", "#423F3A"],
+      "reason": "",
+      "note": "未选中单选点的 2dp 环，两档都正好落在 outlineVariant 上。" }
   ],
 
   "type": [
@@ -230,7 +270,27 @@
     { "role": "card.footer", "ref": "type:CardFooter",
       "design": ["12", "400", "18", "0.3"], "impl": ["12", "400", "18", "0.3"],
       "reason": "",
-      "note": "斜体衬线（FontFamily.Serif + FontStyle.Italic，系统字体不打包）；字族与字形不进四元组。暗夜稿写 12.5px Georgia，几何以浅色为准。" }
+      "note": "斜体衬线（FontFamily.Serif + FontStyle.Italic，系统字体不打包）；字族与字形不进四元组。暗夜稿写 12.5px Georgia，几何以浅色为准。" },
+
+    { "role": "card.theme.title", "ref": "type:CardThemeTitle",
+      "design": ["18", "600", "27", "-0.45"], "impl": ["18", "600", "27", "-0.45"],
+      "reason": "",
+      "note": "主题弹层「外观与主题」。text-lg font-semibold tracking-tight。" },
+
+    { "role": "card.theme.option.title", "ref": "type:CardThemeOptionTitle",
+      "design": ["14", "600", "21", "0"], "impl": ["14", "600", "21", "0"],
+      "reason": "",
+      "note": "选项名。text-sm font-semibold，没有 tracking 类 —— 所以不是 card.node.title（那档带 tracking-tight）。说明副行复用 card.identity.sub（12/400/18/0），稿上正好同值。" },
+
+    { "role": "card.theme.badge", "ref": "type:CardThemeBadge",
+      "design": ["10", "600", "15", "0"], "impl": ["10", "600", "15", "0"],
+      "reason": "",
+      "note": "「当前使用」。构建徽标自第二次拉取起是 11/500，两者已不再同档。" },
+
+    { "role": "card.theme.cta", "ref": "type:CardThemeCta",
+      "design": ["14", "500", "21", "0"], "impl": ["14", "500", "21", "0"],
+      "reason": "",
+      "note": "保存按钮的字。几何取浅色稿；暗夜稿同一按钮是 600 + tracking-wide（锁文件 pairs）。" }
 
   ]
 }

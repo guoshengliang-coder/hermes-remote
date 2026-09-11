@@ -149,6 +149,10 @@ adb -s <serial> exec-out screencap -p > screen.png
 重新选择远程设备，或重新扫描 Desktop 配对二维码。未保存过账号会话时，账号登录入口会忽略残留
 的 loopback 开发地址并使用默认公网 Relay，避免开发栈停止后无法进入登录流程。
 
+- **新建的 worktree 里也没有 `node_modules`**（和 §1 的 `local.properties` 是同一类坑）。这时
+  `dev-stack.sh start` 只会说 `gateway/dist missing — run npm run build`，而 `npm run build` 又会
+  先报一堆 `Cannot find module 'pg' / 'svix'`。顺序是 **`npm install` → `npm run build` →
+  `dev-stack.sh start`**，三步都在 worktree 根目录跑。
 - 在 Claude Code 里用后台方式启动，否则它会随命令超时一起被杀掉。日志在
   `$TMPDIR/hermes-dev-stack/`，不在 `/tmp`。
 - mock 把每一条回复都流进同一个固定会话「Mock 会话」，不管你从哪个会话发出；其它会话会一直

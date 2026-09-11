@@ -23,11 +23,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -144,21 +142,24 @@ fun CardPage(
     }
 
     if (themeSheet) {
-        ModalBottomSheet(onDismissRequest = { themeSheet = false }, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
-            Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
-                Text(
-                    localized(language, "主题", "Theme"),
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(start = 24.dp, bottom = 8.dp),
-                )
-                listOf(ThemeMode.SYSTEM, ThemeMode.LIGHT, ThemeMode.DARK).forEach { mode ->
-                    ListItem(
-                        leadingContent = { RadioButton(selected = themeMode == mode, onClick = null) },
-                        headlineContent = { Text(themeLabel(mode, language)) },
-                        modifier = Modifier.clickable { vm.setThemeMode(mode); themeSheet = false },
-                    )
-                }
-            }
+        // The choice is PENDING until 保存 (docs/DESIGN.md §5.1 主题弹层): every dismissal route —
+        // the ✕, the grab bar, the scrim, the back gesture — leaves the theme exactly as it was.
+        // `remember` is keyed on the sheet's own presence, so re-opening always starts from what is
+        // actually in force rather than from whatever was abandoned last time.
+        var pending by remember(themeMode) { mutableStateOf(themeMode) }
+        ModalBottomSheet(
+            onDismissRequest = { themeSheet = false },
+            sheetState = com.hermes.client.ui.components.hermesSheetState(),
+            containerColor = com.hermes.client.ui.theme.cardThemeSheetColor(),
+            dragHandle = { com.hermes.client.ui.components.SheetCloseHandle { themeSheet = false } },
+        ) {
+            com.hermes.client.ui.settings.ThemeSheetContent(
+                inUse = themeMode,
+                pending = pending,
+                onPendingChange = { pending = it },
+                onSave = { vm.setThemeMode(pending); themeSheet = false },
+                onClose = { themeSheet = false },
+            )
         }
     }
 }
@@ -238,9 +239,9 @@ fun CardPageContent(
                     )
                     CardRowDivider()
                     ShortcutRow(
-                        icon = MoonIcon,
+                        icon = com.hermes.client.ui.components.MoonStrokeIcon,
                         label = localized(language, "主题", "Theme"),
-                        value = themeLabel(themeMode, language),
+                        value = com.hermes.client.ui.settings.themeLabel(themeMode, language),
                         onClick = onTheme,
                     )
                     CardRowDivider()
@@ -461,7 +462,7 @@ private fun RemoteNodeCard(state: CardPageUiState, health: GatewayHealth, onClic
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    DesktopIcon, contentDescription = null,
+                    com.hermes.client.ui.components.DesktopStrokeIcon, contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.size(20.dp),
                 )
@@ -566,12 +567,6 @@ private fun ShortcutRow(
             modifier = Modifier.padding(start = 4.dp).size(16.dp),
         )
     }
-}
-
-private fun themeLabel(mode: ThemeMode, language: com.hermes.client.ui.localization.AppLanguage): String = when (mode) {
-    ThemeMode.SYSTEM -> localized(language, "随系统", "System")
-    ThemeMode.LIGHT -> localized(language, "浅色", "Light")
-    ThemeMode.DARK -> localized(language, "深色", "Dark")
 }
 
 // ── Text fitting ────────────────────────────────────────────────────────────────────────────
@@ -679,15 +674,6 @@ private val ClockIcon by lazy {
     }
 }
 
-private val MoonIcon by lazy {
-    strokeIcon("ThinMoon") {
-        moveTo(20f, 14.5f)
-        arcTo(8.5f, 8.5f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 9.5f, y1 = 4f)
-        arcToRelative(7f, 7f, 0f, isMoreThanHalf = false, isPositiveArc = false, dx1 = 10.5f, dy1 = 10.5f)
-        close()
-    }
-}
-
 /** Rounded box with a down arrow — the reference's update glyph. */
 private val DownloadBoxIcon by lazy {
     strokeIcon("ThinDownloadBox") {
@@ -710,24 +696,6 @@ private val DownloadBoxIcon by lazy {
 private val ThinChevron by lazy {
     strokeIcon("ThinChevron") {
         moveTo(9.5f, 5.5f); lineTo(16f, 12f); lineTo(9.5f, 18.5f)
-    }
-}
-
-/** A desktop monitor on a stand — the remote-node card's device tile, same brush as the set. */
-private val DesktopIcon by lazy {
-    strokeIcon("ThinDesktop") {
-        moveTo(5f, 4f)
-        lineTo(19f, 4f)
-        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 21f, y1 = 6f)
-        lineTo(21f, 14f)
-        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 19f, y1 = 16f)
-        lineTo(5f, 16f)
-        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 3f, y1 = 14f)
-        lineTo(3f, 6f)
-        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 5f, y1 = 4f)
-        close()
-        moveTo(12f, 16f); lineTo(12f, 20f)
-        moveTo(8f, 20f); lineTo(16f, 20f)
     }
 }
 

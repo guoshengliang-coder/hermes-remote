@@ -2,6 +2,7 @@ package com.hermes.client.ui.settings
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -17,7 +18,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.hermes.client.data.repository.ThemeMode
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 
@@ -41,19 +41,14 @@ fun AppearanceScreen(
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
             Label(localized(language, "颜色模式", "Color mode"))
-            val modes = listOf(ThemeMode.SYSTEM, ThemeMode.LIGHT, ThemeMode.DARK)
-            com.hermes.client.ui.components.SegmentedCapsule(
-                options = modes,
+            // The same option cards the card page's theme sheet draws (docs/DESIGN.md §5.1
+            // 主题弹层), so the two places that set the theme stop disagreeing about what the three
+            // options are called. No 保存 button here: a page has nothing to cancel back to, so the
+            // tap writes straight through — the shape is shared, the commit semantics are not.
+            ThemeOptionList(
                 selected = mode,
                 onSelect = { vm.setThemeMode(it) },
-                label = { m ->
-                    when (m) {
-                        ThemeMode.SYSTEM -> localized(language, "跟随系统", "System")
-                        ThemeMode.LIGHT -> localized(language, "浅色", "Light")
-                        ThemeMode.DARK -> localized(language, "深色", "Dark")
-                    }
-                },
-                modifier = Modifier.padding(top = 8.dp),
+                contentPadding = PaddingValues(top = 8.dp),
             )
 
             Label(localized(language, "工具调用显示", "Tool-call display"), top = 24.dp)

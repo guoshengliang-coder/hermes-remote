@@ -238,3 +238,63 @@ internal val CardFooterRuleDark = Color(0xFF8D897E)
 /** The mock's `shadow-sm` — a whisper in light, nothing in dark (the border carries it there). */
 @Composable
 fun cardTileShadow(): Dp = if (isDarkSurface()) 0.dp else 1.dp
+
+// ── Card page · theme sheet (docs/DESIGN.md §5.1, Stitch 基线-卡片页/主题设置 / 暗夜) ───────────
+//
+// Its own small family, and not a reuse of the `card*` tokens above, because the theme sheet is a
+// RAISED layer over the drawer while those describe the drawer itself. The second card-page pull
+// dropped the drawer's cards to paper-subtle #F4F3EE; the sheet mock kept white. Every value below
+// is read off the sheet mock, light for light and dark for dark.
+//
+// The layering rule the two tiers share, despite looking different: THE OPTION CARD NEVER RISES
+// ABOVE THE SHEET — its boundary is carried by the hairline. Light draws sheet and card in the
+// same white and separates them with [CardThemeBorderLight]; dark recesses the card one step under
+// the sheet and rings it. This is not §2.3's "card brighter than ground", and does not have to be:
+// the sheet is already the raised thing, so a card inside it has nowhere left to rise to.
+
+/** The sheet container. Dark happens to equal [CardTileDark]; light does not equal [CardTileLight]. */
+internal val CardThemeSheetLight = Color(0xFFFFFFFF)
+internal val CardThemeSheetDark = Color(0xFF1E232B)
+
+/** One option card. */
+internal val CardThemeOptionLight = Color(0xFFFFFFFF)
+internal val CardThemeOptionDark = Color(0xFF161A22)
+
+/** The hairline on the option card, the icon tile and the 「当前使用」 badge — one value for all three. */
+internal val CardThemeBorderLight = Color(0xFFE9E8E4)
+internal val CardThemeBorderDark = Color(0xFF2E343D)
+
+/** The 40dp rounded tile behind each option's icon. */
+internal val CardThemeIconTileLight = Color(0xFFF4F4F0)
+internal val CardThemeIconTileDark = Color(0xFF0F1217)
+
+/**
+ * The selected radio and the save button's fill: a neutral near-black / near-white, deliberately
+ * NOT the brand colour.
+ *
+ * The second exception to §1 原则3 after [FabContainerLight], and for the same reason: picking a
+ * theme is not a runtime state, and a slab of brand blue in an app whose every other accent reports
+ * one would be read as a status rather than as a choice.
+ */
+internal val CardThemeAccentLight = Color(0xFF181C24)
+internal val CardThemeAccentDark = Color(0xFFE2E0DB)
+
+/** Ink on [CardThemeAccentLight] / [CardThemeAccentDark]: 17.07:1 light, 15.71:1 dark. */
+internal val CardThemeAccentInkLight = Color(0xFFFFFFFF)
+internal val CardThemeAccentInkDark = Color(0xFF0F1217)
+
+/**
+ * The 「当前使用」 badge's fill. The light mock never drew this badge — it left the slot beside the
+ * title as an empty span — so the light value is derived from [CardChipLight], the other small
+ * neutral pill on this page. Dark is the mock's own #262C35.
+ */
+internal val CardThemeBadgeLight = Color(0xFFEFEEEA)
+internal val CardThemeBadgeDark = Color(0xFF262C35)
+
+@Composable fun cardThemeSheetColor(): Color = if (isDarkSurface()) CardThemeSheetDark else CardThemeSheetLight
+@Composable fun cardThemeOptionColor(): Color = if (isDarkSurface()) CardThemeOptionDark else CardThemeOptionLight
+@Composable fun cardThemeBorderColor(): Color = if (isDarkSurface()) CardThemeBorderDark else CardThemeBorderLight
+@Composable fun cardThemeIconTileColor(): Color = if (isDarkSurface()) CardThemeIconTileDark else CardThemeIconTileLight
+@Composable fun cardThemeAccentColor(): Color = if (isDarkSurface()) CardThemeAccentDark else CardThemeAccentLight
+@Composable fun cardThemeAccentInkColor(): Color = if (isDarkSurface()) CardThemeAccentInkDark else CardThemeAccentInkLight
+@Composable fun cardThemeBadgeColor(): Color = if (isDarkSurface()) CardThemeBadgeDark else CardThemeBadgeLight

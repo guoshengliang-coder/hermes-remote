@@ -650,6 +650,84 @@ class ScreenshotTest {
         updateState = com.hermes.client.update.UpdateBadgeState.Unknown,
     )
 
+    // ── Card page · theme sheet (§5.1 主题弹层; keys card.default.theme-sheet.*) ──────────────
+    // The sheet's body, not the ModalBottomSheet around it: a sheet renders in its own window and
+    // onRoot() cannot reach it. The grab bar above this is the shared SheetCloseHandle, unchanged.
+    private fun themeSheet(
+        name: String,
+        darkTheme: Boolean = false,
+        fontScale: Float? = null,
+        language: com.hermes.client.ui.localization.AppLanguage =
+            com.hermes.client.ui.localization.AppLanguage.ZH,
+        inUse: com.hermes.client.data.repository.ThemeMode = com.hermes.client.data.repository.ThemeMode.SYSTEM,
+        pending: com.hermes.client.data.repository.ThemeMode = inUse,
+    ) = snap(name, darkTheme = darkTheme, fontScale = fontScale) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides language,
+        ) {
+            androidx.compose.foundation.layout.Box(
+                androidx.compose.ui.Modifier
+                    .widthIn(max = 390.dp)
+                    .background(com.hermes.client.ui.theme.cardThemeSheetColor()),
+            ) {
+                com.hermes.client.ui.settings.ThemeSheetContent(
+                    inUse = inUse,
+                    pending = pending,
+                    onPendingChange = {},
+                    onSave = {},
+                    onClose = {},
+                )
+            }
+        }
+    }
+
+    @Test fun themeSheetLight() = themeSheet("card.default.theme-sheet.light")
+
+    @Test fun themeSheetDark() = themeSheet("card.default.theme-sheet.dark", darkTheme = true)
+
+    /**
+     * The state the whole redesign turns on: the radio has been moved to 黑曜石深色 but nothing has
+     * been written yet, so 「当前使用」 stays on 跟随系统. Selection and effect are two different
+     * things here, and this is the only picture that can prove it.
+     */
+    @Test fun themeSheetPending() = themeSheet(
+        "card.default.theme-sheet.pending",
+        pending = com.hermes.client.data.repository.ThemeMode.DARK,
+    )
+
+    /** English at fontScale 1.3: the longest names and the descriptions wrapping under them. */
+    @Test fun themeSheetEnglishLargeFont() = themeSheet(
+        "card.default.theme-sheet.en-fs13",
+        fontScale = 1.3f,
+        language = com.hermes.client.ui.localization.AppLanguage.EN,
+        pending = com.hermes.client.data.repository.ThemeMode.DARK,
+    )
+
+    // ── Settings → 外观 (the other home of the same option list) ──────────────────────────────
+    private fun appearanceOptions(name: String, darkTheme: Boolean = false) =
+        snap(name, darkTheme = darkTheme) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.hermes.client.ui.localization.LocalAppLanguage provides
+                    com.hermes.client.ui.localization.AppLanguage.ZH,
+            ) {
+                androidx.compose.foundation.layout.Box(
+                    androidx.compose.ui.Modifier.widthIn(max = 390.dp).padding(16.dp),
+                ) {
+                    com.hermes.client.ui.settings.ThemeOptionList(
+                        selected = com.hermes.client.data.repository.ThemeMode.LIGHT,
+                        onSelect = {},
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 8.dp),
+                    )
+                }
+            }
+        }
+
+    /** No 「当前使用」 badge here: on a page the tap IS the effect, so the badge would only echo the radio. */
+    @Test fun appearanceColorModeLight() = appearanceOptions("settings.appearance.color-mode")
+
+    @Test fun appearanceColorModeDark() =
+        appearanceOptions("settings.appearance.color-mode-dark", darkTheme = true)
+
     @Test fun sessionRowTitleTiers() = snap("session-row-title-tiers") {
         androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
             for ((label, style) in listOf(
@@ -778,10 +856,15 @@ class ScreenshotTest {
         )
     }
 
-    // The capsule's stated ceiling is three options (docs/DESIGN.md §5.2). This pins the worst
-    // case that ceiling has to survive: the Appearance screen's colour-mode switch, whose Chinese
-    // labels are the longest in the app, at fontScale 1.3. If it ever clips here, the rule is
-    // wrong and the cron editor is not the only screen that has to stay on Material's row.
+    // The capsule's stated ceiling is three options (docs/DESIGN.md §5.2), and this pins the worst
+    // case that ceiling has to survive at fontScale 1.3.
+    //
+    // SYNTHETIC since 主题弹层 landed: these used to be the Appearance screen's colour-mode switch,
+    // the longest three-option capsule that actually shipped. That screen now draws the theme
+    // option list instead, and the longest capsule left in the app is the usage range (7/30/90 天),
+    // which proves nothing. Kept rather than deleted, with made-up labels, because the ceiling it
+    // guards is a rule about the component and not about any one screen — the next three-option
+    // capsule someone adds needs this to already be failing if the rule is wrong.
     @Test fun segmentsThreeZhLargeFont() = snap("segments-3-zh-fs13", fontScale = 1.3f) {
         val options = listOf("跟随系统", "浅色", "深色")
         com.hermes.client.ui.components.SegmentedCapsule(
