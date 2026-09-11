@@ -29,6 +29,8 @@
 | `03-card-dark.png` | 卡片页，深色（应用内主题切到「深色」） |
 | `04-theme-sheet-light.png` | 点「主题」行弹出的底部三选一 |
 | `05-profile-picker-light.png` | 点身份卡进入的「身份」选择页（子页面，供理解上下文） |
+| `06-v4-device-vivo-light.png` | **改版后**实拍：vivo V2166BA（Android 13），本地 mock 栈，浅色 |
+| `07-v4-device-vivo-dark.png` | **改版后**实拍：同一台，应用内切「深色」（系统浅色） |
 
 **截图里没有覆盖到、但设计必须考虑的状态**（mock 环境造不出来）见 §5。
 
