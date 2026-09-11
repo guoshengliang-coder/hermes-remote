@@ -8,6 +8,8 @@ import com.hermes.client.domain.Role
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.localizedMessage
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -44,6 +46,19 @@ class DeliveryStateTest {
         assertTrue(zh.any { it.code > 0x4E00 } && zh != en)
         assertTrue(error.retryable)
         assertTrue(error.sanitizedDiagnostic().contains("token=<redacted>"))
+    }
+
+    // HG-29: the terminal counterpart. "Conversation is gone" must be a different code with a
+    // different retryability, or the bubble cannot tell the user anything true.
+    @Test fun undeliverable_code_is_registered_bilingual_and_not_retryable() {
+        val error = AppError(AppErrorCode.SESSION_NOT_FOUND, retryable = false, technicalCause = "session not found")
+        val zh = error.localizedMessage(AppLanguage.ZH)
+        val en = error.localizedMessage(AppLanguage.EN)
+        assertTrue(zh.contains("HR-SESS-001") && en.contains("HR-SESS-001"))
+        assertTrue(zh.any { it.code > 0x4E00 } && zh != en)
+        assertFalse("a conversation that no longer exists cannot be retried into existence", error.retryable)
+        assertEquals("SESS-001", AppErrorCode.SESSION_NOT_FOUND.compact)
+        assertNotEquals(AppErrorCode.MESSAGE_SEND_FAILED, AppErrorCode.SESSION_NOT_FOUND)
     }
 
     @Test fun compact_code_drops_only_the_prefix_and_stays_unique() {

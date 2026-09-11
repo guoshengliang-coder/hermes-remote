@@ -91,7 +91,27 @@ process.list     projects.tree    projects.project_sessions
 
 Server events consumed: `message.start` / `message.delta` / `message.complete`,
 `tool.start` / `tool.complete`, `session.info` / `session.lifecycle`,
-`approval.request`, `clarify.request`.
+`approval.request`, `clarify.request`, `session.reclaimed`.
+
+**`session.reclaimed` is the only warning that a conversation died while nobody was looking.**
+Upstream broadcasts it (`tui_gateway/session_lifecycle.py`, `_announce_session_reclaimed`) whenever
+its own housekeeping ends a session the client never asked to close —
+`_RECLAIM_END_REASONS = {idle_timeout, lru_evict, ws_orphan_reap}`. The reason it exists is stated
+in its own source comment: "else its next prompt fails". `ws_orphan_reap` fires 120 s after the
+socket carrying a session drops, and `docs/DIAGNOSTICS.md` records it as the *dominant* way mobile
+sessions end — so this is routine, not an edge case. It is a **global** broadcast carrying the
+durable session id, not the short live handle; match it against the stored id.
+
+Ignoring it costs more than a wasted round trip. Afterwards `prompt.submit` answers **4001** and the
+`session.resume` the client retries with answers **4007**, and those two look identical on the wire
+("session not found") while meaning different things: 4001 is a stale live handle that resuming
+fixes, 4007 is the durable lookup missing from the profile's `state.db` — terminal. HG-29 was
+exactly this, surfaced to the user as a tap-to-retry that could never succeed.
+
+**A new session has no REST row until its first message persists.**
+`GET /api/sessions/<id>/messages` answers `404 {"detail":"Session not found"}` for a zero-message
+session and only turns into `200` once a turn lands. That 404 is not evidence the create failed and
+must not be reported as a history error; it is the normal opening seconds of every new conversation.
 
 **`session.create` and `session.resume` both accept a caller-supplied `source`.** Upstream's
 `_resolve_session_source` (`tui_gateway/server.py`) returns the explicit value unchanged and never

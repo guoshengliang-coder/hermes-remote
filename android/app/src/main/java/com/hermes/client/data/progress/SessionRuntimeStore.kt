@@ -323,6 +323,33 @@ class SessionRuntimeStore(
         return map.filterKeys { it in recentIdle }
     }
 
+    /**
+     * Move a runtime to a new stored session id, keeping everything it holds — most importantly the
+     * transcript, which at this point contains the message the user typed and is watching.
+     *
+     * Used when upstream reclaims a conversation and the client replaces it with a fresh one: the
+     * work is the same work, only its id upstream changed. The old id keeps resolving to the moved
+     * runtime so a frame still in flight for it is not dropped, and the stale live handle is
+     * cleared because it belongs to the conversation that is gone.
+     */
+    fun rekey(old: SessionRuntimeKey, newSessionId: String): SessionRuntimeKey {
+        val next = key(newSessionId, old.profile, old.deviceId)
+        if (next == old) return old
+        _runtimes.update { map ->
+            val runtime = map[old] ?: return@update map
+            (map - old) + (next to runtime.copy(key = next, liveHandle = null))
+        }
+        // Everything that resolved to the old key — its stored id and every live handle it ever
+        // carried — now resolves to the new one, so an event still in flight for the dead
+        // conversation lands on the runtime that inherited its work instead of being dropped.
+        aliases.entries.filter { it.value == old }.forEach { aliases[it.key] = next }
+        aliases[newSessionId] = next
+        if (visible.remove(old)) visible.add(next)
+        if (lastActiveKey == old) lastActiveKey = next
+        replayPending(newSessionId)
+        return next
+    }
+
     fun bindLiveHandle(key: SessionRuntimeKey, handle: String?) {
         aliases[key.sessionId] = key
         if (!handle.isNullOrBlank()) aliases[handle] = key

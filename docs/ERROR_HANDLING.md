@@ -95,6 +95,10 @@ backward compatible.
   the code without its `HR-` prefix (`SESS-007`), rendered in the neutral text colour after the
   localized action copy. The compact form is display-only; the full code stays the identity in
   toasts, pages, diagnostics, notifications and this registry (`AppErrorCode.compact`).
+- A non-retryable failure must not carry a retry affordance. `retryable = false` means the tap is
+  withheld, not merely discouraged: the bubble shows no "点按重试" copy, takes no click, and the
+  ViewModel refuses to re-dispatch it. An offer that cannot work is worse than none, because the
+  user keeps paying for it (HG-29: five taps, five identical 4001/4007 pairs).
 - Recoverable connection transitions use neutral progress states such as “正在重新连接…” rather
   than an error until retry policy is exhausted.
 - A recovered connection briefly shows success and then dismisses itself.
@@ -234,12 +238,12 @@ expanded without changing the underlying meaning.
 | `HR-MEDIA-003` | The transcript image could not be rendered or shared | 无法生成对话长图，请重试或改用 Markdown 文件。 | Couldn't render the transcript image. Retry, or share it as a Markdown file. | Yes |
 | `HR-MEDIA-002` | A picked avatar photo could not be decoded, cropped, or encoded (ImageDecoder/BitmapFactory failure, unreadable URI, empty image) | 无法读取所选照片，请换一张再试。 | Couldn't read the selected photo. Try a different one. | Yes |
 | `HR-PERM-003` | Android blocks installation from this source | 需要允许安装未知应用，授权后请重试。 | Permission to install unknown apps is required. Grant it and retry. | Yes |
-| `HR-SESS-001` | Session no longer exists | 会话不存在或已被删除。 | The conversation no longer exists or was deleted. | No |
+| `HR-SESS-001` | Session no longer exists. Also the send path's terminal outcome: upstream reclaimed the conversation (`session.reclaimed`, or `session.resume` → 4007) and it held history, so it could not be silently replaced. The bubble reads 未发送 with this code and offers **no** retry | 会话不存在或已被删除。 | The conversation no longer exists or was deleted. | No |
 | `HR-SESS-002` | Live session handle is stale | 会话连接已失效，正在重新挂接。 | The live conversation handle expired. Reattaching now. | Yes |
 | `HR-SESS-003` | Project folder for a move/create no longer exists on the Mac (`session.workspace.move` 4017, or a derived project without a known path) | 项目文件夹在 Mac 上不存在，请重新加载项目后重试。 | The project folder no longer exists on the Mac. Reload projects and retry. | Yes |
 | `HR-SESS-004` | Session is mid-turn, so its project cannot be changed (`session.workspace.move` 4009) | 会话正在运行，无法移动项目，请等待完成后重试。 | The conversation is running, so its project can't be changed. Wait for it to finish and retry. | Yes |
 | `HR-SESS-005` | Unmapped failure moving a session to another project | 无法移动会话到该项目，请重试。 | Couldn't move the conversation to that project. Retry. | Yes |
-| `HR-SESS-007` | A user message could not be submitted (`prompt.submit`/attachment upload raised, or the live-handle wait timed out); the bubble stays on screen as 未发送 with tap-to-retry | 消息未发送，点按气泡重试。 | The message was not sent. Tap the bubble to retry. | Yes |
+| `HR-SESS-007` | A user message could not be submitted (`prompt.submit`/attachment upload raised, or the live-handle wait timed out); the bubble stays on screen as 未发送 with tap-to-retry. Does **not** cover "the conversation is gone upstream" — that is `HR-SESS-001`, and offering a retry for it would be a lie | 消息未发送，点按气泡重试。 | The message was not sent. Tap the bubble to retry. | Yes |
 | `HR-SESS-006` | New session was requested in a project folder the Mac no longer has; the gateway created it in the default project instead | 项目文件夹在 Mac 上不存在，会话已建在默认项目。 | The project folder no longer exists on the Mac, so the conversation was created in the default project. | No |
 | `HR-SESS-008` | Archiving a conversation from the chat screen failed (`PATCH /api/sessions/{id}` raised); the chat stays open and nothing was archived | 无法归档会话，请重试。 | Couldn't archive the conversation. Retry. | Yes |
 | `HR-SESS-009` | A project edit named an id the gateway no longer has (`projects.*` 5062) — usually deleted from the Mac since the list was fetched | 项目已不存在，请重新加载。 | That project no longer exists. Reload the list. | No |

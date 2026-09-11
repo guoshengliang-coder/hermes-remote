@@ -729,6 +729,124 @@ class ChatViewModelTest {
         coVerify(exactly = 1) { chatRepo.resume("s1", null) }
     }
 
+    // HG-29. A conversation upstream reaped answers 4001 to prompt.submit and then 4007 to the
+    // resume the client retries with. The old behaviour flattened both into a retryable
+    // HR-SESS-007 "点按重试" that could never succeed. A conversation opened as new, with nothing
+    // persisted, must instead be replaced silently and the typed message delivered to the
+    // replacement — the user loses neither the message nor anything else, because there was
+    // nothing else.
+    @Test fun reaped_empty_session_is_recreated_and_the_message_is_delivered() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returnsMany listOf("live-1")
+        coEvery { chatRepo.submit("live-1", "hello") } throws
+            com.hermes.client.data.network.GatewayRpcException(4001, "session not found")
+        coEvery { chatRepo.resume("s1", null) } answers { "live-1" } andThenThrows
+            com.hermes.client.data.network.GatewayRpcException(4007, "session not found")
+        coEvery { chatRepo.createSession(any(), any()) } returns
+            com.hermes.client.data.repository.CreatedSession("s2", null)
+        coEvery { chatRepo.resume("s2", null) } returns "live-2"
+        coEvery { chatRepo.submit("live-2", "hello") } returns Unit
+
+        val vm = buildVm()
+        vm.open("s1", isNewSession = true)
+        advanceUntilIdle()
+
+        vm.send("hello")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { chatRepo.createSession(any(), any()) }
+        coVerify(exactly = 1) { chatRepo.submit("live-2", "hello") }
+        assertEquals("the screen must re-navigate to the live id", "s2", vm.recreatedSessionId.value)
+        val bubble = vm.state.value.messages.last { it.role == Role.USER }
+        assertEquals(
+            "a delivered message must not be left looking failed",
+            com.hermes.client.domain.DeliveryState.SENT,
+            bubble.delivery,
+        )
+    }
+
+    // The other half of the same rule: a conversation that may hold history is NEVER silently
+    // replaced — that would cut the transcript loose from everything said before. It is terminal,
+    // and terminal means HR-SESS-001 with no retry offered, not HR-SESS-007 with one that lies.
+    @Test fun reaped_session_with_history_is_terminal_and_never_recreated() = runTest {
+        coEvery { sessionRepo.history(any(), any()) } returns listOf(
+            ChatMessage(id = "h1", role = Role.USER, text = "earlier"),
+            ChatMessage(id = "h2", role = Role.ASSISTANT, text = "earlier reply"),
+        )
+        coEvery { chatRepo.resume("s1", null) } answers { "live-1" } andThenThrows
+            com.hermes.client.data.network.GatewayRpcException(4007, "session not found")
+        coEvery { chatRepo.submit("live-1", "hello") } throws
+            com.hermes.client.data.network.GatewayRpcException(4001, "session not found")
+
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        vm.send("hello")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { chatRepo.createSession(any(), any()) }
+        assertNull("a session with history must not be replaced", vm.recreatedSessionId.value)
+        val bubble = vm.state.value.messages.last { it.role == Role.USER }
+        assertEquals(
+            "the bubble must say the conversation is gone, not offer a retry",
+            com.hermes.client.domain.DeliveryState.UNDELIVERABLE,
+            bubble.delivery,
+        )
+    }
+
+    // Tapping the bubble of a terminal failure must do nothing. The UI already withholds the tap;
+    // this is the ViewModel refusing to re-dispatch even if something else asks it to.
+    @Test fun retrySend_ignores_an_undeliverable_bubble() = runTest {
+        coEvery { sessionRepo.history(any(), any()) } returns listOf(
+            ChatMessage(id = "h1", role = Role.USER, text = "earlier"),
+        )
+        coEvery { chatRepo.resume("s1", null) } answers { "live-1" } andThenThrows
+            com.hermes.client.data.network.GatewayRpcException(4007, "session not found")
+        coEvery { chatRepo.submit("live-1", "hello") } throws
+            com.hermes.client.data.network.GatewayRpcException(4001, "session not found")
+
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        vm.send("hello")
+        advanceUntilIdle()
+
+        val bubble = vm.state.value.messages.last { it.role == Role.USER }
+        vm.retrySend(bubble.id)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { chatRepo.submit("live-1", "hello") }
+        assertEquals(
+            "the bubble stays exactly as it was",
+            com.hermes.client.domain.DeliveryState.UNDELIVERABLE,
+            vm.state.value.messages.last { it.role == Role.USER }.delivery,
+        )
+    }
+
+    // Upstream broadcasts session.reclaimed precisely so the next prompt is not sent into a session
+    // that no longer exists. Acting on it saves a doomed round trip AND, more importantly, is the
+    // only warning that arrives before the user has typed anything.
+    @Test fun session_reclaimed_event_recovers_without_a_doomed_submit() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "live-1"
+        coEvery { chatRepo.createSession(any(), any()) } returns
+            com.hermes.client.data.repository.CreatedSession("s2", null)
+        coEvery { chatRepo.resume("s2", null) } returns "live-2"
+
+        val vm = buildVm()
+        vm.open("s1", isNewSession = true)
+        advanceUntilIdle()
+
+        events.emit(event("session.reclaimed", "s1"))
+        advanceUntilIdle()
+
+        vm.send("hello")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { chatRepo.submit("live-1", any()) }
+        coVerify(exactly = 1) { chatRepo.createSession(any(), any()) }
+        coVerify(exactly = 1) { chatRepo.submit("live-2", "hello") }
+    }
+
     // Selecting in the chat sheet ALWAYS switches THIS session's model (the `/model … --session`
     // slash) — the sheet no longer carries a scope choice; the profile default is edited on the
     // settings Models screen only.

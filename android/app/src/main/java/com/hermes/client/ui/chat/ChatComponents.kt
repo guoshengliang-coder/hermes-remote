@@ -1355,7 +1355,11 @@ internal fun UserBubble(
     // Delivery three-state (docs/DESIGN.md §5.4): the "sending" look is revealed only after
     // 250ms without an ack, so the common sub-300ms send never flickers; "failed" shows at once.
     val sending = msg.delivery == com.hermes.client.domain.DeliveryState.SENDING
-    val failed = msg.delivery == com.hermes.client.domain.DeliveryState.FAILED
+    // Undeliverable looks like failed (dimmed bubble, error marker) but says something different
+    // and offers no tap: the conversation is gone upstream, so retrying is not on the table.
+    val undeliverable = msg.delivery == com.hermes.client.domain.DeliveryState.UNDELIVERABLE
+    val failed = msg.delivery == com.hermes.client.domain.DeliveryState.FAILED || undeliverable
+    val retryable = failed && !undeliverable
     var revealSending by remember(msg.id) { mutableStateOf(false) }
     LaunchedEffect(msg.id, sending) {
         if (sending) { delay(SENDING_REVEAL_DELAY_MS); revealSending = true } else revealSending = false
@@ -1378,8 +1382,16 @@ internal fun UserBubble(
     // leaves user bubbles oddly narrow on tablets/landscape. ~82% tracks the Claude app.
     val bubbleMaxWidth = (LocalConfiguration.current.screenWidthDp * 0.82f).dp
     val sendingLabel = localized(language, "发送中", "Sending")
-    val failedLabel = localized(language, "未发送 · 点按重试", "Not sent · Tap to retry")
-    val failedCode = com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED.compact
+    val failedLabel = if (undeliverable) {
+        localized(language, "会话不存在或已被删除", "This conversation no longer exists")
+    } else {
+        localized(language, "未发送 · 点按重试", "Not sent · Tap to retry")
+    }
+    val failedCode = if (undeliverable) {
+        com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND.compact
+    } else {
+        com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED.compact
+    }
     // In a channel conversation the right-hand column carries two different speakers: the person
     // on the other app, and anything typed here. Naming them apart is not decoration — a blanket
     // peer label would sign the reader's own words with somebody else's name.
@@ -1415,7 +1427,7 @@ internal fun UserBubble(
                         if (failed) stateDescription = "$failedLabel $failedCode"
                     }
                     .combinedClickable(
-                        onClick = { if (failed) onRetrySend(msg.id) },
+                        onClick = { if (retryable) onRetrySend(msg.id) },
                         onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); menuOpen = true },
                     ),
             ) {
@@ -1473,7 +1485,13 @@ internal fun UserBubble(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .padding(top = 4.dp, end = 4.dp)
-                    .clickable(role = androidx.compose.ui.semantics.Role.Button) { onRetrySend(msg.id) },
+                    .then(
+                        if (retryable) {
+                            Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button) {
+                                onRetrySend(msg.id)
+                            }
+                        } else Modifier,
+                    ),
             ) {
                 Text(failedLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
                 Spacer(Modifier.width(6.dp))

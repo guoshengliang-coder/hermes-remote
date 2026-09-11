@@ -182,6 +182,7 @@ fun ChatScreen(
         }
     }
     val unauthorized by vm.unauthorized.collectAsStateWithLifecycle()
+    val recreatedSessionId by vm.recreatedSessionId.collectAsStateWithLifecycle()
     val sessionTitle by vm.sessionTitle.collectAsStateWithLifecycle()
     val workspace by vm.workspace.collectAsStateWithLifecycle()
     val workspaceProjects by vm.workspaceProjects.collectAsStateWithLifecycle()
@@ -686,6 +687,12 @@ fun ChatScreen(
         runCatching { speech.launch(intent) }
     }
 
+    // Upstream reclaimed this conversation and the send path replaced it with a fresh one. The
+    // runtime — and the message in flight — already moved; re-navigate so the entry names the live
+    // conversation instead of the dead id, which back-then-forward would otherwise reopen.
+    LaunchedEffect(recreatedSessionId) {
+        recreatedSessionId?.takeIf { it != sessionId }?.let(onNewChat)
+    }
     // I1: route back to Setup when the server returns 401
     LaunchedEffect(unauthorized) {
         if (unauthorized) onUnauthorized()
