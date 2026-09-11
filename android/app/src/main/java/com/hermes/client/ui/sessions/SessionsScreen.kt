@@ -616,34 +616,42 @@ internal fun SectionHeader(
         SectionTone.NEEDS_YOU -> statusColor(StatusTone.WARN)
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
+    // TUNING-TEMP
+    val tunedPillars = com.hermes.client.ui.tuning.pillarsOf(
+        com.hermes.client.ui.tuning.LocalSessionListTuning.current,
+        com.hermes.client.ui.theme.isDarkSurface(),
+    )
     val pillar = when (tone) {
         // One colour per group, from the design source (Tiles.kt). The bright graphic amber here,
         // not the deep text one the label uses — the mock draws the mark and the word in two
         // different ambers (StatusColors.kt).
-        SectionTone.NEEDS_YOU -> com.hermes.client.ui.theme.warnGraphicColor()
-        SectionTone.PINNED -> com.hermes.client.ui.theme.pillarPinnedColor()
-        SectionTone.TODAY -> com.hermes.client.ui.theme.pillarTodayColor()
-        SectionTone.OLDER -> com.hermes.client.ui.theme.pillarOlderColor()
+        // TUNING-TEMP: routed through the tuning panel so the four colours can be tried on a
+        // device. Its defaults are the Tiles.kt / StatusColors.kt values, so an untouched panel
+        // renders exactly what those files say.
+        SectionTone.NEEDS_YOU -> tunedPillars.needsYou
+        SectionTone.PINNED -> tunedPillars.pinned
+        SectionTone.TODAY -> tunedPillars.today
+        SectionTone.OLDER -> tunedPillars.older
     }
     androidx.compose.foundation.layout.Row(
         // px-4 py-2 in the mock: 16dp either side, 8dp above and below. The old 16/4 split
         // predates the mock being read as dp (docs/DESIGN.md §3.4).
         Modifier.fillMaxWidth()
             .then(if (onToggle != null) Modifier.clickable(onClick = onToggle) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = com.hermes.client.ui.tuning.tunedHeaderPaddingV()), // TUNING-TEMP
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             // 3 × 12dp, fully rounded — `w-[3px] h-3 rounded-full`. Recorded as 3 × 14dp with a
             // 2dp radius on 2026-09-10; the mock says otherwise and the mock now wins.
             Modifier
-                .size(width = 3.dp, height = 12.dp)
+                .size(width = com.hermes.client.ui.tuning.tunedPillarWidth(), height = com.hermes.client.ui.tuning.tunedPillarHeight()) // TUNING-TEMP
                 .background(pillar, androidx.compose.foundation.shape.CircleShape),
         )
         androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
         Text(
             label.uppercase(),
-            style = com.hermes.client.ui.theme.SessionGroupHeader,
+            style = com.hermes.client.ui.tuning.tunedGroupHeader(), // TUNING-TEMP
             color = accent,
         )
         note?.let {
@@ -722,8 +730,7 @@ private fun SessionRow(
             headlineContent = {
                 Text(
                     session.title,
-                    style = if (unread) com.hermes.client.ui.theme.SessionRowTitle
-                    else com.hermes.client.ui.theme.SessionRowTitleRead,
+                    style = com.hermes.client.ui.tuning.tunedRowTitle(unread), // TUNING-TEMP
                 )
             },
             // No leading slot: the pinned marker rides in the subline so every title shares one
@@ -733,7 +740,7 @@ private fun SessionRow(
             supportingContent = {
                 // mt-0.5 under the title, mt-1 under the subline — the mock's own rhythm.
                 Column {
-                    androidx.compose.foundation.layout.Spacer(Modifier.size(2.dp))
+                    androidx.compose.foundation.layout.Spacer(Modifier.size(com.hermes.client.ui.tuning.tunedSublineGap())) // TUNING-TEMP
                     SessionSubline(session, defaultProjectPath = defaultProjectPath, pinned = isPinned)
                     // Gate on the TEXT, not on the phase. The phase-based guard let a blank label
                     // through, and a blank Text still costs a full line: the row grew to Material's
@@ -741,16 +748,12 @@ private fun SessionRow(
                     // top-aligned, so 40dp of dead space opened up under the subline. On a device
                     // that reads as a random extra gap every few rows (docs/DESIGN.md §5.2).
                     sessionStatusLine(runtime, language)?.let { label ->
-                        androidx.compose.foundation.layout.Spacer(Modifier.size(4.dp))
+                        androidx.compose.foundation.layout.Spacer(Modifier.size(com.hermes.client.ui.tuning.tunedStatusGap())) // TUNING-TEMP
                         Text(
                             label,
                             // Only the running line is monospaced in the mock; the verdicts
                             // (已完成 / 运行失败 / 已中断) stay on the prose face.
-                            style = if (runtime!!.phase.isActive) {
-                                com.hermes.client.ui.theme.SessionRowStatusRunning
-                            } else {
-                                com.hermes.client.ui.theme.SessionRowStatus
-                            },
+                            style = com.hermes.client.ui.tuning.tunedStatus(runtime!!.phase.isActive), // TUNING-TEMP
                             color = runtimeColor(runtime.phase),
                         )
                     }
