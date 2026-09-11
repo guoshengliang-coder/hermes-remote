@@ -124,6 +124,8 @@ class DesignSystemExportTest {
         "status-warn" to (Color(statusArgb(StatusTone.WARN, false)) to Color(statusArgb(StatusTone.WARN, true))),
         "status-bad" to (Color(statusArgb(StatusTone.BAD, false)) to Color(statusArgb(StatusTone.BAD, true))),
         "status-running" to (Color(statusArgb(StatusTone.RUNNING, false)) to Color(statusArgb(StatusTone.RUNNING, true))),
+        "status-warn-graphic" to (Color(warnGraphicArgb(false)) to Color(warnGraphicArgb(true))),
+        "subline-faint" to (SublineFaintLight to SublineFaintDark),
         "fab-container" to (FabContainerLight to FabContainerDark),
         "fab-outline" to (null to FabOutlineDark),
         "spinner" to (SpinnerLight to SpinnerDark),
@@ -143,8 +145,13 @@ class DesignSystemExportTest {
         "label-md" to HermesTypography.labelMedium,
         "label-sm" to HermesTypography.labelSmall,
         "session-row-title" to SessionRowTitle,
+        "session-row-title-read" to SessionRowTitleRead,
         "session-row-subline" to SessionRowSubline,
         "session-row-status" to SessionRowStatus,
+        "session-group-header" to SessionGroupHeader,
+        "session-group-count" to SessionGroupCount,
+        "session-group-note" to SessionGroupNote,
+        "segment-label" to SegmentLabel,
     )
 
     // ---- assertions -----------------------------------------------------------------------

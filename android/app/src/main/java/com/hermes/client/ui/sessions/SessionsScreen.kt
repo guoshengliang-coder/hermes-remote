@@ -610,32 +610,38 @@ private fun SectionHeader(
         SectionTone.TIME -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val pillar = when (tone) {
-        SectionTone.NEEDS_YOU -> statusColor(StatusTone.WARN)
+        // The bright graphic amber, not the deep text one the label uses — the mock draws the
+        // mark and the word in two different ambers (StatusColors.kt).
+        SectionTone.NEEDS_YOU -> com.hermes.client.ui.theme.warnGraphicColor()
         SectionTone.PINNED -> MaterialTheme.colorScheme.outline
         SectionTone.TIME -> MaterialTheme.colorScheme.outlineVariant
     }
     androidx.compose.foundation.layout.Row(
+        // px-4 py-2 in the mock: 16dp either side, 8dp above and below. The old 16/4 split
+        // predates the mock being read as dp (docs/DESIGN.md §3.4).
         Modifier.fillMaxWidth()
             .then(if (onToggle != null) Modifier.clickable(onClick = onToggle) else Modifier)
-            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
+            // 3 × 12dp, fully rounded — `w-[3px] h-3 rounded-full`. Recorded as 3 × 14dp with a
+            // 2dp radius on 2026-09-10; the mock says otherwise and the mock now wins.
             Modifier
-                .size(width = 3.dp, height = 14.dp)
-                .background(pillar, RoundedCornerShape(2.dp)),
+                .size(width = 3.dp, height = 12.dp)
+                .background(pillar, androidx.compose.foundation.shape.CircleShape),
         )
         androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
         Text(
             label.uppercase(),
-            style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+            style = com.hermes.client.ui.theme.SessionGroupHeader,
             color = accent,
         )
         note?.let {
             Text(
                 "  ·  $it",
-                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                style = com.hermes.client.ui.theme.SessionGroupNote,
+                color = com.hermes.client.ui.theme.sublineFaintColor(),
             )
         }
         androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
@@ -649,10 +655,12 @@ private fun SectionHeader(
         ) {
             Text(
                 count.toString(),
-                style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+                // px-2 py-0.5 in the mock, and 600 on the hot group against 500 elsewhere.
+                style = com.hermes.client.ui.theme.SessionGroupCount
+                    .let { if (hot) it.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) else it },
                 color = if (hot) statusColor(StatusTone.WARN)
                 else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp),
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
             )
         }
         if (onToggle != null) {
@@ -661,7 +669,8 @@ private fun SectionHeader(
                 contentDescription = if (collapsed) localized(language, "展开 $label", "Expand $label")
                 else localized(language, "收起 $label", "Collapse $label"),
                 tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 8.dp),
+                // 17px glyph in the mock, against Material's 24dp default.
+                modifier = Modifier.padding(start = 8.dp).size(17.dp),
             )
         }
     }
@@ -699,13 +708,23 @@ private fun SessionRow(
     val moveEnabled = runtime?.hasActiveWork != true && runtime?.phase?.isActive != true
 
     ListItem(
-            headlineContent = { Text(session.title, style = com.hermes.client.ui.theme.SessionRowTitle) },
+            // Unread carries the heavier tier (docs/DESIGN.md §5.2, decision 2026-09-11). The dot
+            // stays: weight is a second signal, and a row can be unread with the dot scrolled past.
+            headlineContent = {
+                Text(
+                    session.title,
+                    style = if (unread) com.hermes.client.ui.theme.SessionRowTitle
+                    else com.hermes.client.ui.theme.SessionRowTitleRead,
+                )
+            },
             // No leading slot: the pinned marker rides in the subline so every title shares one
             // left edge (docs/DESIGN.md §5.2). Project · model, then the live status line. No
             // profile text: the list is scoped to one profile and identity lives only in the
             // avatar (docs/DESIGN.md §1).
             supportingContent = {
+                // mt-0.5 under the title, mt-1 under the subline — the mock's own rhythm.
                 Column {
+                    androidx.compose.foundation.layout.Spacer(Modifier.size(2.dp))
                     SessionSubline(session, defaultProjectPath = defaultProjectPath, pinned = isPinned)
                     // Gate on the TEXT, not on the phase. The phase-based guard let a blank label
                     // through, and a blank Text still costs a full line: the row grew to Material's
@@ -713,10 +732,17 @@ private fun SessionRow(
                     // top-aligned, so 40dp of dead space opened up under the subline. On a device
                     // that reads as a random extra gap every few rows (docs/DESIGN.md §5.2).
                     sessionStatusLine(runtime, language)?.let { label ->
+                        androidx.compose.foundation.layout.Spacer(Modifier.size(4.dp))
                         Text(
                             label,
-                            style = com.hermes.client.ui.theme.SessionRowStatus,
-                            color = runtimeColor(runtime!!.phase),
+                            // Only the running line is monospaced in the mock; the verdicts
+                            // (已完成 / 运行失败 / 已中断) stay on the prose face.
+                            style = if (runtime!!.phase.isActive) {
+                                com.hermes.client.ui.theme.SessionRowStatusRunning
+                            } else {
+                                com.hermes.client.ui.theme.SessionRowStatus
+                            },
+                            color = runtimeColor(runtime.phase),
                         )
                     }
                 }
@@ -953,10 +979,18 @@ private fun RuntimeIndicator(runtime: SessionRuntime) {
             strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
         )
     } else {
+        // The DOT is a mark, so waiting draws it in the bright graphic amber while the sentence
+        // beside it stays on the deep text amber (StatusColors.kt). Every other tone uses one
+        // colour for both.
+        val dot = if (sessionStatusPaint(phase) == SessionStatusPaint.WAITING) {
+            com.hermes.client.ui.theme.warnGraphicColor()
+        } else {
+            color
+        }
         Box(
             Modifier
                 .size(10.dp)
-                .background(color, androidx.compose.foundation.shape.CircleShape),
+                .background(dot, androidx.compose.foundation.shape.CircleShape),
         )
     }
 }
@@ -1007,12 +1041,23 @@ internal fun ChatsTopBar(
         },
         centered = true,
         actions = {
-            IconButton(onClick = onOpenSearch) {
-                Icon(Icons.Rounded.Search, contentDescription = localized(language, "搜索", "Search"))
+            // 36dp buttons carrying a 21dp glyph, per the mock (`w-9 h-9`, `text-[21px]`). That is
+            // under Material's 48dp touch target; the floor was dropped on 2026-09-11 in favour of
+            // following the mock exactly (docs/DESIGN.md §7 item 8).
+            IconButton(onClick = onOpenSearch, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    Icons.Rounded.Search,
+                    contentDescription = localized(language, "搜索", "Search"),
+                    modifier = Modifier.size(21.dp),
+                )
             }
             Box {
-                IconButton(onClick = { menuOpen = true }) {
-                    Icon(Icons.Rounded.MoreVert, contentDescription = localized(language, "更多", "More"))
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        Icons.Rounded.MoreVert,
+                        contentDescription = localized(language, "更多", "More"),
+                        modifier = Modifier.size(21.dp),
+                    )
                 }
                 // Same menu shape as the chat screen's (docs/DESIGN.md §5.4): navigation first,
                 // 20dp leading glyphs, 16dp corners on `surface`.

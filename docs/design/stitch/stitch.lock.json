@@ -19,21 +19,20 @@
       "result": "标签 6/6 符合新格式；5 张 HTML 内容变化（见 specChanges），仅 sessions.chats.default.more-menu.light 未变" }
   ],
   "specChanges": {
-    "_": "第二次拉取发现的规格变更及裁决（产品负责人 2026-09-11：「一部分是有意的」，逐条如下）。status: adopted-pending-code | fixture-updated | consistent | rejected。",
+    "_": "第二次拉取发现的规格变更及裁决。2026-09-11 晚些时候产品负责人把总规则改为「严格照稿，冲突用稿子的」，下面几条随之重裁，status 已更新为落地后的状态。status: landed | consistent | rejected。",
     "resolved": [
       { "screens": ["sessions.chats.default.light", "sessions.chats.default.dark"],
         "change": "行标题 15px → 15.5px（浅色用内联 style，暗色改类名）；字重改为按分组区分：「需要你处理」两行 600，其余行 500",
-        "decision": "采纳。SessionRowTitle 拆成两档 15.5/600（未读）与 15.5/500（已读），行高 22.475、字距 −0.155。语义按未读态而非分组（产品负责人 2026-09-11 裁定，与设计师系统的 session-title-unread / session-title-normal 一致）。fixture 已记 design 列（row.title / row.title.other），impl 在代码落地前保持 15/600 并写 reason。",
-        "status": "adopted-pending-code",
-        "followUp": "开代码工作条目：Type.kt 两档样式、SessionRow 按未读态选档（未读点保留）、§5.2 字号表更新、row-height-probe 与 session-rows-pinned golden 重录。" },
+        "decision": "采纳并已落地。SessionRowTitle 15.5/600（未读）与 SessionRowTitleRead 15.5/500（已读），行高 22.475、字距 −0.155。语义按未读态而非分组，与设计师系统的 session-title-unread / session-title-normal 一致。",
+        "status": "landed" },
       { "screens": ["sessions.chats.default.light"],
         "change": "状态色改为内联覆盖：等待 = #B45309、已完成 = #2E7D32（与本仓 StatusColors 的 GOOD 相同）",
-        "decision": "更新 fixture design 列，实现不动。已完成：浅色 design 与 impl 一致；等待：impl 维持 #C2410C（纸底 4.92 对 #B45309 的 4.53），写 reason。",
-        "status": "fixture-updated" },
+        "decision": "已落地。等待文字改为稿子的 #B45309（纸底 4.53）；已完成浅色本就是 #2E7D32。同批还把 BAD 改成 #B91C1C/#F87171、GOOD 深色改成 #34D399，并按稿子拆出 WARN 的图形档 #D97706/#F59E0B 给立柱与等待圆点。",
+        "status": "landed" },
       { "screens": ["sessions.chats.default.dark", "sessions.chats.default.more-menu.dark"],
         "change": "FAB 改为 56dp（w-14）、底色 #181C24、1px 白 12% 描边、28dp 描边式 SVG 加号（stroke 2.2）替代 Material Symbol",
-        "decision": "与 §5.2 / §2.7 第 1 条的 FAB 定案一致，不改。暗色底 #181C24 与本仓深色档 #1E232B 的差异记在 fixture fab.container 的 reason；浅色稿仍是 52dp + Material 图标，等设计师同步。",
-        "status": "consistent" },
+        "decision": "已落地。深色 FAB 底由 #1E232B 改为稿子的 #181C24（描边 #3A4049 保留，近黑对暗底只有 1.19:1）。浅色稿仍画 52dp + 24px 加号，与暗色稿矛盾；产品负责人 2026-09-11 裁定取暗色稿的 56dp + 28px，也与 M3 标准尺寸一致。",
+        "status": "landed" },
       { "screens": ["search.results.light"],
         "change": "查询词高亮字重 semibold → medium；底部汇总文字色 → #64748B",
         "decision": "与 §5.2 搜索页一致（primary + Medium），无需改代码。",
@@ -48,13 +47,15 @@
   "designSystem": {
     "_": "仓库 → Stitch 的反向同步记录（DESIGN.md §7 第 8 条）。漂移以 frontMatterSha256 为准而非整文件：实测这条通道只承载 token，改正文在 Stitch 那边什么都不会变（见 pushFidelity）。scripts/design/stitch-design-system.mjs --check 核对。",
     "file": "design-system.md",
-    "sha256": "b3b32ce0264b6ea5a0fa3b013a8dc073ddb780a2ad83a07a61af048c65dcecaa",
-    "frontMatterSha256": "7e0f37cc751c09a8bb0f1327c998da3c5cd7bc51b8f507a9744a5b0fd36421f9",
+    "sha256": "804176645703a1400321307c843f50c7d48705dafabb969bbaaa52c18d3baf96",
+    "frontMatterSha256": "cba88db20a54c980c58c5502ba57686bbea194441dad7eedaea595fbffdeb063",
     "pinnedBy": "android/app/src/test/java/com/hermes/client/ui/theme/DesignSystemExportTest.kt",
     "assetId": "8a7217d53f5e4f8399c25714f8833e79",
     "pushedFrontMatterSha256": "7e0f37cc751c09a8bb0f1327c998da3c5cd7bc51b8f507a9744a5b0fd36421f9",
     "pushedFileSha256": "7c41a1a56cdda3cd5eeb56d5f0b4887d3e4c6d78c79076f2b1b4b23441ec942d",
     "pushedAt": "2026-09-11",
+    "rePushPending": true,
+    "rePushNote": "2026-09-11 严格照稿落地后 token 变了（状态色四档、WARN 图形档、subline-faint、FAB 深色档、六个排版档），Stitch 上那套是改动前的版本。未立即重推：update_design_system 被 API 拒绝，每次重推都会在设计师项目里再建一套资产，所以攒到一批再推，且推之前要先把 --summary 给产品负责人看。",
     "pushedVia": "upload_design_md → create_design_system_from_design_md（项目 8017882098155799612）",
     "activeInStitch": false,
     "activeNote": "MCP 没有「设为项目当前设计系统」的接口，需产品负责人在 Stitch 网页里手动选中。",
@@ -99,7 +100,7 @@
       "notes": [
         "本稿是浅色几何真源；暗色稿的几何差异见 pairs。",
         "「Slack 未连接 · 3 个定时任务受影响」是示意文案，真实文案走错误码目录（§7 第 8 条）。",
-        "组头 11px 等宽大写 / 徽章 10.5px / 顶栏图标按钮 36dp 低于无障碍下限，按 fixture 与 §5.2 的既定偏离处理。"
+        "组头 11px 等宽大写 / 徽章 10.5px / 顶栏图标按钮 36dp / 副行最淡档 #A8A29E 全部低于旧的无障碍下限。2026-09-11 下限废除后按稿照做，四处都已落地（DESIGN.md §7 第 8 条）。"
       ]
     },
     {

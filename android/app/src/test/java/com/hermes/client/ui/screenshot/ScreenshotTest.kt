@@ -522,13 +522,17 @@ class ScreenshotTest {
                 androidx.compose.material3.Text(title, style = com.hermes.client.ui.theme.SessionRowTitle)
             },
             supportingContent = {
+                // Same 2dp / 4dp rhythm the production row uses (docs/DESIGN.md §5.2) — this
+                // probe is only worth anything if it measures the real thing.
                 androidx.compose.foundation.layout.Column {
+                    androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.size(2.dp))
                     SessionSubline(listSession(title, repo), defaultProjectPath = "/Users/me")
                     // Same gate production uses: blank means no line at all, not an empty one.
                     status?.takeIf { it.isNotBlank() }?.let {
+                        androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.size(4.dp))
                         androidx.compose.material3.Text(
                             it,
-                            style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+                            style = com.hermes.client.ui.theme.SessionRowStatus,
                         )
                     }
                 }

@@ -109,8 +109,10 @@ test('rules() keeps the constraints and drops the repo-facing framing', () => {
   assert.ok(!r.startsWith('---'));
   assert.ok(!r.includes('DesignSystemExportTest'));
   assert.ok(!r.includes('与本仓不一致时怎么办'));
-  // Every rule a generator must not violate is still there, including the rejected ones.
-  for (const rule of ['不加描边', '中性近黑', '时间桶绝不用绿', '不用等宽字体', '描边式', '48dp']) {
+  // Every rule a generator must not violate is still there, including the rejected ones
+  // (no stroke on the search field, time buckets never green) and the ones that reversed
+  // earlier decisions (mono is now bundled; there is no longer a size floor).
+  for (const rule of ['不加描边', '中性近黑', '时间桶绝不用绿', '等宽只用在', '没有字号下限', '描边式']) {
     assert.ok(r.includes(rule), `rules() lost: ${rule}`);
   }
   // And the values, since a generator needs them alongside the constraints.

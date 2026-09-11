@@ -34,9 +34,11 @@ colors:
   on-background: '#1b1c1a'
   surface-variant: '#e3e2df'
   status-good: '#2e7d32'
-  status-warn: '#c2410c'
-  status-bad: '#c62828'
+  status-warn: '#b45309'
+  status-bad: '#b91c1c'
   status-running: '#0369a1'
+  subline-faint: '#a8a29e'
+  status-warn-graphic: '#d97706'
   fab-container: '#181c24'
   spinner: '#2563eb'
   incident-container: '#fff1f2'
@@ -104,12 +106,12 @@ typography:
     letterSpacing: 0.22px
   session-row-title:
     fontFamily: Roboto Flex
-    fontSize: 15px
+    fontSize: 15.5px
     fontWeight: '600'
-    lineHeight: 21.75px
-    letterSpacing: -0.15px
+    lineHeight: 22.475px
+    letterSpacing: -0.155px
   session-row-subline:
-    fontFamily: Roboto Flex
+    fontFamily: JetBrains Mono
     fontSize: 12px
     fontWeight: '400'
     lineHeight: 17.4px
@@ -120,6 +122,36 @@ typography:
     fontWeight: '500'
     lineHeight: 17.4px
     letterSpacing: -0.3px
+  session-row-title-read:
+    fontFamily: Roboto Flex
+    fontSize: 15.5px
+    fontWeight: '500'
+    lineHeight: 22.475px
+    letterSpacing: -0.155px
+  session-group-header:
+    fontFamily: JetBrains Mono
+    fontSize: 11px
+    fontWeight: '600'
+    lineHeight: 14px
+    letterSpacing: 0.55px
+  session-group-count:
+    fontFamily: JetBrains Mono
+    fontSize: 10.5px
+    fontWeight: '500'
+    lineHeight: 14px
+    letterSpacing: 0px
+  session-group-note:
+    fontFamily: JetBrains Mono
+    fontSize: 10px
+    fontWeight: '400'
+    lineHeight: 13px
+    letterSpacing: -0.1px
+  segment-label:
+    fontFamily: Roboto Flex
+    fontSize: 13.5px
+    fontWeight: '500'
+    lineHeight: 19.575px
+    letterSpacing: -0.135px
 rounded:
   xs: 8px
   sm: 12px
@@ -132,8 +164,22 @@ spacing:
   card-page-padding: 24px
   row-min-height-2-line: 72px
   status-pillar-width: 3px
-  status-pillar-height: 14px
+  status-pillar-height: 12px
   count-chip-radius: 6px
+  count-chip-padding-h: 8px
+  count-chip-padding-v: 2px
+  row-padding-h: 16px
+  row-padding-v: 12px
+  group-header-padding-v: 8px
+  topbar-height: 56px
+  topbar-icon-button: 36px
+  topbar-icon-glyph: 21px
+  chevron-size: 17px
+  segment-pill-padding-h: 12px
+  segment-pill-padding-v: 6px
+  segment-icon-size: 17px
+  subline-top-gap: 2px
+  status-top-gap: 4px
   segment-track-radius: 12px
   segment-track-padding: 4px
   segment-pill-radius: 8px
@@ -201,11 +247,13 @@ front matter 只能放一套颜色（Stitch 的格式限制），那是浅色档
 | background | #FAF9F5 | #0F1217 |
 | on-background | #1B1C1A | #E2E0DB |
 | surface-variant | #E3E2DF | #262C35 |
-| status-good | #2E7D32 | #7CDC80 |
-| status-warn | #C2410C | #FBBF24 |
-| status-bad | #C62828 | #FFB4AB |
+| status-good | #2E7D32 | #34D399 |
+| status-warn | #B45309 | #FBBF24 |
+| status-bad | #B91C1C | #F87171 |
 | status-running | #0369A1 | #67E8F9 |
-| fab-container | #181C24 | #1E232B |
+| status-warn-graphic | #D97706 | #F59E0B |
+| subline-faint | #A8A29E | #64615B |
+| fab-container | #181C24 | #181C24 |
 | fab-outline | — | #3A4049 |
 | spinner | #2563EB | #3B82F6 |
 | incident-container | #FFF1F2 | #2A1B1D |
@@ -218,40 +266,51 @@ front matter 只能放一套颜色（Stitch 的格式限制），那是浅色档
 - **品牌色只用于 chrome**（顶栏、分段、未读点、图钉、转圈）。品牌蓝不表达任何运行状态。
 - **状态色四档独立于品牌色**：good 绿、warn 琥珀、bad 红、running 青。「思考中 / 正在输出 /
   正在使用工具」一律用 running 青，不用灰。深色档四档亮度等重，只靠色相区分。
-- **一行里只有一个琥珀。** 圆点、立柱、组头、状态行共用 status-warn，不用三个相近的琥珀。
+- **琥珀分两档，标记一档、文字一档。** 立柱与等待圆点用 status-warn-graphic（亮），组头标签与
+  等待状态句用 status-warn（深）。这是稿子自己的区分：看的标记和读的词不是一回事。其余三个状态
+  标记与文字同色。
 - **时间分组不带颜色。**「今天 / 前 7 天 / 更早」的立柱用 outline-variant，「已置顶」用 outline，
   只有「需要你处理」用琥珀。时间桶绝不用绿，绿只表示「已完成」。
-- **FAB 是中性近黑，不是品牌色**：浅色 #181C24 无描边；深色 #1E232B 加 1px #3A4049 描边。
+- **FAB 是中性近黑，不是品牌色**：浅暗两档都是 #181C24；深色再加 1px #3A4049 描边，
+  因为近黑对暗底只有 1.19:1，不描边就是页面上一个洞。
 - **转圈是品牌蓝 + 25% 同色完整轨道**，不是状态青，不是无轨道的孤弧。
 - **告警条用 incident 玫瑰色**，不用 error-container；左右内缩 16dp、圆角 12dp 的卡，不是通栏色带。
 - 深色模式的判定看应用自己的主题设置，不看系统设置。每个颜色必须同时给出浅暗两档。
 
 ## 字体与排版
 
-- **app 使用系统字体，不打包任何字族，不用等宽字体。** 稿子里用 Roboto Flex 近似 Android
-  系统字体；副行、组头、计数都用同一字族，不要 JetBrains Mono 之类的等宽字体。
+- **散文用系统字体，数据用 JetBrains Mono。** 稿子里 Roboto Flex 近似 Android 系统字体。
+  等宽只用在这几处：组头标签、「仅此设备」注记、计数 chip、副行的「项目 · 模型」，以及
+  **只有**「正在使用 X 工具」那一条状态行 —— 其余状态句（已完成 / 运行失败 / 已中断）是散文。
+  等宽字族无中日韩字形，中文自然回落到系统字体，所以等宽实际作用在拉丁文与数字上。
 - 字号阶梯见 front matter。层级靠字重（600 / 500 / 400）拉开，不靠字号；16px 及以上字距收紧，
   12px 及以下字距放松。
-- **会话行三档**：标题 15px/600、副行 12px/400、状态行 12px/500（字距 −0.3px）；行高一律 1.45。
-  已采纳、代码待落地（决策 2026-09-11）：标题改为 15.5px，**字重按未读态区分** —— 未读 600、已读 500
-  （对应设计师系统里的 session-title-unread / session-title-normal），不按分组区分；落地后本文随之更新。
-- 组头：12px/600、大写、宽字距，非等宽。
-- 字号不低于 12px；11px 只允许用于 label-sm 这类非正文标签。
+- **会话行**：标题 15.5px，**字重按未读态区分**（未读 600 / 已读 500，对应设计师系统的
+  session-title-unread / session-title-normal）；副行 12px/400 等宽；状态行 12px/500，字距 −0.3px。
+  行高一律 1.45，即标题 22.475、副行与状态行 17.4。副行距标题 2dp，状态行距副行 4dp。
+- 组头标签 11px/600 等宽大写、字距 0.55；计数 chip 10.5px 等宽（「需要你处理」那组 600，其余 500）；
+  「仅此设备」10px/400 等宽。
+- **没有字号下限。** 2026-09-11 废除了「不低于 12px」那一条，改为严格照稿。
 
 ## 形状与间距
 
 - 圆角五档：8 / 12 / 16 / 22 / 28px。菜单 16px，分段轨道 12px、浮起片 8px，搜索框 18px，
   计数 chip 6px，告警卡 12px。
 - 页边距：列表页 16dp，卡片页 24dp。会话行两行项最小高 72dp（Material ListItem 下限）。
-- 触控目标不小于 48dp。顶栏图标按钮视觉 36dp 时，触控区仍是 48dp。
+  会话行内边距 16·12dp；组头 16·8dp；计数 chip 8·2dp。
+- **没有触控下限。** 顶栏图标按钮就是 36dp，稿子画多大就是多大。2026-09-11 废除了「不小于 48dp」
+  那一条 —— 与字号下限一起，换成严格照稿。
 
 ## 组件硬规则（含已否定项，均写成应当如何）
 
-1. **顶栏**：`[头像36] 居中标题 [搜索][更多]`。搜索留在顶栏；「更多」里只有「项目」「已归档」。
+1. **顶栏**：高 56dp，`[头像36] 居中标题 [搜索36][更多36]`，图标字形 21dp。搜索留在顶栏；
+   「更多」里只有「项目」「已归档」。
 2. **分段控件**是下沉胶囊：surface-container 轨道 + 1dp outline-variant 边 + 12dp 圆角 + 4dp 内边距，
-   选中段是浮起片（8dp 圆角、白色 / 深色 surface-container-highest），未选段透明。不用 Material
-   的填满品牌色分段，不画打勾。会话页 0 段或 2 段（会话 / 机器人），没配渠道时整行不渲染。
-3. **分组头**：3×14dp 立柱 + 12px 大写标签 + 计数 chip（圆角 6dp）+ 折叠箭头。颜色规则见上。
+   选中段是浮起片（8dp 圆角、白色 / 深色 surface-container-highest），未选段透明；片内 12·6dp，
+   图标 17dp，标签 13.5px/500。不用 Material 的填满品牌色分段，不画打勾。会话页 0 段或 2 段
+   （会话 / 机器人），没配渠道时整行不渲染。
+3. **分组头**：3×12dp 全圆角立柱 + 11px 等宽大写标签 + 计数 chip（圆角 6dp）+ 17dp 折叠箭头。
+   颜色规则见上。
 4. **会话行**：`标题 / [图钉][文件夹] 项目 · 模型 / 状态行`，无行间分隔线，无 leading 图标；
    图钉在副行前缀。行尾：运行中 18dp 转圈；已完成 10dp 绿点；未读 9dp 品牌蓝点；
    「已中断」「运行失败」只留文字不留圆点。

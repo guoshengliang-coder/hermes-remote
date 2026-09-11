@@ -197,11 +197,22 @@ export function checkAgainstLock(md, lockJson) {
   if (rec.frontMatterSha256 !== fm) {
     return { ok: false, reason: `front matter sha256 ${fm} != lock ${rec.frontMatterSha256} — regenerate the lock record` };
   }
+  // Stale-in-Stitch is a STATE, not a failure. update_design_system is rejected by the API, so
+  // every re-push creates another asset in the designer's project; batching them is the sane
+  // thing to do, and the lock file says so explicitly via `rePushPending`. What IS a failure is
+  // the lock not describing the committed file, because then nothing downstream can be trusted.
   if (rec.pushedFrontMatterSha256 && rec.pushedFrontMatterSha256 !== fm) {
-    return { ok: false, reason: `Stitch asset ${rec.assetId} holds tokens ${rec.pushedFrontMatterSha256} (pushed ${rec.pushedAt}); the tokens have moved on — push again` };
+    const owned = rec.rePushPending === true;
+    return {
+      ok: owned,
+      state: 'stale-in-stitch',
+      reason: `Stitch asset ${rec.assetId} holds tokens ${rec.pushedFrontMatterSha256} (pushed ${rec.pushedAt}); the repo has moved to ${fm}` +
+        (owned ? ' — re-push recorded as pending' : ' — set designSystem.rePushPending to acknowledge, or push again'),
+    };
   }
   return {
     ok: true,
+    state: rec.pushedFrontMatterSha256 ? 'in-sync' : 'never-pushed',
     reason: rec.pushedFrontMatterSha256
       ? `tokens in sync with Stitch asset ${rec.assetId}`
       : 'recorded, never pushed',
@@ -220,7 +231,7 @@ function main(argv) {
     if (a === '--rules') { const out = args.shift(); const r = rules(md); writeFileSync(out, r); console.log(`wrote ${out} (${r.length} chars)`); continue; }
     if (a === '--check') {
       const r = checkAgainstLock(md, readFileSync(LOCK_FILE, 'utf8'));
-      console.log(`${r.ok ? 'OK' : 'DRIFT'}: ${r.reason}`);
+      console.log(`${r.ok ? 'OK' : 'DRIFT'} [${r.state ?? 'unknown'}]: ${r.reason}`);
       if (!r.ok) process.exitCode = 1;
       continue;
     }

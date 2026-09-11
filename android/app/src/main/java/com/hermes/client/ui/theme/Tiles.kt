@@ -42,7 +42,7 @@ fun tileColor(): Color =
  * on both tiers (17.07:1 light, 15.24:1 dark) — pinned by FabColorTest.
  */
 internal val FabContainerLight = Color(0xFF181C24)
-internal val FabContainerDark = Color(0xFF1E232B)
+internal val FabContainerDark = Color(0xFF181C24)
 
 /**
  * Dark needs a hairline; light does not. A near-black fill separates from warm paper on its own
@@ -106,6 +106,19 @@ fun onIncidentColor(): Color =
     if (isDarkSurface()) OnIncidentDark else OnIncidentLight
 
 /** Dark shadows are invisible, so the dark tier carries the card on fill alone. */
+/**
+ * The session subline's faintest tier — the folder glyph and the 「仅此设备」note
+ * (docs/DESIGN.md §5.2). The design source's `#A8A29E`, which is 2.39:1 on warm paper: below both
+ * the 4.5:1 text floor and the 3:1 graphic one. Adopted anyway on 2026-09-11, when following the
+ * mock exactly replaced the floors (§7 item 8). If it disappears on a real screen, that is the
+ * trade being paid, not a bug.
+ */
+internal val SublineFaintLight = Color(0xFFA8A29E)
+internal val SublineFaintDark = Color(0xFF64615B)
+
+@Composable
+fun sublineFaintColor(): Color = if (isDarkSurface()) SublineFaintDark else SublineFaintLight
+
 @Composable
 fun tileShadow(): Dp = if (isDarkSurface()) 0.dp else 1.dp
 

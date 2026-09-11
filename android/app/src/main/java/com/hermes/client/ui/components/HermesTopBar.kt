@@ -1,6 +1,7 @@
 package com.hermes.client.ui.components
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -9,6 +10,7 @@ import androidx.compose.material3.TopAppBarColors
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
 /**
  * App bar tinted by the active profile's accent (chrome-only per the design decision). The
@@ -37,7 +39,9 @@ fun HermesTopBar(
     )
     if (centered) {
         androidx.compose.material3.CenterAlignedTopAppBar(
-            modifier = modifier,
+            // 56dp, the mock's `h-14`, against Material's 64dp default. Only the centred bar —
+            // that is the one the session-list mock specifies (docs/DESIGN.md §5.2).
+            modifier = modifier.height(56.dp),
             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                 containerColor = barBg,
                 titleContentColor = barOn,
