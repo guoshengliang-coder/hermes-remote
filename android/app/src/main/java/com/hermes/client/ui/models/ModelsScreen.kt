@@ -78,16 +78,15 @@ fun ModelsScreen(
                     // current default opens, the rest collapse to a scannable line each.
                     var expandedGroups by remember { mutableStateOf<Set<String>?>(null) }
                     val effectiveExpanded = expandedGroups ?: setOfNotNull(state.defaultProvider)
-                    val items = com.hermes.client.ui.models.modelSelectorRows(
-                        providers = state.providers, favorites = favorites, query = state.query,
+                    val groups = com.hermes.client.ui.models.modelSelectorGroups(
+                        providers = state.providers, favorites = favorites,
                         currentProvider = state.defaultProvider, currentModel = state.defaultModel,
                         expandedGroups = effectiveExpanded,
                     )
-                    // Settings edits the profile default only; the session reasoning section is
-                    // deliberately absent here (it belongs to a chat).
+                    // Settings edits the profile default only; the session reasoning row and the
+                    // 快捷切换 chips are deliberately absent here (both belong to a chat).
                     com.hermes.client.ui.models.ModelSelectorContent(
-                        items = items,
-                        query = state.query, onQueryChange = vm::onQuery,
+                        groups = groups,
                         onToggleFavorite = vm::toggleFavorite,
                         onSelect = { p, m -> vm.select(p, m) },
                         onToggleGroup = { slug ->
@@ -99,8 +98,11 @@ fun ModelsScreen(
                         currentSummary = state.defaultModel?.let { model ->
                             com.hermes.client.ui.models.CurrentModelSummary(
                                 model = model,
-                                provider = state.defaultProvider,
-                                scopeText = localized(language, "当前默认", "Current default"),
+                                provider = state.providers.firstOrNull { it.slug == state.defaultProvider }?.name
+                                    ?: state.defaultProvider,
+                                // Selection and effect are the same thing on this screen, so the
+                                // badge says what it is and there is no scope line under it.
+                                badgeText = localized(language, "当前默认", "Current default"),
                             )
                         },
                     )

@@ -9,6 +9,7 @@ import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ChatMediaRepository
 import com.hermes.client.data.repository.ModelFavoritesStore
+import com.hermes.client.data.repository.ModelRecentsStore
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileRepository
 import com.hermes.client.data.repository.SessionRepository
@@ -59,6 +60,7 @@ class ChatViewModelTest {
     private val profileRepo = mockk<ProfileRepository>(relaxed = true)
     private val profileManager = mockk<com.hermes.client.data.repository.ProfileManager>(relaxed = true)
     private val favoritesStore = mockk<ModelFavoritesStore>(relaxed = true)
+    private val recentsStore = mockk<ModelRecentsStore>(relaxed = true)
     private val pendingShareStore = com.hermes.client.share.PendingShareStore()
     private val tts = mockk<com.hermes.client.data.tts.TextToSpeechController>(relaxed = true)
     private val promptStore = mockk<com.hermes.client.data.repository.PromptStore>(relaxed = true)
@@ -106,6 +108,7 @@ class ChatViewModelTest {
         coEvery { modelRepo.providers() } returns emptyList()
         coEvery { profileRepo.list() } returns emptyList()
         every { favoritesStore.favorites } returns MutableStateFlow(emptySet())
+        every { recentsStore.recents } returns MutableStateFlow(emptyList())
         every { tts.speaking } returns MutableStateFlow(false)
         every { promptStore.prompts } returns MutableStateFlow(emptyList())
     }
@@ -136,7 +139,7 @@ class ChatViewModelTest {
         catalogStore = store
         return ChatViewModel(
             chatRepo, sessionRepo, store, reasoningPresetStore, profileRepo, profileManager,
-            favoritesStore, pendingShareStore, tts, promptStore, configRepo, runtimeStore,
+            favoritesStore, recentsStore, pendingShareStore, tts, promptStore, configRepo, runtimeStore,
             mediaRepo, fileRepo, mainDispatcherRule.dispatcher, projectPrefs,
             com.hermes.client.data.repository.ProjectCatalog(
                 mockk(relaxed = true), sessionRepo, profileManager, projectPrefs,
@@ -876,6 +879,48 @@ class ChatViewModelTest {
         assertEquals("opus", vm.currentModel.value)
         assertTrue("success must clear any sheet error", vm.modelSheet.value.error == null)
         assertTrue("onDone must be invoked so the caller dismisses the sheet", onDoneCalled)
+    }
+
+    // 快捷切换 (docs/DESIGN.md §5.17) is fed by this: every switch that actually took effect goes
+    // to the front of the device-local recents list.
+    @Test fun a_successful_switch_is_recorded_for_the_quick_switch_row() = runTest {
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+
+        vm.onSelectFromSheet("anthropic", "opus") {}
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { recentsStore.record("anthropic", "opus") }
+    }
+
+    // The other half: a switch that did NOT take effect must not offer itself as a shortcut.
+    @Test fun a_failed_switch_is_not_recorded() = runTest {
+        coEvery { chatRepo.slashExec("s1", any()) } throws
+            com.hermes.client.data.network.GatewayRpcException(5000, "could not resolve credentials")
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+
+        vm.onSelectFromSheet("anthropic", "opus") {}
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { recentsStore.record(any(), any()) }
+    }
+
+    // 恢复默认 changes the model too, so the chip row has to offer the way back as well.
+    @Test fun restoring_the_default_is_recorded_too() = runTest {
+        coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "def-model") }
+        coEvery { modelRepo.providers(any()) } returns listOf(
+            com.hermes.client.data.network.ModelProviderDto(
+                slug = "prov", isCurrent = true, models = listOf("def-model"),
+            ),
+        )
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+
+        vm.restoreDefaultModel {}
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { recentsStore.record("prov", "def-model") }
     }
 
     // A refused switch surfaces in the sheet's error (not the chat transcript), and the sheet stays

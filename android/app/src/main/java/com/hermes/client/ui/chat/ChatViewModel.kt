@@ -66,6 +66,7 @@ class ChatViewModel @Inject constructor(
     private val profileRepo: ProfileRepository,
     private val profileManager: ProfileManager,
     private val favoritesStore: com.hermes.client.data.repository.ModelFavoritesStore,
+    private val recentsStore: com.hermes.client.data.repository.ModelRecentsStore,
     private val pendingShareStore: com.hermes.client.share.PendingShareStore,
     private val tts: com.hermes.client.data.tts.TextToSpeechController,
     private val promptStore: com.hermes.client.data.repository.PromptStore,
@@ -336,6 +337,23 @@ class ChatViewModel @Inject constructor(
     val favorites: kotlinx.coroutines.flow.StateFlow<Set<String>> =
         favoritesStore.favorites.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptySet())
 
+    /**
+     * The 快捷切换 chips (docs/DESIGN.md §5.17): models this device recently switched to, newest
+     * first. Stored as favKeys, split back into (provider, model) here rather than in the store,
+     * so the store stays a plain ordered list of keys like the favourites set beside it.
+     */
+    val recentModels: kotlinx.coroutines.flow.StateFlow<List<com.hermes.client.ui.models.ModelRecent>> =
+        recentsStore.recents
+            .map { keys ->
+                keys.mapNotNull { key ->
+                    val parts = key.split('\u0000')
+                    if (parts.size == 2) {
+                        com.hermes.client.ui.models.ModelRecent(parts[0], parts[1])
+                    } else null
+                }
+            }
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** True while a response is being read aloud. */
     val speaking: kotlinx.coroutines.flow.StateFlow<Boolean> = tts.speaking
 
@@ -385,7 +403,6 @@ class ChatViewModel @Inject constructor(
         promptStore.prompts.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptyList())
 
     data class ModelSheetUi(
-        val query: String = "",
         // favKey of the row whose selection is in flight; non-null disables the list (no double
         // submits) and shows the spinner on that row.
         val pendingKey: String? = null,
@@ -1529,7 +1546,6 @@ class ChatViewModel @Inject constructor(
         runtimeKey?.let { runtimeStore.setVisible(it, false) }
     }
 
-    fun onSheetQuery(q: String) { _modelSheet.value = _modelSheet.value.copy(query = q) }
     fun toggleFavorite(provider: String, model: String) =
         viewModelScope.launch { favoritesStore.toggle(provider, model) }
 
@@ -1566,6 +1582,7 @@ class ChatViewModel @Inject constructor(
                     _currentProvider.value = provider
                     _explicitSessionOverride.value = true
                     _modelSheet.value = ModelSheetUi()  // reset + clear pending/error
+                    recentsStore.record(provider, model)
                     applyReasoningPresetFor(provider, model)
                     onDone()
                 }
@@ -1599,6 +1616,8 @@ class ChatViewModel @Inject constructor(
                     _currentProvider.value = provider
                     _explicitSessionOverride.value = false
                     _modelSheet.value = ModelSheetUi()
+                    // Restoring the default IS a switch — the chip row should offer the way back.
+                    recentsStore.record(provider, model)
                     applyReasoningPresetFor(provider, model)
                     onDone()
                 }

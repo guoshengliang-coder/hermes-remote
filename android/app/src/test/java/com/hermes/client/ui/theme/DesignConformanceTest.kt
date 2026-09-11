@@ -126,6 +126,21 @@ class DesignConformanceTest {
                 "cardThemeAccent" -> if (dark) CardThemeAccentDark else CardThemeAccentLight
                 "cardThemeAccentInk" -> if (dark) CardThemeAccentInkDark else CardThemeAccentInkLight
                 "cardThemeBadge" -> if (dark) CardThemeBadgeDark else CardThemeBadgeLight
+                // 模型选择 (docs/DESIGN.md §5.17 模型选择).
+                "modelCard" -> if (dark) ModelCardDark else ModelCardLight
+                "modelCardBorder" -> if (dark) ModelCardBorderDark else ModelCardBorderLight
+                "modelDivider" -> if (dark) ModelDividerDark else ModelDividerLight
+                "modelBar" -> if (dark) ModelBarDark else ModelBarLight
+                "modelInset" -> if (dark) ModelInsetDark else ModelInsetLight
+                "modelInkMuted" -> if (dark) ModelInkMutedDark else ModelInkMutedLight
+                "modelInkFaint" -> if (dark) ModelInkFaintDark else ModelInkFaintLight
+                "modelAccent" -> if (dark) ModelAccentDark else ModelAccentLight
+                "modelAccentInk" -> if (dark) ModelAccentInkDark else ModelAccentInkLight
+                "modelCurrentFill" -> if (dark) ModelCurrentFillDark else ModelCurrentFillLight
+                "modelCurrentBorder" -> if (dark) ModelCurrentBorderDark else ModelCurrentBorderLight
+                "modelSwitchChip" -> if (dark) ModelSwitchChipDark else ModelSwitchChipLight
+                "modelStar" -> if (dark) ModelStarDark else ModelStarLight
+                "modelStarOff" -> if (dark) ModelStarOffDark else ModelStarOffLight
                 else -> error("unknown tiles role '$name' in ref '$ref'")
             }.toArgb()
             else -> error("unknown ref kind '$kind' in ref '$ref'")
@@ -158,6 +173,19 @@ class DesignConformanceTest {
             "CardThemeOptionTitle" -> CardThemeOptionTitle
             "CardThemeBadge" -> CardThemeBadge
             "CardThemeCta" -> CardThemeCta
+            "ModelSheetTitle" -> ModelSheetTitle
+            "ModelCardName" -> ModelCardName
+            "ModelCardProvider" -> ModelCardProvider
+            "ModelCardAction" -> ModelCardAction
+            "ModelEffortValue" -> ModelEffortValue
+            "ModelEffortLabel" -> ModelEffortLabel
+            "ModelBadge" -> ModelBadge
+            "ModelRowBadge" -> ModelRowBadge
+            "ModelGroupTitle" -> ModelGroupTitle
+            "ModelGroupCount" -> ModelGroupCount
+            "ModelRowName" -> ModelRowName
+            "ModelRowProvider" -> ModelRowProvider
+            "ModelQuickChipProvider" -> ModelQuickChipProvider
             "labelMedium" -> HermesTypography.labelMedium
             "bodyLarge" -> HermesTypography.bodyLarge
             "titleMedium" -> HermesTypography.titleMedium
