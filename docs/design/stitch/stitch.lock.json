@@ -25,7 +25,7 @@
         "change": "行标题 15px → 15.5px（浅色用内联 style，暗色改类名）；字重改为按分组区分：「需要你处理」两行 600，其余行 500",
         "decision": "采纳。SessionRowTitle 拆成两档 15.5/600 与 15.5/500，行高 22.475、字距 −0.155。fixture 已记 design 列（row.title.needsYou / row.title），impl 在代码落地前保持 15/600 并写 reason。",
         "status": "adopted-pending-code",
-        "followUp": "开代码工作条目：Type.kt 两档样式、SessionRow 按分组选档、§5.2 字号表更新、row-height-probe 与 session-rows-pinned golden 重录" },
+        "followUp": "开代码工作条目：Type.kt 两档样式、SessionRow 选档、§5.2 字号表更新、row-height-probe 与 session-rows-pinned golden 重录。语义待确认：稿子里 600 的两行都在「需要你处理」组，但设计师最新的设计系统「Warm Paper Agent」把两档命名为 session-title-unread(600) / session-title-normal(500)，即按未读态而非按分组；落地前需产品负责人裁决。" },
       { "screens": ["sessions.chats.default.light"],
         "change": "状态色改为内联覆盖：等待 = #B45309、已完成 = #2E7D32（与本仓 StatusColors 的 GOOD 相同）",
         "decision": "更新 fixture design 列，实现不动。已完成：浅色 design 与 impl 一致；等待：impl 维持 #C2410C（纸底 4.92 对 #B45309 的 4.53），写 reason。",
@@ -45,6 +45,19 @@
     ]
   },
   "canvas": { "widthCssPx": 390, "note": "1 CSS px = 1 dp（DESIGN.md §3.4）；Stitch 元数据里的 width 780 / height 是 2x 像素" },
+  "designSystem": {
+    "_": "仓库 → Stitch 的反向同步记录（DESIGN.md §7 第 8 条）。sha256 = 当前提交的 design-system.md；pushedSha256 / assetId / pushedAt 在推送后写入。scripts/design/stitch-design-system.mjs --check 核对。",
+    "file": "design-system.md",
+    "sha256": "13db31adee38548ef199f5c47640cf9dda15c76a924361064a15686f6b1ba5fe",
+    "pinnedBy": "android/app/src/test/java/com/hermes/client/ui/theme/DesignSystemExportTest.kt",
+    "assetId": null,
+    "pushedSha256": null,
+    "pushedAt": null,
+    "supersedes": {
+      "note": "Stitch 项目里已有 5 套设计系统，推送时不覆盖任何一套，只新建；下面两套是设计师的现行版本，供对照。",
+      "designerSystems": ["assets/6ad9f3cd05f44c5087b8b69f7bc3091b Hermes Mobile System（DESIGN.md §2.1 点名的设计源）", "assets/d5a4e85e25b741c5876464ee688cb3e3 Warm Paper Agent（定义了 session-title-unread 600 / session-title-normal 500）"]
+    }
+  },
   "screens": [
     {
       "key": "sessions.chats.default.light",
