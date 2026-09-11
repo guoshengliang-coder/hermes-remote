@@ -168,6 +168,38 @@ cd android
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 ```
 
+UI, notification and background-behaviour changes need more than that baseline. Verification is
+layered, and the layers are **not** interchangeable — each covers something the others cannot:
+
+- **L1 — JVM + Roborazzi screenshots.** Always available, and the only layer CI can run. This is
+  the default gate for UI regressions: theme combinations, `fontScale`, density, layout.
+- **L2 — attached physical device.** Real look-and-feel, gestures, and vendor ROM behaviour
+  (notification delivery, background survival, battery optimisation). Run it whenever a device is
+  attached. `docs/DESIGN.md` settles look-and-feel disputes on a device, never on an emulator.
+- **L3 — emulator.** Platform behaviour gated on `targetSdk`, clean-install state, and the
+  size/density matrix. A device running below `targetSdk` cannot exercise those paths at all.
+
+Host capability differs per machine, so never hard-code emulator memory, AVD names or build/boot
+sequencing into files shared through Git — `gradle.properties` included, since CI runners read it
+too. Ask the host at runtime instead:
+
+```bash
+./scripts/dev/android-capabilities.sh     # layer availability, device SDK vs targetSdk gap
+./scripts/dev/emulator.sh start           # L3, self-tuned to the host tier
+HR_FORCE_TIER=low ./scripts/dev/emulator.sh start   # exercise the small-host path anywhere
+```
+
+`HR_FORCE_TIER` (`high`/`mid`/`low`) overrides the measured tier. Use it when changing the tiering
+logic: the low/mid branches are otherwise only ever executed on whichever machine happens to be
+small, so they rot unnoticed on the machine you develop on.
+
+To give one machine a larger Gradle heap, set it in `~/.gradle/gradle.properties` (per-user, outside
+the repository), not in the committed one.
+
+Report which layers ran and which did not. Do not claim device verification when only JVM tests were
+run. When a layer is unavailable on the host, or the attached device's SDK is below `targetSdk`, say
+so explicitly in the commit message and the handoff notes rather than leaving the gap implied.
+
 ### Desktop
 
 Desktop behavior and visual changes must update `docs/DESKTOP_PHASE0.md`,
@@ -183,8 +215,6 @@ An ad-hoc local app is not a distributable release. Do not claim Developer ID si
 unless the exact artifact has passed codesign verification, notary submission, stapling, and a clean
 machine launch check.
 
-For UI changes, also inspect the result on the configured emulator or a real device when available.
-Do not claim device verification when only JVM tests were run.
 
 ### Before handoff
 
@@ -192,6 +222,8 @@ Do not claim device verification when only JVM tests were run.
 - Confirm `git status` contains no accidental secrets, generated files, or other agents' changes.
 - For Android artifacts, confirm the signing certificate matches `docs/SIGNING.md`.
 - Report tests run, tests not run, the versioned APK path when applicable, and any deployment performed.
+- For Android UI or behaviour work, state which verification layers ran (L1/L2/L3) and which were
+  skipped or unavailable on this host. `./scripts/dev/android-capabilities.sh` prints that summary.
 - Commit and push only when the user or orchestrating workflow authorizes it. Never include
   `environment.md` in a commit.
 
