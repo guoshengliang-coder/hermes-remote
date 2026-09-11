@@ -544,6 +544,36 @@ class StartupViewModelTest {
         )
     }
 
+    @Test fun failedLoopbackRelayRepairOpensAccountSetupInsteadOfLegacySettings() = runTest {
+        val loopback = GatewayConfig("http://127.0.0.1:8787", "dev-app-token")
+        every { credentials.load() } returns loopback
+        coEvery { rest.probeStatusFor(loopback.baseUrl, loopback.token) } returns
+            GatewayProbeResult.Unreachable("connection refused")
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        vm.requestConfigurationRepair()
+
+        val repair = vm.state.value as StartupUiState.RepairRequired
+        assertEquals(StartupFailure.CONNECTION_FAILED, repair.failure)
+        assertTrue(repair.accountSetup)
+    }
+
+    @Test fun failedPublicRelayRepairStillOpensLegacyConnectionSettings() = runTest {
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
+            GatewayProbeResult.Unreachable("connection refused")
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        vm.requestConfigurationRepair()
+
+        val repair = vm.state.value as StartupUiState.RepairRequired
+        assertEquals(StartupFailure.CONNECTION_FAILED, repair.failure)
+        assertTrue(!repair.accountSetup)
+    }
+
     @Test fun gatewayReadyTimeoutOffersRecoveryInsteadOfBlockingForever() = runTest {
         val vm = vm()
 

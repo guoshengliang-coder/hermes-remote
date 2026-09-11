@@ -12,6 +12,7 @@ import com.hermes.client.data.auth.AccountSessionStore
 import com.hermes.client.data.auth.AccountClock
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.DEFAULT_REMOTE_GATEWAY_URL
+import com.hermes.client.data.auth.isLoopbackGatewayBaseUrl
 import com.hermes.client.data.auth.PendingEmailChallenge
 import com.hermes.client.data.auth.PendingAccountDeletion
 import com.hermes.client.data.network.AccountApi
@@ -21,7 +22,6 @@ import com.hermes.client.data.network.AccountDevicesResponseDto
 import com.hermes.client.data.network.asOwnedDevice
 import com.hermes.client.data.repository.ChatRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import java.net.URI
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
@@ -792,13 +792,8 @@ class AccountDevicesViewModel @Inject constructor(
         ?: store.lastAccountBaseUrl()
         ?: runCatching { legacyCredentials.load()?.baseUrl }
             .getOrNull()
-            ?.takeUnless(::isLoopbackGateway)
+            ?.takeUnless(::isLoopbackGatewayBaseUrl)
         ?: DEFAULT_REMOTE_GATEWAY_URL
-
-    private fun isLoopbackGateway(baseUrl: String): Boolean = runCatching {
-        URI(baseUrl).host?.removePrefix("[")?.removeSuffix("]")?.lowercase() in
-            setOf("127.0.0.1", "localhost", "::1")
-    }.getOrDefault(false)
 
     /** Account-control errors use the same session/device recovery as Hermes REST responses. */
     private fun handleAuthenticatedAccountError(error: AccountApiException, rejectedDeviceId: String?) {
