@@ -369,7 +369,7 @@ by this UI-only step.
 - Migration Assistant moved the active 0.3.0 managed installation to a new Mac mini. The journal and
   binding remained `account_active` at generation 7, but launchd restored both the legacy and managed
   Connector labels. The transferred pre-session-token installation also needed its local Hermes
-  credential rotated to the current private 43-character format.
+  credential rotated to a new private value shared only by the two managed services.
 - The old Connector was stopped and persistently disabled, the managed Hermes/Connector pair was
   restarted with one shared private credential, and authenticated loopback plus the Connector's TLS
   connection to the Gateway passed. Desktop 0.2.3 then launched and the duplicate label remained
@@ -378,8 +378,11 @@ by this UI-only step.
   re-enables it during pre-commit rollback, and on later Desktop startup suppresses a transferred
   duplicate only when an exact `account_active` journal and both managed services are present. It is
   inert for intermediate, mismatched, or incomplete installations.
-- A packaged run of this correction and a full Mac reboot followed by Android REST/WebSocket traffic
-  are still required before closing the physical migration gate.
+- Desktop 0.2.4/build 7 packaged this correction. Installation and a full Mac reboot preserved the
+  `account_active` generation-7 journal, automatically restored only managed Hermes and Connector,
+  kept the legacy label persistently disabled/unloaded, returned authenticated local Hermes HTTP 200,
+  and re-established Connector TLS. Android account REST/WebSocket traffic after that reboot is the
+  remaining physical migration gate.
 
 ### Account-mode presentation release — 2026-09-10
 
@@ -397,3 +400,20 @@ by this UI-only step.
 - The later physical Migration Assistant run is recorded above. A packaged rerun of its deterministic
   launch-state correction, Developer ID signing, notarization, stapling, and clean-Mac launch
   acceptance remain pending.
+
+### Migration integrity release — 2026-09-11
+
+- Desktop 0.2.4 (bundle build 7) was built from clean merged commit
+  `48a6c2ed610efd83fdb8d55610245f4ac0b26345` with the pinned internal 0.3.1 release configuration.
+  The complete 178-test Desktop suite, asset comparison, configured release build, strict ad-hoc
+  codesign verification, and `hdiutil verify` passed.
+- The 2,045,620-byte DMG SHA-256 is
+  `8ba346e4409fa9a72b0999878cc230e23af08268a02b623418311443895a057a`. Target-side size, hash,
+  image, installed-app version, and codesign checks reproduced the local result.
+- Replacing Desktop 0.2.3 did not restart managed Hermes or Connector. A subsequent full Mac reboot
+  started only those two managed labels, left the legacy Connector disabled/unloaded, preserved the
+  exact account journal/binding generation, returned authenticated Hermes HTTP 200/version 0.21.0,
+  and established Connector TLS. Opening Desktop 0.2.4 after login preserved that state.
+- The attached HONOR test phone carried Android 0.1.89, so it was not used to claim account-mode
+  REST/WebSocket acceptance. That post-reboot phone check, Developer ID signing, notarization,
+  stapling, and clean-Mac acceptance remain pending.

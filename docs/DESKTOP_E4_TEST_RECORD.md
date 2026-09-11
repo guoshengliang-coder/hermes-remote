@@ -1,11 +1,12 @@
 # Desktop E4 test record
 
-Date: 2026-09-10
+Date: 2026-09-11
 Status: E4-D local multi-device UX, signed bootstrap, packaged orchestration, account Connector,
 binding, rollback, and restart recovery are complete. Android account continuity and managed account
 mode were subsequently proven on the physical Mac. The corrective internal 0.3.1 arm64 release is
-published and Desktop 0.2.3 is installed on that Mac; Developer ID signing/notarization and clean-Mac
-acceptance remain pending.
+published and Desktop 0.2.4 is installed on the migrated Mac. Its packaged reboot preserved the
+single-Connector invariant; post-reboot Android account REST/WebSocket traffic, Developer ID
+signing/notarization, and clean-Mac acceptance remain pending.
 
 ## E4-E offline release publisher
 
@@ -287,4 +288,37 @@ The corresponding regression changes make legacy disable/enable part of the norm
 pair and let Desktop suppress a transferred duplicate at startup only when the durable journal is
 exactly `account_active` and both managed labels are already loaded. Intermediate and incomplete
 states remain inert or fail closed. A packaged run of the corrected Desktop followed by a full Mac
-reboot and Android REST/WebSocket verification remains pending.
+reboot passed on 2026-09-11 as recorded below. Android REST/WebSocket verification after that reboot
+remains pending.
+
+## 2026-09-11 Desktop 0.2.4 migrated-Mac reboot acceptance
+
+PR #162 merged the deterministic Migration Assistant correction as
+`d7e43e6dd168cec5819c38b9bdec053c9eabb0be`. PR #163 then merged the 0.2.4/build 7 version gate as
+`48a6c2ed610efd83fdb8d55610245f4ac0b26345`; all applicable PR checks and the resulting main CI and
+SAST workflows completed successfully. From an isolated clean worktree whose HEAD exactly matched
+that `origin/main`, the canonical asset check, complete 178-test Desktop suite, configured release
+build, strict ad-hoc codesign verification, and `hdiutil verify` passed. The 2,045,620-byte DMG
+SHA-256 is `8ba346e4409fa9a72b0999878cc230e23af08268a02b623418311443895a057a`.
+
+The DMG was independently size/hash/image-verified on the migrated `LGS-MACMINI` before replacing
+Desktop 0.2.3. The newly installed `/Applications/Hermes Go Desktop.app` reported 0.2.4/build 7 and
+passed strict codesign verification. Launching it preserved the running managed Hermes and Connector
+PIDs 27473 and 27608, kept `com.hermesremote.connector` disabled and unloaded, retained the
+`account_active` generation-7 journal, returned authenticated local Hermes HTTP 200/version 0.21.0,
+and retained an established Connector TLS connection. The 0.2.3 app remains as a local rollback copy
+until the final phone gate closes.
+
+After a full Mac reboot at 2026-09-11 09:51:02 +08:00, launchd automatically restored only managed
+Hermes PID 1674 and managed Connector PID 1675. The legacy label remained persistently disabled and
+unloaded; the journal stayed `account_active`, generation 7, managed release 0.3.0. Starting Desktop
+0.2.4 exercised its startup reconciliation without changing either managed PID or reviving the
+legacy Connector. The protected loopback check again returned HTTP 200/version 0.21.0 and the
+Connector again held an established TLS connection.
+
+The attached HONOR CLK-AN00 contained Android 0.1.89/build 90, which predates account-mode
+acceptance and cannot close the post-reboot account transport gate. No screenshot or user content was
+exported. The accepted Android 0.1.113 account client, or a later account-capable build signed into
+the same account, must still perform one REST status request and one real WebSocket session through
+this Mac. This remains an internal ad-hoc Desktop build and is not Developer ID signed, notarized,
+stapled, or approved for public distribution.
