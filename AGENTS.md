@@ -61,8 +61,9 @@ branch; and the separation of the merge, version and publish gates. Read it befo
 - `deploy/`: deployment and service templates; never store live credentials here.
 - `docs/`: architecture, environment shape, deployment record, smoke-test instructions, the
   cross-subproject integration rules (`docs/INTEGRATION.md`), the Android UI design contract
-  (`docs/DESIGN.md`), the upstream Hermes contract inventory (`docs/HERMES_CONTRACT.md`), and the
-  read-only incident runbook for session-state problems (`docs/DIAGNOSTICS.md`).
+  (`docs/DESIGN.md`), the upstream Hermes contract inventory (`docs/HERMES_CONTRACT.md`), the
+  read-only incident runbook for session-state problems (`docs/DIAGNOSTICS.md`), and the hands-on
+  guide for operating a physical Android device (`docs/DEVICE_TESTING.md`).
 
 `docs/HERMES_CONTRACT.md` inventories what this repository consumes from **upstream Hermes** — wire
 field names, RPC methods, text grammars, and one hand-copied constant — none of which we own or can
@@ -179,7 +180,9 @@ layered, and the layers are **not** interchangeable — each covers something th
   Several phones may be attached at once, and they do **not** substitute for one another: name the
   device a result came from instead of writing "verified on device", because ROM behaviour is
   exactly what differs between vendors. `ANDROID_SERIAL=<serial>` picks which one the tooling
-  targets by default. How many phones a change actually needs:
+  targets by default. How to operate a phone — which APK to install, each vendor's install
+  confirmation page, the dev stack, and restoring the phone afterwards — is in
+  `docs/DEVICE_TESTING.md`; write new device gotchas back there. How many phones a change needs:
 
   | Change | Devices needed | Why |
   |---|---|---|
