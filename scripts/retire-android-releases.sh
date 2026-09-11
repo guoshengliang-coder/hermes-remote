@@ -39,7 +39,11 @@ done
 [[ "$KEEP" =~ ^[1-9][0-9]*$ ]] || { echo "--keep must be a positive integer" >&2; exit 1; }
 
 REMOTE_TMP=""
-cleanup() { if [[ -n "$REMOTE_TMP" ]]; then ssh "$USER@$HOST" "rm -rf -- '$REMOTE_TMP'" >/dev/null 2>&1 || true; fi; }
+INDEX="$(mktemp)"
+cleanup() {
+  rm -f "$INDEX"
+  if [[ -n "$REMOTE_TMP" ]]; then ssh "$USER@$HOST" "rm -rf -- '$REMOTE_TMP'" >/dev/null 2>&1 || true; fi
+}
 trap cleanup EXIT INT TERM
 
 # Mutating the live catalog from a dirty tree, or from anything but the commit on origin/main,
@@ -49,9 +53,15 @@ git -C "$ROOT" fetch origin main
 HEAD_COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
 [[ "$HEAD_COMMIT" == "$(git -C "$ROOT" rev-parse origin/main)" ]] || { echo "HEAD must equal origin/main before retiring" >&2; exit 1; }
 
+# Reporting lives in scripts/lib/release_catalog_report.py, not inline: the inline versions cost
+# two bugs on the first real run (f-string backslash on Python 3.9, and a heredoc eating the
+# piped JSON). A file has neither hazard and is covered by scripts/test.
+REPORT="$ROOT/scripts/lib/release_catalog_report.py"
+curl --fail --silent --show-error --output "$INDEX" "$PUBLIC_BASE/releases/index.json"
 echo "Catalog before:"
-curl --fail --silent --show-error "$PUBLIC_BASE/releases/index.json" |
-  python3 -c 'import json,sys; d=json.load(sys.stdin); v=sorted(d["versions"], key=lambda x: x["versionCode"]); print(f"  {len(v)} versions, latest {d[\"latestVersionCode\"]}, oldest {v[0][\"versionName\"]}, newest {v[-1][\"versionName\"]}")'
+python3 "$REPORT" summary "$INDEX"
+echo "Plan:"
+python3 "$REPORT" plan "$INDEX" "$KEEP"
 
 REMOTE_TMP="/tmp/hermes-retire-${HEAD_COMMIT}"
 ssh "$USER@$HOST" "umask 077; rm -rf -- '$REMOTE_TMP'; mkdir -- '$REMOTE_TMP'; mkdir -p -- '$REMOTE_TMP/deploy' '$REMOTE_TMP/release-server/src'"
@@ -71,18 +81,8 @@ fi
 
 # Verify from the public side, not from the box: what matters is what a phone can fetch.
 echo "Catalog after:"
-INDEX="$(mktemp)"; trap 'rm -f "$INDEX"; cleanup' EXIT
 curl --fail --silent --show-error --output "$INDEX" "$PUBLIC_BASE/releases/index.json"
-python3 - "$INDEX" "$KEEP" <<'PY'
-import json, sys
-index = json.load(open(sys.argv[1]))
-keep = int(sys.argv[2])
-versions = sorted(index["versions"], key=lambda v: v["versionCode"])
-assert len(versions) == keep, f"expected {keep} versions, index has {len(versions)}"
-assert index["latestVersionCode"] == versions[-1]["versionCode"], "latestVersionCode is not the newest entry"
-print(f"  {len(versions)} versions, latest {index['latestVersionCode']}, "
-      f"oldest {versions[0]['versionName']}, newest {versions[-1]['versionName']}")
-PY
+python3 "$REPORT" verify "$INDEX" "$KEEP"
 
 # Every surviving entry must still be downloadable; a retired one must be gone from the served path.
 python3 -c 'import json,sys;[print(v["fileName"]) for v in json.load(open(sys.argv[1]))["versions"]]' "$INDEX" |
