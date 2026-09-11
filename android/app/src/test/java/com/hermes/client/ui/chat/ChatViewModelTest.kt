@@ -735,12 +735,17 @@ class ChatViewModelTest {
     // persisted, must instead be replaced silently and the typed message delivered to the
     // replacement — the user loses neither the message nor anything else, because there was
     // nothing else.
+    //
+    // Timing note (house pattern, see stale_submit_resumes_and_retries_once_with_new_handle): a
+    // just-submitted turn leaves the runtime in SUBMITTING, and the store's process poller loops
+    // on a 5s delay while a runtime has active work. advanceUntilIdle() would advance virtual time
+    // into that loop forever, so drive the send with runCurrent() and only advance once
+    // message.complete has taken the run out of the active phases.
     @Test fun reaped_empty_session_is_recreated_and_the_message_is_delivered() = runTest {
-        coEvery { chatRepo.resume("s1", null) } returnsMany listOf("live-1")
+        coEvery { chatRepo.resume("s1", null) } returns "live-1" andThenThrows
+            com.hermes.client.data.network.GatewayRpcException(4007, "session not found")
         coEvery { chatRepo.submit("live-1", "hello") } throws
             com.hermes.client.data.network.GatewayRpcException(4001, "session not found")
-        coEvery { chatRepo.resume("s1", null) } answers { "live-1" } andThenThrows
-            com.hermes.client.data.network.GatewayRpcException(4007, "session not found")
         coEvery { chatRepo.createSession(any(), any()) } returns
             com.hermes.client.data.repository.CreatedSession("s2", null)
         coEvery { chatRepo.resume("s2", null) } returns "live-2"
@@ -751,17 +756,19 @@ class ChatViewModelTest {
         advanceUntilIdle()
 
         vm.send("hello")
-        advanceUntilIdle()
+        runCurrent()
 
         coVerify(exactly = 1) { chatRepo.createSession(any(), any()) }
         coVerify(exactly = 1) { chatRepo.submit("live-2", "hello") }
         assertEquals("the screen must re-navigate to the live id", "s2", vm.recreatedSessionId.value)
-        val bubble = vm.state.value.messages.last { it.role == Role.USER }
         assertEquals(
             "a delivered message must not be left looking failed",
             com.hermes.client.domain.DeliveryState.SENT,
-            bubble.delivery,
+            vm.state.value.messages.last { it.role == Role.USER }.delivery,
         )
+
+        events.emit(event("message.complete", "live-2", "done"))
+        advanceUntilIdle()
     }
 
     // The other half of the same rule: a conversation that may hold history is NEVER silently
@@ -772,7 +779,7 @@ class ChatViewModelTest {
             ChatMessage(id = "h1", role = Role.USER, text = "earlier"),
             ChatMessage(id = "h2", role = Role.ASSISTANT, text = "earlier reply"),
         )
-        coEvery { chatRepo.resume("s1", null) } answers { "live-1" } andThenThrows
+        coEvery { chatRepo.resume("s1", null) } returns "live-1" andThenThrows
             com.hermes.client.data.network.GatewayRpcException(4007, "session not found")
         coEvery { chatRepo.submit("live-1", "hello") } throws
             com.hermes.client.data.network.GatewayRpcException(4001, "session not found")
@@ -782,16 +789,16 @@ class ChatViewModelTest {
         advanceUntilIdle()
 
         vm.send("hello")
-        advanceUntilIdle()
+        runCurrent()
 
         coVerify(exactly = 0) { chatRepo.createSession(any(), any()) }
         assertNull("a session with history must not be replaced", vm.recreatedSessionId.value)
-        val bubble = vm.state.value.messages.last { it.role == Role.USER }
         assertEquals(
             "the bubble must say the conversation is gone, not offer a retry",
             com.hermes.client.domain.DeliveryState.UNDELIVERABLE,
-            bubble.delivery,
+            vm.state.value.messages.last { it.role == Role.USER }.delivery,
         )
+        advanceUntilIdle()
     }
 
     // Tapping the bubble of a terminal failure must do nothing. The UI already withholds the tap;
@@ -800,7 +807,7 @@ class ChatViewModelTest {
         coEvery { sessionRepo.history(any(), any()) } returns listOf(
             ChatMessage(id = "h1", role = Role.USER, text = "earlier"),
         )
-        coEvery { chatRepo.resume("s1", null) } answers { "live-1" } andThenThrows
+        coEvery { chatRepo.resume("s1", null) } returns "live-1" andThenThrows
             com.hermes.client.data.network.GatewayRpcException(4007, "session not found")
         coEvery { chatRepo.submit("live-1", "hello") } throws
             com.hermes.client.data.network.GatewayRpcException(4001, "session not found")
@@ -809,11 +816,11 @@ class ChatViewModelTest {
         vm.open("s1")
         advanceUntilIdle()
         vm.send("hello")
-        advanceUntilIdle()
+        runCurrent()
 
         val bubble = vm.state.value.messages.last { it.role == Role.USER }
         vm.retrySend(bubble.id)
-        advanceUntilIdle()
+        runCurrent()
 
         coVerify(exactly = 1) { chatRepo.submit("live-1", "hello") }
         assertEquals(
@@ -821,6 +828,7 @@ class ChatViewModelTest {
             com.hermes.client.domain.DeliveryState.UNDELIVERABLE,
             vm.state.value.messages.last { it.role == Role.USER }.delivery,
         )
+        advanceUntilIdle()
     }
 
     // Upstream broadcasts session.reclaimed precisely so the next prompt is not sent into a session
@@ -831,20 +839,24 @@ class ChatViewModelTest {
         coEvery { chatRepo.createSession(any(), any()) } returns
             com.hermes.client.data.repository.CreatedSession("s2", null)
         coEvery { chatRepo.resume("s2", null) } returns "live-2"
+        coEvery { chatRepo.submit("live-2", "hello") } returns Unit
 
         val vm = buildVm()
         vm.open("s1", isNewSession = true)
         advanceUntilIdle()
 
         events.emit(event("session.reclaimed", "s1"))
-        advanceUntilIdle()
+        runCurrent()
 
         vm.send("hello")
-        advanceUntilIdle()
+        runCurrent()
 
         coVerify(exactly = 0) { chatRepo.submit("live-1", any()) }
         coVerify(exactly = 1) { chatRepo.createSession(any(), any()) }
         coVerify(exactly = 1) { chatRepo.submit("live-2", "hello") }
+
+        events.emit(event("message.complete", "live-2", "done"))
+        advanceUntilIdle()
     }
 
     // Selecting in the chat sheet ALWAYS switches THIS session's model (the `/model … --session`
