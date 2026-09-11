@@ -474,8 +474,10 @@ Hermes 的单一入口。详情页列出当前账号拥有和别人共享给它�
   | 状态行 `SessionRowStatus` | 12sp | 500 | 17.4sp | −0.3sp | `text-[12px] font-medium tracking-tight` |
 
   **标题档修订（决策 2026-09-11 第二次拉取，产品负责人采纳，待代码落地）**：稿子把标题改为
-  15.5px，且**字重按分组区分** —— 「需要你处理」组 600、其余组 500（变更记录见
-  `docs/design/stitch/stitch.lock.json` 的 `specChanges`）。落地时 `SessionRowTitle` 拆成两档：
+  15.5px，且**字重按未读态区分** —— 未读 600、已读 500。稿子里 600 的两行恰好都在「需要你处理」组，
+  但设计师最新的设计系统把两档命名为 `session-title-unread` / `session-title-normal`，产品负责人裁定
+  按未读态（与聊天类 app 惯例一致；未读圆点继续保留，字重是第二重信号）。变更记录见
+  `docs/design/stitch/stitch.lock.json` 的 `specChanges`。落地时 `SessionRowTitle` 拆成两档：
   15.5sp / 600 / 22.475sp / −0.155sp 与 15.5sp / 500 / 22.475sp / −0.155sp（行高仍按 1.45，字距仍是
   −0.01em × 字号）。fixture 已先记 design 列并注明待落地；代码改动另开工作条目，**上表在代码落地前
   仍是现值**。同一次拉取还确认：稿子把「已完成」绿改成了本仓的 `#2E7D32`、把「等待」改成 `#B45309`
