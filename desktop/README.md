@@ -5,8 +5,9 @@ managed releases older than 0.3.1, preserving their inline session token and run
 Desktop 0.2.5/build 8 remains withdrawn after a physical target found that it moved the active
 managed 0.3.0 Connector to a token-file contract that release did not support. Its Gateway control
 connection remained online while Android WebSocket tunnels failed local authentication with
-`HR-CONN-002`. The target was restored to 0.2.4/build 7, which remains its accepted version until
-0.2.6 passes physical Android REST and WebSocket checks.
+`HR-CONN-002`. Desktop 0.2.6 has since passed installation and pre-reboot physical Android REST and
+WebSocket checks on that target. Reboot recovery remains deliberately deferred while the Mac is in
+use and is still required before full acceptance.
 
 Desktop 0.2.5 carried the managed-migration recovery and
 private loopback session-token handoff required by Hermes Server 0.21.0, and reports the effective

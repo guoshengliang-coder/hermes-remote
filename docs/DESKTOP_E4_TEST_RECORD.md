@@ -372,3 +372,34 @@ Desktop 0.2.5 is withdrawn and must not be reinstalled. The corrective source re
 migration for managed releases older than 0.3.1 before account refresh, file mutation, or service
 restart, and adds 0.3.0 as an explicit regression fixture. A replacement Desktop release remains
 pending its own version gate and physical Android REST/WebSocket acceptance.
+
+## 2026-09-11 Desktop 0.2.6 corrective release and pre-reboot acceptance
+
+PR #180 merged the runtime-release gate as `21d69386feea515c84bfd9b4bd2df771baa396ce` after all
+applicable PR checks passed. PR #181 then released Desktop 0.2.6/build 9 as
+`d76b5af1f13687615c8b353b8ae33fdaa587959e`; its PR checks and resulting `main` CI/SAST workflows
+also completed successfully. From a fresh detached worktree at that exact `origin/main`, the
+canonical asset check, complete 186-test Desktop suite, configured release build, strict ad-hoc
+codesign verification, and `hdiutil verify` passed. The 2,072,466-byte DMG SHA-256 is
+`938a3d15f79db2074dee9c614c32f50b5ea2d4043455b6bff9d46db75a6cc879`.
+
+The verified DMG replaced Desktop 0.2.4 on `LGS-MACMINI`; the prior app remains in an owner-only
+Recovery directory. The installed app reported 0.2.6/build 9 and passed strict codesign verification.
+Before and after launch, the active managed release remained 0.3.0, both LaunchAgent files were
+byte-for-byte unchanged, both retained their historical inline token field, and neither acquired a
+token-file field. The private token file and completion marker remained absent. Managed Hermes PID
+84188 and Connector PID 84446 were unchanged, proving that the new release skipped the incompatible
+startup migration without restarting either service.
+
+An authenticated loopback `/api/status` request returned HTTP 200, a direct authenticated `/api/ws`
+upgrade returned 101, and Connector retained one established upstream TCP connection. After a fresh
+Connector log checkpoint, the operator refreshed Android status and exercised a real session. The
+new log segment contained 16 opened and closed `/api/ws` tunnels, 202 frames to the phone and 98 frames
+from it, with no `tunnel.local_error` or `tunnel.open_failed`. A final comparison again found the same
+LaunchAgent bytes, inline-token layout, absent token files, and unchanged managed PIDs.
+
+This closes the 0.2.6 installation and pre-reboot Android REST/WebSocket gate. The owner deliberately
+deferred the Mac reboot while the host is doing other work. Full acceptance still requires a fresh
+baseline, launchd recovery after that reboot, confirmation that the 0.3.0 inline-token layout remains
+unchanged, and another Android REST/WebSocket exchange with clean tunnel telemetry. This remains an
+internal ad-hoc build and is not approved for public distribution.
