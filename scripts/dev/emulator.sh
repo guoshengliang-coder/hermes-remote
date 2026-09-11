@@ -136,8 +136,10 @@ start_emulator() {
     if [ "$("$ADB" -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
       echo "BOOTED $serial"
       "$ADB" -s "$serial" reverse "tcp:$GATEWAY_PORT" "tcp:$GATEWAY_PORT" >/dev/null 2>&1 || true
-      [ -n "$HR_DEVICE_SERIAL" ] && \
-        echo "note: physical device $HR_DEVICE_SERIAL is also attached — pass -s explicitly"
+      # Name every attached phone, not just the default one: the point of the note is that
+      # an unqualified adb command is now ambiguous, and that gets worse with each device.
+      [ -n "$HR_DEVICE_SERIALS" ] && \
+        echo "note: physical device(s) also attached —$(printf ' %s' $HR_DEVICE_SERIALS); pass -s explicitly"
       exit 0
     fi
     sleep 6
