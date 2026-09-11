@@ -2,9 +2,11 @@
 
 > 用途：交给 Stitch 做重新设计 / 改良时的输入包。本文只整理**现状事实与既有决策**，不预设新方案。
 >
-> **状态（2026-09-11 晚）**：Stitch 已出稿并打标 `基线-卡片页` / `基线-卡片页/暗夜`，已按 §7 第 8 条入库为
-> `docs/design/stitch/card.default.{light,dark}.html`，裁决见 `stitch.lock.json`，实现已照稿重做（`DESIGN.md` §5.1）。
-> 本文余下部分是入库前的现状记录，截图是**改版前**的样子，供追溯。
+> **状态（2026-09-11 晚）**：Stitch 同一天出了**两版**并打标 `基线-卡片页` / `基线-卡片页/暗夜`，
+> 均已按 §7 第 8 条入库为 `docs/design/stitch/card.default.{light,dark}.html`（现存的是第二版），
+> 裁决见 `stitch.lock.json` 的 `specChanges`，实现已照第二版重做（`DESIGN.md` §5.1）。
+> 第二版的方向是更轻：卡降为纸色、快捷行离开卡片、远程节点压成一行、状态胶囊删除、页脚加 ✦ 与斜体衬线。
+> 本文余下部分是最初的现状记录，01–05 号截图是**两版改版前**的样子，供追溯。
 > 权威来源：`docs/DESIGN.md` §2.3 / §3.2 / §3.3 / §4.2 / §5.1 与 `android/app/src/main/java/com/hermes/client/ui/nav/CardPage.kt`；
 > 两者冲突以代码为准。截图取自 vivo V2166BA（Android 13 / SDK 33）、App 0.1.116、连的是本地 mock 开发栈。
 
@@ -29,8 +31,8 @@
 | `03-card-dark.png` | 卡片页，深色（应用内主题切到「深色」） |
 | `04-theme-sheet-light.png` | 点「主题」行弹出的底部三选一 |
 | `05-profile-picker-light.png` | 点身份卡进入的「身份」选择页（子页面，供理解上下文） |
-| `06-v4-device-vivo-light.png` | **改版后**实拍：vivo V2166BA（Android 13），本地 mock 栈，浅色 |
-| `07-v4-device-vivo-dark.png` | **改版后**实拍：同一台，应用内切「深色」（系统浅色） |
+| `06-v4-device-vivo-light.png` | **第二版落地后**实拍：vivo V2166BA（Android 13），本地 mock 栈，浅色 |
+| `07-v4-device-vivo-dark.png` | **第二版落地后**实拍：同一台，应用内切「深色」（系统浅色） |
 | `08-feedback-editor-vivo.png` | 点「反馈与建议」拉起的 MissionGo 编辑器（本机配好 `android/missiongo.properties` 后实拍） |
 
 **截图里没有覆盖到、但设计必须考虑的状态**（mock 环境造不出来）见 §5。

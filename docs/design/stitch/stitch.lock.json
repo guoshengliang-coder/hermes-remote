@@ -10,7 +10,7 @@
   "project": {
     "id": "8017882098155799612",
     "title": "Hermes GO",
-    "updateTimeAtPull": "2026-09-11T06:36:47.950335Z"
+    "updateTimeAtPull": "2026-09-11T10:17:18.018506Z"
   },
   "pulledAt": "2026-09-11",
   "pullHistory": [
@@ -28,6 +28,11 @@
       "at": "2026-09-11 (第三次，卡片页首次入库)",
       "projectUpdateTime": "2026-09-11T06:36:47.950335Z",
       "result": "新增 2 张（基线-卡片页 / 暗夜）；已有 6 张未重拉；两张无标签的 844 高新稿与隐藏稿按规则忽略；设计系统无新漂移（仓库基线资产仍未设为项目当前）"
+    },
+    {
+      "at": "2026-09-11 (第四次，设计师重出卡片页两张稿)",
+      "projectUpdateTime": "2026-09-11T10:17:18.018506Z",
+      "result": "card.default.light / dark 两张内容变更（结构性重做，见 specChanges）；新增 2 张已打标的主题弹层基线待入库（见 candidates）；会话列表两张的画布高度也变了，本轮未重拉（归属会话列表分支）"
     }
   ],
   "specChanges": {
@@ -143,6 +148,64 @@
         "change": "淡卡改为 1px 描边 + 圆角 16（原 20 + 1dp 阴影）",
         "decision": "只改卡片页（Tiles.kt 新增 card* 令牌）；用量页等自己的稿再统一。",
         "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.light",
+          "card.default.dark"
+        ],
+        "change": "第二版稿：卡片降为纸色、快捷行离开卡片、远程节点压成一行、齿轮去底、页脚加 ✦ 与斜体衬线",
+        "decision": "照稿全部采纳。第一版刚落地（提交 6852c46）即被这一版取代，代码按新稿重做。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.light"
+        ],
+        "change": "状态胶囊与延迟三档被删除，右侧只剩「29 ms」",
+        "decision": "照稿删除 LatencyTier / latencyTier() / StatusCapsule。离线时右侧显示「离线」BAD 色文字（稿未画）。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.light"
+        ],
+        "change": "身份卡副行「网关启动目录 · 本机」",
+        "decision": "不采纳文案：按身份的工作目录与本机/远程标识都没有数据源（ProfileDto 只有 name/isDefault；defaultProjectPath 是全局且要建过会话才有）。保留「当前身份」。这一处记 design-only。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "card.default.light"
+        ],
+        "change": "定时任务右值「0 运行中」",
+        "decision": "不采纳：服务端只有 last_status==running 这个近似，且崩溃的任务会永远停在 running。保留「N 个任务」（启用且未暂停）。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "card.default.light"
+        ],
+        "change": "检查更新绿点 + 「v0.1.116 (最新)」",
+        "decision": "采纳，并把 UpdateBadge 扩成三态（Unknown / UpToDate / Available），否则「没检查过」会被画成绿点。UpdateBadgeTest 钉死六条边界。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.light",
+          "card.default.dark"
+        ],
+        "change": "页脚 ✦ 装饰分隔 + 斜体衬线标语",
+        "decision": "照稿。用系统 FontFamily.Serif + FontStyle.Italic，不打包字体；这行是英文品牌语，不涉及中文回退。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.light"
+        ],
+        "change": "模型行标题「模型」→「默认模型」",
+        "decision": "照稿改文案（Default model）。",
+        "status": "landed"
       }
     ]
   },
@@ -153,15 +216,15 @@
   "designSystem": {
     "_": "仓库 → Stitch 的反向同步记录（DESIGN.md §7 第 8 条）。漂移以 frontMatterSha256 为准而非整文件：实测这条通道只承载 token，改正文在 Stitch 那边什么都不会变（见 pushFidelity）。scripts/design/stitch-design-system.mjs --check 核对。",
     "file": "design-system.md",
-    "sha256": "86703024fab7fb85d88336bce9c7807853ba597aee327ada9767399f528fbf86",
-    "frontMatterSha256": "4154b33d0f2d5300d374376e4d43560a772e6015b9ada1961f8ad83820ddcbad",
+    "sha256": "41b8cb367af21b713091e04ac6bcf9d86d794892ebda9bd264fcdd434a8ba2ed",
+    "frontMatterSha256": "fe04106be15a52374b6ff6696f645212b6d3c767537e363289cb3666146e0c81",
     "pinnedBy": "android/app/src/test/java/com/hermes/client/ui/theme/DesignSystemExportTest.kt",
     "assetId": "8a7217d53f5e4f8399c25714f8833e79",
     "pushedFrontMatterSha256": "7e0f37cc751c09a8bb0f1327c998da3c5cd7bc51b8f507a9744a5b0fd36421f9",
     "pushedFileSha256": "7c41a1a56cdda3cd5eeb56d5f0b4887d3e4c6d78c79076f2b1b4b23441ec942d",
     "pushedAt": "2026-09-11",
     "rePushPending": true,
-    "rePushNote": "2026-09-11 严格照稿落地后 token 变了（状态色四档、WARN 图形档、subline-faint、FAB 深色档、六个排版档），Stitch 上那套是改动前的版本。未立即重推：update_design_system 被 API 拒绝，每次重推都会在设计师项目里再建一套资产，所以攒到一批再推，且推之前要先把 --summary 给产品负责人看。 2026-09-11 卡片页入库又加了 13 个 card-* 颜色令牌与 10 档排版，同样攒着。",
+    "rePushNote": "2026-09-11 严格照稿落地后 token 变了（状态色四档、WARN 图形档、subline-faint、FAB 深色档、六个排版档），Stitch 上那套是改动前的版本。未立即重推：update_design_system 被 API 拒绝，每次重推都会在设计师项目里再建一套资产，所以攒到一批再推，且推之前要先把 --summary 给产品负责人看。 2026-09-11 卡片页两次入库又改了 card-* 令牌与排版档（第二版删掉胶囊五色、加了 icon-tile / dot-good / footer-rule），同样攒着。",
     "pushedVia": "upload_design_md → create_design_system_from_design_md（项目 8017882098155799612）",
     "activeInStitch": false,
     "activeNote": "MCP 没有「设为项目当前设计系统」的接口，需产品负责人在 Stitch 网页里手动选中。",
@@ -383,18 +446,18 @@
       ],
       "conformance": "android/app/src/test/resources/design-conformance.json（card.* 的 design 列从本稿抽取）",
       "html": "card.default.light.html",
-      "sha256": "98412652f75007a93cd47842f596bc78e41e5895c73ba43ff9d9df090b179d27",
+      "sha256": "a2624da6389e7bdf1b15f57561f7b0c6beba4db62d84d427a38aae767c0f60ea",
       "canvasHeightCssPx": 884,
       "status": "baseline",
-      "implemented": "partial",
+      "implemented": "implemented",
       "notes": [
-        "浅色几何真源；暗色稿只取颜色，配对差异见 pairs。",
-        "本稿把「本周用量｜远程设备」双格统计卡换成单一「远程节点」卡。产品裁决 2026-09-11：照稿，用量入口移入设置页（§5.14）。",
-        "「3 台在线 / 共 3 台设备」没有数据源（服务端按账号返回设备在线数与总数的接口待联调），故 implemented = partial：CardPageUiState.deviceCounts 恒 null 时不渲染胶囊与总数，不凭空造 UI。",
-        "「29 ms · 极佳」「无活动」「Claude 3.7」「dafault」「DEV」都是示意文案。裁决：延迟三档 优 <50 / 普通 50–150 / 延迟 >150（颜色 绿 / 中性 / 琥珀）；定时任务右值 = 启用中任务数「N 个任务」，有告警在右值前加琥珀点；模型行仍显示默认模型 ID；构建徽标：debug 构建显示 DEV（开发中），其他非 release 类型大写，release 隐藏。",
-        "头像 #2563EB 是示意：实现按 §2.4 身份色。图标沿用本仓描边体系（稿是 1.5 描边 + 芯片 / 循环箭头 + Material Symbols 箭头），§4 仍是图标权威。",
-        "遮罩 25% 黑 + 2px 模糊：实现只做 25%，Compose 的抽屉遮罩不支持模糊。",
-        "长设备名：稿 truncate，实现按 §3.3 先缩字再折行。"
+        "浅色几何真源；暗色稿只取颜色，配对差异见 pairs。2026-09-11 第二版稿：整体更轻。",
+        "第二版相对第一版的结构变更：卡片由纯白降为纸色 #F4F3EE；远程节点卡由「头行 + 分隔线 + 设备行 + 状态胶囊」压成一行；快捷行离开成组白卡，回到裸行 + 发丝线（行高 50 → 48、左右内距 14 → 4）；齿轮由 32dp 带底改为 36dp 无底；页脚新增 ✦ 装饰分隔与斜体衬线标语；模型行标题改「默认模型」。",
+        "状态胶囊与延迟三档（优/普通/延迟）随第二版删除，右侧只留「29 ms」纯文本（裁决 2026-09-11）。在线数/总数也一并消失，第一版的 design-only 问题随之解决，implemented 由 partial 改回 implemented。",
+        "仍是示意、实现不照抄的三处：身份卡副行「网关启动目录 · 本机」（按身份的工作目录与本机/远程标识都无数据源，保留「当前身份」）；定时任务右值「0 运行中」（服务端只有 last_status==running 这个近似，保留「N 个任务」）；模型右值「Claude 3.7」（显示真实默认模型 ID）。",
+        "检查更新行：稿画绿点 + 「v0.1.116 (最新)」。实现把 UpdateBadge 扩成三态——未检查/失败无点、已检查且最新绿点 +（最新）、有新版琥珀点 + 新版本号（裁决 2026-09-11）。",
+        "头像色与字母比例仍按 §2.4（数据驱动 / 0.47× 全局组件），不取稿的 #181C24 与 17px。图标沿用本仓描边体系（稿用 Material Symbols），§4 为准。遮罩 25% 照做、2px 模糊平台不支持。",
+        "离线态稿未画：副行「连接器离线」、右侧「离线」，均用 BAD 色，无点无胶囊。"
       ]
     },
     {
@@ -416,12 +479,14 @@
       ],
       "conformance": "android/app/src/test/resources/design-conformance.json（card.* 的 design 列从本稿抽取）",
       "html": "card.default.dark.html",
-      "sha256": "a560006dd0650d60322739e222899258a09fd11bfa0e62b924952729f0657606",
+      "sha256": "72547b3675bedf7b0bcbbd471614dfaf4f3217a4a80adcf19e0556467238dd8d",
       "canvasHeightCssPx": 884,
       "status": "baseline",
-      "implemented": "partial",
+      "implemented": "implemented",
       "notes": [
-        "只取颜色；几何以浅色稿为准。抽屉容器用 surface-container-low #161A22 而非 surface，卡片 #1E232B + 1px #262C35 描边；遮罩 60% + 3px 模糊（实现只做 60%）。"
+        "只取颜色；几何以浅色稿为准。第二版的暗夜稿没跟上浅色稿（齿轮仍 32dp 带底、DEV 徽标仍旧式），几何一律照浅色（裁决 2026-09-11），差异见 pairs。",
+        "抽屉 #161A22、卡片 #1E232B + #262C35 描边、行分隔线 white/5、图标底块 #262C35 + white/5 描边，均已折成不透明值入 fixture。",
+        "页脚细线与标语暗夜稿给的是冷灰 #717684 / #8A90A0，§2.1 禁止冷灰，改用 outline 暖档 #8D897E（fixture 记为有理由偏离）。"
       ]
     }
   ],
@@ -457,11 +522,36 @@
       "light": "card.default.light",
       "dark": "card.default.dark",
       "geometryDiff": [
-        "暗夜版给构建徽标、「N 台在线」胶囊、设备图标底块各加 1px 描边（border）；浅色无 —— 记为颜色层面的处理（暗色用描边代替阴影），几何以浅色为准",
-        "快捷行右值：暗夜 font-medium（500）/ 浅色 400 —— 以浅色 400 为准"
+        "DEV 徽标：浅 11px/500 tracking-wide、内距 8×2、圆角 6；暗仍是旧式 10.5px/600 大写 0.05em、内距 6×2.5、圆角 4 + 描边 —— 以浅色为准",
+        "齿轮：浅 36dp 无底色无描边 + 21px 字形；暗仍是 32dp + #1E232B 底 + #262C35 描边 —— 以浅色为准，两个主题都无底",
+        "字标与徽标间距：浅 gap-2(8) / 暗 gap-2.5(10) —— 取 8",
+        "节点卡标题：浅 tracking-tight / 暗 leading-tight；右侧毫秒数暗色多 font-medium —— 以浅色为准",
+        "节点右侧毫秒数与箭头间距：浅 gap-1.5(6) / 暗 gap-1(4) —— 取 6",
+        "页脚：浅 40dp/0.5px 细线、不透明度 40、标语 12px；暗 48dp/1px、不透明度 60、标语 12.5px —— 以浅色为准"
       ]
     }
   ],
-  "candidates": [],
+  "candidates": [
+    {
+      "key": "card.default.theme-sheet.light",
+      "screenId": "ab85a7b6e32340999142498926362272",
+      "stitchLabel": "基线-卡片页/主题设置",
+      "stitchTitle": "Hermes 主题选择底部弹单 (温润浅色版)",
+      "sha256": "ddc5561623416bff5bd5bbc3c3e7495da5445ddacdc8791e89b2367ef1dca8e2",
+      "canvasHeightCssPx": 844,
+      "status": "pending",
+      "note": "2026-09-11 第四次拉取时新打标。主题弹层被重做：标题「外观与主题」+ 关闭钮、三张带图标与说明的选项卡、底部实心「完成」按钮 —— 与现有 ModalBottomSheet（三个 RadioButton ListItem，§5.1 末条）差距很大，属独立改动，未在本轮实现。"
+    },
+    {
+      "key": "card.default.theme-sheet.dark",
+      "screenId": "795544474e1f4d708277208e7d79ec16",
+      "stitchLabel": "基线-卡片页/主题设置/暗夜",
+      "stitchTitle": "Hermes 主题选择底部弹单 (黑曜石深色版)",
+      "sha256": "e8aa5539ea8561bb56c98d9f90805b9a5bf183a045bccf072c8e4109784832ac",
+      "canvasHeightCssPx": 844,
+      "status": "pending",
+      "note": "同上，暗夜版。两张的画布背景画的是另一套「控制台与状态」界面，与本项目无关，只看弹层本身。"
+    }
+  ],
   "notCovered": "见 docs/DESIGN.md §5.2「Stitch 不覆盖清单」"
 }

@@ -44,15 +44,15 @@ colors:
   incident-container: '#fff1f2'
   incident-ink: '#9f1239'
   card-drawer: '#faf9f5'
-  card-tile: '#ffffff'
-  card-tile-border: '#efeeea'
-  card-divider: '#f4f3ee'
+  card-tile: '#f4f3ee'
+  card-tile-border: '#ecebe8'
+  card-divider: '#efeeea'
   card-chip: '#efeeea'
   card-ink-muted: '#605c54'
-  card-pill: '#f4f4f0'
-  card-pill-border: '#e8e6df'
-  card-pill-good-ink: '#15803d'
-  card-pill-good-dot: '#16a34a'
+  card-icon-tile: '#faf9f5'
+  card-icon-tile-border: '#ecebe8'
+  card-dot-good: '#16a34a'
+  card-footer-rule: '#777268'
 typography:
   headline-sm:
     fontFamily: Roboto Flex
@@ -170,10 +170,10 @@ typography:
     letterSpacing: -0.5px
   card-chip:
     fontFamily: Roboto Flex
-    fontSize: 10.5px
-    fontWeight: '600'
-    lineHeight: 10.5px
-    letterSpacing: 0.525px
+    fontSize: 11px
+    fontWeight: '500'
+    lineHeight: 16.5px
+    letterSpacing: 0.275px
   card-identity-name:
     fontFamily: Roboto Flex
     fontSize: 15.5px
@@ -188,22 +188,10 @@ typography:
     letterSpacing: 0px
   card-node-title:
     fontFamily: Roboto Flex
-    fontSize: 14px
+    fontSize: 14.5px
     fontWeight: '600'
-    lineHeight: 21px
-    letterSpacing: -0.35px
-  card-node-name:
-    fontFamily: Roboto Flex
-    fontSize: 15px
-    fontWeight: '600'
-    lineHeight: 18.75px
-    letterSpacing: 0px
-  card-pill:
-    fontFamily: Roboto Flex
-    fontSize: 12px
-    fontWeight: '500'
-    lineHeight: 12px
-    letterSpacing: -0.3px
+    lineHeight: 21.75px
+    letterSpacing: -0.3625px
   card-row-title:
     fontFamily: Roboto Flex
     fontSize: 14.5px
@@ -217,11 +205,11 @@ typography:
     lineHeight: 19.5px
     letterSpacing: 0px
   card-footer:
-    fontFamily: Roboto Flex
-    fontSize: 12.5px
-    fontWeight: '500'
-    lineHeight: 18.75px
-    letterSpacing: -0.3125px
+    fontFamily: Georgia
+    fontSize: 12px
+    fontWeight: '400'
+    lineHeight: 18px
+    letterSpacing: 0.3px
 rounded:
   xs: 8px
   sm: 12px
@@ -329,17 +317,15 @@ front matter 只能放一套颜色（Stitch 的格式限制），那是浅色档
 | incident-container | #FFF1F2 | #2A1B1D |
 | incident-ink | #9F1239 | #FCA5A5 |
 | card-drawer | #FAF9F5 | #161A22 |
-| card-tile | #FFFFFF | #1E232B |
-| card-tile-border | #EFEEEA | #262C35 |
-| card-divider | #F4F3EE | #262C35 |
+| card-tile | #F4F3EE | #1E232B |
+| card-tile-border | #ECEBE8 | #262C35 |
+| card-divider | #EFEEEA | #21252D |
 | card-chip | #EFEEEA | #1E232B |
 | card-ink-muted | #605C54 | #A8A49C |
-| card-pill | #F4F4F0 | #262C35 |
-| card-pill-border | #E8E6DF | #262C35 |
-| card-pill-good | — | #21352C |
-| card-pill-good-border | — | #24472E |
-| card-pill-good-ink | #15803D | #7CDC80 |
-| card-pill-good-dot | #16A34A | #16A34A |
+| card-icon-tile | #FAF9F5 | #262C35 |
+| card-icon-tile-border | #ECEBE8 | #31373F |
+| card-dot-good | #16A34A | #16A34A |
+| card-footer-rule | #777268 | #8D897E |
 
 ### 颜色规则
 

@@ -3,19 +3,12 @@ package com.hermes.client.ui.nav
 import com.hermes.client.data.network.CronJobDto
 
 /**
- * The pure rules behind the card page's remote-node capsule and its chips, kept out of the
- * composable so a JVM test can pin the boundaries.
+ * The pure rules behind the card page's remote-node row and its chip, kept out of the composable
+ * so a JVM test can pin the boundaries.
+ *
+ * The three latency bands (优 / 普通 / 延迟) that lived here were deleted on the design's second
+ * pull, which replaced the status capsule with plain milliseconds.
  */
-
-/** Latency bands for the remote-node capsule (product decision 2026-09-11). */
-enum class LatencyTier { GOOD, NORMAL, SLOW }
-
-/** 优 below 50 ms, 普通 up to and including 150 ms, 延迟 above that. */
-fun latencyTier(ms: Long): LatencyTier = when {
-    ms < 50 -> LatencyTier.GOOD
-    ms <= 150 -> LatencyTier.NORMAL
-    else -> LatencyTier.SLOW
-}
 
 /** "242 ms" below a second, "1.1 s" above — four-digit ms never earns its width. */
 fun formatLatency(ms: Long): String =

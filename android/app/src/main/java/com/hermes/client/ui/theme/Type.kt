@@ -5,6 +5,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.hermes.client.R
@@ -275,14 +276,15 @@ val SessionGroupNote = TextStyle(
     letterSpacing = (-0.1).sp,
 )
 
-// ── Card page steps (docs/DESIGN.md §3.2, Stitch 基线-卡片页 pulled 2026-09-11) ────────────────
+// ── Card page steps (docs/DESIGN.md §3.2, Stitch 基线-卡片页, second pull 2026-09-11) ──────────
 //
 // Every step below is read straight off the mock's classes: `text-[Npx]` plus the weight and
 // tracking it carries. Line height is the browser's inherited 1.5 unless the element sets
-// `leading-tight` (1.25) or `leading-none` (1); `tracking-tight` is −0.025em at the step's size.
-// Sans throughout — the drawer is prose and labels, none of it the data the mono face is for.
+// `leading-tight` (1.25) or `leading-none` (1); `tracking-tight` is −0.025em at the step's size
+// and `tracking-wide` is +0.025em. Sans throughout, with one exception: the footer tagline, which
+// the second pull sets in an italic serif.
 
-/** 「Hermes GO」: `text-[20px] font-bold tracking-tight`. Was 26sp before the 2026-09-11 pull. */
+/** 「Hermes GO」: `text-[20px] font-bold tracking-tight`. */
 val CardWordmark = TextStyle(
     fontFamily = Default,
     fontWeight = FontWeight.Bold,
@@ -291,13 +293,16 @@ val CardWordmark = TextStyle(
     letterSpacing = (-0.5).sp,
 )
 
-/** The build-type chip beside the wordmark: 10.5px / 600 / `leading-[1]` / `0.05em`, uppercase. */
+/**
+ * The build-type chip beside the wordmark: `text-[11px] font-medium tracking-wide`. The first pull
+ * drew it 10.5/600 in caps with tight padding; the second lightened it and rounded it more.
+ */
 val CardChip = TextStyle(
     fontFamily = Default,
-    fontWeight = FontWeight.SemiBold,
-    fontSize = 10.5.sp,
-    lineHeight = 10.5.sp,
-    letterSpacing = 0.525.sp,
+    fontWeight = FontWeight.Medium,
+    fontSize = 11.sp,
+    lineHeight = 16.5.sp,
+    letterSpacing = 0.275.sp,
 )
 
 /** The identity card's big line: `text-[15.5px] font-semibold tracking-tight`. */
@@ -309,7 +314,7 @@ val CardIdentityName = TextStyle(
     letterSpacing = (-0.3875).sp,
 )
 
-/** Sublines on the identity card and the device row: `text-[12px]`. */
+/** Every subline on the two cards: `text-[12px]`. */
 val CardIdentitySub = TextStyle(
     fontFamily = Default,
     fontWeight = FontWeight.Normal,
@@ -318,34 +323,16 @@ val CardIdentitySub = TextStyle(
     letterSpacing = 0.sp,
 )
 
-/** 「远程节点」: `text-[14px] font-semibold tracking-tight`. */
+/** 「远程节点」: `text-[14.5px] font-semibold tracking-tight` (was 14px before the second pull). */
 val CardNodeTitle = TextStyle(
     fontFamily = Default,
     fontWeight = FontWeight.SemiBold,
-    fontSize = 14.sp,
-    lineHeight = 21.sp,
-    letterSpacing = (-0.35).sp,
+    fontSize = 14.5.sp,
+    lineHeight = 21.75.sp,
+    letterSpacing = (-0.3625).sp,
 )
 
-/** The device name: `text-[15px] font-semibold leading-tight`. */
-val CardNodeName = TextStyle(
-    fontFamily = Default,
-    fontWeight = FontWeight.SemiBold,
-    fontSize = 15.sp,
-    lineHeight = 18.75.sp,
-    letterSpacing = 0.sp,
-)
-
-/** The status capsule's text: `text-[12px] font-medium tracking-tight leading-none`. */
-val CardPill = TextStyle(
-    fontFamily = Default,
-    fontWeight = FontWeight.Medium,
-    fontSize = 12.sp,
-    lineHeight = 12.sp,
-    letterSpacing = (-0.3).sp,
-)
-
-/** Shortcut row labels: `text-[14.5px] font-medium`. Was 17sp (density B) before the pull. */
+/** Shortcut row labels: `text-[14.5px] font-medium`. */
 val CardRowTitle = TextStyle(
     fontFamily = Default,
     fontWeight = FontWeight.Medium,
@@ -354,7 +341,7 @@ val CardRowTitle = TextStyle(
     letterSpacing = 0.sp,
 )
 
-/** Shortcut row right-hand values: `text-[13px]`. */
+/** Right-hand values on the rows, and the node card's latency: `text-[13px]`. */
 val CardRowValue = TextStyle(
     fontFamily = Default,
     fontWeight = FontWeight.Normal,
@@ -363,11 +350,18 @@ val CardRowValue = TextStyle(
     letterSpacing = 0.sp,
 )
 
-/** The bottom tagline: `text-[12.5px] font-medium tracking-tight`. */
+/**
+ * The bottom tagline: `text-[12px] tracking-wide italic font-serif`.
+ *
+ * The one serif in the app, and deliberately not bundled — [FontFamily.Serif] is whatever the
+ * device ships (Noto Serif on stock Android), which is enough for six English words set as a
+ * flourish. Bundling a face for this line would cost more than the line is worth.
+ */
 val CardFooter = TextStyle(
-    fontFamily = Default,
-    fontWeight = FontWeight.Medium,
-    fontSize = 12.5.sp,
-    lineHeight = 18.75.sp,
-    letterSpacing = (-0.3125).sp,
+    fontFamily = FontFamily.Serif,
+    fontStyle = FontStyle.Italic,
+    fontWeight = FontWeight.Normal,
+    fontSize = 12.sp,
+    lineHeight = 18.sp,
+    letterSpacing = 0.3.sp,
 )

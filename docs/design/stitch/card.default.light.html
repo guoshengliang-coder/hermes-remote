@@ -124,122 +124,18 @@
 <!-- Top and Mid Sections -->
 <div class="flex flex-col gap-4">
 <!-- 1. Top Header -->
-<div class="w-full flex items-center justify-between pt-1 pb-1">
-<div class="flex items-center gap-2.5">
-
-<span class="text-[20px] font-bold tracking-tight text-ink-dark">Hermes GO</span>
-<span class="font-semibold uppercase select-none rounded" style="font-size: 10.5px; line-height: 1; letter-spacing: 0.05em; background-color: rgb(239, 238, 234); color: rgb(73, 70, 65); padding: 2.5px 6px;">DEV</span>
-</div>
-<div class="flex items-center gap-1">
-<button aria-label="Settings" class="w-8 h-8 flex items-center justify-center rounded-full bg-[#EFEEEA] border border-[#e8e6df]/60 text-ink-muted hover:text-ink-dark hover:bg-[#e9e8e4] active:bg-[#e3e2df] active:scale-95 transition-all cursor-pointer shadow-[0_1px_2px_rgba(0,0,0,0.02)]"><svg class="w-4.5 h-4.5" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24" width="18"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></button>
-
-</div>
-</div>
+<div class="w-full flex items-center justify-between pt-1 pb-1"><div class="flex items-center gap-2"><span class="text-[20px] font-bold tracking-tight text-ink-dark">Hermes GO</span><span class="text-[11px] font-medium tracking-wide bg-[#EFEEEA] text-ink-muted px-2 py-0.5 rounded-md">DEV</span></div><button aria-label="Settings" class="w-9 h-9 flex items-center justify-center rounded-full text-ink-muted hover:text-ink-dark hover:bg-black/5 active:scale-95 transition-all"><span class="material-symbols-outlined text-[21px]">settings</span></button></div>
 <!-- 2. Primary Identity Card (Warm paper flat card, 1px border) -->
-<div class="w-full bg-white border border-[#EFEEEA] rounded-2xl p-3.5 flex items-center justify-between shadow-[0_2px_8px_rgba(24,28,36,0.03)] cursor-pointer active:scale-[0.99] transition-transform">
-<div class="flex items-center gap-3 min-w-0">
-<div class="relative w-11 h-11 rounded-full bg-[#2563EB] flex items-center justify-center text-white text-[18px] font-bold shrink-0 shadow-sm">
-<span class="">D</span>
-
-</div>
-<div class="flex flex-col min-w-0">
-<div class="flex items-center gap-2">
-<span class="text-[15.5px] text-ink-dark font-semibold truncate tracking-tight">芯芯</span>
-
-</div>
-<span class="text-[12px] text-ink-subtle truncate mt-0.5">dafault</span>
-</div>
-</div>
-<span class="material-symbols-outlined text-ink-subtle text-[18px] pl-1 shrink-0">chevron_right</span>
-</div>
+<div class="w-full p-3.5 flex items-center justify-between cursor-pointer active:scale-[0.99] transition-all bg-[#F4F3EE] rounded-2xl border border-[#E3E2DF]/60 shadow-sm"><div class="flex items-center gap-3 min-w-0"><div class="relative w-11 h-11 rounded-full bg-[#181C24] flex items-center justify-center text-white text-[17px] font-semibold shrink-0 shadow-sm"><span class="leading-none">D</span></div><div class="flex flex-col min-w-0"><div class="flex items-center gap-2"><span class="text-[15.5px] text-ink-dark font-semibold truncate tracking-tight">芯芯</span></div><span class="text-[12px] text-ink-subtle truncate mt-0.5">网关启动目录 · 本机</span></div></div><span class="material-symbols-outlined text-ink-subtle text-[18px] pl-1 shrink-0">chevron_right</span></div>
 <!-- 3. Dual Metrics: Usage & Remote Device -->
-<div class="w-full bg-white rounded-2xl p-4 border border-[#e8e6df]/80 shadow-[0_2px_8px_rgba(0,0,0,0.02)] cursor-pointer active:scale-[0.99] transition-all flex flex-col group hover:border-[#DFDED9]">
-  <!-- Meta Header -->
-  <div class="flex items-center justify-between w-full">
-    <div class="flex items-center">
-      <span class="text-[14px] font-semibold text-[#181C24] tracking-tight">远程节点</span>
-      <span class="ml-2 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#e8f5e9] text-[#2e7d32] leading-none select-none">3 台在线</span>
-    </div>
-    <div class="flex items-center gap-0.5 text-xs text-ink-subtle group-hover:text-ink-dark transition-colors">
-      <span class="text-[12px] text-ink-subtle">共 3 台设备</span>
-      <span class="material-symbols-outlined text-ink-subtle text-[16px]">chevron_right</span>
-    </div>
-  </div>
-  <!-- Active Device Core Row -->
-  <div class="mt-3.5 pt-3.5 border-t border-[#f0eee6] flex items-center justify-between">
-    <!-- Left: Device Icon & Name Info -->
-    <div class="flex items-center min-w-0 mr-2">
-      <div class="w-10 h-10 rounded-xl bg-[#f4f4f0] flex items-center justify-center shrink-0 mr-3 text-ink-dark">
-        <span class="material-symbols-outlined text-[20px]">desktop_mac</span>
-      </div>
-      <div class="flex flex-col min-w-0">
-        <span class="text-[15px] font-semibold text-[#181C24] leading-tight truncate">mac-mini</span>
-        <span class="text-[12px] text-ink-subtle mt-0.5 truncate">当前活跃端点</span>
-      </div>
-    </div>
-    <!-- Right: Status Capsule Pill -->
-    <div class="rounded-full px-3 py-1.5 bg-[#f4f4f0] border border-[#e8e6df] flex items-center gap-1.5 shrink-0 select-none shadow-[0_1px_2px_rgba(0,0,0,0.02)]"><span class="relative flex h-2 w-2 shrink-0"><span class="absolute inline-flex h-full w-full rounded-full bg-[#16A34A] opacity-60 animate-ping"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-[#16A34A]"></span></span><span class="text-[12px] font-medium text-[#15803d] tracking-tight whitespace-nowrap leading-none">29 ms · 极佳</span></div>
-  </div>
-</div>
+<div class="group w-full p-3.5 flex items-center justify-between cursor-pointer active:scale-[0.99] transition-all bg-[#F4F3EE] rounded-2xl border border-[#E3E2DF]/60 shadow-sm"><div class="flex items-center gap-3 min-w-0"><div class="w-10 h-10 rounded-xl border border-[#E3E2DF]/60 flex items-center justify-center text-ink-dark shrink-0 bg-[#FAF9F5]"><svg class="w-5 h-5 text-[#1B1C1A]" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewBox="0 0 24 24"><rect height="14" rx="2" width="20" x="2" y="3"></rect><line x1="8" x2="16" y1="21" y2="21"></line><line x1="12" x2="12" y1="17" y2="21"></line></svg></div><div class="flex flex-col min-w-0"><span class="text-[14.5px] font-semibold text-ink-dark truncate tracking-tight">远程节点</span><span class="text-[12px] text-ink-subtle mt-0.5 truncate">mac-mini (当前)</span></div></div><div class="flex items-center gap-1.5 shrink-0"><span class="text-[13px] text-ink-muted">29 ms</span><span class="material-symbols-outlined text-[16px] text-ink-subtle">chevron_right</span></div></div>
 <!-- 4. Settings List (Clean integrated white card with soft dividers) -->
-<div class="flex flex-col w-full bg-white border border-[#EFEEEA] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(24,28,36,0.03)] divide-y divide-[#F4F3EE]"><!-- Row 1: 定时任务 -->
-<div class="group flex items-center justify-between px-3.5 h-[50px] hover:bg-[#FAF9F5] active:bg-[#F4F3EE] cursor-pointer transition-colors">
-<div class="flex items-center gap-3">
-<div class="w-5 h-5 flex items-center justify-center text-ink-muted group-hover:text-[#2563EB] transition-colors shrink-0">
-<svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 15"></polyline></svg>
-</div>
-<span class="text-[14.5px] text-ink-dark font-medium">定时任务</span>
-</div>
-<div class="flex items-center gap-1 text-ink-subtle">
-<span class="text-[13px] text-ink-muted">无活动</span>
-<span class="material-symbols-outlined text-[16px] text-ink-subtle">chevron_right</span>
-</div>
-</div>
-<!-- Row 2: 主题 -->
-<div class="group flex items-center justify-between px-3.5 h-[50px] hover:bg-[#FAF9F5] active:bg-[#F4F3EE] cursor-pointer transition-colors">
-<div class="flex items-center gap-3">
-<div class="w-5 h-5 flex items-center justify-center text-ink-muted group-hover:text-[#2563EB] transition-colors shrink-0">
-<svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
-</div>
-<span class="text-[14.5px] text-ink-dark font-medium">主题</span>
-</div>
-<div class="flex items-center gap-1 text-ink-subtle">
-<span class="text-[13px] text-ink-muted">随系统</span>
-<span class="material-symbols-outlined text-[16px] text-ink-subtle">chevron_right</span>
-</div>
-</div>
-<!-- Row 3: 模型 -->
-<div class="group flex items-center justify-between px-3.5 h-[50px] hover:bg-[#FAF9F5] active:bg-[#F4F3EE] cursor-pointer transition-colors">
-<div class="flex items-center gap-3">
-<div class="w-5 h-5 flex items-center justify-center text-ink-muted group-hover:text-[#2563EB] transition-colors shrink-0">
-<svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24"><rect height="14" rx="2" width="14" x="5" y="5"></rect><path d="M9 9h6v6H9z"></path><path d="M9 1v4"></path><path d="M15 1v4"></path><path d="M9 19v4"></path><path d="M15 19v4"></path><path d="M1 9h4"></path><path d="M1 15h4"></path><path d="M19 9h4"></path><path d="M19 15h4"></path></svg>
-</div>
-<span class="text-[14.5px] text-ink-dark font-medium">模型</span>
-</div>
-<div class="flex items-center gap-1 text-ink-subtle">
-<span class="text-[13px] text-ink-muted">Claude 3.7</span>
-<span class="material-symbols-outlined text-[16px] text-ink-subtle">chevron_right</span>
-</div>
-</div>
-<!-- Row 4: 检查更新 -->
-<div class="group flex items-center justify-between px-3.5 h-[50px] hover:bg-[#FAF9F5] active:bg-[#F4F3EE] cursor-pointer transition-colors">
-<div class="flex items-center gap-3">
-<div class="w-5 h-5 flex items-center justify-center text-ink-muted group-hover:text-[#2563EB] transition-colors shrink-0">
-<svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24"><path d="M21.5 2v6h-6"></path><path d="M2.5 22v-6h6"></path><path d="M2 11.5a10 10 0 0 1 18.8-4.3L21.5 8"></path><path d="M22 12.5a10 10 0 0 1-18.8 4.2L2.5 16"></path></svg>
-</div>
-<span class="text-[14.5px] text-ink-dark font-medium">检查更新</span>
-</div>
-<div class="flex items-center gap-1.5 text-ink-subtle">
-<span class="w-1.5 h-1.5 rounded-full bg-[#D97706]"></span>
-<span class="text-[13px] text-ink-muted">v0.1.116</span>
-<span class="material-symbols-outlined text-[16px] text-ink-subtle">chevron_right</span>
-</div>
-</div><div class="group flex items-center justify-between px-3.5 h-[50px] hover:bg-[#FAF9F5] active:bg-[#F4F3EE] cursor-pointer transition-colors"><div class="flex items-center gap-3"><div class="w-5 h-5 flex items-center justify-center text-ink-muted group-hover:text-[#2563EB] transition-colors shrink-0"><svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg></div><span class="text-[14.5px] text-ink-dark font-medium">反馈与建议</span></div><div class="flex items-center gap-1 text-ink-subtle"><span class="material-symbols-outlined text-[16px] text-ink-subtle">chevron_right</span></div></div></div>
+<div class="flex flex-col w-full divide-y divide-[#EFEEEA] pt-1"><div class="group flex items-center justify-between px-1 h-[48px] hover:bg-black/5 active:bg-[#EFEEEA] cursor-pointer transition-colors rounded-lg"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-ink-muted text-[20px] group-hover:text-[#2563EB] transition-colors">schedule</span><span class="text-[14.5px] text-ink-dark font-medium">定时任务</span></div><div class="flex items-center gap-1 text-ink-subtle"><span class="text-[13px] text-ink-muted">0 运行中</span><span class="material-symbols-outlined text-[16px] text-ink-subtle">chevron_right</span></div></div><div class="group flex items-center justify-between px-1 h-[48px] hover:bg-black/5 active:bg-[#EFEEEA] cursor-pointer transition-colors rounded-lg"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-ink-muted text-[20px] group-hover:text-[#2563EB] transition-colors">dark_mode</span><span class="text-[14.5px] text-ink-dark font-medium">主题</span></div><div class="flex items-center gap-1 text-ink-subtle"><span class="text-[13px] text-ink-muted">随系统</span><span class="material-symbols-outlined text-[16px] text-ink-subtle">chevron_right</span></div></div><div class="group flex items-center justify-between px-1 h-[48px] hover:bg-black/5 active:bg-[#EFEEEA] cursor-pointer transition-colors rounded-lg"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-ink-muted text-[20px] group-hover:text-[#2563EB] transition-colors">psychology</span><span class="text-[14.5px] text-ink-dark font-medium">默认模型</span></div><div class="flex items-center gap-1 text-ink-subtle"><span class="text-[13px] text-ink-muted">Claude 3.7</span><span class="material-symbols-outlined text-[16px] text-ink-subtle">chevron_right</span></div></div><div class="group flex items-center justify-between px-1 h-[48px] hover:bg-black/5 active:bg-[#EFEEEA] cursor-pointer transition-colors rounded-lg"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-ink-muted text-[20px] group-hover:text-[#2563EB] transition-colors">system_update_alt</span><span class="text-[14.5px] text-ink-dark font-medium">检查更新</span></div><div class="flex items-center gap-1.5 text-ink-subtle"><span class="w-1.5 h-1.5 rounded-full bg-[#16A34A]"></span><span class="text-[13px] text-ink-muted">v0.1.116 (最新)</span><span class="material-symbols-outlined text-[16px] text-ink-subtle">chevron_right</span></div></div><div class="group flex items-center justify-between px-1 h-[48px] hover:bg-black/5 active:bg-[#EFEEEA] cursor-pointer transition-colors rounded-lg"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-ink-muted text-[20px] group-hover:text-[#2563EB] transition-colors">chat_bubble_outline</span><span class="text-[14.5px] text-ink-dark font-medium">反馈与建议</span></div><div class="flex items-center gap-1 text-ink-subtle"><span class="material-symbols-outlined text-[16px] text-ink-subtle">chevron_right</span></div></div></div>
 <!-- 5. Secondary Action Links -->
 
 </div>
 <!-- 6. Footer System Info & Security Pill (Airy, clean, bottom-anchored) -->
-<div class="mt-6 flex flex-col items-center justify-center text-center gap-1.5 pt-2 pb-1"><span class="text-[12.5px] font-medium text-ink-subtle tracking-tight">Your AI Agent, in Your Pocket</span></div>
+<div class="mt-6 flex flex-col items-center justify-center text-center gap-1.5 pt-2 pb-1"><div class="flex items-center justify-center w-full gap-2.5 opacity-40 mb-1"><div class="h-[0.5px] w-10 bg-gradient-to-r from-transparent to-[#777268]"></div><span class="text-[10px] text-ink-subtle select-none">✦</span><div class="h-[0.5px] w-10 bg-gradient-to-l from-transparent to-[#777268]"></div></div><p class="text-[12px] text-ink-subtle font-normal tracking-wide text-center italic font-serif opacity-75">Your AI Agent, in Your Pocket</p></div>
 </div>
 </aside>
 <!-- Right Margin: Click-to-dismiss Backdrop Area (16% width) -->
@@ -249,6 +145,10 @@
 <footer class="fixed bottom-0 w-full z-50 pb-safe pointer-events-none flex items-center justify-center pb-1">
 <div class="w-32 h-1 bg-ink-dark/20 rounded-full"></div>
 </footer>
+
+
+
+
 
 
 </body></html>

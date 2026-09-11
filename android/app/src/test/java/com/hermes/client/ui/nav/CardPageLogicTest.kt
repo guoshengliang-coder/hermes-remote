@@ -8,15 +8,6 @@ import org.junit.Test
 /** The card page's pure rules (docs/DESIGN.md §5.1, product decisions 2026-09-11). */
 class CardPageLogicTest {
 
-    @Test fun `latency bands are 优 under 50, 普通 to 150, 延迟 above`() {
-        assertEquals(LatencyTier.GOOD, latencyTier(0))
-        assertEquals(LatencyTier.GOOD, latencyTier(49))
-        assertEquals(LatencyTier.NORMAL, latencyTier(50))
-        assertEquals(LatencyTier.NORMAL, latencyTier(150))
-        assertEquals(LatencyTier.SLOW, latencyTier(151))
-        assertEquals(LatencyTier.SLOW, latencyTier(4_000))
-    }
-
     @Test fun `latency prints ms under a second and seconds above`() {
         assertEquals("29 ms", formatLatency(29))
         assertEquals("999 ms", formatLatency(999))

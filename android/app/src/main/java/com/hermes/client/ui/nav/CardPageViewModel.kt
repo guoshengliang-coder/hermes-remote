@@ -24,9 +24,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/** Online / total Macs on the account, once the account service reports them. */
-data class DeviceCounts(val online: Int, val total: Int)
-
 /** Supporting data for the card page's cards and entry rows. */
 data class CardPageUiState(
     /** Cron jobs currently failed or overdue for the active profile (the row's amber dot). */
@@ -35,11 +32,6 @@ data class CardPageUiState(
     val cronJobCount: Int? = null,
     /** The connected Mac connector's DEVICE_ID, or null while unknown/offline. */
     val deviceId: String? = null,
-    /**
-     * The 远程节点 header's counts. Null until the account service exposes them (pending server
-     * work, 2026-09-11): the card then draws no pill and no total rather than inventing one.
-     */
-    val deviceCounts: DeviceCounts? = null,
     /** The active profile's configured default model (config "model"); null while unknown. */
     val defaultModel: String? = null,
 )
@@ -62,8 +54,8 @@ class CardPageViewModel @Inject constructor(
     /** Exposed so the card page can hide its feedback row when this build was not configured. */
     val feedbackReporter: FeedbackReporter,
 ) : ViewModel() {
-    /** Newer release's version name for the update entry row (throttled index precheck). */
-    val updateAvailable: StateFlow<String?> = updateBadge.available
+    /** Release state for the update entry row: unknown / up to date / newer available. */
+    val updateState: StateFlow<com.hermes.client.update.UpdateBadgeState> = updateBadge.state
 
     fun refreshUpdateBadge() = viewModelScope.launch { updateBadge.refreshIfStale() }
 
