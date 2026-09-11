@@ -9,7 +9,10 @@
     "",
     "type 段是排版档位，与 roles 段同一套规则：四元组 [字号, 字重, 行高, 字距]，单位 px/sp，",
     "不同必须写 reason。行高取设计稿行容器的 leading-[1.45]（稿里三档都不自带 leading）。",
-    "note 不参与断言，用来记设计稿与设计系统本身打架的地方。2026-09-11 抽取。"
+    "note 不参与断言，用来记设计稿与设计系统本身打架的地方。2026-09-11 抽取。",
+    "",
+    "card.* 段来自 基线-卡片页（screens/e5db8e03 浅 / 72cf9986 暗夜），2026-09-11 第三次拉取；裁决见锁文件 specChanges。",
+    "稿里没有单一 token 可对的项记在锁文件 notes 里而不在这里：头像色（按身份算）、遮罩模糊（平台不支持）、图标（§4 为准）。"
   ],
   "roles": [
     { "role": "status.running", "ref": "status:RUNNING",
@@ -75,7 +78,74 @@
       "design": ["#FFF1F2", "#2A1B1D"], "impl": ["#FFF1F2", "#2A1B1D"], "reason": "" },
 
     { "role": "incident.ink", "ref": "tiles:incidentInk",
-      "design": ["#9F1239", "#FCA5A5"], "impl": ["#9F1239", "#FCA5A5"], "reason": "" }
+      "design": ["#9F1239", "#FCA5A5"], "impl": ["#9F1239", "#FCA5A5"], "reason": "" },
+
+    { "role": "card.drawer", "ref": "tiles:cardDrawer",
+      "design": ["#FAF9F5", "#161A22"], "impl": ["#FAF9F5", "#161A22"],
+      "reason": "",
+      "note": "卡片页（screens/e5db8e03 浅 / 72cf9986 暗夜，2026-09-11 抽取）。暗夜稿的抽屉不是 surface 而是 surface-container-low。" },
+
+    { "role": "card.tile", "ref": "tiles:cardTile",
+      "design": ["#FFFFFF", "#1E232B"], "impl": ["#FFFFFF", "#1E232B"], "reason": "" },
+
+    { "role": "card.tile.border", "ref": "tiles:cardTileBorder",
+      "design": ["#EFEEEA", "#262C35"], "impl": ["#EFEEEA", "#262C35"], "reason": "" },
+
+    { "role": "card.divider", "ref": "tiles:cardDivider",
+      "design": ["#F4F3EE", "#262C35"], "impl": ["#F4F3EE", "#262C35"],
+      "reason": "",
+      "note": "快捷行分隔线 divide-[#F4F3EE]。远程节点卡内的分隔线稿写 #F0EEE6，与本值差一个灰阶，实现只留一档。" },
+
+    { "role": "card.chip", "ref": "tiles:cardChip",
+      "design": ["#EFEEEA", "#1E232B"], "impl": ["#EFEEEA", "#1E232B"],
+      "reason": "",
+      "note": "构建徽标与齿轮钮共用。稿的浅色齿轮钮另有 1px #E8E6DF/60 描边，与底色几乎同色，实现只在暗夜画描边。" },
+
+    { "role": "card.chip.ink", "ref": "scheme:onSurfaceVariant",
+      "design": ["#494641", "#A8A49C"], "impl": ["#494641", "#A8A49C"], "reason": "" },
+
+    { "role": "card.title.ink", "ref": "scheme:onSurface",
+      "design": ["#181C24", "#E2E0DB"], "impl": ["#1B1C1A", "#E2E0DB"],
+      "reason": "走 token（§2.1）；稿的 ink-dark 是冷一度的近黑，与本仓 onSurface 只差一个灰阶，视觉等同。" },
+
+    { "role": "card.ink.muted", "ref": "tiles:cardInkMuted",
+      "design": ["#605C54", "#A8A49C"], "impl": ["#605C54", "#A8A49C"],
+      "reason": "",
+      "note": "行图标与右值。浅色 = secondary，暗夜 = onSurfaceVariant，两档不是同一个 token，所以单列。" },
+
+    { "role": "card.ink.subtle", "ref": "scheme:outline",
+      "design": ["#777268", "#8D897E"], "impl": ["#777268", "#8D897E"],
+      "reason": "",
+      "note": "副行与页脚。稿的暗夜箭头写的是浅色的 #777268 而不是 #8D897E，按颜色只取暗夜稿的原则视为笔误，箭头与副行同色。" },
+
+    { "role": "card.pill", "ref": "tiles:cardPill",
+      "design": ["#F4F4F0", "#262C35"], "impl": ["#F4F4F0", "#262C35"], "reason": "" },
+
+    { "role": "card.pill.border", "ref": "tiles:cardPillBorder",
+      "design": ["#E8E6DF", "#262C35"], "impl": ["#E8E6DF", "#262C35"], "reason": "" },
+
+    { "role": "card.pill.good", "ref": "tiles:cardPillGood",
+      "design": ["#F4F4F0", "#21352C"], "impl": ["#F4F4F0", "#21352C"],
+      "reason": "",
+      "note": "暗夜稿是 rgba(46,125,50,0.2) 叠在 #1E232B 上，折成不透明值以便钉住。" },
+
+    { "role": "card.pill.good.border", "ref": "tiles:cardPillGoodBorder",
+      "design": ["#E8E6DF", "#24472E"], "impl": ["#E8E6DF", "#24472E"],
+      "reason": "",
+      "note": "暗夜稿 #2E7D32/40 叠在卡底上的折算值。" },
+
+    { "role": "card.pill.good.ink", "ref": "tiles:cardPillGoodInk",
+      "design": ["#15803D", "#7CDC80"], "impl": ["#15803D", "#7CDC80"],
+      "reason": "",
+      "note": "与 status-good（#2E7D32 / #34D399）不是同一对：稿子给胶囊单独取了值，照稿。" },
+
+    { "role": "card.pill.good.dot", "ref": "tiles:cardPillGoodDot",
+      "design": ["#16A34A", "#16A34A"], "impl": ["#16A34A", "#16A34A"], "reason": "" },
+
+    { "role": "card.update.dot", "ref": "warnGraphic:WARN",
+      "design": ["#D97706", "#F59E0B"], "impl": ["#D97706", "#F59E0B"],
+      "reason": "",
+      "note": "检查更新行右值前的 6px 点；定时任务行的告警点复用同一档（产品裁决 2026-09-11）。" }
   ],
 
   "type": [
@@ -121,6 +191,47 @@
     { "role": "chat.body", "ref": "type:bodyLarge",
       "design": ["15", "400", "22", "0"], "impl": ["16", "400", "24", "0"],
       "reason": "bodyLarge 是聊天正文，全 App 主要阅读面；缩到 15sp 是可读性决策而非换肤细节（DESIGN.md §3.1）。",
-      "note": "" }
+      "note": "" },
+
+    { "role": "card.wordmark", "ref": "type:CardWordmark",
+      "design": ["20", "700", "30", "-0.5"], "impl": ["20", "700", "30", "-0.5"],
+      "reason": "",
+      "note": "卡片页各档（2026-09-11 抽取）：稿的 text-[Npx] 不带 leading 时行高按浏览器继承的 1.5 记；leading-tight = 1.25、leading-none = 1；tracking-tight = −0.025em 按字号折算。" },
+
+    { "role": "card.chip", "ref": "type:CardChip",
+      "design": ["10.5", "600", "10.5", "0.525"], "impl": ["10.5", "600", "10.5", "0.525"],
+      "reason": "", "note": "内联 style：font-size 10.5px / line-height 1 / letter-spacing 0.05em，大写。" },
+
+    { "role": "card.identity.name", "ref": "type:CardIdentityName",
+      "design": ["15.5", "600", "23.25", "-0.3875"], "impl": ["15.5", "600", "23.25", "-0.3875"],
+      "reason": "", "note": "" },
+
+    { "role": "card.identity.sub", "ref": "type:CardIdentitySub",
+      "design": ["12", "400", "18", "0"], "impl": ["12", "400", "18", "0"],
+      "reason": "", "note": "身份卡副行、设备行副行、「共 N 台设备」共用。" },
+
+    { "role": "card.node.title", "ref": "type:CardNodeTitle",
+      "design": ["14", "600", "21", "-0.35"], "impl": ["14", "600", "21", "-0.35"],
+      "reason": "", "note": "" },
+
+    { "role": "card.node.name", "ref": "type:CardNodeName",
+      "design": ["15", "600", "18.75", "0"], "impl": ["15", "600", "18.75", "0"],
+      "reason": "", "note": "leading-tight。实现按 §3.3 先缩字再折行而不是稿的 truncate：长设备名是这张卡唯一的数据。" },
+
+    { "role": "card.pill", "ref": "type:CardPill",
+      "design": ["12", "500", "12", "-0.3"], "impl": ["12", "500", "12", "-0.3"],
+      "reason": "", "note": "leading-none。「N 台在线」胶囊就地缩到 11px。" },
+
+    { "role": "card.row.title", "ref": "type:CardRowTitle",
+      "design": ["14.5", "500", "21.75", "0"], "impl": ["14.5", "500", "21.75", "0"],
+      "reason": "", "note": "2026-09-11 之前是 17sp（B 档密度，决策 2026-09-01）。" },
+
+    { "role": "card.row.value", "ref": "type:CardRowValue",
+      "design": ["13", "400", "19.5", "0"], "impl": ["13", "400", "19.5", "0"],
+      "reason": "", "note": "暗夜稿加了 font-medium，几何以浅色为准（锁文件 pairs）。" },
+
+    { "role": "card.footer", "ref": "type:CardFooter",
+      "design": ["12.5", "500", "18.75", "-0.3125"], "impl": ["12.5", "500", "18.75", "-0.3125"],
+      "reason": "", "note": "" }
   ]
 }

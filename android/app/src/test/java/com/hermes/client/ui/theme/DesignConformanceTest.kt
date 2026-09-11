@@ -91,6 +91,8 @@ class DesignConformanceTest {
                 "onSurfaceVariant" -> scheme.onSurfaceVariant
                 "outline" -> scheme.outline
                 "outlineVariant" -> scheme.outlineVariant
+                "surface" -> scheme.surface
+                "surfaceContainerLow" -> scheme.surfaceContainerLow
                 else -> error("unknown scheme role '$name' in ref '$ref'")
             }.toArgb()
             // The graphic tier of WARN: the pillar and the waiting dot, which the design source
@@ -102,6 +104,19 @@ class DesignConformanceTest {
                 "incidentBg" -> if (dark) IncidentContainerDark else IncidentContainerLight
                 "incidentInk" -> if (dark) OnIncidentDark else OnIncidentLight
                 "sublineFaint" -> if (dark) SublineFaintDark else SublineFaintLight
+                // Card page (docs/DESIGN.md §5.1), pulled 2026-09-11.
+                "cardDrawer" -> if (dark) CardDrawerDark else CardDrawerLight
+                "cardTile" -> if (dark) CardTileDark else CardTileLight
+                "cardTileBorder" -> if (dark) CardTileBorderDark else CardTileBorderLight
+                "cardDivider" -> if (dark) CardDividerDark else CardDividerLight
+                "cardChip" -> if (dark) CardChipDark else CardChipLight
+                "cardInkMuted" -> if (dark) CardInkMutedDark else CardInkMutedLight
+                "cardPill" -> if (dark) CardPillDark else CardPillLight
+                "cardPillBorder" -> if (dark) CardPillBorderDark else CardPillBorderLight
+                "cardPillGood" -> if (dark) CardPillGoodDark else CardPillLight
+                "cardPillGoodBorder" -> if (dark) CardPillGoodBorderDark else CardPillBorderLight
+                "cardPillGoodInk" -> if (dark) CardPillGoodInkDark else CardPillGoodInkLight
+                "cardPillGoodDot" -> CardPillGoodDot
                 else -> error("unknown tiles role '$name' in ref '$ref'")
             }.toArgb()
             else -> error("unknown ref kind '$kind' in ref '$ref'")
@@ -122,6 +137,16 @@ class DesignConformanceTest {
             "SessionGroupCount" -> SessionGroupCount
             "SessionGroupNote" -> SessionGroupNote
             "SegmentLabel" -> SegmentLabel
+            "CardWordmark" -> CardWordmark
+            "CardChip" -> CardChip
+            "CardIdentityName" -> CardIdentityName
+            "CardIdentitySub" -> CardIdentitySub
+            "CardNodeTitle" -> CardNodeTitle
+            "CardNodeName" -> CardNodeName
+            "CardPill" -> CardPill
+            "CardRowTitle" -> CardRowTitle
+            "CardRowValue" -> CardRowValue
+            "CardFooter" -> CardFooter
             "labelMedium" -> HermesTypography.labelMedium
             "bodyLarge" -> HermesTypography.bodyLarge
             "titleMedium" -> HermesTypography.titleMedium

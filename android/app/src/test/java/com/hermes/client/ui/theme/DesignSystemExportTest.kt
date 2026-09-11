@@ -131,6 +131,19 @@ class DesignSystemExportTest {
         "spinner" to (SpinnerLight to SpinnerDark),
         "incident-container" to (IncidentContainerLight to IncidentContainerDark),
         "incident-ink" to (OnIncidentLight to OnIncidentDark),
+        // Card page (docs/DESIGN.md §5.1), pulled 2026-09-11.
+        "card-drawer" to (CardDrawerLight to CardDrawerDark),
+        "card-tile" to (CardTileLight to CardTileDark),
+        "card-tile-border" to (CardTileBorderLight to CardTileBorderDark),
+        "card-divider" to (CardDividerLight to CardDividerDark),
+        "card-chip" to (CardChipLight to CardChipDark),
+        "card-ink-muted" to (CardInkMutedLight to CardInkMutedDark),
+        "card-pill" to (CardPillLight to CardPillDark),
+        "card-pill-border" to (CardPillBorderLight to CardPillBorderDark),
+        "card-pill-good" to (null to CardPillGoodDark),
+        "card-pill-good-border" to (null to CardPillGoodBorderDark),
+        "card-pill-good-ink" to (CardPillGoodInkLight to CardPillGoodInkDark),
+        "card-pill-good-dot" to (CardPillGoodDot to CardPillGoodDot),
     )
 
     private val typeSteps: Map<String, TextStyle> = mapOf(
@@ -152,6 +165,16 @@ class DesignSystemExportTest {
         "session-group-count" to SessionGroupCount,
         "session-group-note" to SessionGroupNote,
         "segment-label" to SegmentLabel,
+        "card-wordmark" to CardWordmark,
+        "card-chip" to CardChip,
+        "card-identity-name" to CardIdentityName,
+        "card-identity-sub" to CardIdentitySub,
+        "card-node-title" to CardNodeTitle,
+        "card-node-name" to CardNodeName,
+        "card-pill" to CardPill,
+        "card-row-title" to CardRowTitle,
+        "card-row-value" to CardRowValue,
+        "card-footer" to CardFooter,
     )
 
     // ---- assertions -----------------------------------------------------------------------

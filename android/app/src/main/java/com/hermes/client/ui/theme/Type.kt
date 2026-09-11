@@ -274,3 +274,100 @@ val SessionGroupNote = TextStyle(
     lineHeight = 13.sp,
     letterSpacing = (-0.1).sp,
 )
+
+// ── Card page steps (docs/DESIGN.md §3.2, Stitch 基线-卡片页 pulled 2026-09-11) ────────────────
+//
+// Every step below is read straight off the mock's classes: `text-[Npx]` plus the weight and
+// tracking it carries. Line height is the browser's inherited 1.5 unless the element sets
+// `leading-tight` (1.25) or `leading-none` (1); `tracking-tight` is −0.025em at the step's size.
+// Sans throughout — the drawer is prose and labels, none of it the data the mono face is for.
+
+/** 「Hermes GO」: `text-[20px] font-bold tracking-tight`. Was 26sp before the 2026-09-11 pull. */
+val CardWordmark = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Bold,
+    fontSize = 20.sp,
+    lineHeight = 30.sp,
+    letterSpacing = (-0.5).sp,
+)
+
+/** The build-type chip beside the wordmark: 10.5px / 600 / `leading-[1]` / `0.05em`, uppercase. */
+val CardChip = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 10.5.sp,
+    lineHeight = 10.5.sp,
+    letterSpacing = 0.525.sp,
+)
+
+/** The identity card's big line: `text-[15.5px] font-semibold tracking-tight`. */
+val CardIdentityName = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 15.5.sp,
+    lineHeight = 23.25.sp,
+    letterSpacing = (-0.3875).sp,
+)
+
+/** Sublines on the identity card and the device row: `text-[12px]`. */
+val CardIdentitySub = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Normal,
+    fontSize = 12.sp,
+    lineHeight = 18.sp,
+    letterSpacing = 0.sp,
+)
+
+/** 「远程节点」: `text-[14px] font-semibold tracking-tight`. */
+val CardNodeTitle = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 14.sp,
+    lineHeight = 21.sp,
+    letterSpacing = (-0.35).sp,
+)
+
+/** The device name: `text-[15px] font-semibold leading-tight`. */
+val CardNodeName = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 15.sp,
+    lineHeight = 18.75.sp,
+    letterSpacing = 0.sp,
+)
+
+/** The status capsule's text: `text-[12px] font-medium tracking-tight leading-none`. */
+val CardPill = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 12.sp,
+    lineHeight = 12.sp,
+    letterSpacing = (-0.3).sp,
+)
+
+/** Shortcut row labels: `text-[14.5px] font-medium`. Was 17sp (density B) before the pull. */
+val CardRowTitle = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 14.5.sp,
+    lineHeight = 21.75.sp,
+    letterSpacing = 0.sp,
+)
+
+/** Shortcut row right-hand values: `text-[13px]`. */
+val CardRowValue = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Normal,
+    fontSize = 13.sp,
+    lineHeight = 19.5.sp,
+    letterSpacing = 0.sp,
+)
+
+/** The bottom tagline: `text-[12.5px] font-medium tracking-tight`. */
+val CardFooter = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 12.5.sp,
+    lineHeight = 18.75.sp,
+    letterSpacing = (-0.3125).sp,
+)

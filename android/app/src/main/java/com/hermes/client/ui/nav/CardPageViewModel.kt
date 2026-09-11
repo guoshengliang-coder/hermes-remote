@@ -6,12 +6,10 @@ import com.hermes.client.data.feedback.FeedbackReporter
 import com.hermes.client.data.network.GatewayHealth
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.network.ProfileDto
-import com.hermes.client.data.repository.AnalyticsRepository
 import com.hermes.client.data.repository.ConfigRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SettingsStore
 import com.hermes.client.data.repository.ThemeMode
-import com.hermes.client.ui.usage.weekWindow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import com.hermes.client.data.repository.ToolsRepository
@@ -26,30 +24,35 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/** Supporting data for the card page's info tiles and entry badges. */
+/** Online / total Macs on the account, once the account service reports them. */
+data class DeviceCounts(val online: Int, val total: Int)
+
+/** Supporting data for the card page's cards and entry rows. */
 data class CardPageUiState(
-    /** Cron jobs currently failed or overdue for the active profile (the entry-row badge). */
+    /** Cron jobs currently failed or overdue for the active profile (the row's amber dot). */
     val cronAlerts: Int = 0,
+    /** Enabled, unpaused cron jobs for the active profile (the row's value); null until loaded. */
+    val cronJobCount: Int? = null,
     /** The connected Mac connector's DEVICE_ID, or null while unknown/offline. */
     val deviceId: String? = null,
-    /** Last-7-CALENDAR-days token total for the active profile; null until loaded. */
-    val weekTokens: Long? = null,
-    /** Sessions started in the same seven days; the stat cell's subline. */
-    val weekSessions: Int? = null,
+    /**
+     * The 远程节点 header's counts. Null until the account service exposes them (pending server
+     * work, 2026-09-11): the card then draws no pill and no total rather than inventing one.
+     */
+    val deviceCounts: DeviceCounts? = null,
     /** The active profile's configured default model (config "model"); null while unknown. */
     val defaultModel: String? = null,
 )
 
 /**
  * State for the card page (the app's ONLY profile-switch point). Profile identity comes from
- * [ProfileManager]; the tiles are best-effort extras — each fetch fails independently and the
+ * [ProfileManager]; the cards are best-effort extras — each fetch fails independently and the
  * card renders without it rather than blocking.
  */
 @HiltViewModel
 class CardPageViewModel @Inject constructor(
     private val profileManager: ProfileManager,
     private val tools: ToolsRepository,
-    private val analytics: AnalyticsRepository,
     private val configRepo: ConfigRepository,
     private val settingsStore: SettingsStore,
     private val rest: HermesRestApi,
@@ -140,6 +143,7 @@ class CardPageViewModel @Inject constructor(
             runCatching { tools.cronJobs(p) }.onSuccess { jobs ->
                 _state.value = _state.value.copy(
                     cronAlerts = needsAttention(jobs, System.currentTimeMillis()).size,
+                    cronJobCount = activeCronCount(jobs),
                 )
             }
         }
@@ -154,18 +158,6 @@ class CardPageViewModel @Inject constructor(
             runCatching { configRepo.get(p) }.onSuccess { cfg ->
                 val model = (cfg["model"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.ifBlank { null }
                 _state.value = _state.value.copy(defaultModel = model)
-            }
-        }
-        viewModelScope.launch {
-            runCatching { analytics.usage(p) }.onSuccess { usage ->
-                // Hermes emits a row only for days that had sessions, so `takeLast(7)` used to mean
-                // "the last seven ACTIVE days" — a label reading 本周 over a window that can span
-                // months when usage is sparse. Fill the calendar first, then take the week.
-                val week = weekWindow(usage.daily)
-                _state.value = _state.value.copy(
-                    weekTokens = week.sumOf { it.inputTokens + it.outputTokens + it.cacheReadTokens },
-                    weekSessions = week.sumOf { it.sessions },
-                )
             }
         }
     }

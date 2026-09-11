@@ -1,5 +1,6 @@
 package com.hermes.client.ui.screenshot
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -562,6 +563,54 @@ class ScreenshotTest {
     // weight (docs/DESIGN.md §5.2: unread 600, read 500). Worth a golden of its own because the
     // difference is easy to doubt on a screen — CJK at Medium already reads fairly heavy — and
     // because nothing else pins that the read tier is the one a list of read rows gets.
+    // ── Card page (docs/DESIGN.md §5.1; Stitch 基线-卡片页 / 暗夜, keys card.default.*) ──────
+    // The drawer's content at the sheet's width, in the state the mock shows plus everything it
+    // does not: a job count with an alert dot, an update dot, a long model id, the feedback row.
+    private fun cardPage(
+        name: String,
+        darkTheme: Boolean = false,
+        fontScale: Float? = null,
+        deviceId: String = "mac-mini",
+        latencyMs: Long = 29L,
+    ) = snap(name, darkTheme = darkTheme, fontScale = fontScale) {
+        // Chinese, like the mock, so the reference render and the golden carry the same strings.
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+        androidx.compose.foundation.layout.Box(
+            androidx.compose.ui.Modifier
+                .widthIn(max = 340.dp)
+                .height(844.dp)
+                .background(com.hermes.client.ui.theme.cardDrawerColor()),
+        ) {
+            com.hermes.client.ui.nav.CardPageContent(
+                activeProfile = "default",
+                state = com.hermes.client.ui.nav.CardPageUiState(
+                    cronAlerts = 1,
+                    cronJobCount = 7,
+                    deviceId = deviceId,
+                    defaultModel = "claude-opus-5",
+                ),
+                health = com.hermes.client.data.network.GatewayHealth.Healthy(version = null, running = true, latencyMs = latencyMs),
+                themeMode = com.hermes.client.data.repository.ThemeMode.SYSTEM,
+                updateAvailable = "0.1.117",
+                buildBadge = "DEBUG",
+                onNavigate = {},
+                onTheme = {},
+                onFeedback = {},
+            )
+        }
+        }
+    }
+
+    @Test fun cardPageLight() = cardPage("card.default.light")
+
+    @Test fun cardPageDark() = cardPage("card.default.dark", darkTheme = true)
+
+    /** Large font + a long Mac name + a NORMAL-band latency: the design-scale lock and §3.3 fit. */
+    @Test fun cardPageLightLargeFont() =
+        cardPage("card.default.light-fs13", fontScale = 1.3f, deviceId = "guoshengliang-macbook-pro", latencyMs = 231L)
+
     @Test fun sessionRowTitleTiers() = snap("session-row-title-tiers") {
         androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
             for ((label, style) in listOf(
