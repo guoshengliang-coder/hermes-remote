@@ -1,0 +1,67 @@
+<!-- @dsCard group="Screens" -->
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>跳转落地反馈 · 光晕</title>
+<style>
+  body{margin:0;padding:36px 44px;background:#EEF1F5;color:#252B33;font-family:-apple-system,"PingFang SC",Roboto,sans-serif}
+  h1{font-size:20px;font-weight:600;margin:0 0 4px}.sub{font-size:13px;color:#74777F;margin:0 0 24px}
+  h2{font-size:14px;font-weight:600;margin:22px 0 10px;color:#43474E}
+  .strip{display:flex;gap:18px;align-items:flex-start}
+  .cell{width:300px;border-radius:16px;padding:22px 16px 18px;position:relative;box-shadow:0 0 0 1px rgba(0,0,0,.06)}
+  .cell.light{background:#F7F9FD}.cell.dark{background:#131A22}
+  .cap{font-size:12px;color:#74777F;text-align:center;margin-top:12px;line-height:1.5}.cap b{display:block;color:#252B33;font-size:13px}
+  .dark + .cap b, .darkcap b{color:#E1E3E9}
+  .bubble{margin-left:auto;width:max-content;max-width:82%;padding:12px 18px;border-radius:22px 22px 7px 22px;font-size:16px;line-height:24px;position:relative}
+  .light .bubble{background:#E7ECF6;color:#1A1C20}.dark .bubble{background:#273039;color:#E1E3E9}
+  .ans{margin-top:16px;font-size:15px;line-height:24px;color:#43474E}.dark .ans{color:#B8BEC7}
+  /* current: search-style highlight */
+  .light .bubble.cur{background:#C9DAF9;box-shadow:inset 0 0 0 1.5px #0B5FD0}
+  .dark .bubble.cur{background:#2C3F5E;box-shadow:inset 0 0 0 1.5px #A9C7FF}
+  /* proposed: outer glow, no border, no fill change */
+  .light .bubble.g0{box-shadow:0 0 0 8px rgba(11,95,208,.28)}
+  .light .bubble.g1{box-shadow:0 0 0 8px rgba(11,95,208,.14)}
+  .light .bubble.g2{box-shadow:0 0 0 8px rgba(11,95,208,0)}
+  .dark .bubble.g0{box-shadow:0 0 0 8px rgba(169,199,255,.30)}
+  .dark .bubble.g1{box-shadow:0 0 0 8px rgba(169,199,255,.15)}
+  .dark .bubble.g2{box-shadow:0 0 0 8px rgba(169,199,255,0)}
+  .t{position:absolute;top:8px;left:12px;font-size:11px;color:#9AA0A8;font-variant-numeric:tabular-nums}
+  .bar{margin:18px 0 0;height:6px;border-radius:3px;background:#E7ECF6;position:relative;width:100%}
+  .bar i{position:absolute;left:0;top:0;bottom:0;border-radius:3px;background:linear-gradient(90deg,rgba(11,95,208,.28),rgba(11,95,208,0))}
+</style></head><body>
+<h1>跳转落地反馈 · 光晕方案</h1>
+<p class="sub">点击「我的提问」或胶囊跳到某条提问后，目标气泡的反馈。现状借用搜索高亮（蒙层 + 描边，1.5s 后硬切消失）；方案改为气泡外侧 8dp 柔光，1.2s 线性淡出，气泡本身颜色不变、无描边。</p>
+
+<h2>浅色</h2>
+<div class="strip">
+  <div><div class="cell light"><span class="t">现状 · 0–1.5s 恒定</span>
+    <div class="bubble cur">可以进一步加大虚拟内存什么的吗</div><div class="ans">可以，但要先看清楚现在的压力来自哪里……</div></div>
+    <div class="cap"><b>现状</b>18% 品牌蓝蒙层 + 1.5dp 描边，像"选中"或"出错"，颜色发脏。</div></div>
+  <div><div class="cell light"><span class="t">t = 0s</span>
+    <div class="bubble g0">可以进一步加大虚拟内存什么的吗</div><div class="ans">可以，但要先看清楚现在的压力来自哪里……</div></div>
+    <div class="cap"><b>光晕 · 出现</b>外侧 8dp 柔光，primary 28%；气泡底色与文字不变。</div></div>
+  <div><div class="cell light"><span class="t">t = 0.6s</span>
+    <div class="bubble g1">可以进一步加大虚拟内存什么的吗</div><div class="ans">可以，但要先看清楚现在的压力来自哪里……</div></div>
+    <div class="cap"><b>光晕 · 中途</b>线性淡出，14%。</div></div>
+  <div><div class="cell light"><span class="t">t = 1.2s</span>
+    <div class="bubble g2">可以进一步加大虚拟内存什么的吗</div><div class="ans">可以，但要先看清楚现在的压力来自哪里……</div></div>
+    <div class="cap"><b>光晕 · 结束</b>完全消失，无硬切。</div></div>
+</div>
+
+<h2>深色</h2>
+<div class="strip">
+  <div><div class="cell dark"><span class="t">现状</span>
+    <div class="bubble cur">可以进一步加大虚拟内存什么的吗</div><div class="ans">可以，但要先看清楚现在的压力来自哪里……</div></div>
+    <div class="cap"><b>现状</b>深色下描边更刺眼。</div></div>
+  <div><div class="cell dark"><span class="t">t = 0s</span>
+    <div class="bubble g0">可以进一步加大虚拟内存什么的吗</div><div class="ans">可以，但要先看清楚现在的压力来自哪里……</div></div>
+    <div class="cap"><b>光晕 · 出现</b>用 Blue80 30%。</div></div>
+  <div><div class="cell dark"><span class="t">t = 0.6s</span>
+    <div class="bubble g1">可以进一步加大虚拟内存什么的吗</div><div class="ans">可以，但要先看清楚现在的压力来自哪里……</div></div>
+    <div class="cap"><b>光晕 · 中途</b>15%。</div></div>
+  <div><div class="cell dark"><span class="t">t = 1.2s</span>
+    <div class="bubble g2">可以进一步加大虚拟内存什么的吗</div><div class="ans">可以，但要先看清楚现在的压力来自哪里……</div></div>
+    <div class="cap"><b>光晕 · 结束</b>消失。</div></div>
+</div>
+
+<h2>规格</h2>
+<p class="sub" style="margin:0;max-width:900px">光晕 = 气泡形状向外扩 8dp 的同形描边（`drawBehind` 画圆角矩形，`primary` 浅色 / `Blue80` 深色），alpha 从 0.28 线性到 0 共 1200ms，标准缓动；不改气泡底色，不加边框；搜索命中仍用原描边样式，两者不共用。若同一条再次被跳转，重新从 0.28 开始。</p>
+</body></html>
