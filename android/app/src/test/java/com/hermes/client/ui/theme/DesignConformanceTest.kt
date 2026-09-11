@@ -104,6 +104,9 @@ class DesignConformanceTest {
                 "incidentBg" -> if (dark) IncidentContainerDark else IncidentContainerLight
                 "incidentInk" -> if (dark) OnIncidentDark else OnIncidentLight
                 "sublineFaint" -> if (dark) SublineFaintDark else SublineFaintLight
+                "pillarPinned" -> if (dark) PillarPinnedDark else PillarPinnedLight
+                "pillarToday" -> if (dark) PillarTodayDark else PillarTodayLight
+                "pillarOlder" -> if (dark) PillarOlderDark else PillarOlderLight
                 // Card page (docs/DESIGN.md §5.1), second pull 2026-09-11.
                 "cardDrawer" -> if (dark) CardDrawerDark else CardDrawerLight
                 "cardTile" -> if (dark) CardTileDark else CardTileLight

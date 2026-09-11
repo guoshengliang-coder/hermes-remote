@@ -451,7 +451,7 @@ fun SessionsScreen(
                                 if (groups.today.isNotEmpty()) {
                                     item(key = "h-today") {
                                         SectionHeader(
-                                            localized(language, "今天", "Today"), groups.today.size, SectionTone.TIME,
+                                            localized(language, "今天", "Today"), groups.today.size, SectionTone.TODAY,
                                             collapsed = "today" in collapsed, onToggle = { toggle("today") },
                                         )
                                     }
@@ -474,7 +474,7 @@ fun SessionsScreen(
                                 if (groups.week.isNotEmpty()) {
                                     item(key = "h-week") {
                                         SectionHeader(
-                                            localized(language, "前 7 天", "Previous 7 days"), groups.week.size, SectionTone.TIME,
+                                            localized(language, "前 7 天", "Previous 7 days"), groups.week.size, SectionTone.OLDER,
                                             collapsed = "week" in collapsed, onToggle = { toggle("week") },
                                         )
                                     }
@@ -497,7 +497,7 @@ fun SessionsScreen(
                                 if (groups.earlier.isNotEmpty()) {
                                     item(key = "h-earlier") {
                                         SectionHeader(
-                                            localized(language, "更早", "Earlier"), groups.earlier.size, SectionTone.TIME,
+                                            localized(language, "更早", "Earlier"), groups.earlier.size, SectionTone.OLDER,
                                             collapsed = "earlier" in collapsed, onToggle = { toggle("earlier") },
                                         )
                                     }
@@ -588,10 +588,14 @@ fun SessionsScreen(
  * What a group's leading pillar says about it (docs/DESIGN.md §5.2, decision 2026-09-10).
  * Only one group ever carries colour: the one that needs the reader to act.
  */
-internal enum class SectionTone { NEEDS_YOU, PINNED, TIME }
+/**
+ * One per group header. TIME split into TODAY and OLDER on 2026-09-11: the design source gives
+ * 今天 its own green and puts 前 7 天 / 更早 on a slate, so a single "time" tone could not express it.
+ */
+internal enum class SectionTone { NEEDS_YOU, PINNED, TODAY, OLDER }
 
 @Composable
-private fun SectionHeader(
+internal fun SectionHeader(
     label: String,
     count: Int,
     tone: SectionTone,
@@ -607,36 +611,47 @@ private fun SectionHeader(
     // urgent the group is. Only the group that needs action carries a hue (DESIGN.md §1 原则3,
     // amended 2026-09-10: the group header is no longer unconditionally the brand colour).
     val accent = when (tone) {
+        // Only 需要你处理 colours its LABEL. The other groups colour the pillar and leave the words
+        // neutral — four coloured labels would put four things in competition.
         SectionTone.NEEDS_YOU -> statusColor(StatusTone.WARN)
-        SectionTone.PINNED -> MaterialTheme.colorScheme.onSurfaceVariant
-        SectionTone.TIME -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
+    // TUNING-TEMP
+    val tunedPillars = com.hermes.client.ui.tuning.pillarsOf(
+        com.hermes.client.ui.tuning.LocalSessionListTuning.current,
+        com.hermes.client.ui.theme.isDarkSurface(),
+    )
     val pillar = when (tone) {
-        // The bright graphic amber, not the deep text one the label uses — the mock draws the
-        // mark and the word in two different ambers (StatusColors.kt).
-        SectionTone.NEEDS_YOU -> com.hermes.client.ui.theme.warnGraphicColor()
-        SectionTone.PINNED -> MaterialTheme.colorScheme.outline
-        SectionTone.TIME -> MaterialTheme.colorScheme.outlineVariant
+        // One colour per group, from the design source (Tiles.kt). The bright graphic amber here,
+        // not the deep text one the label uses — the mock draws the mark and the word in two
+        // different ambers (StatusColors.kt).
+        // TUNING-TEMP: routed through the tuning panel so the four colours can be tried on a
+        // device. Its defaults are the Tiles.kt / StatusColors.kt values, so an untouched panel
+        // renders exactly what those files say.
+        SectionTone.NEEDS_YOU -> tunedPillars.needsYou
+        SectionTone.PINNED -> tunedPillars.pinned
+        SectionTone.TODAY -> tunedPillars.today
+        SectionTone.OLDER -> tunedPillars.older
     }
     androidx.compose.foundation.layout.Row(
         // px-4 py-2 in the mock: 16dp either side, 8dp above and below. The old 16/4 split
         // predates the mock being read as dp (docs/DESIGN.md §3.4).
         Modifier.fillMaxWidth()
             .then(if (onToggle != null) Modifier.clickable(onClick = onToggle) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = com.hermes.client.ui.tuning.tunedHeaderPaddingV()), // TUNING-TEMP
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             // 3 × 12dp, fully rounded — `w-[3px] h-3 rounded-full`. Recorded as 3 × 14dp with a
             // 2dp radius on 2026-09-10; the mock says otherwise and the mock now wins.
             Modifier
-                .size(width = 3.dp, height = 12.dp)
+                .size(width = com.hermes.client.ui.tuning.tunedPillarWidth(), height = com.hermes.client.ui.tuning.tunedPillarHeight()) // TUNING-TEMP
                 .background(pillar, androidx.compose.foundation.shape.CircleShape),
         )
         androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
         Text(
             label.uppercase(),
-            style = com.hermes.client.ui.theme.SessionGroupHeader,
+            style = com.hermes.client.ui.tuning.tunedGroupHeader(), // TUNING-TEMP
             color = accent,
         )
         note?.let {
@@ -715,8 +730,7 @@ private fun SessionRow(
             headlineContent = {
                 Text(
                     session.title,
-                    style = if (unread) com.hermes.client.ui.theme.SessionRowTitle
-                    else com.hermes.client.ui.theme.SessionRowTitleRead,
+                    style = com.hermes.client.ui.tuning.tunedRowTitle(unread), // TUNING-TEMP
                 )
             },
             // No leading slot: the pinned marker rides in the subline so every title shares one
@@ -726,7 +740,7 @@ private fun SessionRow(
             supportingContent = {
                 // mt-0.5 under the title, mt-1 under the subline — the mock's own rhythm.
                 Column {
-                    androidx.compose.foundation.layout.Spacer(Modifier.size(2.dp))
+                    androidx.compose.foundation.layout.Spacer(Modifier.size(com.hermes.client.ui.tuning.tunedSublineGap())) // TUNING-TEMP
                     SessionSubline(session, defaultProjectPath = defaultProjectPath, pinned = isPinned)
                     // Gate on the TEXT, not on the phase. The phase-based guard let a blank label
                     // through, and a blank Text still costs a full line: the row grew to Material's
@@ -734,16 +748,12 @@ private fun SessionRow(
                     // top-aligned, so 40dp of dead space opened up under the subline. On a device
                     // that reads as a random extra gap every few rows (docs/DESIGN.md §5.2).
                     sessionStatusLine(runtime, language)?.let { label ->
-                        androidx.compose.foundation.layout.Spacer(Modifier.size(4.dp))
+                        androidx.compose.foundation.layout.Spacer(Modifier.size(com.hermes.client.ui.tuning.tunedStatusGap())) // TUNING-TEMP
                         Text(
                             label,
                             // Only the running line is monospaced in the mock; the verdicts
                             // (已完成 / 运行失败 / 已中断) stay on the prose face.
-                            style = if (runtime!!.phase.isActive) {
-                                com.hermes.client.ui.theme.SessionRowStatusRunning
-                            } else {
-                                com.hermes.client.ui.theme.SessionRowStatus
-                            },
+                            style = com.hermes.client.ui.tuning.tunedStatus(runtime!!.phase.isActive), // TUNING-TEMP
                             color = runtimeColor(runtime.phase),
                         )
                     }

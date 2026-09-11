@@ -77,6 +77,11 @@ LaunchAgent: Hermes continues reading its profile-scoped state and private `.env
 [Desktop guide](https://github.com/nousresearch/hermes-agent/blob/main/website/docs/user-guide/desktop.md),
 and [backend readiness parser](https://github.com/NousResearch/hermes-agent/blob/main/apps/desktop/electron/backend-ready.ts).
 
+Managed release 0.3.1 is the first published immutable release that satisfies this token-file
+contract on both components. The historical 0.3.0 Connector accepts only `HERMES_SESSION_TOKEN` and
+must retain its inline LaunchAgent value; Desktop must not infer current-runtime support merely from
+an embedded manifest URL that points to a newer release.
+
 ## Envelope
 
 The UTF-8 JSON envelope has exactly four fields:

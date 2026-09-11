@@ -559,6 +559,32 @@ class ScreenshotTest {
         }
     }
 
+    // All four group headers in one picture. The amber one is the only coloured pillar in the
+    // product, and it only ever appears when a session is actually waiting on you — which the
+    // local mock can hold for about six seconds, so it has never been caught on a device
+    // (docs/ANDROID_SMOKE.md A-01). This is the one place its colour can be looked at.
+    @androidx.compose.runtime.Composable
+    private fun SectionHeaders() {
+        androidx.compose.foundation.layout.Column {
+            com.hermes.client.ui.sessions.SectionHeader(
+                "需要你处理", 2, com.hermes.client.ui.sessions.SectionTone.NEEDS_YOU, onToggle = {},
+            )
+            com.hermes.client.ui.sessions.SectionHeader(
+                "已置顶", 1, com.hermes.client.ui.sessions.SectionTone.PINNED, note = "仅此设备", onToggle = {},
+            )
+            com.hermes.client.ui.sessions.SectionHeader(
+                "今天", 4, com.hermes.client.ui.sessions.SectionTone.TODAY, onToggle = {},
+            )
+            com.hermes.client.ui.sessions.SectionHeader(
+                "前 7 天", 19, com.hermes.client.ui.sessions.SectionTone.OLDER, collapsed = true, onToggle = {},
+            )
+        }
+    }
+
+    @Test fun sectionHeaderTones() = snap("section-header-tones") { SectionHeaders() }
+
+    @Test fun sectionHeaderTonesDark() = snap("section-header-tones-dark", darkTheme = true) { SectionHeaders() }
+
     // The two title tiers side by side, same string, so the ONLY difference in the picture is the
     // weight (docs/DESIGN.md §5.2: unread 600, read 500). Worth a golden of its own because the
     // difference is easy to doubt on a screen — CJK at Medium already reads fairly heavy — and

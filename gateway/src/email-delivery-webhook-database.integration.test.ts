@@ -120,11 +120,15 @@ test("Resend webhook receipts are idempotent, ordered, PII-minimal, and invalida
         "7".repeat(64),
       ],
     );
+    // created_at is supplied rather than left to now(), for the same reason the OTP inserts above
+    // supply it: the schema checks `expires_at > created_at`, so a row that hardcodes only
+    // expires_at stops being insertable the moment the wall clock passes it. This one carried
+    // 2026-09-11T08:00 and started failing every build at exactly that instant.
     await pool.query(
       `INSERT INTO device_share_invitations
          (id, binding_id, owner_account_id, target_email_lookup_hash, target_email_hint,
-          token_hash, expires_at, delivery_status, delivered_at, provider_message_id)
-       VALUES ($1, $2, $3, $4, 'g***@example.com', $5, $6, 'sent', $7, $8)`,
+          token_hash, expires_at, created_at, delivery_status, delivered_at, provider_message_id)
+       VALUES ($1, $2, $3, $4, 'g***@example.com', $5, $6, $7, 'sent', $8, $9)`,
       [
         invitationId,
         bindingId,
@@ -132,6 +136,7 @@ test("Resend webhook receipts are idempotent, ordered, PII-minimal, and invalida
         "d".repeat(64),
         "e".repeat(64),
         new Date("2026-09-11T08:00:00.000Z"),
+        new Date("2026-09-08T07:00:00.000Z"),
         new Date("2026-09-08T08:00:00.000Z"),
         "provider_share_01",
       ],

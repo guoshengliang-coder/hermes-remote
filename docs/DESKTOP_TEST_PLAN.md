@@ -97,6 +97,9 @@ The current automated suite covers:
 - committed pre-contract token migration preserving the existing 64-character local credential,
   removing both supported inline field names, writing only the canonical `0600` token file reference,
   and recording completion only after ordered service restart plus local/account health;
+- managed release 0.3.0 compatibility: startup returns before account refresh, file mutation, or
+  service restart because its packaged Connector does not consume `HERMES_SESSION_TOKEN_FILE`; 0.3.1
+  is the first immutable managed release admitted to the token-file migration;
 - power-loss resume from a matching half-migrated plist pair, completed-state idempotency, rejection
   of mismatched inline values or account binding generation before mutation, and injected readiness
   failure that restores the exact old plist/token bytes and running service pair;
@@ -196,10 +199,12 @@ Mac merely because email login or `/v2/devices` succeeds.
    the expected legacy Connector.
 3. Complete the Desktop's two-confirmation migration. Require an `account_active` journal, both exact
    managed LaunchAgents, healthy local Hermes, and an internal snapshot row whose binding UUID and
-   generation match Desktop state.
+   generation match Desktop state. Before any later token-storage repair, record the active managed
+   release and require the signed runtime capability boundary; 0.3.0 must remain unchanged.
 4. From Android, exercise one REST status request and one real WebSocket session through the selected
-   device. For a shared Mac, repeat using the grantee account and confirm revocation closes only that
-   grantee's live stream.
+   device **before calling the Desktop candidate accepted or proceeding to a reboot**. An established
+   Connector control socket and a loopback HTTP 200 do not satisfy this gate. For a shared Mac, repeat
+   using the grantee account and confirm revocation closes only that grantee's live stream.
 5. Restart Android and Desktop independently, then reboot the Mac. Require the same account binding,
    automatic managed-service recovery, a newer process-local `connectedAt`, and successful Android
    REST/WebSocket traffic without re-entering a legacy Token.
