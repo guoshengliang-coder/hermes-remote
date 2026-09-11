@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
@@ -16,6 +17,7 @@ import {
 import {MAX_RELEASE_NOTES, MAX_RELEASE_NOTE_LENGTH} from '../../release-server/src/schema.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const SCRIPT = path.join(ROOT, 'scripts', 'bump-android-release.mjs');
 
 const GRADLE = [
   'val appVersionCode = 115',
@@ -135,4 +137,41 @@ test('the real repository state is consistent with what the allocator would refu
   // CI is cheaper than catching it mid-release.
   assert.ok(readme.includes(`Version ${gradle.versionName}`));
   assert.ok(readme.includes(`Hermes-Remote-${gradle.versionName}-debug.apk`));
+});
+
+test('rewriting the version pair never swallows the blank line that follows it', () => {
+  // The real build script has a blank line after appVersionName. A trailing `\s*$` under the m flag
+  // matched across that newline, so the rewrite deleted the line and the 0.1.116 release commit had
+  // to put it back by hand. The earlier fixture never had a blank line there, so it stayed green.
+  const nameLast = 'val appVersionCode = 116\nval appVersionName = "0.1.115"\n\n// comment\n';
+  assert.equal(
+    applyGradleVersions(nameLast, {versionName: '0.1.116', versionCode: 117}),
+    'val appVersionCode = 117\nval appVersionName = "0.1.116"\n\n// comment\n',
+  );
+  const codeLast = 'val appVersionName = "0.1.115"\nval appVersionCode = 116\n\n// comment\n';
+  assert.equal(
+    applyGradleVersions(codeLast, {versionName: '0.1.116', versionCode: 117}),
+    'val appVersionName = "0.1.116"\nval appVersionCode = 117\n\n// comment\n',
+  );
+});
+
+test('rewriting the real build script changes exactly the two version lines and nothing else', async () => {
+  const real = await readFile(path.join(ROOT, 'android', 'app', 'build.gradle.kts'), 'utf8');
+  const before = real.split('\n');
+  const after = applyGradleVersions(real, nextVersion(parseGradleVersions(real))).split('\n');
+  assert.equal(after.length, before.length, 'the rewrite added or removed lines');
+  const changed = before.flatMap((line, index) => (line === after[index] ? [] : [index]));
+  assert.equal(changed.length, 2);
+  for (const index of changed) assert.match(before[index], /^val appVersion(Name|Code) = /);
+});
+
+test('--help and -h print usage and exit 0 before any git check can run', () => {
+  // The first real run of this script, for 0.1.116, began with `--help` and got "unknown argument".
+  // Help must also come before assertReleasableCheckout: on a PR checkout HEAD is not origin/main,
+  // so a help flag that reached the git checks would exit 1 here instead of printing usage.
+  for (const flag of ['--help', '-h']) {
+    const out = execFileSync(process.execPath, [SCRIPT, flag], {encoding: 'utf8'});
+    assert.match(out, /^Usage: node scripts\/bump-android-release\.mjs/);
+    for (const option of ['--notes-file', '--summary', '--summary-file', '--dry-run']) assert.ok(out.includes(option));
+  }
 });
