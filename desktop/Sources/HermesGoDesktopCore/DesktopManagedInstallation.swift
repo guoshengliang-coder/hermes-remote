@@ -21,6 +21,9 @@ public struct DesktopManagedInstallLayout: Equatable, Sendable {
     public var currentRelease: URL { root.appendingPathComponent("current") }
     public var connectorCredential: URL { secretsRoot.appendingPathComponent("connector-account.json") }
     public var hermesSessionToken: URL { secretsRoot.appendingPathComponent("hermes-session-token") }
+    public var hermesSessionTokenContractMarker: URL {
+        secretsRoot.appendingPathComponent("hermes-session-token-v1.complete")
+    }
     public var connectorLaunchAgent: URL {
         launchAgentsRoot.appendingPathComponent(Self.connectorLabel + ".plist")
     }
@@ -76,6 +79,27 @@ public enum DesktopManagedInstallError: Error, Equatable, Sendable {
     case missingEntrypoint
     case activationFailed
     case persistenceFailed
+}
+
+public struct DesktopHermesSessionTokenMigration: Sendable {
+    public let hermesLaunchAgentURL: URL
+    public let connectorLaunchAgentURL: URL
+    public let hermesLogURL: URL
+
+    fileprivate let originalHermesLaunchAgent: Data
+    fileprivate let originalConnectorLaunchAgent: Data
+    fileprivate let originalSessionToken: Data?
+}
+
+private enum ManagedSessionTokenStorage: Equatable {
+    case file
+    case inline(String)
+}
+
+private struct ManagedLaunchAgentPropertyList {
+    let data: Data
+    let object: [String: Any]
+    let logURL: URL
 }
 
 public final class DesktopManagedInstaller: @unchecked Sendable {
@@ -168,9 +192,8 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
             guard (metadata.st_mode & S_IFMT) == S_IFREG,
                   metadata.st_uid == Darwin.getuid(),
                   metadata.st_mode & 0o077 == 0,
-                  metadata.st_size == 43,
                   let value = try? String(contentsOf: layout.hermesSessionToken, encoding: .utf8),
-                  value.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil
+                  Self.validSessionToken(value)
             else { throw DesktopManagedInstallError.unsafeFilesystemObject }
             return layout.hermesSessionToken
         }
@@ -187,6 +210,141 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         guard token.utf8.count == 43 else { throw DesktopManagedInstallError.persistenceFailed }
         try atomicWrite(Data(token.utf8), to: layout.hermesSessionToken, permissions: 0o600)
         return layout.hermesSessionToken
+    }
+
+    /// Converts pre-contract managed LaunchAgents that carry the local Hermes token inline to the
+    /// private file contract. Preparation is crash-resumable: services keep their current process
+    /// environment until the coordinator restarts them, and a missing completion marker requires a
+    /// later startup to repeat the health proof before the migration is considered complete.
+    public func prepareHermesSessionTokenFileMigration() throws -> DesktopHermesSessionTokenMigration? {
+        try ensurePrivateDirectory(layout.root)
+        try ensurePrivateDirectory(layout.secretsRoot)
+        let markerPresent = try validatedCompletionMarkerIfPresent()
+        let hermes = try loadManagedLaunchAgent(
+            layout.hermesLaunchAgent,
+            label: DesktopManagedInstallLayout.hermesLabel,
+            component: .hermesServer,
+            trailingArguments: ["serve", "--host", "127.0.0.1", "--port", "9119"],
+            expectedLog: layout.logsRoot.appendingPathComponent("hermes-server.log"),
+            expectedErrorLog: layout.logsRoot.appendingPathComponent("hermes-server.error.log")
+        )
+        let connector = try loadManagedLaunchAgent(
+            layout.connectorLaunchAgent,
+            label: DesktopManagedInstallLayout.connectorLabel,
+            component: .connector,
+            trailingArguments: [],
+            expectedLog: layout.logsRoot.appendingPathComponent("connector.log"),
+            expectedErrorLog: layout.logsRoot.appendingPathComponent("connector.error.log")
+        )
+        let hermesStorage = try sessionTokenStorage(in: hermes.object)
+        let connectorStorage = try sessionTokenStorage(in: connector.object)
+
+        if markerPresent {
+            guard hermesStorage == .file, connectorStorage == .file else {
+                throw DesktopManagedInstallError.unsafeFilesystemObject
+            }
+            _ = try validatedSessionTokenIfPresent(required: true)
+            return nil
+        }
+
+        let originalToken = try validatedSessionTokenIfPresent(required: false)
+        let inlineTokens = [hermesStorage, connectorStorage].compactMap { storage -> String? in
+            guard case .inline(let value) = storage else { return nil }
+            return value
+        }
+        guard Set(inlineTokens).count <= 1 else {
+            throw DesktopManagedInstallError.unsafeFilesystemObject
+        }
+        if hermesStorage == .file || connectorStorage == .file {
+            guard originalToken != nil else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        }
+        if let inlineToken = inlineTokens.first, let originalToken {
+            guard originalToken == Data(inlineToken.utf8) else {
+                throw DesktopManagedInstallError.unsafeFilesystemObject
+            }
+        } else if let inlineToken = inlineTokens.first {
+            try atomicWrite(
+                Data(inlineToken.utf8),
+                to: layout.hermesSessionToken,
+                permissions: 0o600
+            )
+        } else {
+            guard originalToken != nil else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        }
+
+        let migratedHermes = try launchAgentReplacingInlineToken(in: hermes.object)
+        let migratedConnector = try launchAgentReplacingInlineToken(in: connector.object)
+        do {
+            try atomicWrite(migratedHermes, to: layout.hermesLaunchAgent, permissions: 0o600)
+            try atomicWrite(migratedConnector, to: layout.connectorLaunchAgent, permissions: 0o600)
+        } catch {
+            try? atomicWrite(hermes.data, to: layout.hermesLaunchAgent, permissions: 0o600)
+            try? atomicWrite(connector.data, to: layout.connectorLaunchAgent, permissions: 0o600)
+            if originalToken == nil { try? removeOwnedRegularFileIfPresent(layout.hermesSessionToken) }
+            throw error
+        }
+        return DesktopHermesSessionTokenMigration(
+            hermesLaunchAgentURL: layout.hermesLaunchAgent,
+            connectorLaunchAgentURL: layout.connectorLaunchAgent,
+            hermesLogURL: hermes.logURL,
+            originalHermesLaunchAgent: hermes.data,
+            originalConnectorLaunchAgent: connector.data,
+            originalSessionToken: originalToken
+        )
+    }
+
+    public func commitHermesSessionTokenFileMigration() throws {
+        let hermes = try loadManagedLaunchAgent(
+            layout.hermesLaunchAgent,
+            label: DesktopManagedInstallLayout.hermesLabel,
+            component: .hermesServer,
+            trailingArguments: ["serve", "--host", "127.0.0.1", "--port", "9119"],
+            expectedLog: layout.logsRoot.appendingPathComponent("hermes-server.log"),
+            expectedErrorLog: layout.logsRoot.appendingPathComponent("hermes-server.error.log")
+        )
+        let connector = try loadManagedLaunchAgent(
+            layout.connectorLaunchAgent,
+            label: DesktopManagedInstallLayout.connectorLabel,
+            component: .connector,
+            trailingArguments: [],
+            expectedLog: layout.logsRoot.appendingPathComponent("connector.log"),
+            expectedErrorLog: layout.logsRoot.appendingPathComponent("connector.error.log")
+        )
+        guard try sessionTokenStorage(in: hermes.object) == .file,
+              try sessionTokenStorage(in: connector.object) == .file
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        _ = try validatedSessionTokenIfPresent(required: true)
+        try atomicWrite(
+            Data("1\n".utf8),
+            to: layout.hermesSessionTokenContractMarker,
+            permissions: 0o600
+        )
+    }
+
+    public func rollbackHermesSessionTokenFileMigration(
+        _ migration: DesktopHermesSessionTokenMigration
+    ) throws {
+        guard migration.hermesLaunchAgentURL.standardizedFileURL.path
+                == layout.hermesLaunchAgent.standardizedFileURL.path,
+              migration.connectorLaunchAgentURL.standardizedFileURL.path
+                == layout.connectorLaunchAgent.standardizedFileURL.path
+        else { throw DesktopManagedInstallError.invalidInput }
+        try removeOwnedRegularFileIfPresent(layout.hermesSessionTokenContractMarker)
+        try atomicWrite(
+            migration.originalHermesLaunchAgent,
+            to: layout.hermesLaunchAgent,
+            permissions: 0o600
+        )
+        try atomicWrite(
+            migration.originalConnectorLaunchAgent,
+            to: layout.connectorLaunchAgent,
+            permissions: 0o600
+        )
+        if let original = migration.originalSessionToken {
+            try atomicWrite(original, to: layout.hermesSessionToken, permissions: 0o600)
+        } else {
+            try removeOwnedRegularFileIfPresent(layout.hermesSessionToken)
+        }
     }
 
     public func writeLaunchAgent(
@@ -302,6 +460,151 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         }
         do { try fileManager.removeItem(at: layout.currentRelease) }
         catch { throw DesktopManagedInstallError.activationFailed }
+    }
+
+    private func validatedCompletionMarkerIfPresent() throws -> Bool {
+        var metadata = stat()
+        if Darwin.lstat(layout.hermesSessionTokenContractMarker.path, &metadata) != 0 {
+            guard errno == ENOENT else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+            return false
+        }
+        guard (metadata.st_mode & S_IFMT) == S_IFREG,
+              metadata.st_uid == Darwin.getuid(),
+              metadata.st_mode & 0o077 == 0,
+              metadata.st_size == 2,
+              (try? Data(contentsOf: layout.hermesSessionTokenContractMarker)) == Data("1\n".utf8)
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        return true
+    }
+
+    private func validatedSessionTokenIfPresent(required: Bool) throws -> Data? {
+        var metadata = stat()
+        if Darwin.lstat(layout.hermesSessionToken.path, &metadata) != 0 {
+            guard errno == ENOENT, !required else {
+                throw DesktopManagedInstallError.unsafeFilesystemObject
+            }
+            return nil
+        }
+        guard (metadata.st_mode & S_IFMT) == S_IFREG,
+              metadata.st_uid == Darwin.getuid(),
+              metadata.st_mode & 0o077 == 0,
+              metadata.st_size <= 128,
+              let data = try? Data(contentsOf: layout.hermesSessionToken),
+              let value = String(data: data, encoding: .utf8),
+              Self.validSessionToken(value)
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        return data
+    }
+
+    private func loadManagedLaunchAgent(
+        _ url: URL,
+        label: String,
+        component: DesktopReleaseComponentKind,
+        trailingArguments: [String],
+        expectedLog: URL,
+        expectedErrorLog: URL
+    ) throws -> ManagedLaunchAgentPropertyList {
+        var metadata = stat()
+        guard Darwin.lstat(url.path, &metadata) == 0,
+              (metadata.st_mode & S_IFMT) == S_IFREG,
+              metadata.st_uid == Darwin.getuid(),
+              metadata.st_mode & 0o077 == 0,
+              metadata.st_size > 0,
+              metadata.st_size <= 64 * 1024,
+              let data = try? Data(contentsOf: url),
+              let raw = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+              let object = raw as? [String: Any],
+              object["Label"] as? String == label,
+              let arguments = object["ProgramArguments"] as? [String],
+              let executable = arguments.first,
+              arguments == [executable] + trailingArguments,
+              URL(fileURLWithPath: executable).standardizedFileURL.path == executable,
+              executable.hasPrefix(
+                layout.currentRelease
+                    .appendingPathComponent(component.rawValue, isDirectory: true)
+                    .standardizedFileURL.path + "/"
+              ),
+              !executable.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
+              let logPath = object["StandardOutPath"] as? String,
+              logPath == expectedLog.standardizedFileURL.path,
+              object["StandardErrorPath"] as? String == expectedErrorLog.standardizedFileURL.path,
+              object["EnvironmentVariables"] as? [String: Any] != nil
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        return ManagedLaunchAgentPropertyList(
+            data: data,
+            object: object,
+            logURL: URL(fileURLWithPath: logPath)
+        )
+    }
+
+    private func sessionTokenStorage(in object: [String: Any]) throws -> ManagedSessionTokenStorage {
+        guard let rawEnvironment = object["EnvironmentVariables"] as? [String: Any],
+              rawEnvironment.allSatisfy({ $0.value is String })
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        let environment = rawEnvironment.compactMapValues { $0 as? String }
+        let inlineValues = [
+            environment["HERMES_SESSION_TOKEN"],
+            environment["HERMES_DASHBOARD_SESSION_TOKEN"],
+        ].compactMap { $0 }
+        guard inlineValues.count <= 1 else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        let fileValue = environment["HERMES_SESSION_TOKEN_FILE"]
+        guard !(fileValue != nil && !inlineValues.isEmpty) else {
+            throw DesktopManagedInstallError.unsafeFilesystemObject
+        }
+        if let fileValue {
+            guard fileValue == layout.hermesSessionToken.standardizedFileURL.path else {
+                throw DesktopManagedInstallError.unsafeFilesystemObject
+            }
+            return .file
+        }
+        guard let inline = inlineValues.first,
+              Self.validSessionToken(inline)
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        return .inline(inline)
+    }
+
+    private static func validSessionToken(_ value: String) -> Bool {
+        (value.utf8.count == 43
+            && value.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil)
+            || (value.utf8.count == 64
+                && value.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil)
+    }
+
+    private func launchAgentReplacingInlineToken(in original: [String: Any]) throws -> Data {
+        guard var environment = original["EnvironmentVariables"] as? [String: Any] else {
+            throw DesktopManagedInstallError.unsafeFilesystemObject
+        }
+        environment.removeValue(forKey: "HERMES_SESSION_TOKEN")
+        environment.removeValue(forKey: "HERMES_DASHBOARD_SESSION_TOKEN")
+        environment["HERMES_SESSION_TOKEN_FILE"] = layout.hermesSessionToken.standardizedFileURL.path
+        var migrated = original
+        migrated["EnvironmentVariables"] = environment
+        do {
+            let data = try PropertyListSerialization.data(
+                fromPropertyList: migrated,
+                format: .xml,
+                options: 0
+            )
+            guard data.count <= 64 * 1024 else { throw DesktopManagedInstallError.persistenceFailed }
+            return data
+        } catch let error as DesktopManagedInstallError {
+            throw error
+        } catch {
+            throw DesktopManagedInstallError.persistenceFailed
+        }
+    }
+
+    private func removeOwnedRegularFileIfPresent(_ url: URL) throws {
+        var metadata = stat()
+        if Darwin.lstat(url.path, &metadata) != 0 {
+            guard errno == ENOENT else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+            return
+        }
+        guard (metadata.st_mode & S_IFMT) == S_IFREG,
+              metadata.st_uid == Darwin.getuid()
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        do { try fileManager.removeItem(at: url) }
+        catch { throw DesktopManagedInstallError.persistenceFailed }
     }
 
     private func existingCurrentTarget() throws -> String? {

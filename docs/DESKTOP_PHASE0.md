@@ -191,6 +191,15 @@ configuration. Turning off downloads after a machine is installed therefore does
 managed services. Active state must also match the current account's exact binding ID and generation;
 signing into another account cannot claim or overwrite the first account's managed Mac.
 
+Committed installations that predate the private session-token file contract are also reconciled by
+that always-available recovery runtime. An exact `account_active` journal, both loaded managed labels,
+the signed-in journal binding ID/generation, owner-only exact managed plist paths, and one shared valid
+token are required before mutation. Desktop preserves the token value, atomically moves it out of both
+LaunchAgent environments into the `0600` managed secret file, restarts Hermes before Connector, and
+records an owner-only completion marker only after local readiness and bound account health pass. A
+missing marker makes a same-token half migration resumable after power loss. Failure restores the
+original plist/token bytes and proves the restored services healthy; a mismatch fails closed.
+
 Overview health now reduces the effective background mode rather than treating the stopped legacy
 label as the only Agent. An `account_active` journal with both exact managed LaunchAgents therefore
 reports the managed Connector as running. If Migration Assistant transfers those managed files and

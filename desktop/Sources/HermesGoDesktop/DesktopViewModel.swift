@@ -801,13 +801,14 @@ final class DesktopViewModel: ObservableObject {
 
     private func recoverManagedBootstrapAfterRestart() async {
         guard let runtime = managedRecoveryRuntime else { return }
+        var reconciliationIssue: DesktopIssue?
         do {
             _ = try await Task.detached(priority: .utility) {
                 try runtime.reconcileTransferredAccountActive()
+                return try await runtime.reconcileCommittedHermesSessionTokenStorage()
             }.value
         } catch {
-            managedBootstrapOperation = .failed
-            managedBootstrapIssue = DesktopIssue(
+            reconciliationIssue = DesktopIssue(
                 code: .migrationConnectorMismatch,
                 technicalCause: String(describing: error)
             )
@@ -819,6 +820,10 @@ final class DesktopViewModel: ObservableObject {
         let installation = await inspectScopedManagedBootstrapInstallation()
         guard case .interrupted(let runID, _) = installation else {
             applyManagedBootstrapInstallation(installation)
+            if let reconciliationIssue {
+                managedBootstrapOperation = .failed
+                managedBootstrapIssue = reconciliationIssue
+            }
             return
         }
         managedBootstrapOperation = .recovering

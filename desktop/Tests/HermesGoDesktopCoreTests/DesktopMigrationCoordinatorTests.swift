@@ -80,6 +80,10 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
             try FileManager.default.destinationOfSymbolicLink(atPath: fixture.layout.currentRelease.path),
             "releases/1.2.3"
         )
+        XCTAssertEqual(
+            try Data(contentsOf: fixture.layout.hermesSessionTokenContractMarker),
+            Data("1\n".utf8)
+        )
         let confirmCount = await fixture.account.confirmCount()
         XCTAssertEqual(confirmCount, 1)
     }
@@ -389,6 +393,104 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: journalRoot.path))
         XCTAssertTrue(fixture.runner.events().isEmpty)
     }
+
+    func testCommittedInlineTokenMigrationRestartsInOrderAndCommitsMarker() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        let token = String(repeating: "a", count: 64)
+        try fixture.installCommittedManagedServices(inlineToken: token)
+
+        let migrated = try await fixture.coordinator.reconcileCommittedHermesSessionTokenStorage()
+        XCTAssertTrue(migrated)
+
+        XCTAssertEqual(try String(contentsOf: fixture.layout.hermesSessionToken, encoding: .utf8), token)
+        XCTAssertEqual(try fixture.tokenEnvironment(at: fixture.layout.hermesLaunchAgent), [
+            "HERMES_SESSION_TOKEN_FILE": fixture.layout.hermesSessionToken.path,
+        ])
+        XCTAssertEqual(try fixture.tokenEnvironment(at: fixture.layout.connectorLaunchAgent), [
+            "HERMES_SESSION_TOKEN_FILE": fixture.layout.hermesSessionToken.path,
+        ])
+        XCTAssertEqual(
+            try Data(contentsOf: fixture.layout.hermesSessionTokenContractMarker),
+            Data("1\n".utf8)
+        )
+        XCTAssertEqual(fixture.runner.loadedLabels(), [
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
+        XCTAssertEqual(fixture.serviceMutations(), [
+            "bootout:\(DesktopManagedInstallLayout.connectorLabel)",
+            "bootout:\(DesktopManagedInstallLayout.hermesLabel)",
+            "bootstrap:\(DesktopManagedInstallLayout.hermesLabel)",
+            "bootstrap:\(DesktopManagedInstallLayout.connectorLabel)",
+        ])
+    }
+
+    func testCommittedTokenMigrationHealthFailureRestoresInlineFilesAndRunningServices() async throws {
+        let fixture = try Fixture(
+            legacyRunning: false,
+            resumeBoundBinding: true,
+            hermesReadinessResponses: [false, true]
+        )
+        defer { fixture.cleanup() }
+        let token = String(repeating: "b", count: 64)
+        try fixture.installCommittedManagedServices(inlineToken: token)
+        let originalHermes = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+        let originalConnector = try Data(contentsOf: fixture.layout.connectorLaunchAgent)
+
+        await XCTAssertThrowsErrorAsync(
+            try await fixture.coordinator.reconcileCommittedHermesSessionTokenStorage()
+        ) { error in
+            XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .hermesHealthTimedOut)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), originalHermes)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.connectorLaunchAgent), originalConnector)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.hermesSessionToken.path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.layout.hermesSessionTokenContractMarker.path
+        ))
+        XCTAssertEqual(fixture.runner.loadedLabels(), [
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
+        XCTAssertEqual(fixture.readiness.waitCount(), 2)
+    }
+
+    func testCommittedCurrentTokenContractIsIdempotentWithoutServiceMutation() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        try fixture.installer.commitHermesSessionTokenFileMigration()
+
+        let migrated = try await fixture.coordinator.reconcileCommittedHermesSessionTokenStorage()
+        XCTAssertFalse(migrated)
+
+        XCTAssertTrue(fixture.serviceMutations().isEmpty)
+        XCTAssertEqual(fixture.readiness.waitCount(), 0)
+    }
+
+    func testCommittedTokenMigrationRejectsMismatchedAccountBeforeLocalMutation() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(
+            inlineToken: String(repeating: "c", count: 64),
+            bindingGeneration: 2
+        )
+        let originalHermes = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+        let originalConnector = try Data(contentsOf: fixture.layout.connectorLaunchAgent)
+
+        await XCTAssertThrowsErrorAsync(
+            try await fixture.coordinator.reconcileCommittedHermesSessionTokenStorage()
+        ) { error in
+            XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .invalidBindingState)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), originalHermes)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.connectorLaunchAgent), originalConnector)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.hermesSessionToken.path))
+        XCTAssertTrue(fixture.serviceMutations().isEmpty)
+    }
 }
 
 private final class Fixture {
@@ -398,6 +500,7 @@ private final class Fixture {
     let journal: DesktopMigrationJournalStore
     let runner: InMemoryLaunchctlRunner
     let account: MigrationAccountFake
+    let readiness: MigrationHermesReadiness
     let coordinator: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>
     let manifest: DesktopReleaseManifest
     let sources: [DesktopManagedReleaseSource]
@@ -412,7 +515,8 @@ private final class Fixture {
         failAccountStart: Bool = false,
         ambiguousCommit: Bool = false,
         hermesHealthy: Bool = true,
-        resumeBoundBinding: Bool = false
+        resumeBoundBinding: Bool = false,
+        hermesReadinessResponses: [Bool]? = nil
     ) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("hermes-migration-coordinator-\(UUID().uuidString)", isDirectory: true)
@@ -434,12 +538,15 @@ private final class Fixture {
             ambiguousCommit: ambiguousCommit,
             resumeBoundBinding: resumeBoundBinding
         )
+        readiness = MigrationHermesReadiness(
+            responses: hermesReadinessResponses ?? [hermesHealthy]
+        )
         coordinator = try DesktopMigrationCoordinator(
             account: account,
             journal: journal,
             installer: installer,
             launchAgent: controller,
-            hermesReadiness: MigrationHermesReadiness(healthy: hermesHealthy),
+            hermesReadiness: readiness,
             maximumHealthPolls: 2,
             healthPollDelayNanoseconds: 0
         )
@@ -481,6 +588,94 @@ private final class Fixture {
     }
 
     func cleanup() { try? FileManager.default.removeItem(at: root) }
+
+    func installCommittedManagedServices(
+        inlineToken: String?,
+        bindingGeneration: Int = 1
+    ) throws {
+        if inlineToken == nil { _ = try installer.ensureHermesSessionToken() }
+        _ = try installer.writeHermesLaunchAgent(hermesLaunchAgentConfiguration, manifest: manifest)
+        _ = try installer.writeLaunchAgent(launchAgentConfiguration, manifest: manifest)
+        if let inlineToken {
+            try replaceTokenEnvironment(
+                at: layout.hermesLaunchAgent,
+                inlineKey: "HERMES_DASHBOARD_SESSION_TOKEN",
+                token: inlineToken
+            )
+            try replaceTokenEnvironment(
+                at: layout.connectorLaunchAgent,
+                inlineKey: "HERMES_SESSION_TOKEN",
+                token: inlineToken
+            )
+            try? FileManager.default.removeItem(at: layout.hermesSessionToken)
+        }
+        _ = try journal.begin(
+            runID: runID,
+            lastKnownGoodMode: .legacy,
+            releaseVersion: manifest.releaseVersion,
+            bindingID: bindingID,
+            bindingGeneration: bindingGeneration
+        )
+        for state in [
+            DesktopMigrationState.accountStaged,
+            .candidateStarting,
+            .candidateAuthenticated,
+            .candidateHealthy,
+            .commitPending,
+            .accountActive,
+        ] {
+            _ = try journal.transition(runID: runID, to: state)
+        }
+        runner.replaceLoaded(with: [
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
+    }
+
+    func tokenEnvironment(at url: URL) throws -> [String: String] {
+        let object = try XCTUnwrap(
+            PropertyListSerialization.propertyList(
+                from: Data(contentsOf: url),
+                options: [],
+                format: nil
+            ) as? [String: Any]
+        )
+        let environment = try XCTUnwrap(object["EnvironmentVariables"] as? [String: String])
+        return environment.filter { $0.key.contains("SESSION_TOKEN") }
+    }
+
+    func serviceMutations() -> [String] {
+        runner.events().compactMap { command in
+            guard let operation = command.first, ["bootout", "bootstrap"].contains(operation),
+                  let target = command.last
+            else { return nil }
+            let label = operation == "bootstrap"
+                ? URL(fileURLWithPath: target).deletingPathExtension().lastPathComponent
+                : target.split(separator: "/").last.map(String.init) ?? target
+            return "\(operation):\(label)"
+        }
+    }
+
+    private func replaceTokenEnvironment(at url: URL, inlineKey: String, token: String) throws {
+        let data = try Data(contentsOf: url)
+        guard var object = try PropertyListSerialization.propertyList(
+            from: data,
+            options: [],
+            format: nil
+        ) as? [String: Any],
+        var environment = object["EnvironmentVariables"] as? [String: Any]
+        else { throw DesktopManagedInstallError.persistenceFailed }
+        environment.removeValue(forKey: "HERMES_SESSION_TOKEN_FILE")
+        environment[inlineKey] = token
+        object["EnvironmentVariables"] = environment
+        let migrated = try PropertyListSerialization.data(
+            fromPropertyList: object,
+            format: .xml,
+            options: 0
+        )
+        try migrated.write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
 
     private static func sources(root: URL) throws -> [DesktopManagedReleaseSource] {
         var result: [DesktopManagedReleaseSource] = []
@@ -659,12 +854,17 @@ private final class InMemoryLaunchctlRunner: CommandRunning, @unchecked Sendable
 }
 
 private final class MigrationHermesReadiness: DesktopHermesCandidateReadinessChecking, @unchecked Sendable {
-    let healthy: Bool
     private let lock = NSLock()
+    private var responses: [Bool]
     private var observedMaximumAttempts: Int?
+    private var waits = 0
 
     init(healthy: Bool) {
-        self.healthy = healthy
+        responses = [healthy]
+    }
+
+    init(responses: [Bool]) {
+        self.responses = responses
     }
 
     func checkpoint(logURL: URL) throws -> DesktopHermesReadinessCheckpoint {
@@ -677,11 +877,16 @@ private final class MigrationHermesReadiness: DesktopHermesCandidateReadinessChe
         maximumAttempts: Int,
         delayNanoseconds: UInt64
     ) async throws -> Bool {
-        lock.withLock { observedMaximumAttempts = maximumAttempts }
-        return healthy
+        lock.withLock {
+            observedMaximumAttempts = maximumAttempts
+            waits += 1
+            if responses.count > 1 { return responses.removeFirst() }
+            return responses.first ?? false
+        }
     }
 
     func maximumAttempts() -> Int? { lock.withLock { observedMaximumAttempts } }
+    func waitCount() -> Int { lock.withLock { waits } }
 }
 
 private func XCTAssertThrowsErrorAsync<T>(
