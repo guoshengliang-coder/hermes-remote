@@ -182,7 +182,11 @@ layered, and the layers are **not** interchangeable — each covers something th
   exactly what differs between vendors. `ANDROID_SERIAL=<serial>` picks which one the tooling
   targets by default. How to operate a phone — which APK to install, each vendor's install
   confirmation page, the dev stack, and restoring the phone afterwards — is in
-  `docs/DEVICE_TESTING.md`; write new device gotchas back there. How many phones a change needs:
+  `docs/DEVICE_TESTING.md`; write new device gotchas back there. Install with
+  `scripts/dev/device-install.py`: it confirms install pages it has a recipe for, and on an unknown
+  page stops, reports `NEEDS_ATTENTION` and waits for an AI session or a person to resolve it; the
+  doc defines what may be confirmed and when a resolved page becomes a recipe. How many phones a
+  change needs:
 
   | Change | Devices needed | Why |
   |---|---|---|

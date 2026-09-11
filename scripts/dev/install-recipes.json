@@ -1,0 +1,36 @@
+{
+  "_doc": "Install-page recipes for scripts/dev/device-install.py. Each entry is a page that was first resolved by a person or an AI session and then promoted, with its UI dump saved under install-pages/ as a fixture. `--self-test` checks every recipe still matches its fixture. See docs/DEVICE_TESTING.md for when a page is worth promoting.",
+  "recipes": [
+    {
+      "id": "vivo-external-source",
+      "vendor": "vivo",
+      "observed": "2026-09-11, vivo V2166BA, Android 13 (SDK 33); first resolved by an AI session via --inspect/--tap-text",
+      "notes": "「继续安装」 looks grey until the box is ticked, yet its inner layer stays clickable and enabled in the UI tree, so the button's own state cannot tell whether it is ready. The tap is gated on the checkbox reading checked=true instead. The label is drawn on two nested layers; the outermost clickable one is tapped.",
+      "installer": [
+        "com.android.packageinstaller"
+      ],
+      "require_all": [
+        "安全守护提示您",
+        "外部来源应用",
+        "已了解应用的风险检测结果",
+        "继续安装"
+      ],
+      "require_app": true,
+      "steps": [
+        {
+          "check": "已了解应用的风险检测结果"
+        },
+        {
+          "tap": "继续安装"
+        }
+      ],
+      "fixture": {
+        "file": "vivo-external-source.xml",
+        "foreground": "com.android.packageinstaller",
+        "label": "Hermes GO",
+        "version": "0.1.116",
+        "first_action": "tick '已了解应用的风险检测结果'"
+      }
+    }
+  ]
+}
