@@ -245,6 +245,7 @@ class MainActivity : ComponentActivity() {
                                             onDeepLinkConsumed = { pendingRoute.value = null },
                                             configurationRepair = (startupState as? StartupUiState.RepairRequired)?.failure,
                                             accountSetupRepairRequired =
+                                                (startupState as? StartupUiState.RepairRequired)?.accountSetup == true ||
                                                 accountSessions.transportMode() ==
                                                     AccountTransportMode.REAUTHENTICATION_REQUIRED ||
                                                     accountSessions.transportMode() ==
