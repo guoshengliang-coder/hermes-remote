@@ -7,6 +7,7 @@ import com.hermes.client.data.auth.AccountSessionStore
 import com.hermes.client.data.auth.AccountTransportMode
 import com.hermes.client.data.auth.AccountDeviceRouteMode
 import com.hermes.client.data.auth.CredentialStore
+import com.hermes.client.data.auth.DEFAULT_REMOTE_GATEWAY_URL
 import com.hermes.client.data.auth.GatewayConfig
 import com.hermes.client.data.auth.PendingEmailChallenge
 import com.hermes.client.data.auth.PendingAccountDeletion
@@ -475,6 +476,28 @@ class AccountDevicesViewModelTest {
         coVerify(exactly = 0) { api.capabilities(legacyGateway) }
         assertEquals("challenge-account-origin", store.pending?.challengeId)
         assertTrue(store.reauthenticationRequired)
+    }
+
+    @Test fun signedOutAccountDiscoveryIgnoresAStaleLoopbackLegacyRelay() = runTest(dispatcher) {
+        val api = mockk<AccountApi>()
+        val store = MemoryAccountStore(null)
+        val legacy = mockk<CredentialStore>()
+        every { legacy.load() } returns GatewayConfig("http://127.0.0.1:8787", "dev-app-token")
+        coEvery { api.capabilities(DEFAULT_REMOTE_GATEWAY_URL) } returns emailCapabilities()
+
+        val vm = AccountDevicesViewModel(
+            api,
+            store,
+            AccountSessionManager(store, api),
+            legacy,
+            mockk(relaxed = true),
+        )
+        runCurrent()
+
+        assertEquals(AccountStage.SIGNED_OUT, vm.state.value.stage)
+        assertNull(vm.state.value.error)
+        coVerify(exactly = 1) { api.capabilities(DEFAULT_REMOTE_GATEWAY_URL) }
+        coVerify(exactly = 0) { api.capabilities("http://127.0.0.1:8787") }
     }
 
     @Test fun expiredPendingChallengeIsClearedDuringProcessRecovery() = runTest(dispatcher) {
