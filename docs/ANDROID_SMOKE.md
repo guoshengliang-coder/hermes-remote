@@ -101,6 +101,45 @@ fontScale 1.3，**但没覆盖它在真实页面里与顶栏、告警条的间�
 
 ---
 
+## A-05 中文项目名把会话行撑到 88dp — 已确认是缺陷，待修
+
+**这一条不是"待验"，是已经在真机上量到的缺陷**，记在这里是因为它需要一次独立改动，且当前
+没有任何自动化能看见它。
+
+**现象**：项目名含中文的会话行渲染为 **88dp**，项目名是 ASCII 的同类行是 **72dp**。88dp 是
+Material `ListItem` 的三行档，三行项**顶对齐**，于是副行下方空出约 16dp 的洞，列表看起来每隔
+几行就松一块。
+
+**实测**（2026-09-11，HONOR CLK-AN00 / Android 14 / SDK 34 / density 480 / fontScale 1.0，
+mock 数据，项目名「赫尔墨斯远程」）：
+
+| 行 | 副行 | 高度 |
+|---|---|---|
+| 重构 gateway 路由中间件 | 赫尔墨斯远程 · claude-opus-5 | 264px = 88dp |
+| 整理 docs/DEPLOYMENT | 赫尔墨斯远程 · claude-opus-5 | 264px = 88dp |
+| 翻译 Android 文案 | nous-hermes-agent-playground · … | 216px = 72dp |
+| 调查 DERP 端口冲突 | hk · claude-opus-5 | 210px = 70dp |
+
+**不是等宽字体带来的**：同一台机器上对 `origin/main`（c736350，副行仍是系统字体）跑同一组
+数据，两行同样是 264px。也试过给副行加 `includeFontPadding = false` 与
+`LineHeightStyle(Trim.Both)`，高度不变，所以那两项没有留在代码里。
+
+**为什么自动化看不见**：Roborazzi 的 fixture 里项目名全是 ASCII（`hermes-remote`、
+`xiaomai-daily-report`），而且 CI 只跑 `:app:testDebugUnitTest`，根本不会捕获或校验截图。
+
+**修的时候先查这两处**：`SessionSubline` 的自定义 `Layout` 取子项高度的最大值；`ListItem` 在
+supporting 槽超出两行预算时会切到三行几何。加一条项目名为中文的 golden 当回归网。
+
+---
+
 ## 已验证归档
 
-_（暂无。条目验证通过后从上方移到这里，标 `已验 <版本>`，保留判据供回归参考。）_
+### 会话列表照 Stitch 落地 — 已验 0.1.116（2026-09-11，HONOR CLK-AN00 / SDK 34）
+
+浅色与深色各看过一遍：顶栏 56dp 内容高度、标题完整不裁切；副行等宽、文件夹图标为最淡档；
+分组立柱 3×12dp 中性、计数 chip；深色 FAB 近黑且描边环清晰可见。
+
+同一轮里抓到并修掉一个只有真机才会暴露的缺陷：顶栏用 `Modifier.height(56.dp)` 会把状态栏
+内边距一起算进这 56dp，内容行被压扁、标题竖向裁切、与首个组头贴在一起。改用
+`CenterAlignedTopAppBar(expandedHeight = 56.dp)`。Roborazzi 看不见它，因为 JVM 里没有真实
+状态栏内边距 —— 这正是 L2 不可被 L1 替代的那类问题。

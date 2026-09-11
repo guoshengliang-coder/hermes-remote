@@ -1,7 +1,6 @@
 package com.hermes.client.ui.components
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.height
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -41,7 +40,14 @@ fun HermesTopBar(
         androidx.compose.material3.CenterAlignedTopAppBar(
             // 56dp, the mock's `h-14`, against Material's 64dp default. Only the centred bar —
             // that is the one the session-list mock specifies (docs/DESIGN.md §5.2).
-            modifier = modifier.height(56.dp),
+            //
+            // `expandedHeight`, NOT `Modifier.height`. The bar draws its own status-bar inset
+            // inside its container, so constraining the whole composable to 56dp spends most of
+            // that on the inset and squashes the content row: on a HONOR CLK-AN00 the title was
+            // vertically clipped and sat flush against the first group header. The mock has the
+            // same split — `h-14` is the content row, `pt-safe` is separate.
+            expandedHeight = 56.dp,
+            modifier = modifier,
             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                 containerColor = barBg,
                 titleContentColor = barOn,

@@ -192,6 +192,13 @@ val SessionRowTitleRead = SessionRowTitle.copy(fontWeight = FontWeight.Medium)
 /**
  * `project · model`. Monospaced in the mock, and this is where bundling [HermesMono] actually shows:
  * the content is repo and model names, so almost none of it falls back to the system face.
+ *
+ * Note for anyone chasing row heights: a session whose PROJECT NAME is Chinese renders its row at
+ * Material's 88dp instead of 72dp, with the content top-aligned and a hole underneath. That is a
+ * pre-existing bug, not something this font brought — measured on a HONOR CLK-AN00 against
+ * `origin/main` (c736350) as well, where the subline is still the system face. `includeFontPadding`
+ * and a trimmed `LineHeightStyle` were tried here and changed nothing, so they are deliberately
+ * absent. Recorded in docs/ANDROID_SMOKE.md; fixing it is its own change.
  */
 val SessionRowSubline = TextStyle(
     fontFamily = HermesMono,
