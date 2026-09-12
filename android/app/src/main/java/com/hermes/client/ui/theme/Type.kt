@@ -855,3 +855,28 @@ val CronActionLabel = CronScheduleValue
 
 /** 「暂停任务」「编辑配置」「删除此定时任务」: `text-xs font-medium`. */
 val CronActionLabelSmall = CronPill
+
+// ── 聊天内搜索条 (docs/DESIGN.md §5.4, Stitch 基线-聊天页/搜索, 2026-09-12) ────────────────────────
+//
+// Two steps only — the bar is one row now. Unlike the two chat-overlay mocks above, this one DOES
+// mark something `font-mono`: the `n/N` counter. That is the mock deciding screen by screen (§7
+// item 8), and it is the right call here — the number changes under your thumb as you page through
+// hits, and tabular digits keep the row from twitching.
+
+/** The query you typed: `text-[14.5px] font-medium leading-none`. */
+val ChatSearchQuery = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 14.5.sp,
+    lineHeight = 14.5.sp,
+    letterSpacing = 0.sp,
+)
+
+/** `4/12`: `text-xs font-semibold font-mono tracking-tight`. */
+val ChatSearchCount = TextStyle(
+    fontFamily = HermesMono,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 12.sp,
+    lineHeight = 16.sp,
+    letterSpacing = (-0.3).sp,
+)

@@ -715,7 +715,6 @@ fun ChatScreen(
                 onQueryChange = { query = it },
                 matchCount = matches.size,
                 currentIndex = currentMatch,
-                currentHit = currentHit,
                 historyLoaded = state.historyLoaded,
                 onPrevious = { if (matches.isNotEmpty()) currentMatch = (currentMatch - 1 + matches.size) % matches.size },
                 onNext = { if (matches.isNotEmpty()) currentMatch = (currentMatch + 1) % matches.size },

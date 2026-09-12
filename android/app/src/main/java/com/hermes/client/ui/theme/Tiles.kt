@@ -660,3 +660,87 @@ internal val RowMenuCloseInkDark = Color(0xFFA8A49C)
 @Composable fun rowMenuDividerColor(): Color = if (isDarkSurface()) RowMenuDividerDark else RowMenuDividerLight
 @Composable fun rowMenuInkFaintColor(): Color = if (isDarkSurface()) RowMenuInkFaintDark else RowMenuInkFaintLight
 @Composable fun rowMenuCloseInkColor(): Color = if (isDarkSurface()) RowMenuCloseInkDark else RowMenuCloseInkLight
+
+// ── 聊天内搜索条 (docs/DESIGN.md §5.4, Stitch 基线-聊天页/搜索 与 /暗夜 与 /无内容状态, 2026-09-12) ──
+//
+// Its own family, same rule as every other screen's: the search mock does not agree with the
+// prompt-sheet mock about what a neutral inset is filled with. Light here is #F5F3ED — one rung
+// ABOVE [ChatChipLight]'s #EFEEEA and below the paper, a field you type into rather than a chip
+// you read. Dark lands on #1E232B, which IS [ChatChipDark]; the two are kept apart by name because
+// they move for different reasons, and the dark ring around the field is literally `chatChipBorder()`
+// (the mock draws the same 1dp #262C35 hairline the sheet's insets get, and light draws none).
+//
+// The DARK mock could not be downloaded as HTML — its file entry sits in Stitch's `stitch_files`
+// store, which is not anonymously readable, unlike every other screen's. Dark values below were
+// sampled from the full-size (780×1768) screenshot instead; see stitch.lock.json for the method
+// and for which values are literal reads versus swaps.
+
+/** The field itself. Light is a rung above the sheet chip; dark is the same neutral inset. */
+internal val ChatSearchFieldLight = Color(0xFFF5F3ED)
+internal val ChatSearchFieldDark = Color(0xFF1E232B)
+
+/**
+ * The hairline between the query and the counter, inside the field.
+ *
+ * Light resolves the mock's `border-paper-border/80` over the field fill rather than keeping an
+ * alpha — a fixture pins a colour, not a blend. Dark's measured #3A4049 is a COLD grey and is
+ * swapped for the warm ladder's `outlineVariant`, exactly as the row-menu's handle was.
+ */
+internal val ChatSearchDividerLight = Color(0xFFE7E4DB)
+internal val ChatSearchDividerDark = Color(0xFF423F3A)
+
+/**
+ * The two navigation arrows, when there is something to navigate.
+ *
+ * Its own pair because the mocks answer differently and both answers are right for their tier:
+ * light paints them the brand blue, dark paints them plain `onSurface`. Same shape of decision as
+ * [ChatChipInkLight]/[ChatChipInkDark] — binding both tiers to one scheme role would overrule one
+ * of the two mocks. Disabled drops to [ChatSearchInkFaintLight]/[ChatSearchInkFaintDark].
+ */
+internal val ChatSearchArrowLight = Color(0xFF004AC6)
+internal val ChatSearchArrowDark = Color(0xFFE2E0DB)
+
+/**
+ * The hairline under the bar.
+ *
+ * The ordinary chat top bar has none — this one is the mock's, and it earns its keep: while
+ * search is open the top of the screen is a different mode, and the line is what says so when
+ * the transcript behind it has not moved.
+ */
+internal val ChatSearchHairlineLight = Color(0xFFECEAE2)
+internal val ChatSearchHairlineDark = Color(0xFF262C35)
+
+/** `/N`, and the glyph in the field's own clear button. The quietest tier the bar uses. */
+internal val ChatSearchInkFaintLight = Color(0xFFA8A29E)
+internal val ChatSearchInkFaintDark = Color(0xFF8D897E)
+
+/**
+ * The clear button's disc. Light resolves the mock's `bg-hermes-dark/8` over the field fill;
+ * dark is a literal read off the screenshot, and needs no warm swap — it sits on the same
+ * slightly cool obsidian ladder (#1E232B / #262C35 / #2E343D) this repo already transcribed.
+ */
+internal val ChatSearchClearDiscLight = Color(0xFFE4E2DC)
+internal val ChatSearchClearDiscDark = Color(0xFF343940)
+
+/**
+ * The hit marks, and the one place in this repo where a pair holds the SAME value twice.
+ *
+ * Both mocks paint the marks identically — a pale blue sticker with dark blue ink — so the dark
+ * tier is not a darkened variant of the light one, it is the light one. That is deliberate in the
+ * mock: a hit has to read as an overlay ON the text rather than as part of the theme, and it is
+ * the reason these survived de-blueing (§5.4: 常驻中性 / 反馈用品牌色).
+ *
+ * Ink is carried explicitly rather than left to `onSurface`, which in dark would put #E2E0DB on
+ * #A6C8FF at 1.6:1 and make the current hit the least readable text on the screen.
+ */
+internal val ChatSearchHitCurrent = Color(0xFFA6C8FF)
+internal val ChatSearchHitCurrentInk = Color(0xFF002B7A)
+internal val ChatSearchHitOther = Color(0xFFD6E4FF)
+internal val ChatSearchHitOtherInk = Color(0xFF173B8A)
+
+@Composable fun chatSearchFieldColor(): Color = if (isDarkSurface()) ChatSearchFieldDark else ChatSearchFieldLight
+@Composable fun chatSearchDividerColor(): Color = if (isDarkSurface()) ChatSearchDividerDark else ChatSearchDividerLight
+@Composable fun chatSearchInkFaintColor(): Color = if (isDarkSurface()) ChatSearchInkFaintDark else ChatSearchInkFaintLight
+@Composable fun chatSearchArrowColor(): Color = if (isDarkSurface()) ChatSearchArrowDark else ChatSearchArrowLight
+@Composable fun chatSearchHairlineColor(): Color = if (isDarkSurface()) ChatSearchHairlineDark else ChatSearchHairlineLight
+@Composable fun chatSearchClearDiscColor(): Color = if (isDarkSurface()) ChatSearchClearDiscDark else ChatSearchClearDiscLight

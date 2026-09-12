@@ -17,10 +17,13 @@
     "chat.* 段来自 基线-聊天页/滑动引导胶囊（screens/6edba5b1 浅 / 739c148b 暗夜）与 基线-聊天页/我的提问（screens/07b68677 浅 / 5dc3f52a 暗夜），2026-09-12 第六次拉取。",
     "这两张稿是本项目第一批「去蓝化」界面：胶囊与当前行不再用 primaryContainer。暗档独有的 1dp 描边表达不成颜色行，记在锁文件 pairs。",
     "",
+    "chatsearch.* 段来自 基线-聊天页/搜索（screens/c569c1cf 浅 / 6bfce9d7 暗夜 / ccd58e9d 未输入），2026-09-12 第十次拉取。",
+    "暗夜那张的 HTML 在 Stitch 的 stitch_files 存储区、不可匿名下载，暗档取值是在 780×1768 全尺寸截图上采样得到的 —— 哪几档是实测、哪几档是换算，逐行写在 note 里。",
+
     "rowmenu.* 段来自 基线-会话列表页/长按下拉菜单（screens/26444bf7 浅 / 58f8a506 暗夜），2026-09-12 第八次拉取抽取。",
 
 
-    "cron.* 段来自 基线-定时任务列表（screens/2bac8b67 浅 / 13d2943f 暗夜）与 基线-定时任务/任务详情（screens/da21dbac 浅 / 3e59f117 暗夜），2026-09-12 第七次拉取。",
+    "cron.* 段来自 基线-定时任务列表（screens/2bac8b67 浅 / 13d2943f 暗夜）与 基线-定时任务/任务详情（screens/da21dbac 浅 / 3e59f117 暗夜），2026-09-12 第九次拉取（原记第七次，与聊天页那次撞号，按锁文件 pullHistory 重编）。",
     "列表的行、分组头与计数 chip 复用 row.* / group.* 档，不在这里重复记；两张稿在那几档上与会话列表冲突，裁决见锁文件 specChanges。"
   ],
   "roles": [
@@ -333,6 +336,54 @@
       "design": ["#777268", "#C8C5BD"], "impl": ["#777268", "#C8C5BD"],
       "reason": "",
       "note": "只有暗档比普通行的时间亮一档；浅档与普通行同色。此前当前行的时间用 primary，去蓝化后不再。" },
+
+    { "role": "chatsearch.field", "ref": "tiles:chatSearchField",
+      "design": ["#F5F3ED", "#1E232B"], "impl": ["#F5F3ED", "#1E232B"],
+      "reason": "",
+      "note": "搜索胶囊的填充。浅档 #F5F3ED 比 chat.chip 的 #EFEEEA 高一级、比纸低一级 —— 稿子把「要输入的框」和「读的 chip」画成两级；暗档与 chat.chip 同值，靠 chatChipBorder() 那条 1dp #262C35 撑开，故描边不另立令牌。" },
+
+    { "role": "chatsearch.divider", "ref": "tiles:chatSearchDivider",
+      "design": ["#E7E4DB", "#3A4049"], "impl": ["#E7E4DB", "#423F3A"],
+      "reason": "暗档 #3A4049 是冷灰，§2.1 不收；换成暖阶 outlineVariant #423F3A —— 与行长按操作单的抓手同一处理（rowmenu.handle）。浅档稿里是 border-paper-border/80，按老办法压成落在胶囊填充上的不透明合成值。" },
+
+    { "role": "chatsearch.hairline", "ref": "tiles:chatSearchHairline",
+      "design": ["#ECEAE2", "#262C35"], "impl": ["#ECEAE2", "#262C35"],
+      "reason": "",
+      "note": "搜索条底边。普通聊天顶栏没有这条线，这条是稿子的：搜索开着时顶部是另一种模式，而身后的消息列表按规定不位移，这条线是唯一说明这件事的东西。浅档是 rgba(227,224,214,0.6) 压在暖纸上的合成值。" },
+
+    { "role": "chatsearch.arrow", "ref": "tiles:chatSearchArrow",
+      "design": ["#004AC6", "#E2E0DB"], "impl": ["#004AC6", "#E2E0DB"],
+      "reason": "",
+      "note": "上一个 / 下一个。两张稿在这一处不一致：浅色画品牌蓝、暗夜画中性 onSurface，按 §7 第 8 条「暗色稿只取颜色」各自转写，不强行统一。禁用态落 chatsearch.ink.faint。" },
+
+    { "role": "chatsearch.ink.faint", "ref": "tiles:chatSearchInkFaint",
+      "design": ["#9E9B93", "#8D897E"], "impl": ["#A8A29E", "#8D897E"],
+      "reason": "浅档稿值 #9E9B93 偏冷，换成暖阶 #A8A29E（= sublineFaint 浅档，与 chat.row.chevron 同一处理）。",
+      "note": "「/N」与框内清除叉。暗档拿不到字面值 —— 暗夜稿的 HTML 不可下载（见锁文件），只能在 780×1768 截图上采样，笔画太细只采到 #75–#8D 的抗锯齿边缘，故取仓库暗档 outline #8D897E。" },
+
+    { "role": "chatsearch.clear.disc", "ref": "tiles:chatSearchClearDisc",
+      "design": ["#E4E2DC", "#343940"], "impl": ["#E4E2DC", "#343940"],
+      "reason": "",
+      "note": "框内清除键那颗圆点。浅档是 rgba(29,28,25,0.08) 压在胶囊填充上的合成值；暗档 #343940 是截图实测的实色，不做暖换 —— 它与本仓已逐字转写的暗档中性梯（#1E232B / #262C35 / #2E343D）同一族。" },
+
+    { "role": "chatsearch.hit.current", "ref": "tiles:chatSearchHitCurrent",
+      "design": ["#A6C8FF", "#A6C8FF"], "impl": ["#A6C8FF", "#A6C8FF"],
+      "reason": "",
+      "note": "当前命中的底色，浅暗同值 —— 两张稿画的是同一块浅蓝贴纸。这是本文件唯一一对两档相同的颜色行，稿子是故意的：命中要读成盖在文字上的一层，而不是主题的一部分。" },
+
+    { "role": "chatsearch.hit.current.ink", "ref": "tiles:chatSearchHitCurrentInk",
+      "design": ["#002B7A", "#002B7A"], "impl": ["#002B7A", "#002B7A"],
+      "reason": "",
+      "note": "命中词自己的字色，必须显式带上：不带的话暗档会把 onSurface #E2E0DB 放在 #A6C8FF 上（1.6:1），当前命中反而成了全屏最难读的字。这一档是 12.1:1。" },
+
+    { "role": "chatsearch.hit.other", "ref": "tiles:chatSearchHitOther",
+      "design": ["#D6E4FF", "#D6E4FF"], "impl": ["#D6E4FF", "#D6E4FF"],
+      "reason": "",
+      "note": "其余命中，同样浅暗同值。替换掉的是 primary@16% 纯底色（决策 2026-09-03）。" },
+
+    { "role": "chatsearch.hit.other.ink", "ref": "tiles:chatSearchHitOtherInk",
+      "design": ["#173B8A", "#173B8A"], "impl": ["#173B8A", "#173B8A"],
+      "reason": "" },
 
     { "role": "rowmenu.sheet", "ref": "tiles:rowMenuSheet",
       "design": ["#FAF9F5", "#161A22"], "impl": ["#FAF9F5", "#161A22"],
@@ -697,6 +748,16 @@
     { "role": "chat.prompt.time", "ref": "type:ChatPromptTime",
       "design": ["12", "400", "18", "0"], "impl": ["12", "400", "18", "0"],
       "reason": "",
-      "note": "此前借 labelMedium（12/600/+0.48）—— 字重与字距都与稿子反向。稿子不带 leading，行高按 1.5 记。" }
+      "note": "此前借 labelMedium（12/600/+0.48）—— 字重与字距都与稿子反向。稿子不带 leading，行高按 1.5 记。" },
+
+    { "role": "chatsearch.query", "ref": "type:ChatSearchQuery",
+      "design": ["14.5", "500", "14.5", "0"], "impl": ["14.5", "500", "14.5", "0"],
+      "reason": "",
+      "note": "输入框里的字。此前借 bodyLarge（16/400/24）—— 与搜索页共用一个 SearchField 的后果；稿子 leading-none = 1。" },
+
+    { "role": "chatsearch.count", "ref": "type:ChatSearchCount",
+      "design": ["12", "600", "16", "-0.3"], "impl": ["12", "600", "16", "-0.3"],
+      "reason": "",
+      "note": "「4/12」。此前借 labelLarge。这一处稿子确实标了 font-mono（与 chat.sheet.count 相反），数字在翻页时会一位一位变，等宽让这一行不抖 —— 按 §7 第 8 条逐张稿判。text-xs 的自带行高 1rem = 16。" }
   ]
 }
