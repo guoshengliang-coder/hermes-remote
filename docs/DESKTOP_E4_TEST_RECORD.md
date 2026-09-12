@@ -480,3 +480,32 @@ The component packager now generates a reader matching Desktop and Connector: 43
 and historical 64-character lowercase hex are both accepted, while wrong formats and non-private
 files still exit 78. A corrected signed managed release, repeated token-file migration, slash-command
 checks, Android traffic, and restart recovery remain required before physical acceptance.
+
+## 2026-09-12 managed release 0.3.3 corrective offline candidate
+
+PR #208 merged the historical-token correction in
+`9f66ac43f8caeacd99b48020d47c43ce6f9a3ba9`; both post-merge CI and SAST passed. From a clean detached
+worktree at that exact `origin/main`, the component packager rebuilt Hermes Server 0.21.0 from upstream
+`f159e581c7afd22a5c94652c569e3859f1b994d2` and Connector 0.1.3. The signed internal 0.3.3 candidate
+passed the independent public-key verifier. Its immutable offline artifacts are:
+
+- manifest: SHA-256 `bdab78aa751808a100ccc7096abd8c1639e65c959cf04cc2988948fe629d3042`;
+- Hermes Server: 285,055,469 bytes, SHA-256
+  `caa4650dacae1c8d6c4d194cc9c114ca08cdb0aac903d7fd54ebde4157c2a63c`;
+- Connector: 37,056,989 bytes, SHA-256
+  `e4434a00c0ed19c4a07cffd7bc0e88fe01943183a627dc40f40ac803f89ce3c2`.
+
+The final Hermes archive was extracted to a new directory. Its actual bundled Python reader returned
+the exact 64-character lowercase-hex fixture from a mode-0600 token file, while an uppercase
+64-character value produced no stdout, the fixed safe diagnostic, and exit status 78. Desktop
+0.2.8/build 11 is the coordinated app candidate because the configured app must pin the immutable
+0.3.3 manifest URL. The canonical asset check and all 186 Desktop tests passed. The configured app
+inside the final DMG embeds version/build 0.2.8/11, enabled bootstrap, the 0.3.3 manifest URL,
+`internal` channel, `arm64` architecture, approved key ID and public key, and `hermes-serve-v1`.
+Strict ad-hoc codesign verification passed after mounting the final image. The 2,072,626-byte DMG
+passed `hdiutil verify` and has SHA-256
+`73f25da13f4bca2b5f71f19aee1e9d7a17f9aa7fe7ad5b3fe9f277f9a556a5d8`.
+
+Neither 0.3.3 nor 0.2.8 has been published, installed, or activated. Physical token migration,
+slash-command, Android traffic, and restart gates remain open; this ad-hoc app is an internal test
+candidate and has not passed Developer ID signing, notarization, stapling, or clean-Mac launch.
