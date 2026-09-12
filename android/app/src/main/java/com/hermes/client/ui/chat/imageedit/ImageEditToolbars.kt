@@ -3,8 +3,11 @@ package com.hermes.client.ui.chat.imageedit
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -127,7 +130,11 @@ internal fun DoodleOptions(
     modifier: Modifier = Modifier,
 ) {
     val language = LocalAppLanguage.current
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    // Two rows, not one. Six 44dp swatches plus three 44dp weights is 396dp before spacing, which
+    // overflows a 411dp screen and clips the thickest pen outright — and 360dp phones and
+    // fontScale 1.3 only make it worse.
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         InkPalette.forEach { swatch ->
             val selected = swatch == ink
             Box(
@@ -149,6 +156,8 @@ internal fun DoodleOptions(
                 )
             }
         }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         StrokeWeight.entries.forEach { step ->
             val selected = step == weight
             Box(
@@ -172,6 +181,7 @@ internal fun DoodleOptions(
                 )
             }
         }
+    }
     }
 }
 
@@ -231,8 +241,10 @@ internal fun aspectLabel(aspect: CropAspect, language: AppLanguage): String = wh
 @Composable
 internal fun CropOptions(aspect: CropAspect, onAspect: (CropAspect) -> Unit, modifier: Modifier = Modifier) {
     val language = LocalAppLanguage.current
+    // Scrollable rather than clipped: five chips fit at 411dp, but not at 360dp with fontScale 1.3,
+    // and losing "16:9" off the edge is worse than a scroll the user may never need.
     Row(
-        modifier.fillMaxWidth(),
+        modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
