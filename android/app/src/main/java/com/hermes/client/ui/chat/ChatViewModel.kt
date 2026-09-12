@@ -713,7 +713,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             val saved = draftStore.read(token)
             if (storedSessionId != id) return@launch
-            if (!draftTouched) (saved?.takeIf { it.isNotBlank() } ?: ps?.text)?.let { _initialDraft.value = it }
+            if (!draftTouched) composerSeed(saved, ps?.text)?.let { _initialDraft.value = it }
             draftSeeded = true
         }
         com.hermes.client.data.diagnostics.DebugLog.log("session", "open($id)")
@@ -816,6 +816,16 @@ class ChatViewModel @Inject constructor(
                     // correctly both on-device and under test.
                     runCatching { java.util.Base64.getDecoder().decode(imgB64) }
                         .onSuccess { bytes -> stageAttachment(bytes, imgMime, share.attachmentName ?: "attachment") }
+                        .onFailure { e ->
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                            appendError(localizedText("附件处理失败（HR-FILE-001）", "Attachment failed (HR-FILE-001)"))
+                        }
+                }
+                // HG-40: a 分享到会话 handed this conversation ready-made bytes — a transcript as
+                // Markdown, or as an image. Staged as chips rather than attached immediately, so
+                // the user can still say what they are for, and can drop one if they misfired.
+                share.attachments.forEach { a ->
+                    runCatching { stageAttachment(a.bytes, a.mimeType, a.name) }
                         .onFailure { e ->
                             if (e is kotlinx.coroutines.CancellationException) throw e
                             appendError(localizedText("附件处理失败（HR-FILE-001）", "Attachment failed (HR-FILE-001)"))
@@ -1076,6 +1086,25 @@ class ChatViewModel @Inject constructor(
             }
             if (failures > 0) _sessionAttachFailures.emit(failures)
         }
+    }
+
+    /**
+     * HG-40: hand [text] and [attachments] to another conversation on this device.
+     *
+     * Parks them in the one-shot [com.hermes.client.share.PendingShareStore] keyed by the target,
+     * exactly as an inbound share from another app does; the target's own `open()` picks them up
+     * and turns them into a draft and chips. Nothing is sent — the user says what the content is
+     * for, and then presses send (docs/SESSION_EXCHANGE_REQUIREMENTS.md §2).
+     */
+    fun deliverToSession(
+        targetSessionId: String,
+        text: String? = null,
+        attachments: List<com.hermes.client.share.PendingShareAttachment> = emptyList(),
+    ) {
+        pendingShareStore.put(
+            targetSessionId,
+            com.hermes.client.share.PendingShare(text = text, attachments = attachments),
+        )
     }
 
     fun stageAttachment(bytes: ByteArray, mimeType: String, name: String = "attachment") {

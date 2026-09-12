@@ -525,6 +525,11 @@ fun HermesNav(
                         openCanonicalChat(chatRoute(ChatLaunch.new(id)))
                     },
                     onManagePrompts = { nav.navigate("settings_prompts") { launchSingleTop = true } },
+                    // HG-40: delivering into another conversation goes there canonically, NOT
+                    // stacked. The ＋ exception (HG-39) exists because "start another one" is
+                    // followed by wanting the answer you just read; after handing content over,
+                    // the next move is to work in the conversation you handed it to.
+                    onOpenDelivered = { target -> openCanonicalChat(chatRoute(target)) },
                     onUnauthorized = onUnauthorized,
                 )
             }

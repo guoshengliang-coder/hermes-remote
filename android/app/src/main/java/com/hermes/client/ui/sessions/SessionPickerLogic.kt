@@ -32,6 +32,25 @@ fun sessionPickerCandidates(
 }
 
 /**
+ * What the picker is being opened for.
+ *
+ * The modes differ in exactly two ways, both of them consequences of direction:
+ *
+ * - [Reference] takes conversations OUT and may take several, so it needs a cap and offers
+ *   archived conversations through search — an archived conversation is still a record worth
+ *   quoting.
+ * - [Deliver] puts something IN and takes exactly one, so archived conversations are never
+ *   offered: delivering into one would revive it somewhere the list does not show (§6.4). It also
+ *   carries the "start a new conversation" row.
+ */
+sealed interface SessionPickerMode {
+    /** HG-38: pick up to [remainingSlots] conversations to attach. */
+    data class Reference(val remainingSlots: Int) : SessionPickerMode
+    /** HG-40: pick one conversation to deliver into, or start a new one. */
+    data object Deliver : SessionPickerMode
+}
+
+/**
  * Title match for the picker's search box. Title only — finding *which* conversation is the whole
  * job here, and message-level search belongs to the search screen (§3.4).
  */

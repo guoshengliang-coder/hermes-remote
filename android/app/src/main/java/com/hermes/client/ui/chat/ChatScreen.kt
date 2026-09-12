@@ -137,6 +137,12 @@ fun ChatScreen(
     onSessionRecreated: (String) -> Unit = onNewChat,
     /** Prompt library, reached from the composer's 常用提示 sheet — Settings no longer lists it. */
     onManagePrompts: () -> Unit = {},
+    /**
+     * HG-40: open the conversation something was just delivered into. Canonical, not stacked —
+     * after handing content to another conversation the next move is to work in it, not to come
+     * straight back here (docs/SESSION_EXCHANGE_REQUIREMENTS.md §6.5).
+     */
+    onOpenDelivered: (ChatLaunch) -> Unit = {},
     onUnauthorized: () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
@@ -446,6 +452,16 @@ fun ChatScreen(
     // Share-transcript format picker + the offscreen image export it can start.
     var shareFormatSheet by remember { mutableStateOf(false) }
     var transcriptImageExporting by remember { mutableStateOf(false) }
+    // HG-40: format is chosen first and destination second, so the format has to outlive the sheet
+    // that chose it. [shareFormat] holds it while the destination is being picked; once the target
+    // picker opens, [pendingShareFormat] carries it the rest of the way.
+    var shareFormat by remember { mutableStateOf<ShareFormat?>(null) }
+    var pendingShareFormat by remember { mutableStateOf<ShareFormat?>(null) }
+    var sharePickerOpen by remember { mutableStateOf(false) }
+    // Non-null while the long image is being rendered FOR a conversation rather than for the
+    // system sheet; carries the target so the sink knows where the bytes go.
+    var imageDeliveryTarget by remember { mutableStateOf<ChatLaunch?>(null) }
+    var shareImageTooLarge by remember { mutableStateOf(false) }
     // Menu entry to the prompt list; the list itself lives in ChatMessageList, which owns the turns.
     var promptListTick by remember { mutableStateOf(0L) }
     var showAttachSheet by remember { mutableStateOf(false) }
@@ -1337,7 +1353,9 @@ fun ChatScreen(
 
     if (showSessionPicker) {
         com.hermes.client.ui.sessions.SessionPickerDialog(
-            remainingSlots = remainingAttachmentSlots(state.pendingAttachments.size),
+            mode = com.hermes.client.ui.sessions.SessionPickerMode.Reference(
+                remainingAttachmentSlots(state.pendingAttachments.size),
+            ),
             excludeSessionId = sessionId,
             onCancel = { showSessionPicker = false },
             onPicked = { picked ->
@@ -1671,16 +1689,45 @@ fun ChatScreen(
         )
     }
 
+    // ── 分享对话: format first, then destination (HG-40, docs/SESSION_EXCHANGE_REQUIREMENTS.md §6).
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
     if (shareFormatSheet) {
-        val density = androidx.compose.ui.platform.LocalDensity.current.density
-        val subject = localized(language, "Hermes GO 对话记录", "Hermes GO chat transcript")
         ShareTranscriptSheet(
-            onText = {
+            onText = { shareFormatSheet = false; shareFormat = ShareFormat.TEXT },
+            onMarkdown = { shareFormatSheet = false; shareFormat = ShareFormat.MARKDOWN },
+            onImage = {
                 shareFormatSheet = false
+                // Strategy A (docs/DESIGN.md §5.13): refuse an over-budget transcript HERE, before
+                // the destination question. Being asked where to send something that cannot be
+                // produced is worse than being told early.
+                if (!transcriptImageFitsBudget(state.messages, density)) {
+                    android.widget.Toast.makeText(
+                        context,
+                        localized(
+                            language,
+                            "对话较长，长图无法完整生成，建议改用 Markdown 文件分享。",
+                            "This conversation is too long for one image — share it as a Markdown file instead.",
+                        ),
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                } else {
+                    shareFormat = ShareFormat.IMAGE
+                }
+            },
+            onDismiss = { shareFormatSheet = false },
+        )
+    }
+
+    val shareSubject = localized(language, "Hermes GO 对话记录", "Hermes GO chat transcript")
+
+    /** Hand the chosen format to the system share sheet — the behaviour that existed before HG-40. */
+    fun shareOutside(format: ShareFormat) {
+        when (format) {
+            ShareFormat.TEXT -> {
                 val body = transcriptText(state.messages, language, botOrigin)
                 val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(android.content.Intent.EXTRA_SUBJECT, subject)
+                    putExtra(android.content.Intent.EXTRA_SUBJECT, shareSubject)
                     putExtra(android.content.Intent.EXTRA_TEXT, body)
                 }
                 runCatching {
@@ -1688,9 +1735,8 @@ fun ChatScreen(
                 }.onFailure {
                     android.widget.Toast.makeText(context, localized(language, "无法分享对话", "Couldn't share transcript"), android.widget.Toast.LENGTH_SHORT).show()
                 }
-            },
-            onMarkdown = {
-                shareFormatSheet = false
+            }
+            ShareFormat.MARKDOWN -> {
                 val now = System.currentTimeMillis()
                 val markdown = transcriptMarkdown(
                     title = sessionTitle,
@@ -1706,7 +1752,7 @@ fun ChatScreen(
                         baseName = transcriptFileBaseName(sessionTitle, now),
                         markdown = markdown,
                         chooserTitle = localized(language, "分享对话", "Share transcript"),
-                        subject = subject,
+                        subject = shareSubject,
                     )
                     if (!ok) {
                         android.widget.Toast.makeText(
@@ -1719,39 +1765,146 @@ fun ChatScreen(
                         ).show()
                     }
                 }
-            },
-            onImage = {
-                shareFormatSheet = false
-                // Strategy A (docs/DESIGN.md §5): refuse over-budget transcripts up front and
-                // point at the Markdown export rather than emitting a broken or OOM-ing capture.
-                if (!transcriptImageFitsBudget(state.messages, density)) {
-                    android.widget.Toast.makeText(
-                        context,
-                        localized(
-                            language,
-                            "对话较长，长图无法完整生成，建议改用 Markdown 文件分享。",
-                            "This conversation is too long for one image — share it as a Markdown file instead.",
+            }
+            ShareFormat.IMAGE -> { transcriptImageExporting = true }
+        }
+    }
+
+    /**
+     * Deliver the chosen format into [targetId] and open it. Text and Markdown are ready
+     * immediately; the long image has to be rendered first, so it parks the target and lets the
+     * offscreen exporter below finish the job.
+     */
+    fun deliverInto(target: ChatLaunch, format: ShareFormat) {
+        val targetId = target.sessionId
+        when (format) {
+            ShareFormat.TEXT -> {
+                vm.deliverToSession(targetId, text = transcriptText(state.messages, language, botOrigin))
+                onOpenDelivered(target)
+            }
+            ShareFormat.MARKDOWN -> {
+                val now = System.currentTimeMillis()
+                val markdown = transcriptMarkdown(
+                    title = sessionTitle,
+                    messages = state.messages,
+                    language = language,
+                    exportedAtMillis = now,
+                    model = currentModel,
+                    origin = botOrigin,
+                )
+                vm.deliverToSession(
+                    targetId,
+                    attachments = listOf(
+                        com.hermes.client.share.PendingShareAttachment(
+                            bytes = markdown.toByteArray(Charsets.UTF_8),
+                            mimeType = "text/markdown",
+                            name = transcriptAttachmentName(sessionTitle, now),
                         ),
-                        android.widget.Toast.LENGTH_LONG,
-                    ).show()
-                } else {
-                    transcriptImageExporting = true
+                    ),
+                )
+                onOpenDelivered(target)
+            }
+            ShareFormat.IMAGE -> {
+                imageDeliveryTarget = target
+                transcriptImageExporting = true
+            }
+        }
+    }
+
+    shareFormat?.let { format ->
+        ShareDestinationSheet(
+            onIntoConversation = { pendingShareFormat = format; shareFormat = null; sharePickerOpen = true },
+            onSystemShare = { shareFormat = null; shareOutside(format) },
+            onDismiss = { shareFormat = null },
+        )
+    }
+
+    if (sharePickerOpen) {
+        com.hermes.client.ui.sessions.SessionPickerDialog(
+            mode = com.hermes.client.ui.sessions.SessionPickerMode.Deliver,
+            excludeSessionId = sessionId,
+            onCancel = { sharePickerOpen = false; pendingShareFormat = null },
+            onPicked = { picked ->
+                sharePickerOpen = false
+                val target = picked.firstOrNull()
+                val chosen = pendingShareFormat
+                pendingShareFormat = null
+                if (target != null && chosen != null) deliverInto(ChatLaunch.existing(target), chosen)
+            },
+            onNewConversation = {
+                sharePickerOpen = false
+                val chosen = pendingShareFormat
+                pendingShareFormat = null
+                if (chosen != null) {
+                    exportScope.launch {
+                        val created = vm.createNewSession()
+                        if (created == null) {
+                            android.widget.Toast.makeText(
+                                context,
+                                localized(language, "无法新建对话，请重试。", "Couldn't start a new conversation. Retry."),
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                        } else {
+                            deliverInto(ChatLaunch.new(created), chosen)
+                        }
+                    }
                 }
             },
-            onDismiss = { shareFormatSheet = false },
         )
     }
 
     if (transcriptImageExporting) {
+        val target = imageDeliveryTarget
         OffscreenTranscriptExporter(
             title = sessionTitle,
             messages = state.messages,
             exportedAtMillis = remember { System.currentTimeMillis() },
             origin = botOrigin,
+            // Null sink = the system share sheet, exactly as before. A target means the same
+            // picture goes into a conversation instead (HG-40).
+            sink = if (target == null) null else { bitmap, _ ->
+                val png = java.io.ByteArrayOutputStream().use { out ->
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                    out.toByteArray()
+                }
+                if (png.size > MAX_DIRECT_ATTACHMENT_BYTES) {
+                    // The height budget passed but the encoded file did not. Say the same thing
+                    // the budget gate says rather than a generic render failure.
+                    shareImageTooLarge = true
+                    false
+                } else {
+                    vm.deliverToSession(
+                        target.sessionId,
+                        attachments = listOf(
+                            com.hermes.client.share.PendingShareAttachment(
+                                bytes = png,
+                                mimeType = "image/png",
+                                name = transcriptFileBaseName(sessionTitle, System.currentTimeMillis()) + ".png",
+                            ),
+                        ),
+                    )
+                    true
+                }
+            },
             onDone = { ok ->
                 transcriptImageExporting = false
-                if (!ok) {
-                    android.widget.Toast.makeText(
+                val delivered = imageDeliveryTarget
+                imageDeliveryTarget = null
+                when {
+                    ok && delivered != null -> onOpenDelivered(delivered)
+                    shareImageTooLarge -> {
+                        shareImageTooLarge = false
+                        android.widget.Toast.makeText(
+                            context,
+                            localized(
+                                language,
+                                "对话较长，长图无法完整生成，建议改用 Markdown 文件分享。",
+                                "This conversation is too long for one image — share it as a Markdown file instead.",
+                            ),
+                            android.widget.Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    !ok -> android.widget.Toast.makeText(
                         context,
                         com.hermes.client.data.error.AppError(
                             com.hermes.client.data.error.AppErrorCode.TRANSCRIPT_IMAGE_FAILED,
@@ -1763,6 +1916,7 @@ fun ChatScreen(
             },
         )
     }
+
 
     if (showPromptSheet) {
         val promptSheetState = com.hermes.client.ui.components.hermesSheetState()
@@ -1931,6 +2085,26 @@ internal fun chatTopBarActionsVisible(
     messageCount: Int,
     isGenerating: Boolean,
 ): Boolean = !newChatGreetingVisible(isNewSession, messageCount, isGenerating)
+
+/**
+ * What the composer opens with: this conversation's saved draft, plus any text a share just
+ * delivered into it (HG-40 with HG-41).
+ *
+ * **Appended, never replaced.** A 分享到会话 landing on a conversation the user had already
+ * started typing in must not delete the half-sentence they wrote — keeping exactly that is what
+ * the draft cache exists for. Separated by a blank line, so the two read as two things.
+ */
+internal fun composerSeed(savedDraft: String?, sharedText: String?): String? {
+    val draft = savedDraft?.takeIf { it.isNotBlank() }
+    val shared = sharedText?.takeIf { it.isNotBlank() }
+    return when {
+        draft != null && shared != null -> draft.trimEnd() + "\n\n" + shared
+        else -> draft ?: shared
+    }
+}
+
+/** Which rendering of the transcript 「分享对话」 is working with (HG-40). */
+internal enum class ShareFormat { TEXT, MARKDOWN, IMAGE }
 
 /** The new-session greeting overlay's visibility; see [chatTopBarActionsVisible]. */
 internal fun newChatGreetingVisible(

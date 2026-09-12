@@ -697,6 +697,32 @@ class ScreenshotTest {
 
     @Test fun sessionPickerRows() = snap("session-picker-rows") { PickerRows() }
 
+    /**
+     * The delivery picker's rows (HG-40): no checkboxes, because one tap is the whole decision,
+     * and no archived hits, because delivering into an archived conversation would revive it
+     * somewhere the list does not show.
+     */
+    @androidx.compose.runtime.Composable
+    private fun DeliverRows() {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides
+                com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+            androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+                com.hermes.client.ui.sessions.SessionPickerRow(
+                    session = listSession("重构 gateway 路由中间件", "/u/hermes-remote"),
+                    checked = false, enabled = true, archived = false, onToggle = {}, showCheckbox = false,
+                )
+                com.hermes.client.ui.sessions.SessionPickerRow(
+                    session = listSession("翻译 Android 文案", "/u/xiaomai"),
+                    checked = false, enabled = true, archived = false, onToggle = {}, showCheckbox = false,
+                )
+            }
+        }
+    }
+
+    @Test fun sessionDeliverRows() = snap("session-deliver-rows") { DeliverRows() }
+
     @Test fun sessionPickerRowsDark() = snap("session-picker-rows-dark", darkTheme = true) { PickerRows() }
 
     @Test fun sessionRowsDraftDark() = snap("session-rows-draft-dark", darkTheme = true) { DraftRows() }

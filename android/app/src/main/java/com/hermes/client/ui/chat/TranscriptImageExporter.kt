@@ -64,6 +64,20 @@ internal fun OffscreenTranscriptExporter(
     exportedAtMillis: Long,
     onDone: (Boolean) -> Unit,
     origin: com.hermes.client.ui.sessions.BotOrigin? = null,
+    /**
+     * What to do with the rendered image (HG-40). `null` — the default — hands it to the system
+     * share sheet, which is what this composable used to do inline.
+     *
+     * The seam exists because rendering and delivering were welded together in one
+     * `LaunchedEffect` whose only output was a Boolean, so nothing in the app could obtain the
+     * image and "share this transcript into another conversation" had no way in. The picture is
+     * rendered identically either way: DESIGN.md §5.13's three rules (forced light scheme,
+     * footer, refuse over budget) are about the image, not about where it goes.
+     *
+     * Nullable rather than a default lambda because the share-out path needs `context`, the
+     * language and the heading, and a default argument cannot see the composable's own locals.
+     */
+    sink: (suspend (android.graphics.Bitmap, String) -> Boolean)? = null,
 ) {
     val context = LocalContext.current
     val language = LocalAppLanguage.current
@@ -130,9 +144,10 @@ internal fun OffscreenTranscriptExporter(
         withFrameNanos { }
         val ok = runCatching {
             val bitmap = layer.toImageBitmap().asAndroidBitmap()
-            TranscriptShare.shareImage(
+            val baseName = transcriptFileBaseName(title, exportedAtMillis)
+            sink?.invoke(bitmap, baseName) ?: TranscriptShare.shareImage(
                 context = context,
-                baseName = transcriptFileBaseName(title, exportedAtMillis),
+                baseName = baseName,
                 bitmap = bitmap,
                 chooserTitle = localized(language, "分享对话长图", "Share transcript image"),
                 subject = heading,
