@@ -1299,10 +1299,15 @@ class ChatViewModel @Inject constructor(
                 val rpcCode = (e as? GatewayRpcException)?.code
                 val gone = e is SessionGoneException
                 val ownedElsewhere = rpcCode == SESSION_OWNED_ELSEWHERE_CODE
+                // A third failure that is not a failed send: the prompt never left the phone
+                // because the socket never finished its handshake. Calling that 「消息发送失败」
+                // points the user at their message; the thing to fix is the connection (HG-42).
+                val handshakeStalled = e is com.hermes.client.data.network.GatewayReadinessTimeoutException
                 val error = com.hermes.client.data.error.AppError(
                     when {
                         gone -> com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND
                         ownedElsewhere -> com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE
+                        handshakeStalled -> com.hermes.client.data.error.AppErrorCode.HANDSHAKE_TIMEOUT
                         else -> com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED
                     },
                     retryable = !gone, technicalCause = e.message, stage = "prompt_submit",

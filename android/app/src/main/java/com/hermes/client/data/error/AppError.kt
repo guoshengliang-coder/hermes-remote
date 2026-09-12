@@ -3,6 +3,11 @@ package com.hermes.client.data.error
 /** Stable product error identifiers. Meanings are registered in docs/ERROR_HANDLING.md. */
 enum class AppErrorCode(val value: String) {
     CONNECTION_FAILED("HR-CONN-002"),
+    // The Relay accepted the socket and then never said `gateway.ready`, so the RPC was never
+    // sent. Registered since the code existed; nothing produced it until HG-42, where every
+    // blocked call surfaced as a generic send failure and hid the fact that the connection, not
+    // the message, was the thing that had failed.
+    HANDSHAKE_TIMEOUT("HR-CONN-003"),
     CONNECTION_INTERRUPTED("HR-CONN-004"),
     CONNECTOR_OFFLINE("HR-CONN-005"),
     RPC_FAILED("HR-RPC-001"),

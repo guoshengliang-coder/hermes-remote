@@ -28,7 +28,15 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.min
 import kotlin.math.pow
 
-class GatewayRpcException(val code: Int, message: String) : Exception(message)
+open class GatewayRpcException(val code: Int, message: String) : Exception(message)
+
+/**
+ * The socket is up but `gateway.ready` never arrived, so the RPC was never sent. Distinct
+ * from a generic transport failure because it has its own registered meaning and its own
+ * copy: HR-CONN-003 says the Relay connected and the *handshake* timed out, which is a
+ * different thing to tell the user than "the send failed".
+ */
+class GatewayReadinessTimeoutException(message: String) : GatewayRpcException(0, message)
 
 /** Endpoint resolution can fail terminally on a local account-repair gate, without network retry. */
 class GatewayEndpointException(message: String, val retryable: Boolean) : Exception(message)
@@ -97,6 +105,19 @@ open class HermesGatewayClient(
 
     @Volatile private var ws: WebSocket? = null
     @Volatile protected var manuallyClosed = false
+
+    /**
+     * Serialises the compound steps that decide whether a socket may be opened. Every one of
+     * them is "read [manuallyClosed], then move [_state]", and read and move used to be two
+     * separate instructions on a multi-threaded scope. HG-42: `connect()` cleared
+     * `manuallyClosed`, `close("app idle in the background")` landed between that and
+     * `openSocket()`, and the client came to rest in Connecting with `manuallyClosed=true` and
+     * no socket — a state nothing can leave, because `onSocketClosed()` needs a socket and
+     * every later `connect()` is turned away by the already-Connecting guard. It sat there for
+     * 13 minutes with every RPC failing on the readiness gate. Volatile gives visibility; only
+     * a lock gives the pair atomicity.
+     */
+    private val lifecycleLock = Any()
     @Volatile private var accountAuthorizationClassificationPending = false
     private val attempt = AtomicInteger(0)
     // Monotonic socket generation. Each openSocket() bumps it; a socket's callbacks are
@@ -196,30 +217,70 @@ open class HermesGatewayClient(
         else -> state::class.simpleName ?: "?"
     }
 
+    /**
+     * True when the client claims to be Connecting but nothing is actually dialling: no socket, and
+     * the attempt is already older than the handshake watchdog that should have torn it down.
+     *
+     * A healthy connect also spends time here with no socket — gated mode fetches a WS ticket over
+     * HTTP before it dials — which is why this asks how long, not just whether.
+     */
+    private fun connectingHasStalled(): Boolean {
+        if (_state.value !is ConnectionState.Connecting || ws != null) return false
+        val since = connectingSinceMs
+        return since != 0L && System.currentTimeMillis() - since > handshakeTimeoutMs
+    }
+
     fun connect() {
         // Idempotent: multiple owners (the foreground service, view models, etc.) may all call
         // connect() on this shared singleton. If a socket is already open, or a connect/backoff
         // reconnect is already in flight, this must be a no-op — otherwise a second openSocket()
         // would leak a duplicate live WebSocket that the generation check only shadows, never
         // closes. reconnectNow() intentionally bypasses this guard to force a fresh socket.
-        val cur = _state.value
-        if (cur is ConnectionState.Connecting || cur is ConnectionState.Connected ||
-            cur is ConnectionState.Reconnecting
-        ) {
-            DebugLog.log("ws", "connect() no-op — already $cur")
-            return
+        synchronized(lifecycleLock) {
+            val cur = _state.value
+            // One exception to that guard, and it is the whole of HG-42's user-visible half: a
+            // Connecting that no longer has an attempt behind it. The app called connect() on
+            // every session open for 13 minutes and was told "already Connecting" every time,
+            // while the snapshot beside it read socket=none. An idempotence guard must not be
+            // able to protect a corpse, so a stalled Connecting is treated as reconnectable —
+            // and says so, with the snapshot, because that line is the evidence next time.
+            val stalled = cur is ConnectionState.Connecting && connectingHasStalled()
+            if (!stalled && (
+                    cur is ConnectionState.Connecting || cur is ConnectionState.Connected ||
+                        cur is ConnectionState.Reconnecting
+                    )
+            ) {
+                DebugLog.log("ws", "connect() no-op — already $cur")
+                return
+            }
+            if (stalled) {
+                DebugLog.log("ws", "connect() forcing a fresh socket — stalled: ${connectionSnapshot()}")
+            }
+            manuallyClosed = false
         }
-        manuallyClosed = false
         openSocket()
     }
 
     protected fun openSocket() {
-        val gen = generation.incrementAndGet()
+        val gen = synchronized(lifecycleLock) {
+            // The guard that was missing. openSocket() used to enter Connecting unconditionally,
+            // so a close() that landed after its caller had checked manuallyClosed still left the
+            // client in Connecting — and, because close() had already failed the old readiness
+            // gate, with a brand-new gate that nothing would ever complete. Refusing here is the
+            // only place that covers every caller: connect(), reconnectNow() and the backoff
+            // reconnect all funnel through it.
+            if (manuallyClosed) {
+                DebugLog.log("ws", "opening socket refused: closed by the app")
+                return
+            }
+            val next = generation.incrementAndGet()
+            // Install a fresh, uncompleted readiness gate for this new socket attempt.
+            readyGate = CompletableDeferred()
+            connectingSinceMs = System.currentTimeMillis()
+            _state.value = ConnectionState.Connecting
+            next
+        }
         DebugLog.log("ws", "opening socket (gen=$gen)")
-        // Install a fresh, uncompleted readiness gate for this new socket attempt.
-        readyGate = CompletableDeferred()
-        connectingSinceMs = System.currentTimeMillis()
-        _state.value = ConnectionState.Connecting
         // Connecting has exactly two exits — `gateway.ready` or the socket dying — and a socket
         // that establishes but never completes the handshake takes neither. On 2026-09-07 one
         // such socket left the app on 「正在连接 Relay…」 until it was force-stopped, while every
@@ -316,10 +377,12 @@ open class HermesGatewayClient(
      */
     fun reconnectNow() {
         DebugLog.log("ws", "reconnectNow() forcing a fresh socket")
-        manuallyClosed = false
-        accountAuthorizationClassificationPending = false
-        attempt.set(0)
-        val old = ws
+        val old = synchronized(lifecycleLock) {
+            manuallyClosed = false
+            accountAuthorizationClassificationPending = false
+            attempt.set(0)
+            ws
+        }
         openSocket()
         old?.cancel()
     }
@@ -469,7 +532,7 @@ open class HermesGatewayClient(
             // Every feature reporting its own readiness timeout, 15s apart, with nothing naming
             // the socket, is exactly what HG-27 looked like from the outside.
             DebugLog.log("error", "rpc $method blocked: no gateway.ready in ${READY_TIMEOUT_MS}ms")
-            throw GatewayRpcException(0, "gateway readiness timeout")
+            throw GatewayReadinessTimeoutException("gateway readiness timeout")
         }
         val id = nextId.getAndIncrement()
         val deferred = CompletableDeferred<JsonElement>()
@@ -516,26 +579,34 @@ open class HermesGatewayClient(
      */
     fun close(reason: String = "unspecified") {
         DebugLog.log("ws", "close() requested: $reason (manuallyClosed $manuallyClosed → true)")
-        manuallyClosed = true
-        accountAuthorizationClassificationPending = false
-        connectingSinceMs = 0L
-        // Fail any call() awaiting readiness so it throws immediately rather than hanging.
-        readyGate.completeExceptionally(GatewayRpcException(0, "client closing"))
-        failAllPending("client closing")
-        ws?.close(1000, "client closing")
-        ws = null
-        _state.value = ConnectionState.Disconnected
+        // Held across the whole body, not just the flag: a connect() that slipped in between
+        // "manuallyClosed = true" and "ws = null" would have its brand-new socket closed out from
+        // under it by the lines below. Reading the flag and moving the state have to be one step
+        // on both sides or neither side is safe (HG-42).
+        synchronized(lifecycleLock) {
+            manuallyClosed = true
+            accountAuthorizationClassificationPending = false
+            connectingSinceMs = 0L
+            // Fail any call() awaiting readiness so it throws immediately rather than hanging.
+            readyGate.completeExceptionally(GatewayRpcException(0, "client closing"))
+            failAllPending("client closing")
+            ws?.close(1000, "client closing")
+            ws = null
+            _state.value = ConnectionState.Disconnected
+        }
     }
 
     /** Immediately cancel the underlying socket (no graceful close handshake). */
     internal fun cancelNow() {
         DebugLog.log("ws", "cancelNow() (manuallyClosed $manuallyClosed → true)")
-        manuallyClosed = true
-        accountAuthorizationClassificationPending = false
-        connectingSinceMs = 0L
-        readyGate.completeExceptionally(GatewayRpcException(0, "client cancelled"))
-        ws?.cancel()
-        ws = null
-        _state.value = ConnectionState.Disconnected
+        synchronized(lifecycleLock) {
+            manuallyClosed = true
+            accountAuthorizationClassificationPending = false
+            connectingSinceMs = 0L
+            readyGate.completeExceptionally(GatewayRpcException(0, "client cancelled"))
+            ws?.cancel()
+            ws = null
+            _state.value = ConnectionState.Disconnected
+        }
     }
 }
