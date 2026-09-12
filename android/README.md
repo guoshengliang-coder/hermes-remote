@@ -284,7 +284,7 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
-- Version 0.1.121 恢复「反馈与建议」入口（0.1.120 的包漏带反馈服务配置）
+- Version 0.1.121 恢复「反馈与建议」入口，补充会话回收修复说明，并统一模型等待动画
 - Version 0.1.120 重做模型选择器（设计基线），并修复会话列表调参面板的行距一档无效
 - Version 0.1.119 修复开发 Relay 停止后消息无法发送，并让冷启动连接错误进入账号登录
 - Version 0.1.118 修复本地开发连接残留导致消息 SESS-007、且邮箱账号登录无法回到公网 Relay 的问题。
