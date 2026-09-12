@@ -77,6 +77,7 @@ import com.hermes.client.ui.theme.ChatSheetTitle
 import com.hermes.client.ui.theme.Motion
 import com.hermes.client.ui.theme.chatChipBorder
 import com.hermes.client.ui.theme.chatChipColor
+import com.hermes.client.ui.theme.chatChipInkColor
 import com.hermes.client.ui.theme.chatCurrentBorderColor
 import com.hermes.client.ui.theme.chatCurrentDiscColor
 import com.hermes.client.ui.theme.chatCurrentDiscInkColor
@@ -493,7 +494,7 @@ internal fun PromptListHeader(
             Spacer(Modifier.width(8.dp))
             Surface(
                 color = chatChipColor(),
-                contentColor = MaterialTheme.colorScheme.outline,
+                contentColor = chatChipInkColor(),
                 shape = CircleShape,
                 border = chatChipBorder(),
             ) {

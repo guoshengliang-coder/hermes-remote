@@ -296,6 +296,11 @@
       "reason": "",
       "note": "「N 条」计数 chip、头部两个 32dp 圆钮、普通行序号圆，稿子三处同色，故一个令牌。暗档另有 1dp #262C35 描边而浅档没有 —— 颜色行表达不了「没有」，记在锁文件 pairs。" },
 
+    { "role": "chat.chip.ink", "ref": "tiles:chatChipInk",
+      "design": ["#777268", "#A8A49C"], "impl": ["#777268", "#A8A49C"],
+      "reason": "",
+      "note": "「N 条」的字。稿子两档不走同一个 scheme 角色：浅色是 outline 档，暗色是 onSurfaceVariant 档（比暗色 outline 亮一级）。两档都绑 outline 会让暗色的 chip 暗一档。" },
+
     { "role": "chat.row.chevron", "ref": "tiles:chatRowChevron",
       "design": ["#A8A49C", "#777268"], "impl": ["#A8A29E", "#777268"],
       "reason": "浅档稿值 #A8A49C 是本仓暗档 onSurfaceVariant 的数值，坐在暖纸上偏冷半步；换成等明度的暖阶 #A8A29E（= sublineFaint 浅档）。暗档逐字转写。" },

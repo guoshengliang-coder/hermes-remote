@@ -149,6 +149,7 @@ class DesignConformanceTest {
                 "chatSheet" -> if (dark) ChatSheetDark else ChatSheetLight
                 "chatSheetHairline" -> if (dark) ChatSheetHairlineDark else ChatSheetHairlineLight
                 "chatChip" -> if (dark) ChatChipDark else ChatChipLight
+                "chatChipInk" -> if (dark) ChatChipInkDark else ChatChipInkLight
                 "chatRowChevron" -> if (dark) ChatRowChevronDark else ChatRowChevronLight
                 "chatCurrentFill" -> if (dark) ChatCurrentFillDark else ChatCurrentFillLight
                 "chatCurrentBorder" -> if (dark) ChatCurrentBorderDark else ChatCurrentBorderLight

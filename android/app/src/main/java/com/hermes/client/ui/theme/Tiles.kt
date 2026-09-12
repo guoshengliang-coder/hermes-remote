@@ -471,6 +471,17 @@ internal val ChatChipDark = Color(0xFF1E232B)
  */
 internal val ChatChipBorderDark = Color(0xFF262C35)
 
+/**
+ * The 「N 条」 count chip's text.
+ *
+ * Its own pair because the mock does not use one role for both tiers: light is the `outline` step
+ * (#777268), dark is the `onSurfaceVariant` step (#A8A49C) — one rung brighter than dark `outline`.
+ * Binding both to `outline` left the dark chip a step too dim, which is exactly the kind of drift
+ * the conformance fixture exists to catch, so it gets a row there too.
+ */
+internal val ChatChipInkLight = Color(0xFF777268)
+internal val ChatChipInkDark = Color(0xFFA8A49C)
+
 /** A row's trailing chevron. Quiet enough to not compete with the prompt text beside it. */
 internal val ChatRowChevronLight = Color(0xFFA8A29E)
 internal val ChatRowChevronDark = Color(0xFF777268)
@@ -511,6 +522,7 @@ internal val ChatCurrentTimeDark = Color(0xFFC8C5BD)
 @Composable fun chatSheetColor(): Color = if (isDarkSurface()) ChatSheetDark else ChatSheetLight
 @Composable fun chatSheetHairlineColor(): Color = if (isDarkSurface()) ChatSheetHairlineDark else ChatSheetHairlineLight
 @Composable fun chatChipColor(): Color = if (isDarkSurface()) ChatChipDark else ChatChipLight
+@Composable fun chatChipInkColor(): Color = if (isDarkSurface()) ChatChipInkDark else ChatChipInkLight
 @Composable fun chatRowChevronColor(): Color = if (isDarkSurface()) ChatRowChevronDark else ChatRowChevronLight
 @Composable fun chatCurrentFillColor(): Color = if (isDarkSurface()) ChatCurrentFillDark else ChatCurrentFillLight
 @Composable fun chatCurrentBorderColor(): Color = if (isDarkSurface()) ChatCurrentBorderDark else ChatCurrentBorderLight
