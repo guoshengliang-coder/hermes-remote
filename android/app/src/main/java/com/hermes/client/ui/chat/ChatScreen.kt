@@ -103,7 +103,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
@@ -1036,7 +1035,7 @@ fun ChatScreen(
                             if (a.kind == AttachmentKind.IMAGE) {
                                 val thumb by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, a.id) {
                                     value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                        decodeThumbnail(a.bytes, reqPx = 200)?.asImageBitmap()
+                                        decodeSampled(ImageSource.Bytes(a.id, a.bytes), reqPx = 200)
                                     }
                                 }
                                 Box(Modifier.size(58.dp)) {
@@ -2008,17 +2007,3 @@ private fun ConnectionRecoveryBanner(message: String) {
     }
 }
 
-
-/**
- * Decode [bytes] to a Bitmap downsampled so its largest side is roughly [reqPx] px — a chip thumbnail
- * never needs full resolution, and decoding a 12MP photo at full size (×ATTACH_CAP) risks OOM/jank.
- */
-private fun decodeThumbnail(bytes: ByteArray, reqPx: Int): android.graphics.Bitmap? {
-    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-    var sample = 1
-    val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
-    while (maxDim > 0 && maxDim / sample > reqPx * 2) sample *= 2
-    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
-    return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
-}

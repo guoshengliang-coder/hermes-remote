@@ -140,9 +140,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.asImageBitmap
 import android.widget.Toast
-import android.graphics.BitmapFactory
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import com.hermes.client.domain.ToolCall
@@ -1585,7 +1583,7 @@ private fun ChatImageGrid(
 private fun ChatImageThumbnail(image: ChatImage, modifier: Modifier, onClick: () -> Unit) {
     val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, image.localPath) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            image.localPath?.let { decodeImageFile(it, 900) }
+            image.localPath?.let { decodeSampled(ImageSource.Path(it), 900) }
         }
     }
     val shape = RoundedCornerShape(14.dp)
@@ -1628,7 +1626,7 @@ private fun FullScreenImage(
     var menuOpen by remember(image.id) { mutableStateOf(false) }
     val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, image.localPath) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            image.localPath?.let { decodeImageFile(it, 4096) }
+            image.localPath?.let { decodeSampled(ImageSource.Path(it), 4096) }
         }
     }
     Dialog(
@@ -1781,18 +1779,6 @@ private fun ChatFileList(
             }
         }
     }
-}
-
-private fun decodeImageFile(path: String, requestedPx: Int): androidx.compose.ui.graphics.ImageBitmap? {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeFile(path, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-    var sample = 1
-    while (bounds.outWidth / sample > requestedPx * 2 || bounds.outHeight / sample > requestedPx * 2) {
-        sample *= 2
-    }
-    return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
-        ?.asImageBitmap()
 }
 
 @Composable
