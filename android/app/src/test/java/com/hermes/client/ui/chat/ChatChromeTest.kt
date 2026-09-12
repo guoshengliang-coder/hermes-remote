@@ -7,9 +7,32 @@ import com.hermes.client.domain.Role
 import com.hermes.client.domain.ToolCall
 import com.hermes.client.domain.ToolStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatChromeTest {
+    // HG-37. The greeting overlay and the top bar's ＋/⋮ are two views of one state, so they are
+    // asserted together here — a test that let them drift apart would be testing the wrong thing.
+    @Test fun emptyNewSession_hidesTopBarActions() {
+        assertTrue(newChatGreetingVisible(isNewSession = true, messageCount = 0, isGenerating = false))
+        assertFalse(chatTopBarActionsVisible(isNewSession = true, messageCount = 0, isGenerating = false))
+    }
+
+    @Test fun firstMessageBringsTopBarActionsBack() {
+        assertTrue(chatTopBarActionsVisible(isNewSession = true, messageCount = 1, isGenerating = false))
+        // Generating with nothing rendered yet is the send that has left but not landed.
+        assertTrue(chatTopBarActionsVisible(isNewSession = true, messageCount = 0, isGenerating = true))
+    }
+
+    @Test fun existingSessionAlwaysKeepsTopBarActions() {
+        // Including one that is unexpectedly empty: refresh, share and archive are exactly what
+        // someone staring at an old conversation with nothing in it reaches for.
+        assertTrue(chatTopBarActionsVisible(isNewSession = false, messageCount = 0, isGenerating = false))
+        assertTrue(chatTopBarActionsVisible(isNewSession = false, messageCount = 3, isGenerating = false))
+        assertFalse(newChatGreetingVisible(isNewSession = false, messageCount = 0, isGenerating = false))
+    }
+
     @Test fun blankOrUntitledSession_usesNewChatLabel() {
         assertEquals("新会话", displaySessionTitle(null))
         assertEquals("新会话", displaySessionTitle("  "))

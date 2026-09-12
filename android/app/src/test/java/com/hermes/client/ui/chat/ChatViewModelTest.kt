@@ -120,6 +120,9 @@ class ChatViewModelTest {
     // Real store over the mocked ModelRepository so cache semantics are exercised for real.
     private var catalogStore: com.hermes.client.data.repository.ModelCatalogStore? = null
 
+    // The unsent-draft cache (HG-41); a fake rather than a mock so "blank clears it" is real.
+    private var drafts = com.hermes.client.data.repository.FakeDraftSnapshot()
+
     private fun buildVm(
         accountSessions: com.hermes.client.data.auth.AccountSessionManager? = null,
         conversationDevices: com.hermes.client.data.auth.ConversationDeviceStore? = null,
@@ -143,8 +146,95 @@ class ChatViewModelTest {
             com.hermes.client.data.repository.ProjectCatalog(
                 mockk(relaxed = true), sessionRepo, profileManager, projectPrefs,
             ),
-            botSendNotice, accountSessions, conversationDevices,
+            botSendNotice, drafts, CoroutineScope(runtimeJob + Dispatchers.Main),
+            accountSessions, conversationDevices,
         )
+    }
+
+    // ── HG-41: the unsent draft. Token shape mirrors SessionReadStore.token(profile, id, device);
+    // profileManager.active is null in these tests, hence "default/…".
+    private val draftToken = com.hermes.client.data.repository.SessionReadStore.token(null, "s1")
+
+    @Test fun opening_a_session_with_a_saved_draft_seeds_the_composer() = runTest {
+        drafts = com.hermes.client.data.repository.FakeDraftSnapshot(
+            listOf(com.hermes.client.data.repository.DraftRecord(token = draftToken, text = "半句话", updatedAt = 1L)),
+        )
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        assertEquals("半句话", vm.initialDraft.value)
+    }
+
+    @Test fun a_saved_draft_outranks_a_share_handoff() = runTest {
+        drafts = com.hermes.client.data.repository.FakeDraftSnapshot(
+            listOf(com.hermes.client.data.repository.DraftRecord(token = draftToken, text = "我自己写的", updatedAt = 1L)),
+        )
+        pendingShareStore.put("s1", com.hermes.client.share.PendingShare(text = "分享进来的"))
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        assertEquals("我自己写的", vm.initialDraft.value)
+    }
+
+    @Test fun a_share_still_seeds_the_composer_when_there_is_no_draft() = runTest {
+        pendingShareStore.put("s1", com.hermes.client.share.PendingShare(text = "分享进来的"))
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        assertEquals("分享进来的", vm.initialDraft.value)
+    }
+
+    @Test fun typing_is_debounced_into_a_single_write() = runTest {
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        vm.rememberDraft("半")
+        vm.rememberDraft("半句")
+        vm.rememberDraft("半句话")
+        advanceUntilIdle()
+        assertEquals("半句话", drafts.peek(draftToken))
+        assertEquals(1, drafts.saves)
+    }
+
+    @Test fun the_empty_composer_at_open_does_not_wipe_the_stored_draft() = runTest {
+        // The screen's LaunchedEffect fires once with "" before the stored text has been read;
+        // writing that through would delete the draft this whole feature exists to restore.
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        drafts = com.hermes.client.data.repository.FakeDraftSnapshot(
+            listOf(com.hermes.client.data.repository.DraftRecord(token = draftToken, text = "半句话", updatedAt = 1L)),
+            readGate = gate,
+        )
+        val vm = buildVm()
+        vm.open("s1")
+        vm.rememberDraft("")
+        advanceUntilIdle()
+        assertEquals("半句话", drafts.peek(draftToken))
+        assertEquals(0, drafts.saves)
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals("半句话", vm.initialDraft.value)
+    }
+
+    @Test fun clearing_the_composer_by_hand_drops_the_draft() = runTest {
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        vm.rememberDraft("半句话")
+        advanceUntilIdle()
+        vm.rememberDraft("")
+        advanceUntilIdle()
+        assertNull(drafts.peek(draftToken))
+    }
+
+    @Test fun clearDraft_drops_it_without_waiting_for_the_debounce() = runTest {
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        vm.rememberDraft("半句话")
+        advanceUntilIdle()
+        vm.clearDraft()
+        advanceUntilIdle()
+        assertNull(drafts.peek(draftToken))
     }
 
     @Test fun opening_account_conversation_routes_to_its_original_mac_without_changing_default() = runTest {

@@ -68,9 +68,13 @@ class SessionsViewModelTest {
         messageCount = 1, profile = profile, workspace = "No workspace", source = "hermes-dispatch",
     )
 
+    private val drafts = com.hermes.client.data.repository.FakeDraftSnapshot(
+        listOf(com.hermes.client.data.repository.DraftRecord(token = "personal/s1", text = "半句话", updatedAt = 1L)),
+    )
+
     private fun buildVm(accountSessions: com.hermes.client.data.auth.AccountSessionManager? = null) = SessionsViewModel(
         sessionRepo, chatRepo, profileManager, pinStore, viewModeStore, runtimeStore, toolsRepo, projectPrefs,
-        projectsRepo, projectCatalog, accountSessions,
+        projectsRepo, projectCatalog, drafts, accountSessions,
     )
 
     private fun repoSession(id: String, repo: String?, profile: String = "personal") = Session(
@@ -89,6 +93,19 @@ class SessionsViewModelTest {
     // Scope rule: the derived project tree must only contain the ACTIVE profile's sessions.
     // Before the fix it derived from listAllProfiles() unfiltered, so switching tenants still
     // showed every other tenant's projects.
+    // HG-41. null is the first-frame gate, exactly as pinnedTokens is: the list must not render
+    // before the markers are known, or rows visibly change under the user.
+    @Test fun draftTokens_start_unknown_and_then_resolve() = runTest {
+        val vm = buildVm()
+        assertNull(vm.draftTokens.value)
+        val collect = launch { vm.draftTokens.collect {} }
+        advanceUntilIdle()
+        assertEquals(setOf("personal/s1"), vm.draftTokens.value)
+        assertTrue(vm.hasDraft(session("s1", "有草稿")))
+        assertFalse(vm.hasDraft(session("s2", "没有")))
+        collect.cancel()
+    }
+
     @Test fun projectTree_is_filtered_to_the_active_profile() = runTest {
         coEvery { sessionRepo.listAllProfiles() } returns listOf(
             repoSession("a", "/repo/one", profile = "personal"),

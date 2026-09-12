@@ -35,11 +35,13 @@ class ConnectionSettingsViewModelTest {
     private val transcripts = mockk<com.hermes.client.data.repository.TranscriptStore>(relaxed = true)
     // The run-state snapshot goes the same way: a stored clarify question is user content (HG-31).
     private val phases = mockk<com.hermes.client.data.repository.SessionPhaseStore>(relaxed = true)
+    // And the unsent drafts (HG-41), for the same reason.
+    private val drafts = mockk<com.hermes.client.data.repository.DraftStore>(relaxed = true)
 
     @Before fun setUp() { Dispatchers.setMain(StandardTestDispatcher()) }
     @After fun tearDown() = Dispatchers.resetMain()
 
-    private fun buildVm() = ConnectionSettingsViewModel(store, rest, chat, gatedAuth, transcripts, phases)
+    private fun buildVm() = ConnectionSettingsViewModel(store, rest, chat, gatedAuth, transcripts, phases, drafts)
 
     @Test fun prefills_fields_from_stored_config() {
         every { store.load() } returns GatewayConfig("https://host.ts.net", "tok123")

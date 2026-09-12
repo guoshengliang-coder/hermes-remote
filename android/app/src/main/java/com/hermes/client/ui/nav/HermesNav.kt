@@ -100,6 +100,26 @@ internal fun shouldPopCompletedRepair(
     expectedCompletion >= 0L &&
     actualCompletion >= expectedCompletion
 
+/** Where back from a chat lands; see [chatBackTarget]. */
+internal enum class ChatBackTarget { POP_ONE, POP_TO_SESSIONS }
+
+/**
+ * Where a chat's back press goes, given the route of the entry beneath it.
+ *
+ * A chat normally sits directly on the hub it was opened from, so one pop lands on that hub —
+ * except that a chat opened from Chats may have Chats several entries down, hence the explicit
+ * pop-to for that case.
+ *
+ * The chat-on-chat case is HG-39: the top bar's ＋ stacks (openStackedChat), and back from the
+ * conversation it started must return to the conversation the user was reading, not skip past it
+ * to the list. Popping to "sessions" would do exactly that skip.
+ */
+internal fun chatBackTarget(previousRoute: String?): ChatBackTarget = when {
+    previousRoute == "projects" || previousRoute == "archived" -> ChatBackTarget.POP_ONE
+    previousRoute?.startsWith("chat/") == true -> ChatBackTarget.POP_ONE
+    else -> ChatBackTarget.POP_TO_SESSIONS
+}
+
 internal fun isAccountSetupRepair(failure: StartupFailure?): Boolean =
     failure == StartupFailure.ACCOUNT_AUTHENTICATION_FAILED ||
         failure == StartupFailure.ACCOUNT_DELETION_COMMITTED ||
@@ -161,6 +181,8 @@ fun HermesNav(
     // deterministic (one press returns to the list you were browsing, and browsing a project's
     // chats does not bounce you home each time), and normalizes stacks restored after process
     // death. [anchor] names that hub; it must be on the back stack.
+    //
+    // openStackedChat below is the single exception (HG-39).
     fun openCanonicalChat(route: String, anchor: String = "sessions") {
         CrashReporter.breadcrumb("nav", "open ${diagnosticRoute(route)}")
         nav.navigate(route) {
@@ -168,6 +190,24 @@ fun HermesNav(
             launchSingleTop = true
             restoreState = false
         }
+    }
+
+    // The chat top bar's ＋, and only that (HG-39). It pushes the new conversation ON TOP of the
+    // one being read, because the user's next move after "start another one" is very often to go
+    // back to the answer that prompted it; popping to the list there loses their place.
+    //
+    // This does not open the door to an unbounded tower of chats: HG-37 removes ＋ from an empty
+    // new session, so reaching a third layer means having actually talked in the second one.
+    // Every other way of opening a chat still goes through openCanonicalChat.
+    //
+    // **No `launchSingleTop` here, and that is the whole trick.** A chat opened from a chat is the
+    // SAME destination (`chat/{id}?…`), and `launchSingleTop` compares destinations, not resolved
+    // routes — so it REPLACES the top entry instead of pushing a second one. With it set, the ＋
+    // still opened the new conversation and back still went to the list, which looks exactly like
+    // the bug HG-39 asks to fix (verified on HONOR CLK-AN00, 2026-09-12).
+    fun openStackedChat(route: String) {
+        CrashReporter.breadcrumb("nav", "stack ${diagnosticRoute(route)}")
+        nav.navigate(route)
     }
 
     // Guard the navigate: a hermes:// deep link is untrusted, and even the notification path could
@@ -272,17 +312,18 @@ fun HermesNav(
     // Pushed screens navigate "up"; their top-bar nav icon (formerly the drawer hamburger) is a
     // back arrow wired to this.
     val back: () -> Unit = { nav.popBackStack() }
-    // Back out of a chat, to the LIST it was opened from. The chat sits directly on its hub
-    // (see openCanonicalChat), so the entry beneath it is that hub — Chats, Projects or
-    // Archived. This is the chat's top-bar arrow AND its system-back handler AND where it goes
-    // after archiving or moving a conversation away, so all three must agree. A stack restored
-    // without a hub beneath falls back to a fresh Chats root.
+    // Back out of a chat, to whatever it was opened from. Normally that is its hub — Chats,
+    // Projects or Archived — because a chat sits directly on one (see openCanonicalChat); since
+    // HG-39 it can also be another chat, when the top bar's ＋ stacked this one on top of it.
+    // This is the chat's top-bar arrow AND its system-back handler AND where it goes after
+    // archiving or moving a conversation away, so all three must agree. A stack restored without
+    // anything beneath falls back to a fresh Chats root.
     val backToList: () -> Unit = {
         val hub = nav.previousBackStackEntry?.destination?.route
         CrashReporter.breadcrumb("nav", "chat back -> ${hub ?: "sessions"}")
-        val landed = when (hub) {
-            "projects", "archived" -> nav.popBackStack()
-            else -> nav.popBackStack("sessions", inclusive = false)
+        val landed = when (chatBackTarget(hub)) {
+            ChatBackTarget.POP_ONE -> nav.popBackStack()
+            ChatBackTarget.POP_TO_SESSIONS -> nav.popBackStack("sessions", inclusive = false)
         }
         if (!landed) {
             nav.navigate("sessions") {
@@ -478,6 +519,9 @@ fun HermesNav(
                     onMenu = backToList,
                     onSearchAll = { q -> nav.navigate("search?q=${Uri.encode(q)}") { launchSingleTop = true } },
                     onNewChat = { id ->
+                        openStackedChat(chatRoute(ChatLaunch.new(id)))
+                    },
+                    onSessionRecreated = { id ->
                         openCanonicalChat(chatRoute(ChatLaunch.new(id)))
                     },
                     onManagePrompts = { nav.navigate("settings_prompts") { launchSingleTop = true } },

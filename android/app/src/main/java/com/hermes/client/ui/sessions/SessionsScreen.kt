@@ -118,6 +118,7 @@ fun SessionsScreen(
     }
     val runtimes by vm.runtimes.collectAsStateWithLifecycle()
     val unreadTokens by vm.unreadTokens.collectAsStateWithLifecycle()
+    val draftTokens by vm.draftTokens.collectAsStateWithLifecycle()
     val defaultProjectPath by vm.defaultProjectPath.collectAsStateWithLifecycle()
     // Session whose「移动到项目…」picker is open (from the long-press menu).
     var moveTarget by remember { mutableStateOf<Session?>(null) }
@@ -330,12 +331,15 @@ fun SessionsScreen(
                 }
                 Box(Modifier.fillMaxSize()) {
                     // Delegated properties do not smart-cast; the local also makes the
-                    // "pins are known from here down" boundary explicit.
+                    // "pins and drafts are known from here down" boundary explicit.
                     val pins = pinnedTokens
+                    val drafts = draftTokens
                     when {
                         // Pins unread: rendering now would draw a list with no 已置顶 section and
-                        // then insert one above the viewport a beat later (HG-11).
-                        pins == null || (state.loading && state.sessions.isEmpty()) ->
+                        // then insert one above the viewport a beat later (HG-11). Drafts join the
+                        // same gate rather than opening a second one — a 「草稿」 marker appearing a
+                        // frame after its row is the same defect, one size smaller.
+                        pins == null || drafts == null || (state.loading && state.sessions.isEmpty()) ->
                             com.hermes.client.ui.components.ListLoadingState()
                         state.error != null && state.sessions.isEmpty() -> com.hermes.client.ui.components.ErrorState(
                             error = state.error!!,
@@ -385,6 +389,7 @@ fun SessionsScreen(
                                                 session = s, isPinned = isPinned(s), defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
+                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -409,6 +414,7 @@ fun SessionsScreen(
                                                 session = s, isPinned = true, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
+                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -432,6 +438,7 @@ fun SessionsScreen(
                                                 session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
+                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -455,6 +462,7 @@ fun SessionsScreen(
                                                 session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
+                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -478,6 +486,7 @@ fun SessionsScreen(
                                                 session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
+                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -564,6 +573,7 @@ internal fun SessionRow(
     onMoveToProject: () -> Unit,
     runtime: SessionRuntime? = null,
     unread: Boolean = false,
+    hasDraft: Boolean = false,
     onOpen: () -> Unit,
     onTogglePin: () -> Unit,
     onRename: (String) -> Unit,
@@ -639,7 +649,7 @@ internal fun SessionRow(
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
             androidx.compose.foundation.layout.Spacer(Modifier.size(com.hermes.client.ui.tuning.tunedSublineGap())) // TUNING-TEMP
-            SessionSubline(session, defaultProjectPath = defaultProjectPath, pinned = isPinned)
+            SessionSubline(session, defaultProjectPath = defaultProjectPath, pinned = isPinned, hasDraft = hasDraft)
             // Gate on the TEXT, not on the phase. The phase-based guard let a blank label through,
             // and a blank Text still costs a full line — under `ListItem` that used to tip the row
             // into the 88dp tier; now it would just add an empty line. Either way it is wrong.
