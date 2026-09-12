@@ -405,3 +405,74 @@ internal val ModelStarOffDark = Color(0xFF423F3A)
 /** The mock's `shadow-warm-sm` — a whisper in light, nothing in dark (the ring carries it there). */
 @Composable
 fun modelCardShadow(): Dp = if (isDarkSurface()) 0.dp else 1.dp
+
+// ── 会话行长按操作单 (docs/DESIGN.md §5.5, Stitch 基线-会话列表页/长按下拉菜单 / 暗夜, 2026-09-12) ──
+//
+// Its own family, for the same reason `card*`, `cardTheme*` and `model*` are theirs: every value
+// below is read off the row-menu mock, and that mock does not agree with the others about what a
+// bottom sheet is filled with. Light here is the PAPER itself (#FAF9F5 = surface) with a hairline
+// top edge, where the theme sheet's mock is pure white and M3's own default is
+// surfaceContainerLow. One family per screen, no silent sharing.
+//
+// Two rgba values are resolved to their opaque composite rather than kept as an alpha, the way
+// the card page resolved its own: a fixture can pin a colour, not a blend.
+//
+//     divider light  rgba(119,114,104,0.12) over #FAF9F5 → #EAE9E4
+//     divider dark   rgba(255,255,255,0.06) over #161A22 → #24282F
+//     top edge light rgba(0,0,0,0.04)       over #FAF9F5 → #F0EFEB
+//     top edge dark  rgba(255,255,255,0.08) over #161A22 → #292C34
+//
+// Two DARK values are swapped, not transcribed — the rest of the dark tier already is this repo's
+// warm ladder (#161A22 surfaceContainerLow, #262C35 surfaceContainerHighest, #E2E0DB onSurface,
+// #A8A49C onSurfaceVariant, #FFB4AB error) and is copied verbatim:
+//
+//     handle    #3A4049 → #423F3A   (cold grey; §2.1 bans cold neutrals, = outlineVariant dark)
+//     ink faint #777268 → #8D897E   (the mock reached for the LIGHT tier's outline, = outline dark)
+//
+// Both swaps are recorded row by row in design-conformance.json.
+
+/** The sheet ground. Light is the page's own paper; only the top edge separates them. */
+internal val RowMenuSheetLight = Color(0xFFFAF9F5)
+internal val RowMenuSheetDark = Color(0xFF161A22)
+
+/** The hairline along the sheet's top edge — what keeps the light sheet off the page behind it. */
+internal val RowMenuSheetBorderLight = Color(0xFFF0EFEB)
+internal val RowMenuSheetBorderDark = Color(0xFF292C34)
+
+/** The 36×4dp grab bar. */
+internal val RowMenuHandleLight = Color(0xFFC9C7C2)
+internal val RowMenuHandleDark = Color(0xFF423F3A)
+
+/** The type chip's fill, and the ✕ button's. */
+internal val RowMenuChipLight = Color(0xFFEFEEEA)
+internal val RowMenuChipDark = Color(0xFF262C35)
+
+/** The type chip's 1dp stroke — what keeps a #EFEEEA chip off #FAF9F5 paper at 1.05:1. */
+internal val RowMenuChipBorderLight = Color(0xFFE0DEDA)
+internal val RowMenuChipBorderDark = Color(0xFF373D45)
+
+/** The type chip's text. The mock puts light on the variant tier and dark on the full one. */
+internal val RowMenuChipInkLight = Color(0xFF494641)
+internal val RowMenuChipInkDark = Color(0xFFE2E0DB)
+
+/** Under the header, and above the delete row. */
+internal val RowMenuDividerLight = Color(0xFFEAE9E4)
+internal val RowMenuDividerDark = Color(0xFF24282F)
+
+/** Trailing hints, the trailing project value, and its chevron. */
+internal val RowMenuInkFaintLight = Color(0xFF777268)
+internal val RowMenuInkFaintDark = Color(0xFF8D897E)
+
+/** The ✕ glyph. */
+internal val RowMenuCloseInkLight = Color(0xFF777268)
+internal val RowMenuCloseInkDark = Color(0xFFA8A49C)
+
+@Composable fun rowMenuSheetColor(): Color = if (isDarkSurface()) RowMenuSheetDark else RowMenuSheetLight
+@Composable fun rowMenuSheetBorderColor(): Color = if (isDarkSurface()) RowMenuSheetBorderDark else RowMenuSheetBorderLight
+@Composable fun rowMenuHandleColor(): Color = if (isDarkSurface()) RowMenuHandleDark else RowMenuHandleLight
+@Composable fun rowMenuChipColor(): Color = if (isDarkSurface()) RowMenuChipDark else RowMenuChipLight
+@Composable fun rowMenuChipBorderColor(): Color = if (isDarkSurface()) RowMenuChipBorderDark else RowMenuChipBorderLight
+@Composable fun rowMenuChipInkColor(): Color = if (isDarkSurface()) RowMenuChipInkDark else RowMenuChipInkLight
+@Composable fun rowMenuDividerColor(): Color = if (isDarkSurface()) RowMenuDividerDark else RowMenuDividerLight
+@Composable fun rowMenuInkFaintColor(): Color = if (isDarkSurface()) RowMenuInkFaintDark else RowMenuInkFaintLight
+@Composable fun rowMenuCloseInkColor(): Color = if (isDarkSurface()) RowMenuCloseInkDark else RowMenuCloseInkLight
