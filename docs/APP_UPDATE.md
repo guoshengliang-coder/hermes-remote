@@ -61,13 +61,17 @@ downgrade is not supported.”
    tag already carries. It validates the notes against `release-server/src/schema.mjs` at allocation
    time rather than at upload. It deliberately does not commit, tag, build, or publish.
 2. Commit the release, push it to `origin/main`, and confirm the worktree is clean. With the canonical
-   key provisioned, run `scripts/publish-android-apk.sh`. The publisher refuses a dirty worktree or a
+   key and a private `android/missiongo.properties` containing both feedback settings provisioned, run
+   `scripts/publish-android-apk.sh`. The publisher refuses a dirty worktree or a
    `HEAD` different from `origin/main`. Authentication comes only from ssh-agent/key or caller-injected
    SSH configuration. Supported variables are
    `RELEASE_SSH_HOST` (fixed `mrlgs.net`), safe `RELEASE_SSH_USER` (default `kkk`),
    `RELEASE_DATA_ROOT` (fixed `/srv/hermes-releases`), and `RELEASE_PUBLIC_BASE_URL`. Publish only from
    an isolated worktree with no concurrent writer.
-3. The script first runs `package-debug-apk.sh` and consumes its atomically written JSON gate output.
+3. The script first runs `package-debug-apk.sh` with the public-release MissionGo configuration check
+   enabled and consumes its atomically written JSON gate output. The exact Gradle values used by the
+   build must contain both the feedback endpoint and SDK token; the gate records only a boolean proof,
+   never either secret, and the publisher rejects a supplied gate without that proof.
    The gate reads `minSdk` from the built APK with `aapt` together with package/version/signature data;
    publication metadata must consume that measured value and must never hard-code it. The publisher
    uploads the APK, metadata, and the reviewed `deploy/publish-release.mjs` plus its schema from the
@@ -106,6 +110,8 @@ repository secrets once (never commit their values):
 
 - `HERMES_DEBUG_KEYSTORE_BASE64`: base64 of the shared `~/.android/debug.keystore` (password remains
   `android`).
+- `MISSIONGO_ENDPOINT`: the production feedback service origin compiled into the released APK.
+- `MISSIONGO_SDK_TOKEN`: the Android SDK token compiled into the released APK.
 - `RELEASE_SSH_PRIVATE_KEY`: the deployment key allowed to log in as `kkk@mrlgs.net`.
 - `RELEASE_SSH_KNOWN_HOSTS`: the pinned `mrlgs.net` SSH host key line(s).
 

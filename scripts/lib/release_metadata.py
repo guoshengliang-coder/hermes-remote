@@ -37,6 +37,8 @@ def _digest(gate, field):
 def build(gate, description, base_url, commit, published_at):
     if gate.get("gate") != "APK_RELEASE_OK":
         raise ValueError("release gate did not succeed")
+    if gate.get("missionGoConfigured") is not True:
+        raise ValueError("release gate did not verify MissionGo configuration")
     if (
         set(description) != {"channel", "releaseNotes"}
         or description.get("channel") != "internal"

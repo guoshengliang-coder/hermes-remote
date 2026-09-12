@@ -36,7 +36,7 @@ HEAD_COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
 [[ "$HEAD_COMMIT" == "$(git -C "$ROOT" rev-parse origin/main)" ]] || { echo "HEAD must be pushed to origin/main before publishing" >&2; exit 1; }
 
 if [[ "$GATE_OWNED" == 1 ]]; then
-  APK_RELEASE_METADATA_FILE="$GATE" "$ROOT/scripts/package-debug-apk.sh"
+  APK_REQUIRE_MISSIONGO_CONFIG=1 APK_RELEASE_METADATA_FILE="$GATE" "$ROOT/scripts/package-debug-apk.sh"
 fi
 PUBLISHED_AT="$(git -C "$ROOT" show -s --format=%cI "$HEAD_COMMIT" | python3 -c 'import datetime,sys; print(datetime.datetime.fromisoformat(sys.stdin.read().strip()).astimezone(datetime.timezone.utc).isoformat().replace("+00:00","Z"))')"
 # Metadata is derived only from the gate output and the reviewed release description; minSdk comes
