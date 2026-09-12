@@ -1,22 +1,22 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.9** (build 12). It retains the managed migration and
-rollback behavior from 0.2.8 and is configured for managed release 0.3.4. That immutable candidate
+Current internal test release: **0.2.9** (build 12), installed with managed release 0.3.4 on the
+historical test Mac. It retains the managed migration and rollback behavior from 0.2.8. That
+immutable release
 keeps the Hermes slash-worker and token-reader fixes and corrects the packaged Connector reader so
 both new 43-character base64url tokens and preserved 64-character lowercase-hex tokens are accepted.
 Component packaging now executes the staged Connector reader against both formats before creating its
-archive. Desktop 0.2.9 and managed release 0.3.4 remain offline until their publication and repeated
-physical acceptance gates pass.
+archive. The 0.3.4 artifacts are published, and the installed token-file migration plus an ordered
+Hermes/Connector service restart passed. Physical Android account traffic and a full Mac reboot remain
+deferred.
 
 Physical upgrade on the historical Mac found that managed release 0.3.3 corrected only the packaged
 Hermes reader; its Connector reader still rejected the existing valid 64-character lowercase-hex
 token. Connector exited before account connection, and Desktop restored both exact inline
 LaunchAgents, removed the uncommitted token file, and restarted healthy 0.3.3 services.
 
-Desktop 0.2.8 (build 11) remains installed on the historical test Mac with published managed 0.3.3
-running in that safely restored inline-token mode. It must not be restarted before the corrected app
-and managed release are ready because each startup would repeat the failed migration and recovery
-cycle.
+Desktop 0.2.8 (build 11) was the temporary recovery release used with managed 0.3.3 in restored
+inline-token mode before the corrected 0.2.9/0.3.4 pair was installed.
 
 Desktop 0.2.6 (build 9) skips the startup token-file migration for managed releases older than 0.3.1,
 preserving their inline session token and running services.
@@ -114,7 +114,9 @@ pass, and the legacy connection remains available. Local evidence and remaining 
   Desktop startup. Both managed LaunchAgents must be owner-only, point to the current managed
   executables and exact log paths, and either agree on the same valid inline token or already agree on
   the canonical private token file. The current account binding ID and generation must match before
-  any file or service mutation.
+  any file or service mutation. Immediately before an already-bound Connector starts, Desktop records
+  the Cloud `endToEnd.checkedAt` value and accepts the restart only after the same binding reports a
+  strictly newer healthy value. A cached healthy snapshot cannot commit the candidate or its rollback.
 - Download/verification occurs before the exact version confirmation and cannot mutate installation,
   credentials, LaunchAgents, processes, or bindings. Closing the confirmation removes the private
   workspace. A committed install that cannot clean temporary files exposes only a cleanup retry and

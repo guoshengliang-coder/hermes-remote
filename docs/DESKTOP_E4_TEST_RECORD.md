@@ -602,3 +602,21 @@ email verification on the phones.
 
 This is an internal ad-hoc Desktop build. It is not Developer ID signed, notarized, stapled, or
 approved for public distribution.
+
+## 2026-09-12 post-restart Cloud-health freshness correction
+
+The 0.2.5 incident showed that an established Connector control socket and a previously healthy
+Cloud binding could survive long enough to mask failure in a newly restarted Connector's local
+tunnel path. The coordinator now snapshots the exact binding's server-provided
+`endToEnd.checkedAt` immediately before every already-bound Connector start. Candidate acceptance
+requires the same binding ID and generation to remain healthy with a strictly newer timestamp.
+Rollback of a token-file migration follows the same rule before the restored configuration is
+declared healthy.
+
+The regression fixture holds all health booleans true while returning the old timestamp through the
+candidate polling window. The candidate times out, both original inline LaunchAgent files are
+restored byte-for-byte, Hermes and Connector restart in order, and rollback completes only when a
+new Cloud timestamp appears. The focused 19-test migration-coordinator suite passed. This source
+correction also passed the canonical asset check, all 187 Desktop tests, and the release app build.
+It does not allocate a Desktop version, publish an artifact, install an app, or deploy a service;
+those remain separate release gates.
