@@ -236,8 +236,11 @@ the 2026-09-11 attempt could not reach a Relay from either phone, so no model ca
    automatically. After changing the default in Settings › Models, the chat sheet's 当前 markers
    must reflect it without a manual reload.
 9. **Manual refresh (2026-09).** Add/remove a model upstream, then tap the refresh icon in the
-   sheet's title row (or the 设置 › 模型 top bar): the list must update and the icon must show a
-   spinner while fetching. Offline, the tap is a silent no-op (no crash, no error toast).
+   sheet's title row (or the 设置 › 模型 top bar): the list must update and the icon must be
+   replaced in place by the **working ring** (`RunSpinner` — a blue arc over a faint full circle),
+   NOT the brand H mark. Same ring on the row and chip being switched to. The brand mark is only
+   correct on the first-load 「正在加载模型列表…」 state, where the sheet is otherwise empty.
+   Offline, the tap is a silent no-op (no crash, no error toast).
 10. **Reasoning effort (dropdown since 2026-09-12).** In the status card, open the 推理强度
    dropdown: it lists 关 plus the seven levels, with the session's effective level
    (`config.get key=reasoning`) marked and the scope note 「仅当前对话；该模型的选择会被记住」

@@ -50,7 +50,12 @@ fun ModelsScreen(
                     // states, so the control is always reachable.
                     if (state.refreshing) {
                         Box(Modifier.size(48.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                            com.hermes.client.ui.components.HermesMark(size = 20.dp)
+                            // The working ring, not the brand mark — same refresh action as the
+                            // chat sheet's title bar, so the same indicator (docs/DESIGN.md §5.17).
+                            com.hermes.client.ui.components.RunSpinner(
+                                size = 20.dp,
+                                contentDescription = l10n("正在刷新", "Refreshing"),
+                            )
                         }
                     } else {
                         IconButton(onClick = vm::load) {

@@ -42,7 +42,6 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -986,15 +985,9 @@ private fun RuntimeIndicator(runtime: SessionRuntime) {
     ) {
         // Blue with a faint track under it, per the design source — not the cyan the status TEXT
         // uses, and not Material's bare trackless arc. The words carry what is happening; the
-        // spinner only says that something is (docs/DESIGN.md §5.2).
-        val spinner = com.hermes.client.ui.theme.spinnerColor()
-        CircularProgressIndicator(
-            modifier = Modifier.size(18.dp),
-            color = spinner,
-            strokeWidth = 1.9.dp,
-            trackColor = spinner.copy(alpha = com.hermes.client.ui.theme.SpinnerTrackAlpha),
-            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
-        )
+        // spinner only says that something is (docs/DESIGN.md §5.2). These four literals now live
+        // in RunSpinner, which the model sheet shares.
+        com.hermes.client.ui.components.RunSpinner(size = 18.dp)
     } else {
         // The DOT is a mark, so waiting draws it in the bright graphic amber while the sentence
         // beside it stays on the deep text amber (StatusColors.kt). Every other tone uses one

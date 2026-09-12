@@ -80,8 +80,12 @@ class ModelSelectorScreenshotTest {
         name: String,
         darkTheme: Boolean = false,
         fontScale: Float? = null,
+        // RunSpinner is an infinite animation, so a golden containing one is only stable with the
+        // clock held still — the house pattern from ScreenshotTest.
+        manualClock: Boolean = false,
         content: @androidx.compose.runtime.Composable () -> Unit,
     ) {
+        if (manualClock) compose.mainClock.autoAdvance = false
         compose.setContent {
             HermesTheme(darkTheme = darkTheme) {
                 val density = LocalDensity.current
@@ -144,12 +148,12 @@ class ModelSelectorScreenshotTest {
      * highlight and 「切换中…」, the model that was in force steps back to 「前次生效」.
      */
     @Test fun modelSelectorSwitching() = snap(
-        "model-select-switching",
+        "model-select-switching", manualClock = true,
         content = sheet(groups(expanded = setOf("openai", "deepseek")), pendingKey = favKey("deepseek", "deepseek-v4-pro")),
     )
 
     @Test fun modelSelectorSwitchingDark() = snap(
-        "model-select-switching-dark", darkTheme = true,
+        "model-select-switching-dark", darkTheme = true, manualClock = true,
         content = sheet(groups(expanded = setOf("openai", "deepseek")), pendingKey = favKey("deepseek", "deepseek-v4-pro")),
     )
 
@@ -159,10 +163,16 @@ class ModelSelectorScreenshotTest {
         content = sheet(groups(favs = emptySet()), recentModels = emptyList()),
     )
 
-    /** HR-RPC-003 with a retry, and the refresh spinner in the title bar. */
+    /** HR-RPC-003 with a retry. */
     @Test fun modelSelectorCatalogFailed() = snap(
         "model-select-failed",
         content = sheet(emptyList(), recentModels = emptyList(), listError = true),
+    )
+
+    /** The title bar mid-refresh: the working ring replaces the refresh glyph in place. */
+    @Test fun modelSelectorRefreshing() = snap(
+        "model-select-refreshing", manualClock = true,
+        content = sheet(groups(), refreshing = true),
     )
 
     /** 360dp is the narrow screen the input bar is sized against; 1.3 is the large-type step. */
