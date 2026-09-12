@@ -775,15 +775,21 @@ private fun ModelGroupHeader(group: ModelGroup, onToggleGroup: (String) -> Unit)
                     shape = BadgeShape,
                 )
             } else {
+                // ONE weight, and it fills. The count and the chevron are a right-aligned pair
+                // across every card, so the title has to absorb all the slack itself (HG-32).
+                // `weight(1f, fill = false)` plus a second `Spacer(weight(1f))` — what this was —
+                // splits the free space in half and then lets the title shrink inside its half,
+                // so the leftover stayed on the RIGHT and dragged the count left by however much
+                // shorter than half the title was. Cards then stepped: 「DeepSeek」 furthest left,
+                // an ellipsised name furthest right.
                 Text(
                     group.title,
                     style = ModelGroupTitle,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.weight(1f))
                 Text(
                     l10n("${group.count} 项", "${group.count}"),
                     style = ModelGroupCount,
