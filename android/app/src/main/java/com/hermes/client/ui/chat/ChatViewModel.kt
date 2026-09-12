@@ -105,6 +105,18 @@ class ChatViewModel @Inject constructor(
         const val SESSION_NOT_FOUND_CODE = 4007
 
         /**
+         * Another surface already owns this conversation, so upstream refuses our `prompt.submit`:
+         * only one client at a time may run a session. Not the same as 4009 "busy" — that is the
+         * session running a turn of its own — and not terminal either: the moment the other side
+         * lets go, the very same send succeeds. So this one keeps its retry, and only has to say
+         * why (see [AppErrorCode.SESSION_OWNED_ELSEWHERE]).
+         *
+         * We classify on the number alone. The message upstream attaches names the owning surface
+         * and its pid, but that text is not a contract — see docs/HERMES_CONTRACT.md.
+         */
+        const val SESSION_OWNED_ELSEWHERE_CODE = 4090
+
+        /**
          * `slash.exec` could not run at all: the Mac's Hermes failed to spawn its slash worker
          * ("slash worker closed pipe"). Distinct from a slash the worker ran and refused.
          */
@@ -1044,6 +1056,14 @@ class ChatViewModel @Inject constructor(
     /** Redacted diagnostic for a failed user turn (long-press → copy), null when it did not fail. */
     fun sendDiagnostic(messageId: String): String? = failedSends[messageId]?.error?.sanitizedDiagnostic()
 
+    /**
+     * Which failure a failed user turn actually was, so the bubble can say it. Null when the turn
+     * did not fail. The bubble reads its copy and its compact code from this rather than guessing
+     * from the delivery state — several failures share one state and must not share one sentence.
+     */
+    fun sendErrorCode(messageId: String): com.hermes.client.data.error.AppErrorCode? =
+        failedSends[messageId]?.error?.code
+
     /** Replays a failed turn as a fresh message: the failed bubble is removed, then sent again. */
     fun retrySend(messageId: String) {
         val failed = failedSends[messageId] ?: return
@@ -1164,13 +1184,27 @@ class ChatViewModel @Inject constructor(
                 // One failure is NOT retryable: upstream no longer has the conversation and we were
                 // not able to replace it. Offering "点按重试" there is a lie — every tap repeats the
                 // same 4001/4007 — so it gets its own terminal code instead (HR-SESS-001).
+                //
+                // A second one is retryable but not for the reason the generic copy implies: another
+                // client owns the session (4090). The tap stays — the conflict ends by itself — but
+                // the bubble has to name the cause, or the user just taps into the same refusal.
+                val rpcCode = (e as? GatewayRpcException)?.code
                 val gone = e is SessionGoneException
+                val ownedElsewhere = rpcCode == SESSION_OWNED_ELSEWHERE_CODE
                 val error = com.hermes.client.data.error.AppError(
-                    if (gone) com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND
-                    else com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED,
+                    when {
+                        gone -> com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND
+                        ownedElsewhere -> com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE
+                        else -> com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED
+                    },
                     retryable = !gone, technicalCause = e.message, stage = "prompt_submit",
                 )
-                com.hermes.client.data.diagnostics.DebugLog.log("session", "send($expectedStoredId) failed: ${e.message}")
+                // Carry the numeric code into the log. Without it a diagnostic export shows only
+                // upstream's prose, and the code that would have classified the failure is lost.
+                com.hermes.client.data.diagnostics.DebugLog.log(
+                    "session",
+                    "send($expectedStoredId) failed: ${rpcCode?.let { "$it " } ?: ""}${e.message}",
+                )
                 failedSends[messageId] = FailedSend(text, atts, error)
                 updateSentImages(messageId) { images ->
                     images.map { image ->

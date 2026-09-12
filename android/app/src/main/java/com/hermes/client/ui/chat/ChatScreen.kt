@@ -1351,6 +1351,7 @@ fun ChatScreen(
                         onEditResend = { text -> draft = text; focusRequester.requestFocus() },
                         onRetrySend = { vm.retrySend(it) },
                         sendDiagnosticFor = { vm.sendDiagnostic(it) },
+                        sendErrorCodeFor = { vm.sendErrorCode(it) },
                         onRegenerate = { vm.regenerate() },
                         onRetryWithModel = {
                             retryAfterModelSwitch = true

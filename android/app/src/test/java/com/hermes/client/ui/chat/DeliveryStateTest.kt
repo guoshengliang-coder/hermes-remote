@@ -61,6 +61,28 @@ class DeliveryStateTest {
         assertNotEquals(AppErrorCode.MESSAGE_SEND_FAILED, AppErrorCode.SESSION_NOT_FOUND)
     }
 
+    // HG-30: the third shape. Retryable like SESS-007, but for a reason the user can act on, so it
+    // must not reuse SESS-007's copy — "点按重试" alone sends them back into the same refusal.
+    @Test fun owned_elsewhere_code_is_registered_bilingual_and_retryable() {
+        val error = AppError(
+            AppErrorCode.SESSION_OWNED_ELSEWHERE,
+            retryable = true,
+            technicalCause = "Session s1 already has a live owner (desktop, pid 32991)",
+        )
+        val zh = error.localizedMessage(AppLanguage.ZH)
+        val en = error.localizedMessage(AppLanguage.EN)
+        assertTrue(zh.contains("HR-SESS-013") && en.contains("HR-SESS-013"))
+        assertTrue(zh.any { it.code > 0x4E00 } && zh != en)
+        assertTrue("the other client finishing is what makes this one work", error.retryable)
+        assertEquals("SESS-013", AppErrorCode.SESSION_OWNED_ELSEWHERE.compact)
+        // Distinct from both neighbours: not the generic failure, not the terminal one.
+        assertNotEquals(AppErrorCode.MESSAGE_SEND_FAILED, AppErrorCode.SESSION_OWNED_ELSEWHERE)
+        assertNotEquals(
+            error.localizedMessage(AppLanguage.ZH),
+            AppError(AppErrorCode.MESSAGE_SEND_FAILED, retryable = true).localizedMessage(AppLanguage.ZH),
+        )
+    }
+
     @Test fun compact_code_drops_only_the_prefix_and_stays_unique() {
         assertEquals("SESS-007", AppErrorCode.MESSAGE_SEND_FAILED.compact)
         assertEquals("RPC-001", AppErrorCode.RPC_FAILED.compact)
