@@ -6,6 +6,13 @@ importable after upstream clears `PYTHONPATH`. This restores `/model`, `/compact
 slash commands on a managed installation. Managed release 0.3.2 is published at its immutable
 internal URL. Desktop 0.2.7 remains offline until the coordinated physical acceptance gate passes.
 
+Physical upgrade on the historical Mac found that managed release 0.3.2's Hermes token-file reader
+accepted only newly generated 43-character base64url tokens, while Desktop correctly preserved the
+existing valid 64-character lowercase-hex token. Hermes exited with status 78, and Desktop restored
+both inline LaunchAgents and service health. The component packager now emits the same two-format
+validation contract as Desktop; a corrected managed release is required before token-file migration
+can be accepted.
+
 Desktop 0.2.6 (build 9) skips the startup token-file migration for managed releases older than 0.3.1,
 preserving their inline session token and running services.
 Desktop 0.2.5/build 8 remains withdrawn after a physical target found that it moved the active

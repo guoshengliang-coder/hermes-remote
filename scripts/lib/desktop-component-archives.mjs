@@ -178,6 +178,42 @@ export function managedSitePathLine() {
     'os.path.join(_r, "app")) if os.path.isdir(_p) and _p not in sys.path]\n';
 }
 
+/**
+ * Runtime reader embedded in the managed Hermes Server bundle.
+ *
+ * New installs generate a 43-character base64url token, while installations migrated from the
+ * original Connector may legitimately retain a 64-character lowercase hexadecimal token. Desktop
+ * validates and preserves both formats, so the packaged reader must accept that same frozen
+ * compatibility boundary before it exports the token to Hermes.
+ */
+export function managedSessionTokenReaderSource() {
+  return `import os
+import re
+import stat
+import sys
+
+path = os.environ.get("HERMES_SESSION_TOKEN_FILE", "")
+try:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or metadata.st_mode & 0o077 or not 1 <= metadata.st_size <= 256):
+            raise ValueError("unsafe")
+        token = os.read(descriptor, 257).decode("ascii")
+    finally:
+        os.close(descriptor)
+    if not (re.fullmatch(r"[A-Za-z0-9_-]{43}", token)
+            or re.fullmatch(r"[a-f0-9]{64}", token)):
+        raise ValueError("malformed")
+except Exception:
+    print("Hermes session token file is invalid", file=sys.stderr)
+    raise SystemExit(78)
+sys.stdout.write(token)
+`;
+}
+
 async function stageHermes({ destination, hermesRoot, pythonRoot, sitePackages, version, sourceCommit, architecture }) {
   await mkdir(path.join(destination, "bin"), { recursive: true, mode: 0o700 });
   await mkdir(path.join(destination, "runtime/python/bin"), { recursive: true, mode: 0o700 });
@@ -208,31 +244,11 @@ async function stageHermes({ destination, hermesRoot, pythonRoot, sitePackages, 
       await copyStrict(path.join(hermesRoot, entry.name), path.join(destination, "app", entry.name));
     }
   }
-  const tokenReader = `import os
-import re
-import stat
-import sys
-
-path = os.environ.get("HERMES_SESSION_TOKEN_FILE", "")
-try:
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(path, flags)
-    try:
-        metadata = os.fstat(descriptor)
-        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
-                or metadata.st_mode & 0o077 or not 1 <= metadata.st_size <= 256):
-            raise ValueError("unsafe")
-        token = os.read(descriptor, 257).decode("ascii")
-    finally:
-        os.close(descriptor)
-    if not re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
-        raise ValueError("malformed")
-except Exception:
-    print("Hermes session token file is invalid", file=sys.stderr)
-    raise SystemExit(78)
-sys.stdout.write(token)
-`;
-  await writeFile(path.join(destination, "runtime/read-private-session-token.py"), tokenReader, { mode: 0o600 });
+  await writeFile(
+    path.join(destination, "runtime/read-private-session-token.py"),
+    managedSessionTokenReaderSource(),
+    { mode: 0o600 },
+  );
   const launcher = `#!/bin/sh
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
