@@ -69,8 +69,10 @@ session-token file. Its signed wrapper validates that the file is regular, curre
 private, bounded, and canonical before exporting the value to Hermes; the Connector validates and
 reads the same file for REST headers and the `/api/ws?token=` handshake. Both readers accept the
 generated 43-character base64url format and the historical 64-character lowercase-hex format that
-Desktop preserves during migration. The token file is generated locally at mode `0600`, never enters
-a manifest or Cloud request, and neither LaunchAgent contains its value. Readiness is the exact line
+Desktop preserves during migration. Component packaging executes the staged Connector reader against
+both accepted formats and an uppercase-hex rejection before creating its archive. The token file is
+generated locally at mode `0600`, never enters a manifest or Cloud request, and neither LaunchAgent
+contains its value. Readiness is the exact line
 `HERMES_BACKEND_READY port=9119`; the distinct
 port collision line is `BACKEND_PORT_IN_USE port=9119`. No provider/model secret belongs in the
 LaunchAgent: Hermes continues reading its profile-scoped state and private `.env` beneath

@@ -95,7 +95,8 @@ The current automated suite covers:
   exact `hermes-serve-v1` loopback arguments, Desktop marker, private session-token file path and
   sentinels, absent/mismatched Gateway capability rejection, and readiness only when both gates match;
 - private installation-local Hermes token creation/reuse, unsafe file rejection, no token value in
-  either LaunchAgent, signed-wrapper file validation, and Connector file loading with no symlink or
+  either LaunchAgent, signed-wrapper file validation, and Connector file loading of both canonical
+  43-character base64url and historical 64-character lowercase-hex values with no symlink or
   group/world-readable fallback;
 - committed pre-contract token migration preserving the existing 64-character local credential,
   removing both supported inline field names, writing only the canonical `0600` token file reference,
