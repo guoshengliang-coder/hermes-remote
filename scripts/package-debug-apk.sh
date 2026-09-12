@@ -93,6 +93,28 @@ if [[ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]]; then
   echo "APK signing certificate mismatch: got $ACTUAL_CERT_SHA256, expected $EXPECTED_CERT_SHA256" >&2
   exit 1
 fi
+# The in-app feedback entry is invisible unless the build carried MISSIONGO_ENDPOINT and
+# MISSIONGO_SDK_TOKEN, and nothing else in this gate would notice their absence: 0.1.120 passed
+# every check above and still shipped without "反馈与建议". Resolve them exactly as
+# app/build.gradle.kts does, then prove the endpoint is really in the artifact.
+MISSIONGO_ENDPOINT_RESOLVED="$(python3 - "$ANDROID_DIR/missiongo.properties" <<'PY'
+import os
+import sys
+
+path = sys.argv[1]
+value = ''
+if os.path.exists(path):
+    with open(path, encoding='utf-8') as stream:
+        for line in stream:
+            line = line.strip()
+            if line.startswith('missiongoEndpoint') and '=' in line:
+                value = line.split('=', 1)[1]
+                break
+print((value or os.environ.get('MISSIONGO_ENDPOINT') or '').strip())
+PY
+)"
+python3 "$ROOT/scripts/lib/apk_feedback.py" "$ARTIFACT" "$MISSIONGO_ENDPOINT_RESOLVED"
+
 if command -v shasum >/dev/null 2>&1; then
   SHA_LINE="$(shasum -a 256 "$ARTIFACT")"
 else
