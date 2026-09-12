@@ -72,6 +72,7 @@ class SessionsViewModel @Inject constructor(
     private val projectPrefs: ProjectPrefsStore,
     private val projectsRepo: ProjectsRepository,
     private val projectCatalog: com.hermes.client.data.repository.ProjectCatalog,
+    private val draftStore: com.hermes.client.data.repository.DraftSnapshot,
     private val accountSessions: AccountSessionManager? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(
@@ -135,6 +136,22 @@ class SessionsViewModel @Inject constructor(
     /** True if [session] is pinned, keyed by the session's own profile. Unread pins pin nothing. */
     fun isPinned(session: Session, tokens: Set<String>? = pinnedTokens.value): Boolean =
         PinStore.token(session.profile, session.id, session.deviceId) in tokens.orEmpty()
+
+    /**
+     * Conversations holding unsent composer text (HG-41). Same shape and the same `null` gate as
+     * [pinnedTokens], and for the same reason: a marker that arrives a frame after the rows do is
+     * a list that visibly changes under the user's eyes.
+     */
+    val draftTokens: StateFlow<Set<String>?> =
+        draftStore.tokens
+            .catch { emit(emptySet()) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** True if [session] has an unsent draft, keyed by the session's own profile. */
+    fun hasDraft(session: Session, tokens: Set<String>? = draftTokens.value): Boolean =
+        com.hermes.client.data.repository.SessionReadStore.token(
+            session.profile, session.id, session.deviceId,
+        ) in tokens.orEmpty()
 
     /**
      * Bumped when the user pins a session, so the list can bring the 已置顶 section into view.

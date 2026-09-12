@@ -48,13 +48,14 @@ fun SessionSubline(
     lead: SublineLead = SublineLead.PROJECT,
     defaultProjectPath: String? = null,
     pinned: Boolean = false,
+    hasDraft: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     // The project's real name when the catalog knows it (upstream projects have names of their
     // own); the folder basename otherwise, which is what this row always used to show.
     val projectName = LocalProjectNames.current(session)
     val parts = sessionSublineParts(session, lead, defaultProjectPath, projectName)
-    if (parts.isEmpty && !pinned) return
+    if (parts.isEmpty && !pinned && !hasDraft) return
     // One step lighter than ListItem's onSurfaceVariant, matching the design's "muted" tier
     // (decision 2026-09-10). The glyph goes a further step down to the design's faint tier
     // (SublineFaint) — 2.39:1 on paper, adopted 2026-09-11 when the contrast floors were dropped
@@ -63,7 +64,7 @@ fun SessionSubline(
         androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.outline,
     ) {
         androidx.compose.material3.ProvideTextStyle(com.hermes.client.ui.tuning.tunedSubline()) { // TUNING-TEMP
-            SublineContent(parts, lead, pinned, modifier)
+            SublineContent(parts, lead, pinned, hasDraft, modifier)
         }
     }
 }
@@ -73,27 +74,46 @@ private fun SublineContent(
     parts: SessionSublineParts,
     lead: SublineLead,
     pinned: Boolean,
+    hasDraft: Boolean,
     modifier: Modifier,
 ) {
-    if (!pinned) {
+    if (!pinned && !hasDraft) {
         SublineBody(parts, lead, modifier)
         return
     }
     val language = LocalAppLanguage.current
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        // `Image`, not `Icon`: the pin is two-tone and a tint would flatten it (see PinIcon.kt).
-        // `Image` has no contentDescription of its own, so the announcement moves to a semantics
-        // modifier — SessionSublineTest asserts on it, and TalkBack has nothing else to say that
-        // this row is pinned when the group header is collapsed or off screen.
-        androidx.compose.foundation.Image(
-            imageVector = com.hermes.client.ui.components.pinnedIcon(),
-            contentDescription = null,
-            modifier = Modifier
-                .size(com.hermes.client.ui.tuning.tunedSublineGlyph()) // TUNING-TEMP
-                .semantics {
-                    contentDescription = localized(language, "已置顶", "Pinned")
+        if (pinned) {
+            // `Image`, not `Icon`: the pin is two-tone and a tint would flatten it (see PinIcon.kt).
+            // `Image` has no contentDescription of its own, so the announcement moves to a semantics
+            // modifier — SessionSublineTest asserts on it, and TalkBack has nothing else to say that
+            // this row is pinned when the group header is collapsed or off screen.
+            androidx.compose.foundation.Image(
+                imageVector = com.hermes.client.ui.components.pinnedIcon(),
+                contentDescription = null,
+                modifier = Modifier
+                    .size(com.hermes.client.ui.tuning.tunedSublineGlyph()) // TUNING-TEMP
+                    .semantics {
+                        contentDescription = localized(language, "已置顶", "Pinned")
+                    },
+            )
+        }
+        if (hasDraft) {
+            if (pinned) Spacer(Modifier.width(4.dp))
+            // A word, in the one accent this line otherwise never uses (the rest sits on `outline`).
+            // Deliberately NOT a dot in the row's trailing slot: a neutral dot one dp from the
+            // unread dot is the confusion docs/DESIGN.md §5.2 already paid for once, with the
+            // terminal grey dot. Deliberately not a fourth line either — a conditional line
+            // changes the row's height, which `row-height-probe` exists to hold still.
+            Text(
+                localized(language, "草稿", "Draft"),
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                modifier = Modifier.semantics {
+                    contentDescription = localized(language, "有未发送的草稿", "Has an unsent draft")
                 },
-        )
+            )
+        }
         if (!parts.isEmpty) {
             Spacer(Modifier.width(4.dp))
             SublineBody(parts, lead, Modifier.weight(1f, fill = false))

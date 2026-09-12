@@ -1,5 +1,4 @@
 package com.hermes.client.ui.chat
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 
 import android.Manifest
 import android.app.Activity
@@ -31,13 +30,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -56,7 +53,6 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PhotoLibrary
@@ -64,8 +60,6 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -105,7 +99,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hermes.client.data.error.AppError
@@ -130,7 +123,17 @@ fun ChatScreen(
     onMenu: () -> Unit = {},
     /** Escape hatch from a zero-hit in-chat search to the global search, carrying the query. */
     onSearchAll: ((String) -> Unit)? = null,
+    /**
+     * The top bar's ＋. This one STACKS on the current chat (HG-39) — it is the only chat entry
+     * point that does, see HermesNav.openStackedChat.
+     */
     onNewChat: (String) -> Unit = {},
+    /**
+     * Upstream replaced this conversation with a fresh id. This one must REPLACE the entry, not
+     * stack: it is the same conversation under a new name, and stacking would leave the dead id
+     * one back-press away — and pile up another layer every time it happens.
+     */
+    onSessionRecreated: (String) -> Unit = onNewChat,
     /** Prompt library, reached from the composer's 常用提示 sheet — Settings no longer lists it. */
     onManagePrompts: () -> Unit = {},
     onUnauthorized: () -> Unit = {},
@@ -374,6 +377,10 @@ fun ChatScreen(
     androidx.compose.runtime.LaunchedEffect(initialDraft) {
         initialDraft?.takeIf { it.isNotEmpty() }?.let { draft = it; vm.clearInitialDraft() }
     }
+    // Persist the unsent composer text (HG-41). Keyed on the value rather than wired into each
+    // assignment: `draft` is written by typing, dictation, slash fill, prompt insert, @-mention
+    // completion, edit-and-resend and the share handoff, and one missed site is a lost draft.
+    androidx.compose.runtime.LaunchedEffect(sessionId, draft) { vm.rememberDraft(draft) }
     // Slash-command palette: when the draft is a "/query", show matching commands.
     val slashMatches = if (draft.startsWith("/") && !draft.contains(' ')) {
         val q = draft.drop(1).lowercase()
@@ -407,6 +414,9 @@ fun ChatScreen(
         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
         vm.send(draft)
         draft = ""
+        // Ahead of the debounce: the row must lose its 「草稿」 marker as the message leaves, not
+        // a moment later.
+        vm.clearDraft()
         // Sending hands the stage to the run: drop the keyboard and the expanded composer so
         // the viewport shows the new instruction and what happens next. The scroll-to-bottom is
         // driven by THIS action (tick), never inferred from data changes.
@@ -415,7 +425,6 @@ fun ChatScreen(
     }
 
     // Image attach: read picked/captured bytes and stage them onto the session.
-    var transcriptMenu by remember { mutableStateOf(false) }
     var creatingNewChat by remember { mutableStateOf(false) }
     var confirmArchive by rememberSaveable(sessionId) { mutableStateOf(false) }
     var archiving by remember { mutableStateOf(false) }
@@ -435,6 +444,26 @@ fun ChatScreen(
     // before the export's first suspension point resumes. The write, the share sheet AND the
     // failure toast all disappeared together, so the tap read as "nothing happened" (HG-9).
     val exportScope = androidx.compose.runtime.rememberCoroutineScope()
+
+    // The top bar's ＋. Creation is a gateway round trip, so the button holds a spinner and
+    // refuses re-entry until it settles — double-tapping used to create two conversations.
+    val startNewChat: () -> Unit = {
+        if (!creatingNewChat) {
+            creatingNewChat = true
+            exportScope.launch {
+                try {
+                    vm.createNewSession()?.let(onNewChat)
+                        ?: android.widget.Toast.makeText(
+                            context,
+                            localized(language, "无法新建对话，请重试。", "Couldn't start a new conversation. Retry."),
+                            android.widget.Toast.LENGTH_SHORT,
+                        ).show()
+                } finally {
+                    creatingNewChat = false
+                }
+            }
+        }
+    }
 
     fun showAttachmentError(message: String?) {
         android.widget.Toast.makeText(
@@ -695,7 +724,7 @@ fun ChatScreen(
     // runtime — and the message in flight — already moved; re-navigate so the entry names the live
     // conversation instead of the dead id, which back-then-forward would otherwise reopen.
     LaunchedEffect(recreatedSessionId) {
-        recreatedSessionId?.takeIf { it != sessionId }?.let(onNewChat)
+        recreatedSessionId?.takeIf { it != sessionId }?.let(onSessionRecreated)
     }
     // I1: route back to Setup when the server returns 401
     LaunchedEffect(unauthorized) {
@@ -720,38 +749,32 @@ fun ChatScreen(
                 onNext = { if (matches.isNotEmpty()) currentMatch = (currentMatch + 1) % matches.size },
                 onClose = { searchOpen = false; query = "" },
                 onSearchAll = onSearchAll,
-            ) else Row(
-                Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.background)
-                    .statusBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Bare 48dp icon (M3 top-bar convention): the floating white containers read as
-                // separate controls fighting the content; naked icons blend into the bar.
-                IconButton(onClick = onMenu) {
-                    Icon(
-                        Icons.AutoMirrored.Rounded.ArrowBack,
-                        contentDescription = localized(language, "返回", "Back"),
-                        modifier = Modifier.offset(x = (-4).dp),
-                    )
-                }
-                androidx.compose.foundation.layout.Column(
-                    Modifier
-                        .weight(1f)
-                        .padding(horizontal = 12.dp),
-                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-                ) {
-                    Text(
-                        sessionTitle,
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontSize = adaptiveSessionTitleSize(sessionTitle).sp,
-                            lineHeight = (adaptiveSessionTitleSize(sessionTitle) + 4).sp,
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+            ) else ChatTopBar(
+                title = sessionTitle,
+                // HG-37: an empty new session keeps only 返回 and the title block.
+                actionsVisible = chatTopBarActionsVisible(isNewSession, state.messages.size, state.isGenerating),
+                creatingNewChat = creatingNewChat,
+                refreshingConversation = refreshingConversation,
+                promptsLabel = promptListTitle(botOrigin, language),
+                onBack = onMenu,
+                onNewChat = startNewChat,
+                onSearch = { searchOpen = true },
+                onPrompts = { promptListTick = System.currentTimeMillis() },
+                onRefresh = {
+                    if (!state.isGenerating) viewportController.holdCurrent()
+                    vm.refreshCurrentConversation()
+                },
+                onShare = {
+                    // The format picker owns the decision now: plain text, a Markdown file, or a
+                    // rendered image.
+                    if (state.messages.none { it.text.isNotBlank() }) {
+                        android.widget.Toast.makeText(context, localized(language, "暂无可导出的内容", "Nothing to export yet"), android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        shareFormatSheet = true
+                    }
+                },
+                onArchive = { confirmArchive = true },
+                subtitle = {
                     // Project · branch beneath the title: the workspace this chat's tools run in,
                     // and the door to change it. Only profiles that have projects at all get the
                     // row — a profile of plain chats keeps the single-line bar (docs/DESIGN.md §5.4).
@@ -779,116 +802,8 @@ fun ChatScreen(
                             onClick = { projectSheetOpen = true },
                         )
                     }
-                }
-                // The top bar carries the one highest-frequency action; search moved into the
-                // menu below (docs/DESIGN.md §5.4, HG-5). Reading an answer and wanting to start
-                // the next thing is the common case, and it used to cost a trip back to the list.
-                IconButton(
-                    onClick = {
-                        if (!creatingNewChat) {
-                            creatingNewChat = true
-                            exportScope.launch {
-                                try {
-                                    vm.createNewSession()?.let(onNewChat)
-                                        ?: android.widget.Toast.makeText(
-                                            context,
-                                            localized(language, "无法新建对话，请重试。", "Couldn't start a new conversation. Retry."),
-                                            android.widget.Toast.LENGTH_SHORT,
-                                        ).show()
-                                } finally {
-                                    creatingNewChat = false
-                                }
-                            }
-                        }
-                    },
-                    enabled = !creatingNewChat,
-                ) {
-                    if (creatingNewChat) {
-                        com.hermes.client.ui.components.HermesMark(size = 20.dp)
-                    } else {
-                        Icon(
-                            Icons.Rounded.Add,
-                            contentDescription = localized(language, "新建对话", "New conversation"),
-                            modifier = Modifier.offset(x = 4.dp),
-                        )
-                    }
-                }
-                Box {
-                    IconButton(onClick = { transcriptMenu = true }) {
-                        Icon(
-                            Icons.Rounded.MoreVert,
-                            contentDescription = localized(language, "更多", "More"),
-                            modifier = Modifier.offset(x = (-4).dp),
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = transcriptMenu,
-                        onDismissRequest = { transcriptMenu = false },
-                        shape = RoundedCornerShape(16.dp),
-                        containerColor = MaterialTheme.colorScheme.surface,
-                    ) {
-                            // Navigation before actions (docs/DESIGN.md §5.4). Search leads: it
-                            // lost its top-bar slot to 新建对话, so it must be the first thing
-                            // found here.
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(localized(language, "搜索对话", "Search this chat")) },
-                                onClick = {
-                                    transcriptMenu = false
-                                    searchOpen = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(com.hermes.client.ui.components.PromptListIcon, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(promptListTitle(botOrigin, language)) },
-                                onClick = {
-                                    transcriptMenu = false
-                                    promptListTick = System.currentTimeMillis()
-                                },
-                            )
-                            DropdownMenuItem(
-                                leadingIcon = {
-                                    if (refreshingConversation) {
-                                        Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
-                                            com.hermes.client.ui.components.HermesMark(size = 20.dp)
-                                        }
-                                    } else {
-                                        Icon(Icons.Rounded.Refresh, contentDescription = null, Modifier.size(20.dp))
-                                    }
-                                },
-                                text = { Text(localized(language, "刷新对话", "Refresh conversation")) },
-                                enabled = !refreshingConversation,
-                                onClick = {
-                                    transcriptMenu = false
-                                    if (!state.isGenerating) viewportController.holdCurrent()
-                                    vm.refreshCurrentConversation()
-                                },
-                            )
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Rounded.Share, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(localized(language, "分享对话", "Share transcript")) },
-                                onClick = {
-                                    // The format picker owns the decision now: plain text, a
-                                    // Markdown file, or a rendered image.
-                                    if (state.messages.none { it.text.isNotBlank() }) {
-                                        android.widget.Toast.makeText(context, localized(language, "暂无可导出的内容", "Nothing to export yet"), android.widget.Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        shareFormatSheet = true
-                                    }
-                                    transcriptMenu = false
-                                },
-                            )
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Rounded.Archive, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(localized(language, "归档对话", "Archive conversation")) },
-                                onClick = {
-                                    transcriptMenu = false
-                                    confirmArchive = true
-                                },
-                            )
-                    }
-                }
-            }
+                },
+            )
         },
         bottomBar = {
             Column(
@@ -1276,7 +1191,7 @@ fun ChatScreen(
                     // fades out 150ms with the first message. Display-only — the composer keeps
                     // every control exactly where it already is.
                     androidx.compose.animation.AnimatedVisibility(
-                        visible = isNewSession && state.messages.isEmpty() && !state.isGenerating,
+                        visible = newChatGreetingVisible(isNewSession, state.messages.size, state.isGenerating),
                         enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(150)),
                         exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)),
                     ) {
@@ -1936,6 +1851,36 @@ internal fun adaptiveSessionTitleSize(title: String): Int = when {
     title.length <= 22 -> 18
     else -> 16
 }
+
+/**
+ * Whether the chat top bar shows ＋ and ⋮ (HG-37, docs/DESIGN.md §5.4).
+ *
+ * An empty new session shows neither: ＋ would open a new conversation from a conversation that
+ * is already new and empty, and every one of the five overflow items — search, my prompts,
+ * refresh, share, archive — acts on a transcript that does not exist yet. The moment the first
+ * message lands, or generation starts, both come back.
+ *
+ * This is the greeting overlay's predicate, negated, and deliberately the *same* expression:
+ * the bar and the greeting describe one state, and the 0.1.88 bug was born of a second copy.
+ * Note it reads the nav argument, not `ChatUiState` — that object mirrors `runtime.chat` and any
+ * flag written into it is overwritten on the next collect (see ChatComponents.kt).
+ *
+ * An existing session that happens to have no messages is NOT this state: its actions stay, the
+ * requirement is about 新会话 specifically, and refresh/share/archive are exactly what someone
+ * looking at an unexpectedly empty old conversation reaches for.
+ */
+internal fun chatTopBarActionsVisible(
+    isNewSession: Boolean,
+    messageCount: Int,
+    isGenerating: Boolean,
+): Boolean = !newChatGreetingVisible(isNewSession, messageCount, isGenerating)
+
+/** The new-session greeting overlay's visibility; see [chatTopBarActionsVisible]. */
+internal fun newChatGreetingVisible(
+    isNewSession: Boolean,
+    messageCount: Int,
+    isGenerating: Boolean,
+): Boolean = isNewSession && messageCount == 0 && !isGenerating
 
 @Composable
 private fun AttachmentActionCard(

@@ -606,6 +606,8 @@ class ScreenshotTest {
         repo: String?,
         runtime: com.hermes.client.data.progress.SessionRuntime? = null,
         pinned: Boolean = false,
+        unread: Boolean = false,
+        hasDraft: Boolean = false,
     ) {
         androidx.compose.foundation.layout.Box(
             androidx.compose.ui.Modifier.background(tint),
@@ -616,10 +618,51 @@ class ScreenshotTest {
                 defaultProjectPath = "/Users/me",
                 onMoveToProject = {},
                 runtime = runtime,
+                unread = unread,
+                hasDraft = hasDraft,
                 onOpen = {}, onTogglePin = {}, onRename = {}, onArchive = {}, onDelete = {},
             )
         }
     }
+
+    /**
+     * The 「草稿」 marker (HG-41). It rides in the subline, ahead of 项目 · 模型 and after the pin —
+     * NOT in the row's trailing 28dp column, where a neutral mark reads as unread (DESIGN.md §5.2).
+     * The rows below pair it with everything it has to coexist with, and the last one is the case
+     * with no subline content at all, where the marker is the only thing on the line.
+     */
+    @androidx.compose.runtime.Composable
+    private fun DraftRows() {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides
+                com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+            ProbeRow(androidx.compose.ui.graphics.Color(0x00000000), "起风工作室数据", "/u/xiaomai", hasDraft = true)
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0x00000000), "重构网关心跳", "/u/hermes-remote",
+                pinned = true, hasDraft = true,
+            )
+            // Draft AND unread: one on the left, one on the right, deliberately never the same mark.
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0x00000000), "查看机器性能负荷", "/u/xiaomai",
+                unread = true, hasDraft = true,
+            )
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0x00000000), "等待你的确认", "/u/xiaomai",
+                runtime = probeRuntime("draft-run", com.hermes.client.data.progress.SessionRunPhase.WAITING_APPROVAL),
+                hasDraft = true,
+            )
+            ProbeRow(androidx.compose.ui.graphics.Color(0x00000000), "默认项目里的会话", null, hasDraft = true)
+            // The control: the same row without a draft.
+            ProbeRow(androidx.compose.ui.graphics.Color(0x00000000), "没有草稿", "/u/xiaomai")
+        }
+        }
+    }
+
+    @Test fun sessionRowsDraft() = snap("session-rows-draft") { DraftRows() }
+
+    @Test fun sessionRowsDraftDark() = snap("session-rows-draft-dark", darkTheme = true) { DraftRows() }
 
     @Test fun rowHeightProbe() = snap("row-height-probe") {
         androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
@@ -1120,6 +1163,43 @@ class ScreenshotTest {
                 )
             }
         }
+
+    /**
+     * The chat top bar, which had no golden at all until HG-37 gave it a visibility rule to hold.
+     * `new` is an empty new session: 返回 and the title block, nothing else — no ＋ pointing at the
+     * conversation you are already in, no ⋮ whose five items all act on a transcript that does not
+     * exist yet.
+     */
+    @androidx.compose.runtime.Composable
+    private fun ChatBar(title: String, actionsVisible: Boolean) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides
+                com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+            com.hermes.client.ui.chat.ChatTopBar(
+                title = title,
+                actionsVisible = actionsVisible,
+                creatingNewChat = false,
+                refreshingConversation = false,
+                promptsLabel = "我的提问",
+                onBack = {},
+                onNewChat = {},
+                onSearch = {},
+                onPrompts = {},
+                onRefresh = {},
+                onShare = {},
+                onArchive = {},
+            )
+        }
+    }
+
+    @Test fun chatTopBarNewSession() = snap("chat-topbar-new") { ChatBar("新会话", actionsVisible = false) }
+
+    @Test fun chatTopBarExistingSession() =
+        snap("chat-topbar-existing") { ChatBar("查看机器性能负荷", actionsVisible = true) }
+
+    @Test fun chatTopBarExistingSessionDark() =
+        snap("chat-topbar-existing-dark", darkTheme = true) { ChatBar("查看机器性能负荷", actionsVisible = true) }
 
     @Test fun chatsTopBarZh() =
         snap("chats-topbar-zh") { topBar(com.hermes.client.ui.localization.AppLanguage.ZH)() }

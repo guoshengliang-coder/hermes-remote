@@ -18,6 +18,7 @@ import com.hermes.client.data.repository.ChatMediaRepository
 import com.hermes.client.data.repository.ChatFileRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.ProfileRepository
+import com.hermes.client.data.repository.SessionReadStore
 import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
@@ -79,6 +80,14 @@ class ChatViewModel @Inject constructor(
     private val projectPrefs: com.hermes.client.data.repository.ProjectPrefsStore,
     private val projectCatalog: com.hermes.client.data.repository.ProjectCatalog,
     private val botSendNotice: com.hermes.client.data.repository.BotSendNoticeStore,
+    private val draftStore: com.hermes.client.data.repository.DraftSnapshot,
+    /**
+     * Application scope, for the draft write only (HG-41). It MUST NOT be `viewModelScope`: the
+     * draft has to be saved precisely when the user leaves, and leaving pops the chat destination,
+     * which clears this ViewModel and cancels that scope — the debounced write would be cancelled
+     * exactly in the case it exists for. Nothing else here may use it.
+     */
+    private val draftScope: kotlinx.coroutines.CoroutineScope,
     private val accountSessions: AccountSessionManager? = null,
     private val conversationDevices: ConversationDeviceStore? = null,
 ) : ViewModel() {
@@ -93,6 +102,13 @@ class ChatViewModel @Inject constructor(
     private companion object {
         /** How long a manual refresh waits for Hermes' session.info after probing an active run. */
         const val MANUAL_REFRESH_PROBE_SETTLE_MS = 1_500L
+
+        /**
+         * Debounce for the draft write (HG-41). Long enough that ordinary typing coalesces into
+         * one whole-file rewrite, short enough that it has landed by the time a back press can
+         * follow the keystroke that triggered it.
+         */
+        const val DRAFT_SAVE_DEBOUNCE_MS = 400L
         const val LIVE_HANDLE_TIMEOUT_MS = 25_000L
         const val STALE_SESSION_CODE = 4001
 
@@ -341,10 +357,49 @@ class ChatViewModel @Inject constructor(
             explicit || (cur != null && def != null && cur != def)
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), false)
 
-    // Text handed off from a share (Share-to-Hermes). ChatScreen pre-fills the composer with it once.
+    // The composer's opening text: this conversation's saved draft (HG-41), or text handed off
+    // from a share (Share-to-Hermes). ChatScreen pre-fills the composer with it once.
     private val _initialDraft = MutableStateFlow<String?>(null)
     val initialDraft: StateFlow<String?> = _initialDraft.asStateFlow()
     fun clearInitialDraft() { _initialDraft.value = null }
+
+    /** [SessionReadStore.token] for the open conversation; null until [open] resolves the profile. */
+    private var draftToken: String? = null
+    private var draftSaveJob: kotlinx.coroutines.Job? = null
+    /**
+     * Guards the composer-versus-disk race at open. The composer starts empty and only fills in
+     * once the stored draft has been read, so until that read lands a blank composer means "not
+     * filled in yet", not "the user cleared it" — writing it through would delete the very draft
+     * being restored. [draftTouched] is the other side: if the user typed while the read was in
+     * flight, their words win and the stored text is not pushed over them.
+     */
+    private var draftSeeded = false
+    private var draftTouched = false
+
+    /**
+     * Remember the composer's unsent text (HG-41), debounced so typing is not a write storm —
+     * Preferences DataStore rewrites the whole file on every edit.
+     *
+     * Blank text deletes the record rather than storing an empty one, so the session list never
+     * marks a row 「草稿」 for a composer the user emptied.
+     */
+    fun rememberDraft(text: String) {
+        val token = draftToken ?: return
+        if (!draftSeeded && text.isBlank()) return
+        draftTouched = true
+        draftSaveJob?.cancel()
+        draftSaveJob = draftScope.launch {
+            kotlinx.coroutines.delay(DRAFT_SAVE_DEBOUNCE_MS)
+            draftStore.save(token, text)
+        }
+    }
+
+    /** Drop the draft now, ahead of the debounce — the message went out, or was thrown away. */
+    fun clearDraft() {
+        val token = draftToken ?: return
+        draftSaveJob?.cancel()
+        draftScope.launch { draftStore.clear(token) }
+    }
 
     val favorites: kotlinx.coroutines.flow.StateFlow<Set<String>> =
         favoritesStore.favorites.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptySet())
@@ -633,9 +688,21 @@ class ChatViewModel @Inject constructor(
             }
         }
         collectRuntime(key)
-        // A share created this session and stashed its text; surface it as the initial composer draft.
+        // What the composer opens with. A draft the user typed here themselves outranks a share
+        // handoff — in practice they never compete, since a share only ever lands on the session
+        // it just created, but if they ever did, the user's own unsent words are the ones to keep.
+        val token = SessionReadStore.token(profile, id, currentDeviceId)
+        draftToken = token
+        draftSeeded = false
+        draftTouched = false
+        draftSaveJob?.cancel()
         val ps = pendingShareStore.take(id)
-        ps?.text?.let { _initialDraft.value = it }
+        viewModelScope.launch {
+            val saved = draftStore.read(token)
+            if (storedSessionId != id) return@launch
+            if (!draftTouched) (saved?.takeIf { it.isNotBlank() } ?: ps?.text)?.let { _initialDraft.value = it }
+            draftSeeded = true
+        }
         com.hermes.client.data.diagnostics.DebugLog.log("session", "open($id)")
         // Load the server-authoritative title/model separately from history so neither request
         // blocks the other. A new zero-message session may not have metadata yet; it stays

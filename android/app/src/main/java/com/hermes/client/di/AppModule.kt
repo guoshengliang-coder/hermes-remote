@@ -321,6 +321,18 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideDraftStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.DraftStore =
+        com.hermes.client.data.repository.DraftStore(context)
+
+    @Provides
+    fun provideDraftSnapshot(
+        store: com.hermes.client.data.repository.DraftStore,
+    ): com.hermes.client.data.repository.DraftSnapshot = store
+
+    @Provides
+    @Singleton
     fun provideProjectsRepository(
         client: HermesGatewayClient,
         json: Json,
