@@ -567,10 +567,7 @@ class ScreenshotTest {
                     com.hermes.client.ui.chat.UserBubble(
                         msg = msg,
                         onEditResend = {},
-                        onImageSave = {},
-                        onImageSaveAs = {},
-                        onImageShare = {},
-                        savingImageId = null,
+                        onOpenImage = { _, _ -> },
                         onFileOpen = {},
                         onFileShare = {},
                         sendDiagnostic = code?.let { "code=${it.value}" },
@@ -1033,7 +1030,7 @@ class ScreenshotTest {
             ).forEach { (id, landing, search) ->
                 com.hermes.client.ui.chat.UserBubble(
                     msg = userTurn(id, "可以进一步加大虚拟内存什么的吗", com.hermes.client.domain.DeliveryState.SENT),
-                    onEditResend = {}, onImageSave = {}, onImageSaveAs = {}, onImageShare = {}, savingImageId = null,
+                    onEditResend = {}, onOpenImage = { _, _ -> },
                     onFileOpen = {}, onFileShare = {}, highlighted = search, landingAlpha = landing,
                 )
             }
@@ -1151,8 +1148,7 @@ class ScreenshotTest {
                         role = com.hermes.client.domain.Role.USER,
                         text = "帮我看下这个报错",
                     ),
-                    onEditResend = {}, onImageSave = {}, onImageSaveAs = {}, onImageShare = {},
-                    savingImageId = null, onFileOpen = {}, onFileShare = {},
+                    onEditResend = {}, onOpenImage = { _, _ -> }, onFileOpen = {}, onFileShare = {},
                 )
                 com.hermes.client.ui.chat.UserBubble(
                     msg = com.hermes.client.domain.ChatMessage(
@@ -1160,8 +1156,7 @@ class ScreenshotTest {
                         role = com.hermes.client.domain.Role.USER,
                         text = "我从手机补一句",
                     ),
-                    onEditResend = {}, onImageSave = {}, onImageSaveAs = {}, onImageShare = {},
-                    savingImageId = null, onFileOpen = {}, onFileShare = {},
+                    onEditResend = {}, onOpenImage = { _, _ -> }, onFileOpen = {}, onFileShare = {},
                 )
             }
         }

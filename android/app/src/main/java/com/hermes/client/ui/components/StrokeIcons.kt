@@ -459,3 +459,93 @@ val MoonStrokeIcon: ImageVector by lazy {
         close()
     }
 }
+
+// --- Image editor (DESIGN.md §4.2, §5.4b) ---------------------------------------------------
+// Hand-drawn rather than Material, even though the editor is hosted in a Dialog: §4.1's popup
+// exemption covers transient sheets and menus, not a full working surface with its own toolbar
+// that the user stares at while annotating.
+
+/** Pen nib angled down-left — the doodle tool. */
+val DoodleStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeDoodle") {
+        // Barrel.
+        moveTo(16.8f, 3.9f)
+        lineTo(20.1f, 7.2f)
+        lineTo(9.4f, 17.9f)
+        lineTo(5f, 19f)
+        lineTo(6.1f, 14.6f)
+        close()
+        // Ferrule, so the nib reads as a pen rather than a plain arrow.
+        moveTo(14.4f, 6.3f)
+        lineTo(17.7f, 9.6f)
+    }
+}
+
+/** A grid of blocks — the mosaic tool. Blocks, not a blur, because that is what it draws. */
+val MosaicStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeMosaic") {
+        moveTo(4f, 4f); lineTo(20f, 4f); lineTo(20f, 20f); lineTo(4f, 20f); close()
+        moveTo(4f, 9.33f); lineTo(20f, 9.33f)
+        moveTo(4f, 14.67f); lineTo(20f, 14.67f)
+        moveTo(9.33f, 4f); lineTo(9.33f, 20f)
+        moveTo(14.67f, 4f); lineTo(14.67f, 20f)
+    }
+}
+
+/** Two overlapping right angles — the crop tool. */
+val CropStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeCrop") {
+        moveTo(6.5f, 2.5f); lineTo(6.5f, 17.5f); lineTo(21.5f, 17.5f)
+        moveTo(2.5f, 6.5f); lineTo(17.5f, 6.5f); lineTo(17.5f, 21.5f)
+    }
+}
+
+/** A frame with a turning arrow — rotate 90 degrees. */
+val RotateStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeRotate") {
+        moveTo(4.5f, 10f)
+        lineTo(4.5f, 19f)
+        lineTo(13.5f, 19f)
+        lineTo(13.5f, 10f)
+        close()
+        // Quarter arc above the frame, with a head so the direction is legible.
+        moveTo(10f, 6.5f)
+        arcTo(6f, 6f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 19.5f, y1 = 11f)
+        moveTo(19.5f, 11f); lineTo(17f, 9.2f)
+        moveTo(19.5f, 11f); lineTo(21.4f, 8.6f)
+    }
+}
+
+/** Arrow curving back to the left — undo. Mirrored by [RedoStrokeIcon]. */
+val UndoStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeUndo") {
+        moveTo(4.5f, 9.5f)
+        lineTo(13f, 9.5f)
+        arcTo(5.5f, 5.5f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 13f, y1 = 20.5f)
+        lineTo(8f, 20.5f)
+        moveTo(4.5f, 9.5f); lineTo(8.3f, 5.8f)
+        moveTo(4.5f, 9.5f); lineTo(8.3f, 13.2f)
+    }
+}
+
+/** Arrow curving back to the right — redo. Drawn as the exact mirror of [UndoStrokeIcon]. */
+val RedoStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeRedo") {
+        moveTo(19.5f, 9.5f)
+        lineTo(11f, 9.5f)
+        arcTo(5.5f, 5.5f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 11f, y1 = 20.5f)
+        lineTo(16f, 20.5f)
+        moveTo(19.5f, 9.5f); lineTo(15.7f, 5.8f)
+        moveTo(19.5f, 9.5f); lineTo(15.7f, 13.2f)
+    }
+}
+
+/** A closed loop back to its own start — reset. Distinct from undo: it goes all the way, not one step. */
+val ResetStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeReset") {
+        moveTo(20f, 12f)
+        arcTo(8f, 8f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 17.2f, y1 = 5.9f)
+        moveTo(17.2f, 5.9f); lineTo(17.6f, 2.2f)
+        moveTo(17.2f, 5.9f); lineTo(13.5f, 5.6f)
+    }
+}

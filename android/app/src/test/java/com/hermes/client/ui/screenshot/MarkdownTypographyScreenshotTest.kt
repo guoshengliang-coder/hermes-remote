@@ -120,8 +120,7 @@ fun main() { println("hi") }
                         canRegenerate = false, showActions = false,
                         onRegenerate = {}, onRetryWithModel = {}, onOpenTableFullscreen = {},
                         isSpeaking = false, onReadAloud = {}, onStopReading = {},
-                        onImageSave = {}, onImageSaveAs = {}, onImageShare = {},
-                        savingImageId = null, onFileOpen = {}, onFileShare = {},
+                        onOpenImage = { _, _ -> }, onFileOpen = {}, onFileShare = {},
                     )
                 }
                 }

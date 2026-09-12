@@ -57,10 +57,13 @@ class ChatMediaRepository @Inject constructor(
             val file = File(directory, safeName(id, mimeType))
             file.writeBytes(bytes)
             trimCache()
+            val size = pixelSize(file)
             ChatImage(
                 id = id,
                 mimeType = mimeType,
                 localPath = file.absolutePath,
+                width = size?.first,
+                height = size?.second,
                 state = ImageTransferState.UPLOADING,
             )
         }
@@ -151,7 +154,11 @@ class ChatMediaRepository @Inject constructor(
         }
 
     private suspend fun hydrate(image: ChatImage, profile: String?): ChatImage {
-        if (!image.localPath.isNullOrBlank() && File(image.localPath).isFile) return image
+        if (!image.localPath.isNullOrBlank() && File(image.localPath).isFile) {
+            // Measure even here: a message restored from the runtime store can arrive already
+            // holding a path but no dimensions, and this early return is the only place it passes.
+            return measured(image, File(image.localPath))
+        }
         val sourceKey = image.remotePath ?: image.sourceUrl
             ?: return image.copy(state = ImageTransferState.FAILED)
         return runCatching {
@@ -159,7 +166,7 @@ class ChatMediaRepository @Inject constructor(
                 val cacheKey = sha256("${profile.orEmpty()}\n$sourceKey")
                 val existing = directory.listFiles()?.firstOrNull { it.name.startsWith(cacheKey) }
                 if (existing != null && existing.isFile && existing.length() > 0L) {
-                    return@withContext image.copy(localPath = existing.absolutePath)
+                    return@withContext measured(image.copy(localPath = existing.absolutePath), existing)
                 }
                 val mime = image.mimeType ?: mimeForPath(sourceKey)
                 val file = File(directory, safeName(cacheKey, mime))
@@ -168,13 +175,16 @@ class ChatMediaRepository @Inject constructor(
                     val resolvedFile = File(directory, safeName(cacheKey, resolvedMime))
                     resolvedFile.writeBytes(bytes)
                     trimCache()
-                    return@withContext image.copy(mimeType = resolvedMime, localPath = resolvedFile.absolutePath)
+                    return@withContext measured(
+                        image.copy(mimeType = resolvedMime, localPath = resolvedFile.absolutePath),
+                        resolvedFile,
+                    )
                 }
                 // Connector streams the original bytes in acknowledged chunks. This avoids the
                 // former data:image;base64 JSON response and its second tunnel-level Base64 layer.
                 rest.downloadArtifact(requireNotNull(image.remotePath), file)
                 trimCache()
-                image.copy(mimeType = mime, localPath = file.absolutePath)
+                measured(image.copy(mimeType = mime, localPath = file.absolutePath), file)
             }
         }.getOrElse { error ->
             if (error is kotlinx.coroutines.CancellationException) throw error
@@ -205,6 +215,28 @@ class ChatMediaRepository @Inject constructor(
             }
             return mime to output.toByteArray()
         }
+    }
+
+    /**
+     * Fill [ChatImage.width]/[ChatImage.height] from the file we have just written, unless the
+     * caller already knew them.
+     *
+     * The renderer needs the aspect ratio to size a thumbnail's container, and learning it later
+     * would resize the bubble after the fact -- a layout jump inside a reverse-layout LazyColumn,
+     * which is exactly what "data changes never steal the viewport" forbids. Measuring here costs
+     * one bounds-only decode on a thread that just finished writing the bytes anyway.
+     */
+    private fun measured(image: ChatImage, file: File): ChatImage {
+        if (image.width != null && image.height != null) return image
+        val size = pixelSize(file) ?: return image
+        return image.copy(width = size.first, height = size.second)
+    }
+
+    /** Intrinsic pixel size of [file] without allocating its pixels, or null if it is not decodable. */
+    private fun pixelSize(file: File): Pair<Int, Int>? {
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        runCatching { android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds) }
+        return if (bounds.outWidth > 0 && bounds.outHeight > 0) bounds.outWidth to bounds.outHeight else null
     }
 
     private fun safeName(id: String, mimeType: String): String {
