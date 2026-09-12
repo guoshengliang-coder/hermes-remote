@@ -53,6 +53,16 @@ private val ATTACHED_FILE_PLACEHOLDER = Regex(
     RegexOption.IGNORE_CASE,
 )
 private val MARKDOWN_IMAGE = Regex("!\\[([^]]*)]\\((https://[^\\s)]+)(?:\\s+[\"'][^)]*)?\\)")
+
+/**
+ * Any other Markdown image: `http://`, a bare host, `data:`, a relative path. None of them can
+ * be fetched — the image path is HTTPS-only by design, so that an assistant-supplied URL can
+ * never be talked into a cleartext or private-address request — and leaving the markup in place
+ * would hand the renderer an image it is guaranteed to fail, drawing an empty box. Collapse to
+ * the alt text, which is what a reader can actually use.
+ */
+private val UNFETCHABLE_MARKDOWN_IMAGE =
+    Regex("!\\[([^]\\r\\n]*)]\\((?!https://)[^\\s)]*(?:\\s+[\"'][^)]*)?\\)")
 private val LOCAL_MARKDOWN_IMAGE = Regex(
     "!\\[([^]\\r\\n]*)]\\(\\s*(<?(?:file://)?/[^)\\r\\n>]*?\\.(?:png|jpe?g|gif|webp)>?)(?:\\s+[\"'][^)\\r\\n]*[\"'])?\\s*\\)",
     RegexOption.IGNORE_CASE,
@@ -129,6 +139,21 @@ private data class LabeledFileExtraction(
     val references: List<LabeledFileReference>,
 )
 
+/**
+ * True when [range] covers everything on its line except whitespace and other images.
+ *
+ * That is the shape DESIGN.md §5.4 hoists into the message's image grid: an image the assistant
+ * produced *as* the content. An image sharing its line with text is a different thing — a 16px
+ * GitHub mark inside a table cell, a logo mid-sentence — and hoisting it produced HG-25: the icon
+ * vanished from the cell and reappeared, absurdly, as a full-width card above the answer (or not
+ * at all, once it deduplicated against another row's copy).
+ */
+private fun isStandaloneImageLine(text: String, range: IntRange): Boolean {
+    val lineStart = text.lastIndexOf('\n', range.first).let { if (it < 0) 0 else it + 1 }
+    val lineEnd = text.indexOf('\n', range.last).let { if (it < 0) text.length else it }
+    return MARKDOWN_IMAGE.replace(text.substring(lineStart, lineEnd), "").isBlank()
+}
+
 private data class ExplicitMediaExtraction(
     val text: String,
     val paths: List<String>,
@@ -151,13 +176,29 @@ internal fun parseMessageContent(raw: String): ParsedMessageContent {
     val localMarkdownImages = LOCAL_MARKDOWN_IMAGE.findAll(labeledFiles.text).mapNotNull { match ->
         normalizeLocalImagePath(match.groupValues[2])?.takeIf(::looksLikeMacAbsolutePath)?.let(::remoteImage)
     }.toList()
-    val webImages = MARKDOWN_IMAGE.findAll(labeledFiles.text).mapIndexed { index, match ->
-        val url = match.groupValues[2]
-        ChatImage(
-            id = "web-${url.hashCode()}-$index",
-            sourceUrl = url,
-        )
-    }.toList()
+    // Directives and placeholders are stripped first so "is this image alone on its line" is asked
+    // of the line the reader will actually see, and asked once — the answer decides both whether
+    // the image becomes a card and whether its markup survives, and those two must never disagree.
+    val withoutDirectives = labeledFiles.text
+        .replace(IMAGE_DIRECTIVE, "")
+        .replace(ATTACHED_IMAGE_PLACEHOLDER, "")
+        .replace(FILE_DIRECTIVE, "")
+        .replace(ATTACHED_FILE_PLACEHOLDER, "")
+        // Both of these still collapse to the link label whether or not the target became a card:
+        // a root-relative URL cannot resolve in this transcript either, so showing the reader its
+        // text is no worse than showing them a link that goes nowhere. Only the attachment card
+        // is withheld — that is the part that promised a downloadable file (HG-23).
+        .replace(LOCAL_MARKDOWN_IMAGE) { it.groupValues[1].takeIf(String::isNotBlank).orEmpty() }
+        .replace(LOCAL_MARKDOWN_FILE) { it.groupValues[1].takeIf(String::isNotBlank).orEmpty() }
+    val webImages = MARKDOWN_IMAGE.findAll(withoutDirectives)
+        .filter { isStandaloneImageLine(withoutDirectives, it.range) }
+        .mapIndexed { index, match ->
+            val url = match.groupValues[2]
+            ChatImage(
+                id = "web-${url.hashCode()}-$index",
+                sourceUrl = url,
+            )
+        }.toList()
     val images = (explicitImages + pathImages + labeledImages + localMarkdownImages + webImages)
         .distinctBy { it.remotePath ?: it.sourceUrl ?: it.id }
     val directiveFiles = FILE_DIRECTIVE.findAll(labeledFiles.text).mapIndexed { index, match ->
@@ -188,18 +229,17 @@ internal fun parseMessageContent(raw: String): ParsedMessageContent {
     }.toList()
     val files = (explicitFiles + directiveFiles + naturalFiles + localMarkdownFiles)
         .distinctBy { it.remotePath ?: it.localPath ?: it.id }
-    val visible = labeledFiles.text
-        .replace(IMAGE_DIRECTIVE, "")
-        .replace(ATTACHED_IMAGE_PLACEHOLDER, "")
-        .replace(FILE_DIRECTIVE, "")
-        .replace(ATTACHED_FILE_PLACEHOLDER, "")
-        // Both of these still collapse to the link label whether or not the target became a card:
-        // a root-relative URL cannot resolve in this transcript either, so showing the reader its
-        // text is no worse than showing them a link that goes nowhere. Only the attachment card
-        // is withheld — that is the part that promised a downloadable file (HG-23).
-        .replace(LOCAL_MARKDOWN_IMAGE) { it.groupValues[1].takeIf(String::isNotBlank).orEmpty() }
-        .replace(LOCAL_MARKDOWN_FILE) { it.groupValues[1].takeIf(String::isNotBlank).orEmpty() }
-        .replace(MARKDOWN_IMAGE) { it.groupValues[1].takeIf(String::isNotBlank).orEmpty() }
+    val visible = withoutDirectives
+        .replace(UNFETCHABLE_MARKDOWN_IMAGE) { it.groupValues[1].takeIf(String::isNotBlank).orEmpty() }
+        .replace(MARKDOWN_IMAGE) { match ->
+            // A hoisted image has already left the prose as a card, so its markup goes. An inline
+            // one stays exactly where the author put it and is rendered in place (HG-25).
+            if (isStandaloneImageLine(withoutDirectives, match.range)) {
+                match.groupValues[1].takeIf(String::isNotBlank).orEmpty()
+            } else {
+                match.value
+            }
+        }
         .lines()
         .dropWhile { it.isBlank() }
         .dropLastWhile { it.isBlank() }

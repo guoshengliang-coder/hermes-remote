@@ -1988,6 +1988,7 @@ internal fun AssistantMarkdownBlock(
         ),
         components = components,
         inlineContent = linkIcon,
+        imageTransformer = rememberInlineImageTransformer(),
         padding = markdownPadding(
             block = MD_BLOCK,
             list = MD_LIST,
@@ -2324,6 +2325,7 @@ internal fun StyledMarkdownTableSample(raw: String) {
         components = markdownComponents(
             table = { m -> StyledMarkdownTable(m.content, m.node, m.typography.table) },
         ),
+        imageTransformer = rememberInlineImageTransformer(),
         dimens = markdownDimens(tableCellWidth = 110.dp, tableCellPadding = 8.dp),
     )
 }
@@ -2366,6 +2368,9 @@ internal fun OffscreenTableExporter(raw: String, action: TableExportAction, onDo
                 components = markdownComponents(
                     table = { m -> StyledMarkdownTable(m.content, m.node, m.typography.table) },
                 ),
+                // Cache only: an export renders what is already on the device and never starts a
+                // download (DESIGN.md §5.13).
+                imageTransformer = rememberInlineImageTransformer(allowFetch = false),
                 dimens = markdownDimens(tableCellWidth = 170.dp, tableCellPadding = 10.dp),
             )
         }
@@ -2625,6 +2630,7 @@ internal fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
                             components = markdownComponents(
                                 table = { m -> StyledMarkdownTable(m.content, m.node, m.typography.table) },
                             ),
+                            imageTransformer = rememberInlineImageTransformer(),
                             dimens = markdownDimens(tableCellWidth = exportCellWidth.dp, tableCellPadding = 10.dp),
                         )
                     }

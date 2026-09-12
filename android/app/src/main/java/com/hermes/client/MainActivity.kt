@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var languages: AppLanguageProvider
     @Inject lateinit var foregroundRecovery: ForegroundRecoveryCoordinator
     @Inject lateinit var feedbackReporter: com.hermes.client.data.feedback.FeedbackReporter
+    @Inject lateinit var chatMedia: com.hermes.client.data.repository.ChatMediaRepository
     private val startupViewModel: StartupViewModel by viewModels()
     private val processColdStart = PROCESS_UI_LAUNCH_CLAIMED.compareAndSet(false, true)
 
@@ -123,10 +124,20 @@ class MainActivity : ComponentActivity() {
             val startupState by startupViewModel.state.collectAsState()
             val repairCompletion by startupViewModel.repairCompletion.collectAsState()
             val accountSession by accountSessions.session.collectAsState()
+            // Provided here rather than per screen: assistant Markdown is rendered by the chat,
+            // by the bot transcript and by the share/export paths, and an icon that appears in a
+            // table cell in one of them has to appear in all of them.
+            val markdownImages = remember {
+                object : com.hermes.client.ui.chat.MarkdownImageLoader {
+                    override fun cached(url: String) = chatMedia.cachedInlineImage(url)
+                    override suspend fun load(url: String) = chatMedia.loadInlineImage(url)
+                }
+            }
             CompositionLocalProvider(
                 LocalAppLanguage provides language,
                 com.hermes.client.ui.components.LocalProfileIdentities provides identities,
                 com.hermes.client.ui.components.LocalAvatarDir provides profileIdentityStore.avatarDir,
+                com.hermes.client.ui.chat.LocalMarkdownImageLoader provides markdownImages,
             ) {
                 HermesTheme(darkTheme = dark) {
                     // TUNING-TEMP: the session-list tuning panel's values, read live so the list
