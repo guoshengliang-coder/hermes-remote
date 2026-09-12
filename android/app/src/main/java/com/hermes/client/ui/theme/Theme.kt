@@ -7,11 +7,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.platform.LocalContext
-
-/** App-wide flag for tool-call verbosity (true = Technical/show payloads, false = Product/hide). */
-val LocalToolCallTechnical = compositionLocalOf { false }
 
 @Composable
 fun HermesTheme(

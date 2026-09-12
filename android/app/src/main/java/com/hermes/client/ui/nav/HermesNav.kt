@@ -57,7 +57,6 @@ import com.hermes.client.ui.sessions.SessionsScreen
 import com.hermes.client.ui.sessions.SessionsViewModel
 import com.hermes.client.ui.sessions.SearchViewModel
 import com.hermes.client.ui.settings.AboutScreen
-import com.hermes.client.ui.settings.AppearanceScreen
 import com.hermes.client.ui.settings.EnvScreen
 import com.hermes.client.ui.settings.McpSettingsScreen
 import com.hermes.client.ui.settings.MemorySettingsScreen
@@ -481,6 +480,7 @@ fun HermesNav(
                     onNewChat = { id ->
                         openCanonicalChat(chatRoute(ChatLaunch.new(id)))
                     },
+                    onManagePrompts = { nav.navigate("settings_prompts") { launchSingleTop = true } },
                     onUnauthorized = onUnauthorized,
                 )
             }
@@ -570,7 +570,6 @@ fun HermesNav(
                     onBack = { nav.popBackStack() },
                 )
             }
-            composable("settings_appearance") { AppearanceScreen(onBack = { nav.popBackStack() }) }
             composable("settings_language") { LanguageScreen(onBack = { nav.popBackStack() }) }
             composable("settings_account") {
                 com.hermes.client.ui.account.AccountDevicesScreen(

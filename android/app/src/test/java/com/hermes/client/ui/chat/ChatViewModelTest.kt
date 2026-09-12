@@ -55,7 +55,6 @@ class ChatViewModelTest {
     private val mediaRepo = mockk<ChatMediaRepository>(relaxed = true)
     private val fileRepo = mockk<com.hermes.client.data.repository.ChatFileRepository>(relaxed = true)
     private val sessionRepo = mockk<SessionRepository>(relaxed = true)
-    private val toolsRepo = mockk<com.hermes.client.data.repository.ToolsRepository>(relaxed = true)
     private val modelRepo = mockk<ModelRepository>(relaxed = true)
     private val profileRepo = mockk<ProfileRepository>(relaxed = true)
     private val profileManager = mockk<com.hermes.client.data.repository.ProfileManager>(relaxed = true)
@@ -144,7 +143,7 @@ class ChatViewModelTest {
             com.hermes.client.data.repository.ProjectCatalog(
                 mockk(relaxed = true), sessionRepo, profileManager, projectPrefs,
             ),
-            toolsRepo, botSendNotice, accountSessions, conversationDevices,
+            botSendNotice, accountSessions, conversationDevices,
         )
     }
 
@@ -1213,29 +1212,5 @@ class ChatViewModelTest {
         val vm = buildVm()
         vm.stopReading()
         io.mockk.verify { tts.stop() }
-    }
-
-    @Test fun setPersona_sends_personality_slash() = runTest {
-        val vm = buildVm()
-        vm.setPersona("witty"); advanceUntilIdle()
-        io.mockk.coVerify { chatRepo.slashExec(any(), "/personality witty") }
-    }
-
-    @Test fun setPersona_null_clears_with_none() = runTest {
-        val vm = buildVm()
-        vm.setPersona(null); advanceUntilIdle()
-        io.mockk.coVerify { chatRepo.slashExec(any(), "/personality none") }
-    }
-
-    // chat.slashExec returns command-level errors in its output string (only transport failures
-    // throw), so a gateway rejection of an unknown persona must surface as an error, not silently
-    // set active — otherwise the UI would show a persona as applied when the gateway refused it.
-    @Test fun setPersona_rejection_surfaces_error_and_does_not_set_active() = runTest {
-        coEvery { chatRepo.slashExec(any(), any()) } returns "unknown personality: x"
-        val vm = buildVm()
-        vm.setPersona("bad"); advanceUntilIdle()
-
-        assertTrue("a gateway rejection must surface a persona error", vm.personaUi.value.error != null)
-        assertEquals(null, vm.personaUi.value.active)
     }
 }

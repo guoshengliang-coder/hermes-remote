@@ -155,6 +155,33 @@ class ScreenshotTest {
         }
     }
 
+    // The composer's saved-prompt sheet. Settings no longer has a 常用提示 row (HG-33), so the
+    // 「管理」 button in this header is the only door into the prompt library — these two goldens
+    // are what keeps it from being dropped by a later layout edit.
+    private val savedPrompts = listOf(
+        com.hermes.client.data.repository.SavedPrompt("1", "Code review", "Review this diff for correctness bugs."),
+        com.hermes.client.data.repository.SavedPrompt("2", "翻译成中文", "把下面的内容翻译成简体中文，保留代码块。"),
+        com.hermes.client.data.repository.SavedPrompt("3", "写提交信息", "根据暂存区的改动写一条提交信息。"),
+    )
+
+    @Test fun savedPromptSheet() = snap("saved-prompt-sheet-zh") {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+            com.hermes.client.ui.chat.SavedPromptSheetContent(
+                prompts = savedPrompts, onPick = {}, onManage = {},
+            )
+        }
+    }
+
+    // Empty state in English: the copy has to name the button that replaced the Settings row, and
+    // "tap Manage" is the longer of the two languages.
+    @Test fun savedPromptSheetEmptyDark() = snap("saved-prompt-sheet-empty-dark", darkTheme = true) {
+        com.hermes.client.ui.chat.SavedPromptSheetContent(
+            prompts = emptyList(), onPick = {}, onManage = {},
+        )
+    }
+
     @Test fun toolCardFailure() = snap("tool-card-failure") {
         com.hermes.client.ui.chat.SemanticToolCard(
             com.hermes.client.domain.ToolCall(

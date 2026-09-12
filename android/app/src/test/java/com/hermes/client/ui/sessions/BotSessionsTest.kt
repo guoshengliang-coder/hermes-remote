@@ -26,7 +26,7 @@ class BotSessionsTest {
     /**
      * `cron` is in EXCLUDED_SOURCES but is NOT a conversation. It is openable in chat today from
      * the activity feed, and treating it as one would sign its turns with a peer who does not
-     * exist and hide handoff from a session that can legitimately use it.
+     * exist.
      */
     @Test fun a_scheduled_run_is_not_a_bot_session() {
         assertFalse(isBotSession("cron"))
