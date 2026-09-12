@@ -48,10 +48,15 @@
       "at": "2026-09-12（第五次，模型选择首次入库）",
       "projectUpdateTime": "2026-09-11T15:53:04.972204Z",
       "result": "新增 2 张（基线-模型选择 / 暗夜）；重拉已有 10 张比对 sha256：card.default.dark 变化仅为 Stitch 导出包装（<html> 上多了内联尺寸、末尾多了 snapdom-sandbox 空 div），无设计变化，未更新快照；sessions.chats.default.light / dark 为真实的密度收紧（顶栏 h-14→h-12、头像 36→32、标题 17→16px、行 py-3→py-1.5、正文区 pt-88→76），归属会话列表分支，本轮未重拉、未落地，见 specChanges；其余 7 张未变。"
+    },
+    {
+      "at": "2026-09-12（第七次，聊天页首次入库）",
+      "projectUpdateTime": "2026-09-12T05:29:54.541817Z",
+      "result": "新增 4 张：基线-聊天页/我的提问 与 /暗夜、基线-聊天页/滑动引导胶囊 与 /暗夜。聊天页此前一张未入库，「聊天页」本就在 §7 第 8 条的页面词表里，故无需归属裁决，章节沿用 §5.4。四张都是「去蓝化」稿：胶囊与弹层当前行的 primaryContainer 全部换成纸白 / 墨黑中性色 + 发丝描边。两张胶囊稿是完整聊天页，顺带画了顶栏、输入 dock 与表格卡，与现状有出入但不属本轮范围，记进 specChanges 的 pending。已有 12 张本轮未重拉。"
     }
   ],
   "specChanges": {
-    "_": "第二次拉取发现的规格变更及裁决。2026-09-11 晚些时候产品负责人把总规则改为「严格照稿，冲突用稿子的」，下面几条随之重裁，status 已更新为落地后的状态。status: landed | consistent | rejected。",
+    "_": "第二次拉取发现的规格变更及裁决。2026-09-11 晚些时候产品负责人把总规则改为「严格照稿，冲突用稿子的」，下面几条随之重裁，status 已更新为落地后的状态。status: landed | consistent | rejected。pending 段记已看到、但归属别的分支因而本轮不落地的差异。",
     "resolved": [
       {
         "screens": [
@@ -545,6 +550,17 @@
         "decision": "保留项，不得为了和稿一样删掉（同 §5.2 不覆盖清单）。顺带把硬编码的 HR-RPC-001 换成新登记的 HR-CRON-002 —— 传输码对「任务自己跑挂了」什么也没说，而 HR-CRON-001 只覆盖「跑成功但没送达」。",
         "status": "landed"
       }
+    ],
+    "pending": [
+      {
+        "screens": [
+          "chat.session.turn-pill.light",
+          "chat.session.turn-pill.dark"
+        ],
+        "change": "两张胶囊稿是完整聊天页，顺带画了：顶栏标题 19px/700 + 文件夹副行（现状无文件夹行）、输入 dock 为 48dp 全圆白底 + 1dp 描边 +「发消息或按住说话」占位（现状不同）、底部「内容由 AI 生成」脚注（现状无）、助手表格卡为 1dp 描边 + 等宽数字。",
+        "decision": "本轮不落地。用户这次要的是「我的提问」相关模块（胶囊 + 弹层），这几项属于聊天页整页改版，改动面与回归面都另算。快照与哈希已入库，下一次做聊天页整页时从这里接着走。",
+        "status": "pending"
+      }
     ]
   },
   "canvas": {
@@ -978,6 +994,145 @@
       ]
     },
     {
+      "key": "chat.session.default.my-prompts.light",
+      "screenId": "07b686779ca5419ea72733f50a9090d2",
+      "stitchLabel": "基线-聊天页/我的提问",
+      "stitchTitle": "Hermes 聊天页 -「我的提问」底部选择弹层 (温润浅色规范版)",
+      "page": "chat",
+      "view": "session",
+      "state": "default",
+      "overlay": "my-prompts",
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.4 聊天页（上一组对话胶囊 / 我的提问）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/chat/TurnJump.kt",
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatComponents.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/StrokeIcons.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（chat.* 的 design 列从本稿抽取）",
+      "html": "chat.session.default.my-prompts.light.html",
+      "sha256": "390a618d78c9887b9c3bd27770e529ad55a3763d04907a1bd23247735b58aff8",
+      "canvasHeightCssPx": 884,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "普通行（有时间）",
+        "当前行（有时间）",
+        "首行",
+        "末行"
+      ],
+      "notes": [
+        "本稿是浅色几何真源；暗色稿的几何差异见 pairs。",
+        "与稿子的有意偏离（同样写在 DESIGN.md §5.4）：① 提问摘要仍 ≤2 行，不采纳稿子的单行截断 —— 「超长摘要」是本功能必须覆盖的状态，长中文压成一行丢掉的正是区分两轮相似提问的字；② 抓手保持全局 SheetCloseHandle 32×4dp，不采纳稿子的 36×4dp 与它的专属颜色，理由同 §5.17「不为单张稿分叉」；③ 弹层高度仍按 §5.8 全展开，稿子的 max-h-82% 是它模拟手机边框的产物；④ 稿子没画「会话开始」行、0 组空态、跳转落地态，三处按既有规则保留，不凭空造 UI。",
+        "弹层上圆角 24dp 是 §5.8 全局 16dp 的唯一例外，只因稿子这么画，不外推。",
+        "头部的 ✕ 是第四条关闭通路，不替换抓手 / 遮罩 / 返回中的任何一条；§5.8 因此由「关闭只有三个入口」放宽为「至少三个入口，可以再加显式关闭钮」。",
+        "稿子没给计数 chip 标 font-mono —— 会话列表的计数 chip 是等宽的，这一处不是，按 §7 第 8 条逐张稿判。"
+      ]
+    },
+    {
+      "key": "chat.session.default.my-prompts.dark",
+      "screenId": "5dc3f52a470d4748bf85ddb95cce1aa0",
+      "stitchLabel": "基线-聊天页/我的提问/暗夜",
+      "stitchTitle": "Hermes 聊天页 -「我的提问」底部选择弹层 (黑曜石深色版)",
+      "page": "chat",
+      "view": "session",
+      "state": "default",
+      "overlay": "my-prompts",
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.4 聊天页（上一组对话胶囊 / 我的提问）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/chat/TurnJump.kt",
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatComponents.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/StrokeIcons.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（chat.* 的 design 列从本稿抽取）",
+      "html": "chat.session.default.my-prompts.dark.html",
+      "sha256": "afd8dc82d5d252281ae97f5d0eedc366491c68f0afdd6147d75f17b27de604a3",
+      "canvasHeightCssPx": 884,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "普通行（有时间）",
+        "当前行（有时间）",
+        "首行",
+        "末行"
+      ],
+      "notes": [
+        "暗色只取颜色，几何以浅色稿为准，差异见 pairs 与浅色记录的 notes。"
+      ]
+    },
+    {
+      "key": "chat.session.turn-pill.light",
+      "screenId": "6edba5b1ebb64052ad931808c66f7ede",
+      "stitchLabel": "基线-聊天页/滑动引导胶囊",
+      "stitchTitle": "Hermes 聊天页 - 段落定位胶囊方案B (去蓝化沉稳类黑版)",
+      "page": "chat",
+      "view": "session",
+      "state": "turn-pill",
+      "overlay": null,
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.4 聊天页（上一组对话胶囊 / 我的提问）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/chat/TurnJump.kt",
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatComponents.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/StrokeIcons.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（chat.* 的 design 列从本稿抽取）",
+      "html": "chat.session.turn-pill.light.html",
+      "sha256": "41babe859597694fdd232589f6b7a53de4583c6bc69775770c7fc76b4ff7e51e",
+      "canvasHeightCssPx": 884,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "分段胶囊（≥3 组）"
+      ],
+      "notes": [
+        "本稿是浅色几何真源；暗色稿的几何差异见 pairs。",
+        "胶囊就此与 §5.2 会话列表的「需要你处理」pill 分家，不再共用样式：那一枚是待办提示、品牌色是它的语义，这一枚是滚动位置指示器，实心品牌色让它看起来像个必须处理的按钮。",
+        "容器宽度上限 92% 只是兜底；真正决定宽度的是稿子给标签的 max-w-[190px]。",
+        "稿子把胶囊画成 sticky top-0 pt-1，据此把距顶由 10dp 改为 4dp。",
+        "图标两处改形：箭头去掉「抵线」那一横，列表图标去掉三条前导点（§4.2 已登记）。列表图标同时供顶栏更多菜单使用，两处一起变。",
+        "本稿是完整聊天页，顶栏、输入 dock、「内容由 AI 生成」脚注与表格卡不属本轮范围，见 specChanges.pending。"
+      ]
+    },
+    {
+      "key": "chat.session.turn-pill.dark",
+      "screenId": "739c148b3e1948a793f8f27e22be1869",
+      "stitchLabel": "基线-聊天页/滑动引导胶囊/暗夜",
+      "stitchTitle": "Hermes 聊天页 - 段落定位胶囊方案B (去蓝化黑曜石暗夜版)",
+      "page": "chat",
+      "view": "session",
+      "state": "turn-pill",
+      "overlay": null,
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.4 聊天页（上一组对话胶囊 / 我的提问）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/chat/TurnJump.kt",
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatComponents.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/StrokeIcons.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（chat.* 的 design 列从本稿抽取）",
+      "html": "chat.session.turn-pill.dark.html",
+      "sha256": "860d95c63e525fc09f0da1e18955b170ab917bf9d5c866890371ee8b47a46153",
+      "canvasHeightCssPx": 884,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "分段胶囊（≥3 组）"
+      ],
+      "notes": [
+        "暗色只取颜色，几何以浅色稿为准，差异见 pairs 与浅色记录的 notes。"
+      ]
+    },
+    {
       "key": "cron.list.default.light",
       "screenId": "2bac8b6716324645a832215b72182ae2",
       "stitchLabel": "基线-定时任务列表",
@@ -1181,6 +1336,22 @@
       ],
       "geometry": "同构。174 个元素剥掉颜色类后逐一比对，只有 3 处差异，全是暗色额外加了一条 1px 描边：32dp ✕ 按钮、「切换中…」徽标、状态栏 5G 标（后者是屏幕模拟，不实现）。",
       "decision": "几何取浅色稿；两处要实现的暗色描边照做 —— 与卡片页「暗色用描边替代阴影」同一裁决。"
+    },
+    {
+      "screens": [
+        "chat.session.default.my-prompts.light",
+        "chat.session.default.my-prompts.dark"
+      ],
+      "geometry": "同构。剥掉颜色类后逐一比对，实质差异只有一类：暗色给每个中性插片额外加了一条 1px 描边 —— 计数 chip、头部两个 32dp 圆钮、普通行的 26dp 序号圆、当前行的容器，浅色一个都没有。其余差异全在状态栏模拟（VPN 标、电量、5G），不实现。",
+      "decision": "几何取浅色稿；暗色那条描边照做 —— 与卡片页、模型选择「暗色用描边替代阴影 / 补足色阶」同一裁决，理由在这里尤其直白：暗色的 #1E232B 坐在 #161A22 上几乎不成一档，浅色的 #EFEEEA 坐在 #FAF9F5 上自己立得住。实现为 chatChipBorder()，浅色返回 null。颜色行表达不了「没有」，所以这条差异记在这里而不是 design-conformance.json。"
+    },
+    {
+      "screens": [
+        "chat.session.turn-pill.light",
+        "chat.session.turn-pill.dark"
+      ],
+      "geometry": "同构。胶囊本体（h-38、rounded-full、pl-3/pr-2.5、20dp 圆形底片、14dp 箭头、1×15dp 分隔线、右段 px-3、16dp 列表图标、max-w-92% 与标签 max-w-190px）两版逐值相同；差异全在状态栏与正文示意内容。",
+      "decision": "几何取浅色稿；暗色只取颜色（底 #1E232B、描边 #2E343D、底片 #2E343D、墨 #E2E0DB）。"
     },
     {
       "screens": [

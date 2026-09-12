@@ -141,18 +141,54 @@ class ScreenshotTest {
         }
     }
 
-    @Test fun promptListRows() = snap("prompt-list-rows") {
-        val rows = listOf(
-            com.hermes.client.ui.chat.PromptRow(0, ordinal = null, "会话开始", time = null, isCurrent = false, isLeading = true),
-            com.hermes.client.ui.chat.PromptRow(1, ordinal = 1, longPrompt, time = "09:12", isCurrent = false, isLeading = false),
-            com.hermes.client.ui.chat.PromptRow(2, ordinal = 2, "限流阈值放到配置里。", time = null, isCurrent = true, isLeading = false),
-            com.hermes.client.ui.chat.PromptRow(3, ordinal = 3, "跑一遍完整测试，把失败的贴给我。", time = "昨天 10:05", isCurrent = false, isLeading = false),
-            com.hermes.client.ui.chat.PromptRow(4, ordinal = 4, "把 chrome 关掉", time = null, isCurrent = false, isLeading = false),
-        )
-        androidx.compose.foundation.layout.Column {
-            com.hermes.client.ui.chat.PromptListHeader(count = 4, onLatest = {})
-            com.hermes.client.ui.chat.PromptListContent(rows, onPick = {}, modifier = androidx.compose.ui.Modifier.height(360.dp))
+    /**
+     * Row 1 wraps to two lines ON PURPOSE: the mock truncates to one, this app keeps ≤2, and this
+     * golden is the only layer that can hold that line — plain Robolectric measures text with a
+     * stub font that never wraps.
+     */
+    private val promptRows = listOf(
+        com.hermes.client.ui.chat.PromptRow(0, ordinal = null, "会话开始", time = null, isCurrent = false, isLeading = true),
+        com.hermes.client.ui.chat.PromptRow(1, ordinal = 1, longPrompt, time = "09:12", isCurrent = false, isLeading = false),
+        com.hermes.client.ui.chat.PromptRow(2, ordinal = 2, "限流阈值放到配置里。", time = null, isCurrent = true, isLeading = false),
+        com.hermes.client.ui.chat.PromptRow(3, ordinal = 3, "跑一遍完整测试，把失败的贴给我。", time = "昨天 10:05", isCurrent = false, isLeading = false),
+        com.hermes.client.ui.chat.PromptRow(4, ordinal = 4, "把 chrome 关掉", time = null, isCurrent = false, isLeading = false),
+    )
+
+    @Test fun promptListRows() = snap("prompt-list-rows") { PromptSheetBody() }
+
+    /**
+     * The dark tier of the same rows.
+     *
+     * Added with the 2026-09-12 de-blueing, which is where it is easiest to get dark wrong: the
+     * current row's ordinal disc INVERTS between tiers (ink-on-paper in light, paper-on-ink in
+     * dark) and the chips gain a hairline ring that light does not draw at all.
+     */
+    @Test fun promptListRowsDark() = snap("prompt-list-rows-dark", darkTheme = true) { PromptSheetBody() }
+
+    /**
+     * On the sheet's own fill, not the page's — the sheet recesses to `chat.sheet.fill`, and in
+     * dark that is a smaller step away from the current row than `surface` would be. Capturing on
+     * the wrong ground would flatter exactly the contrast this golden exists to watch.
+     */
+    @androidx.compose.runtime.Composable
+    private fun PromptSheetBody() {
+        androidx.compose.material3.Surface(color = com.hermes.client.ui.theme.chatSheetColor()) {
+            androidx.compose.foundation.layout.Column {
+                com.hermes.client.ui.chat.PromptListHeader(count = 4, onLatest = {})
+                com.hermes.client.ui.chat.PromptListContent(promptRows, onPick = {}, modifier = androidx.compose.ui.Modifier.height(360.dp))
+            }
         }
+    }
+
+    /**
+     * The header alone, at fontScale 1.3.
+     *
+     * Nothing covered the header's structure before, and it is now the busiest row on the sheet:
+     * a title, a count chip and two icon buttons competing for one line. Large text is where that
+     * line breaks first.
+     */
+    @Test fun promptListHeaderLargeFont() = snap("prompt-list-header-large-font", fontScale = 1.3f) {
+        com.hermes.client.ui.chat.PromptListHeader(count = 12, onLatest = {})
     }
 
     // The composer's saved-prompt sheet. Settings no longer has a 常用提示 row (HG-33), so the

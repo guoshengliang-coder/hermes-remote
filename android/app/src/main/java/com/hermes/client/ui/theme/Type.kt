@@ -619,6 +619,68 @@ val ModelQuickChipProvider = TextStyle(
     letterSpacing = 0.sp,
 )
 
+// ── 聊天页浮层 (docs/DESIGN.md §5.4, Stitch 基线-聊天页/滑动引导胶囊 与 /我的提问, 2026-09-12) ──────
+//
+// Line heights follow the same reading as the card page's: a `text-[Npx]` with no `leading-*`
+// inherits the browser's 1.5; `leading-tight` = 1.25, `leading-snug` = 1.375, `leading-none` = 1.
+// `tracking-tight` = −0.025em, converted at the step's own size.
+//
+// No mono here. Neither mock marks anything `font-mono` — not the 「N 条」 count, which is the one
+// place the session list would have used it. Per §7 item 8 the mock decides, screen by screen.
+
+/** The pill's summary line: `text-[13px] font-medium tracking-tight`, always one line. */
+val ChatPillLabel = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 13.sp,
+    lineHeight = 19.5.sp,
+    letterSpacing = (-0.325).sp,
+)
+
+/** 「我的提问」: `text-[18px] font-semibold tracking-tight leading-tight`, now left-aligned. */
+val ChatSheetTitle = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 18.sp,
+    lineHeight = 22.5.sp,
+    letterSpacing = (-0.45).sp,
+)
+
+/** 「7 条」 in the header chip: `text-[11px] font-medium leading-none`. */
+val ChatSheetCount = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 11.sp,
+    lineHeight = 11.sp,
+    letterSpacing = 0.sp,
+)
+
+/**
+ * A prompt row's summary: `text-[15px] font-medium leading-snug`.
+ *
+ * Down from `bodyLarge` (16sp/400) — the sheet is an index, not a reading surface, and the mock
+ * buys a whole extra row per screen with the change.
+ */
+val ChatPromptLabel = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 15.sp,
+    lineHeight = 20.625.sp,
+    letterSpacing = 0.sp,
+)
+
+/** The same step at 600 on the row you are reading — the mock's `font-semibold`. */
+val ChatPromptLabelCurrent = ChatPromptLabel.copy(fontWeight = FontWeight.SemiBold)
+
+/** A row's timestamp: `text-[12px] font-normal`. */
+val ChatPromptTime = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Normal,
+    fontSize = 12.sp,
+    lineHeight = 18.sp,
+    letterSpacing = 0.sp,
+)
+
 // ── Cron steps (docs/DESIGN.md §5.18, Stitch 基线-定时任务列表 / 任务详情, 2026-09-12) ──────────
 //
 // Read straight off the mocks' classes the same way the card-page family was. Where a step exists
