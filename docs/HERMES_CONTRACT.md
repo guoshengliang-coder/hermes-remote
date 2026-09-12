@@ -108,6 +108,20 @@ Ignoring it costs more than a wasted round trip. Afterwards `prompt.submit` answ
 fixes, 4007 is the durable lookup missing from the profile's `state.db` — terminal. HG-29 was
 exactly this, surfaced to the user as a tap-to-retry that could never succeed.
 
+**Upstream enforces one live owner per session, and says so with 4090.** While another surface is
+running a conversation, `prompt.submit` is refused — its stated reason being that a second surface
+would reason from a transcript missing the first one's work. Unlike 4001/4007 this is neither stale
+nor terminal: the same send succeeds once the other side lets go, which is why the phone keeps its
+retry and only names the cause (`HR-SESS-013`, HG-30). Note it is *not* 4009 "busy" — that is the
+session running a turn of its own.
+
+These are the `prompt.submit` numbers we depend on — **4001**, **4007**, **4090** — and the
+dependency is on the numbers only. The message upstream attaches to 4090 names the owning surface
+and its pid; we deliberately do not parse it. There is no version negotiation here (see the end of
+this document), so that prose can change under us at any time, and a user-facing sentence must not
+be hostage to it. If a future Hermes renumbers these, the symptom is a send failure falling back to
+the generic `HR-SESS-007` — check `ChatViewModel`'s constants first.
+
 **Upstream strips its own repo root out of every child process's `PYTHONPATH`.**
 `tools/environments/local.py` builds the environment for anything Hermes spawns, and
 `_strip_hermes_owned_pythonpath` (`tools/environments/local_pythonpath.py`) removes the entries it

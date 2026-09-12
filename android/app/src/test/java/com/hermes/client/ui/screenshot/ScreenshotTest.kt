@@ -474,20 +474,33 @@ class ScreenshotTest {
     // capturing the reverse-layout LazyColumn under Robolectric paints a stray copy of the last
     // row at the top of the image (a capture artifact, not visible on device). The ring's
     // breathing is switched off through LocalDeliveryMotionEnabled so the clock can settle.
-    private fun snapDelivery(name: String, darkTheme: Boolean) = snap(name, darkTheme = darkTheme, advanceMs = 600L) {
+    private fun snapDelivery(
+        name: String,
+        darkTheme: Boolean,
+        fontScale: Float? = null,
+        language: com.hermes.client.ui.localization.AppLanguage =
+            com.hermes.client.ui.localization.AppLanguage.EN,
+    ) = snap(name, darkTheme = darkTheme, fontScale = fontScale, advanceMs = 600L) {
         androidx.compose.runtime.CompositionLocalProvider(
             com.hermes.client.ui.chat.LocalDeliveryMotionEnabled provides false,
+            com.hermes.client.ui.localization.LocalAppLanguage provides language,
         ) {
             androidx.compose.foundation.layout.Column(
                 modifier = androidx.compose.ui.Modifier.padding(horizontal = 22.dp, vertical = 16.dp),
                 verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(18.dp),
             ) {
+                // The two FAILED rows differ only by error code — that is the point of the
+                // golden: same retryable state, different sentence (HG-30).
                 listOf(
-                    userTurn("h-1", "已发送的消息", com.hermes.client.domain.DeliveryState.SENT),
-                    userTurn("u-2", "发送中的消息", com.hermes.client.domain.DeliveryState.SENDING),
-                    userTurn("u-3", "未发送的消息", com.hermes.client.domain.DeliveryState.FAILED),
-                    userTurn("u-4", "会话已消失的消息", com.hermes.client.domain.DeliveryState.UNDELIVERABLE),
-                ).forEach { msg ->
+                    userTurn("h-1", "已发送的消息", com.hermes.client.domain.DeliveryState.SENT) to null,
+                    userTurn("u-2", "发送中的消息", com.hermes.client.domain.DeliveryState.SENDING) to null,
+                    userTurn("u-3", "未发送的消息", com.hermes.client.domain.DeliveryState.FAILED) to
+                        com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED,
+                    userTurn("u-5", "会话被别处占用的消息", com.hermes.client.domain.DeliveryState.FAILED) to
+                        com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE,
+                    userTurn("u-4", "会话已消失的消息", com.hermes.client.domain.DeliveryState.UNDELIVERABLE) to
+                        com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND,
+                ).forEach { (msg, code) ->
                     com.hermes.client.ui.chat.UserBubble(
                         msg = msg,
                         onEditResend = {},
@@ -497,11 +510,8 @@ class ScreenshotTest {
                         savingImageId = null,
                         onFileOpen = {},
                         onFileShare = {},
-                        sendDiagnostic = when (msg.delivery) {
-                            com.hermes.client.domain.DeliveryState.FAILED -> "code=HR-SESS-007"
-                            com.hermes.client.domain.DeliveryState.UNDELIVERABLE -> "code=HR-SESS-001"
-                            else -> null
-                        },
+                        sendDiagnostic = code?.let { "code=${it.value}" },
+                        sendErrorCode = code,
                     )
                 }
             }
@@ -875,6 +885,20 @@ class ScreenshotTest {
 
     @Test fun userBubbleDeliveryStates() = snapDelivery("user-bubble-delivery", darkTheme = false)
     @Test fun userBubbleDeliveryStatesDark() = snapDelivery("user-bubble-delivery-dark", darkTheme = true)
+
+    /**
+     * The worst case for the status line: Chinese copy (longer than the English), fontScale 1.3,
+     * and the narrowest phone we support. The two failure sentences plus their compact code share
+     * one un-wrapping Row, so this is where a new sentence would push the code off the edge.
+     */
+    @Test
+    @Config(sdk = [34], qualifiers = "w360dp-h740dp-420dpi")
+    fun userBubbleDeliveryStatesZhNarrowLargeFont() = snapDelivery(
+        "user-bubble-delivery-zh-360-fs13",
+        darkTheme = false,
+        fontScale = 1.3f,
+        language = com.hermes.client.ui.localization.AppLanguage.ZH,
+    )
 
     @Test fun smoke() {
         compose.setContent {

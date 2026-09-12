@@ -584,6 +584,48 @@ class ChatViewModelTest {
         advanceUntilIdle()
     }
 
+    @Test fun a_session_owned_by_another_client_says_so_and_keeps_its_retry() = runTest {
+        // HG-30: the desktop held the conversation, upstream refused with 4090, and the phone
+        // collapsed it into the generic HR-SESS-007 "点按重试" — a retry that repeats the same
+        // refusal for as long as the other side is running. The tap is right (the conflict clears
+        // by itself); the sentence was not.
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.submit("s1-live", "hello") } throws
+            com.hermes.client.data.network.GatewayRpcException(
+                4090,
+                "Session s1 already has a live owner (desktop, pid 32991, running 2h22m).",
+            ) andThen Unit
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+
+        vm.send("hello")
+        runCurrent()
+
+        val failed = vm.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals(
+            "retryable, so FAILED — not the terminal UNDELIVERABLE of a conversation that is gone",
+            com.hermes.client.domain.DeliveryState.FAILED,
+            failed.delivery,
+        )
+        assertEquals(
+            com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE,
+            vm.sendErrorCode(failed.id),
+        )
+        assertTrue(vm.sendDiagnostic(failed.id)!!.contains("HR-SESS-013"))
+
+        // The retry must still be offered: the moment the desktop lets go, the same send works.
+        vm.retrySend(failed.id)
+        runCurrent()
+        val resent = vm.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT, resent.delivery)
+        assertEquals(null, vm.sendErrorCode(resent.id))
+        coVerify(exactly = 2) { chatRepo.submit("s1-live", "hello") }
+
+        events.emit(event("message.complete", "s1-live", "done"))
+        advanceUntilIdle()
+    }
+
     @Test fun send_waits_for_live_handle_instead_of_using_stored_session_id() = runTest {
         val resumed = kotlinx.coroutines.CompletableDeferred<String?>()
         coEvery { chatRepo.resume("s1", null) } coAnswers { resumed.await() }

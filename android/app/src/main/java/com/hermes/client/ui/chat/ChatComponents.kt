@@ -455,6 +455,7 @@ fun ChatMessageList(
     onEditResend: (String) -> Unit = {},
     onRetrySend: (String) -> Unit = {},
     sendDiagnosticFor: (String) -> String? = { null },
+    sendErrorCodeFor: (String) -> com.hermes.client.data.error.AppErrorCode? = { null },
     onRegenerate: () -> Unit = {},
     onRetryWithModel: () -> Unit = {},
     onOpenTableFullscreen: (String) -> Unit = {},
@@ -1093,6 +1094,7 @@ fun ChatMessageList(
                         onEditResend,
                         onRetrySend,
                         sendDiagnosticFor,
+                        sendErrorCodeFor,
                         onRegenerate,
                         onRetryWithModel,
                         openTableFullscreen,
@@ -1296,6 +1298,7 @@ private fun MessageBubble(
     onEditResend: (String) -> Unit,
     onRetrySend: (String) -> Unit,
     sendDiagnosticFor: (String) -> String?,
+    sendErrorCodeFor: (String) -> com.hermes.client.data.error.AppErrorCode?,
     onRegenerate: () -> Unit,
     onRetryWithModel: () -> Unit,
     onOpenTableFullscreen: (String) -> Unit,
@@ -1324,7 +1327,7 @@ private fun MessageBubble(
         LocalTurnIsCurrentHit provides (searchContext != null && searchContext.currentMessageId == msg.id),
     ) {
         when (msg.role) {
-            Role.USER -> UserBubble(msg, onEditResend, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted, landingAlpha = landingAlpha, onRetrySend = onRetrySend, sendDiagnostic = sendDiagnosticFor(msg.id))
+            Role.USER -> UserBubble(msg, onEditResend, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted, landingAlpha = landingAlpha, onRetrySend = onRetrySend, sendDiagnostic = sendDiagnosticFor(msg.id), sendErrorCode = sendErrorCodeFor(msg.id))
             else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, highlighted = highlighted, landingAlpha = landingAlpha)
     }
     }
@@ -1345,6 +1348,7 @@ internal fun UserBubble(
     landingAlpha: Float = 0f,
     onRetrySend: (String) -> Unit = {},
     sendDiagnostic: String? = null,
+    sendErrorCode: com.hermes.client.data.error.AppErrorCode? = null,
 ) {
     val language = LocalAppLanguage.current
     val clipboard = LocalClipboardManager.current
@@ -1382,16 +1386,23 @@ internal fun UserBubble(
     // leaves user bubbles oddly narrow on tablets/landscape. ~82% tracks the Claude app.
     val bubbleMaxWidth = (LocalConfiguration.current.screenWidthDp * 0.82f).dp
     val sendingLabel = localized(language, "发送中", "Sending")
-    val failedLabel = if (undeliverable) {
-        localized(language, "会话不存在或已被删除", "This conversation no longer exists")
-    } else {
-        localized(language, "未发送 · 点按重试", "Not sent · Tap to retry")
+    // The status line is driven by the code the send actually failed with, not by the delivery
+    // state: FAILED covers several causes and they must not share one sentence. "点按重试" alone
+    // is only honest when nothing more specific is known — a refusal the user can act on (the
+    // conversation is open on another client) has to say so, or the tap just repeats it.
+    val failedErrorCode = sendErrorCode
+        ?: if (undeliverable) com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND
+        else com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED
+    val failedLabel = when (failedErrorCode) {
+        com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND ->
+            localized(language, "会话不存在或已被删除", "This conversation no longer exists")
+        com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE ->
+            // No "未发送 ·" prefix, same as SESS-001: the dimmed bubble and the error mark already
+            // say it did not send, and the prefix pushed the code onto a second line at 360dp/1.3.
+            localized(language, "会话正在另一个客户端运行", "Running on another client")
+        else -> localized(language, "未发送 · 点按重试", "Not sent · Tap to retry")
     }
-    val failedCode = if (undeliverable) {
-        com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND.compact
-    } else {
-        com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED.compact
-    }
+    val failedCode = failedErrorCode.compact
     // In a channel conversation the right-hand column carries two different speakers: the person
     // on the other app, and anything typed here. Naming them apart is not decoration — a blanket
     // peer label would sign the reader's own words with somebody else's name.
@@ -1493,9 +1504,22 @@ internal fun UserBubble(
                         } else Modifier,
                     ),
             ) {
-                Text(failedLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                // The code is the identity the user reads back to us, so it never breaks: the
+                // sentence is what gives way on a narrow screen at a large font scale.
+                Text(
+                    failedLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
                 Spacer(Modifier.width(6.dp))
-                Text(failedCode, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    failedCode,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false,
+                )
             }
         }
       }
