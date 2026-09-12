@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {mkdtempSync} from 'node:fs';
+import {mkdtempSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {test} from 'node:test';
@@ -17,6 +17,8 @@ import {test} from 'node:test';
  */
 
 const CHECK = new URL('../lib/apk_feedback.py', import.meta.url).pathname;
+const ENDPOINT = 'https://missiongo.example/api';
+const TOKEN = 'nonsecret-test-token';
 
 /** An APK-shaped zip whose classes.dex contains each of `strings`. */
 function apkWith(strings) {
@@ -37,56 +39,74 @@ function apkWith(strings) {
   return file;
 }
 
-const run = (...args) => execFileSync('python3', [CHECK, ...args], {encoding: 'utf8'});
+function buildConfig({endpoint = ENDPOINT, token = TOKEN} = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'build-config-'));
+  const file = path.join(dir, 'BuildConfig.java');
+  writeFileSync(file, [
+    'package com.hermes.client;',
+    `public static final String MISSIONGO_ENDPOINT = ${JSON.stringify(endpoint)};`,
+    `public static final String MISSIONGO_SDK_TOKEN = ${JSON.stringify(token)};`,
+  ].join('\n'));
+  return file;
+}
 
-test('an APK carrying the configured endpoint passes', () => {
-  const endpoint = 'https://missiongo.example/api';
-  assert.match(run(apkWith(['noise', endpoint, 'more noise']), endpoint), /FEEDBACK_CONFIG_OK/);
+const run = (apk, values) => execFileSync(
+  'python3', [CHECK, apk, buildConfig(values)], {encoding: 'utf8'},
+);
+
+test('an APK carrying both generated feedback values passes', () => {
+  assert.match(run(apkWith(['noise', ENDPOINT, TOKEN, 'more noise'])), /FEEDBACK_CONFIG_OK/);
 });
 
-test('a blank endpoint fails — the exact 0.1.120 case', () => {
-  const apk = apkWith(['noise']);
+test('either blank generated value fails — the exact 0.1.120 class of bug', () => {
   for (const blank of ['', '   ']) {
-    assert.throws(() => run(apk, blank), /反馈与建议/);
+    assert.throws(() => run(apkWith([TOKEN]), {endpoint: blank}), /MISSIONGO_ENDPOINT/);
+    assert.throws(() => run(apkWith([ENDPOINT]), {token: blank}), /MISSIONGO_SDK_TOKEN/);
   }
 });
 
-test('a configured endpoint missing from the artifact fails', () => {
+test('either generated value missing from the artifact fails', () => {
   // The build inputs say one thing and the compiled dex says another — a stale Gradle
   // configuration-cache entry. Checking inputs alone would call this a pass.
   assert.throws(
-    () => run(apkWith(['unrelated']), 'https://missiongo.example/api'),
-    /not present in the built APK/,
+    () => run(apkWith([TOKEN])),
+    /MISSIONGO_ENDPOINT.*not present in the APK/s,
+  );
+  assert.throws(
+    () => run(apkWith([ENDPOINT])),
+    /MISSIONGO_SDK_TOKEN.*not present in the APK/s,
   );
 });
 
 test('the failure never echoes the endpoint back', () => {
   // The endpoint and token are credentials; a gate that prints them puts them in CI logs.
   const endpoint = 'https://secret-host.example/collect';
+  const token = 'secret-token-value';
   try {
-    run(apkWith(['unrelated']), endpoint);
+    run(apkWith(['unrelated']), {endpoint, token});
     assert.fail('expected a failure');
   } catch (error) {
     const output = `${error.stdout ?? ''}${error.stderr ?? ''}`;
     assert.ok(!output.includes('secret-host'), `endpoint leaked into output: ${output}`);
+    assert.ok(!output.includes(token), `token leaked into output: ${output}`);
   }
 });
 
 test('multi-dex is searched, not just classes.dex', () => {
-  const endpoint = 'https://missiongo.example/api';
   const dir = mkdtempSync(path.join(tmpdir(), 'apk-'));
   const file = path.join(dir, 'multi.apk');
   execFileSync('python3', [
     '-c',
     [
       'import sys, zipfile',
-      'target, endpoint = sys.argv[1], sys.argv[2]',
+      'target, endpoint, token = sys.argv[1:]',
       'with zipfile.ZipFile(target, "w") as z:',
       '    z.writestr("classes.dex", b"nothing here")',
-      '    z.writestr("classes2.dex", endpoint.encode("utf-8"))',
+      '    z.writestr("classes2.dex", (endpoint + " " + token).encode("utf-8"))',
     ].join('\n'),
     file,
-    endpoint,
+    ENDPOINT,
+    TOKEN,
   ]);
-  assert.match(run(file, endpoint), /FEEDBACK_CONFIG_OK/);
+  assert.match(run(file), /FEEDBACK_CONFIG_OK/);
 });
