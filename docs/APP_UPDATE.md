@@ -120,6 +120,21 @@ After a release commit is pushed, create and push the matching tag, for example
 index update, and public verification after the production approval. This automation publishes only
 the Android update artifact; Gateway/Connector service deployment remains an explicit server operation.
 
+## Incident: 0.1.121 published before its final notes merged (2026-09-12)
+
+A manual workflow run published 0.1.121 from `395ae11` while the release-note PR was still pending.
+The immutable public entry therefore contains only the feedback-restoration note. Its APK is valid
+(31,438,496 bytes, SHA-256 `470750b8dc3f9e34c5928d3325654836b8fb1dc843c817971314f903e3778eba`).
+L2 verification on vivo V2166BA and HONOR CLK-AN00 confirmed the restored row and version; vivo
+V2166BA also opened the full MissionGo editor. Only the metadata race was wrong. The repository's
+`android/releases/0.1.121.json` must mirror that public entry rather than claim that an immutable
+record was changed later.
+
+Two shipped changes still need a public note: HG-29 reclaimed-session recovery (already present in
+0.1.120) and the model-selector waiting-indicator correction (present in 0.1.121). The next Android
+release must carry both notes forward. Do not rerun or tag 0.1.121 to repair prose: a same-version
+entry with a different source commit or release-note list is a conflict by design.
+
 `scripts/bootstrap-release-server.sh` creates `/opt/hermes-release-server`, `/srv/hermes-releases`, a
 legal empty index, TLS directory, environment, and systemd unit. Test locally with
 `SYSTEM_ROOT=$(mktemp -d) scripts/bootstrap-release-server.sh`. Import 0.1.14–0.1.16 by passing each
