@@ -89,6 +89,20 @@ test("component builder rejects a symlink in an allowlisted runtime tree", async
   assert.deepEqual(await readdir(fixture.output), []);
 });
 
+test("component builder rejects a Connector archive that drops historical hex tokens", async (t) => {
+  const fixture = await makeFixture(t, {
+    connectorTokenSource: `import { readFileSync } from "node:fs";
+export function loadHermesSessionToken({ file }) {
+  const token = readFileSync(file, "utf8");
+  if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error("malformed");
+  return token;
+}
+`,
+  });
+  await assert.rejects(build(fixture), isCause("connector_token_contract_invalid"));
+  assert.deepEqual(await readdir(fixture.output), []);
+});
+
 test("component builder preserves an existing target and removes its earlier archive", async (t) => {
   const fixture = await makeFixture(t);
   const existing = path.join(fixture.output, "Hermes-Connector-0.1.2-arm64.tar.gz");
@@ -108,7 +122,7 @@ async function build(fixture) {
   });
 }
 
-async function makeFixture(t) {
+async function makeFixture(t, options = {}) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-component-test-")));
   t.after(() => rm(root, { recursive: true, force: true }));
   const repo = path.join(root, "repo");
@@ -123,7 +137,7 @@ async function makeFixture(t) {
   await mkdir(sitePackages);
   await mkdir(output);
 
-  await writeFixtureRepo(repo);
+  await writeFixtureRepo(repo, options.connectorTokenSource);
   await writeFixtureHermes(hermes);
   await writeFile(path.join(python, "bin/python3.11"), "fake mach-o", { mode: 0o700 });
   await writeFile(path.join(python, "lib/python3.11/os.py"), "# stdlib\n");
@@ -151,7 +165,13 @@ async function makeFixture(t) {
   return { root, repo, hermes, python, sitePackages, output, configPath };
 }
 
-async function writeFixtureRepo(repo) {
+async function writeFixtureRepo(repo, connectorTokenSource = `import { readFileSync } from "node:fs";
+export function loadHermesSessionToken({ file }) {
+  const token = readFileSync(file, "utf8");
+  if (!/^(?:[A-Za-z0-9_-]{43}|[0-9a-f]{64})$/.test(token)) throw new Error("malformed");
+  return token;
+}
+`) {
   await mkdir(path.join(repo, "connector/dist"), { recursive: true });
   await mkdir(path.join(repo, "protocol/dist"), { recursive: true });
   await mkdir(path.join(repo, "node_modules/ws/lib"), { recursive: true });
@@ -159,6 +179,7 @@ async function writeFixtureRepo(repo) {
     name: "@hermes-remote/connector", version: "0.1.2", type: "module",
   }));
   await writeFile(path.join(repo, "connector/dist/index.js"), "console.log('connector');\n");
+  await writeFile(path.join(repo, "connector/dist/hermes-session-token.js"), connectorTokenSource);
   await writeFile(path.join(repo, "connector/dist/index.test.js"), "throw new Error('do not ship');\n");
   await writeFile(path.join(repo, "connector/dist/index.js.map"), "{}\n");
   await writeFile(path.join(repo, "connector/dist/index.d.ts"), "export {};\n");

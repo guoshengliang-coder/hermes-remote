@@ -502,10 +502,28 @@ the exact 64-character lowercase-hex fixture from a mode-0600 token file, while 
 0.3.3 manifest URL. The canonical asset check and all 186 Desktop tests passed. The configured app
 inside the final DMG embeds version/build 0.2.8/11, enabled bootstrap, the 0.3.3 manifest URL,
 `internal` channel, `arm64` architecture, approved key ID and public key, and `hermes-serve-v1`.
-Strict ad-hoc codesign verification passed after mounting the final image. The 2,072,626-byte DMG
-passed `hdiutil verify` and has SHA-256
-`73f25da13f4bca2b5f71f19aee1e9d7a17f9aa7fe7ad5b3fe9f277f9a556a5d8`.
+Strict ad-hoc codesign verification passed after mounting the final image. The final clean-main
+2,072,628-byte DMG passed `hdiutil verify` and has SHA-256
+`85446f008ab47ca5c74eb8061d94a8b35fcd3384f57383a844cc2a4d34ba4d65`.
 
-Neither 0.3.3 nor 0.2.8 has been published, installed, or activated. Physical token migration,
-slash-command, Android traffic, and restart gates remain open; this ad-hoc app is an internal test
-candidate and has not passed Developer ID signing, notarization, stapling, or clean-Mac launch.
+The three 0.3.3 files were published beneath the immutable public `/desktop/releases/0.3.3/` route.
+All public objects returned HTTP 200, exact lengths, expected content types, immutable cache headers,
+and `nosniff`; a full public re-download reproduced the hashes above and passed the independent
+Ed25519 verifier. The route directory returned 404, 0.3.2 remained available, and `/relay-health`
+remained healthy after the Nginx reload.
+
+Desktop 0.2.8/build 11 and the publicly downloaded 0.3.3 components were then installed on
+`LGS-MACMINI` with owner-only recovery snapshots. Both services first started successfully with the
+existing inline token. Desktop wrote that valid 64-character lowercase-hex token to the private file
+and restarted in file mode. The corrected packaged Hermes reader stayed healthy, but the packaged
+Connector's TypeScript reader still accepted only the 43-character base64url form, exited with
+`Hermes session token file is malformed`, and never established its control connection. Desktop did
+not commit the migration: it restored both exact inline LaunchAgents, removed the token file, and
+restarted healthy 0.3.3 Hermes and Connector services. The overview returned to `工作正常`; neither a
+mixed state nor a false success was retained.
+
+The Connector reader now has its own regression coverage for both canonical token formats and for
+rejecting an uppercase 64-character value. A new immutable managed component release and coordinated
+Desktop build are required before repeating physical token migration. Slash-command, Android traffic,
+and restart gates remain open; this ad-hoc app has not passed Developer ID signing, notarization,
+stapling, or clean-Mac launch.
