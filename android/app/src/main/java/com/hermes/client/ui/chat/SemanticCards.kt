@@ -59,7 +59,6 @@ import com.hermes.client.domain.ToolCall
 import com.hermes.client.domain.ToolStatus
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
-import com.hermes.client.ui.theme.LocalToolCallTechnical
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -294,7 +293,6 @@ internal fun SemanticToolCard(tool: ToolCall, completed: Boolean = false) {
     }
     val language = LocalAppLanguage.current
     val clipboard = LocalClipboardManager.current
-    val technical = LocalToolCallTechnical.current
     var expanded by rememberSaveable(tool.id) { mutableStateOf(false) }
     // A tool-output hit in the current turn opens the card so the hit is visible (see ThinkingCard).
     val autoExpand = shouldAutoExpand(LocalChatSearch.current, LocalTurnIsCurrentHit.current, SearchSource.TOOL, tool.output)
@@ -302,7 +300,6 @@ internal fun SemanticToolCard(tool: ToolCall, completed: Boolean = false) {
     val hasOutput = tool.output.isNotBlank()
     val running = tool.status == ToolStatus.RUNNING
     val failed = !running && (tool.exitCode ?: 0) != 0
-    val outputSize = remember(tool.id, tool.output.length) { tool.output.toByteArray().size }
     val borderColor = when {
         failed -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.4f)
         else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
@@ -331,7 +328,6 @@ internal fun SemanticToolCard(tool: ToolCall, completed: Boolean = false) {
                         running -> localized(language, "运行中…", "Running…")
                         failed -> "exit ${tool.exitCode}"
                         tool.durationMs != null -> formatToolDuration(tool.durationMs)
-                        technical && hasOutput -> formatPayloadSize(outputSize)
                         else -> localized(language, "已完成", "Completed")
                     },
                     style = MaterialTheme.typography.labelSmall,

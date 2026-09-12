@@ -151,7 +151,6 @@ import com.hermes.client.domain.ChatImage
 import com.hermes.client.domain.ImageTransferState
 import com.hermes.client.domain.ChatFile
 import com.hermes.client.domain.FileTransferState
-import com.hermes.client.ui.theme.LocalToolCallTechnical
 import com.hermes.client.ui.components.ExternalLinkIcon
 import com.hermes.client.ui.components.rememberSafeUriHandler
 import com.hermes.client.ui.localization.LocalAppLanguage
@@ -3118,10 +3117,4 @@ private fun ThinkingCard(messageId: String, text: String) {
             )
         }
     }
-}
-
-internal fun formatPayloadSize(bytes: Int): String = when {
-    bytes < 1024 -> "$bytes B"
-    bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-    else -> "${"%.1f".format(bytes / (1024f * 1024f))} MB"
 }

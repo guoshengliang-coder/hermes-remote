@@ -152,18 +152,6 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "这个渠道没能连上，请检查设置。", "This channel didn't connect. Check its setup.")
         AppErrorCode.MESSAGING_RESTART_FAILED ->
             localized(language, "网关重启失败，请重试。", "The gateway restart failed. Retry.")
-        AppErrorCode.HANDOFF_SESSION_BUSY ->
-            localized(language, "会话正在运行，等这一轮结束再转。", "The conversation is mid-turn. Wait for it to finish, then move it.")
-        AppErrorCode.HANDOFF_CHANNEL_DISABLED ->
-            localized(language, "这个渠道没有启用，先在消息渠道里开启。", "That channel isn't enabled. Turn it on under Messaging first.")
-        AppErrorCode.HANDOFF_NO_TARGET ->
-            localized(
-                language,
-                "这个渠道还没设默认投递落点，要先在目标聊天里用 /sethome 设置。",
-                "That channel has no delivery target yet. Set one with /sethome in the destination chat.",
-            )
-        AppErrorCode.HANDOFF_IN_FLIGHT ->
-            localized(language, "已经有一次转移在进行，稍后再试。", "A move is already in flight. Try again shortly.")
         AppErrorCode.LINK_NO_HANDLER ->
             localized(language, "没有能打开链接的应用，链接已复制。", "No app can open this link. It was copied to the clipboard.")
         AppErrorCode.LINK_NOT_OPENABLE ->

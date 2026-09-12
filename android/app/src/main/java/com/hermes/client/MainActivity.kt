@@ -35,7 +35,6 @@ import com.hermes.client.ui.nav.HermesNav
 import com.hermes.client.ui.nav.deepLinkRouteFor
 import com.hermes.client.ui.nav.isNewChatLink
 import com.hermes.client.ui.theme.HermesTheme
-import com.hermes.client.ui.theme.LocalToolCallTechnical
 import com.hermes.client.ui.theme.Motion
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -100,7 +99,6 @@ class MainActivity : ComponentActivity() {
         val crashReport = CrashReporter.read(this)
         setContent {
             val mode by settingsStore.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
-            val technical by settingsStore.toolCallTechnical.collectAsState(initial = true)
             val language by settingsStore.appLanguage.collectAsState(
                 initial = LanguagePreference.SYSTEM.resolve(),
             )
@@ -139,7 +137,6 @@ class MainActivity : ComponentActivity() {
                         initial = com.hermes.client.ui.tuning.SessionListTuning(),
                     )
                     CompositionLocalProvider(
-                        LocalToolCallTechnical provides technical,
                         com.hermes.client.ui.tuning.LocalSessionListTuning provides tuning, // TUNING-TEMP
                     ) {
                         Surface {
