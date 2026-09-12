@@ -237,6 +237,102 @@ class ChatViewModelTest {
         assertNull(drafts.peek(draftToken))
     }
 
+    // ── HG-38: 添加会话 — each picked conversation becomes its own Markdown attachment.
+    private fun sourceSession(id: String, title: String) = com.hermes.client.domain.Session(
+        id = id, title = title, model = "claude-opus-5", provider = null,
+        messageCount = 2, profile = null,
+    )
+
+    private fun sourceHistory(text: String) = listOf(
+        com.hermes.client.domain.ChatMessage(id = "h1", role = com.hermes.client.domain.Role.USER, text = text),
+        com.hermes.client.domain.ChatMessage(id = "h2", role = com.hermes.client.domain.Role.ASSISTANT, text = "好的"),
+    )
+
+    @Test fun picked_conversations_become_one_markdown_attachment_each() = runTest {
+        coEvery { sessionRepo.history("a", any(), any()) } returns sourceHistory("甲会话的内容")
+        coEvery { sessionRepo.history("b", any(), any()) } returns sourceHistory("乙会话的内容")
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        vm.attachSessions(listOf(sourceSession("a", "重构网关"), sourceSession("b", "翻译文案")))
+        advanceUntilIdle()
+
+        val staged = vm.state.value.pendingAttachments
+        assertEquals("three picked, three files — never merged into one", 2, staged.size)
+        assertTrue(staged.all { it.mimeType == "text/markdown" })
+        assertTrue(staged.all { it.name.endsWith(".md") })
+        assertTrue(staged.all { it.kind == AttachmentKind.FILE })
+        val first = String(staged[0].bytes, Charsets.UTF_8)
+        assertTrue("the document must be that conversation's transcript", first.contains("甲会话的内容"))
+        assertTrue(first.startsWith("# 重构网关"))
+        assertEquals(0, vm.attachingSessions.value)
+    }
+
+    @Test fun a_conversation_that_cannot_be_read_does_not_take_the_others_with_it() = runTest {
+        coEvery { sessionRepo.history("a", any(), any()) } returns sourceHistory("甲会话的内容")
+        coEvery { sessionRepo.history("b", any(), any()) } throws IllegalStateException("boom")
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        val failures = mutableListOf<Int>()
+        // Subscribe BEFORE the work starts and let the collector actually attach: this is a
+        // one-shot event with no replay, exactly so a recomposition cannot re-show the toast.
+        val collect = launch { vm.sessionAttachFailures.collect { failures += it } }
+        advanceUntilIdle()
+
+        vm.attachSessions(listOf(sourceSession("a", "重构网关"), sourceSession("b", "坏掉的")))
+        advanceUntilIdle()
+
+        assertEquals(1, vm.state.value.pendingAttachments.size)
+        assertEquals(listOf(1), failures)
+        assertEquals(0, vm.attachingSessions.value)
+        collect.cancel()
+    }
+
+    @Test fun an_empty_conversation_produces_no_attachment_and_counts_as_a_failure() = runTest {
+        coEvery { sessionRepo.history("a", any(), any()) } returns emptyList()
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        val failures = mutableListOf<Int>()
+        // Subscribe BEFORE the work starts and let the collector actually attach: this is a
+        // one-shot event with no replay, exactly so a recomposition cannot re-show the toast.
+        val collect = launch { vm.sessionAttachFailures.collect { failures += it } }
+        advanceUntilIdle()
+
+        vm.attachSessions(listOf(sourceSession("a", "空的")))
+        advanceUntilIdle()
+
+        assertTrue("an empty transcript must not become a zero-byte file", vm.state.value.pendingAttachments.isEmpty())
+        assertEquals(listOf(1), failures)
+        collect.cancel()
+    }
+
+    @Test fun attaching_nothing_is_a_no_op() = runTest {
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        vm.attachSessions(emptyList())
+        advanceUntilIdle()
+        assertTrue(vm.state.value.pendingAttachments.isEmpty())
+        assertEquals(0, vm.attachingSessions.value)
+    }
+
+    @Test fun identical_titles_do_not_produce_identical_file_names() = runTest {
+        coEvery { sessionRepo.history(any(), any(), any()) } returns sourceHistory("内容")
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        vm.attachSessions(listOf(sourceSession("a", "周报"), sourceSession("b", "周报")))
+        advanceUntilIdle()
+
+        val names = vm.state.value.pendingAttachments.map { it.name }
+        assertEquals(2, names.toSet().size)
+        assertTrue(names.any { it.endsWith(" (2).md") })
+    }
+
     @Test fun opening_account_conversation_routes_to_its_original_mac_without_changing_default() = runTest {
         val manager = mockk<com.hermes.client.data.auth.AccountSessionManager>()
         val affinity = mockk<com.hermes.client.data.auth.ConversationDeviceStore>(relaxed = true)

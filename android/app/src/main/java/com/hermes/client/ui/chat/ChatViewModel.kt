@@ -150,6 +150,19 @@ class ChatViewModel @Inject constructor(
 
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+    /**
+     * How many conversations are still being turned into Markdown attachments (HG-38); 0 when
+     * idle. The composer shows a line while it runs — the chips all land at once when it finishes,
+     * rather than appearing one at a time in a "generating" state that `PendingAttachment` has no
+     * notion of.
+     */
+    private val _attachingSessions = MutableStateFlow(0)
+    val attachingSessions: StateFlow<Int> = _attachingSessions.asStateFlow()
+
+    /** Emits the number of picked conversations that could not be read; see [attachSessions]. */
+    private val _sessionAttachFailures = MutableSharedFlow<Int>(extraBufferCapacity = 4)
+    val sessionAttachFailures: kotlinx.coroutines.flow.SharedFlow<Int> = _sessionAttachFailures
+
     private val _refreshEvents = MutableSharedFlow<ConversationRefreshEvent>(extraBufferCapacity = 4)
     val refreshEvents: SharedFlow<ConversationRefreshEvent> = _refreshEvents
     private val _lastConfirmedRunElapsedMs = MutableStateFlow<Long?>(null)
@@ -1012,6 +1025,57 @@ class ChatViewModel @Inject constructor(
         val next = block(_state.value)
         _state.value = next
         runtimeKey?.let { key -> runtimeStore.updateChat(key) { next } }
+    }
+
+    /**
+     * HG-38: turn each picked conversation into its own Markdown attachment on this message.
+     *
+     * One document per conversation, never merged — that is what the requirement asks for, and a
+     * merged file would also lose which turn came from where. The transcript is fetched from the
+     * network rather than the cache: referencing a record that is missing its last three turns is
+     * worse than waiting a moment for it.
+     *
+     * A conversation that cannot be read does not take the others down with it; the ones that
+     * loaded still become chips and the count of failures is reported once.
+     */
+    fun attachSessions(picked: List<com.hermes.client.domain.Session>) {
+        if (picked.isEmpty()) return
+        _attachingSessions.value = picked.size
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val docs = mutableListOf<Pair<String, ByteArray>>()
+            var failures = 0
+            picked.forEach { source ->
+                val markdown = runCatching {
+                    val history = sessions.history(source.id, source.profile, source.deviceId)
+                    transcriptMarkdownForAttachment(
+                        title = source.title,
+                        messages = history,
+                        language = appLanguage,
+                        exportedAtMillis = now,
+                        maxBytes = MAX_DIRECT_ATTACHMENT_BYTES,
+                        model = source.model,
+                    )
+                }.getOrElse { e ->
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    com.hermes.client.data.diagnostics.DebugLog.log(
+                        "error", "attachSession(${source.id}) failed: ${e.message}",
+                    )
+                    null
+                }
+                if (markdown.isNullOrBlank()) {
+                    failures++
+                } else {
+                    docs += transcriptAttachmentName(source.title, now) to markdown.toByteArray(Charsets.UTF_8)
+                }
+            }
+            _attachingSessions.value = 0
+            val names = uniqueAttachmentNames(docs.map { it.first })
+            docs.forEachIndexed { index, (_, bytes) ->
+                stageAttachment(bytes, "text/markdown", names[index])
+            }
+            if (failures > 0) _sessionAttachFailures.emit(failures)
+        }
     }
 
     fun stageAttachment(bytes: ByteArray, mimeType: String, name: String = "attachment") {

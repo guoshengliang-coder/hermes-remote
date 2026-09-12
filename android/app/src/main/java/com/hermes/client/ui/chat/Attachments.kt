@@ -48,6 +48,32 @@ fun attachmentSizeLabel(bytes: Long): String = when {
     else -> "$bytes B"
 }
 
+/**
+ * How many more attachments this message can take. The 「添加会话」 picker caps its selection with
+ * this rather than keeping a count of its own: conversations-as-Markdown land on the same chip row
+ * as photos and files, and two separate ceilings would let someone pick six conversations and only
+ * then be told they do not fit (HG-38).
+ */
+fun remainingAttachmentSlots(staged: Int, cap: Int = ATTACH_CAP): Int = (cap - staged).coerceAtLeast(0)
+
+/**
+ * Make every name in [names] distinct, appending ` (2)`, ` (3)`… before the extension.
+ *
+ * Conversation titles are written by a model and two of them really can match; two attachments
+ * called the same thing in one message is a needless puzzle for whoever — or whatever — opens them
+ * (HG-38).
+ */
+fun uniqueAttachmentNames(names: List<String>): List<String> {
+    val seen = mutableMapOf<String, Int>()
+    return names.map { name ->
+        val n = seen.getOrDefault(name, 0) + 1
+        seen[name] = n
+        if (n == 1) return@map name
+        val dot = name.lastIndexOf('.')
+        if (dot <= 0) "$name ($n)" else name.substring(0, dot) + " ($n)" + name.substring(dot)
+    }
+}
+
 /** Add [a] unless already at [cap]; returns the list unchanged when full. */
 fun List<PendingAttachment>.plusCapped(a: PendingAttachment, cap: Int = ATTACH_CAP): List<PendingAttachment> =
     if (size >= cap) this else this + a

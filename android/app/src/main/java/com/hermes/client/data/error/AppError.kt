@@ -56,6 +56,10 @@ enum class AppErrorCode(val value: String) {
     // Another client is running this conversation, so upstream refused the prompt. Retryable, but
     // only once the other side lets go — so it must say that instead of the generic send failure.
     SESSION_OWNED_ELSEWHERE("HR-SESS-013"),
+    // Fetching ANOTHER conversation's transcript failed while turning it into a Markdown
+    // attachment (HG-38). Not HR-SYNC-001: nothing is out of sync and the open conversation is
+    // untouched — one conversation the user asked to reference could not be read.
+    SESSION_TRANSCRIPT_UNAVAILABLE("HR-SESS-014"),
     INSTALL_PERMISSION_REQUIRED("HR-PERM-003"),
     HISTORY_INCOMPLETE("HR-SYNC-001"),
     RUN_UNCONFIRMED("HR-SYNC-002"),
