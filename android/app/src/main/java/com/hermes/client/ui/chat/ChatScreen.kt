@@ -1045,9 +1045,9 @@ fun ChatScreen(
                     ) {
                         items(state.pendingAttachments, key = { it.id }) { a ->
                             if (a.kind == AttachmentKind.IMAGE) {
-                                val thumb by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, a.id) {
+                                val thumb by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, a.contentKey) {
                                     value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                        decodeSampled(ImageSource.Bytes(a.id, a.bytes), reqPx = 200)
+                                        decodeSampled(ImageSource.Bytes(a.contentKey, a.bytes), reqPx = 200)
                                     }
                                 }
                                 Box(Modifier.size(58.dp)) {
@@ -1573,7 +1573,7 @@ fun ChatScreen(
             null -> emptyList()
             PENDING_VIEWER_OWNER -> state.pendingAttachments
                 .filter { it.kind == AttachmentKind.IMAGE }
-                .map { ImageViewerItem(it.id, ImageSource.Bytes(it.id, it.bytes)) }
+                .map { ImageViewerItem(it.id, ImageSource.Bytes(it.contentKey, it.bytes)) }
             else -> state.messages.firstOrNull { it.id == viewerOwner }
                 ?.images
                 .orEmpty()

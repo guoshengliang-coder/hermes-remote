@@ -56,3 +56,22 @@ internal fun singleImageBox(srcW: Int, srcH: Int, maxW: Dp, maxH: Dp): DpSize {
  * viewport, so a long screenshot cannot own a short device's whole screen.
  */
 internal fun singleImageMaxHeight(screenHeight: Dp): Dp = minOf(320.dp, screenHeight * 0.42f)
+
+/**
+ * Merge an upstream `image.attach` response into an outgoing image we already measured.
+ *
+ * Upstream **fills gaps, it does not overwrite**. The local dimensions came from the exact bytes
+ * being uploaded, so they are authoritative here; letting an upstream that answers null erase them
+ * collapses the thumbnail into the unknown-size fallback box, which is how a portrait screenshot
+ * ended up inside a landscape frame.
+ */
+internal fun com.hermes.client.domain.ChatImage.mergedWithUpstream(
+    remotePath: String,
+    upstreamWidth: Int?,
+    upstreamHeight: Int?,
+): com.hermes.client.domain.ChatImage = copy(
+    remotePath = remotePath,
+    width = width ?: upstreamWidth,
+    height = height ?: upstreamHeight,
+    state = com.hermes.client.domain.ImageTransferState.READY,
+)

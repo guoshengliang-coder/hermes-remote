@@ -898,6 +898,8 @@ fun ChatUiState.withReplacedAttachment(
     name: String,
 ): ChatUiState = copy(
     pendingAttachments = pendingAttachments.map {
-        if (it.id == id) PendingAttachment(id, bytes, mimeType, name) else it
+        // The revision bump is load-bearing, not bookkeeping: without it the new state compares
+        // equal to the old one and MutableStateFlow throws the assignment away.
+        if (it.id == id) PendingAttachment(id, bytes, mimeType, name, revision = it.revision + 1) else it
     },
 )

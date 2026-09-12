@@ -1238,12 +1238,7 @@ class ChatViewModel @Inject constructor(
                     AttachmentKind.IMAGE -> {
                         val attached = chat.attachImagePath(handle, uploaded.path)
                         updateSentImage(messageId, attachment.id) { image ->
-                            image.copy(
-                                remotePath = attached.path,
-                                width = attached.width,
-                                height = attached.height,
-                                state = com.hermes.client.domain.ImageTransferState.READY,
-                            )
+                            image.mergedWithUpstream(attached.path, attached.width, attached.height)
                         }
                     }
                     AttachmentKind.PDF -> {
