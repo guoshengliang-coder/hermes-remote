@@ -179,8 +179,9 @@ missiongoSdkToken=<从 MissionGo 控制台取>
 发布的，两个值编译成空串，`UnavailableFeedbackReporter` 生效，卡片页那一行整条不渲染。包名、版本、
 签名、哈希全对，所以当时所有门禁都是绿的 —— 直到有人去找这个入口才发现。
 
-因此发布门禁现在会证明**产物里真的带着这份配置**：`scripts/package-debug-apk.sh` 按 Gradle 同样的
-顺序解析 endpoint，再用 `scripts/lib/apk_feedback.py` 在 APK 的 dex 里找它，缺任何一半都拒绝放行
+因此发布门禁现在会证明**产物里真的带着这份配置**：`scripts/package-debug-apk.sh` 读取本次编译生成的
+`BuildConfig.java`，再用 `scripts/lib/apk_feedback.py` 在 APK 的 dex 里同时查 endpoint 和 token，
+缺任何一半都拒绝放行
 （它拦下过真实的 0.1.120，放行了真实的 0.1.119）。查的是**产物不是构建输入**：配置期读取会被 Gradle
 的 configuration cache 复用，输入对而编进去的 `BuildConfig` 是旧的，这种情况只查输入发现不了。
 

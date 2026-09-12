@@ -9,13 +9,19 @@ otherwise perfect — correct package, version, signature and hash — so every 
 
 Checking the build *inputs* would not be enough: Gradle's configuration cache reads those values at
 configuration time, so a stale entry can compile a different BuildConfig than the inputs describe.
-This therefore checks the artifact, looking for the endpoint inside the compiled dex.
+This therefore reads the generated BuildConfig that fed the compilation and checks that both values
+are nonempty and present inside the compiled dex.
 
 Nothing here prints the endpoint or the token. A failure says which field is missing, not its value.
 """
 
+import json
+import re
 import sys
 import zipfile
+
+
+FIELDS = ("MISSIONGO_ENDPOINT", "MISSIONGO_SDK_TOKEN")
 
 
 def dex_contains(apk_path, needle):
@@ -34,23 +40,46 @@ def dex_contains(apk_path, needle):
     return False
 
 
+def read_build_config(path):
+    try:
+        with open(path, encoding="utf-8") as stream:
+            source = stream.read()
+    except OSError:
+        raise SystemExit("The generated BuildConfig is missing; rebuild the APK before packaging.")
+    values = {}
+    for field in FIELDS:
+        match = re.search(
+            rf'^\s*public static final String {field} = "((?:\\.|[^"\\])*)";\s*$',
+            source,
+            re.MULTILINE,
+        )
+        if not match:
+            raise SystemExit(f"The generated BuildConfig is missing {field}.")
+        try:
+            values[field] = json.loads(f'"{match.group(1)}"')
+        except json.JSONDecodeError:
+            raise SystemExit(f"The generated BuildConfig contains an invalid {field} literal.")
+    return values
+
+
 def main(argv):
     if len(argv) != 3:
-        raise SystemExit('usage: apk_feedback.py <apk> <endpoint>')
-    apk_path, endpoint = argv[1], argv[2]
-    if not endpoint.strip():
-        raise SystemExit(
-            'This APK was built without the in-app feedback configuration, so it would ship with\n'
-            'the "反馈与建议" entry silently missing (that is how 0.1.120 lost it).\n'
-            'Provide android/missiongo.properties (missiongoEndpoint + missiongoSdkToken), or set\n'
-            'MISSIONGO_ENDPOINT and MISSIONGO_SDK_TOKEN in the environment, and build again.'
-        )
-    if not dex_contains(apk_path, endpoint):
-        raise SystemExit(
-            'The feedback endpoint is configured but is not present in the built APK, so the\n'
-            'artifact does not match its build inputs. A stale Gradle configuration-cache entry is\n'
-            'the usual cause; re-run the build with --no-configuration-cache.'
-        )
+        raise SystemExit('usage: apk_feedback.py <apk> <generated-build-config>')
+    apk_path, build_config_path = argv[1], argv[2]
+    values = read_build_config(build_config_path)
+    for field, value in values.items():
+        if not value.strip():
+            raise SystemExit(
+                f'This APK was built without {field}, so the in-app feedback entry would be\n'
+                'silently missing or unusable (that is how 0.1.120 lost it). Configure both\n'
+                'MissionGo settings and build again.'
+            )
+        if not dex_contains(apk_path, value):
+            raise SystemExit(
+                f'{field} is nonempty in the generated BuildConfig but is not present in the APK.\n'
+                'The artifact does not match its generated source; rebuild with\n'
+                '--no-configuration-cache.'
+            )
     print('FEEDBACK_CONFIG_OK')
 
 
