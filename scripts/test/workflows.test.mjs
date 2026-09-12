@@ -270,5 +270,9 @@ test('release secrets stay scoped to the steps that consume them', async () => {
     release.slice(signing, deployment).includes('MISSIONGO_SDK_TOKEN'),
     'MissionGo build configuration must reach the step that runs Gradle',
   );
+  assert.ok(
+    release.slice(signing, deployment).includes('APK_REQUIRE_MISSIONGO_CONFIG=1'),
+    'the release gate must reject an APK built without MissionGo configuration',
+  );
   assert.equal(release.slice(deployment).includes('MISSIONGO_'), false, 'MissionGo secrets must not reach the publish step');
 });

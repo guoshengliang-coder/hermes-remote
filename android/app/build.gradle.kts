@@ -34,9 +34,26 @@ val missionGoProps = Properties().apply {
 }
 fun missionGoSetting(propertyName: String, environmentName: String): String =
     (missionGoProps.getProperty(propertyName) ?: System.getenv(environmentName) ?: "").trim()
+val missionGoEndpoint = missionGoSetting("missiongoEndpoint", "MISSIONGO_ENDPOINT")
+val missionGoSdkToken = missionGoSetting("missiongoSdkToken", "MISSIONGO_SDK_TOKEN")
 
 fun javaStringLiteral(value: String): String =
     "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+tasks.register("verifyMissionGoConfiguration") {
+    group = "verification"
+    description = "Fails unless both MissionGo values used by this build are configured."
+    inputs.property("endpointConfigured", missionGoEndpoint.isNotEmpty())
+    inputs.property("sdkTokenConfigured", missionGoSdkToken.isNotEmpty())
+    doLast {
+        check(inputs.properties["endpointConfigured"] == true) {
+            "MissionGo endpoint is missing; configure missiongoEndpoint or MISSIONGO_ENDPOINT."
+        }
+        check(inputs.properties["sdkTokenConfigured"] == true) {
+            "MissionGo SDK token is missing; configure missiongoSdkToken or MISSIONGO_SDK_TOKEN."
+        }
+    }
+}
 
 plugins {
     alias(libs.plugins.android.application)
@@ -70,12 +87,12 @@ android {
         buildConfigField(
             "String",
             "MISSIONGO_ENDPOINT",
-            javaStringLiteral(missionGoSetting("missiongoEndpoint", "MISSIONGO_ENDPOINT")),
+            javaStringLiteral(missionGoEndpoint),
         )
         buildConfigField(
             "String",
             "MISSIONGO_SDK_TOKEN",
-            javaStringLiteral(missionGoSetting("missiongoSdkToken", "MISSIONGO_SDK_TOKEN")),
+            javaStringLiteral(missionGoSdkToken),
         )
     }
     signingConfigs {

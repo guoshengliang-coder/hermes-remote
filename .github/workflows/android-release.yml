@@ -135,7 +135,9 @@ jobs:
           mkdir -p "$HOME/.android"
           printf '%s' "$HERMES_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$key"
           chmod 600 "$key"
-          APK_RELEASE_METADATA_FILE="$RUNNER_TEMP/apk-release-gate.json" ./scripts/package-debug-apk.sh
+          APK_REQUIRE_MISSIONGO_CONFIG=1 \
+            APK_RELEASE_METADATA_FILE="$RUNNER_TEMP/apk-release-gate.json" \
+            ./scripts/package-debug-apk.sh
 
       - name: Publish APK and erase deployment key
         shell: bash
