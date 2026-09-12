@@ -22,6 +22,12 @@
 它列出连着的每台真机（品牌、型号、SDK）、没授权或离线的设备、以及真机最高 SDK 是否达到
 `targetSdk`。多台时默认目标是按 serial 排序的第一台，用 `ANDROID_SERIAL=<serial>` 改。
 
+**在受限 PATH 下（某些 AI 会话的沙箱 shell）这个脚本会直接报错退出**：它调用的 `sysctl` 在
+`/usr/sbin`，不在最小 PATH 里，于是先 `command not found`、再 `HR_HOST_RAM_GB: unbound variable`。
+后果不是报错这么简单 —— `device-install.py` 拿它探设备，会因此断定"没有可用手机"，明明两台都插着。
+前面加 `PATH="/usr/sbin:/sbin:$PATH"` 即可（2026-09-12 实测）。同理，沙箱里 `adb` 也可能不在 PATH，
+用 `~/Library/Android/sdk/platform-tools/adb` 的绝对路径。
+
 **所有 adb 命令都带 `-s <serial>`。** 真机和模拟器、或两台真机同时在线时，不带 `-s` 的 adb 会
 直接拒绝执行，或者作用到你没打算操作的那台上。
 
