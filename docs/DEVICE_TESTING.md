@@ -175,6 +175,18 @@ missiongoSdkToken=<从 MissionGo 控制台取>
 发布包的这两个值由 `.github/workflows/android-release.yml` 从仓库 secrets 注入，与本文件同一对。
 改完要重新构建：Gradle 在配置期读它并写进 `BuildConfig`。
 
+**0.1.120 就是这么把这个功能弄丢的。** 它是从一棵没有 `missiongo.properties` 的工作树本机构建并手动
+发布的，两个值编译成空串，`UnavailableFeedbackReporter` 生效，卡片页那一行整条不渲染。包名、版本、
+签名、哈希全对，所以当时所有门禁都是绿的 —— 直到有人去找这个入口才发现。
+
+因此发布门禁现在会证明**产物里真的带着这份配置**：`scripts/package-debug-apk.sh` 按 Gradle 同样的
+顺序解析 endpoint，再用 `scripts/lib/apk_feedback.py` 在 APK 的 dex 里找它，缺任何一半都拒绝放行
+（它拦下过真实的 0.1.120，放行了真实的 0.1.119）。查的是**产物不是构建输入**：配置期读取会被 Gradle
+的 configuration cache 复用，输入对而编进去的 `BuildConfig` 是旧的，这种情况只查输入发现不了。
+
+实践后果：**本机没有这个文件就发不了版**。正常路径是让 `android-release.yml` 从 secrets 构建发布，
+而不是把密钥文件复制进发布工作树。
+
 **已知行为（2026-09-11 vivo V2166BA 实测）**：编辑器是 MissionGo SDK 自己的 Activity；在编辑器里按返回会把
 整个应用任务退到桌面，而不是回到卡片页。应用进程仍在，重新点图标即恢复原状态。与本仓的调起代码无关
 （`ui/feedback/FeedbackEntry.kt` 只把宿主 Activity 交给 SDK），要修得在 SDK 侧。

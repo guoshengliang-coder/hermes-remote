@@ -113,8 +113,15 @@ For every APK actually handed to a tester or user:
    ```
 
    This gate runs `git diff --check`, Android unit tests, the debug build, staged-artifact checks,
-   APK package/version validation, signature verification, and SHA-256 generation. A successful
-   `assembleDebug` by itself is not sufficient for distribution.
+   APK package/version validation, signature verification, feedback-configuration verification, and
+   SHA-256 generation. A successful `assembleDebug` by itself is not sufficient for distribution.
+
+   Feedback-configuration verification exists because 0.1.120 shipped without the in-app
+   "反馈与建议" entry and every other check stayed green: the entry is drawn only when the build
+   carried `MISSIONGO_ENDPOINT` and `MISSIONGO_SDK_TOKEN`, which reach a local build through the
+   gitignored `android/missiongo.properties`. A build host without that file therefore cannot
+   produce a distributable APK, and should not try to: let `android-release.yml` build and publish
+   from the repository secrets rather than copying credentials into a release worktree.
 4. Deliver only the exact `ARTIFACT=` path printed after `APK_RELEASE_OK`:
    `android/app/build/outputs/apk/distribution/debug/Hermes-Remote-<version>-debug.apk`.
 5. Never hand off, upload, or serve the canonical unversioned `app-debug.apk`.
