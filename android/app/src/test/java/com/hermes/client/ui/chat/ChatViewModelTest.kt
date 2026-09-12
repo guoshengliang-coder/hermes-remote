@@ -55,7 +55,6 @@ class ChatViewModelTest {
     private val mediaRepo = mockk<ChatMediaRepository>(relaxed = true)
     private val fileRepo = mockk<com.hermes.client.data.repository.ChatFileRepository>(relaxed = true)
     private val sessionRepo = mockk<SessionRepository>(relaxed = true)
-    private val toolsRepo = mockk<com.hermes.client.data.repository.ToolsRepository>(relaxed = true)
     private val modelRepo = mockk<ModelRepository>(relaxed = true)
     private val profileRepo = mockk<ProfileRepository>(relaxed = true)
     private val profileManager = mockk<com.hermes.client.data.repository.ProfileManager>(relaxed = true)
@@ -144,7 +143,7 @@ class ChatViewModelTest {
             com.hermes.client.data.repository.ProjectCatalog(
                 mockk(relaxed = true), sessionRepo, profileManager, projectPrefs,
             ),
-            toolsRepo, botSendNotice, accountSessions, conversationDevices,
+            botSendNotice, accountSessions, conversationDevices,
         )
     }
 
@@ -580,6 +579,48 @@ class ChatViewModelTest {
 
         // Close the resent turn; while it awaits the model the runtime keeps polling processes and
         // the virtual clock would never go idle.
+        events.emit(event("message.complete", "s1-live", "done"))
+        advanceUntilIdle()
+    }
+
+    @Test fun a_session_owned_by_another_client_says_so_and_keeps_its_retry() = runTest {
+        // HG-30: the desktop held the conversation, upstream refused with 4090, and the phone
+        // collapsed it into the generic HR-SESS-007 "点按重试" — a retry that repeats the same
+        // refusal for as long as the other side is running. The tap is right (the conflict clears
+        // by itself); the sentence was not.
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.submit("s1-live", "hello") } throws
+            com.hermes.client.data.network.GatewayRpcException(
+                4090,
+                "Session s1 already has a live owner (desktop, pid 32991, running 2h22m).",
+            ) andThen Unit
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+
+        vm.send("hello")
+        runCurrent()
+
+        val failed = vm.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals(
+            "retryable, so FAILED — not the terminal UNDELIVERABLE of a conversation that is gone",
+            com.hermes.client.domain.DeliveryState.FAILED,
+            failed.delivery,
+        )
+        assertEquals(
+            com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE,
+            vm.sendErrorCode(failed.id),
+        )
+        assertTrue(vm.sendDiagnostic(failed.id)!!.contains("HR-SESS-013"))
+
+        // The retry must still be offered: the moment the desktop lets go, the same send works.
+        vm.retrySend(failed.id)
+        runCurrent()
+        val resent = vm.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT, resent.delivery)
+        assertEquals(null, vm.sendErrorCode(resent.id))
+        coVerify(exactly = 2) { chatRepo.submit("s1-live", "hello") }
+
         events.emit(event("message.complete", "s1-live", "done"))
         advanceUntilIdle()
     }
@@ -1171,29 +1212,5 @@ class ChatViewModelTest {
         val vm = buildVm()
         vm.stopReading()
         io.mockk.verify { tts.stop() }
-    }
-
-    @Test fun setPersona_sends_personality_slash() = runTest {
-        val vm = buildVm()
-        vm.setPersona("witty"); advanceUntilIdle()
-        io.mockk.coVerify { chatRepo.slashExec(any(), "/personality witty") }
-    }
-
-    @Test fun setPersona_null_clears_with_none() = runTest {
-        val vm = buildVm()
-        vm.setPersona(null); advanceUntilIdle()
-        io.mockk.coVerify { chatRepo.slashExec(any(), "/personality none") }
-    }
-
-    // chat.slashExec returns command-level errors in its output string (only transport failures
-    // throw), so a gateway rejection of an unknown persona must surface as an error, not silently
-    // set active — otherwise the UI would show a persona as applied when the gateway refused it.
-    @Test fun setPersona_rejection_surfaces_error_and_does_not_set_active() = runTest {
-        coEvery { chatRepo.slashExec(any(), any()) } returns "unknown personality: x"
-        val vm = buildVm()
-        vm.setPersona("bad"); advanceUntilIdle()
-
-        assertTrue("a gateway rejection must surface a persona error", vm.personaUi.value.error != null)
-        assertEquals(null, vm.personaUi.value.active)
     }
 }

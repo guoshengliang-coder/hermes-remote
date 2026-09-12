@@ -108,6 +108,20 @@ Ignoring it costs more than a wasted round trip. Afterwards `prompt.submit` answ
 fixes, 4007 is the durable lookup missing from the profile's `state.db` — terminal. HG-29 was
 exactly this, surfaced to the user as a tap-to-retry that could never succeed.
 
+**Upstream enforces one live owner per session, and says so with 4090.** While another surface is
+running a conversation, `prompt.submit` is refused — its stated reason being that a second surface
+would reason from a transcript missing the first one's work. Unlike 4001/4007 this is neither stale
+nor terminal: the same send succeeds once the other side lets go, which is why the phone keeps its
+retry and only names the cause (`HR-SESS-013`, HG-30). Note it is *not* 4009 "busy" — that is the
+session running a turn of its own.
+
+These are the `prompt.submit` numbers we depend on — **4001**, **4007**, **4090** — and the
+dependency is on the numbers only. The message upstream attaches to 4090 names the owning surface
+and its pid; we deliberately do not parse it. There is no version negotiation here (see the end of
+this document), so that prose can change under us at any time, and a user-facing sentence must not
+be hostage to it. If a future Hermes renumbers these, the symptom is a send failure falling back to
+the generic `HR-SESS-007` — check `ChatViewModel`'s constants first.
+
 **Upstream strips its own repo root out of every child process's `PYTHONPATH`.**
 `tools/environments/local.py` builds the environment for anything Hermes spawns, and
 `_strip_hermes_owned_pythonpath` (`tools/environments/local_pythonpath.py`) removes the entries it
@@ -245,11 +259,12 @@ Surfaces this app started depending on after 0.1.102. None of them are version-n
 | cron `deliver` | `local` (server default) / `origin` / any connected channel id | An unknown value renders as its own target name |
 | cron `last_status = delivery_failed` + `last_delivery_error` | ran fine, never delivered; `last_error` is null here | A rename makes that failure silent again |
 | `GET /api/cron/delivery-targets` | `{id, name, home_target_set, home_env_var}`; upstream calls it the single source of truth for UIs | On failure the picker offers only 只存不发 |
-| `handoff.request` / `handoff.state` | refusals 4009 / 4025 / 4026 / 4027 | An unmodelled code degrades to `HR-RPC-001` |
+| ~~`handoff.request` / `handoff.state`~~ | refusals 4009 / 4025 / 4026 / 4027 | **No longer consumed** — HG-34 (2026-09-12) deleted 转到消息渠道, so this repo has no caller. Upstream may change it freely without affecting us |
 | session row `display_name` | the peer or group a platform session is with. **Measured on a live Hermes: filled for `group` rows, blank on every `dm` row** — it cannot carry a peer label alone | Absent means the transcript falls back to `chat_type` |
 | session row `chat_type` | `dm` or `group` on a platform session | Absent means the transcript names the channel and claims nothing about who |
 
-**A directional fact worth not re-deriving:** handoff moves a **local session out to a platform**,
+**A directional fact worth not re-deriving** (kept although we no longer call handoff, because it
+is the kind of thing that gets re-proposed): handoff moves a **local session out to a platform**,
 one way. `Platform` does contain `local`, but it is not a configured gateway platform (no home
 channel), so `platform=local` is refused with 4025. `handoff.request` also goes through
 `_with_session`, which requires a session live in the **dashboard** process — a channel session

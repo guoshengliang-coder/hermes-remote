@@ -50,10 +50,7 @@ import androidx.compose.material.icons.automirrored.rounded.NoteAdd
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Archive
-import androidx.compose.material.icons.rounded.Forum
-import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.AttachFile
@@ -134,6 +131,8 @@ fun ChatScreen(
     /** Escape hatch from a zero-hit in-chat search to the global search, carrying the query. */
     onSearchAll: ((String) -> Unit)? = null,
     onNewChat: (String) -> Unit = {},
+    /** Prompt library, reached from the composer's 常用提示 sheet — Settings no longer lists it. */
+    onManagePrompts: () -> Unit = {},
     onUnauthorized: () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
@@ -230,11 +229,6 @@ fun ChatScreen(
     val speaking by vm.speaking.collectAsStateWithLifecycle()
     val savedPrompts by vm.savedPrompts.collectAsStateWithLifecycle()
     var showPromptSheet by remember { mutableStateOf(false) }
-    val personaUi by vm.personaUi.collectAsStateWithLifecycle()
-    var showPersonaSheet by remember { mutableStateOf(false) }
-    var showHandoffSheet by remember { mutableStateOf(false) }
-    var confirmHandoff by remember { mutableStateOf<com.hermes.client.data.network.MessagingPlatformDto?>(null) }
-    var handoffBusy by remember { mutableStateOf(false) }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { vm.stopReading() } }
     var draft by rememberSaveable(sessionId) { mutableStateOf("") }
     var composerFocused by rememberSaveable(sessionId) { mutableStateOf(false) }
@@ -421,7 +415,6 @@ fun ChatScreen(
     }
 
     // Image attach: read picked/captured bytes and stage them onto the session.
-    val clipboard = LocalClipboardManager.current
     var transcriptMenu by remember { mutableStateOf(false) }
     var creatingNewChat by remember { mutableStateOf(false) }
     var confirmArchive by rememberSaveable(sessionId) { mutableStateOf(false) }
@@ -709,96 +702,6 @@ fun ChatScreen(
         if (unauthorized) onUnauthorized()
     }
 
-    if (showHandoffSheet) {
-        val targets by vm.handoffTargets.collectAsStateWithLifecycle()
-        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { showHandoffSheet = false }) {
-            Text(
-                localized(language, "转到哪个渠道？", "Move to which channel?"),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp),
-            )
-            if (targets.isEmpty()) {
-                Text(
-                    localized(
-                        language,
-                        "没有可用的渠道。渠道要先启用，并且在目标聊天里设过默认投递落点。",
-                        "No channel is available. A channel must be enabled and have a delivery target set.",
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                )
-            }
-            targets.forEach { platform ->
-                androidx.compose.material3.ListItem(
-                    headlineContent = { Text(platform.name ?: platform.id) },
-                    supportingContent = {
-                        Text(
-                            localized(language, "落点：", "Target: ") + (platform.homeChannel ?: ""),
-                        )
-                    },
-                    modifier = Modifier.clickable {
-                        showHandoffSheet = false
-                        confirmHandoff = platform
-                    },
-                )
-            }
-            Spacer(Modifier.height(16.dp))
-        }
-    }
-
-    confirmHandoff?.let { platform ->
-        val name = platform.name ?: platform.id
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { if (!handoffBusy) confirmHandoff = null },
-            title = { Text(localized(language, "转到$name？", "Move to $name?")) },
-            text = {
-                // Every consequence, before the tap: this cannot be undone from the phone.
-                Text(
-                    localized(
-                        language,
-                        "这条对话会搬到 $name 的默认落点，并在那边继续。\n\n" +
-                            "· $name 当前那条对话会结束\n" +
-                            "· 这条对话会从手机的会话列表消失\n" +
-                            "· 搬过去之后拉不回来",
-                        "This conversation moves to $name's delivery target and continues there.\n\n" +
-                            "· $name's current conversation ends\n" +
-                            "· This one leaves the phone's list\n" +
-                            "· It cannot be moved back",
-                    ),
-                )
-            },
-            confirmButton = {
-                androidx.compose.material3.TextButton(
-                    enabled = !handoffBusy,
-                    onClick = {
-                        handoffBusy = true
-                        exportScope.launch {
-                            val error = vm.handoffCurrentSession(platform.id)
-                            handoffBusy = false
-                            confirmHandoff = null
-                            android.widget.Toast.makeText(
-                                context,
-                                error?.localizedMessage(language)
-                                    ?: localized(language, "已转到 $name", "Moved to $name"),
-                                android.widget.Toast.LENGTH_LONG,
-                            ).show()
-                            // On success this conversation now belongs to the channel and is gone
-                            // from the list; staying on it would show a session that no longer
-                            // lives here. On failure nothing moved, so stay put.
-                            if (error == null) onMenu()
-                        }
-                    },
-                ) { Text(if (handoffBusy) localized(language, "转移中…", "Moving…") else localized(language, "转过去", "Move")) }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(enabled = !handoffBusy, onClick = { confirmHandoff = null }) {
-                    Text(localized(language, "取消", "Cancel"))
-                }
-            },
-        )
-    }
-
     androidx.compose.runtime.CompositionLocalProvider(
         LocalBotOrigin provides botOrigin,
         LocalLocallySentIds provides locallySentIds,
@@ -963,24 +866,6 @@ fun ChatScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(localized(language, "复制对话", "Copy transcript")) },
-                                onClick = {
-                                    val t = transcriptText(state.messages, language, botOrigin)
-                                    if (t.isBlank()) {
-                                        android.widget.Toast.makeText(context, localized(language, "暂无可导出的内容", "Nothing to export yet"), android.widget.Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        runCatching {
-                                            clipboard.setText(AnnotatedString(t))
-                                            android.widget.Toast.makeText(context, localized(language, "对话已复制", "Transcript copied"), android.widget.Toast.LENGTH_SHORT).show()
-                                        }.onFailure {
-                                            android.widget.Toast.makeText(context, localized(language, "无法复制对话", "Couldn't copy transcript"), android.widget.Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                    transcriptMenu = false
-                                },
-                            )
-                            DropdownMenuItem(
                                 leadingIcon = { Icon(Icons.Rounded.Share, contentDescription = null, Modifier.size(20.dp)) },
                                 text = { Text(localized(language, "分享对话", "Share transcript")) },
                                 onClick = {
@@ -1000,29 +885,6 @@ fun ChatScreen(
                                 onClick = {
                                     transcriptMenu = false
                                     confirmArchive = true
-                                },
-                            )
-                            // Handoff moves a LOCAL conversation out to a platform, one direction
-                            // only. This one is already on a platform, so there is nowhere for it
-                            // to go and the gateway refuses it outright (4025/4026).
-                            if (botOrigin == null) {
-                                DropdownMenuItem(
-                                    leadingIcon = { Icon(Icons.Rounded.Forum, contentDescription = null, Modifier.size(20.dp)) },
-                                    text = { Text(localized(language, "转到消息渠道", "Move to a channel")) },
-                                    onClick = {
-                                        transcriptMenu = false
-                                        vm.loadHandoffTargets()
-                                        showHandoffSheet = true
-                                    },
-                                )
-                            }
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(localized(language, "切换人格", "Switch persona")) },
-                                onClick = {
-                                    transcriptMenu = false
-                                    vm.loadPersonas()
-                                    showPersonaSheet = true
                                 },
                             )
                     }
@@ -1387,6 +1249,7 @@ fun ChatScreen(
                         onEditResend = { text -> draft = text; focusRequester.requestFocus() },
                         onRetrySend = { vm.retrySend(it) },
                         sendDiagnosticFor = { vm.sendDiagnostic(it) },
+                        sendErrorCodeFor = { vm.sendErrorCode(it) },
                         onRegenerate = { vm.regenerate() },
                         onRetryWithModel = {
                             retryAfterModelSwitch = true
@@ -1932,27 +1795,27 @@ fun ChatScreen(
 
     if (showPromptSheet) {
         val promptSheetState = com.hermes.client.ui.components.hermesSheetState()
-        ModalBottomSheet(onDismissRequest = { showPromptSheet = false }, sheetState = promptSheetState) {
-            if (savedPrompts.isEmpty()) {
-                Text(
-                    localized(language, "暂无常用提示，可前往“设置 › 常用提示”添加。", "No saved prompts yet — add them in Settings › Saved prompts."),
-                    modifier = Modifier.padding(24.dp),
-                )
-            } else {
-                LazyColumn(Modifier.fillMaxWidth()) {
-                    items(savedPrompts, key = { it.id }) { p ->
-                        ListItem(
-                            headlineContent = { Text(p.title) },
-                            supportingContent = { Text(p.body.lineSequence().firstOrNull().orEmpty()) },
-                            modifier = Modifier.clickable {
-                                draft = if (draft.isBlank()) p.body else draft.trimEnd() + "\n" + p.body
-                                showPromptSheet = false
-                                focusRequester.requestFocus()
-                            },
-                        )
-                    }
-                }
-            }
+        // Sheet gestures OFF (docs/DESIGN.md §5.8 global rule): scrolling the list never drags or
+        // closes the sheet; closing is the grab bar, the scrim, or back.
+        ModalBottomSheet(
+            onDismissRequest = { showPromptSheet = false },
+            sheetState = promptSheetState,
+            sheetGesturesEnabled = false,
+            dragHandle = { com.hermes.client.ui.components.SheetCloseHandle { showPromptSheet = false } },
+        ) {
+            SavedPromptSheetContent(
+                prompts = savedPrompts,
+                onPick = { p ->
+                    draft = if (draft.isBlank()) p.body else draft.trimEnd() + "\n" + p.body
+                    showPromptSheet = false
+                    focusRequester.requestFocus()
+                },
+                onManage = {
+                    showPromptSheet = false
+                    onManagePrompts()
+                },
+            )
+            Spacer(Modifier.height(16.dp))
         }
     }
 
@@ -1972,14 +1835,60 @@ fun ChatScreen(
             onPick = { project -> vm.moveToProject(project) { projectSheetOpen = false } },
         )
     }
+}
 
-    if (showPersonaSheet) {
-        PersonaSheet(
-            ui = personaUi,
-            onPick = { vm.setPersona(it) },
-            onRetry = { vm.loadPersonas() },
-            onDismiss = { showPersonaSheet = false },
-        )
+/**
+ * Body of the composer's 常用提示 sheet.
+ *
+ * 「管理」 is the only way into the prompt library since HG-33 took the row out of Settings, so the
+ * sheet that spends prompts is also the sheet that maintains them. Header shape follows the model
+ * sheet (docs/DESIGN.md §5.8): centred title + count, action on the right.
+ */
+@Composable
+internal fun SavedPromptSheetContent(
+    prompts: List<com.hermes.client.data.repository.SavedPrompt>,
+    onPick: (com.hermes.client.data.repository.SavedPrompt) -> Unit,
+    onManage: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val language = LocalAppLanguage.current
+    Column(modifier) {
+        Box(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+            Column(
+                Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(localized(language, "常用提示", "Saved prompts"), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    localized(language, "${prompts.size} 条", "${prompts.size} prompts"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            TextButton(
+                onClick = onManage,
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
+            ) {
+                Text(localized(language, "管理", "Manage"))
+            }
+        }
+        if (prompts.isEmpty()) {
+            Text(
+                localized(language, "还没有常用提示，点右上角「管理」添加。", "No saved prompts yet — tap Manage to add one."),
+                modifier = Modifier.padding(24.dp),
+            )
+        } else {
+            LazyColumn(Modifier.fillMaxWidth()) {
+                items(prompts, key = { it.id }) { p ->
+                    ListItem(
+                        headlineContent = { Text(p.title) },
+                        supportingContent = { Text(p.body.lineSequence().firstOrNull().orEmpty()) },
+                        modifier = Modifier.clickable { onPick(p) },
+                    )
+                }
+            }
+        }
     }
 }
 

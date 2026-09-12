@@ -75,6 +75,7 @@ export async function packageDesktopComponentArchives({
       sourceCommit: config.sourceCommit,
       architecture: config.architecture,
     });
+    await verifyConnectorSessionTokenContract(connectorStage, temporaryRoot);
 
     const artifacts = [
       {
@@ -285,6 +286,42 @@ exec "$ROOT/runtime/node" "$ROOT/app/connector/dist/index.js" "$@"
 `;
   await writeFile(path.join(destination, "bin/hermes-connector"), launcher, { mode: 0o700 });
   await writeIdentity(destination, { component: "connector", version, sourceCommit, architecture });
+}
+
+async function verifyConnectorSessionTokenContract(connectorStage, temporaryRoot) {
+  const fixtureRoot = path.join(temporaryRoot, "connector-token-contract");
+  await mkdir(fixtureRoot, { mode: 0o700 });
+  const base64urlFile = path.join(fixtureRoot, "base64url-token");
+  const hexFile = path.join(fixtureRoot, "hex-token");
+  const uppercaseHexFile = path.join(fixtureRoot, "uppercase-hex-token");
+  await writeFile(base64urlFile, "A".repeat(43), { mode: 0o600 });
+  await writeFile(hexFile, "a".repeat(64), { mode: 0o600 });
+  await writeFile(uppercaseHexFile, "A".repeat(64), { mode: 0o600 });
+
+  const verifier = path.join(fixtureRoot, "verify.mjs");
+  await writeFile(verifier, `import { pathToFileURL } from "node:url";
+const { loadHermesSessionToken } = await import(pathToFileURL(process.argv[2]).href);
+if (loadHermesSessionToken({ file: process.argv[3] }) !== "A".repeat(43)) process.exit(1);
+if (loadHermesSessionToken({ file: process.argv[4] }) !== "a".repeat(64)) process.exit(1);
+let rejected = false;
+try { loadHermesSessionToken({ file: process.argv[5] }); } catch { rejected = true; }
+if (!rejected) process.exit(1);
+`, { mode: 0o600 });
+
+  const result = spawnSync(process.execPath, [
+    verifier,
+    path.join(connectorStage, "app/connector/dist/hermes-session-token.js"),
+    base64urlFile,
+    hexFile,
+    uppercaseHexFile,
+  ], {
+    encoding: "utf8",
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: 1024 * 1024,
+    timeout: 30_000,
+  });
+  if (result.error || result.status !== 0) fail("connector_token_contract_invalid");
 }
 
 async function writeIdentity(destination, value) {

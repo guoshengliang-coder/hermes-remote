@@ -480,3 +480,82 @@ The component packager now generates a reader matching Desktop and Connector: 43
 and historical 64-character lowercase hex are both accepted, while wrong formats and non-private
 files still exit 78. A corrected signed managed release, repeated token-file migration, slash-command
 checks, Android traffic, and restart recovery remain required before physical acceptance.
+
+## 2026-09-12 managed release 0.3.3 corrective offline candidate
+
+PR #208 merged the historical-token correction in
+`9f66ac43f8caeacd99b48020d47c43ce6f9a3ba9`; both post-merge CI and SAST passed. From a clean detached
+worktree at that exact `origin/main`, the component packager rebuilt Hermes Server 0.21.0 from upstream
+`f159e581c7afd22a5c94652c569e3859f1b994d2` and Connector 0.1.3. The signed internal 0.3.3 candidate
+passed the independent public-key verifier. Its immutable offline artifacts are:
+
+- manifest: SHA-256 `bdab78aa751808a100ccc7096abd8c1639e65c959cf04cc2988948fe629d3042`;
+- Hermes Server: 285,055,469 bytes, SHA-256
+  `caa4650dacae1c8d6c4d194cc9c114ca08cdb0aac903d7fd54ebde4157c2a63c`;
+- Connector: 37,056,989 bytes, SHA-256
+  `e4434a00c0ed19c4a07cffd7bc0e88fe01943183a627dc40f40ac803f89ce3c2`.
+
+The final Hermes archive was extracted to a new directory. Its actual bundled Python reader returned
+the exact 64-character lowercase-hex fixture from a mode-0600 token file, while an uppercase
+64-character value produced no stdout, the fixed safe diagnostic, and exit status 78. Desktop
+0.2.8/build 11 is the coordinated app candidate because the configured app must pin the immutable
+0.3.3 manifest URL. The canonical asset check and all 186 Desktop tests passed. The configured app
+inside the final DMG embeds version/build 0.2.8/11, enabled bootstrap, the 0.3.3 manifest URL,
+`internal` channel, `arm64` architecture, approved key ID and public key, and `hermes-serve-v1`.
+Strict ad-hoc codesign verification passed after mounting the final image. The final clean-main
+2,072,628-byte DMG passed `hdiutil verify` and has SHA-256
+`85446f008ab47ca5c74eb8061d94a8b35fcd3384f57383a844cc2a4d34ba4d65`.
+
+The three 0.3.3 files were published beneath the immutable public `/desktop/releases/0.3.3/` route.
+All public objects returned HTTP 200, exact lengths, expected content types, immutable cache headers,
+and `nosniff`; a full public re-download reproduced the hashes above and passed the independent
+Ed25519 verifier. The route directory returned 404, 0.3.2 remained available, and `/relay-health`
+remained healthy after the Nginx reload.
+
+Desktop 0.2.8/build 11 and the publicly downloaded 0.3.3 components were then installed on
+`LGS-MACMINI` with owner-only recovery snapshots. Both services first started successfully with the
+existing inline token. Desktop wrote that valid 64-character lowercase-hex token to the private file
+and restarted in file mode. The corrected packaged Hermes reader stayed healthy, but the packaged
+Connector's TypeScript reader still accepted only the 43-character base64url form, exited with
+`Hermes session token file is malformed`, and never established its control connection. Desktop did
+not commit the migration: it restored both exact inline LaunchAgents, removed the token file, and
+restarted healthy 0.3.3 Hermes and Connector services. The overview returned to `工作正常`; neither a
+mixed state nor a false success was retained.
+
+The Connector reader now has its own regression coverage for both canonical token formats and for
+rejecting an uppercase 64-character value. A new immutable managed component release and coordinated
+Desktop build are required before repeating physical token migration. Slash-command, Android traffic,
+and restart gates remain open; this ad-hoc app has not passed Developer ID signing, notarization,
+stapling, or clean-Mac launch.
+
+## 2026-09-12 managed release 0.3.4 and Desktop 0.2.9 corrective candidates
+
+PR #215 merged the Connector historical-token correction as
+`c4142804a95898a6de3f44f04455175ab8d66bc2`; every applicable PR check and the post-merge CI, SAST,
+and Gateway OCI workflows passed. From a clean detached worktree whose `HEAD` exactly matched that
+`origin/main`, component packaging rebuilt Hermes Server 0.21.0 and Connector 0.1.3 and executed the
+staged Connector reader against both accepted token formats plus an uppercase-hex rejection before
+creating the archives. The signed internal 0.3.4 candidate then passed the independent public-key
+verifier. Its immutable offline artifacts are:
+
+- manifest: SHA-256 `19c6365932032b8efde20c94c4bcef04b224199d88ca3cca48e8a6b96ebf9348`;
+- Hermes Server: 285,054,389 bytes, SHA-256
+  `8ae357d78a7836a0680125f7e241243af1555418d9d2e12e68433b5ff1f0ca44`;
+- Connector: 37,057,047 bytes, SHA-256
+  `29151d0359f2548baa58e15227320c49cf6ab8ae8dbcc0a823469987c64c4ca7`.
+
+The final Connector archive was separately extracted. Its actual JavaScript reader returned the exact
+43-character base64url and 64-character lowercase-hex fixtures from private files, rejected the
+uppercase 64-character fixture, and carried the exact 0.1.3/arm64/source-commit identity. Desktop
+0.2.9/build 12 is the coordinated app candidate because the configured app must pin the immutable
+0.3.4 manifest URL. The canonical asset check and all 186 Desktop tests passed. The configured app
+inside the candidate DMG embeds version/build 0.2.9/12, enabled bootstrap, the 0.3.4 manifest URL,
+`internal` channel, `arm64` architecture, approved key ID and public key, and `hermes-serve-v1`.
+Strict ad-hoc codesign and `hdiutil verify` passed. The 2,072,632-byte candidate DMG has SHA-256
+`c09fe717450bfe63b6d8407e8982cdd0130bf8f85e5b3c84318d9e927a123e2f`.
+
+Neither 0.3.4 nor 0.2.9 has been published, installed, or activated. A final DMG must be rebuilt from
+the clean merge commit before handoff. Production publication and the repeated physical token
+migration remain separate gates; slash-command, Android traffic, service restart, and deferred full
+Mac reboot checks remain open. This ad-hoc app has not passed Developer ID signing, notarization,
+stapling, or clean-Mac launch.

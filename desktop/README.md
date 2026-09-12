@@ -1,17 +1,22 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.7** (build 10). It retains the 0.2.6 token-migration
-guard and is configured for managed release 0.3.2, whose bundled Python makes the Hermes slash worker
-importable after upstream clears `PYTHONPATH`. This restores `/model`, `/compact`, and user-entered
-slash commands on a managed installation. Managed release 0.3.2 is published at its immutable
-internal URL. Desktop 0.2.7 remains offline until the coordinated physical acceptance gate passes.
+Current internal test release candidate: **0.2.9** (build 12). It retains the managed migration and
+rollback behavior from 0.2.8 and is configured for managed release 0.3.4. That immutable candidate
+keeps the Hermes slash-worker and token-reader fixes and corrects the packaged Connector reader so
+both new 43-character base64url tokens and preserved 64-character lowercase-hex tokens are accepted.
+Component packaging now executes the staged Connector reader against both formats before creating its
+archive. Desktop 0.2.9 and managed release 0.3.4 remain offline until their publication and repeated
+physical acceptance gates pass.
 
-Physical upgrade on the historical Mac found that managed release 0.3.2's Hermes token-file reader
-accepted only newly generated 43-character base64url tokens, while Desktop correctly preserved the
-existing valid 64-character lowercase-hex token. Hermes exited with status 78, and Desktop restored
-both inline LaunchAgents and service health. The component packager now emits the same two-format
-validation contract as Desktop; a corrected managed release is required before token-file migration
-can be accepted.
+Physical upgrade on the historical Mac found that managed release 0.3.3 corrected only the packaged
+Hermes reader; its Connector reader still rejected the existing valid 64-character lowercase-hex
+token. Connector exited before account connection, and Desktop restored both exact inline
+LaunchAgents, removed the uncommitted token file, and restarted healthy 0.3.3 services.
+
+Desktop 0.2.8 (build 11) remains installed on the historical test Mac with published managed 0.3.3
+running in that safely restored inline-token mode. It must not be restarted before the corrected app
+and managed release are ready because each startup would repeat the failed migration and recovery
+cycle.
 
 Desktop 0.2.6 (build 9) skips the startup token-file migration for managed releases older than 0.3.1,
 preserving their inline session token and running services.

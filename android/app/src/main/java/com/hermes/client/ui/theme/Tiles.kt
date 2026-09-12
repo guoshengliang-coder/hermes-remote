@@ -1,5 +1,6 @@
 package com.hermes.client.ui.theme
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -405,3 +406,131 @@ internal val ModelStarOffDark = Color(0xFF423F3A)
 /** The mock's `shadow-warm-sm` — a whisper in light, nothing in dark (the ring carries it there). */
 @Composable
 fun modelCardShadow(): Dp = if (isDarkSurface()) 0.dp else 1.dp
+
+// ── 聊天页浮层 (docs/DESIGN.md §5.4, Stitch 基线-聊天页/滑动引导胶囊 与 /我的提问 + 暗夜, 2026-09-12) ──
+//
+// Its own family, like `card*`, `cardTheme*` and `model*` before it. The reason here is sharper
+// than "one family per screen": these two mocks are the project's first **de-blued** surfaces.
+// Every other floating thing in this app says "I am the brand" with `primaryContainer`; the turn
+// pill and the prompt sheet now say it with paper, ink and a hairline instead. Aliasing them onto
+// the session list's pill tokens would re-blue them the next time that mock moves.
+//
+// Unlike the model sheet, THE LIGHT TIER NEEDED ALMOST NO WARM SWAP: these two mocks were drawn
+// on warm paper from the start (#FAF9F5 / #E5E3DC / #EBE9E2 / #F4F2EA / #EFEEEA are all warm —
+// R > G > B), so §2.1's ban on cold neutrals never bites. Two values are still nudged onto the
+// repo's existing warm rungs, and both are recorded row by row in design-conformance.json.
+//
+// The dark tier is this repo's ladder verbatim: #161A22 = surfaceContainerLow,
+// #1E232B = surfaceContainerHigh, #262C35 = surfaceContainerHighest, #2E343D = surfaceBright,
+// #0F1217 = surface, #E2E0DB = onSurface, #A8A49C = onSurfaceVariant, #8D897E = outline.
+
+/** The turn pill's body. Paper-white over the transcript in light; one rung up from it in dark. */
+internal val ChatPillFillLight = Color(0xFFFFFFFF)
+internal val ChatPillFillDark = Color(0xFF1E232B)
+
+/** The pill's hairline ring — in dark it is what separates the pill from the transcript at all. */
+internal val ChatPillBorderLight = Color(0xFFE5E3DC)
+internal val ChatPillBorderDark = Color(0xFF2E343D)
+
+/** The 20dp disc behind the jump arrow. The mock's only tinted shape left on this pill. */
+internal val ChatPillIconChipLight = Color(0xFFF4F2EA)
+internal val ChatPillIconChipDark = Color(0xFF2E343D)
+
+/** The 1dp × 15dp rule between the jump segment and the list segment. */
+internal val ChatPillDividerLight = Color(0xFFEBE9E2)
+internal val ChatPillDividerDark = Color(0xFF2E343D)
+
+/**
+ * The prompt sheet's own fill.
+ *
+ * Not `surfaceContainerLow` (what `ModalBottomSheet` defaults to): the mock puts the sheet on
+ * paper `#FAF9F5` in light and recesses it to `#161A22` in dark — two different rungs, so no one
+ * scheme role spans the pair.
+ */
+internal val ChatSheetLight = Color(0xFFFAF9F5)
+internal val ChatSheetDark = Color(0xFF161A22)
+
+/** Under the header, and between two ordinary rows. The same rule in both places, per the mock. */
+internal val ChatSheetHairlineLight = Color(0xFFEFEEEA)
+internal val ChatSheetHairlineDark = Color(0xFF262C35)
+
+/**
+ * Every neutral inset on the sheet: the 「N 条」 count chip, the two 32dp header buttons, and an
+ * ordinary row's number disc. The mock paints all three the same, so they are one token.
+ */
+internal val ChatChipLight = Color(0xFFEFEEEA)
+internal val ChatChipDark = Color(0xFF1E232B)
+
+/**
+ * The ring the DARK mock draws around each of those insets, and light does not.
+ *
+ * Dark needs it because `#1E232B` on `#161A22` is barely a step; light's `#EFEEEA` on `#FAF9F5`
+ * carries itself. Drawn only in dark — see `chatChipBorder()` — and recorded as a light/dark
+ * difference in `stitch.lock.json`'s `pairs` rather than as a conformance row, because a colour
+ * row cannot say "absent".
+ */
+internal val ChatChipBorderDark = Color(0xFF262C35)
+
+/**
+ * The 「N 条」 count chip's text.
+ *
+ * Its own pair because the mock does not use one role for both tiers: light is the `outline` step
+ * (#777268), dark is the `onSurfaceVariant` step (#A8A49C) — one rung brighter than dark `outline`.
+ * Binding both to `outline` left the dark chip a step too dim, which is exactly the kind of drift
+ * the conformance fixture exists to catch, so it gets a row there too.
+ */
+internal val ChatChipInkLight = Color(0xFF777268)
+internal val ChatChipInkDark = Color(0xFFA8A49C)
+
+/** A row's trailing chevron. Quiet enough to not compete with the prompt text beside it. */
+internal val ChatRowChevronLight = Color(0xFFA8A29E)
+internal val ChatRowChevronDark = Color(0xFF777268)
+
+/**
+ * The row you are reading.
+ *
+ * Numerically the same pair as [ChatChipLight]/[ChatChipDark] — the mock genuinely fills the
+ * current row with the same neutral as the chips, and lets the ring plus the inverted number disc
+ * carry "current" instead of a brand tint. Kept as its own name because the two move for
+ * different reasons: this one moves when "current" is restyled, that one when a chip is.
+ */
+internal val ChatCurrentFillLight = Color(0xFFEFEEEA)
+internal val ChatCurrentFillDark = Color(0xFF1E232B)
+internal val ChatCurrentBorderLight = Color(0xFFE9E8E4)
+internal val ChatCurrentBorderDark = Color(0xFF262C35)
+
+/**
+ * The current row's number disc: ink on paper, inverted.
+ *
+ * This is what replaced the brand-blue disc. It is the strongest contrast either tier has
+ * (16.2:1 light, 15.9:1 dark), which is the point — one glance finds "where am I" without the
+ * page having to spend its accent colour on it.
+ */
+internal val ChatCurrentDiscLight = Color(0xFF1B1C1A)
+internal val ChatCurrentDiscDark = Color(0xFFFFFFFF)
+internal val ChatCurrentDiscInkLight = Color(0xFFFFFFFF)
+internal val ChatCurrentDiscInkDark = Color(0xFF0F1217)
+
+/** The current row's timestamp — a step brighter than an ordinary row's, in dark only. */
+internal val ChatCurrentTimeLight = Color(0xFF777268)
+internal val ChatCurrentTimeDark = Color(0xFFC8C5BD)
+
+@Composable fun chatPillFillColor(): Color = if (isDarkSurface()) ChatPillFillDark else ChatPillFillLight
+@Composable fun chatPillBorderColor(): Color = if (isDarkSurface()) ChatPillBorderDark else ChatPillBorderLight
+@Composable fun chatPillIconChipColor(): Color = if (isDarkSurface()) ChatPillIconChipDark else ChatPillIconChipLight
+@Composable fun chatPillDividerColor(): Color = if (isDarkSurface()) ChatPillDividerDark else ChatPillDividerLight
+@Composable fun chatSheetColor(): Color = if (isDarkSurface()) ChatSheetDark else ChatSheetLight
+@Composable fun chatSheetHairlineColor(): Color = if (isDarkSurface()) ChatSheetHairlineDark else ChatSheetHairlineLight
+@Composable fun chatChipColor(): Color = if (isDarkSurface()) ChatChipDark else ChatChipLight
+@Composable fun chatChipInkColor(): Color = if (isDarkSurface()) ChatChipInkDark else ChatChipInkLight
+@Composable fun chatRowChevronColor(): Color = if (isDarkSurface()) ChatRowChevronDark else ChatRowChevronLight
+@Composable fun chatCurrentFillColor(): Color = if (isDarkSurface()) ChatCurrentFillDark else ChatCurrentFillLight
+@Composable fun chatCurrentBorderColor(): Color = if (isDarkSurface()) ChatCurrentBorderDark else ChatCurrentBorderLight
+@Composable fun chatCurrentDiscColor(): Color = if (isDarkSurface()) ChatCurrentDiscDark else ChatCurrentDiscLight
+@Composable fun chatCurrentDiscInkColor(): Color = if (isDarkSurface()) ChatCurrentDiscInkDark else ChatCurrentDiscInkLight
+@Composable fun chatCurrentTimeColor(): Color = if (isDarkSurface()) ChatCurrentTimeDark else ChatCurrentTimeLight
+
+/** The chip/disc ring the mock draws in dark only. Null in light, where the fill carries itself. */
+@Composable
+fun chatChipBorder(): BorderStroke? =
+    if (isDarkSurface()) BorderStroke(1.dp, ChatChipBorderDark) else null

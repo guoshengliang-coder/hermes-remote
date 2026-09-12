@@ -33,7 +33,6 @@ class SettingsStore(
     private val debugLoggingDefault: Boolean = BuildConfig.DEBUG,
 ) {
     private val themeKey = stringPreferencesKey("theme_mode")
-    private val toolDisplayKey = stringPreferencesKey("tool_call_display") // "product" | "technical"
     private val debugLoggingKey = booleanPreferencesKey("debug_logging")
     private val languageKey = stringPreferencesKey("app_language")
     // Usage page window. A viewing preference, so it stays on the device and is never synced
@@ -62,19 +61,8 @@ class SettingsStore(
         context.settingsDataStore.edit { it[languageKey] = preference.name }
     }
 
-    /** True = show full tool input/output (Technical); false = hide payloads (Product). */
-    val toolCallTechnical: Flow<Boolean> = context.settingsDataStore.data.map { prefs ->
-        // Consumer chat apps keep implementation payloads out of the conversation by default.
-        // Users who are debugging can still opt into Technical mode from Appearance.
-        (prefs[toolDisplayKey] ?: "product") == "technical"
-    }
-
     suspend fun setThemeMode(mode: ThemeMode) {
         context.settingsDataStore.edit { it[themeKey] = mode.name }
-    }
-
-    suspend fun setToolCallTechnical(technical: Boolean) {
-        context.settingsDataStore.edit { it[toolDisplayKey] = if (technical) "technical" else "product" }
     }
 
     /**

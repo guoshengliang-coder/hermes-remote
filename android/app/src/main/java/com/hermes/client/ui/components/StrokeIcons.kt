@@ -195,29 +195,47 @@ private fun smallStrokeIcon(name: String, block: PathBuilder.() -> Unit): ImageV
         )
     }.build()
 
-/** Arrow pressed against a top line: "back to the start of this turn" (turn-jump pill, prompt list). */
+/**
+ * Plain up arrow: "back to the start of this turn" (turn-jump pill).
+ *
+ * It used to carry a line across the top — an "arrow to top" glyph. Stitch 基线-聊天页/滑动引导胶囊
+ * draws a bare arrow, and the pill is this icon's only consumer, so the line came off here rather
+ * than a second glyph being added beside it (docs/DESIGN.md §4.2, 2026-09-12).
+ */
 val ArrowToTopIcon: ImageVector by lazy {
-    smallStrokeIcon("StrokeArrowToTop") {
-        moveTo(5f, 5f)
-        lineTo(19f, 5f)
-        moveTo(12f, 20f)
-        lineTo(12f, 9f)
-        moveTo(7.5f, 13.5f)
-        lineTo(12f, 9f)
-        lineTo(16.5f, 13.5f)
+    smallStrokeIcon("StrokeArrowUp") {
+        moveTo(12f, 19.5f)
+        lineTo(12f, 4.5f)
+        moveTo(6.75f, 9.75f)
+        lineTo(12f, 4.5f)
+        lineTo(17.25f, 9.75f)
     }
 }
 
-/** Three lines with leading dots: the prompt list (pill segment and top-bar menu). */
+/**
+ * Three plain bars: the prompt list (pill segment and top-bar menu).
+ *
+ * The leading dots came off with the same 2026-09-12 pull. Two entry points to one feature, one
+ * glyph — changing it here changes both, which is the point.
+ */
 val PromptListIcon: ImageVector by lazy {
     smallStrokeIcon("StrokePromptList") {
         for (y in listOf(6f, 12f, 18f)) {
-            moveTo(9f, y)
-            lineTo(20f, y)
-            // A zero-length round-capped stroke renders as a dot.
-            moveTo(4f, y)
-            lineTo(4.01f, y)
+            moveTo(4.5f, y)
+            lineTo(19.5f, y)
         }
+    }
+}
+
+/** Two stacked chevrons: "back to the latest turn" (prompt sheet header). */
+val ChevronsDownIcon: ImageVector by lazy {
+    smallStrokeIcon("StrokeChevronsDown") {
+        moveTo(5f, 8f)
+        lineTo(12f, 15f)
+        lineTo(19f, 8f)
+        moveTo(5f, 14f)
+        lineTo(12f, 21f)
+        lineTo(19f, 14f)
     }
 }
 

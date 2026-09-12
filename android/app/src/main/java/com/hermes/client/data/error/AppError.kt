@@ -53,6 +53,9 @@ enum class AppErrorCode(val value: String) {
     PROJECT_NAME_INVALID("HR-SESS-010"),
     PROJECT_SAVE_FAILED("HR-SESS-011"),
     FOLDER_BROWSE_FAILED("HR-SESS-012"),
+    // Another client is running this conversation, so upstream refused the prompt. Retryable, but
+    // only once the other side lets go — so it must say that instead of the generic send failure.
+    SESSION_OWNED_ELSEWHERE("HR-SESS-013"),
     INSTALL_PERMISSION_REQUIRED("HR-PERM-003"),
     HISTORY_INCOMPLETE("HR-SYNC-001"),
     RUN_UNCONFIRMED("HR-SYNC-002"),
@@ -68,10 +71,6 @@ enum class AppErrorCode(val value: String) {
     MESSAGING_PROFILE_CONFLICT("HR-MSG-003"),
     MESSAGING_PLATFORM_FAILED("HR-MSG-004"),
     MESSAGING_RESTART_FAILED("HR-MSG-005"),
-    HANDOFF_SESSION_BUSY("HR-MSG-006"),
-    HANDOFF_CHANNEL_DISABLED("HR-MSG-007"),
-    HANDOFF_NO_TARGET("HR-MSG-008"),
-    HANDOFF_IN_FLIGHT("HR-MSG-009"),
     LINK_NO_HANDLER("HR-LINK-001"),
     LINK_NOT_OPENABLE("HR-LINK-002"),
     UNKNOWN("HR-UNKNOWN-001"),

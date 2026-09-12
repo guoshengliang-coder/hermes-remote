@@ -141,18 +141,81 @@ class ScreenshotTest {
         }
     }
 
-    @Test fun promptListRows() = snap("prompt-list-rows") {
-        val rows = listOf(
-            com.hermes.client.ui.chat.PromptRow(0, ordinal = null, "会话开始", time = null, isCurrent = false, isLeading = true),
-            com.hermes.client.ui.chat.PromptRow(1, ordinal = 1, longPrompt, time = "09:12", isCurrent = false, isLeading = false),
-            com.hermes.client.ui.chat.PromptRow(2, ordinal = 2, "限流阈值放到配置里。", time = null, isCurrent = true, isLeading = false),
-            com.hermes.client.ui.chat.PromptRow(3, ordinal = 3, "跑一遍完整测试，把失败的贴给我。", time = "昨天 10:05", isCurrent = false, isLeading = false),
-            com.hermes.client.ui.chat.PromptRow(4, ordinal = 4, "把 chrome 关掉", time = null, isCurrent = false, isLeading = false),
-        )
-        androidx.compose.foundation.layout.Column {
-            com.hermes.client.ui.chat.PromptListHeader(count = 4, onLatest = {})
-            com.hermes.client.ui.chat.PromptListContent(rows, onPick = {}, modifier = androidx.compose.ui.Modifier.height(360.dp))
+    /**
+     * Row 1 wraps to two lines ON PURPOSE: the mock truncates to one, this app keeps ≤2, and this
+     * golden is the only layer that can hold that line — plain Robolectric measures text with a
+     * stub font that never wraps.
+     */
+    private val promptRows = listOf(
+        com.hermes.client.ui.chat.PromptRow(0, ordinal = null, "会话开始", time = null, isCurrent = false, isLeading = true),
+        com.hermes.client.ui.chat.PromptRow(1, ordinal = 1, longPrompt, time = "09:12", isCurrent = false, isLeading = false),
+        com.hermes.client.ui.chat.PromptRow(2, ordinal = 2, "限流阈值放到配置里。", time = null, isCurrent = true, isLeading = false),
+        com.hermes.client.ui.chat.PromptRow(3, ordinal = 3, "跑一遍完整测试，把失败的贴给我。", time = "昨天 10:05", isCurrent = false, isLeading = false),
+        com.hermes.client.ui.chat.PromptRow(4, ordinal = 4, "把 chrome 关掉", time = null, isCurrent = false, isLeading = false),
+    )
+
+    @Test fun promptListRows() = snap("prompt-list-rows") { PromptSheetBody() }
+
+    /**
+     * The dark tier of the same rows.
+     *
+     * Added with the 2026-09-12 de-blueing, which is where it is easiest to get dark wrong: the
+     * current row's ordinal disc INVERTS between tiers (ink-on-paper in light, paper-on-ink in
+     * dark) and the chips gain a hairline ring that light does not draw at all.
+     */
+    @Test fun promptListRowsDark() = snap("prompt-list-rows-dark", darkTheme = true) { PromptSheetBody() }
+
+    /**
+     * On the sheet's own fill, not the page's — the sheet recesses to `chat.sheet.fill`, and in
+     * dark that is a smaller step away from the current row than `surface` would be. Capturing on
+     * the wrong ground would flatter exactly the contrast this golden exists to watch.
+     */
+    @androidx.compose.runtime.Composable
+    private fun PromptSheetBody() {
+        androidx.compose.material3.Surface(color = com.hermes.client.ui.theme.chatSheetColor()) {
+            androidx.compose.foundation.layout.Column {
+                com.hermes.client.ui.chat.PromptListHeader(count = 4, onLatest = {})
+                com.hermes.client.ui.chat.PromptListContent(promptRows, onPick = {}, modifier = androidx.compose.ui.Modifier.height(360.dp))
+            }
         }
+    }
+
+    /**
+     * The header alone, at fontScale 1.3.
+     *
+     * Nothing covered the header's structure before, and it is now the busiest row on the sheet:
+     * a title, a count chip and two icon buttons competing for one line. Large text is where that
+     * line breaks first.
+     */
+    @Test fun promptListHeaderLargeFont() = snap("prompt-list-header-large-font", fontScale = 1.3f) {
+        com.hermes.client.ui.chat.PromptListHeader(count = 12, onLatest = {})
+    }
+
+    // The composer's saved-prompt sheet. Settings no longer has a 常用提示 row (HG-33), so the
+    // 「管理」 button in this header is the only door into the prompt library — these two goldens
+    // are what keeps it from being dropped by a later layout edit.
+    private val savedPrompts = listOf(
+        com.hermes.client.data.repository.SavedPrompt("1", "Code review", "Review this diff for correctness bugs."),
+        com.hermes.client.data.repository.SavedPrompt("2", "翻译成中文", "把下面的内容翻译成简体中文，保留代码块。"),
+        com.hermes.client.data.repository.SavedPrompt("3", "写提交信息", "根据暂存区的改动写一条提交信息。"),
+    )
+
+    @Test fun savedPromptSheet() = snap("saved-prompt-sheet-zh") {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+            com.hermes.client.ui.chat.SavedPromptSheetContent(
+                prompts = savedPrompts, onPick = {}, onManage = {},
+            )
+        }
+    }
+
+    // Empty state in English: the copy has to name the button that replaced the Settings row, and
+    // "tap Manage" is the longer of the two languages.
+    @Test fun savedPromptSheetEmptyDark() = snap("saved-prompt-sheet-empty-dark", darkTheme = true) {
+        com.hermes.client.ui.chat.SavedPromptSheetContent(
+            prompts = emptyList(), onPick = {}, onManage = {},
+        )
     }
 
     @Test fun toolCardFailure() = snap("tool-card-failure") {
@@ -474,31 +537,41 @@ class ScreenshotTest {
     // capturing the reverse-layout LazyColumn under Robolectric paints a stray copy of the last
     // row at the top of the image (a capture artifact, not visible on device). The ring's
     // breathing is switched off through LocalDeliveryMotionEnabled so the clock can settle.
-    private fun snapDelivery(name: String, darkTheme: Boolean) = snap(name, darkTheme = darkTheme, advanceMs = 600L) {
+    private fun snapDelivery(
+        name: String,
+        darkTheme: Boolean,
+        fontScale: Float? = null,
+        language: com.hermes.client.ui.localization.AppLanguage =
+            com.hermes.client.ui.localization.AppLanguage.EN,
+    ) = snap(name, darkTheme = darkTheme, fontScale = fontScale, advanceMs = 600L) {
         androidx.compose.runtime.CompositionLocalProvider(
             com.hermes.client.ui.chat.LocalDeliveryMotionEnabled provides false,
+            com.hermes.client.ui.localization.LocalAppLanguage provides language,
         ) {
             androidx.compose.foundation.layout.Column(
                 modifier = androidx.compose.ui.Modifier.padding(horizontal = 22.dp, vertical = 16.dp),
                 verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(18.dp),
             ) {
+                // The two FAILED rows differ only by error code — that is the point of the
+                // golden: same retryable state, different sentence (HG-30).
                 listOf(
-                    userTurn("h-1", "已发送的消息", com.hermes.client.domain.DeliveryState.SENT),
-                    userTurn("u-2", "发送中的消息", com.hermes.client.domain.DeliveryState.SENDING),
-                    userTurn("u-3", "未发送的消息", com.hermes.client.domain.DeliveryState.FAILED),
-                    userTurn("u-4", "会话已消失的消息", com.hermes.client.domain.DeliveryState.UNDELIVERABLE),
-                ).forEach { msg ->
+                    userTurn("h-1", "已发送的消息", com.hermes.client.domain.DeliveryState.SENT) to null,
+                    userTurn("u-2", "发送中的消息", com.hermes.client.domain.DeliveryState.SENDING) to null,
+                    userTurn("u-3", "未发送的消息", com.hermes.client.domain.DeliveryState.FAILED) to
+                        com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED,
+                    userTurn("u-5", "会话被别处占用的消息", com.hermes.client.domain.DeliveryState.FAILED) to
+                        com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE,
+                    userTurn("u-4", "会话已消失的消息", com.hermes.client.domain.DeliveryState.UNDELIVERABLE) to
+                        com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND,
+                ).forEach { (msg, code) ->
                     com.hermes.client.ui.chat.UserBubble(
                         msg = msg,
                         onEditResend = {},
                         onOpenImage = { _, _ -> },
                         onFileOpen = {},
                         onFileShare = {},
-                        sendDiagnostic = when (msg.delivery) {
-                            com.hermes.client.domain.DeliveryState.FAILED -> "code=HR-SESS-007"
-                            com.hermes.client.domain.DeliveryState.UNDELIVERABLE -> "code=HR-SESS-001"
-                            else -> null
-                        },
+                        sendDiagnostic = code?.let { "code=${it.value}" },
+                        sendErrorCode = code,
                     )
                 }
             }
@@ -872,6 +945,20 @@ class ScreenshotTest {
 
     @Test fun userBubbleDeliveryStates() = snapDelivery("user-bubble-delivery", darkTheme = false)
     @Test fun userBubbleDeliveryStatesDark() = snapDelivery("user-bubble-delivery-dark", darkTheme = true)
+
+    /**
+     * The worst case for the status line: Chinese copy (longer than the English), fontScale 1.3,
+     * and the narrowest phone we support. The two failure sentences plus their compact code share
+     * one un-wrapping Row, so this is where a new sentence would push the code off the edge.
+     */
+    @Test
+    @Config(sdk = [34], qualifiers = "w360dp-h740dp-420dpi")
+    fun userBubbleDeliveryStatesZhNarrowLargeFont() = snapDelivery(
+        "user-bubble-delivery-zh-360-fs13",
+        darkTheme = false,
+        fontScale = 1.3f,
+        language = com.hermes.client.ui.localization.AppLanguage.ZH,
+    )
 
     @Test fun smoke() {
         compose.setContent {
