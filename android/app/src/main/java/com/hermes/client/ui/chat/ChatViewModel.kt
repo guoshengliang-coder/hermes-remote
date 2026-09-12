@@ -946,6 +946,16 @@ class ChatViewModel @Inject constructor(
     }
     fun removeAttachment(id: String) { mutateState { it.withoutAttachment(id) } }
 
+    /** Put an edited image back where it came from, under the same id. See [withReplacedAttachment]. */
+    fun replaceAttachment(id: String, bytes: ByteArray, mimeType: String, name: String) {
+        require(bytes.size <= MAX_DIRECT_ATTACHMENT_BYTES) { "Attachment exceeds 6 MB" }
+        mutateState { it.withReplacedAttachment(id, bytes, mimeType, name) }
+    }
+
+    /** The staged bytes for [id], or null if it is gone — the editor's input. */
+    fun pendingAttachment(id: String): PendingAttachment? =
+        _state.value.pendingAttachments.firstOrNull { it.id == id }
+
     /** Create a fresh chat in the currently active profile for the top-bar + action. */
     suspend fun createNewSession(): String? =
         runCatching { chat.createSession(profileManager.active.value) }
