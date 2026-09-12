@@ -12,7 +12,10 @@
     "note 不参与断言，用来记设计稿与设计系统本身打架的地方。2026-09-11 抽取。",
     "",
     "card.* 段来自 基线-卡片页（screens/e5db8e03 浅 / 72cf9986 暗夜）；2026-09-11 第四次拉取（设计师重出同两张稿）后重取，裁决见锁文件 specChanges。",
-    "稿里没有单一 token 可对的项记在锁文件 notes 里而不在这里：头像色与字母比例（按身份算 / §2.4 全局组件）、遮罩模糊（平台不支持）、图标（§4 为准）、身份卡副行文案（无数据源）。"
+    "稿里没有单一 token 可对的项记在锁文件 notes 里而不在这里：头像色与字母比例（按身份算 / §2.4 全局组件）、遮罩模糊（平台不支持）、图标（§4 为准）、身份卡副行文案（无数据源）。",
+    "",
+    "chat.* 段来自 基线-聊天页/滑动引导胶囊（screens/6edba5b1 浅 / 739c148b 暗夜）与 基线-聊天页/我的提问（screens/07b68677 浅 / 5dc3f52a 暗夜），2026-09-12 第六次拉取。",
+    "这两张稿是本项目第一批「去蓝化」界面：胶囊与当前行不再用 primaryContainer。暗档独有的 1dp 描边表达不成颜色行，记在锁文件 pairs。"
   ],
   "roles": [
     { "role": "status.running", "ref": "status:RUNNING",
@@ -260,7 +263,70 @@
 
     { "role": "model.star.off", "ref": "tiles:modelStarOff",
       "design": ["#D4D4D4", "#423F3A"], "impl": ["#C9C7C2", "#423F3A"],
-      "reason": "同 model.card.border：冷灰 neutral-300 #D4D4D4 换成等明度暖阶 #C9C7C2（= outlineVariant 浅档）。" }
+      "reason": "同 model.card.border：冷灰 neutral-300 #D4D4D4 换成等明度暖阶 #C9C7C2（= outlineVariant 浅档）。" },
+
+    { "role": "chat.pill.fill", "ref": "tiles:chatPillFill",
+      "design": ["#FFFFFF", "#1E232B"], "impl": ["#FFFFFF", "#1E232B"],
+      "reason": "" },
+
+    { "role": "chat.pill.border", "ref": "tiles:chatPillBorder",
+      "design": ["#E5E3DC", "#2E343D"], "impl": ["#E5E3DC", "#2E343D"],
+      "reason": "" },
+
+    { "role": "chat.pill.iconChip", "ref": "tiles:chatPillIconChip",
+      "design": ["#F4F2EA", "#2E343D"], "impl": ["#F4F2EA", "#2E343D"],
+      "reason": "",
+      "note": "比 surfaceContainerLow 浅档 #F4F4F0 暖半步，稿子自己就是这个值；已经在暖侧，§2.1 不要求换算，故逐字转写而非并进既有阶。" },
+
+    { "role": "chat.pill.divider", "ref": "tiles:chatPillDivider",
+      "design": ["#EBE9E2", "#2E343D"], "impl": ["#EBE9E2", "#2E343D"],
+      "reason": "" },
+
+    { "role": "chat.sheet.fill", "ref": "tiles:chatSheet",
+      "design": ["#FAF9F5", "#161A22"], "impl": ["#FAF9F5", "#161A22"],
+      "reason": "",
+      "note": "浅档 = surface，暗档 = surfaceContainerLow —— 两档不在同一个 scheme 角色上，所以是自己的令牌而不是 ModalBottomSheet 的默认 containerColor。" },
+
+    { "role": "chat.sheet.hairline", "ref": "tiles:chatSheetHairline",
+      "design": ["#EFEEEA", "#262C35"], "impl": ["#EFEEEA", "#262C35"],
+      "reason": "" },
+
+    { "role": "chat.chip", "ref": "tiles:chatChip",
+      "design": ["#EFEEEA", "#1E232B"], "impl": ["#EFEEEA", "#1E232B"],
+      "reason": "",
+      "note": "「N 条」计数 chip、头部两个 32dp 圆钮、普通行序号圆，稿子三处同色，故一个令牌。暗档另有 1dp #262C35 描边而浅档没有 —— 颜色行表达不了「没有」，记在锁文件 pairs。" },
+
+    { "role": "chat.chip.ink", "ref": "tiles:chatChipInk",
+      "design": ["#777268", "#A8A49C"], "impl": ["#777268", "#A8A49C"],
+      "reason": "",
+      "note": "「N 条」的字。稿子两档不走同一个 scheme 角色：浅色是 outline 档，暗色是 onSurfaceVariant 档（比暗色 outline 亮一级）。两档都绑 outline 会让暗色的 chip 暗一档。" },
+
+    { "role": "chat.row.chevron", "ref": "tiles:chatRowChevron",
+      "design": ["#A8A49C", "#777268"], "impl": ["#A8A29E", "#777268"],
+      "reason": "浅档稿值 #A8A49C 是本仓暗档 onSurfaceVariant 的数值，坐在暖纸上偏冷半步；换成等明度的暖阶 #A8A29E（= sublineFaint 浅档）。暗档逐字转写。" },
+
+    { "role": "chat.current.fill", "ref": "tiles:chatCurrentFill",
+      "design": ["#EFEEEA", "#1E232B"], "impl": ["#EFEEEA", "#1E232B"],
+      "reason": "",
+      "note": "与 chat.chip 同值：稿子用同一中性底，靠描边与反色序号圆表达「当前」，不再用 primaryContainer。两者分列是因为改动理由不同。" },
+
+    { "role": "chat.current.border", "ref": "tiles:chatCurrentBorder",
+      "design": ["#E9E8E4", "#262C35"], "impl": ["#E9E8E4", "#262C35"],
+      "reason": "" },
+
+    { "role": "chat.current.disc", "ref": "tiles:chatCurrentDisc",
+      "design": ["#1B1C1A", "#FFFFFF"], "impl": ["#1B1C1A", "#FFFFFF"],
+      "reason": "",
+      "note": "去蓝化后接替 primary 底序号圆的那一块。两档都是本页最强对比（浅 16.24、暗 15.93），这正是它的作用。" },
+
+    { "role": "chat.current.disc.ink", "ref": "tiles:chatCurrentDiscInk",
+      "design": ["#FFFFFF", "#0F1217"], "impl": ["#FFFFFF", "#0F1217"],
+      "reason": "" },
+
+    { "role": "chat.current.time", "ref": "tiles:chatCurrentTime",
+      "design": ["#777268", "#C8C5BD"], "impl": ["#777268", "#C8C5BD"],
+      "reason": "",
+      "note": "只有暗档比普通行的时间亮一档；浅档与普通行同色。此前当前行的时间用 primary，去蓝化后不再。" }
   ],
 
   "type": [
@@ -429,7 +495,36 @@
     { "role": "model.quick.chip.provider", "ref": "type:ModelQuickChipProvider",
       "design": ["10", "400", "15", "0"], "impl": ["10", "400", "15", "0"],
       "reason": "",
-      "note": "chip 里跟在模型名后的提供商小字，也用于「正在切换至 X」那一行。" }
+      "note": "chip 里跟在模型名后的提供商小字，也用于「正在切换至 X」那一行。" },
 
+    { "role": "chat.pill.label", "ref": "type:ChatPillLabel",
+      "design": ["13", "500", "19.5", "-0.325"], "impl": ["13", "500", "19.5", "-0.325"],
+      "reason": "",
+      "note": "此前借 labelLarge（14/500/20/+0.1）。稿子 text-[13px] 不带 leading，行高按继承的 1.5 记；字距 tracking-tight（-0.025em）按 13px 折算。" },
+
+    { "role": "chat.sheet.title", "ref": "type:ChatSheetTitle",
+      "design": ["18", "600", "22.5", "-0.45"], "impl": ["18", "600", "22.5", "-0.45"],
+      "reason": "",
+      "note": "此前借 titleMedium 并居中。稿子 leading-tight = 1.25、tracking-tight 按 18px 折算。" },
+
+    { "role": "chat.sheet.count", "ref": "type:ChatSheetCount",
+      "design": ["11", "500", "11", "0"], "impl": ["11", "500", "11", "0"],
+      "reason": "",
+      "note": "leading-none = 1。稿子没给它 font-mono —— 会话列表的计数 chip 是等宽的，这一处不是，按 §7 第 8 条逐张稿判。" },
+
+    { "role": "chat.prompt.label", "ref": "type:ChatPromptLabel",
+      "design": ["15", "500", "20.625", "0"], "impl": ["15", "500", "20.625", "0"],
+      "reason": "",
+      "note": "此前借 bodyLarge（16/400/24）。leading-snug = 1.375。" },
+
+    { "role": "chat.prompt.label.current", "ref": "type:ChatPromptLabelCurrent",
+      "design": ["15", "600", "20.625", "0"], "impl": ["15", "600", "20.625", "0"],
+      "reason": "",
+      "note": "同一档的 font-semibold 变体，仅当前行用；与 row.title / row.title.read 拆两档同一个道理。" },
+
+    { "role": "chat.prompt.time", "ref": "type:ChatPromptTime",
+      "design": ["12", "400", "18", "0"], "impl": ["12", "400", "18", "0"],
+      "reason": "",
+      "note": "此前借 labelMedium（12/600/+0.48）—— 字重与字距都与稿子反向。稿子不带 leading，行高按 1.5 记。" }
   ]
 }

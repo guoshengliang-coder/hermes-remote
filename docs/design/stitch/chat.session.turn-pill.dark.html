@@ -1,0 +1,317 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
+<title>Hermes 会话 - 段落定位胶囊设计</title>
+<!-- Tailwind CSS CDN with plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Google Fonts: Inter & Noto Sans SC -->
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Noto+Sans+SC:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            paper: '#FAF9F5',
+            ink: '#1A1A18',
+            'ink-muted': '#72706A',
+            'border-subtle': '#EAE7DE',
+            'cobalt': '#2563EB',
+            'cobalt-hover': '#1D4ED8',
+          },
+          fontFamily: {
+            sans: ['Inter', 'Noto Sans SC', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+<!-- BEGIN: Style Configurations -->
+<style data-purpose="custom-layout">
+    /* 容器及全局抗锯齿与选中文本 */
+    body {
+      background-color: #ECE9E1;
+      font-family: 'Inter', 'Noto Sans SC', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-font-smoothing: antialiased;
+    }
+    
+    /* 隐藏滚动条但保留滑动功能 */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    /* 方案 B: 温润浅色浮层柔和投影 */
+    .capsule-shadow {
+      box-shadow: 0 4px 16px -2px rgba(28, 25, 23, 0.08), 0 2px 6px -1px rgba(28, 25, 23, 0.04);
+    }
+    
+    /* 底部输入框悬浮感投影 */
+    .dock-shadow {
+      box-shadow: 0 6px 20px -4px rgba(0, 0, 0, 0.06), 0 2px 6px -1px rgba(0, 0, 0, 0.03);
+    }
+
+    /* 报表格线细节 */
+    .table-border-b {
+      border-bottom: 1px solid #EAE7DE;
+    }
+    .table-border-r {
+      border-right: 1px solid #EAE7DE;
+    }
+  </style>
+<!-- END: Style Configurations -->
+</head>
+<body class="flex justify-center items-center min-h-screen py-0 sm:py-6 text-ink">
+<!-- BEGIN: Mobile Device Frame -->
+<main class="w-full sm:max-w-[392px] h-[100dvh] sm:h-[844px] bg-[#0F1217] flex flex-col relative overflow-hidden sm:rounded-[40px] sm:shadow-2xl border-0 sm:border-[7px] sm:border-[#1E222A]" data-purpose="mobile-container">
+<!-- BEGIN: System StatusBar -->
+<header class="w-full pt-3 px-6 pb-2 flex justify-between items-center text-xs font-semibold select-none z-30 shrink-0 tracking-tight text-[#E2E0DB] bg-[#0F1217]" data-purpose="system-status-bar">
+<div class="flex items-center space-x-1.5">
+<span class="text-[13px] font-bold">9:38</span>
+<span class="text-[9px] px-1 py-0.2 rounded font-bold bg-[#262B34] text-[#9EA3AE] transform scale-90 border border-[#343B47]">VPN</span>
+<svg class="w-3.5 h-3.5 fill-current text-[#9EA3AE] opacity-80" viewBox="0 0 24 24"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.4 0-8-3.6-8-8s3.6-8 8-8 8 3.6 8 8-3.6 8-8 8zm.5-13H11v6l5.2 3.1.8-1.3-4.5-2.7V7z"></path></svg>
+</div>
+<div class="flex items-center space-x-2 text-[#9EA3AE]">
+<span class="text-[10px] font-mono opacity-85 text-[#8D897E]">12.3 K/s</span>
+<div class="flex items-center text-[10px] font-bold tracking-tighter text-[#E2E0DB]">
+<span class="">5G</span>
+<svg class="w-2.5 h-2.5 ml-0.5 fill-current" viewBox="0 0 24 24"><path d="M12 4c-4.97 0-9 4.03-9 9 0 2.12.74 4.07 1.97 5.61L12 22l7.03-3.39C20.26 17.07 21 15.12 21 13c0-4.97-4.03-9-9-9z"></path></svg>
+</div>
+<div class="flex items-center text-[10px] font-bold tracking-tighter text-[#E2E0DB]">
+<span class="">5G</span>
+<svg class="w-2.5 h-2.5 ml-0.5 fill-current" viewBox="0 0 24 24"><path d="M12 3l9 18H3l9-18z"></path></svg>
+</div>
+<div class="flex items-center border border-[#3E4552] rounded-sm px-1 py-[1px] text-[9px] font-bold leading-none text-[#E2E0DB]">
+<span class="">56</span>
+</div>
+</div>
+</header>
+<!-- END: System StatusBar -->
+<!-- BEGIN: Navigation Top Bar -->
+<nav class="px-3 py-2 flex items-center justify-between border-b border-[#1E232B] bg-[#0F1217] shrink-0 z-20" data-purpose="chat-header-bar">
+<!-- 左侧返回与标题组合 -->
+<div class="flex items-center min-w-0 pr-2">
+<button aria-label="返回上一页" class="p-2 -ml-1 text-[#E2E0DB] active:opacity-60 transition-opacity" type="button">
+<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+<path d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+<div class="ml-1 min-w-0 flex flex-col">
+<h1 class="text-[19px] font-bold tracking-tight truncate text-[#E2E0DB] leading-tight">
+            查看昨天国内...
+          </h1>
+<!-- 副标题：所属文件夹 -->
+<button class="flex items-center text-xs text-[#8D897E] mt-0.5 group active:opacity-70 text-left" type="button">
+<svg class="w-3.5 h-3.5 mr-1 stroke-current fill-none" stroke-width="1.8" viewBox="0 0 24 24">
+<path d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span class="text-[11px] font-medium text-[#A8A49C]">默认项目</span>
+<svg class="w-2.5 h-2.5 ml-0.5 text-[#8D897E]" fill="currentColor" viewBox="0 0 20 20">
+<path clip-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" fill-rule="evenodd"></path>
+</svg>
+</button>
+</div>
+</div>
+<!-- 右侧快捷功能按键 -->
+<div class="flex items-center space-x-1 shrink-0 text-[#E2E0DB]">
+<button aria-label="新建会话" class="p-2 text-[#E2E0DB] hover:text-white active:opacity-60" type="button">
+<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+<path d="M12 4.5v15m7.5-7.5h-15" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+<button aria-label="更多操作" class="p-2 text-[#E2E0DB] hover:text-white active:opacity-60" type="button">
+<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+<path d="M12 6a1.75 1.75 0 100-3.5 1.75 1.75 0 000 3.5zm0 7.75a1.75 1.75 0 100-3.5 1.75 1.75 0 000 3.5zm0 7.75a1.75 1.75 0 100-3.5 1.75 1.75 0 000 3.5z"></path>
+</svg>
+</button>
+</div>
+</nav>
+<!-- END: Navigation Top Bar -->
+<!-- BEGIN: Chat Flow & Long Financial Report Body -->
+<div class="relative flex-1 overflow-y-auto no-scrollbar px-4 pb-28 pt-0 bg-[#0F1217]" data-purpose="scrollable-content-area">
+<!-- BEGIN: Turn Jump Capsule (方案 B: 黑曜石暗夜版) -->
+<div class="sticky z-40 w-full flex justify-center mb-1 pointer-events-none top-0 pt-1" data-purpose="turn-jump-anchor">
+<div class="pointer-events-auto inline-flex items-center h-[38px] max-w-[92%] bg-[#1E232B] border border-[#2E343D] rounded-full capsule-shadow transition-all duration-200 active:scale-[0.985]">
+<!-- 左侧段落点击跳转原点 (约占75%触控区域) -->
+<button aria-label="跳至当前回答提问" class="flex items-center pl-3 pr-2.5 h-full rounded-l-full group transition-colors focus:outline-none hover:bg-white/5" title="跳到提问原点" type="button">
+<span class="w-5 h-5 rounded-full flex items-center justify-center mr-1.5 shrink-0 bg-[#2E343D] text-[#E2E0DB] transition-colors"><svg class="w-3.5 h-3.5 text-[#E2E0DB] stroke-[2.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 19.5V4.5m0 0l-5.25 5.25M12 4.5l5.25 5.25" stroke-linecap="round" stroke-linejoin="round"></path></svg></span>
+<span class="text-[13px] font-medium text-[#E2E0DB] tracking-tight truncate max-w-[190px]">
+              要有iap业务的收入, i...
+            </span>
+</button>
+<!-- 微细发丝垂直分割线 (1px) -->
+<div aria-hidden="true" class="w-[1px] h-[15px] bg-[#2E343D] shrink-0"></div>
+<!-- 右侧大纲列表按钮 (约占25%触控区域) -->
+<button aria-label="提问索引大纲" class="flex items-center justify-center px-3 h-full rounded-r-full hover:text-[#E2E0DB] hover:bg-white/5 transition-colors focus:outline-none text-white" title="打开提问列表大纲" type="button"><svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><rect height="2" rx="1" width="17" x="3.5" y="5"></rect><rect height="2" rx="1" width="17" x="3.5" y="11"></rect><rect height="2" rx="1" width="17" x="3.5" y="17"></rect></svg></button>
+</div>
+</div>
+<!-- END: Turn Jump Capsule -->
+<!-- 上半部分财务报表（国内数据表格后半程滚动状态） -->
+<section class="mt-2 rounded-lg overflow-hidden border border-[#262C35] bg-[#161A22] shadow-sm" data-purpose="report-section-domestic">
+<table class="w-full text-left text-xs border-collapse font-mono">
+<tbody>
+<tr class="table-border-b text-[#C8C5BD]">
+<td class="py-2.5 px-3 table-border-r font-sans font-medium text-[#E2E0DB] w-1/4 bg-[#1B2029]">4月</td>
+<td class="py-2.5 px-3 table-border-r text-right w-3/8 text-[#C8C5BD]">3,120.8</td>
+<td class="py-2.5 px-3 text-right w-3/8 text-[#C8C5BD]">1,842.1</td>
+</tr>
+<tr class="table-border-b text-[#C8C5BD]">
+<td class="py-2.5 px-3 table-border-r font-sans font-medium text-[#E2E0DB] bg-[#1B2029]">5月</td>
+<td class="py-2.5 px-3 table-border-r text-right text-[#C8C5BD]">3,001.4</td>
+<td class="py-2.5 px-3 text-right text-[#C8C5BD]">1,901.5</td>
+</tr>
+<tr class="table-border-b text-[#C8C5BD]">
+<td class="py-2.5 px-3 table-border-r font-sans font-medium text-[#E2E0DB] bg-[#1B2029]">6月</td>
+<td class="py-2.5 px-3 table-border-r text-right text-[#C8C5BD]">2,828.0</td>
+<td class="py-2.5 px-3 text-right text-[#C8C5BD]">1,756.2</td>
+</tr>
+<tr class="table-border-b text-[#C8C5BD]">
+<td class="py-2.5 px-3 table-border-r font-sans font-medium text-[#E2E0DB] bg-[#1B2029]">7月</td>
+<td class="py-2.5 px-3 table-border-r text-right text-[#C8C5BD]">2,951.4</td>
+<td class="py-2.5 px-3 text-right text-[#C8C5BD]">1,960.2</td>
+</tr>
+<tr class="table-border-b text-[#C8C5BD]">
+<td class="py-2.5 px-3 table-border-r font-sans font-medium text-[#E2E0DB] bg-[#1B2029]">8月</td>
+<td class="py-2.5 px-3 table-border-r text-right text-[#C8C5BD]">3,021.8</td>
+<td class="py-2.5 px-3 text-right text-[#C8C5BD]">1,959.4</td>
+</tr>
+<tr class="table-border-b text-[#C8C5BD]">
+<td class="py-2.5 px-3 table-border-r font-sans font-medium text-[#E2E0DB] bg-[#1B2029]">9月 MTD</td>
+<td class="py-2.5 px-3 table-border-r text-right text-[#C8C5BD]">992.6</td>
+<td class="py-2.5 px-3 text-right text-[#C8C5BD]">584.5</td>
+</tr>
+<tr class="font-bold bg-[#1C222C] text-[#E2E0DB]">
+<td class="py-2.5 px-3 table-border-r font-sans font-bold text-[#E2E0DB]">累计</td>
+<td class="py-2.5 px-3 table-border-r text-right text-[#E2E0DB]">23,494.1</td>
+<td class="py-2.5 px-3 text-right text-[#E2E0DB]">16,263.5</td>
+</tr>
+</tbody>
+</table>
+</section>
+<!-- 下半部分报表标题与控制栏 -->
+<section class="mt-8" data-purpose="report-section-overseas">
+<h2 class="text-[20px] font-bold text-[#E2E0DB] tracking-tight mb-3">
+          海外 IAP 业务丨美元，千美元
+        </h2>
+<!-- 表格卡片容器 -->
+<div class="border border-[#262C35] rounded-xl bg-[#161A22] overflow-hidden shadow-sm">
+<!-- 表格控制工具栏 -->
+<div class="flex items-center justify-between px-3.5 py-2.5 border-b border-[#262C35] bg-[#1B2029]">
+<span class="text-xs font-semibold text-[#8D897E]">表格</span>
+<div class="flex items-center space-x-3 text-[#8D897E]">
+<!-- 复制按钮 -->
+<button aria-label="复制表格" class="hover:text-[#E2E0DB] transition-colors" type="button">
+<svg class="w-3.5 h-3.5 stroke-current fill-none" stroke-width="2" viewBox="0 0 24 24">
+<rect height="13" rx="2" ry="2" width="13" x="9" y="9"></rect>
+<path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
+</svg>
+</button>
+<!-- 导出下载按钮 -->
+<button aria-label="下载数据" class="hover:text-[#E2E0DB] transition-colors" type="button">
+<svg class="w-3.5 h-3.5 stroke-current fill-none" stroke-width="2" viewBox="0 0 24 24">
+<path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+<!-- 分享按钮 -->
+<button aria-label="分享图表" class="hover:text-[#E2E0DB] transition-colors" type="button">
+<svg class="w-3.5 h-3.5 stroke-current fill-none" stroke-width="2" viewBox="0 0 24 24">
+<circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle>
+<line x1="8.59" x2="15.42" y1="13.51" y2="17.49"></line><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"></line>
+</svg>
+</button>
+<!-- 全屏放大按钮 -->
+<button aria-label="全屏展示" class="hover:text-[#E2E0DB] transition-colors" type="button">
+<svg class="w-3.5 h-3.5 stroke-current fill-none" stroke-width="2" viewBox="0 0 24 24">
+<path d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+</div>
+</div>
+<!-- 海外 IAP 数据明细表 -->
+<table class="w-full text-left text-xs border-collapse font-mono">
+<thead>
+<tr class="table-border-b bg-[#1C222C] text-[#E2E0DB] font-sans font-semibold">
+<th class="py-2.5 px-3 table-border-r font-medium text-[#E2E0DB] w-1/4">月份</th>
+<th class="py-2.5 px-3 table-border-r font-bold text-[#E2E0DB] w-3/8">IAP业务收入</th>
+<th class="py-2.5 px-3 font-bold text-[#E2E0DB] w-3/8">IAP投放费用</th>
+</tr>
+</thead>
+<tbody>
+<tr class="table-border-b">
+<td class="py-2.5 px-3 table-border-r font-sans font-medium text-[#E2E0DB] bg-[#1B2029]">1月</td>
+<td class="py-2.5 px-3 table-border-r text-[#C8C5BD]">686.5</td>
+<td class="py-2.5 px-3 text-[#C8C5BD]">490.2</td>
+</tr>
+<tr class="table-border-b">
+<td class="py-2.5 px-3 table-border-r font-sans font-medium text-[#E2E0DB] bg-[#1B2029]">2月</td>
+<td class="py-2.5 px-3 table-border-r text-[#C8C5BD]">602.7</td>
+<td class="py-2.5 px-3 text-[#C8C5BD]">629.9</td>
+</tr>
+<tr class="table-border-b">
+<td class="py-2.5 px-3 table-border-r font-sans font-medium text-[#E2E0DB] bg-[#1B2029]">3月</td>
+<td class="py-2.5 px-3 table-border-r text-[#C8C5BD]">729.7</td>
+<td class="py-2.5 px-3 text-[#C8C5BD]">671.5</td>
+</tr>
+<tr class="table-border-b">
+<td class="py-2.5 px-3 table-border-r font-sans font-medium text-[#E2E0DB] bg-[#1B2029]">4月</td>
+<td class="py-2.5 px-3 table-border-r text-[#C8C5BD]">822.5</td>
+<td class="py-2.5 px-3 text-[#C8C5BD]">778.3</td>
+</tr>
+<tr>
+<td class="py-2.5 px-3 table-border-r font-sans font-medium text-[#E2E0DB] bg-[#1B2029]">5月</td>
+<td class="py-2.5 px-3 table-border-r text-[#C8C5BD]">911.0</td>
+<td class="py-2.5 px-3 text-[#C8C5BD]">712.0</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- 快速滚动到底部悬浮小按钮 (原截图右下方快速下滚圆圈) -->
+<button aria-label="回到底部" class="fixed right-6 bottom-24 w-10 h-10 rounded-full bg-[#1E232B] border border-[#2E343D] shadow-md flex items-center justify-center text-[#E2E0DB] active:scale-95 transition-all z-20 hover:bg-[#262C36]" type="button">
+<svg class="w-5 h-5 text-[#E2E0DB]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+<path d="M19.5 8.25l-7.5 7.5-7.5-7.5" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+</div>
+<!-- END: Chat Flow & Long Financial Report Body -->
+<!-- BEGIN: Bottom Input Dock Section -->
+<footer class="absolute bottom-0 inset-x-0 bg-gradient-to-t from-[#0F1217] via-[#0F1217] to-transparent pt-3 pb-2 px-3.5 z-30 pointer-events-auto" data-purpose="chat-input-dock">
+<!-- 极客微胶囊输入 Dock -->
+<div class="h-12 w-full bg-[#161A22] border border-[#262C35] rounded-full dock-shadow flex items-center px-3.5 justify-between">
+<!-- 左侧语音输入图标 -->
+<button aria-label="按住说话" class="p-1.5 text-[#8D897E] hover:text-[#E2E0DB] active:opacity-60 transition-opacity" type="button">
+<svg class="w-5 h-5 stroke-current fill-none" stroke-width="2" viewBox="0 0 24 24">
+<path d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15a3 3 0 003-3V6a3 3 0 00-3-3 3 3 0 00-3 3v6a3 3 0 003 3z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+<!-- 中间文本占位符/输入区 -->
+<div class="flex-1 mx-2">
+<span class="text-[14px] text-[#605C54] font-normal select-none">发消息或按住说话</span>
+</div>
+<!-- 右侧扩展功能加号按钮 -->
+<button aria-label="添加附件或指令" class="p-1.5 text-[#8D897E] hover:text-[#E2E0DB] active:opacity-60 transition-opacity" type="button">
+<svg class="w-5 h-5 stroke-current fill-none" stroke-width="2.2" viewBox="0 0 24 24">
+<path d="M12 4.5v15m7.5-7.5h-15" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+</div>
+<!-- 底部安全区与 AI 提示标签 -->
+<div class="w-full flex flex-col items-center justify-center pt-2 pb-0.5">
+<span class="text-[11px] text-[#605C54] select-none font-medium tracking-wide">
+          内容由 AI 生成
+        </span>
+<!-- Android 底部手势操作横条 -->
+<div class="w-28 h-1 bg-white/20 rounded-full mt-1.5"></div>
+</div>
+</footer>
+<!-- END: Bottom Input Dock Section -->
+</main>
+<!-- END: Mobile Device Frame -->
+
+
+</body></html>
