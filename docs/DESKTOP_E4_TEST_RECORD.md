@@ -457,3 +457,26 @@ removed after verification.
 This publication did not install Desktop 0.2.7, switch the target Mac from managed release 0.3.0,
 restart either managed service, or perform the deferred physical acceptance. Those steps remain gated
 on the Mac becoming available.
+
+## 2026-09-12 managed release 0.3.2 historical-token failure
+
+Desktop 0.2.7/build 10 was installed on `LGS-MACMINI` after its DMG size, SHA-256, image, embedded
+0.3.2 configuration, and strict ad-hoc signature were rechecked. The previous 0.2.6 app was retained
+in an owner-only recovery directory. Starting 0.2.7 preserved the running 0.3.0 Hermes and Connector
+PIDs, and the account view again reported the existing managed connection as active after the two
+distinct Keychain items were authorized.
+
+The independently verified 0.3.2 components were staged and activated with an owner-only snapshot of
+the 0.3.0 journal, LaunchAgents, and current target. The new Hermes and Connector started successfully
+with the preserved inline token; authenticated loopback `/api/status` returned HTTP 200/version
+0.21.0/status `ok`, and Connector re-established its TLS connection. On the next Desktop launch, the
+intended token-file migration wrote the existing valid 64-character lowercase-hex token to a private
+regular file and updated both LaunchAgents. The packaged Hermes reader accepted only the 43-character
+base64url format, exited 78 with its fixed invalid-token diagnostic, and never reached readiness.
+Desktop then restored both exact inline LaunchAgents and restarted healthy 0.3.2 services. No mixed
+or dead service state was accepted.
+
+The component packager now generates a reader matching Desktop and Connector: 43-character base64url
+and historical 64-character lowercase hex are both accepted, while wrong formats and non-private
+files still exit 78. A corrected signed managed release, repeated token-file migration, slash-command
+checks, Android traffic, and restart recovery remain required before physical acceptance.

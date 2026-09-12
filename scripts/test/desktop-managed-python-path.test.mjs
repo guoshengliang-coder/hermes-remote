@@ -18,11 +18,15 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, rm, readdir } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, writeFile, rm, readdir } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { managedSitePathLine, MANAGED_SITE_PATH_FILE } from "../lib/desktop-component-archives.mjs";
+import {
+  managedSessionTokenReaderSource,
+  managedSitePathLine,
+  MANAGED_SITE_PATH_FILE,
+} from "../lib/desktop-component-archives.mjs";
 
 function findPython() {
   for (const candidate of ["python3.11", "python3"]) {
@@ -123,4 +127,43 @@ test("a partially extracted bundle degrades instead of failing every interpreter
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), "interpreter still usable");
   assert.equal(result.stderr.includes("Error processing line"), false);
+});
+
+test("the private token reader accepts both supported token formats and rejects unsafe input", async (t) => {
+  if (!python) {
+    t.skip("no python3 on this host");
+    return;
+  }
+  const root = await mkdtemp(path.join(tmpdir(), "hermes-managed-token-reader-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const reader = path.join(root, "read-private-session-token.py");
+  const tokenFile = path.join(root, "session-token");
+  await writeFile(reader, managedSessionTokenReaderSource(), { mode: 0o600 });
+
+  for (const token of ["A".repeat(43), "a".repeat(64)]) {
+    await writeFile(tokenFile, token, { mode: 0o600 });
+    const result = spawnSync(python, ["-s", reader], {
+      encoding: "utf8",
+      env: { ...process.env, HERMES_SESSION_TOKEN_FILE: tokenFile },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, token);
+  }
+
+  await writeFile(tokenFile, "A".repeat(64), { mode: 0o600 });
+  let rejected = spawnSync(python, ["-s", reader], {
+    encoding: "utf8",
+    env: { ...process.env, HERMES_SESSION_TOKEN_FILE: tokenFile },
+  });
+  assert.equal(rejected.status, 78);
+  assert.equal(rejected.stderr.trim(), "Hermes session token file is invalid");
+
+  await writeFile(tokenFile, "a".repeat(64), { mode: 0o644 });
+  await chmod(tokenFile, 0o644);
+  rejected = spawnSync(python, ["-s", reader], {
+    encoding: "utf8",
+    env: { ...process.env, HERMES_SESSION_TOKEN_FILE: tokenFile },
+  });
+  assert.equal(rejected.status, 78);
+  assert.equal(rejected.stdout, "");
 });
