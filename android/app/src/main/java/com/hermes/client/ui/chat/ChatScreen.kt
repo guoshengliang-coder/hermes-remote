@@ -210,6 +210,14 @@ fun ChatScreen(
     // saveable) because anything living inside the markdown tree vanishes during the re-parse
     // window on rotation, taking a dialog hosted there down with it.
     var fullscreenTableRaw by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    // Which image is open fullscreen, and in which message. Ids rather than indices: hydration
+    // refreshes msg.images, and an index would then point at a different photo. Saveable, because
+    // the old per-grid `remember` lived inside a LazyColumn item and a rotation or a history
+    // reconcile silently closed whatever the user was looking at.
+    var viewerOwner by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    var viewerImageId by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    // Which pending attachment the image editor is open on.
+    var editAttachmentId by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
     // Collapsing the sheet (swipe/outside tap) parks the request instead of skipping it:
     // the reopen strip below brings it back, and the session stays in "needs you" on Home.
     var clarifyCollapsed by remember(sessionId, state.pendingClarify?.requestId) { mutableStateOf(false) }
@@ -343,7 +351,9 @@ fun ChatScreen(
         composerFocused = false
         focusManager.clearFocus()
     }
-    androidx.activity.compose.BackHandler(enabled = !searchOpen && !composerFocused && fullscreenTableRaw == null) {
+    androidx.activity.compose.BackHandler(
+        enabled = !searchOpen && !composerFocused && fullscreenTableRaw == null && viewerOwner == null,
+    ) {
         onMenu()
     }
     val focusRequester = remember(sessionId) { FocusRequester() }
@@ -1040,24 +1050,49 @@ fun ChatScreen(
                                 }
                                 Box(Modifier.size(58.dp)) {
                                     val bmp = thumb
+                                    // The chip is the primary target and opens a preview: picking a
+                                    // photo and then not being able to check which one it was is
+                                    // what HG-35 complained about first.
+                                    val openPreview = Modifier
+                                        .size(58.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable(
+                                            onClickLabel = localized(language, "查看图片", "View image"),
+                                        ) {
+                                            viewerOwner = PENDING_VIEWER_OWNER
+                                            viewerImageId = a.id
+                                        }
                                     if (bmp != null) {
                                         Image(
                                             bitmap = bmp,
                                             contentDescription = localized(language, "待发送图片", "Image ready to send"),
-                                            modifier = Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)),
+                                            modifier = openPreview,
                                             contentScale = ContentScale.Crop,
                                         )
                                     } else {
-                                        Box(Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
+                                        Box(openPreview.background(MaterialTheme.colorScheme.surfaceVariant))
                                     }
+                                    // 24dp disc, 32dp target. The two cannot both reach 48dp on a
+                                    // 58dp chip; DESIGN.md §5.7 allows the badge to stay small
+                                    // because Remove also exists at 46dp inside the preview.
                                     Box(
-                                        Modifier.align(Alignment.TopEnd).padding(2.dp).size(24.dp)
-                                            .clip(androidx.compose.foundation.shape.CircleShape)
-                                            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f))
+                                        Modifier.align(Alignment.TopEnd).size(32.dp)
                                             .clickable { vm.removeAttachment(a.id) },
                                         contentAlignment = Alignment.Center,
                                     ) {
-                                        Icon(Icons.Rounded.Close, localized(language, "移除图片", "Remove image"), tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(15.dp))
+                                        Box(
+                                            Modifier.padding(2.dp).size(24.dp)
+                                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                                .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f)),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.Close,
+                                                localized(language, "移除附件", "Remove attachment"),
+                                                tint = androidx.compose.ui.graphics.Color.White,
+                                                modifier = Modifier.size(15.dp),
+                                            )
+                                        }
                                     }
                                 }
                             } else {
@@ -1359,10 +1394,10 @@ fun ChatScreen(
                         isSpeaking = speaking,
                         onReadAloud = { vm.readAloud(it) },
                         onStopReading = { vm.stopReading() },
-                        onImageSave = ::saveImage,
-                        onImageSaveAs = ::saveImageAs,
-                        onImageShare = ::shareImage,
-                        savingImageId = savingImageId,
+                        onOpenImage = { messageId, image ->
+                            viewerOwner = messageId
+                            viewerImageId = image.id
+                        },
                         onFileOpen = { handleFile(it, share = false) },
                         onFileShare = { handleFile(it, share = true) },
                         modifier = Modifier.fillMaxSize(),
@@ -1529,6 +1564,61 @@ fun ChatScreen(
             vm.refreshReasoning()
         }
     }
+    // Resolved from state every frame rather than captured on open, so a hydration that completes
+    // while the viewer is up simply appears, and a deletion that empties the list closes it.
+    val viewerItems = remember(viewerOwner, state.messages, state.pendingAttachments) {
+        when (viewerOwner) {
+            null -> emptyList()
+            PENDING_VIEWER_OWNER -> state.pendingAttachments
+                .filter { it.kind == AttachmentKind.IMAGE }
+                .map { ImageViewerItem(it.id, ImageSource.Bytes(it.id, it.bytes)) }
+            else -> state.messages.firstOrNull { it.id == viewerOwner }
+                ?.images
+                .orEmpty()
+                .mapNotNull { image ->
+                    image.localPath?.let { ImageViewerItem(image.id, ImageSource.Path(it), image) }
+                }
+        }
+    }
+    val closeViewer = {
+        val wasTranscript = viewerOwner != null && viewerOwner != PENDING_VIEWER_OWNER
+        viewerOwner = null
+        viewerImageId = null
+        // Only the transcript viewer froze the list; the composer strip never moved it.
+        if (wasTranscript) viewportController.requestHeldRestore()
+    }
+    LaunchedEffect(viewerOwner, viewerItems.isEmpty()) {
+        // Pending bytes do not survive process death, so a restored viewer that resolves to nothing
+        // closes itself instead of showing an empty pager.
+        if (viewerOwner != null && viewerItems.isEmpty()) closeViewer()
+    }
+    if (viewerOwner != null && viewerItems.isNotEmpty()) {
+        ImageViewer(
+            items = viewerItems,
+            currentId = viewerImageId,
+            chrome = if (viewerOwner == PENDING_VIEWER_OWNER) {
+                ImageViewerChrome.Pending(
+                    onEdit = { id -> closeViewer(); editAttachmentId = id },
+                    onDelete = { id ->
+                        val index = viewerItems.indexOfFirst { it.id == id }
+                        val next = neighbourAfterRemoval(viewerItems, index)
+                        vm.removeAttachment(id)
+                        if (next == null) closeViewer() else viewerImageId = next.id
+                    },
+                )
+            } else {
+                ImageViewerChrome.Sent(
+                    onSave = ::saveImage,
+                    onSaveAs = ::saveImageAs,
+                    onShare = ::shareImage,
+                    savingImageId = savingImageId,
+                )
+            },
+            onPageChange = { viewerImageId = it },
+            onDismiss = closeViewer,
+        )
+    }
+
     fullscreenTableRaw?.let { raw ->
         com.hermes.client.ui.chat.TableFullscreenDialog(
             raw = raw,
