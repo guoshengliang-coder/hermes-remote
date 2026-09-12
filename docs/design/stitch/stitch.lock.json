@@ -690,7 +690,8 @@
         "android/app/src/main/java/com/hermes/client/ui/models/ModelsScreen.kt",
         "android/app/src/main/java/com/hermes/client/data/repository/ModelRecentsStore.kt",
         "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
-        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/BrandLoader.kt"
       ],
       "conformance": "android/app/src/test/resources/design-conformance.json（model.* 的 design 列从本稿抽取）",
       "html": "model-select.default.light.html",
@@ -719,7 +720,8 @@
         "弹层容器不照稿：稿把整屏画成一个 rounded-t-[32px] 容器，里面连状态栏一起画了 —— 那是模拟的手机边框，不是弹层。弹层照 §5.8 全局规则，16dp 圆角、32×4dp 抓手。",
         "稿底部的手势导航条与顶部状态栏是屏幕模拟，不实现。",
         "星标触达区实现为 32dp（视觉仍是稿上的 19dp）。稿只给了 p-0.5 ≈ 23dp，在一整行可点的行尾会误触；不改变任何像素。",
-        "加载 / 空 / HR-RPC-003 / 切换失败等态稿子没画，沿用既有实现重新着色，不凭空造 UI。"
+        "加载 / 空 / HR-RPC-003 / 切换失败等态稿子没画，沿用既有实现重新着色，不凭空造 UI。",
+        "等待标（裁决 2026-09-12，§5.17）：刷新中、切换中的行与 chip、强度提交中一律用 RunSpinner （稿子的 progress_activity 转圈，= 会话列表的运行标，抽成 ui/components/BrandLoader.kt 的共用组件）；品牌 HermesMark 只留给「整页还没有内容」的首次加载。首版错用了 HermesMark，由产品负责人指出后改回。"
       ]
     },
     {

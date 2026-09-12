@@ -61,6 +61,7 @@ import com.hermes.client.data.error.AppErrorCode
 import com.hermes.client.data.network.ModelProviderDto
 import com.hermes.client.data.repository.favKey
 import com.hermes.client.ui.components.HermesMark
+import com.hermes.client.ui.components.RunSpinner
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.l10n
 import com.hermes.client.ui.localization.localized
@@ -258,7 +259,7 @@ fun ModelSheetHeader(refreshing: Boolean, onRefresh: () -> Unit, onDismiss: () -
             // Read as a missing icon rather than a removed action (§5.17 有意偏离二).
             if (refreshing) {
                 Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-                    HermesMark(size = 18.dp)
+                    RunSpinner(size = 18.dp, contentDescription = l10n("正在刷新", "Refreshing"))
                 }
             } else {
                 Box(
@@ -565,7 +566,7 @@ private fun ReasoningEffortRow(effort: String?, pending: Boolean, onSelect: (Str
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (pending) {
-                    HermesMark(size = 10.dp, modifier = Modifier.padding(end = 4.dp))
+                    RunSpinner(size = 10.dp, modifier = Modifier.padding(end = 4.dp))
                 } else {
                     Box(
                         Modifier
@@ -696,7 +697,7 @@ private fun QuickSwitchRow(
                         modifier = Modifier.padding(start = 6.dp),
                     )
                     if (isPending) {
-                        HermesMark(size = 13.dp, modifier = Modifier.padding(start = 4.dp))
+                        RunSpinner(size = 13.dp, modifier = Modifier.padding(start = 4.dp))
                     }
                 }
             }
@@ -882,7 +883,7 @@ private fun ModelRowItem(
         // The spinner sits BESIDE the star rather than replacing it: a row being switched to is
         // also a row you may want to star, and the old layout made the star vanish mid-switch.
         if (isPending) {
-            HermesMark(size = 17.dp, modifier = Modifier.padding(start = 8.dp))
+            RunSpinner(size = 17.dp, modifier = Modifier.padding(start = 8.dp))
         }
         Box(
             Modifier
