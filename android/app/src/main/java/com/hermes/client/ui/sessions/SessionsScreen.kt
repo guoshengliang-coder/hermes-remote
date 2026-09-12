@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.alpha
 import com.hermes.client.ui.localization.localizedMessage
@@ -724,55 +725,82 @@ internal fun SessionRow(
     // letting the tap fail.
     val moveEnabled = runtime?.hasActiveWork != true && runtime?.phase?.isActive != true
 
-    ListItem(
-            // Unread carries the heavier tier (docs/DESIGN.md §5.2, decision 2026-09-11). The dot
-            // stays: weight is a second signal, and a row can be unread with the dot scrolled past.
-            headlineContent = {
-                Text(
-                    session.title,
-                    style = com.hermes.client.ui.tuning.tunedRowTitle(unread), // TUNING-TEMP
-                )
-            },
-            // No leading slot: the pinned marker rides in the subline so every title shares one
-            // left edge (docs/DESIGN.md §5.2). Project · model, then the live status line. No
-            // profile text: the list is scoped to one profile and identity lives only in the
-            // avatar (docs/DESIGN.md §1).
-            supportingContent = {
-                // mt-0.5 under the title, mt-1 under the subline — the mock's own rhythm.
-                Column {
-                    androidx.compose.foundation.layout.Spacer(Modifier.size(com.hermes.client.ui.tuning.tunedSublineGap())) // TUNING-TEMP
-                    SessionSubline(session, defaultProjectPath = defaultProjectPath, pinned = isPinned)
-                    // Gate on the TEXT, not on the phase. The phase-based guard let a blank label
-                    // through, and a blank Text still costs a full line: the row grew to Material's
-                    // three-line height (88dp) while showing two lines, and three-line rows are
-                    // top-aligned, so 40dp of dead space opened up under the subline. On a device
-                    // that reads as a random extra gap every few rows (docs/DESIGN.md §5.2).
-                    sessionStatusLine(runtime, language)?.let { label ->
-                        androidx.compose.foundation.layout.Spacer(Modifier.size(com.hermes.client.ui.tuning.tunedStatusGap())) // TUNING-TEMP
-                        Text(
-                            label,
-                            // Only the running line is monospaced in the mock; the verdicts
-                            // (已完成 / 运行失败 / 已中断) stay on the prose face.
-                            style = com.hermes.client.ui.tuning.tunedStatus(runtime!!.phase.isActive), // TUNING-TEMP
-                            color = runtimeColor(runtime.phase),
-                        )
-                    }
-                }
-            },
-            trailingContent = trailing,
-            // Tap opens the session; long-press opens the management menu.
-            // TUNING-TEMP: an exact height from the panel, or nothing at all at its default so
-            // Material sizes the row as it does in production.
-            modifier = (com.hermes.client.ui.tuning.tunedRowHeightOrNull()
-                ?.let { Modifier.height(it) } ?: Modifier)
-                .combinedClickable(
+    // Drawn by hand rather than with Material's `ListItem` — `px-4 py-1.5 flex items-center gap-3`,
+    // straight off the mock (docs/DESIGN.md §5.2).
+    //
+    // `ListItem` cannot express this layout. It enforces a line-count floor of 56 / 72 / 88dp and
+    // the mock's two-line row is 49.1dp, below even the one-line floor; forcing an exact height
+    // from outside does beat the floor but leaves only 33dp inside its own fixed 8+8 padding for
+    // 37.1dp of content, so the text clips. Three long-standing defects were all that one floor:
+    // a CJK subline that wrapped tipped the row into the three-line tier (88dp, ANDROID_SMOKE
+    // A-05); three-line rows are TOP-aligned, so a hole opened under the subline; and the running
+    // spinner sat at the top of the row instead of centred. `verticalAlignment = CenterVertically`
+    // with no floor at all settles all three.
+    //
+    // The height is never set. It is padding plus content, exactly as the mock computes it, which
+    // is what keeps font scaling and CJK wrapping working instead of clipping.
+    //
+    // No container colour is needed: `ListItem` defaulted to `surface`, and this theme has
+    // `background == surface` in both schemes (ui/theme/Color.kt), so the row was always the same
+    // paper as the page behind it.
+    Row(
+        // The padding sits INSIDE the click, so the ripple covers the whole row rather than only
+        // the text.
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
                 onClick = onOpen,
                 onLongClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     menuOpen = true
                 },
+            )
+            .padding(
+                horizontal = 16.dp,
+                vertical = com.hermes.client.ui.tuning.tunedRowPaddingV(), // TUNING-TEMP
             ),
-    )
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        // No leading slot: the pinned marker rides in the subline so every title shares one left
+        // edge (docs/DESIGN.md §5.2). Title, project · model, then the live status line. No profile
+        // text: the list is scoped to one profile and identity lives only in the avatar (§1).
+        Column(Modifier.weight(1f)) {
+            Text(
+                session.title,
+                // Unread carries the heavier tier (docs/DESIGN.md §5.2, decision 2026-09-11). The
+                // dot stays: weight is a second signal, and a row can be unread with the dot
+                // scrolled past.
+                style = com.hermes.client.ui.tuning.tunedRowTitle(unread), // TUNING-TEMP
+                // `truncate` in the mock. Wrapping to a second line was what made row height vary
+                // with title length; one line keeps every two-line row the same height.
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+            androidx.compose.foundation.layout.Spacer(Modifier.size(com.hermes.client.ui.tuning.tunedSublineGap())) // TUNING-TEMP
+            SessionSubline(session, defaultProjectPath = defaultProjectPath, pinned = isPinned)
+            // Gate on the TEXT, not on the phase. The phase-based guard let a blank label through,
+            // and a blank Text still costs a full line — under `ListItem` that used to tip the row
+            // into the 88dp tier; now it would just add an empty line. Either way it is wrong.
+            sessionStatusLine(runtime, language)?.let { label ->
+                androidx.compose.foundation.layout.Spacer(Modifier.size(com.hermes.client.ui.tuning.tunedStatusGap())) // TUNING-TEMP
+                Text(
+                    label,
+                    // Only the running line is monospaced in the mock; the verdicts
+                    // (已完成 / 运行失败 / 已中断) stay on the prose face.
+                    style = com.hermes.client.ui.tuning.tunedStatus(runtime!!.phase.isActive), // TUNING-TEMP
+                    color = runtimeColor(runtime.phase),
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
+        }
+        // `w-7`, and the mock keeps the column even when it is empty (`<div class="w-7 shrink-0">`).
+        // Always reserving it is the point: the spinner, the status dot and the unread dot land on
+        // one vertical line, and every title truncates at the same x whether or not its row has an
+        // indicator.
+        Box(Modifier.width(28.dp), contentAlignment = Alignment.Center) { trailing?.invoke() }
+    }
 
     if (menuOpen) {
         ModalBottomSheet(onDismissRequest = { menuOpen = false }, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
@@ -1046,27 +1074,32 @@ internal fun ChatsTopBar(
             // The active profile's avatar IS the identity signal — and the door to
             // the card page, the app's only profile-switch point.
             IconButton(onClick = onOpenCard) {
-                com.hermes.client.ui.components.ProfileAvatar(activeProfile, size = 36.dp)
+                com.hermes.client.ui.components.ProfileAvatar(
+                    activeProfile,
+                    size = com.hermes.client.ui.tuning.tunedAvatarSize(), // TUNING-TEMP
+                )
             }
         },
         centered = true,
+        centeredHeight = com.hermes.client.ui.tuning.tunedTopBarHeight(), // TUNING-TEMP
         actions = {
-            // 36dp buttons carrying a 21dp glyph, per the mock (`w-9 h-9`, `text-[21px]`). That is
-            // under Material's 48dp touch target; the floor was dropped on 2026-09-11 in favour of
-            // following the mock exactly (docs/DESIGN.md §7 item 8).
-            IconButton(onClick = onOpenSearch, modifier = Modifier.size(36.dp)) {
+            // A 20dp glyph in a full 48dp touch target. The mock's `w-8 h-8` button is NOT a size
+            // to copy: it only ever paints on `hover:bg-stone-200/50`, so at rest those 32px are
+            // invisible and the glyph is the whole of what is drawn. Sizing the button to 32dp
+            // would import nothing visible and cost the touch target — Android has no hover.
+            IconButton(onClick = onOpenSearch) {
                 Icon(
                     Icons.Rounded.Search,
                     contentDescription = localized(language, "搜索", "Search"),
-                    modifier = Modifier.size(21.dp),
+                    modifier = Modifier.size(com.hermes.client.ui.tuning.tunedTopBarGlyph()), // TUNING-TEMP
                 )
             }
             Box {
-                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = { menuOpen = true }) {
                     Icon(
                         Icons.Rounded.MoreVert,
                         contentDescription = localized(language, "更多", "More"),
-                        modifier = Modifier.size(21.dp),
+                        modifier = Modifier.size(com.hermes.client.ui.tuning.tunedTopBarGlyph()), // TUNING-TEMP
                     )
                 }
                 // Same menu shape as the chat screen's (docs/DESIGN.md §5.4): navigation first,
@@ -1124,6 +1157,7 @@ internal fun ChatsSegmentedRow(
                 ViewMode.BOTS -> com.hermes.client.ui.components.BotStrokeIcon
             }
         },
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+        // `px-4 pt-1 pb-1.5` in the mock.
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 6.dp),
     )
 }

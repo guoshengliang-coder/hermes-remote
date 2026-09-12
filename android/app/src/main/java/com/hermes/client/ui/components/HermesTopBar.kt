@@ -25,6 +25,9 @@ fun HermesTopBar(
     subtitle: String? = null,
     // Centered = the session-list root (M3 center-aligned bar); pushed screens stay start-aligned.
     centered: Boolean = false,
+    // Content-row height of the centered bar. A parameter only so the session list can drive it
+    // from its temporary tuning panel; ignored when [centered] is false.
+    centeredHeight: androidx.compose.ui.unit.Dp = 48.dp,
     navigationIcon: @Composable () -> Unit = {},
     actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
 ) {
@@ -38,15 +41,17 @@ fun HermesTopBar(
     )
     if (centered) {
         androidx.compose.material3.CenterAlignedTopAppBar(
-            // 56dp, the mock's `h-14`, against Material's 64dp default. Only the centred bar —
-            // that is the one the session-list mock specifies (docs/DESIGN.md §5.2).
+            // 48dp, the mock's `h-12` (5th pull; `h-14` before it), against Material's 64dp
+            // default. Only the centred bar — that is the one the session-list mock specifies
+            // (docs/DESIGN.md §5.2). It still clears a 48dp touch target exactly, because this is
+            // the content row alone.
             //
             // `expandedHeight`, NOT `Modifier.height`. The bar draws its own status-bar inset
-            // inside its container, so constraining the whole composable to 56dp spends most of
-            // that on the inset and squashes the content row: on a HONOR CLK-AN00 the title was
+            // inside its container, so constraining the whole composable spends most of the
+            // budget on the inset and squashes the content row: on a HONOR CLK-AN00 the title was
             // vertically clipped and sat flush against the first group header. The mock has the
-            // same split — `h-14` is the content row, `pt-safe` is separate.
-            expandedHeight = 56.dp,
+            // same split — `h-12` is the content row, `pt-safe` is separate.
+            expandedHeight = centeredHeight,
             modifier = modifier,
             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                 containerColor = barBg,
@@ -54,7 +59,9 @@ fun HermesTopBar(
                 navigationIconContentColor = barOn,
                 actionIconContentColor = barOn,
             ),
-            title = { Text(title, style = MaterialTheme.typography.titleLarge, color = barOn) },
+            title = {
+                Text(title, style = com.hermes.client.ui.theme.SessionsTopBarTitle, color = barOn)
+            },
             navigationIcon = navigationIcon,
             actions = actions,
         )

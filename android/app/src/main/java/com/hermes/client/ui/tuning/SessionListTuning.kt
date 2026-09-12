@@ -42,35 +42,40 @@ import java.io.IOException
 @Serializable
 data class SessionListTuning(
     // Type — the three row steps.
-    val titleSizeSp: Float = 15.5f,
+    //
+    // No per-step line height any more: the mock drives all three from ONE `leading-[…]` on the row
+    // container, and it moved as one lever between pulls (1.45 → 1.35). Three separate knobs invite
+    // a half-applied change, so line height is derived as `size × lineHeightMultiplier`.
+    val titleSizeSp: Float = 14.5f,
     val titleWeightUnread: Int = 600,
     val titleWeightRead: Int = 500,
-    val titleLineHeightSp: Float = 22.475f,
-    val titleTrackingSp: Float = -0.155f,
-    val sublineSizeSp: Float = 12f,
-    val sublineLineHeightSp: Float = 17.4f,
-    val statusSizeSp: Float = 12f,
+    val titleTrackingSp: Float = -0.145f,
+    val sublineSizeSp: Float = 11.5f,
+    val statusSizeSp: Float = 11.5f,
     val statusWeight: Int = 500,
-    val statusLineHeightSp: Float = 17.4f,
+    val statusTrackingSp: Float = -0.2875f,
+    val lineHeightMultiplier: Float = 1.35f,
     // Type — the group header.
     val headerSizeSp: Float = 11f,
     val headerWeight: Int = 600,
     val headerTrackingSp: Float = 0.55f,
     // Spacing — what makes rows feel tight or loose.
     //
-    // rowHeightDp is the row's EXACT height, not a minimum, and 72 means "leave Material alone".
-    // Material's ListItem enforces its own floor (56 one-line / 72 two-line / 88 three-line), so a
-    // minimum could only ever make rows taller — useless for the question actually being asked,
-    // which is whether the list should be tighter. An exact height on the outer modifier gives the
-    // ListItem fixed constraints, which overrides that floor in both directions.
-    //
-    // The default is therefore special-cased to apply no modifier at all, so an untouched panel
-    // renders exactly what ships. Away from the default, content taller than the height clips —
-    // acceptable while tuning, which is the only time this is non-default.
-    val rowHeightDp: Float = 72f,
+    // rowPaddingVDp is the knob now, and the row's height is whatever the content plus this padding
+    // comes to — the mock's own model (`px-4 py-1.5`), which is why it survives CJK wrapping and
+    // font scaling. It was briefly deleted as un-settable, and that was true only while the row was
+    // a Material `ListItem`, which owns its internal padding and refuses to go below 56/72/88dp.
+    // The row is drawn by hand now, so this is the real lever.
+    val rowPaddingVDp: Float = 6f,
     val sublineGapDp: Float = 2f,
-    val statusGapDp: Float = 4f,
-    val headerPaddingVDp: Float = 8f,
+    val statusGapDp: Float = 2f,
+    val sublineGlyphDp: Float = 13f,
+    val headerPaddingVDp: Float = 2f,
+    // The top bar. It is part of the same density pass, so it needs knobs too, or that half cannot
+    // be judged on the device alongside the rows.
+    val topBarHeightDp: Float = 48f,
+    val avatarSizeDp: Float = 32f,
+    val topBarGlyphDp: Float = 20f,
     // The pillars.
     val pillarWidthDp: Float = 3f,
     val pillarHeightDp: Float = 12f,
@@ -123,20 +128,23 @@ fun SessionListTuning.asReport(): String {
         row("titleSizeSp", titleSizeSp, d.titleSizeSp)
         row("titleWeightUnread", titleWeightUnread, d.titleWeightUnread)
         row("titleWeightRead", titleWeightRead, d.titleWeightRead)
-        row("titleLineHeightSp", titleLineHeightSp, d.titleLineHeightSp)
         row("titleTrackingSp", titleTrackingSp, d.titleTrackingSp)
         row("sublineSizeSp", sublineSizeSp, d.sublineSizeSp)
-        row("sublineLineHeightSp", sublineLineHeightSp, d.sublineLineHeightSp)
         row("statusSizeSp", statusSizeSp, d.statusSizeSp)
         row("statusWeight", statusWeight, d.statusWeight)
-        row("statusLineHeightSp", statusLineHeightSp, d.statusLineHeightSp)
+        row("statusTrackingSp", statusTrackingSp, d.statusTrackingSp)
+        row("lineHeightMultiplier", lineHeightMultiplier, d.lineHeightMultiplier)
         row("headerSizeSp", headerSizeSp, d.headerSizeSp)
         row("headerWeight", headerWeight, d.headerWeight)
         row("headerTrackingSp", headerTrackingSp, d.headerTrackingSp)
-        row("rowHeightDp", rowHeightDp, d.rowHeightDp)
+        row("rowPaddingVDp", rowPaddingVDp, d.rowPaddingVDp)
         row("sublineGapDp", sublineGapDp, d.sublineGapDp)
         row("statusGapDp", statusGapDp, d.statusGapDp)
+        row("sublineGlyphDp", sublineGlyphDp, d.sublineGlyphDp)
         row("headerPaddingVDp", headerPaddingVDp, d.headerPaddingVDp)
+        row("topBarHeightDp", topBarHeightDp, d.topBarHeightDp)
+        row("avatarSizeDp", avatarSizeDp, d.avatarSizeDp)
+        row("topBarGlyphDp", topBarGlyphDp, d.topBarGlyphDp)
         row("pillarWidthDp", pillarWidthDp, d.pillarWidthDp)
         row("pillarHeightDp", pillarHeightDp, d.pillarHeightDp)
         row("pillarNeedsYou 浅/深", "$pillarNeedsYouLight / $pillarNeedsYouDark", "${d.pillarNeedsYouLight} / ${d.pillarNeedsYouDark}")
@@ -172,6 +180,14 @@ class SessionListTuningStore(private val context: Context) {
 
 val LocalSessionListTuning = staticCompositionLocalOf { SessionListTuning() }
 
+/**
+ * `size × multiplier`, rounded the same way `ui/theme/Type.kt` rounds it. Identical arithmetic is
+ * the point: at its defaults this panel must reproduce the shipped styles exactly, and float noise
+ * (11.5f × 1.35f = 15.525001) would make "untouched panel" differ from "no panel".
+ */
+private fun scaled(sizeSp: Float, multiplier: Float) =
+    (kotlin.math.round(sizeSp * multiplier * 1000f) / 1000f).sp
+
 // ── Derived values the session list actually reads ───────────────────────────────────────────
 
 @Composable
@@ -180,9 +196,9 @@ fun tunedRowTitle(unread: Boolean): TextStyle {
     return TextStyle(
         fontWeight = FontWeight(if (unread) t.titleWeightUnread else t.titleWeightRead),
         fontSize = t.titleSizeSp.sp,
-        lineHeight = t.titleLineHeightSp.sp,
+        lineHeight = scaled(t.titleSizeSp, t.lineHeightMultiplier),
         letterSpacing = t.titleTrackingSp.sp,
-    )
+    ).merge(com.hermes.client.ui.theme.ExactLineBox)
 }
 
 @Composable
@@ -192,9 +208,9 @@ fun tunedSubline(): TextStyle {
         fontFamily = HermesMono,
         fontWeight = FontWeight.Normal,
         fontSize = t.sublineSizeSp.sp,
-        lineHeight = t.sublineLineHeightSp.sp,
+        lineHeight = scaled(t.sublineSizeSp, t.lineHeightMultiplier),
         letterSpacing = 0.sp,
-    )
+    ).merge(com.hermes.client.ui.theme.ExactLineBox)
 }
 
 @Composable
@@ -204,9 +220,9 @@ fun tunedStatus(mono: Boolean): TextStyle {
         fontFamily = if (mono) HermesMono else null,
         fontWeight = FontWeight(t.statusWeight),
         fontSize = t.statusSizeSp.sp,
-        lineHeight = t.statusLineHeightSp.sp,
-        letterSpacing = (-0.3).sp,
-    )
+        lineHeight = scaled(t.statusSizeSp, t.lineHeightMultiplier),
+        letterSpacing = t.statusTrackingSp.sp,
+    ).merge(com.hermes.client.ui.theme.ExactLineBox)
 }
 
 @Composable
@@ -221,18 +237,13 @@ fun tunedGroupHeader(): TextStyle {
     )
 }
 
-/**
- * The row height to force, or null to leave Material's own sizing alone.
- *
- * Null at the default is what keeps an untouched panel pixel-identical to what ships: no
- * modifier is applied at all, so ListItem picks its height exactly as it does in production.
- */
-@Composable fun tunedRowHeightOrNull(): Dp? {
-    val t = LocalSessionListTuning.current
-    return if (t.rowHeightDp == SessionListTuning().rowHeightDp) null else t.rowHeightDp.dp
-}
+@Composable fun tunedRowPaddingV(): Dp = LocalSessionListTuning.current.rowPaddingVDp.dp
 @Composable fun tunedSublineGap(): Dp = LocalSessionListTuning.current.sublineGapDp.dp
 @Composable fun tunedStatusGap(): Dp = LocalSessionListTuning.current.statusGapDp.dp
+@Composable fun tunedSublineGlyph(): Dp = LocalSessionListTuning.current.sublineGlyphDp.dp
 @Composable fun tunedHeaderPaddingV(): Dp = LocalSessionListTuning.current.headerPaddingVDp.dp
+@Composable fun tunedTopBarHeight(): Dp = LocalSessionListTuning.current.topBarHeightDp.dp
+@Composable fun tunedAvatarSize(): Dp = LocalSessionListTuning.current.avatarSizeDp.dp
+@Composable fun tunedTopBarGlyph(): Dp = LocalSessionListTuning.current.topBarGlyphDp.dp
 @Composable fun tunedPillarWidth(): Dp = LocalSessionListTuning.current.pillarWidthDp.dp
 @Composable fun tunedPillarHeight(): Dp = LocalSessionListTuning.current.pillarHeightDp.dp

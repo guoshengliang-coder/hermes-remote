@@ -101,10 +101,24 @@ fontScale 1.3，**但没覆盖它在真实页面里与顶栏、告警条的间�
 
 ---
 
-## A-05 中文项目名把会话行撑到 88dp — 已确认是缺陷，待修
+## A-05 中文项目名把会话行撑到 88dp — 已修（2026-09-12）
 
-**这一条不是"待验"，是已经在真机上量到的缺陷**，记在这里是因为它需要一次独立改动，且当前
-没有任何自动化能看见它。
+**根因是 Material `ListItem` 的行数档**，不是字体：中文项目名让副行换行，`ListItem` 于是按三行项
+排版（88dp 且顶对齐），ASCII 项目名的同类行停在两行档的 72dp。会话行在落地第五次 Stitch 拉取的
+密度收紧时改成了自绘 `Row`（docs/DESIGN.md §5.2），没有行数档也就没有这个台阶。
+
+同一条根因还带走了另外两个症状：副行下方那块空洞（三行项顶对齐所致），以及**运行中的转圈不在行
+的竖直中心**（同上，产品负责人 2026-09-12 真机发现）。
+
+**残留 1.5dp，是有意偏离。** 实测 411dp/420dpi：纯拉丁行 49.52dp，每有一行中文 +1.52dp。稿子的
+`leading-[1.35]` 是按拉丁字形推的，中文回退字体需要的 ascent+descent 超过 `字号×1.35`，行框只能
+长到字体要求的高度。对照原来的 16dp，这是一个数量级的改善。
+
+**回归网已经补上**：`SessionRowTuningTest`（`@GraphicsMode(NATIVE)`，中英文各一组）与三张 golden
+——`row-height-probe` 里新增了中文项目名一行、`session-rows-running` 覆盖运行中与置顶+运行中。
+注意 **Robolectric 默认的桩字体会让中英文测出一样高**，这条必须跑 NATIVE 才有意义。
+
+以下是当初的实测记录，保留备查。
 
 **现象**：项目名含中文的会话行渲染为 **88dp**，项目名是 ASCII 的同类行是 **72dp**。88dp 是
 Material `ListItem` 的三行档，三行项**顶对齐**，于是副行下方空出约 16dp 的洞，列表看起来每隔
@@ -124,11 +138,12 @@ mock 数据，项目名「赫尔墨斯远程」）：
 数据，两行同样是 264px。也试过给副行加 `includeFontPadding = false` 与
 `LineHeightStyle(Trim.Both)`，高度不变，所以那两项没有留在代码里。
 
-**为什么自动化看不见**：Roborazzi 的 fixture 里项目名全是 ASCII（`hermes-remote`、
+**为什么自动化当初看不见**：Roborazzi 的 fixture 里项目名全是 ASCII（`hermes-remote`、
 `xiaomai-daily-report`），而且 CI 只跑 `:app:testDebugUnitTest`，根本不会捕获或校验截图。
+两条都已经补上（见上）；CI 仍然不校验截图，那是另一件待办。
 
-**修的时候先查这两处**：`SessionSubline` 的自定义 `Layout` 取子项高度的最大值；`ListItem` 在
-supporting 槽超出两行预算时会切到三行几何。加一条项目名为中文的 golden 当回归网。
+当初写下的怀疑对象是「`SessionSubline` 的自定义 `Layout`」与「`ListItem` 在 supporting 槽超出两行
+预算时切到三行几何」—— 后者是对的。
 
 ---
 

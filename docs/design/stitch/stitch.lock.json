@@ -35,6 +35,11 @@
       "result": "card.default.light / dark 两张内容变更（结构性重做，见 specChanges）；新增 2 张已打标的主题弹层基线待入库（见 candidates）；会话列表两张的画布高度也变了，本轮未重拉（归属会话列表分支）"
     },
     {
+      "at": "2026-09-12（第六次，只重拉会话列表两张）",
+      "projectUpdateTime": "2026-09-11T15:53:04.972204Z",
+      "result": "按 screenId 重拉 sessions.chats.default.light / dark，落地第五次发现的密度收紧。注意 projectUpdateTime 与第五次相同 —— 项目级时间戳在第五次就已经更新过，拿它当闸门会判定「没变」，所以这两张必须按 screenId 直接重拉。浅色 sha bd68d115→3d7b777d，暗色 aea4d75e→82d1d52d，画布 1229→1223 css px。颜色 token 一个字未改，纯密度。暗色稿只跟进了一半（行收紧跟上了，顶栏与字号没有），记进 pairs；几何按既有规则以浅色稿为准。"
+    },
+    {
       "at": "2026-09-12（第五次，模型选择首次入库）",
       "projectUpdateTime": "2026-09-11T15:53:04.972204Z",
       "result": "新增 2 张（基线-模型选择 / 暗夜）；重拉已有 10 张比对 sha256：card.default.dark 变化仅为 Stitch 导出包装（<html> 上多了内联尺寸、末尾多了 snapdom-sandbox 空 div），无设计变化，未更新快照；sessions.chats.default.light / dark 为真实的密度收紧（顶栏 h-14→h-12、头像 36→32、标题 17→16px、行 py-3→py-1.5、正文区 pt-88→76），归属会话列表分支，本轮未重拉、未落地，见 specChanges；其余 7 张未变。"
@@ -317,8 +322,8 @@
           "sessions.chats.default.dark"
         ],
         "change": "整屏密度收紧：顶栏 h-14→h-12、头像 36→32dp、在线点 12→10dp、标题 17→16px、顶栏图标 21→20px、正文区 pt-[88px]→pt-[76px]、分组头 py-2→py-1、会话行 py-3→py-1.5、浅色底部 pb-28→pb-20",
-        "decision": "2026-09-12 第五次拉取时发现。归属会话列表分支，本轮（模型选择）不重拉、不落地，仓库里的 sessions.chats.default.* 快照与 sha256 保持第四次拉取的值，这样规格变更的信号不会被这次提交抹掉。",
-        "status": "pending"
+        "decision": "2026-09-12 落地。行改为自绘：Material 的 ListItem 下限是 56/72/88dp，稿子的两行行 49.1dp 比一行下限还低；外层强设高度能越过下限，但 ListItem 固定的 8+8 内边距只剩 33dp 装 37.1dp 的内容，会裁字。自绘同时消掉了同一根因的另外两个症状 —— A-05（中文项目名撞三行档 +16dp）和运行中转圈不居中（三行项顶对齐）。实测纯拉丁行 49.52dp，命中稿子；中文行的残差见下面单列的一条。",
+        "status": "landed"
       },
       {
         "screens": [
@@ -327,6 +332,31 @@
         "change": "HTML 有变化但不是设计变化：<html> 上多了内联的 width/height/overflow，文末多了一个空的 snapdom-sandbox div",
         "decision": "Stitch 导出包装的噪声，剥掉后与仓库快照逐字相同。不更新快照、不改 sha256。",
         "status": "consistent"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.light",
+          "sessions.chats.default.dark"
+        ],
+        "change": "置顶标记画成 emoji 📌",
+        "decision": "不采纳。产品负责人 2026-09-12 裁定改为自绘双色图钉（ui/components/PinIcon.kt）。emoji 的字形由系统 emoji 字体决定，华为/小米/三星各画一个样；无法着色、无法随暗色模式调整；TalkBack 会读 emoji 自己的名字。稿子的意图 —— 一个彩色小物件而不是一根线 —— 照做了，只是形由我们控制。头部没有取 emoji 的红：红在本仓已经是「运行失败」，同一行右侧就可能有红点；改用本仓既有的「置顶蓝」（与已置顶分组立柱同值），针尖取中性色。稿子给那个 span 写的 text-[#2563EB] 对彩色 emoji 字形本来就无效，所以稿子渲染出来是系统的红图钉。有意偏离。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.light"
+        ],
+        "change": "正文区底部留白 pb-20（80dp），给 FAB 让位",
+        "decision": "不采纳。产品负责人 2026-09-12 确认「不补，并把它确认为规范」。代价必须写明：滚到列表底部时 FAB 会盖住最后一条会话。本仓列表一直没有这段留白（LazyColumn 无 contentPadding），本次也不加。有意偏离。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.light"
+        ],
+        "change": "行内三档行高一律 leading-[1.35]",
+        "decision": "已落地，但中文行做不到严格相等。实测 411dp/420dpi：纯拉丁行 49.52dp，命中稿子的 49.10；每有一行中文 +1.52dp（中文标题 51.05、中文标题加中文项目名 52.57）。1.35 是按拉丁字形推的，中文回退字体在这个字号下需要的 ascent+descent 超过 字号×1.35，那一行的行框就长到字体要求的高度 —— 除非裁字形否则消不掉。对照：这条差 1.5dp，落地前 A-05 的同类问题是 16dp。由 SessionRowTuningTest 在 @GraphicsMode(NATIVE) 下钉住。有意偏离。",
+        "status": "landed"
       }
     ]
   },
@@ -337,15 +367,15 @@
   "designSystem": {
     "_": "仓库 → Stitch 的反向同步记录（DESIGN.md §7 第 8 条）。漂移以 frontMatterSha256 为准而非整文件：实测这条通道只承载 token，改正文在 Stitch 那边什么都不会变（见 pushFidelity）。scripts/design/stitch-design-system.mjs --check 核对。",
     "file": "design-system.md",
-    "sha256": "064372e4bbf0aaff33bb30e3060b925095d9b2987f0c96c7aa8f279a85905340",
-    "frontMatterSha256": "1193798116f4141512fd59b78ba5f8ac3a35708314f7c29debe14513a7d3fc20",
+    "sha256": "c6f4fe0d004e6c3d846300fa0275dbdde4ac6031e5648a7652a296c9bb9ed268",
+    "frontMatterSha256": "9b7fb05b9c7f4d761b5e583468a37d769136a819963ab70933bc42ba21b14d31",
     "pinnedBy": "android/app/src/test/java/com/hermes/client/ui/theme/DesignSystemExportTest.kt",
     "assetId": "8a7217d53f5e4f8399c25714f8833e79",
     "pushedFrontMatterSha256": "7e0f37cc751c09a8bb0f1327c998da3c5cd7bc51b8f507a9744a5b0fd36421f9",
     "pushedFileSha256": "7c41a1a56cdda3cd5eeb56d5f0b4887d3e4c6d78c79076f2b1b4b23441ec942d",
     "pushedAt": "2026-09-11",
     "rePushPending": true,
-    "rePushNote": "2026-09-11 严格照稿落地后 token 变了（状态色四档、WARN 图形档、subline-faint、FAB 深色档、六个排版档），Stitch 上那套是改动前的版本。未立即重推：update_design_system 被 API 拒绝，每次重推都会在设计师项目里再建一套资产，所以攒到一批再推，且推之前要先把 --summary 给产品负责人看。 2026-09-11 卡片页两次入库又改了 card-* 令牌与排版档（第二版删掉胶囊五色、加了 icon-tile / dot-good / footer-rule），同样攒着。",
+    "rePushNote": "2026-09-11 严格照稿落地后 token 变了（状态色四档、WARN 图形档、subline-faint、FAB 深色档、六个排版档），Stitch 上那套是改动前的版本。未立即重推：update_design_system 被 API 拒绝，每次重推都会在设计师项目里再建一套资产，所以攒到一批再推，且推之前要先把 --summary 给产品负责人看。 2026-09-11 卡片页两次入库又改了 card-* 令牌与排版档（第二版删掉胶囊五色、加了 icon-tile / dot-good / footer-rule），同样攒着。 2026-09-12 第六次拉取的密度收紧又动了五档排版令牌（session-row-title / -read / -subline / -status、segment-label），一并攒进下一次重推。",
     "pushedVia": "upload_design_md → create_design_system_from_design_md（项目 8017882098155799612）",
     "activeInStitch": false,
     "activeNote": "MCP 没有「设为项目当前设计系统」的接口，需产品负责人在 Stitch 网页里手动选中。",
@@ -391,8 +421,8 @@
       ],
       "conformance": "android/app/src/test/resources/design-conformance.json（roles / type 的 design 列从本稿抽取）",
       "html": "sessions.chats.default.light.html",
-      "sha256": "bd68d1153fccc0cd9b539c2b21a1f968fac434ed8187da0c9c809606461ab877",
-      "canvasHeightCssPx": 1229,
+      "sha256": "3d7b777d2b1130fcf6d2b6f02f68611772ace3f101f4e43bd77d6a71aa4f2382",
+      "canvasHeightCssPx": 1223,
       "status": "baseline",
       "implemented": "implemented",
       "coversRowStates": [
@@ -427,8 +457,8 @@
       ],
       "conformance": "android/app/src/test/resources/design-conformance.json（roles 的暗色列）",
       "html": "sessions.chats.default.dark.html",
-      "sha256": "aea4d75e4306c92d0e967d1707dcb298994950b960972ad942d79194c9b62484",
-      "canvasHeightCssPx": 1229,
+      "sha256": "82d1d52df791ea1fa3d7b9bf1773621e1a341e249562f4efe0c69eda98c3535c",
+      "canvasHeightCssPx": 1223,
       "status": "baseline",
       "implemented": "implemented",
       "coversRowStates": [
@@ -768,7 +798,8 @@
       "geometryDiff": [
         "（第二次拉取后）行标题两版一致：15.5px，「需要你处理」两行 600、其余 500 —— 浅色用内联 style、暗色用类名，表达不同但值相同；是否采纳见 specChanges",
         "FAB：浅 52dp + Material 加号 24px / 暗 56dp + 描边 SVG 加号 28dp —— 暗色版与 §5.2 定案一致，浅色稿未同步改；实现以定案为准",
-        "（第一次拉取时）行标题曾是浅 600 / 暗 500 整列不一致，第二次已由稿子自行收敛"
+        "（第一次拉取时）行标题曾是浅 600 / 暗 500 整列不一致，第二次已由稿子自行收敛",
+      "（第六次拉取）暗色稿只跟进了一半的密度收紧：行 py-1.5 与 leading-1.35 跟上了，但顶栏仍是 h-14、头像 w-9、图标 21px，标题 15px（浅色 14.5）、副行 12px（浅色 11.5）、底部 pb-28（浅色 pb-20）。几何以浅色稿为准，实现全部按浅色落地"
       ]
     },
     {
