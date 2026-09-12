@@ -22,6 +22,12 @@
 它列出连着的每台真机（品牌、型号、SDK）、没授权或离线的设备、以及真机最高 SDK 是否达到
 `targetSdk`。多台时默认目标是按 serial 排序的第一台，用 `ANDROID_SERIAL=<serial>` 改。
 
+**在受限 PATH 下（某些 AI 会话的沙箱 shell）这个脚本会直接报错退出**：它调用的 `sysctl` 在
+`/usr/sbin`，不在最小 PATH 里，于是先 `command not found`、再 `HR_HOST_RAM_GB: unbound variable`。
+后果不是报错这么简单 —— `device-install.py` 拿它探设备，会因此断定"没有可用手机"，明明两台都插着。
+前面加 `PATH="/usr/sbin:/sbin:$PATH"` 即可（2026-09-12 实测）。同理，沙箱里 `adb` 也可能不在 PATH，
+用 `~/Library/Android/sdk/platform-tools/adb` 的绝对路径。
+
 **所有 adb 命令都带 `-s <serial>`。** 真机和模拟器、或两台真机同时在线时，不带 `-s` 的 adb 会
 直接拒绝执行，或者作用到你没打算操作的那台上。
 
@@ -191,6 +197,22 @@ missiongoSdkToken=<从 MissionGo 控制台取>
 **已知行为（2026-09-11 vivo V2166BA 实测）**：编辑器是 MissionGo SDK 自己的 Activity；在编辑器里按返回会把
 整个应用任务退到桌面，而不是回到卡片页。应用进程仍在，重新点图标即恢复原状态。与本仓的调起代码无关
 （`ui/feedback/FeedbackEntry.kt` 只把宿主 Activity 交给 SDK），要修得在 SDK 侧。
+
+## 3c. 验"杀掉 App 再冷启动"这一类
+
+有一类状态只有真的经历一次进程死亡才验得到（跨进程持久化、通知栏在进程死后剩下什么）。要点：
+
+- **"划掉 App" ≠ `force-stop`，两者结果不同，别混用。**
+  - 从最近任务划掉：杀进程，**通知栏的卡还在**。这是用户日常做的事，也是绝大多数 bug 报告的场景。
+  - `adb shell am force-stop <pkg>`：杀进程**并清掉该应用的全部通知**。它比用户的操作更狠，用它去验
+    "冷启动后通知还在不在"会得到假阴性。
+  - 脚本化地模拟"划掉"：`adb -s <serial> shell input keyevent KEYCODE_APP_SWITCH` 再滑掉卡片；
+    要确定性更高就用 `am force-stop`，但**只在不关心通知的用例里**用。
+- **`adb install -r` 保留应用数据**（`device-install.py` 走的就是它），这是验持久化的前提。
+  一旦用了 `pm clear` 或卸载重装，本地快照就没了，用例直接失效。
+- 冷启动后先看诊断日志里那一行 `[phase] restored N runtime(s) from disk` —— 它直接告诉你恢复了几条，
+  比在界面上猜快得多（见 `docs/DIAGNOSTICS.md`）。
+- 每一台单独记结果。"划掉 App"的语义和通知栏的清理策略正是各家 ROM 分歧最大的地方。
 
 ## 4. 驱动与取证
 

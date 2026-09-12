@@ -620,6 +620,33 @@ fun clarifyExpiredNotice(language: com.hermes.client.ui.localization.AppLanguage
         "This question expired before the answer arrived (HR-CLARIFY-001). The agent has moved on — tell it your choice directly in the composer.",
     )
 
+/**
+ * User-visible notice for HR-APPROVAL-001: the approve/deny landed on a request Hermes had already
+ * timed out and decided for itself. `approval.respond` returns nothing, so this is inferred from
+ * the run being over before the answer was sent; the copy therefore does not claim delivery.
+ * Registered in docs/ERROR_HANDLING.md.
+ */
+fun approvalExpiredNotice(language: com.hermes.client.ui.localization.AppLanguage): String =
+    com.hermes.client.ui.localization.localized(
+        language,
+        "这次审批没有送达，Hermes 已按超时自行处置了这条命令（HR-APPROVAL-001）。如果还需要执行，请在输入框重新说一次。",
+        "This approval didn't reach the agent — Hermes had already timed out and decided on its own (HR-APPROVAL-001). If you still want it run, say so in the composer.",
+    )
+
+/**
+ * User-visible notice for HR-APPROVAL-002: this conversation is waiting on an approval, but the
+ * request itself did not survive the app restart. Unlike a clarify request, an approval carries no
+ * id and `approval.respond` returns nothing, so a card rebuilt from a local snapshot could address
+ * a command the user never saw. Saying so is the honest option; see SessionPhaseStore's KDoc.
+ * Registered in docs/ERROR_HANDLING.md.
+ */
+fun approvalLostNotice(language: com.hermes.client.ui.localization.AppLanguage): String =
+    com.hermes.client.ui.localization.localized(
+        language,
+        "这条会话在等你确认，但那次审批请求没能在 App 重启后保留下来（HR-APPROVAL-002），这里无法再批准它。请在输入框直接告诉它你的决定。",
+        "This conversation is waiting for your approval, but the request itself didn't survive the app restart (HR-APPROVAL-002), so it can't be approved from here. Tell the agent your decision in the composer.",
+    )
+
 fun parseClarifyRequest(payload: kotlinx.serialization.json.JsonObject): ClarifyRequest {
     fun prim(e: kotlinx.serialization.json.JsonElement?): String? =
         (e as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull?.ifBlank { null }

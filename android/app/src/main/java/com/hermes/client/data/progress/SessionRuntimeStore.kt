@@ -9,13 +9,19 @@ import com.hermes.client.data.network.todoCounts
 import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.repository.ChatMediaRepository
 import com.hermes.client.data.repository.ChatRepository
+import com.hermes.client.data.repository.PersistedClarify
+import com.hermes.client.data.repository.PersistedQuestion
 import com.hermes.client.data.repository.ProfileManager
+import com.hermes.client.data.repository.SessionPhaseRecord
+import com.hermes.client.data.repository.SessionPhaseSnapshot
 import com.hermes.client.data.repository.SessionReadStore
 import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import com.hermes.client.ui.chat.ChatUiState
+import com.hermes.client.ui.chat.ClarifyQuestion
+import com.hermes.client.ui.chat.ClarifyRequest
 import com.hermes.client.ui.chat.markInterrupted
 import com.hermes.client.ui.chat.organizedForDisplay
 import com.hermes.client.ui.chat.reduce
@@ -26,9 +32,13 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineStart
@@ -171,6 +181,12 @@ class SessionRuntimeStore(
     private val appScope: CoroutineScope,
     private val profiles: ProfileManager,
     private val readStore: SessionReadStore? = null,
+    /**
+     * Cross-process snapshot of run state (HG-31). Null in tests and in any build that does not
+     * want it: null means nothing is written and nothing is restored, so the store behaves
+     * exactly as it did before this existed.
+     */
+    private val phaseStore: SessionPhaseSnapshot? = null,
     private val sessionRepository: SessionRepository? = null,
     private val mediaRepository: ChatMediaRepository? = null,
     private val accountSessions: AccountSessionManager? = null,
@@ -213,8 +229,22 @@ class SessionRuntimeStore(
     private val lastProbeAt = ConcurrentHashMap<SessionRuntimeKey, Long>()
     private val probeFailures = ConcurrentHashMap<SessionRuntimeKey, Int>()
     @Volatile private var watchdogJob: Job? = null
+    /**
+     * Until the disk snapshot has been applied, every key a live event or a read-mark has already
+     * touched is remembered here, so the restore never overwrites fresher truth (HG-31).
+     */
+    @Volatile private var seeded = false
+    private val touchedBeforeSeed = ConcurrentHashMap.newKeySet<SessionRuntimeKey>()
+    private val _restoredKeys = MutableStateFlow<Set<SessionRuntimeKey>>(emptySet())
+    /**
+     * Runtimes whose phase came off disk and has not yet been confirmed by live evidence. The
+     * notification coordinator suppresses cards for these: the row may honestly say "waiting", but
+     * this process has not verified that claim, and a high-importance card asserts more than that.
+     */
+    val restoredKeys: StateFlow<Set<SessionRuntimeKey>> = _restoredKeys.asStateFlow()
 
     init {
+        phaseStore?.let { store -> appScope.launch { seedAndPersist(store) } }
         readStore?.let { store ->
             appScope.launch { store.unread.collect { _unreadTokens.value = it } }
             // Serialize disk mutations. Launching one coroutine per mark can let a slower older
@@ -240,6 +270,16 @@ class SessionRuntimeStore(
             var previous: ConnectionState? = null
             chatRepository.connectionState.collect { current ->
                 connected = current is ConnectionState.Connected
+                // Check the claims restored from disk as soon as there is a transport to ask over.
+                // The probe fired right after the seed is usually a no-op — on a cold start the
+                // socket is not up yet — and resumeRunningSessions() below only covers RECONNECTING,
+                // so a restored WAITING_* would otherwise never be reconciled at all. Unlike the
+                // Connected branch further down this fires on the FIRST Connected too, which is
+                // precisely the cold start (HG-31). probe() rate-limits per run, so the overlap
+                // with the seed's own attempt costs nothing.
+                if (connected && _restoredKeys.value.isNotEmpty()) {
+                    probeActiveRuntimes(reason = "cold-start-restore", staleOnly = false)
+                }
                 if (current is ConnectionState.Reconnecting || current is ConnectionState.Error ||
                     current is ConnectionState.Disconnected
                 ) {
@@ -288,6 +328,176 @@ class SessionRuntimeStore(
                 previous = current
             }
         }
+    }
+
+    // ---- HG-31: cross-process run state -------------------------------------------------------
+
+    /**
+     * What of a runtime is worth keeping across process death. Returns null for anything that would
+     * be a lie once restored.
+     *
+     * There is no text in here on purpose: a stream mutates `chat.messages` dozens of times a
+     * second and nothing else, so the projection is unchanged and `distinctUntilChanged` collapses
+     * the whole stream to zero writes. [SessionRuntime.lastEventAt] is the one field that moves
+     * with every event, so it is quantized to the minute — plenty for a 30-minute staleness cap.
+     */
+    private fun SessionRuntime.toPersistedRecord(): SessionPhaseRecord? {
+        // A process killed mid-submit almost certainly never got the prompt out; restoring
+        // "正在发送…" would spin forever because no event will ever resolve it.
+        if (phase == SessionRunPhase.SUBMITTING) return null
+        if (phase == SessionRunPhase.IDLE && chat.pendingClarify == null) return null
+        return SessionPhaseRecord(
+            sessionId = key.sessionId,
+            profile = key.profile,
+            deviceId = key.deviceId,
+            phase = phase.name,
+            phaseBeforeReconnect = phaseBeforeReconnect?.name,
+            occurredAt = occurredAt,
+            lastEventAt = lastEventAt / 60_000L * 60_000L,
+            lastTerminalAt = lastTerminalAt,
+            runStartedAt = runStartedAt,
+            todoDone = todoDone,
+            todoTotal = todoTotal,
+            clarify = chat.pendingClarify?.let { request ->
+                PersistedClarify(
+                    requestId = request.requestId,
+                    questions = request.questions.map {
+                        PersistedQuestion(it.qid, it.question, it.choices, it.multiSelect)
+                    },
+                    lockedAnswers = request.lockedAnswers,
+                )
+            },
+            // The approval card is deliberately absent; see SessionPhaseStore's KDoc.
+        )
+    }
+
+    /**
+     * Whether a stored record may be restored at all.
+     *
+     * Terminal verdicts never expire: they are conclusions waiting to be seen (docs/DESIGN.md §5.2)
+     * and the thing that clears them — `markRead` — is itself persistent. Letting the words expire
+     * while the unread dot they explain does not would recreate the very mismatch HG-31 is about.
+     *
+     * Active phases expire at [ACTIVE_RUN_HARD_CAP_MS], measured from the *stored* lastEventAt. An
+     * expired record is dropped, never marked interrupted: `markUnconfirmed` may write a verdict
+     * because it holds evidence (silent past the cap AND unreachable twice); a cold start holds
+     * none, and inventing a conclusion from a timestamp is exactly what this fix is trying to stop.
+     */
+    private fun SessionPhaseRecord.survives(now: Long, route: String?): Boolean {
+        val restored = runCatching { SessionRunPhase.valueOf(phase) }.getOrNull() ?: return false
+        if (restored.isTerminalVerdict) return true
+        if (!restored.isActive) return clarify != null
+        if (now - lastEventAt > ACTIVE_RUN_HARD_CAP_MS) return false
+        // A running phase is healed by resumeRunningSessions(), which only touches the current
+        // transport route. Off-route it would sit at "正在恢复连接…" forever, since probe() skips
+        // RECONNECTING. A wait is still worth showing off-route — opening it routes to that Mac.
+        val waiting = restored == SessionRunPhase.WAITING_APPROVAL ||
+            restored == SessionRunPhase.WAITING_CLARIFICATION ||
+            restored == SessionRunPhase.WAITING_ATTENTION
+        if (waiting) return true
+        return deviceId == null || route == null || deviceId == route
+    }
+
+    /**
+     * Fold a stored record onto a runtime.
+     *
+     * A phase that means "this process is watching a live stream" (thinking, streaming, using a
+     * tool) is restored as RECONNECTING instead: there is no socket, no handle and nothing
+     * arriving, so saying 「思考中」 would be the same class of lie `normalized()` was built to stop.
+     * RECONNECTING is literally true and already self-heals — the first Connected transition runs
+     * `resumeRunningSessions()`, and `restoredPhaseAfterReconnect()` falls back to exactly the
+     * phase stored here. Streaming is the clearest case: messages are deliberately not persisted,
+     * so restoring STREAMING verbatim would pair 「正在输出…」 with a bubble that never grows.
+     */
+    private fun SessionRuntime.withRestored(record: SessionPhaseRecord): SessionRuntime {
+        val stored = SessionRunPhase.valueOf(record.phase)
+        val watching = stored == SessionRunPhase.THINKING || stored == SessionRunPhase.STREAMING ||
+            stored == SessionRunPhase.USING_TOOL
+        val phase = if (watching) SessionRunPhase.RECONNECTING else stored
+        val held = when {
+            watching -> stored
+            stored == SessionRunPhase.RECONNECTING ->
+                record.phaseBeforeReconnect?.let { runCatching { SessionRunPhase.valueOf(it) }.getOrNull() }
+            else -> null
+        }
+        val clarify = record.clarify?.let { card ->
+            ClarifyRequest(
+                requestId = card.requestId,
+                questions = card.questions.map {
+                    ClarifyQuestion(it.qid, it.question, it.choices, it.multiSelect)
+                },
+                lockedAnswers = card.lockedAnswers,
+            )
+        }
+        return copy(
+            phase = phase,
+            phaseBeforeReconnect = held,
+            chat = chat.copy(pendingClarify = clarify),
+            occurredAt = record.occurredAt,
+            // Restoring the stored value, not now(): renewing the lease on every cold start would
+            // make the staleness cap unreachable and a dead run immortal.
+            lastEventAt = record.lastEventAt,
+            lastTerminalAt = record.lastTerminalAt,
+            runStartedAt = record.runStartedAt,
+            todoDone = record.todoDone,
+            todoTotal = record.todoTotal,
+        )
+    }
+
+    /**
+     * Apply the disk snapshot, then start writing it. Sequential inside one coroutine on purpose:
+     * if the writer ran first it would persist the empty startup map and erase the very file being
+     * restored from.
+     */
+    private suspend fun seedAndPersist(store: SessionPhaseSnapshot) {
+        val records = store.read()
+        val route = accountSessions?.transportRoutingContext()?.deviceId
+        val now = clock()
+        val skipped = touchedBeforeSeed.toSet()
+        var restored = 0
+        records.filter { it.survives(now, route) }.forEach { record ->
+            val key = key(record.sessionId, record.profile, record.deviceId)
+            // A live event that beat the disk read is fresher truth; never overwrite it.
+            if (key in skipped) return@forEach
+            updateRuntime(key, cause = "restore") { it.withRestored(record) }
+            restored++
+        }
+        _restoredKeys.value = records.mapNotNull { record ->
+            val key = key(record.sessionId, record.profile, record.deviceId)
+            key.takeIf { it !in skipped && _runtimes.value.containsKey(it) }
+        }.toSet()
+        seeded = true
+        DebugLog.log("phase", "restored $restored runtime(s) from disk (skipped ${skipped.size} already live)")
+        // Covers the case where the transport is already up by the time the snapshot lands; the
+        // usual cold start is still offline here and answers OFFLINE, which the connection
+        // collector above then retries the moment there is a socket.
+        probeActiveRuntimes(reason = "cold-start-restore", staleOnly = false)
+        _runtimes
+            .map { map -> map.values.mapNotNull { it.toPersistedRecord() } }
+            .distinctUntilChanged()
+            .collect { projection ->
+                store.write(projection)
+                delay(PHASE_PERSIST_MIN_INTERVAL_MS)
+            }
+    }
+
+    /**
+     * Did the answer we just sent actually reach a run that was still waiting for it?
+     *
+     * `approval.respond` returns nothing and the Gateway is a byte tunnel, so the only available
+     * evidence is whether the run is still alive afterwards. `lastTerminalAt < respondedAt` is the
+     * half that stops the false positive: an approval that was accepted and whose command then
+     * finished the whole turn inside the settle window ends with a terminal *after* the answer.
+     */
+    suspend fun confirmInputAccepted(key: SessionRuntimeKey, respondedAt: Long): Boolean {
+        continueAfterInput(key)
+        probe(key, force = true)
+        withTimeoutOrNull(APPROVAL_CONFIRM_SETTLE_MS) {
+            runtimes.map { it[key]?.phase?.isActive }.first { it != true }
+        }
+        val runtime = _runtimes.value[key] ?: return true
+        if (runtime.phase.isActive) return true
+        return runtime.lastTerminalAt >= respondedAt
     }
 
     fun key(sessionId: String, profile: String?, deviceId: String? = null): SessionRuntimeKey =
@@ -574,6 +784,10 @@ class SessionRuntimeStore(
      * the transcript now shows the outcome (docs/DESIGN.md §5.2, decision 2026-09-02).
      */
     fun markRead(key: SessionRuntimeKey) {
+        // Bypasses updateRuntime, so it carries its own pre-seed guard: a verdict the user has
+        // already cleared must not be restored from a snapshot written before they cleared it.
+        if (!seeded) touchedBeforeSeed += key
+        if (key in _restoredKeys.value) _restoredKeys.update { it - key }
         val token = SessionReadStore.token(key.profile, key.sessionId, key.deviceId)
         _unreadTokens.update { it - token }
         _runtimes.update { map ->
@@ -1007,6 +1221,10 @@ class SessionRuntimeStore(
         transform: (SessionRuntime) -> SessionRuntime,
     ) {
         aliases[key.sessionId] = key
+        // Before the disk snapshot lands, remember that this key already carries live knowledge.
+        if (!seeded && cause != "restore") touchedBeforeSeed += key
+        // Any live event about a restored runtime confirms it; it may drive notifications again.
+        if (cause != "restore" && key in _restoredKeys.value) _restoredKeys.update { it - key }
         val before = if (DebugLog.isEnabled()) _runtimes.value[key] else null
         _runtimes.update { map ->
             map + (key to transform(map[key] ?: SessionRuntime(key)).normalized())
@@ -1447,5 +1665,9 @@ class SessionRuntimeStore(
         /** Silent this long AND unreachable twice: the outcome is unconfirmed, the row stops spinning. */
         const val ACTIVE_RUN_HARD_CAP_MS = 30 * 60_000L
         const val PROBE_FAILURES_BEFORE_GIVING_UP = 2
+        /** Tail window that coalesces a burst of phase changes into one whole-file rewrite. */
+        const val PHASE_PERSIST_MIN_INTERVAL_MS = 2_000L
+        /** How long to wait for a run to settle before calling an approval answer undelivered. */
+        const val APPROVAL_CONFIRM_SETTLE_MS = 2_500L
     }
 }

@@ -41,6 +41,8 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 | `cause=event:message.complete` | 完成信号走了实时 socket | 正常路径 |
 | `cause=lifecycle:run.completed` | 完成信号走了 inbox 补投 | socket 没听到时 |
 | `cause=probe:gave-up` / `cause=reconnect` | 兜底探测 / 重连恢复 | 见 §5.4 |
+| `[phase] restored N runtime(s) from disk (skipped M already live)` | 冷启动从磁盘恢复了多少条运行状态，以及多少条被先到的实时事件让位 | 每次冷启动一行 |
+| `cause=restore` | 这个相位来自磁盘快照，不是来自事件 | 只在冷启动；**之后应当紧跟一条 `cause=reconnect` 或 `[session] probe`** |
 | `[lifecycle] run.completed s=<id> late=124s` | inbox 事件比发生时刻晚了多久（手机时钟 − Mac 时钟） | 26% 的完成 >30s |
 | `[history] reconcile s=<id>: N messages, accepted=false` | 对账为何拒绝某次快照 | 阶梯每一档 |
 | `[event] buffered … / replaying N buffered event(s)` | 别名未建立时事件被缓冲、随后重放 | Mac 端发起的运行 |
@@ -61,6 +63,10 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 | `[ws] rpc#N session.create ← ok (…ms)` | 会话确实建出来了。**只有 `session.create` 记回包**，别的方法成功时不记 | 每次新建 |
 | `[lifecycle] app foregrounded` / `app backgrounded` | 前后台切换 | 每次 |
 | `[lifecycle] monitoring mode <MODE>` | 保活策略每次选定的模式 | 每次变化 |
+
+**只有 `cause=restore` 而始终没有后续的 `cause=reconnect` / `[session] probe` 行**，说明恢复出来的状态
+从未被对账过——手机整段时间离线，或该会话的 deviceId 不在当前传输路由上。此时行内显示的是**最后已知**
+状态，不是此刻的真相；判断前先确认这一点（HG-31）。
 
 **握手停滞（HG-19）**：`Connecting` 只有两个出口——收到 `gateway.ready`，或 socket 死掉。曾经有
 第三种情形无人处理：socket 建立了、既不完成握手也不关闭。表现是横幅一直「正在连接 Relay…」、每个
