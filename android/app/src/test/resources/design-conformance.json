@@ -12,7 +12,10 @@
     "note 不参与断言，用来记设计稿与设计系统本身打架的地方。2026-09-11 抽取。",
     "",
     "card.* 段来自 基线-卡片页（screens/e5db8e03 浅 / 72cf9986 暗夜）；2026-09-11 第四次拉取（设计师重出同两张稿）后重取，裁决见锁文件 specChanges。",
-    "稿里没有单一 token 可对的项记在锁文件 notes 里而不在这里：头像色与字母比例（按身份算 / §2.4 全局组件）、遮罩模糊（平台不支持）、图标（§4 为准）、身份卡副行文案（无数据源）。"
+    "稿里没有单一 token 可对的项记在锁文件 notes 里而不在这里：头像色与字母比例（按身份算 / §2.4 全局组件）、遮罩模糊（平台不支持）、图标（§4 为准）、身份卡副行文案（无数据源）。",
+    "",
+    "cron.* 段来自 基线-定时任务列表（screens/2bac8b67 浅 / 13d2943f 暗夜）与 基线-定时任务/任务详情（screens/da21dbac 浅 / 3e59f117 暗夜），2026-09-12 第七次拉取。",
+    "列表的行、分组头与计数 chip 复用 row.* / group.* 档，不在这里重复记；两张稿在那几档上与会话列表冲突，裁决见锁文件 specChanges。"
   ],
   "roles": [
     { "role": "status.running", "ref": "status:RUNNING",
@@ -260,7 +263,47 @@
 
     { "role": "model.star.off", "ref": "tiles:modelStarOff",
       "design": ["#D4D4D4", "#423F3A"], "impl": ["#C9C7C2", "#423F3A"],
-      "reason": "同 model.card.border：冷灰 neutral-300 #D4D4D4 换成等明度暖阶 #C9C7C2（= outlineVariant 浅档）。" }
+      "reason": "同 model.card.border：冷灰 neutral-300 #D4D4D4 换成等明度暖阶 #C9C7C2（= outlineVariant 浅档）。" },
+
+    { "role": "cron.pillar.needsYou", "ref": "warnGraphic:",
+      "design": ["#B91C1C", "#FBBF24"], "impl": ["#D97706", "#F59E0B"],
+      "reason": "浅暗两张稿在这一处互相矛盾：浅色稿把「需要你处理」的立柱与计数 chip 画成红，暗色稿画成琥珀。取仓库既有的琥珀两档（= 会话列表的同名分组）—— 红在本仓已是「运行失败」，而同一行右侧就有一枚红状态点，两个红会互相解释不清。",
+      "note": "立柱与圆点用图形档琥珀，标签与计数 chip 用 status:WARN 的文字档，与 §5.2 同规则。" },
+
+    { "role": "cron.pillar.active", "ref": "scheme:outline",
+      "design": ["#605C54", "#8D897E"], "impl": ["#777268", "#8D897E"],
+      "reason": "走 token 而非字面量（§2.1）。稿子的浅档 #605C54 是 secondary 的值；同为中性描边层级，深色完全一致。" },
+
+    { "role": "cron.pillar.paused", "ref": "scheme:outlineVariant",
+      "design": ["#8D897E", "#777268"], "impl": ["#C9C7C2", "#423F3A"],
+      "reason": "已暂停是三组里最弱的一档，走 outlineVariant。稿子把它画得比「已启用」更深（浅色 #8D897E 深于 #605C54 的反面），本仓按层级由强到弱排：outline → outlineVariant。" },
+
+    { "role": "cron.action.container", "ref": "tiles:cronAction",
+      "design": ["#181C24", "#1E232B"], "impl": ["#181C24", "#1E232B"],
+      "reason": "",
+      "note": "「立即运行」。浅档与 fab.container 同值但单列成 token（§2.7 第 1 条的同一条理由）：两者语义无关，动一个不该拖着另一个 —— 暗档就是它们分岔的地方。" },
+
+    { "role": "cron.card", "ref": "tiles:cronCard",
+      "design": ["#FFFFFF", "#161A22"], "impl": ["#FFFFFF", "#161A22"],
+      "reason": "" },
+
+    { "role": "cron.card.border", "ref": "tiles:cronCardBorder",
+      "design": ["#E9E8E4", "#262C35"], "impl": ["#E9E8E4", "#262C35"],
+      "reason": "",
+      "note": "稿子的暗档是 rgba(255,255,255,0.05)。§2.1 要求成对的不透明字面量才能被钉住，这是那个 alpha 压在卡色上的结果，也正是卡片页 card.tile.border 的暗档值。" },
+
+    { "role": "cron.card.header", "ref": "tiles:cronCardHeader",
+      "design": ["#FCFBF8", "#13171E"], "impl": ["#FCFBF8", "#13171E"],
+      "reason": "" },
+
+    { "role": "cron.inset", "ref": "tiles:cronInset",
+      "design": ["#FAF9F5", "#0A0D11"], "impl": ["#FAF9F5", "#0A0D11"],
+      "reason": "",
+      "note": "提示词块与展开后的诊断块。浅档等于纸面本身，暗档等于 surfaceContainerLowest —— 稿子两边都是「比卡再退一步」。" },
+
+    { "role": "cron.field.label.ink", "ref": "scheme:onSurfaceVariant",
+      "design": ["#9A9C98", "#A8A49C"], "impl": ["#494641", "#A8A49C"],
+      "reason": "走 token（§2.1）。深色与稿完全一致；浅色稿的第三档灰 #9A9C98 在卡上只有 2.8:1，本仓已有的次级文字角色就是 onSurfaceVariant，不为一页新增第三档中性灰。" }
   ],
 
   "type": [
@@ -429,7 +472,55 @@
     { "role": "model.quick.chip.provider", "ref": "type:ModelQuickChipProvider",
       "design": ["10", "400", "15", "0"], "impl": ["10", "400", "15", "0"],
       "reason": "",
-      "note": "chip 里跟在模型名后的提供商小字，也用于「正在切换至 X」那一行。" }
+      "note": "chip 里跟在模型名后的提供商小字，也用于「正在切换至 X」那一行。" },
+
+    { "role": "cron.topbar.title", "ref": "type:CronTopBarTitle",
+      "design": ["19", "600", "27.55", "-0.19"], "impl": ["19", "600", "27.55", "-0.19"],
+      "reason": "",
+      "note": "定时任务列表的顶栏标题。自己的一档而不是 titleLarge（20sp）—— 稿子只为这一屏说话，同 §5.2 的 SessionsTopBarTitle。行高倍数是页面的 1.45，不是行文本列的 1.35。" },
+
+    { "role": "cron.topbar.subtitle", "ref": "type:CronTopBarSubtitle",
+      "design": ["11", "500", "15.95", "0"], "impl": ["11", "500", "15.95", "0"],
+      "reason": "",
+      "note": "「当前身份 · default」。改这一档前它借 labelMedium 并且是品牌蓝 —— 一个 chrome 强调色在做说明文字的活。" },
+
+    { "role": "cron.detail.topbar.title", "ref": "type:CronDetailTopBarTitle",
+      "design": ["15", "600", "21.75", "-0.15"], "impl": ["15", "600", "21.75", "-0.15"],
+      "reason": "",
+      "note": "详情页的居中标题，比列表的 19 小一档：稿子给被推入的那一屏一条更安静的栏。" },
+
+    { "role": "cron.field.label", "ref": "type:CronFieldLabel",
+      "design": ["12", "400", "17.4", "0"], "impl": ["12", "400", "17.4", "0"],
+      "reason": "" },
+
+    { "role": "cron.field.value", "ref": "type:CronFieldValue",
+      "design": ["13", "500", "18.85", "-0.13"], "impl": ["13", "500", "18.85", "-0.13"],
+      "reason": "" },
+
+    { "role": "cron.schedule.value", "ref": "type:CronScheduleValue",
+      "design": ["14", "500", "20.3", "0"], "impl": ["14", "500", "20.3", "0"],
+      "reason": "",
+      "note": "「每天 18:15」，状态卡的主值。同一档也用在「立即运行」的按钮文字上（稿子两处都是 text-sm font-medium）。" },
+
+    { "role": "cron.pill", "ref": "type:CronPill",
+      "design": ["12", "500", "17.4", "0"], "impl": ["12", "500", "17.4", "0"],
+      "reason": "",
+      "note": "状态药丸与结果药丸；次级按钮文字与运行时间也共用这一档。" },
+
+    { "role": "cron.section.title", "ref": "type:CronSectionTitle",
+      "design": ["14", "600", "20.3", "0"], "impl": ["14", "600", "20.3", "0"],
+      "reason": "",
+      "note": "「运行历史」与提示词卡的头。与会话列表的 group.header（11sp 等宽大写）不是一档 —— 那是可折叠分组头，这是页内小标题。" },
+
+    { "role": "cron.prompt.body", "ref": "type:CronPromptBody",
+      "design": ["13", "400", "21.125", "0"], "impl": ["13", "400", "21.125", "0"],
+      "reason": "",
+      "note": "行高倍数是稿子的 leading-relaxed（1.625），不是页面的 1.45 —— 提示词是整块文字，稿子单独把它放松了。等宽走已打包的 JetBrains Mono（§3.1）。" },
+
+    { "role": "cron.run.meta", "ref": "type:CronRunMeta",
+      "design": ["11", "400", "15.95", "0"], "impl": ["11", "400", "15.95", "0"],
+      "reason": "",
+      "note": "一次运行的结果行。稿子在这里印的是等宽的原始 cron_complete，本仓印本地化结果 + 耗时，所以这一档不是等宽（裁决见锁文件）。" }
 
   ]
 }

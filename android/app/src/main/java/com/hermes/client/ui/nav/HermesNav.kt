@@ -511,6 +511,7 @@ fun HermesNav(
                     onMenu = back,
                     onOpen = { id -> nav.navigate("cron_detail/$id") },
                     onNew = { seed -> nav.navigate("cron_edit/$seed") },
+                    onEdit = { id -> nav.navigate("cron_edit/$id") },
                 )
             }
             composable("cron_detail/{id}") { entry ->

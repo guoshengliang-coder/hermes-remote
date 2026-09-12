@@ -10,10 +10,15 @@
   "project": {
     "id": "8017882098155799612",
     "title": "Hermes GO",
-    "updateTimeAtPull": "2026-09-11T15:53:04.972204Z"
+    "updateTimeAtPull": "2026-09-12T06:16:30.425317Z"
   },
   "pulledAt": "2026-09-12",
   "pullHistory": [
+    {
+      "at": "2026-09-12 (第七次)",
+      "projectUpdateTime": "2026-09-12T06:16:30.425317Z",
+      "result": "定时任务 4 张入库（新页面，词表新增「定时任务」）；另有 6 张新标签未拉取，见 notCovered"
+    },
     {
       "at": "2026-09-11 (第一次)",
       "projectUpdateTime": "2026-09-10T14:49:48.040372Z",
@@ -356,6 +361,188 @@
         ],
         "change": "行内三档行高一律 leading-[1.35]",
         "decision": "已落地，但中文行做不到严格相等。实测 411dp/420dpi：纯拉丁行 49.52dp，命中稿子的 49.10；每有一行中文 +1.52dp（中文标题 51.05、中文标题加中文项目名 52.57）。1.35 是按拉丁字形推的，中文回退字体在这个字号下需要的 ascent+descent 超过 字号×1.35，那一行的行框就长到字体要求的高度 —— 除非裁字形否则消不掉。对照：这条差 1.5dp，落地前 A-05 的同类问题是 16dp。由 SessionRowTuningTest 在 @GraphicsMode(NATIVE) 下钉住。有意偏离。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "每个分组的任务行装进一张白卡容器，行与行之间画发丝分隔线",
+        "decision": "不采纳。§2.1「列表行直接坐在 surface 上，不再有白卡」与 §5.2「无行间分隔线（搜索页除外）」为准。这是稿与稿的冲突 —— 会话列表的基线稿说不要白卡，这张说要，两张都是基线。裁决理由：四张列表必须只有一种行语言，用户在同一个 App 里读到两套列表语法比任何一套单独看更差。产品裁决 2026-09-12。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "行标题 15px/500、副行 12.5px；行内边距 px-4 py-3.5，行高约 72px",
+        "decision": "几何取仓库。行改为自绘 Row 并复用 SessionRowTitle(14.5/600) / SessionRowSubline(11.5 等宽)，竖向内边距随会话行的 6dp，两行行约 49dp。稿子的 15/12.5px 是第六次拉取密度收紧之前的刻度，跟它等于把会话列表刚做完的密度改动在这一页退回去。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "8dp 状态点画在任务名之前；副行与状态点左对齐，标题因此相对副行缩进",
+        "decision": "采纳并已落地。§5.16 的行文法图（2026-09-07 记的是「名称 状态点」）随之改成「状态点 名称」。浅暗两版在这一处一致。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "「需要你处理」的分组立柱、标签与计数 chip 在浅色稿里是红，在暗色稿里是琥珀",
+        "decision": "取琥珀（warnGraphicColor() 立柱 / statusColor(WARN) 标签与 chip，与会话列表同名分组一致）。浅色稿的红不采纳：红在本仓已经是「运行失败」，而同一行右边就有一枚红状态点，两个红互相解释不清。这也是浅暗两张稿自相矛盾的一处，不属于「几何以浅色为准」的范畴。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "分组头 13.5px 半粗深墨（暗色稿 12px）",
+        "decision": "取仓库的 SessionGroupHeader（11sp 等宽大写 + 3×12dp 立柱 + 计数 chip + 17dp 折叠箭头）。改之前 cron 的组头是 labelMedium 的品牌蓝裸文字，两边都不对；统一到 §5.2 的组头，SectionHeader 因此从 ui/sessions 移到 ui/components。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "告警条为左右内缩 16dp、圆角 12dp 的玫瑰色卡，带三角警示图标与「查看 ›」",
+        "decision": "采纳并已落地。稿子的取值（#FFF1F2/#9F1239，暗 #2A1B1D/#FCA5A5）与 Tiles.kt 的 incidentContainerColor()/onIncidentColor() 完全一致。此前 cron 画的是通栏直角 errorContainer 色带。首页与本页现在共用 ui/components/IncidentStrip.kt。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "告警条第二行「钉钉连接健康检测 · 错误代码 ECONNREFUSED」",
+        "decision": "不采纳。稿里的示意文案不是文案（§7 第 8 条）：用户可见字符串来自错误码目录与 i18n，原始传输 token 不能当主文案。告警条只说数量。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "顶栏右侧一个 ⋮ 溢出菜单",
+        "decision": "不采纳。菜单里放什么没有来源，照抄等于凭空造 UI（§7 第 8 条）。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "顶栏副行「当前身份 · default」，前置一枚中性圆点，11px/500",
+        "decision": "采纳并已落地（CronTopBarSubtitle + onSurfaceVariant）。此前是 labelMedium 的品牌蓝「身份：X」—— 一个 chrome 强调色在做说明文字的活。顶栏标题同时取稿子的 19px（CronTopBarTitle）。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "FAB 是 56dp 圆形近黑加号；暗色稿填充 #1E232B + #3A4049 描边",
+        "decision": "形态采纳（此前是品牌蓝 ExtendedFloatingActionButton）。暗档取值取仓库的 #181C24 —— 浅暗统一由 FabColorTest 钉死（§2.7 第 1 条，2026-09-11 已裁）。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "副行的「上次失败 13:22」是一枚红底小 chip",
+        "decision": "chip 底不采纳（副行由 cronSublineText 一个纯函数生成并由测试钉住，加底会把文法拆散），但采纳「只有结果那一段带色」：拆出 cronSublineBase / cronSublineOutcome 两个纯函数，测试钉住它们拼回原串。此前整行同色 —— 涂红整行等于说节奏与投递落点也是失败。稿子副行带的时间「13:22」没有跟：那是列表里的下次/上次精确时间，§5.16 把它留给详情页。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "已暂停的整组卡 opacity-80，标题降色",
+        "decision": "只把暂停行的标题降到 onSurfaceVariant。整组降透明度会把状态点和溢出菜单一起压暗，而那两个恰恰是暂停行上还需要能读、能点的东西。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "列表底部留 pb-28 给 FAB",
+        "decision": "不补，与会话列表同例（产品裁决 2026-09-12 已把「不留空位」确认为规范）。代价照旧写明：滚到底时 FAB 会盖住最后一行。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "cron.detail.default.light",
+          "cron.detail.default.dark"
+        ],
+        "change": "顶栏居中两行：任务名 15px + 副行「钉钉 AI Card + HTML」，右侧刷新与 ⋮",
+        "decision": "居中标题与刷新采纳（CronDetailTopBarTitle，HermesTopBar 新增 titleStyle 参数）。副行不采纳 —— 那串字既不是 model 也不是 deliver，没有数据源。⋮ 不采纳：暂停/运行/编辑/删除四个动作都已在操作区里，菜单会开到空处。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.detail.default.light",
+          "cron.detail.default.dark"
+        ],
+        "change": "状态卡：白卡 + 图标胶囊「计划节奏」+ 状态药丸 + 两列网格（下次运行 / 投递落点）+ 虚线分隔 + 上次运行与结果药丸",
+        "decision": "采纳并已落地，取值进 Tiles.kt 的 Cron* 段。与列表那条「不要白卡」不矛盾：列表的行不要卡，详情的内容块本来就是 §2.3 的淡卡。同时去掉了旧实现里 96dp 的固定标签列 —— 英文文案与 fontScale 1.3 下它会裁字。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.detail.default.light",
+          "cron.detail.default.dark"
+        ],
+        "change": "操作区三层：全宽近黑「立即运行」/ 二等分描边「暂停任务」「编辑配置」/ 居中红字「删除此定时任务」",
+        "decision": "采纳并已落地。近黑按钮单列成 token cronActionColor()（浅 #181C24 / 暗 #1E232B + #3A4049 描边）而不是借 fabContainerColor()：§2.7 第 1 条要求语义无关的两处同值也各列各的，暗档正是它们分岔的地方。此前是一行四个按钮、两个填充 primary 互相抢、删除还不是错误色。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.detail.default.light",
+          "cron.detail.default.dark"
+        ],
+        "change": "提示词卡：头（文档图标 + 标题 + 复制）/ 等宽正文 line-clamp-6 / 「展开全部提示词」",
+        "decision": "采纳并已落地。等宽走已打包的 JetBrains Mono。行数照稿取 6（需求文档原写「最多 8 行」，已同步改）。头部图标改手绘描边并走 primary，不硬编码稿子的 #2563EB。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.detail.default.light",
+          "cron.detail.default.dark"
+        ],
+        "change": "运行历史每项：时间 + 运行编号 #9041 + 状态点 + 等宽 cron_complete + 耗时 + 「日志 ›」；段头右侧「自动保留最近 30 天」，列表底「查看更早记录」",
+        "decision": "只做数据支持得起的部分。耗时采纳 —— CronRunDto 有 started_at / ended_at 两个时间戳，cronRunDuration 是它们的算术（未结束或倒挂返回 null）。运行编号、日志入口、保留说明、「查看更早记录」四样在 DTO 里都没有字段，不做（§7 第 8 条：不得凭空造 UI）。原始 cron_complete 当主文案也不采纳：该 token 已进 cronStatusText 的映射表，显示「成功」。产品裁决 2026-09-12。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark",
+          "cron.detail.default.light",
+          "cron.detail.default.dark"
+        ],
+        "change": "时间写成「9月 12日 18:15」",
+        "decision": "采纳并已落地（ui/cron/CronTime.kt）。旧的 ui/util/Time.kt formatIso/formatEpoch 用 Locale.getDefault() 造格式，即手机语言而非 App 语言，于是中文界面装在英文手机上印「Sep 12, 18:15」。那两个函数的调用方只有定时任务三屏，已随本轮删除。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.detail.default.light",
+          "cron.detail.default.dark"
+        ],
+        "change": "稿子画的是健康任务，没有「最近一次错误」块",
+        "decision": "保留项，不得为了和稿一样删掉（同 §5.2 不覆盖清单）。顺带把硬编码的 HR-RPC-001 换成新登记的 HR-CRON-002 —— 传输码对「任务自己跑挂了」什么也没说，而 HR-CRON-001 只覆盖「跑成功但没送达」。",
         "status": "landed"
       }
     ]
@@ -789,6 +976,150 @@
       "notes": [
         "暗色只取颜色，几何以浅色稿为准，差异见 pairs 与浅色记录的 notes。"
       ]
+    },
+    {
+      "key": "cron.list.default.light",
+      "screenId": "2bac8b6716324645a832215b72182ae2",
+      "stitchLabel": "基线-定时任务列表",
+      "stitchTitle": "Hermes 定时任务列表 - 暖纸规范重构版",
+      "page": "cron",
+      "view": "list",
+      "state": "default",
+      "overlay": null,
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.18 定时任务（行文法见 §5.16）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronScreen.kt",
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronSections.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/SectionHeader.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/IncidentStrip.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（cron.* 的 design 列从本稿抽取）",
+      "html": "cron.list.default.light.html",
+      "sha256": "96ceb15d3e38986afe72f4f4697fdda97d444a9bf4cf01396c130504cdf6519a",
+      "canvasHeightCssPx": 985,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "失败（需要你处理）",
+        "正常（已启用）",
+        "已暂停",
+        "只存不发",
+        "投递到来源聊天"
+      ],
+      "notes": [
+        "几何基准稿：暗色版是另起 DOM 重画的，两版差异见 pairs。",
+        "稿子把每组任务装进白卡容器并在行间画分隔线 —— 不采纳，见 specChanges（与 §2.1 / §5.2 冲突）。",
+        "稿子把「需要你处理」的立柱与计数 chip 画成红 —— 不采纳，取琥珀，见 specChanges。",
+        "顶栏右侧的 ⋮ 与告警条第二行的 ECONNREFUSED 都没有数据源/文案来源，不实现（§7 第 8 条）。",
+        "空态 / 加载 / 错误三态稿子没画，是保留项（同 §5.2 不覆盖清单）。"
+      ]
+    },
+    {
+      "key": "cron.list.default.dark",
+      "screenId": "13d2943f3c78494797930f10dacbb306",
+      "stitchLabel": "基线-定时任务列表/暗夜",
+      "stitchTitle": "Hermes 定时任务列表 - 黑曜石暗夜版",
+      "page": "cron",
+      "view": "list",
+      "state": "default",
+      "overlay": null,
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.18、§2.1、§2.7",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronScreen.kt",
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronSections.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/SectionHeader.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/IncidentStrip.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（cron.* 的 design 列从本稿抽取）",
+      "html": "cron.list.default.dark.html",
+      "sha256": "819155996e2441e7f22fcc28c5c3c7b56b0cdf5a5c1842c2c019f358c21baf3f",
+      "canvasHeightCssPx": 1024,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "失败（需要你处理）",
+        "正常（已启用）",
+        "已暂停",
+        "只存不发",
+        "投递到来源聊天"
+      ],
+      "notes": [
+        "暗色只取颜色，几何以浅色稿为准（pairs 记了差异，这一对差得比以往任何一对都多）。",
+        "「需要你处理」在这一版是琥珀，与仓库一致；浅色版的红与它自相矛盾，裁决取本版的色。",
+        "状态点的 shadow-[0_0_8px] 辉光不实现：本仓的状态点从不发光，一处例外会变成第二套语言。",
+        "FAB 在这一版是 #1E232B；仓库浅暗两档统一 #181C24（FabColorTest 钉死），不跟。"
+      ]
+    },
+    {
+      "key": "cron.detail.default.light",
+      "screenId": "da21dbac24074313a0fb8306e2ae7850",
+      "stitchLabel": "基线-定时任务/任务详情",
+      "stitchTitle": "Hermes 定时任务详情 - 暖纸规范重构版",
+      "page": "cron",
+      "view": "detail",
+      "state": "default",
+      "overlay": null,
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.18 定时任务",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronDetailScreen.kt",
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronRuns.kt",
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronTime.kt",
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronStatusText.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（cron.* 的 design 列从本稿抽取）",
+      "html": "cron.detail.default.light.html",
+      "sha256": "aff12da32bed97459fb4aec4978c1ccf318e4e5cbf3bf5f194d05ec1ec41e195",
+      "canvasHeightCssPx": 1074,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "几何基准稿。与暗夜版同构，见 pairs。",
+        "顶栏副行「钉钉 AI Card + HTML」无数据源，不实现；顶栏 ⋮ 同理（四个动作都在操作区里）。",
+        "运行历史的 #9041 运行编号、每项「日志 ›」、「自动保留最近 30 天」、「查看更早记录」四样在 CronRunDto 里都没有字段，不实现；耗时可由 started_at / ended_at 算出，实现。",
+        "稿子把原始 cron_complete 当主文案印出来 —— 不采纳，走 cronStatusText 的本地化表。",
+        "「最近一次错误」块稿子没画（画的是健康任务），是保留项。"
+      ]
+    },
+    {
+      "key": "cron.detail.default.dark",
+      "screenId": "3e59f11799174046891e23853dfbaabb",
+      "stitchLabel": "线-定时任务/任务详情/暗夜",
+      "stitchTitle": "Hermes 定时任务详情 - 黑曜石暗夜版",
+      "page": "cron",
+      "view": "detail",
+      "state": "default",
+      "overlay": null,
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.18、§2.1、§2.3",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronDetailScreen.kt",
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronRuns.kt",
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronTime.kt",
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronStatusText.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（cron.* 的 design 列从本稿抽取）",
+      "html": "cron.detail.default.dark.html",
+      "sha256": "57b1a96b983be4d1071916dac4d8413f0064632dd7766cf5bac9f99e83673a9d",
+      "canvasHeightCssPx": 1101,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "标签在 Stitch 里少了一个「基」字：写的是「线-定时任务/任务详情/暗夜」而不是「基线-定时任务/任务详情/暗夜」。按 §7 第 8 条严格解析它不是基线前缀，这里按明显笔误入库（其余三张同批、同风格、同版本）。改标签只能在 Stitch 网页里做，代理对 Stitch 只读 —— 请产品负责人补上那个字，下次拉取前改掉。",
+        "干净的颜色派生：105 个元素剥掉颜色后只有 2 处几何差，见 pairs。",
+        "「立即运行」在暗档是 #1E232B + #3A4049 描边（浅档 #181C24）—— 这是 cronActionColor() 与 fabContainerColor() 分岔的地方，也是它单列成 token 的理由（§2.7 第 1 条）。",
+        "卡的描边稿子写 rgba(255,255,255,0.05)；§2.1 要成对的不透明字面量，取压平后的 #262C35。"
+      ]
     }
   ],
   "pairs": [
@@ -799,7 +1130,7 @@
         "（第二次拉取后）行标题两版一致：15.5px，「需要你处理」两行 600、其余 500 —— 浅色用内联 style、暗色用类名，表达不同但值相同；是否采纳见 specChanges",
         "FAB：浅 52dp + Material 加号 24px / 暗 56dp + 描边 SVG 加号 28dp —— 暗色版与 §5.2 定案一致，浅色稿未同步改；实现以定案为准",
         "（第一次拉取时）行标题曾是浅 600 / 暗 500 整列不一致，第二次已由稿子自行收敛",
-      "（第六次拉取）暗色稿只跟进了一半的密度收紧：行 py-1.5 与 leading-1.35 跟上了，但顶栏仍是 h-14、头像 w-9、图标 21px，标题 15px（浅色 14.5）、副行 12px（浅色 11.5）、底部 pb-28（浅色 pb-20）。几何以浅色稿为准，实现全部按浅色落地"
+        "（第六次拉取）暗色稿只跟进了一半的密度收紧：行 py-1.5 与 leading-1.35 跟上了，但顶栏仍是 h-14、头像 w-9、图标 21px，标题 15px（浅色 14.5）、副行 12px（浅色 11.5）、底部 pb-28（浅色 pb-20）。几何以浅色稿为准，实现全部按浅色落地"
       ]
     },
     {
@@ -850,8 +1181,24 @@
       ],
       "geometry": "同构。174 个元素剥掉颜色类后逐一比对，只有 3 处差异，全是暗色额外加了一条 1px 描边：32dp ✕ 按钮、「切换中…」徽标、状态栏 5G 标（后者是屏幕模拟，不实现）。",
       "decision": "几何取浅色稿；两处要实现的暗色描边照做 —— 与卡片页「暗色用描边替代阴影」同一裁决。"
+    },
+    {
+      "screens": [
+        "cron.list.default.light",
+        "cron.list.default.dark"
+      ],
+      "geometry": "不同构，差得比库里任何一对都多：111 / 108 个元素剥掉颜色类后几乎逐行不同 —— 暗色版是另起一份 DOM 重画的，不是浅色版改色。行标题 14.5px vs 浅色 15px；组头 12px vs 13.5px；行内边距 p-4 vs px-4 py-3.5；状态点顶对齐（mt-1.5）vs 垂直居中；页面容器 max-w-md + justify-center vs max-w-xl mx-auto；底部留白 pb-24 vs pb-28；状态点在暗色版带 8px 辉光。",
+      "decision": "几何一律按浅色稿（§7 第 8 条）。暗色只取颜色 —— 而颜色上恰恰是暗色稿对：「需要你处理」的琥珀取本版，浅色稿的红不采纳。辉光与 #1E232B 的 FAB 两处不跟，理由见各自 notes。"
+    },
+    {
+      "screens": [
+        "cron.detail.default.light",
+        "cron.detail.default.dark"
+      ],
+      "geometry": "同构。105 个元素剥掉颜色类后只有 2 处差异：「上次运行」那一行的上内边距 pt-1 → pt-2，「复制」按钮的左右内边距 px-2 → px-2.5。",
+      "decision": "几何取浅色稿；两处差异都在 1–2px 量级，不单独记为偏离。"
     }
   ],
   "candidates": [],
-  "notCovered": "见 docs/DESIGN.md §5.2「Stitch 不覆盖清单」"
+  "notCovered": "见 docs/DESIGN.md §5.2「Stitch 不覆盖清单」与 §5.18 第 12 条。另：第七次拉取时项目里还有 6 张已打基线标签但本轮未入库的屏 —— 基线-会话列表页/长按下拉菜单（含暗夜）、基线-聊天页/我的提问（含暗夜）、基线-聊天页/滑动引导胶囊（含暗夜），以及被改名为「基线-卡片页/主题设置」的主题弹层（锁文件里仍记作 theme-sheet）。本轮只裁定时任务，这几张等各自的拉取。"
 }

@@ -3,6 +3,7 @@ package com.hermes.client.ui.cron
 import com.hermes.client.data.network.CronJobDto
 import com.hermes.client.ui.localization.AppLanguage
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -82,5 +83,29 @@ class CronSectionsTest {
     @Test fun an_absent_schedule_does_not_leave_a_dangling_separator() {
         assertEquals("只存不发  ·  已暂停", cronSublineText("—", null, CronRowStatus.PAUSED, AppLanguage.ZH))
         assertEquals("只存不发", cronSublineText("", null, CronRowStatus.OK, AppLanguage.ZH))
+    }
+
+    @Test fun the_two_halves_of_the_subline_rebuild_the_whole_line() {
+        // The row paints the base and the outcome in different colours, so it reads them through
+        // the two halves rather than the whole string. If they ever stop composing back into
+        // cronSublineText, the row and the pinned grammar have silently parted ways.
+        for (status in CronRowStatus.entries) {
+            for (deliver in listOf(null, "local", "origin", "dingtalk")) {
+                for (language in AppLanguage.entries) {
+                    val whole = cronSublineText("0 8 * * *", deliver, status, language)
+                    val rebuilt = listOfNotNull(
+                        cronSublineBase("0 8 * * *", deliver, language),
+                        cronSublineOutcome(status, language),
+                    ).joinToString(CRON_SUBLINE_SEPARATOR)
+                    assertEquals(whole, rebuilt)
+                }
+            }
+        }
+    }
+
+    @Test fun only_a_healthy_row_has_no_outcome_half() {
+        assertNull(cronSublineOutcome(CronRowStatus.OK, AppLanguage.ZH))
+        assertEquals("上次失败", cronSublineOutcome(CronRowStatus.FAILED, AppLanguage.ZH))
+        assertEquals("overdue", cronSublineOutcome(CronRowStatus.OVERDUE, AppLanguage.EN))
     }
 }

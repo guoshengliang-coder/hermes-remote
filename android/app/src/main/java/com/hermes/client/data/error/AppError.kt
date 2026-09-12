@@ -64,6 +64,10 @@ enum class AppErrorCode(val value: String) {
     FEEDBACK_REJECTED("HR-FEEDBACK-003"),
     FEEDBACK_RATE_LIMITED("HR-FEEDBACK-004"),
     CRON_DELIVERY_FAILED("HR-CRON-001"),
+    // The job itself failed, so the fix is the job — as opposed to HR-CRON-001, where the run
+    // succeeded and only its delivery did not. The detail screen used to label this case
+    // HR-RPC-001, a transport code that says nothing about a schedule.
+    CRON_RUN_FAILED("HR-CRON-002"),
     MESSAGING_LIST_FAILED("HR-MSG-001"),
     MESSAGING_SAVE_FAILED("HR-MSG-002"),
     MESSAGING_PROFILE_CONFLICT("HR-MSG-003"),

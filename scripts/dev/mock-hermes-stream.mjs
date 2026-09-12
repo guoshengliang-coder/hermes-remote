@@ -103,9 +103,74 @@ const server = createServer(async (request, response) => {
       })),
     });
   }
-  if (p === "/api/cron/jobs") return json(response, { jobs: [] });
+  // Scheduled jobs. A fixture rather than an empty list so the cron screens can actually be
+  // looked at on a device (docs/DESIGN.md §5.18): one failed job, six healthy, one paused —
+  // every row state the list draws, and the group split that goes with them.
+  // A bare array, and a bare array for the runs too: that is what the client parses
+  // (HermesRestApi.cronJobs / cronRuns). The old `{ jobs: [] }` never parsed — nothing had
+  // ever looked at this screen against the mock.
+  if (p === "/api/cron/jobs") return json(response, CRON_JOBS);
+  if (p.startsWith("/api/cron/jobs/") && p.endsWith("/runs")) {
+    const id = p.slice("/api/cron/jobs/".length, -"/runs".length);
+    return json(response, { runs: CRON_RUNS[id] ?? [] });
+  }
+  if (p.startsWith("/api/cron/jobs/")) {
+    const id = p.slice("/api/cron/jobs/".length);
+    const job = CRON_JOBS.find((j) => j.id === id);
+    return job ? json(response, job) : json(response, { error: "not_found" }, 404);
+  }
+  if (p === "/api/cron/delivery-targets") {
+    return json(response, { targets: [{ id: "dingtalk", name: "钉钉", home_target_set: true }] });
+  }
   json(response, { error: "not_found" }, 404);
 });
+
+// ---- scheduled jobs (see the /api/cron routes above) -----------------------
+const CRON_NOW = Date.now();
+const cronIso = (offsetMs) => new Date(CRON_NOW + offsetMs).toISOString();
+const cronJob = (id, name, display, extra = {}) => ({
+  id,
+  name,
+  schedule_display: display,
+  enabled: true,
+  next_run_at: cronIso(3 * 3600_000),
+  last_run_at: cronIso(-21 * 3600_000),
+  last_status: "ok",
+  deliver: "local",
+  profile: "default",
+  ...extra,
+});
+const CRON_JOBS = [
+  cronJob("j1", "钉钉连接健康检测（自动重连）", "每 2 分钟", {
+    deliver: "origin",
+    last_status: "error",
+    last_error: "connect ECONNREFUSED 127.0.0.1:7001",
+    last_run_at: cronIso(-9 * 60_000),
+  }),
+  cronJob("j2", "小迈公司经营日报 | 钉钉 AI Card", "每天 18:15", {
+    prompt:
+      "你是小迈网络科技有限公司 CEO 的经营日报生产任务。严格顺序：日期与幂等 → BI 查询/稳定分页 → " +
+      "源明细对账 → 报告范围过滤 → 数据完整性门禁（含国内+海外） → 经营分析 → 同轮 JSON → 同轮 HTML → " +
+      "验收 → 钉钉上传 → 钉钉 AI Card 发送。所有 Python 脚本运行一律使用 terminal 工具，禁止使用 execute_code。",
+  }),
+  cronJob("j3", "芯芯 | 每日钉钉行程与待办 AI Card", "每天 08:00", { deliver: "origin" }),
+  cronJob("j4", "芯芯 | 每日钉钉邮箱总结 AI Card", "每天 08:00"),
+  cronJob("j5", "芯芯 | 钉钉日志每日检测与周报汇总", "每天 08:00"),
+  cronJob("j6", "小迈公司市场推广日报 | 钉钉 AI Card", "每天 18:15"),
+  cronJob("j7", "周深长沙站开票监控", "每 30 分钟"),
+  cronJob("j8", "网关重启丢失消息监控", "每 2 分钟", {
+    paused_at: cronIso(-2 * 86_400_000),
+    last_status: null,
+  }),
+];
+const CRON_RUNS = {
+  j2: [0, 1, 2, 3].map((i) => ({
+    id: `r${i}`,
+    started_at: (CRON_NOW - (i + 1) * 86_400_000) / 1000,
+    ended_at: (CRON_NOW - (i + 1) * 86_400_000 + (38 + i * 3) * 1000) / 1000,
+    end_reason: "cron_complete",
+  })),
+};
 
 // ---- the streamed "agent run" ---------------------------------------------
 const PROSE_A = `好的，我来分析这个部署问题。先检查服务器上的 nginx 配置和证书链，然后逐一验证每个 upstream 的健康状态。

@@ -1,23 +1,12 @@
 package com.hermes.client.ui.util
 
-import java.text.SimpleDateFormat
 import java.time.OffsetDateTime
-import java.time.format.DateTimeFormatter
-import java.util.Date
-import java.util.Locale
 
-private val fmt = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault())
-private val isoOut = DateTimeFormatter.ofPattern("MMM d, HH:mm", Locale.getDefault())
-
-/** Format an epoch-seconds timestamp as "Jun 19, 09:00", or "—" when null. */
-fun formatEpoch(seconds: Double?): String =
-    seconds?.let { fmt.format(Date((it * 1000).toLong())) } ?: "—"
-
-/** Format an ISO-8601 timestamp ("2026-06-20T09:00:00-05:00") as "Jun 20, 09:00", or "—". */
-fun formatIso(iso: String?): String =
-    iso?.takeIf { it.isNotBlank() }?.let {
-        runCatching { OffsetDateTime.parse(it).format(isoOut) }.getOrDefault(it)
-    } ?: "—"
+// `formatEpoch` / `formatIso` lived here until 2026-09-12. They built their pattern from
+// `Locale.getDefault()` — the PHONE's locale — while the app's language is its own setting, so a
+// Chinese UI on an English phone printed "Sep 12, 18:15". Their only callers were the cron screens,
+// which now use `ui/cron/CronTime.kt`. Anything new that needs a wall-clock stamp should take
+// `AppLanguage` the same way.
 
 /** Parse an ISO-8601 timestamp to epoch millis, or null if absent/unparseable. */
 fun isoToEpochMs(iso: String?): Long? =

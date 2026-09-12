@@ -141,6 +141,12 @@ class DesignConformanceTest {
                 "modelSwitchChip" -> if (dark) ModelSwitchChipDark else ModelSwitchChipLight
                 "modelStar" -> if (dark) ModelStarDark else ModelStarLight
                 "modelStarOff" -> if (dark) ModelStarOffDark else ModelStarOffLight
+                // 定时任务 (docs/DESIGN.md §5.18 定时任务).
+                "cronAction" -> if (dark) CronActionDark else CronActionLight
+                "cronCard" -> if (dark) CronCardDark else CronCardLight
+                "cronCardBorder" -> if (dark) CronCardBorderDark else CronCardBorderLight
+                "cronCardHeader" -> if (dark) CronCardHeaderDark else CronCardHeaderLight
+                "cronInset" -> if (dark) CronInsetDark else CronInsetLight
                 else -> error("unknown tiles role '$name' in ref '$ref'")
             }.toArgb()
             else -> error("unknown ref kind '$kind' in ref '$ref'")
@@ -186,6 +192,16 @@ class DesignConformanceTest {
             "ModelRowName" -> ModelRowName
             "ModelRowProvider" -> ModelRowProvider
             "ModelQuickChipProvider" -> ModelQuickChipProvider
+            "CronTopBarTitle" -> CronTopBarTitle
+            "CronTopBarSubtitle" -> CronTopBarSubtitle
+            "CronDetailTopBarTitle" -> CronDetailTopBarTitle
+            "CronFieldLabel" -> CronFieldLabel
+            "CronFieldValue" -> CronFieldValue
+            "CronScheduleValue" -> CronScheduleValue
+            "CronPill" -> CronPill
+            "CronSectionTitle" -> CronSectionTitle
+            "CronPromptBody" -> CronPromptBody
+            "CronRunMeta" -> CronRunMeta
             "labelMedium" -> HermesTypography.labelMedium
             "bodyLarge" -> HermesTypography.bodyLarge
             "titleMedium" -> HermesTypography.titleMedium

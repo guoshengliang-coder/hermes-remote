@@ -274,8 +274,11 @@ private fun ScheduleBuilder(schedule: Schedule, onChange: (Schedule) -> Unit, no
         }
         Spacer(Modifier.height(8.dp))
         val next = schedule.nextRun(nowMs)?.let { epochMs ->
-            l10n(" · 下次：", " · Next: ") + com.hermes.client.ui.util.formatIso(
-                java.time.Instant.ofEpochMilli(epochMs).atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime().toString()
+            // Same clock as the detail page's 下次运行, and in the app's language rather than the
+            // device's locale (see CronTime.kt).
+            l10n(" · 下次：", " · Next: ") + cronTimeText(
+                java.time.Instant.ofEpochMilli(epochMs).atZone(java.time.ZoneId.systemDefault()),
+                LocalAppLanguage.current,
             )
         }.orEmpty()
         Text(schedule.describe(LocalAppLanguage.current) + next, style = MaterialTheme.typography.bodyMedium, color = accent)

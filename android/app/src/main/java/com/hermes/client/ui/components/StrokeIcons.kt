@@ -441,3 +441,148 @@ val MoonStrokeIcon: ImageVector by lazy {
         close()
     }
 }
+
+// ── Cron glyphs (docs/DESIGN.md §5.18) ────────────────────────────────────────────────────────
+//
+// The cron screens were the last place in the app still drawing Material's filled set — a clock
+// on the empty state, a vertical ellipsis on every row, play/pause/pencil/trash on the detail
+// page. All of them are §4.1 violations, and the mocks draw thin outlines anyway.
+
+/** Clock face — 计划节奏, and the empty state. */
+val ClockStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeClock") {
+        moveTo(21f, 12f)
+        arcTo(9f, 9f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 20.99f, y1 = 11.9f)
+        close()
+        moveTo(12f, 7f)
+        lineTo(12f, 12f)
+        lineTo(15f, 14f)
+    }
+}
+
+/** Solid triangle — 「立即运行」. The one filled glyph here, because a hollow play reads as "stop". */
+val PlayGlyphIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "CronPlay",
+        defaultWidth = 24.dp, defaultHeight = 24.dp,
+        viewportWidth = 24f, viewportHeight = 24f,
+    ).apply {
+        path(fill = SolidColor(Color.Black)) {
+            moveTo(8f, 5f)
+            lineTo(8f, 19f)
+            lineTo(19f, 12f)
+            close()
+        }
+    }.build()
+}
+
+/** Two bars in a ring — 「暂停任务」. */
+val PauseStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokePause") {
+        moveTo(21f, 12f)
+        arcTo(9f, 9f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 20.99f, y1 = 11.9f)
+        close()
+        moveTo(10f, 9f); lineTo(10f, 15f)
+        moveTo(14f, 9f); lineTo(14f, 15f)
+    }
+}
+
+/** Play in a ring — 「恢复」, the mirror of [PauseStrokeIcon] so the two swap in place. */
+val ResumeStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeResume") {
+        moveTo(21f, 12f)
+        arcTo(9f, 9f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 20.99f, y1 = 11.9f)
+        close()
+        moveTo(10.3f, 8.8f); lineTo(15.2f, 12f); lineTo(10.3f, 15.2f); close()
+    }
+}
+
+/** Two arcs with arrowheads — the detail bar's refresh. */
+val RefreshStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeRefresh") {
+        moveTo(4f, 12f)
+        arcTo(8f, 8f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 17.66f, y1 = 6.34f)
+        moveTo(20f, 12f)
+        arcTo(8f, 8f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 6.34f, y1 = 17.66f)
+        moveTo(20f, 4f); lineTo(20f, 8.5f); lineTo(15.5f, 8.5f)
+        moveTo(4f, 20f); lineTo(4f, 15.5f); lineTo(8.5f, 15.5f)
+    }
+}
+
+/** Dog-eared page with rules — the prompt card's header. */
+val DocumentStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeDocument") {
+        moveTo(13f, 3.5f)
+        lineTo(6.5f, 3.5f)
+        arcTo(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 4.7f, y1 = 5.3f)
+        lineTo(4.7f, 18.7f)
+        arcTo(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 6.5f, y1 = 20.5f)
+        lineTo(17.5f, 20.5f)
+        arcTo(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 19.3f, y1 = 18.7f)
+        lineTo(19.3f, 9.8f)
+        close()
+        moveTo(13f, 3.5f); lineTo(13f, 9.8f); lineTo(19.3f, 9.8f)
+        moveTo(8.2f, 13.5f); lineTo(15.8f, 13.5f)
+        moveTo(8.2f, 16.8f); lineTo(13.5f, 16.8f)
+    }
+}
+
+/** Two offset rectangles — 「复制」 on the prompt card. */
+val CopyStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeCopy") {
+        moveTo(9f, 9f)
+        lineTo(19f, 9f); lineTo(19f, 20f); lineTo(9f, 20f); close()
+        moveTo(15f, 5.5f)
+        lineTo(5.5f, 5.5f)
+        lineTo(5.5f, 15f)
+    }
+}
+
+/** Lidded bin — the detail page's delete. Red comes from the tint, never from the path. */
+val TrashStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeTrash") {
+        moveTo(4.5f, 6.5f); lineTo(19.5f, 6.5f)
+        moveTo(9.5f, 6.5f); lineTo(9.5f, 4.5f); lineTo(14.5f, 4.5f); lineTo(14.5f, 6.5f)
+        moveTo(6.5f, 6.5f); lineTo(7.4f, 20f); lineTo(16.6f, 20f); lineTo(17.5f, 6.5f)
+        moveTo(10.3f, 10f); lineTo(10.6f, 16.8f)
+        moveTo(13.7f, 10f); lineTo(13.4f, 16.8f)
+    }
+}
+
+/** Triangle around a bang — the cron list's alert strip. */
+val AlertTriangleIcon: ImageVector by lazy {
+    strokeIcon("StrokeAlertTriangle") {
+        moveTo(12f, 4.2f)
+        lineTo(21.2f, 19.4f)
+        lineTo(2.8f, 19.4f)
+        close()
+        moveTo(12f, 9.8f); lineTo(12f, 13.6f)
+        moveTo(12f, 16.4f); lineTo(12.01f, 16.4f)
+    }
+}
+
+/**
+ * A vertical ellipsis, drawn as three zero-length round-capped strokes so the row's overflow is
+ * not the one Material filled glyph left in this icon system. 3.5 wide renders the mock's r=1.75
+ * dots.
+ */
+val MoreDotsIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "StrokeMoreDots",
+        defaultWidth = 24.dp, defaultHeight = 24.dp,
+        viewportWidth = 24f, viewportHeight = 24f,
+    ).apply {
+        path(
+            fill = null,
+            stroke = SolidColor(Color.Black),
+            strokeLineWidth = 3.5f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+        ) {
+            for (y in listOf(5f, 12f, 19f)) {
+                moveTo(12f, y)
+                lineTo(12.01f, y)
+            }
+        }
+    }.build()
+}
