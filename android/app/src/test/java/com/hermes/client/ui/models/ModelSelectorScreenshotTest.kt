@@ -178,4 +178,30 @@ class ModelSelectorScreenshotTest {
     /** 360dp is the narrow screen the input bar is sized against; 1.3 is the large-type step. */
     @Test fun modelSelectorLargeType() =
         snap("model-select-fontscale-1_3", fontScale = 1.3f, content = sheet(groups()))
+
+    /**
+     * HG-32: every collapsed card's 「N 项」 and chevron on one right-aligned column. The fixture
+     * deliberately mixes a long ellipsised name with a short one and 1- with 2-digit counts —
+     * the previous fixture's two near-equal names hid the drift entirely. ModelSelectorLayoutTest
+     * asserts the same thing in numbers; this is the version a person can see.
+     */
+    @Test fun modelSelectorCollapsedCards() = snap(
+        "model-select-collapsed",
+        content = {
+            ModelSelectorContent(
+                groups = modelSelectorGroups(
+                    providers = listOf(
+                        ModelProviderDto(slug = "copilot", name = "GitHub Copilot", isCurrent = false, models = List(17) { "c$it" }),
+                        ModelProviderDto(slug = "deepseek", name = "DeepSeek", isCurrent = false, models = List(3) { "d$it" }),
+                        ModelProviderDto(slug = "proxy", name = "devops-ai-proxy.yiyuan.internal.example", isCurrent = false, models = List(48) { "p$it" }),
+                        ModelProviderDto(slug = "opencode", name = "OpenCode Free", isCurrent = false, models = List(7) { "o$it" }),
+                    ),
+                    favorites = emptySet(), currentProvider = null, currentModel = null,
+                    expandedGroups = emptySet(),
+                ),
+                onToggleFavorite = { _, _ -> }, onSelect = { _, _ -> }, onToggleGroup = {},
+                pendingKey = null, error = null,
+            )
+        },
+    )
 }
