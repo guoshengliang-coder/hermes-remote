@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-enum class CronAction { PAUSE, RESUME, RUN }
+enum class CronAction { PAUSE, RESUME, RUN, DELETE }
 
 data class CronUiState(
     val jobs: List<CronJobDto> = emptyList(),
@@ -59,12 +59,14 @@ class CronViewModel @Inject constructor(
                 CronAction.PAUSE -> tools.pauseCron(jobId, p)
                 CronAction.RESUME -> tools.resumeCron(jobId, p)
                 CronAction.RUN -> tools.triggerCron(jobId, p)
+                CronAction.DELETE -> tools.deleteCron(jobId, p)
             }
         }.isSuccess
         val message = when (action) {
             CronAction.PAUSE -> if (ok) localizedText("已暂停 $name", "Paused $name") else localizedText("无法暂停 $name（HR-RPC-001）", "Couldn't pause $name (HR-RPC-001)")
             CronAction.RESUME -> if (ok) localizedText("已恢复 $name", "Resumed $name") else localizedText("无法恢复 $name（HR-RPC-001）", "Couldn't resume $name (HR-RPC-001)")
             CronAction.RUN -> if (ok) localizedText("已触发 $name", "Triggered $name") else localizedText("无法触发 $name（HR-RPC-001）", "Couldn't trigger $name (HR-RPC-001)")
+            CronAction.DELETE -> if (ok) localizedText("已删除 $name", "Deleted $name") else localizedText("无法删除 $name（HR-RPC-001）", "Couldn't delete $name (HR-RPC-001)")
         }
         _state.value = _state.value.copy(message = message)
         if (ok) runCatching { tools.cronJobs(p) }.onSuccess { jobs -> _state.value = _state.value.copy(jobs = jobs) }

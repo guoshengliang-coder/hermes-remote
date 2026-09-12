@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN" style=""><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/>
+<title>定时任务详情 - Hermes Mobile</title>
+<!-- Tailwind CSS v3 -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            paper: '#FAF9F5',
+            ink: '#1B1C1A',
+            'ink-muted': '#6F716E',
+            'ink-tertiary': '#9A9C98',
+            'border-subtle': '#E9E8E4',
+            'btn-main': '#181C24',
+            'status-good': '#2E7D32',
+            'status-good-bg': '#EDF7ED',
+            'accent-blue': '#2563EB',
+            'danger-red': '#DC2626'
+          },
+          fontFamily: {
+            sans: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Display"', '"SF Pro Text"', '"PingFang SC"', '"Hiragino Sans GB"', '"Microsoft YaHei"', 'sans-serif'],
+            mono: ['"SF Mono"', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+          },
+          boxShadow: {
+            'card': '0 1px 3px rgba(27, 28, 26, 0.04), 0 1px 2px rgba(27, 28, 26, 0.02)',
+            'float': '0 4px 12px rgba(24, 28, 36, 0.08)'
+          }
+        }
+      }
+    }
+  </script>
+<!-- BEGIN: Custom Styles -->
+<style data-purpose="base-layout">
+    body {
+      background-color: #FAF9F5;
+      color: #1B1C1A;
+      -webkit-font-smoothing: antialiased;
+      -webkit-tap-highlight-color: transparent;
+    }
+    /* iOS notch padding */
+    .ios-safe-top {
+      padding-top: env(safe-area-inset-top, 44px);
+    }
+    .ios-safe-bottom {
+      padding-bottom: env(safe-area-inset-bottom, 34px);
+    }
+  </style>
+<!-- END: Custom Styles -->
+</head>
+<body class="min-h-screen flex flex-col font-sans bg-[#0F1217] text-[#E2E0DB] selection:bg-neutral-800">
+<!-- BEGIN: TopAppBar -->
+<header class="sticky top-0 z-30 bg-[#0F1217]/90 backdrop-blur-md border-b border-white/5 ios-safe-top">
+<div class="min-h-13 py-2 px-4 flex items-center justify-between gap-3">
+<!-- Back Button -->
+<button aria-label="返回" class="w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-[#E2E0DB] hover:bg-white/5 active:scale-95 transition" type="button">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M15 19l-7-7 7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</button>
+<!-- Task Title (Two-line clear layout) -->
+<div class="flex-1 text-center min-w-0 px-1 py-0.5">
+<h1 class="text-[15px] font-semibold text-[#E2E0DB] tracking-tight leading-snug truncate">
+小迈公司经营日报
+</h1>
+<p class="text-xs text-[#A8A49C] font-normal leading-tight tracking-tight mt-0.5 truncate">
+钉钉 AI Card + HTML
+</p>
+</div>
+<!-- Actions -->
+<div class="flex items-center gap-0.5">
+<button aria-label="刷新" class="w-10 h-10 rounded-full flex items-center justify-center text-[#A8A49C] hover:text-[#E2E0DB] hover:bg-white/5 active:scale-95 transition" type="button">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.75" viewbox="0 0 24 24">
+<path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+<button aria-label="更多" class="w-10 h-10 -mr-1 rounded-full flex items-center justify-center text-[#A8A49C] hover:text-[#E2E0DB] hover:bg-white/5 active:scale-95 transition" type="button">
+<svg class="w-5 h-5" fill="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="5" r="1.75"></circle>
+<circle cx="12" cy="12" r="1.75"></circle>
+<circle cx="12" cy="19" r="1.75"></circle>
+</svg>
+</button>
+</div>
+</div>
+</header>
+<!-- END: TopAppBar -->
+<!-- BEGIN: MainContent -->
+<main class="flex-1 px-4 pt-4 pb-12 max-w-lg mx-auto w-full space-y-5">
+<!-- BEGIN: ScheduleAndStatusCard -->
+<section class="bg-[#161A22] rounded-2xl border border-white/5 p-4 shadow-card" data-purpose="schedule-and-status">
+<!-- Schedule Header -->
+<div class="flex items-center justify-between pb-3.5 mb-3.5 border-b border-white/5">
+<div class="flex items-center gap-2">
+<div class="w-7 h-7 rounded-lg bg-[#0F1217] flex items-center justify-center text-[#A8A49C] border border-white/5">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="12" r="9" stroke-width="2"></circle>
+<path d="M12 7v5l3 2" stroke-linecap="round" stroke-width="2"></path>
+</svg>
+</div>
+<div>
+<span class="text-xs text-[#A8A49C] block leading-none">计划节奏</span>
+<span class="text-sm font-medium text-[#E2E0DB] mt-0.5 block">每天 18:15</span>
+</div>
+</div>
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-[#7CDC80]/10 text-[#7CDC80] border border-[#7CDC80]/20">
+<span class="w-1.5 h-1.5 rounded-full bg-[#7CDC80]"></span>
+          已启用
+        </span>
+</div>
+<!-- Detail Grid Metadata -->
+<div class="grid grid-cols-2 gap-y-3.5 gap-x-2 text-xs">
+<div>
+<span class="text-[#A8A49C] block mb-0.5">下次运行</span>
+<span class="font-medium text-[#E2E0DB] tracking-tight text-[13px]">9月 12日 18:15</span>
+</div>
+<div>
+<span class="text-[#A8A49C] block mb-0.5">投递落点</span>
+<span class="font-medium text-[#E2E0DB] tracking-tight text-[13px] flex items-center gap-1">
+<svg class="w-3.5 h-3.5 text-[#A8A49C]" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+            只存不发
+          </span>
+</div>
+<div class="col-span-2 pt-2 border-t border-dashed border-white/10 flex items-center justify-between">
+<span class="text-[#A8A49C]">上次运行</span>
+<span class="font-medium text-[#E2E0DB] flex items-center gap-1.5">
+            9月 11日 18:32
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-[#7CDC80]/15 text-[#7CDC80]">
+              成功
+            </span>
+</span>
+</div>
+</div>
+</section>
+<!-- END: ScheduleAndStatusCard -->
+<!-- BEGIN: ActionButtonsGroup -->
+<!-- M3 & Geek-grade ergonomic action structure -->
+<section class="space-y-2.5" data-purpose="actions">
+<!-- Primary Action: Run Now -->
+<button class="w-full h-11 bg-[#1E232B] hover:bg-[#252C36] text-white border border-[#3A4049] rounded-xl font-medium text-sm flex items-center justify-center gap-2 active:opacity-90 active:scale-[0.99] transition shadow-sm" type="button">
+<svg class="w-4 h-4 fill-white text-white" viewbox="0 0 24 24">
+<path d="M8 5v14l11-7z"></path>
+</svg>
+        立即运行
+      </button>
+<!-- Secondary Row: Pause & Edit -->
+<div class="grid grid-cols-2 gap-2.5">
+<button class="h-10 bg-[#161A22] border border-white/5 hover:bg-white/5 rounded-xl text-[#E2E0DB] font-medium text-xs flex items-center justify-center gap-1.5 active:scale-[0.98] transition" type="button">
+<svg class="w-3.5 h-3.5 text-[#A8A49C]" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+          暂停任务
+        </button>
+<button class="h-10 bg-[#161A22] border border-white/5 hover:bg-white/5 rounded-xl text-[#E2E0DB] font-medium text-xs flex items-center justify-center gap-1.5 active:scale-[0.98] transition" type="button">
+<svg class="w-3.5 h-3.5 text-[#A8A49C]" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+          编辑配置
+        </button>
+</div>
+<!-- Destructive Action: Deliberately separated to prevent mistouch -->
+<div class="pt-1 flex justify-center">
+<button class="text-xs text-[#FFB4AB] hover:text-[#FFB4AB]/90 py-1 px-3 rounded-md hover:bg-red-500/10 flex items-center gap-1 transition" type="button">
+<svg class="w-3.5 h-3.5 text-[#FFB4AB]" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"></path>
+</svg>
+          删除此定时任务
+        </button>
+</div>
+</section>
+<!-- END: ActionButtonsGroup -->
+<!-- BEGIN: PromptSandbox -->
+<section class="bg-[#161A22] rounded-2xl border border-white/5 overflow-hidden shadow-card" data-purpose="prompt-preview">
+<div class="px-4 py-3 bg-[#13171E] border-b border-white/5 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<svg class="w-4 h-4 text-[#60A5FA]" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+<span class="text-xs font-semibold text-[#E2E0DB]">执行提示词与指令</span>
+</div>
+<button aria-label="复制代码" class="text-[#A8A49C] hover:text-[#E2E0DB] text-xs flex items-center gap-1 px-2.5 py-1 rounded bg-[#1E232B] border border-white/10 hover:border-white/20 transition" type="button">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+          复制
+        </button>
+</div>
+<div class="p-4">
+<p class="text-[13px] leading-relaxed text-[#C8C5BD] font-mono select-all break-all line-clamp-6 bg-[#0A0D11] p-3 rounded-lg border border-white/5">
+          你是小迈网络科技有限公司 CEO 的经营日报生产任务。严格顺序：日期与幂等 → BI 查询/稳定分页 → 源明细对账 → 报告范围过滤 → 数据完整性门禁（含国内+海外） → 经营分析 → 同轮 JSON → 同轮 HTML → 验收 → 钉钉上传 → 钉钉 AI Card 发送。所有 Python 脚本运行一律使用 terminal 工具，禁止使用 execute_code。使用 `cd /Users/bs/Documents/xiaomai-daily-report &amp;&amp; /Users/bs/.hermes/hermes-agent/venv/bin/python s...
+        </p>
+<div class="mt-2 text-right">
+<button class="text-xs font-medium text-[#60A5FA] hover:underline" type="button">
+            展开全部提示词
+          </button>
+</div>
+</div>
+</section>
+<!-- END: PromptSandbox -->
+<!-- BEGIN: RunHistory -->
+<section class="space-y-2.5" data-purpose="run-history">
+<!-- Section Header -->
+<div class="flex items-center justify-between px-1">
+<div class="flex items-center gap-2">
+<h2 class="text-sm font-semibold text-[#E2E0DB]">运行历史</h2>
+<span class="text-xs px-2 py-0.5 rounded-full bg-[#1E232B] text-[#A8A49C] border border-white/5 font-medium">20 次</span>
+</div>
+<span class="text-[11px] text-[#777268]">自动保留最近 30 天</span>
+</div>
+<!-- History Card Container -->
+<div class="bg-[#161A22] rounded-2xl border border-white/5 shadow-card divide-y divide-white/5 overflow-hidden">
+<!-- Record Item 1 -->
+<div class="p-3.5 flex items-center justify-between hover:bg-white/5 transition">
+<div class="space-y-1">
+<div class="flex items-center gap-2">
+<span class="text-xs font-medium text-[#E2E0DB]">9月 11日 18:15</span>
+<span class="text-[10px] text-[#A8A49C] font-mono">#9041</span>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-[#A8A49C]">
+<span class="w-1.5 h-1.5 rounded-full bg-[#7CDC80]"></span>
+<span class="font-mono text-[11px] text-[#A8A49C]">cron_complete</span>
+<span class="text-[#777268]">·</span>
+<span class="text-[11px]">耗时 42s</span>
+</div>
+</div>
+<button class="text-xs text-[#60A5FA] hover:text-[#93C5FD] flex items-center gap-0.5" type="button">
+            日志
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</button>
+</div>
+<!-- Record Item 2 -->
+<div class="p-3.5 flex items-center justify-between hover:bg-white/5 transition">
+<div class="space-y-1">
+<div class="flex items-center gap-2">
+<span class="text-xs font-medium text-[#E2E0DB]">9月 10日 18:41</span>
+<span class="text-[10px] text-[#A8A49C] font-mono">#9040</span>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-[#A8A49C]">
+<span class="w-1.5 h-1.5 rounded-full bg-[#7CDC80]"></span>
+<span class="font-mono text-[11px] text-[#A8A49C]">cron_complete</span>
+<span class="text-[#777268]">·</span>
+<span class="text-[11px]">耗时 38s</span>
+</div>
+</div>
+<button class="text-xs text-[#60A5FA] hover:text-[#93C5FD] flex items-center gap-0.5" type="button">
+            日志
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</button>
+</div>
+<!-- Record Item 3 -->
+<div class="p-3.5 flex items-center justify-between hover:bg-white/5 transition">
+<div class="space-y-1">
+<div class="flex items-center gap-2">
+<span class="text-xs font-medium text-[#E2E0DB]">9月 9日 18:15</span>
+<span class="text-[10px] text-[#A8A49C] font-mono">#9039</span>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-[#A8A49C]">
+<span class="w-1.5 h-1.5 rounded-full bg-[#7CDC80]"></span>
+<span class="font-mono text-[11px] text-[#A8A49C]">cron_complete</span>
+<span class="text-[#777268]">·</span>
+<span class="text-[11px]">耗时 45s</span>
+</div>
+</div>
+<button class="text-xs text-[#60A5FA] hover:text-[#93C5FD] flex items-center gap-0.5" type="button">
+            日志
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</button>
+</div>
+<!-- Record Item 4 -->
+<div class="p-3.5 flex items-center justify-between hover:bg-white/5 transition">
+<div class="space-y-1">
+<div class="flex items-center gap-2">
+<span class="text-xs font-medium text-[#E2E0DB]">9月 8日 18:15</span>
+<span class="text-[10px] text-[#A8A49C] font-mono">#9038</span>
+</div>
+<div class="flex items-center gap-1.5 text-xs text-[#A8A49C]">
+<span class="w-1.5 h-1.5 rounded-full bg-[#7CDC80]"></span>
+<span class="font-mono text-[11px] text-[#A8A49C]">cron_complete</span>
+<span class="text-[#777268]">·</span>
+<span class="text-[11px]">耗时 40s</span>
+</div>
+</div>
+<button class="text-xs text-[#60A5FA] hover:text-[#93C5FD] flex items-center gap-0.5" type="button">
+            日志
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</button>
+</div>
+</div>
+<!-- Load More / Footer Indicator -->
+<div class="text-center py-2">
+<button class="text-xs text-[#A8A49C] hover:text-[#E2E0DB] transition" type="button">
+          查看更早记录
+        </button>
+</div>
+</section>
+<!-- END: RunHistory -->
+</main>
+<!-- END: MainContent -->
+<!-- BEGIN: HomeIndicatorArea -->
+<div class="ios-safe-bottom"></div>
+<!-- END: HomeIndicatorArea -->
+</body></html>

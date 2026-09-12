@@ -154,6 +154,12 @@ fun AppError.localizedMessage(language: AppLanguage): String {
                 "任务运行成功，但结果没能送到目标渠道。",
                 "The task ran successfully, but its result could not be delivered to the target channel.",
             )
+        AppErrorCode.CRON_RUN_FAILED ->
+            localized(
+                language,
+                "任务上次运行失败，请查看详情。",
+                "The task's last run failed. Check the details.",
+            )
         AppErrorCode.MESSAGING_LIST_FAILED ->
             localized(language, "无法加载消息渠道，请重试。", "Couldn't load messaging channels. Retry.")
         AppErrorCode.MESSAGING_SAVE_FAILED ->

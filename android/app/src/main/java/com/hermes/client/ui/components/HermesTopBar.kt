@@ -28,6 +28,13 @@ fun HermesTopBar(
     // Content-row height of the centered bar. A parameter only so the session list can drive it
     // from its temporary tuning panel; ignored when [centered] is false.
     centeredHeight: androidx.compose.ui.unit.Dp = 48.dp,
+    // Per-screen title step. Null keeps each branch's own default — `titleLarge` on a pushed bar,
+    // [com.hermes.client.ui.theme.SessionsTopBarTitle] on the centred one — so existing callers are
+    // untouched. The cron mocks give that page its own two steps (docs/DESIGN.md §5.18).
+    titleStyle: androidx.compose.ui.text.TextStyle? = null,
+    // Replaces the plain [subtitle] line when a screen's mock draws something richer than a string
+    // (the cron list puts a status dot beside its profile name). Ignored when [centered].
+    subtitleContent: (@Composable () -> Unit)? = null,
     navigationIcon: @Composable () -> Unit = {},
     actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
 ) {
@@ -60,7 +67,7 @@ fun HermesTopBar(
                 actionIconContentColor = barOn,
             ),
             title = {
-                Text(title, style = com.hermes.client.ui.theme.SessionsTopBarTitle, color = barOn)
+                Text(title, style = titleStyle ?: com.hermes.client.ui.theme.SessionsTopBarTitle, color = barOn)
             },
             navigationIcon = navigationIcon,
             actions = actions,
@@ -72,8 +79,10 @@ fun HermesTopBar(
         colors = colors,
         title = {
             Column {
-                Text(title, style = MaterialTheme.typography.titleLarge, color = barOn)
-                if (subtitle != null) {
+                Text(title, style = titleStyle ?: MaterialTheme.typography.titleLarge, color = barOn)
+                if (subtitleContent != null) {
+                    subtitleContent()
+                } else if (subtitle != null) {
                     Text(
                         subtitle,
                         style = MaterialTheme.typography.labelMedium,

@@ -1,0 +1,358 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport">
+<title>定时任务 - Hermes</title>
+<!-- Tailwind CSS v3 with Plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            paper: '#FAF9F5',
+            surface: '#FFFFFF',
+            ink: '#1B1C1A',
+            muted: '#605C54',
+            subtle: '#8D897E',
+            borderWarm: '#EFECE6',
+            fabDark: '#181C24',
+            status: {
+              good: '#2E7D32',
+              bad: '#C62828',
+              warn: '#C2410C',
+              paused: '#8D897E'
+            },
+            alertBg: '#FFF1F2',
+            alertText: '#9F1239',
+            alertBorder: '#FFE4E6'
+          },
+          fontFamily: {
+            sans: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Text"', '"PingFang SC"', '"Hiragino Sans GB"', '"Microsoft YaHei"', 'sans-serif']
+          },
+          boxShadow: {
+            card: '0 1px 3px rgba(27, 28, 26, 0.04), 0 1px 2px rgba(27, 28, 26, 0.02)',
+            fab: '0 8px 24px -4px rgba(24, 28, 36, 0.35), 0 3px 6px -2px rgba(24, 28, 36, 0.18)'
+          }
+        }
+      }
+    };
+  </script>
+<!-- Custom styles for layout, iOS safe areas and micro-interactions -->
+<style data-purpose="layout-adjustments">
+    body {
+      background-color: #FAF9F5;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    .safe-top {
+      padding-top: max(env(safe-area-inset-top), 12px);
+    }
+    .safe-bottom {
+      padding-bottom: max(env(safe-area-inset-bottom), 16px);
+    }
+    /* Touch ripple & press feedback */
+    .pressable-card:active {
+      background-color: #F6F4EE;
+      transform: scale(0.995);
+      transition: all 0.12s ease-out;
+    }
+    .pressable-icon:active {
+      transform: scale(0.92);
+      opacity: 0.7;
+    }
+  </style>
+</head>
+<body class="text-ink font-sans min-h-screen pb-28 relative selection:bg-stone-200">
+<!-- BEGIN: TopAppBar -->
+<header class="sticky top-0 z-30 bg-paper/95 backdrop-blur-md safe-top px-4 pb-3 border-b border-borderWarm/60">
+<div class="flex items-center justify-between h-11">
+<!-- Back button & Title container -->
+<div class="flex items-center gap-2 min-w-0"><button aria-label="返回" class="pressable-icon -ml-1.5 p-2 rounded-full text-ink hover:bg-stone-200/50 transition flex-shrink-0" type="button">
+<svg class="w-5 h-5 stroke-[2.2] stroke-current" fill="none" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+<polyline points="15 18 9 12 15 6"></polyline>
+</svg>
+</button>
+<div class="min-w-0">
+<h1 class="text-[19px] font-semibold tracking-tight text-ink truncate leading-tight">定时任务</h1>
+<p class="text-[11px] text-subtle font-normal truncate leading-tight mt-0.5 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-subtle/70 inline-block"></span>
+<span class="">当前身份 · default</span>
+</p>
+</div></div>
+<!-- Identity Badge & Actions -->
+<div class="flex items-center gap-1.5 flex-shrink-0"><button aria-label="更多操作" class="pressable-icon -mr-1 p-2 text-muted hover:text-ink rounded-full transition" type="button">
+<svg class="w-5 h-5 fill-current" viewBox="0 0 24 24">
+<circle cx="12" cy="5" r="1.75"></circle>
+<circle cx="12" cy="12" r="1.75"></circle>
+<circle cx="12" cy="19" r="1.75"></circle>
+</svg>
+</button></div>
+</div>
+</header>
+<!-- END: TopAppBar -->
+<!-- BEGIN: MainContent -->
+<main class="px-4 pt-3.5 space-y-5 max-w-xl mx-auto">
+<!-- BEGIN: HealthAlertStrip -->
+<!-- Alert Banner when tasks need user attention -->
+<section aria-label="健康警示" data-purpose="health-alert">
+<div class="pressable-card bg-alertBg border border-alertBorder rounded-xl p-3 flex items-center justify-between cursor-pointer transition shadow-sm">
+<div class="flex items-center gap-2.5 min-w-0">
+<span class="flex-shrink-0 w-7 h-7 rounded-lg bg-[#FFE4E6] flex items-center justify-center text-alertText">
+<svg class="w-4 h-4 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</span>
+<div class="truncate">
+<p class="text-[13.5px] font-semibold text-alertText leading-tight truncate">1 个任务执行失败，需要你处理</p>
+<p class="text-[11.5px] text-alertText/80 mt-0.5 font-normal">钉钉连接健康检测 · 错误代码 ECONNREFUSED</p>
+</div>
+</div>
+<div class="flex items-center text-alertText pl-2 flex-shrink-0">
+<span class="text-[12px] font-medium mr-0.5">查看</span>
+<svg class="w-4 h-4 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</div>
+</div>
+</section>
+<!-- END: HealthAlertStrip -->
+<!-- BEGIN: SectionNeedsAttention -->
+<!-- Group 1: Tasks requiring attention (Failed / Overdue) -->
+<section class="space-y-2" data-purpose="group-attention">
+<!-- Section Header with Pillar indicator -->
+<div class="flex items-center justify-between px-1">
+<div class="flex items-center gap-2">
+<span aria-hidden="true" class="w-[3px] h-[14px] rounded-full bg-status-bad"></span>
+<h2 class="text-[13.5px] font-semibold tracking-tight text-ink">需要你处理</h2>
+<span class="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-rose-100 text-status-bad">1</span>
+</div>
+</div>
+<!-- Task Card (Failed item) -->
+<div class="bg-surface rounded-2xl border border-rose-200/90 shadow-card overflow-hidden divide-y divide-borderWarm/40">
+<article class="pressable-card flex items-center justify-between px-4 py-3.5 min-h-[72px] cursor-pointer transition">
+<div class="flex-1 min-w-0 pr-3">
+<!-- Title & Status Dot -->
+<div class="flex items-center gap-2 mb-1">
+<span class="w-2 h-2 rounded-full bg-status-bad flex-shrink-0 animate-pulse" title="执行异常"></span>
+<h3 class="text-[15px] font-medium text-ink truncate leading-snug">钉钉连接健康检测（自动重连）</h3>
+</div>
+<!-- Subtitle info -->
+<p class="text-[12.5px] text-muted flex items-center gap-1.5 leading-none">
+<span class="">每 2 分钟</span>
+<span class="text-subtle/60">·</span>
+<span class="">投递到来源聊天</span>
+<span class="text-subtle/60">·</span>
+<span class="text-status-bad font-medium bg-rose-50 px-1.5 py-0.5 rounded text-[11px]">上次失败 13:22</span>
+</p>
+</div>
+<!-- Action Overflow Menu -->
+<button aria-label="任务操作" class="pressable-icon w-9 h-9 -mr-1 flex items-center justify-center text-subtle hover:text-ink rounded-full transition" type="button">
+<svg class="w-4 h-4 fill-current" viewBox="0 0 24 24">
+<circle cx="12" cy="5" r="1.75"></circle>
+<circle cx="12" cy="12" r="1.75"></circle>
+<circle cx="12" cy="19" r="1.75"></circle>
+</svg>
+</button>
+</article>
+</div>
+</section>
+<!-- END: SectionNeedsAttention -->
+<!-- BEGIN: SectionActive -->
+<!-- Group 2: Active & Healthy Tasks -->
+<section class="space-y-2" data-purpose="group-active">
+<!-- Section Header -->
+<div class="flex items-center justify-between px-1">
+<div class="flex items-center gap-2">
+<span aria-hidden="true" class="w-[3px] h-[14px] rounded-full bg-muted"></span>
+<h2 class="text-[13.5px] font-semibold tracking-tight text-ink">已启用</h2>
+<span class="text-[11px] font-medium px-1.5 py-0.5 rounded-full bg-stone-100 text-muted">6</span>
+</div>
+</div>
+<!-- Task Card Group (Rounded Floating Container) -->
+<div class="bg-surface rounded-2xl border border-borderWarm shadow-card overflow-hidden divide-y divide-borderWarm/60">
+<!-- Task Item 1 -->
+<article class="pressable-card flex items-center justify-between px-4 py-3.5 min-h-[72px] cursor-pointer transition">
+<div class="flex-1 min-w-0 pr-3">
+<div class="flex items-center gap-2 mb-1">
+<span class="w-2 h-2 rounded-full bg-status-good flex-shrink-0" title="正常运行"></span>
+<h3 class="text-[15px] font-medium text-ink truncate leading-snug">小迈公司经营日报 | 钉钉 AI Card</h3>
+</div>
+<p class="text-[12.5px] text-muted flex items-center gap-1.5 leading-none">
+<span class="">每天 18:15</span>
+<span class="text-subtle/60">·</span>
+<span class="">只存不发</span>
+</p>
+</div>
+<button aria-label="任务操作" class="pressable-icon w-9 h-9 -mr-1 flex items-center justify-center text-subtle hover:text-ink rounded-full transition" type="button">
+<svg class="w-4 h-4 fill-current" viewBox="0 0 24 24">
+<circle cx="12" cy="5" r="1.75"></circle>
+<circle cx="12" cy="12" r="1.75"></circle>
+<circle cx="12" cy="19" r="1.75"></circle>
+</svg>
+</button>
+</article>
+<!-- Task Item 2 -->
+<article class="pressable-card flex items-center justify-between px-4 py-3.5 min-h-[72px] cursor-pointer transition">
+<div class="flex-1 min-w-0 pr-3">
+<div class="flex items-center gap-2 mb-1">
+<span class="w-2 h-2 rounded-full bg-status-good flex-shrink-0" title="正常运行"></span>
+<h3 class="text-[15px] font-medium text-ink truncate leading-snug">芯芯 | 每日钉钉行程与待办 AI Card</h3>
+</div>
+<p class="text-[12.5px] text-muted flex items-center gap-1.5 leading-none">
+<span class="">每天 08:00</span>
+<span class="text-subtle/60">·</span>
+<span class="">投递到来源聊天</span>
+</p>
+</div>
+<button aria-label="任务操作" class="pressable-icon w-9 h-9 -mr-1 flex items-center justify-center text-subtle hover:text-ink rounded-full transition" type="button">
+<svg class="w-4 h-4 fill-current" viewBox="0 0 24 24">
+<circle cx="12" cy="5" r="1.75"></circle>
+<circle cx="12" cy="12" r="1.75"></circle>
+<circle cx="12" cy="19" r="1.75"></circle>
+</svg>
+</button>
+</article>
+<!-- Task Item 3 -->
+<article class="pressable-card flex items-center justify-between px-4 py-3.5 min-h-[72px] cursor-pointer transition">
+<div class="flex-1 min-w-0 pr-3">
+<div class="flex items-center gap-2 mb-1">
+<span class="w-2 h-2 rounded-full bg-status-good flex-shrink-0" title="正常运行"></span>
+<h3 class="text-[15px] font-medium text-ink truncate leading-snug">芯芯 | 每日钉钉邮箱总结 AI Card</h3>
+</div>
+<p class="text-[12.5px] text-muted flex items-center gap-1.5 leading-none">
+<span class="">每天 08:00</span>
+<span class="text-subtle/60">·</span>
+<span class="">只存不发</span>
+</p>
+</div>
+<button aria-label="任务操作" class="pressable-icon w-9 h-9 -mr-1 flex items-center justify-center text-subtle hover:text-ink rounded-full transition" type="button">
+<svg class="w-4 h-4 fill-current" viewBox="0 0 24 24">
+<circle cx="12" cy="5" r="1.75"></circle>
+<circle cx="12" cy="12" r="1.75"></circle>
+<circle cx="12" cy="19" r="1.75"></circle>
+</svg>
+</button>
+</article>
+<!-- Task Item 4 -->
+<article class="pressable-card flex items-center justify-between px-4 py-3.5 min-h-[72px] cursor-pointer transition">
+<div class="flex-1 min-w-0 pr-3">
+<div class="flex items-center gap-2 mb-1">
+<span class="w-2 h-2 rounded-full bg-status-good flex-shrink-0" title="正常运行"></span>
+<h3 class="text-[15px] font-medium text-ink truncate leading-snug">芯芯 | 钉钉日志每日检测与周报汇总</h3>
+</div>
+<p class="text-[12.5px] text-muted flex items-center gap-1.5 leading-none">
+<span class="">每天 08:00</span>
+<span class="text-subtle/60">·</span>
+<span class="">只存不发</span>
+</p>
+</div>
+<button aria-label="任务操作" class="pressable-icon w-9 h-9 -mr-1 flex items-center justify-center text-subtle hover:text-ink rounded-full transition" type="button">
+<svg class="w-4 h-4 fill-current" viewBox="0 0 24 24">
+<circle cx="12" cy="5" r="1.75"></circle>
+<circle cx="12" cy="12" r="1.75"></circle>
+<circle cx="12" cy="19" r="1.75"></circle>
+</svg>
+</button>
+</article>
+<!-- Task Item 5 -->
+<article class="pressable-card flex items-center justify-between px-4 py-3.5 min-h-[72px] cursor-pointer transition">
+<div class="flex-1 min-w-0 pr-3">
+<div class="flex items-center gap-2 mb-1">
+<span class="w-2 h-2 rounded-full bg-status-good flex-shrink-0" title="正常运行"></span>
+<h3 class="text-[15px] font-medium text-ink truncate leading-snug">小迈公司市场推广日报 | 钉钉 AI Card</h3>
+</div>
+<p class="text-[12.5px] text-muted flex items-center gap-1.5 leading-none">
+<span class="">每天 18:15</span>
+<span class="text-subtle/60">·</span>
+<span class="">只存不发</span>
+</p>
+</div>
+<button aria-label="任务操作" class="pressable-icon w-9 h-9 -mr-1 flex items-center justify-center text-subtle hover:text-ink rounded-full transition" type="button">
+<svg class="w-4 h-4 fill-current" viewBox="0 0 24 24">
+<circle cx="12" cy="5" r="1.75"></circle>
+<circle cx="12" cy="12" r="1.75"></circle>
+<circle cx="12" cy="19" r="1.75"></circle>
+</svg>
+</button>
+</article>
+<!-- Task Item 6 -->
+<article class="pressable-card flex items-center justify-between px-4 py-3.5 min-h-[72px] cursor-pointer transition">
+<div class="flex-1 min-w-0 pr-3">
+<div class="flex items-center gap-2 mb-1">
+<span class="w-2 h-2 rounded-full bg-status-good flex-shrink-0" title="正常运行"></span>
+<h3 class="text-[15px] font-medium text-ink truncate leading-snug">周深长沙站开票监控</h3>
+</div>
+<p class="text-[12.5px] text-muted flex items-center gap-1.5 leading-none">
+<span class="">每 30 分钟</span>
+<span class="text-subtle/60">·</span>
+<span class="">只存不发</span>
+</p>
+</div>
+<button aria-label="任务操作" class="pressable-icon w-9 h-9 -mr-1 flex items-center justify-center text-subtle hover:text-ink rounded-full transition" type="button">
+<svg class="w-4 h-4 fill-current" viewBox="0 0 24 24">
+<circle cx="12" cy="5" r="1.75"></circle>
+<circle cx="12" cy="12" r="1.75"></circle>
+<circle cx="12" cy="19" r="1.75"></circle>
+</svg>
+</button>
+</article>
+</div>
+</section>
+<!-- END: SectionActive -->
+<!-- BEGIN: SectionPaused -->
+<!-- Group 3: Paused Tasks -->
+<section class="space-y-2" data-purpose="group-paused">
+<!-- Section Header -->
+<div class="flex items-center justify-between px-1">
+<div class="flex items-center gap-2">
+<span aria-hidden="true" class="w-[3px] h-[14px] rounded-full bg-subtle"></span>
+<h2 class="text-[13.5px] font-semibold tracking-tight text-ink">已暂停</h2>
+<span class="text-[11px] font-medium px-1.5 py-0.5 rounded-full bg-stone-100 text-muted">1</span>
+</div>
+</div>
+<!-- Task Card Group -->
+<div class="bg-surface rounded-2xl border border-borderWarm shadow-card overflow-hidden divide-y divide-borderWarm/60 opacity-80">
+<!-- Paused Task Item -->
+<article class="pressable-card flex items-center justify-between px-4 py-3.5 min-h-[72px] cursor-pointer transition">
+<div class="flex-1 min-w-0 pr-3">
+<div class="flex items-center gap-2 mb-1">
+<span class="w-2 h-2 rounded-full bg-status-paused flex-shrink-0" title="已暂停"></span>
+<h3 class="text-[15px] font-medium text-ink/85 truncate leading-snug">网关重启丢失消息监控</h3>
+</div>
+<p class="text-[12.5px] text-muted flex items-center gap-1.5 leading-none">
+<span class="">每 2 分钟</span>
+<span class="text-subtle/60">·</span>
+<span class="">只存不发</span>
+<span class="text-subtle/60">·</span>
+<span class="text-subtle text-[11px]">已停用</span>
+</p>
+</div>
+<button aria-label="任务操作" class="pressable-icon w-9 h-9 -mr-1 flex items-center justify-center text-subtle hover:text-ink rounded-full transition" type="button">
+<svg class="w-4 h-4 fill-current" viewBox="0 0 24 24">
+<circle cx="12" cy="5" r="1.75"></circle>
+<circle cx="12" cy="12" r="1.75"></circle>
+<circle cx="12" cy="19" r="1.75"></circle>
+</svg>
+</button>
+</article>
+</div>
+</section>
+<!-- END: SectionPaused -->
+</main>
+<!-- END: MainContent -->
+<!-- BEGIN: FloatingActionButton -->
+<!-- Solid Black (56dp) Floating Action Button per Hermes Mobile System -->
+<div class="fixed right-5 bottom-6 z-40 safe-bottom">
+<button aria-label="新建定时任务" class="pressable-icon w-14 h-14 rounded-full bg-fabDark text-white shadow-fab flex items-center justify-center transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-fabDark" type="button">
+<svg class="w-6 h-6 stroke-[2.4] stroke-white" fill="none" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+<line x1="12" x2="12" y1="5" y2="19"></line>
+<line x1="5" x2="19" y1="12" y2="12"></line>
+</svg>
+</button>
+</div>
+<!-- END: FloatingActionButton -->
+
+
+</body></html>

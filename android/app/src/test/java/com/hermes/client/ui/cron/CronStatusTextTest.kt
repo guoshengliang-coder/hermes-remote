@@ -22,6 +22,14 @@ class CronStatusTextTest {
         assertEquals("quarantined", cronStatusLabel("quarantined", AppLanguage.ZH))
     }
 
+    @Test fun a_completed_run_is_localized_rather_than_printed_raw() {
+        // `cron_complete` is what a RUN reports (the JOB's last_status says `ok`). It used to fall
+        // through to the verbatim branch, so the history showed the bare server token as its
+        // primary text — the exact thing ERROR_HANDLING.md forbids.
+        assertEquals("成功", cronStatusLabel("cron_complete", AppLanguage.ZH))
+        assertEquals("Succeeded", cronStatusLabel("cron_complete", AppLanguage.EN))
+    }
+
     @Test fun absent_or_blank_status_has_no_label() {
         assertNull(cronStatusLabel(null, AppLanguage.ZH))
         assertNull(cronStatusLabel("   ", AppLanguage.EN))

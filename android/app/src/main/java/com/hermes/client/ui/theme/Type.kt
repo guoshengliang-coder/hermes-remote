@@ -736,3 +736,122 @@ val RowMenuChipLabel = TextStyle(
     lineHeight = 20.sp,
     letterSpacing = 0.275.sp,
 ).merge(ExactLineBox)
+// ── Cron steps (docs/DESIGN.md §5.18, Stitch 基线-定时任务列表 / 任务详情, 2026-09-12) ──────────
+//
+// Read straight off the mocks' classes the same way the card-page family was. Where a step exists
+// already it is reused instead of duplicated: the list ROW uses [SessionRowTitle] /
+// [SessionRowSubline] / [SessionRowStatus], and the group header uses [SessionGroupHeader] /
+// [SessionGroupCount]. Only what the cron mocks say something new about is below.
+//
+// The 1.45 page multiplier applies to all of these: `leading-[1.35]` belongs to a list row's text
+// column, and none of these steps sits in one.
+
+/** The list's bar title: `text-[19px] font-semibold tracking-tight`. */
+val CronTopBarTitle = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 19.sp,
+    lineHeight = 27.55.sp,
+    letterSpacing = (-0.19).sp,
+)
+
+/** 「当前身份 · default」 under it: `text-[11px] font-medium`. */
+val CronTopBarSubtitle = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 11.sp,
+    lineHeight = 15.95.sp,
+    letterSpacing = 0.sp,
+)
+
+/**
+ * The detail bar's centred title: `text-[15px] font-semibold tracking-tight`.
+ *
+ * Smaller than the list's 19px on purpose — the mock gives the pushed screen a quieter bar, and
+ * the job's name is already the thing the reader tapped to get here.
+ */
+val CronDetailTopBarTitle = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 15.sp,
+    lineHeight = 21.75.sp,
+    letterSpacing = (-0.15).sp,
+)
+
+/** A status-card field label (「下次运行」「投递落点」): `text-xs`, the card's faintest ink. */
+val CronFieldLabel = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Normal,
+    fontSize = 12.sp,
+    lineHeight = 17.4.sp,
+    letterSpacing = 0.sp,
+)
+
+/** Its value: `text-[13px] font-medium tracking-tight`. */
+val CronFieldValue = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 13.sp,
+    lineHeight = 18.85.sp,
+    letterSpacing = (-0.13).sp,
+)
+
+/** 「每天 18:15」, the card's headline value: `text-sm font-medium`. */
+val CronScheduleValue = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 14.sp,
+    lineHeight = 20.3.sp,
+    letterSpacing = 0.sp,
+)
+
+/** A pill's label (「已启用」「成功」): `text-xs font-medium`. */
+val CronPill = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 12.sp,
+    lineHeight = 17.4.sp,
+    letterSpacing = 0.sp,
+)
+
+/** 「运行历史」 and the prompt card's header: `text-sm font-semibold`. */
+val CronSectionTitle = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 14.sp,
+    lineHeight = 20.3.sp,
+    letterSpacing = 0.sp,
+)
+
+/**
+ * The prompt preview: `text-[13px] leading-relaxed font-mono`. Tailwind's `leading-relaxed` is
+ * 1.625, not the page's 1.45 — the mock loosens this one block because it is a wall of text.
+ *
+ * Mono is doing real work here: a cron prompt is mostly paths, flags and shell, and the Chinese
+ * around them falls back to the system face anyway (docs/DESIGN.md §3.1).
+ */
+val CronPromptBody = TextStyle(
+    fontFamily = HermesMono,
+    fontWeight = FontWeight.Normal,
+    fontSize = 13.sp,
+    lineHeight = 21.125.sp,
+    letterSpacing = 0.sp,
+)
+
+/** A run's start time: `text-xs font-medium`. */
+val CronRunTime = CronPill
+
+/** A run's outcome line: `text-[11px]`. */
+val CronRunMeta = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Normal,
+    fontSize = 11.sp,
+    lineHeight = 15.95.sp,
+    letterSpacing = 0.sp,
+)
+
+/** 「立即运行」: `text-sm font-medium`. */
+val CronActionLabel = CronScheduleValue
+
+/** 「暂停任务」「编辑配置」「删除此定时任务」: `text-xs font-medium`. */
+val CronActionLabelSmall = CronPill

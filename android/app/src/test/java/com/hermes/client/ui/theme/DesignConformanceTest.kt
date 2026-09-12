@@ -168,6 +168,12 @@ class DesignConformanceTest {
                 "rowMenuDivider" -> if (dark) RowMenuDividerDark else RowMenuDividerLight
                 "rowMenuInkFaint" -> if (dark) RowMenuInkFaintDark else RowMenuInkFaintLight
                 "rowMenuCloseInk" -> if (dark) RowMenuCloseInkDark else RowMenuCloseInkLight
+                // 定时任务 (docs/DESIGN.md §5.18 定时任务).
+                "cronAction" -> if (dark) CronActionDark else CronActionLight
+                "cronCard" -> if (dark) CronCardDark else CronCardLight
+                "cronCardBorder" -> if (dark) CronCardBorderDark else CronCardBorderLight
+                "cronCardHeader" -> if (dark) CronCardHeaderDark else CronCardHeaderLight
+                "cronInset" -> if (dark) CronInsetDark else CronInsetLight
                 else -> error("unknown tiles role '$name' in ref '$ref'")
             }.toArgb()
             else -> error("unknown ref kind '$kind' in ref '$ref'")
@@ -224,6 +230,16 @@ class DesignConformanceTest {
             "RowMenuAction" -> RowMenuAction
             "RowMenuHint" -> RowMenuHint
             "RowMenuChipLabel" -> RowMenuChipLabel
+            "CronTopBarTitle" -> CronTopBarTitle
+            "CronTopBarSubtitle" -> CronTopBarSubtitle
+            "CronDetailTopBarTitle" -> CronDetailTopBarTitle
+            "CronFieldLabel" -> CronFieldLabel
+            "CronFieldValue" -> CronFieldValue
+            "CronScheduleValue" -> CronScheduleValue
+            "CronPill" -> CronPill
+            "CronSectionTitle" -> CronSectionTitle
+            "CronPromptBody" -> CronPromptBody
+            "CronRunMeta" -> CronRunMeta
             "labelMedium" -> HermesTypography.labelMedium
             "bodyLarge" -> HermesTypography.bodyLarge
             "titleMedium" -> HermesTypography.titleMedium

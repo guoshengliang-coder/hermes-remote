@@ -680,17 +680,17 @@ class ScreenshotTest {
     @androidx.compose.runtime.Composable
     private fun SectionHeaders() {
         androidx.compose.foundation.layout.Column {
-            com.hermes.client.ui.sessions.SectionHeader(
-                "需要你处理", 2, com.hermes.client.ui.sessions.SectionTone.NEEDS_YOU, onToggle = {},
+            com.hermes.client.ui.components.SectionHeader(
+                "需要你处理", 2, com.hermes.client.ui.components.SectionTone.NEEDS_YOU, onToggle = {},
             )
-            com.hermes.client.ui.sessions.SectionHeader(
-                "已置顶", 1, com.hermes.client.ui.sessions.SectionTone.PINNED, note = "仅此设备", onToggle = {},
+            com.hermes.client.ui.components.SectionHeader(
+                "已置顶", 1, com.hermes.client.ui.components.SectionTone.PINNED, note = "仅此设备", onToggle = {},
             )
-            com.hermes.client.ui.sessions.SectionHeader(
-                "今天", 4, com.hermes.client.ui.sessions.SectionTone.TODAY, onToggle = {},
+            com.hermes.client.ui.components.SectionHeader(
+                "今天", 4, com.hermes.client.ui.components.SectionTone.TODAY, onToggle = {},
             )
-            com.hermes.client.ui.sessions.SectionHeader(
-                "前 7 天", 19, com.hermes.client.ui.sessions.SectionTone.OLDER, collapsed = true, onToggle = {},
+            com.hermes.client.ui.components.SectionHeader(
+                "前 7 天", 19, com.hermes.client.ui.components.SectionTone.OLDER, collapsed = true, onToggle = {},
             )
         }
     }

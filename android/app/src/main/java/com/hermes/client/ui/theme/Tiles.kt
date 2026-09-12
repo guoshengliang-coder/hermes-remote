@@ -61,6 +61,61 @@ fun fabContainerColor(): Color = if (isDarkSurface()) FabContainerDark else FabC
 @Composable
 fun fabOutlineColor(): Color = if (isDarkSurface()) FabOutlineDark else Color.Transparent
 
+// ── Cron detail's primary action (docs/DESIGN.md §5.18, Stitch 基线-定时任务/任务详情) ─────────
+//
+// 「立即运行」 is a filled near-black button — the same reasoning as the FAB: a scheduled-jobs page
+// is wall-to-wall status colour, so the one button that STARTS something must not borrow a hue
+// that reports how something went.
+//
+// Its own token rather than [FabContainerLight]'s, per §2.7 item 1: the two happen to share the
+// light value and have nothing to do with each other, so moving one must not drag the other. The
+// dark tier is where they actually differ — the detail mock lifts the button off the obsidian
+// ground (#1E232B) instead of sinking it, and rings it with the same hairline the FAB uses.
+internal val CronActionLight = Color(0xFF181C24)
+internal val CronActionDark = Color(0xFF1E232B)
+
+/** The action button's hairline: dark only, like the FAB's. */
+internal val CronActionOutlineDark = Color(0xFF3A4049)
+
+@Composable
+fun cronActionColor(): Color = if (isDarkSurface()) CronActionDark else CronActionLight
+
+@Composable
+fun cronActionOutlineColor(): Color = if (isDarkSurface()) CronActionOutlineDark else Color.Transparent
+
+// ── Cron detail's cards (docs/DESIGN.md §5.18) ────────────────────────────────────────────────
+//
+// The pale-card language of §2.3, with the detail mock's own values: the card is brighter than
+// the page in light and a step above the obsidian ground in dark. These are page content, not a
+// floating layer — the list rows sit on bare paper (§2.1) and only the detail page has cards.
+internal val CronCardLight = Color(0xFFFFFFFF)
+internal val CronCardDark = Color(0xFF161A22)
+
+/**
+ * The card's hairline. The mock's dark tier is `rgba(255,255,255,0.05)`; §2.1 wants opaque pairs
+ * so a colour can be pinned, and this is that alpha resolved against the card — the same value the
+ * card page's tile border already uses.
+ */
+internal val CronCardBorderLight = Color(0xFFE9E8E4)
+internal val CronCardBorderDark = Color(0xFF262C35)
+
+/** The prompt card's header strip: a half-step off the card, so the card reads as two zones. */
+internal val CronCardHeaderLight = Color(0xFFFCFBF8)
+internal val CronCardHeaderDark = Color(0xFF13171E)
+
+/** The prompt block itself — recessed, the way a code block is everywhere else. */
+internal val CronInsetLight = Color(0xFFFAF9F5)
+internal val CronInsetDark = Color(0xFF0A0D11)
+
+@Composable fun cronCardColor(): Color = if (isDarkSurface()) CronCardDark else CronCardLight
+@Composable fun cronCardBorderColor(): Color = if (isDarkSurface()) CronCardBorderDark else CronCardBorderLight
+@Composable fun cronCardHeaderColor(): Color = if (isDarkSurface()) CronCardHeaderDark else CronCardHeaderLight
+@Composable fun cronInsetColor(): Color = if (isDarkSurface()) CronInsetDark else CronInsetLight
+
+/** No shadow in dark: the ground is already darker than the card. Same rule as every other card. */
+@Composable
+fun cronCardShadow(): Dp = if (isDarkSurface()) 0.dp else 1.dp
+
 /**
  * The run spinner (docs/DESIGN.md §5.2). Blue — NOT the cyan that `StatusTone.RUNNING` paints the
  * status text with. The design source deliberately splits them: the words say what is happening,

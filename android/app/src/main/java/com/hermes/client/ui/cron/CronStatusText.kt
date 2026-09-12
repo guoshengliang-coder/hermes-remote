@@ -14,7 +14,10 @@ import com.hermes.client.ui.localization.localizedText
  */
 fun cronStatusText(raw: String?): LocalizedText? = when (raw?.trim()?.lowercase()?.ifBlank { null }) {
     null -> null
-    "ok", "success", "succeeded" -> localizedText("成功", "Succeeded")
+    // `cron_complete` is what a RUN reports when it finished (the job's `last_status` says `ok`).
+    // Without this branch the verbatim fallback put the bare server token on screen as the primary
+    // text — exactly what ERROR_HANDLING.md forbids, and the design source draws it that way too.
+    "ok", "success", "succeeded", "cron_complete" -> localizedText("成功", "Succeeded")
     "error", "failed" -> localizedText("失败", "Failed")
     // Ran fine, output never reached the channel. See HR-CRON-001.
     "delivery_failed" -> localizedText("已运行，未送达", "Ran, not delivered")
