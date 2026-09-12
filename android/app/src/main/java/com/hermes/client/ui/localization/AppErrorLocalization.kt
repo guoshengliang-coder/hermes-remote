@@ -90,6 +90,20 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "无法生成对话长图，请重试或改用 Markdown 文件。", "Couldn't render the transcript image. Retry, or share it as a Markdown file.")
         AppErrorCode.AVATAR_PHOTO_FAILED ->
             localized(language, "无法读取所选照片，请换一张再试。", "Couldn't read the selected photo. Try a different one.")
+        AppErrorCode.IMAGE_DECODE_FAILED ->
+            localized(
+                language,
+                "无法打开这张图片，可能已损坏或过大。请换一张再试。",
+                "Couldn't open this image — it may be damaged or too large. Try a different one.",
+            )
+        // Kept separate from the decode failure on purpose: "your edits are still on screen" is the
+        // recovery, and collapsing the two codes would lose it.
+        AppErrorCode.IMAGE_EDIT_SAVE_FAILED ->
+            localized(
+                language,
+                "编辑结果保存失败，请重试；你的修改仍在屏幕上。",
+                "Couldn't save the edited image. Retry — your edits are still on screen.",
+            )
         AppErrorCode.PROFILE_IDENTITY_SAVE_FAILED ->
             localized(language, "无法保存身份设置，请重试。", "Couldn't save the profile settings. Retry.")
         AppErrorCode.SESSION_NOT_FOUND ->

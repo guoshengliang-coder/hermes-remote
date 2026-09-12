@@ -883,3 +883,23 @@ fun ChatUiState.withAttachment(a: PendingAttachment): ChatUiState =
 
 fun ChatUiState.withoutAttachment(id: String): ChatUiState =
     copy(pendingAttachments = pendingAttachments.filterNot { it.id == id })
+
+/**
+ * Swap one pending attachment's content while keeping its id and its **position** in the strip.
+ *
+ * Position matters: attachments upload in list order, so removing and re-adding would silently
+ * reorder what the user is about to send. A no-op when the id is gone, which is what happens if the
+ * chip was removed while the editor was open.
+ */
+fun ChatUiState.withReplacedAttachment(
+    id: String,
+    bytes: ByteArray,
+    mimeType: String,
+    name: String,
+): ChatUiState = copy(
+    pendingAttachments = pendingAttachments.map {
+        // The revision bump is load-bearing, not bookkeeping: without it the new state compares
+        // equal to the old one and MutableStateFlow throws the assignment away.
+        if (it.id == id) PendingAttachment(id, bytes, mimeType, name, revision = it.revision + 1) else it
+    },
+)

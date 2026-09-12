@@ -559,3 +559,46 @@ the clean merge commit before handoff. Production publication and the repeated p
 migration remain separate gates; slash-command, Android traffic, service restart, and deferred full
 Mac reboot checks remain open. This ad-hoc app has not passed Developer ID signing, notarization,
 stapling, or clean-Mac launch.
+
+## 2026-09-12 managed release 0.3.4 publication and Desktop 0.2.9 activation
+
+PR #216 merged the coordinated Desktop 0.2.9/build 12 version gate as
+`996df9cf184bff92888a963132bad64e32a8761b`; every PR check and the resulting main CI and SAST
+workflows passed. A fresh detached worktree at that exact `origin/main` rebuilt the configured DMG.
+The mounted app carried version/build 0.2.9/12 and the expected enabled 0.3.4 internal manifest,
+architecture, key, origin, channel, and Hermes launch-contract settings. Strict ad-hoc codesign and
+`hdiutil verify` passed. The final 2,072,633-byte DMG SHA-256 is
+`0f788e517633bf43d69bca57b5dccb5d526257ced9759218aa89d173c363aa8d`.
+
+The three signed 0.3.4 files were published beneath the immutable public
+`/desktop/releases/0.3.4/` route. The active Nginx route passed syntax checking and reload. Every
+public object returned HTTP 200 with its declared length, expected content type, immutable cache
+header, and `nosniff`; the route directory returned 404 and the 0.3.3 manifest remained available.
+Full public HTTPS downloads reproduced all three hashes recorded above and passed the independent
+Ed25519 verifier. `/relay-health` remained healthy after the reload.
+The temporary upload directory and pre-0.3.4 route backup were removed after these checks.
+
+Those public artifacts and the final DMG were installed on `LGS-MACMINI` with owner-only recovery
+snapshots. The managed release pointer moved atomically from 0.3.3 to 0.3.4. Desktop then completed
+the pre-contract migration: the existing 64-character lowercase-hex session token is held only in
+the owner-only regular token file, both owner-only LaunchAgents refer to that file and contain no
+inline session-token variable, and the owner-only completion marker contains version `1`. The
+migration journal remains `account_active`; both managed labels run, the legacy Connector label is
+unloaded, authenticated loopback `/api/status` returns HTTP 200 from Hermes 0.21.0, and Connector
+reports an active account-mode Gateway connection.
+
+A live Desktop inspection after Keychain authorization showed 0.2.9-dev, `账号已登录 工作正常`, and
+`托管版本 0.3.4 已接管后台连接`. An ordered service recovery check then restarted Hermes before
+Connector. Both PIDs changed, authenticated loopback health returned HTTP 200 before and after the
+restart, Connector re-established an upstream TLS socket, and the legacy label stayed unloaded. A
+full Mac reboot remains deliberately deferred; it is not implied by this service-restart result.
+
+The attached vivo V2166BA and HONOR CLK-AN00 both ran Android 0.1.121/build 122. Their first cold
+start correctly failed with `HR-CONN-002` because both had been left on the documented development
+loopback address after an earlier dev-stack run and neither retained an account session. This does
+not exercise the production account route. Account login, real `/model`, `/compact`, normal-prompt
+traffic, and the final Android REST/WebSocket evidence remain pending until the operator completes
+email verification on the phones.
+
+This is an internal ad-hoc Desktop build. It is not Developer ID signed, notarized, stapled, or
+approved for public distribution.

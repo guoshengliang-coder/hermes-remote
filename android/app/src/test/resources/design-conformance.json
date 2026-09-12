@@ -16,6 +16,9 @@
     "",
     "chat.* 段来自 基线-聊天页/滑动引导胶囊（screens/6edba5b1 浅 / 739c148b 暗夜）与 基线-聊天页/我的提问（screens/07b68677 浅 / 5dc3f52a 暗夜），2026-09-12 第六次拉取。",
     "这两张稿是本项目第一批「去蓝化」界面：胶囊与当前行不再用 primaryContainer。暗档独有的 1dp 描边表达不成颜色行，记在锁文件 pairs。",
+    "",
+    "rowmenu.* 段来自 基线-会话列表页/长按下拉菜单（screens/26444bf7 浅 / 58f8a506 暗夜），2026-09-12 第八次拉取抽取。",
+
 
     "cron.* 段来自 基线-定时任务列表（screens/2bac8b67 浅 / 13d2943f 暗夜）与 基线-定时任务/任务详情（screens/da21dbac 浅 / 3e59f117 暗夜），2026-09-12 第七次拉取。",
     "列表的行、分组头与计数 chip 复用 row.* / group.* 档，不在这里重复记；两张稿在那几档上与会话列表冲突，裁决见锁文件 specChanges。"
@@ -331,6 +334,64 @@
       "reason": "",
       "note": "只有暗档比普通行的时间亮一档；浅档与普通行同色。此前当前行的时间用 primary，去蓝化后不再。" },
 
+    { "role": "rowmenu.sheet", "ref": "tiles:rowMenuSheet",
+      "design": ["#FAF9F5", "#161A22"], "impl": ["#FAF9F5", "#161A22"],
+      "reason": "",
+      "note": "行长按操作单（screens/26444bf7 浅 / 58f8a506 暗夜）。浅档就是页面自己的纸 —— 弹层与它身后的列表同色，靠顶边发丝与投影分层，不走 M3 给 ModalBottomSheet 的 surfaceContainerLow 默认值；暗档才是 surfaceContainerLow。两张稿对「一个弹层填什么」的答案不同，与主题弹层稿（纯白）也不同，各自成族。" },
+
+    { "role": "rowmenu.sheet.border", "ref": "tiles:rowMenuSheetBorder",
+      "design": ["#F0EFEB", "#292C34"], "impl": ["#F0EFEB", "#292C34"],
+      "reason": "",
+      "note": "稿里是 rgba(0,0,0,0.04) / rgba(255,255,255,0.08)，按卡片页解 rgba 的老办法压成不透明合成值（底色见 rowmenu.sheet）—— fixture 能钉颜色，钉不了混合。浅档它是唯一把弹层与纸分开的东西。" },
+
+    { "role": "rowmenu.handle", "ref": "tiles:rowMenuHandle",
+      "design": ["#C9C7C2", "#3A4049"], "impl": ["#C9C7C2", "#423F3A"],
+      "reason": "暗色稿的 #3A4049 是冷灰，§2.1 禁止在这套暖中性里用冷阶，换成等明度暖阶 #423F3A（= outlineVariant 暗档）。浅档 #C9C7C2 本就是 outlineVariant 浅档，逐字照抄。" },
+
+    { "role": "rowmenu.chip", "ref": "tiles:rowMenuChip",
+      "design": ["#EFEEEA", "#262C35"], "impl": ["#EFEEEA", "#262C35"],
+      "reason": "",
+      "note": "类型标的底，也是 ✕ 钮的底。浅档 = surfaceContainer、暗档 = surfaceContainerHighest —— 与分段胶囊「浮起片相对轨道取」同一套：相对各自的地抬一档，而不是两档取同一个名字。稿里 ✕ 钮浅档写 #EFEFEA，与 #EFEEEA 差 1 —— 视为同一档，未记偏离。" },
+
+    { "role": "rowmenu.chip.border", "ref": "tiles:rowMenuChipBorder",
+      "design": ["#E0DEDA", "#373D45"], "impl": ["#E0DEDA", "#373D45"],
+      "reason": "",
+      "note": "类型标的 1dp 描边。稿里是 rgba(201,199,194,0.4) / rgba(255,255,255,0.08)，同 rowmenu.divider 解成不透明合成值（底色是 rowmenu.chip）。它不是装饰：#EFEEEA 的标坐在 #FAF9F5 纸上只差 1.05:1，描边是让它成为一枚标的东西。" },
+
+    { "role": "rowmenu.chip.ink", "ref": "tiles:rowMenuChipInk",
+      "design": ["#494641", "#E2E0DB"], "impl": ["#494641", "#E2E0DB"],
+      "reason": "",
+      "note": "类型标的字。稿子两档不同层：浅色用 onSurfaceVariant、暗色用 onSurface。照稿，不收敛成一档。" },
+
+    { "role": "rowmenu.divider", "ref": "tiles:rowMenuDivider",
+      "design": ["#EAE9E4", "#24282F"], "impl": ["#EAE9E4", "#24282F"],
+      "reason": "",
+      "note": "标题行下缘与删除行上方那两条。稿里是 rgba(119,114,104,0.12) / rgba(255,255,255,0.06)，同 rowmenu.sheet.border 解成不透明合成值。" },
+
+    { "role": "rowmenu.ink.faint", "ref": "tiles:rowMenuInkFaint",
+      "design": ["#777268", "#777268"], "impl": ["#777268", "#8D897E"],
+      "reason": "暗色稿的行尾值与 chevron 用了 #777268 —— 那是浅色档的 outline，落在暗底上只有 2.7:1。换成暗档 outline #8D897E。浅档 #777268 本就是 outline 浅档，逐字照抄。" },
+
+    { "role": "rowmenu.close.ink", "ref": "tiles:rowMenuCloseInk",
+      "design": ["#777268", "#A8A49C"], "impl": ["#777268", "#A8A49C"],
+      "reason": "",
+      "note": "✕ 字形。与 rowmenu.ink.faint 浅档同值、暗档不同：稿子把暗色的 ✕ 提到 onSurfaceVariant，而行尾说明留在更淡的一档。照稿分开记。" },
+
+    { "role": "rowmenu.ink", "ref": "scheme:onSurface",
+      "design": ["#1B1C1A", "#E2E0DB"], "impl": ["#1B1C1A", "#E2E0DB"],
+      "reason": "",
+      "note": "标题与操作项文字共用一档。" },
+
+    { "role": "rowmenu.icon", "ref": "scheme:onSurfaceVariant",
+      "design": ["#494641", "#A8A49C"], "impl": ["#494641", "#A8A49C"],
+      "reason": "",
+      "note": "四个非破坏性操作的 20dp 字形。" },
+
+    { "role": "rowmenu.destructive", "ref": "scheme:error",
+      "design": ["#BA1A1A", "#FFB4AB"], "impl": ["#BA1A1A", "#FFB4AB"],
+      "reason": "",
+      "note": "「删除会话」的图标、文字与行尾「不可撤销」同色。稿子暗档把行尾写成 #FFB4AB/80，落地用全值：一行里两个透明度的同色只会让它看起来像没渲染完。归档行不涂红 —— §5.2，可逆动作不算破坏性。" },
+
     { "role": "cron.pillar.needsYou", "ref": "warnGraphic:",
       "design": ["#B91C1C", "#FBBF24"], "impl": ["#D97706", "#F59E0B"],
       "reason": "浅暗两张稿在这一处互相矛盾：浅色稿把「需要你处理」的立柱与计数 chip 画成红，暗色稿画成琥珀。取仓库既有的琥珀两档（= 会话列表的同名分组）—— 红在本仓已是「运行失败」，而同一行右侧就有一枚红状态点，两个红会互相解释不清。",
@@ -539,6 +600,26 @@
       "design": ["10", "400", "15", "0"], "impl": ["10", "400", "15", "0"],
       "reason": "",
       "note": "chip 里跟在模型名后的提供商小字，也用于「正在切换至 X」那一行。" },
+
+    { "role": "rowmenu.title", "ref": "type:RowMenuTitle",
+      "design": ["16", "600", "20", "-0.4"], "impl": ["16", "600", "20", "-0.4"],
+      "reason": "",
+      "note": "行长按操作单的标题。本段四档全是 text-[…] 任意值步，都不自带行高，一律继承 body 的 text-body-md 配对 20px —— 20 出现在 11sp 的类型标上也是稿子自己的数，正是它让类型标 24dp 高（20+py-0.5）、操作行 44dp 高（20+py-3）。" },
+
+    { "role": "rowmenu.action", "ref": "type:RowMenuAction",
+      "design": ["16", "500", "20", "-0.4"], "impl": ["16", "500", "20", "-0.4"],
+      "reason": "",
+      "note": "操作项文字。浅暗两稿在这一档上打架：浅 15px、暗 16px，例外地取暗色档（同时落在 M3 标准步上，15sp 在本仓任何主操作文字上都没有先例）。裁决记在锁文件 pairs。" },
+
+    { "role": "rowmenu.hint", "ref": "type:RowMenuHint",
+      "design": ["13", "400", "20", "0"], "impl": ["13", "400", "20", "0"],
+      "reason": "",
+      "note": "行尾说明与行尾项目名。同 rowmenu.action，浅 12px / 暗 13px，取暗色档。删除行的行尾是这一档的 500，在调用处 copy —— 稿子只把那一个换成 font-medium。" },
+
+    { "role": "rowmenu.chip", "ref": "type:RowMenuChipLabel",
+      "design": ["11", "500", "20", "0.275"], "impl": ["11", "500", "20", "0.275"],
+      "reason": "",
+      "note": "类型标「会话」/「已归档」。tracking-wide = 0.025em，在 11px 上是 0.275。与卡片页 card.theme.badge（10/600）、模型选择 model.badge（11/500/16.5）都不同档，不要合并。" },
 
     { "role": "cron.topbar.title", "ref": "type:CronTopBarTitle",
       "design": ["19", "600", "27.55", "-0.19"], "impl": ["19", "600", "27.55", "-0.19"],

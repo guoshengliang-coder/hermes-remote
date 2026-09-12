@@ -567,10 +567,7 @@ class ScreenshotTest {
                     com.hermes.client.ui.chat.UserBubble(
                         msg = msg,
                         onEditResend = {},
-                        onImageSave = {},
-                        onImageSaveAs = {},
-                        onImageShare = {},
-                        savingImageId = null,
+                        onOpenImage = { _, _ -> },
                         onFileOpen = {},
                         onFileShare = {},
                         sendDiagnostic = code?.let { "code=${it.value}" },
@@ -924,6 +921,103 @@ class ScreenshotTest {
 
     // Turn-jump landing feedback vs search highlight (DESIGN.md §5.4): the landed bubble gets an
     // outline only (shown at full alpha, i.e. the first frame); the search hit keeps fill + outline.
+    // ── 会话行长按操作单 (docs/DESIGN.md §5.5, Stitch 基线-会话列表页/长按下拉菜单) ─────────────
+    //
+    // The body below the grab bar, for the reason themeSheet() does the same: a ModalBottomSheet
+    // renders in its own window and onRoot() cannot reach it. Everything the mock draws from the
+    // title row down is here; the hairline top edge and the 36×4dp bar live in the sheet's
+    // dragHandle slot and are pinned by the overlay check against the rendered mock instead.
+    //
+    // Named after the lock file's keys so the golden, the snapshot and the overlay all say the
+    // same thing.
+    private fun rowMenu(
+        name: String,
+        darkTheme: Boolean = false,
+        fontScale: Float? = null,
+        language: com.hermes.client.ui.localization.AppLanguage =
+            com.hermes.client.ui.localization.AppLanguage.ZH,
+        // The running case: the gateway refuses to move a running session, so the row is greyed.
+        // Drawn in the default golden rather than in one of its own — a disabled row costs nothing
+        // to include and an extra picture would have to be kept in step with this one.
+        moveEnabled: Boolean = true,
+        content: (@androidx.compose.runtime.Composable () -> Unit)? = null,
+    ) = snap(name, darkTheme = darkTheme, fontScale = fontScale) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides language,
+        ) {
+            androidx.compose.foundation.layout.Box(
+                androidx.compose.ui.Modifier
+                    .widthIn(max = 390.dp)
+                    .background(com.hermes.client.ui.theme.rowMenuSheetColor()),
+            ) {
+                com.hermes.client.ui.components.RowActionSheetContent(
+                    typeLabel = if (language == com.hermes.client.ui.localization.AppLanguage.ZH) "会话" else "Chat",
+                    title = "生成三个审核测试选项",
+                    onClose = {},
+                ) {
+                    if (content != null) {
+                        content()
+                    } else {
+                        com.hermes.client.ui.sessions.SessionActionItems(
+                            isPinned = false,
+                            currentProjectLabel = if (language == com.hermes.client.ui.localization.AppLanguage.ZH) "默认项目" else "Default project",
+                            moveEnabled = moveEnabled,
+                            onTogglePin = {}, onRename = {}, onMoveToProject = {},
+                            onArchive = {}, onDelete = {},
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun rowMenuLight() = rowMenu("sessions.chats.default.row-menu.light")
+
+    @Test fun rowMenuDark() = rowMenu("sessions.chats.default.row-menu.dark", darkTheme = true)
+
+    /**
+     * The row that has to survive: English is longer than Chinese in every label here, fontScale
+     * 1.3 grows the label and the trailing hint together, and the trailing hint is right-aligned
+     * against a label that is left-aligned. If anything in this sheet collides, it collides here.
+     */
+    @Test fun rowMenuEnLargeFont() = rowMenu(
+        "sessions.chats.default.row-menu.en-fs13",
+        fontScale = 1.3f,
+        language = com.hermes.client.ui.localization.AppLanguage.EN,
+    )
+
+    /** A session that is running: 「移动到项目」 is the one row the gateway will refuse (4009). */
+    @Test fun rowMenuMoveDisabled() = rowMenu(
+        "sessions.chats.default.row-menu.move-disabled",
+        moveEnabled = false,
+    )
+
+    /**
+     * The archived list's two-action version of the same sheet — the reason it is a shared
+     * component. The type chip is what tells them apart, which is the whole argument for making it
+     * carry the source instead of the mock's constant 「会话」.
+     */
+    @Test fun rowMenuArchived() = snap("sessions.chats.default.row-menu.archived") {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides
+                com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+            androidx.compose.foundation.layout.Box(
+                androidx.compose.ui.Modifier
+                    .widthIn(max = 390.dp)
+                    .background(com.hermes.client.ui.theme.rowMenuSheetColor()),
+            ) {
+                com.hermes.client.ui.components.RowActionSheetContent(
+                    typeLabel = "已归档",
+                    title = "自动化巡检报告导出",
+                    onClose = {},
+                ) {
+                    com.hermes.client.ui.sessions.ArchivedActionItems(onUnarchive = {}, onDelete = {})
+                }
+            }
+        }
+    }
+
     private fun snapLanding(name: String, darkTheme: Boolean) = snap(name, darkTheme = darkTheme) {
         androidx.compose.foundation.layout.Column(
             modifier = androidx.compose.ui.Modifier.padding(horizontal = 22.dp, vertical = 16.dp),
@@ -936,7 +1030,7 @@ class ScreenshotTest {
             ).forEach { (id, landing, search) ->
                 com.hermes.client.ui.chat.UserBubble(
                     msg = userTurn(id, "可以进一步加大虚拟内存什么的吗", com.hermes.client.domain.DeliveryState.SENT),
-                    onEditResend = {}, onImageSave = {}, onImageSaveAs = {}, onImageShare = {}, savingImageId = null,
+                    onEditResend = {}, onOpenImage = { _, _ -> },
                     onFileOpen = {}, onFileShare = {}, highlighted = search, landingAlpha = landing,
                 )
             }
@@ -1054,8 +1148,7 @@ class ScreenshotTest {
                         role = com.hermes.client.domain.Role.USER,
                         text = "帮我看下这个报错",
                     ),
-                    onEditResend = {}, onImageSave = {}, onImageSaveAs = {}, onImageShare = {},
-                    savingImageId = null, onFileOpen = {}, onFileShare = {},
+                    onEditResend = {}, onOpenImage = { _, _ -> }, onFileOpen = {}, onFileShare = {},
                 )
                 com.hermes.client.ui.chat.UserBubble(
                     msg = com.hermes.client.domain.ChatMessage(
@@ -1063,8 +1156,7 @@ class ScreenshotTest {
                         role = com.hermes.client.domain.Role.USER,
                         text = "我从手机补一句",
                     ),
-                    onEditResend = {}, onImageSave = {}, onImageSaveAs = {}, onImageShare = {},
-                    savingImageId = null, onFileOpen = {}, onFileShare = {},
+                    onEditResend = {}, onOpenImage = { _, _ -> }, onFileOpen = {}, onFileShare = {},
                 )
             }
         }

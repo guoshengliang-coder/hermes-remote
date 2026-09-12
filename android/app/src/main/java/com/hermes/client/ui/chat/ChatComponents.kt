@@ -140,9 +140,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.asImageBitmap
 import android.widget.Toast
-import android.graphics.BitmapFactory
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import com.hermes.client.domain.ToolCall
@@ -461,10 +459,7 @@ fun ChatMessageList(
     isSpeaking: Boolean = false,
     onReadAloud: (String) -> Unit = {},
     onStopReading: () -> Unit = {},
-    onImageSave: (ChatImage) -> Unit = {},
-    onImageSaveAs: (ChatImage) -> Unit = {},
-    onImageShare: (ChatImage) -> Unit = {},
-    savingImageId: String? = null,
+    onOpenImage: (String, ChatImage) -> Unit = { _, _ -> },
     onFileOpen: (ChatFile) -> Unit = {},
     onFileShare: (ChatFile) -> Unit = {},
     highlightIndex: Int? = null,
@@ -728,7 +723,8 @@ fun ChatMessageList(
             }
     }
 
-    val openTableFullscreen: (String) -> Unit = { raw ->
+    // Both fullscreen overlays have to freeze the same scroll position, so they share one capture.
+    val captureViewportForOverlay: () -> Unit = {
         val firstIndex = listState.firstVisibleItemIndex
         val firstKey = listState.layoutInfo.visibleItemsInfo
             .firstOrNull { it.index == firstIndex }
@@ -739,6 +735,15 @@ fun ChatMessageList(
             listState.firstVisibleItemScrollOffset,
         )
         semanticViewport.lockForOverlay()
+    }
+
+    val openImageViewer: (String, ChatImage) -> Unit = { messageId, image ->
+        captureViewportForOverlay()
+        onOpenImage(messageId, image)
+    }
+
+    val openTableFullscreen: (String) -> Unit = { raw ->
+        captureViewportForOverlay()
         onOpenTableFullscreen(raw)
     }
 
@@ -1100,10 +1105,7 @@ fun ChatMessageList(
                         isSpeaking,
                         onReadAloud,
                         onStopReading,
-                        onImageSave,
-                        onImageSaveAs,
-                        onImageShare,
-                        savingImageId,
+                        openImageViewer,
                         onFileOpen,
                         onFileShare,
                         smoothLiveResize = smoothLiveResize,
@@ -1306,10 +1308,7 @@ private fun MessageBubble(
     isSpeaking: Boolean,
     onReadAloud: (String) -> Unit,
     onStopReading: () -> Unit,
-    onImageSave: (ChatImage) -> Unit,
-    onImageSaveAs: (ChatImage) -> Unit,
-    onImageShare: (ChatImage) -> Unit,
-    savingImageId: String?,
+    onOpenImage: (String, ChatImage) -> Unit,
     onFileOpen: (ChatFile) -> Unit,
     onFileShare: (ChatFile) -> Unit,
     smoothLiveResize: Boolean = false,
@@ -1328,8 +1327,8 @@ private fun MessageBubble(
         LocalTurnIsCurrentHit provides (searchContext != null && searchContext.currentMessageId == msg.id),
     ) {
         when (msg.role) {
-            Role.USER -> UserBubble(msg, onEditResend, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted, landingAlpha = landingAlpha, onRetrySend = onRetrySend, sendDiagnostic = sendDiagnosticFor(msg.id), sendErrorCode = sendErrorCodeFor(msg.id))
-            else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, highlighted = highlighted, landingAlpha = landingAlpha)
+            Role.USER -> UserBubble(msg, onEditResend, onOpenImage, onFileOpen, onFileShare, highlighted = highlighted, landingAlpha = landingAlpha, onRetrySend = onRetrySend, sendDiagnostic = sendDiagnosticFor(msg.id), sendErrorCode = sendErrorCodeFor(msg.id))
+            else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onOpenImage, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, highlighted = highlighted, landingAlpha = landingAlpha)
     }
     }
 }
@@ -1339,10 +1338,7 @@ private fun MessageBubble(
 internal fun UserBubble(
     msg: ChatMessage,
     onEditResend: (String) -> Unit,
-    onImageSave: (ChatImage) -> Unit,
-    onImageSaveAs: (ChatImage) -> Unit,
-    onImageShare: (ChatImage) -> Unit,
-    savingImageId: String?,
+    onOpenImage: (String, ChatImage) -> Unit,
     onFileOpen: (ChatFile) -> Unit,
     onFileShare: (ChatFile) -> Unit,
     highlighted: Boolean = false,
@@ -1445,7 +1441,7 @@ internal fun UserBubble(
             ) {
               CompositionLocalProvider(LocalContentColor provides textColor) {
                 if (msg.images.isNotEmpty()) {
-                    ChatImageGrid(msg.images, onImageSave, onImageSaveAs, onImageShare, savingImageId)
+                    ChatImageGrid(msg.images) { onOpenImage(msg.id, it) }
                     if (msg.text.isNotBlank() || msg.files.isNotEmpty()) Spacer(Modifier.height(8.dp))
                 }
                 if (msg.files.isNotEmpty()) {
@@ -1569,183 +1565,6 @@ private fun DeliveryTailMarker(failed: Boolean, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ChatImageGrid(
-    images: List<ChatImage>,
-    onSave: (ChatImage) -> Unit,
-    onSaveAs: (ChatImage) -> Unit,
-    onShare: (ChatImage) -> Unit,
-    savingImageId: String?,
-) {
-    var selected by remember { mutableStateOf<ChatImage?>(null) }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        images.chunked(2).forEach { rowImages ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                rowImages.forEach { image ->
-                    ChatImageThumbnail(
-                        image = image,
-                        modifier = Modifier.weight(1f).height(if (images.size == 1) 190.dp else 132.dp),
-                        onClick = { if (image.localPath != null) selected = image },
-                    )
-                }
-                if (rowImages.size == 1 && images.size > 1) Spacer(Modifier.weight(1f))
-            }
-        }
-    }
-    selected?.let { image ->
-        FullScreenImage(
-            image = image,
-            saving = savingImageId == image.id,
-            onSave = { onSave(image) },
-            onSaveAs = { onSaveAs(image) },
-            onShare = { onShare(image) },
-            onDismiss = { selected = null },
-        )
-    }
-}
-
-@Composable
-private fun ChatImageThumbnail(image: ChatImage, modifier: Modifier, onClick: () -> Unit) {
-    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, image.localPath) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            image.localPath?.let { decodeImageFile(it, 900) }
-        }
-    }
-    val shape = RoundedCornerShape(14.dp)
-    Box(
-        modifier.clip(shape).background(MaterialTheme.colorScheme.surface).clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap!!,
-                contentDescription = localized(LocalAppLanguage.current, "聊天图片", "Chat image"),
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-        } else if (image.state == ImageTransferState.UPLOADING ||
-            ((image.remotePath != null || image.sourceUrl != null) && image.state != ImageTransferState.FAILED)
-        ) {
-            com.hermes.client.ui.components.HermesMark(size = 24.dp)
-        } else {
-            Icon(
-                Icons.Rounded.BrokenImage,
-                contentDescription = localized(LocalAppLanguage.current, "图片加载失败", "Image unavailable"),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun FullScreenImage(
-    image: ChatImage,
-    saving: Boolean,
-    onSave: () -> Unit,
-    onSaveAs: () -> Unit,
-    onShare: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var scale by remember(image.id) { mutableStateOf(1f) }
-    var offset by remember(image.id) { mutableStateOf(Offset.Zero) }
-    var menuOpen by remember(image.id) { mutableStateOf(false) }
-    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, image.localPath) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            image.localPath?.let { decodeImageFile(it, 4096) }
-        }
-    }
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
-        Box(
-            Modifier.fillMaxSize().background(Color.Black).pointerInput(image.id) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    scale = (scale * zoom).coerceIn(1f, 5f)
-                    offset = if (scale == 1f) Offset.Zero else offset + pan
-                }
-            },
-            contentAlignment = Alignment.Center,
-        ) {
-            bitmap?.let {
-                Image(
-                    bitmap = it,
-                    contentDescription = localized(LocalAppLanguage.current, "查看原图", "View full image"),
-                    modifier = Modifier.fillMaxSize().graphicsLayer(
-                        scaleX = scale,
-                        scaleY = scale,
-                        translationX = offset.x,
-                        translationY = offset.y,
-                    ),
-                    contentScale = ContentScale.Fit,
-                )
-            }
-            FullScreenImageAction(
-                contentDescription = localized(LocalAppLanguage.current, "关闭", "Close"),
-                modifier = Modifier.align(Alignment.TopStart).padding(top = 30.dp, start = 18.dp),
-                onClick = onDismiss,
-            ) { Icon(Icons.Rounded.Close, null, tint = Color.White) }
-            Row(
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 30.dp, end = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                FullScreenImageAction(
-                    contentDescription = localized(LocalAppLanguage.current, "保存图片", "Save image"),
-                    enabled = !saving,
-                    onClick = onSave,
-                ) {
-                    // Stays an M3 spinner: white-on-photo, where a single-colour brand mark
-                    // has no guaranteed contrast (docs/DESIGN.md §5.6).
-                    if (saving) CircularProgressIndicator(Modifier.size(21.dp), strokeWidth = 2.dp, color = Color.White)
-                    else Icon(Icons.Rounded.Download, null, tint = Color.White)
-                }
-                FullScreenImageAction(
-                    contentDescription = localized(LocalAppLanguage.current, "分享图片", "Share image"),
-                    enabled = !saving,
-                    onClick = onShare,
-                ) { Icon(Icons.Rounded.Share, null, tint = Color.White) }
-                Box {
-                    FullScreenImageAction(
-                        contentDescription = localized(LocalAppLanguage.current, "更多图片操作", "More image actions"),
-                        enabled = !saving,
-                        onClick = { menuOpen = true },
-                    ) { Icon(Icons.Rounded.MoreVert, null, tint = Color.White) }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text(localized(LocalAppLanguage.current, "另存为…", "Save as…")) },
-                            onClick = { menuOpen = false; onSaveAs() },
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FullScreenImageAction(
-    contentDescription: String,
-    enabled: Boolean = true,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-    icon: @Composable () -> Unit,
-) {
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier.semantics { this.contentDescription = contentDescription },
-        shape = CircleShape,
-        color = Color.Black.copy(alpha = 0.58f),
-    ) {
-        Box(Modifier.size(46.dp), contentAlignment = Alignment.Center) {
-            Box(Modifier.size(24.dp)) { icon() }
-        }
-    }
-}
-
-@Composable
 private fun ChatFileList(
     files: List<ChatFile>,
     onOpen: (ChatFile) -> Unit,
@@ -1808,18 +1627,6 @@ private fun ChatFileList(
     }
 }
 
-private fun decodeImageFile(path: String, requestedPx: Int): androidx.compose.ui.graphics.ImageBitmap? {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeFile(path, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-    var sample = 1
-    while (bounds.outWidth / sample > requestedPx * 2 || bounds.outHeight / sample > requestedPx * 2) {
-        sample *= 2
-    }
-    return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
-        ?.asImageBitmap()
-}
-
 @Composable
 private fun BackgroundProcessesCard(processes: List<com.hermes.client.data.repository.BackgroundProcess>) {
     val language = LocalAppLanguage.current
@@ -1880,10 +1687,7 @@ internal fun AssistantTurn(
     isSpeaking: Boolean,
     onReadAloud: (String) -> Unit,
     onStopReading: () -> Unit,
-    onImageSave: (ChatImage) -> Unit,
-    onImageSaveAs: (ChatImage) -> Unit,
-    onImageShare: (ChatImage) -> Unit,
-    savingImageId: String?,
+    onOpenImage: (String, ChatImage) -> Unit,
     onFileOpen: (ChatFile) -> Unit,
     onFileShare: (ChatFile) -> Unit,
     smoothLiveResize: Boolean = false,
@@ -1948,7 +1752,7 @@ internal fun AssistantTurn(
                 }
             }
             if (msg.images.isNotEmpty()) {
-                ChatImageGrid(msg.images, onImageSave, onImageSaveAs, onImageShare, savingImageId)
+                ChatImageGrid(msg.images) { onOpenImage(msg.id, it) }
                 if (renderedText.isNotBlank() || msg.files.isNotEmpty()) Spacer(Modifier.height(8.dp))
             }
             if (renderedText.isNotBlank()) {

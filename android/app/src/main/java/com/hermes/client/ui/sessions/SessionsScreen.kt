@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.draw.alpha
 import com.hermes.client.ui.localization.localizedMessage
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -37,7 +36,6 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
@@ -52,7 +50,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -667,52 +664,28 @@ internal fun SessionRow(
     }
 
     if (menuOpen) {
-        ModalBottomSheet(onDismissRequest = { menuOpen = false }, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
-            Text(
-                session.title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 2,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+        val currentLabel = projectLabelOf(session, defaultProjectPath)
+            ?: localized(language, "默认项目", "Default project")
+        com.hermes.client.ui.components.RowActionSheet(
+            typeLabel = localized(language, "会话", "Chat"),
+            title = session.title,
+            onDismiss = { menuOpen = false },
+        ) {
+            SessionActionItems(
+                isPinned = isPinned,
+                currentProjectLabel = currentLabel,
+                moveEnabled = moveEnabled,
+                onTogglePin = { menuOpen = false; onTogglePin() },
+                onRename = { menuOpen = false; renaming = true },
+                onMoveToProject = { menuOpen = false; onMoveToProject() },
+                // Archiving ALWAYS asks (docs/DESIGN.md §5.2, HG-5). This used to call onArchive()
+                // straight from the menu while `confirmingArchive` sat here unreachable, so the
+                // list archived on one tap and the chat page's same action asked — the two were
+                // documented as identical and had not been for months. The mock's trailing
+                // 「可在归档箱恢复」 is extra reassurance, not a replacement for the dialog.
+                onArchive = { menuOpen = false; confirmingArchive = true },
+                onDelete = { menuOpen = false; confirmingDelete = true },
             )
-            ListItem(
-                headlineContent = { Text(if (isPinned) localized(language, "取消置顶", "Unpin") else localized(language, "置顶", "Pin")) },
-                leadingContent = { Icon(Icons.Rounded.PushPin, contentDescription = null) },
-                modifier = Modifier.clickable { menuOpen = false; onTogglePin() },
-            )
-            ListItem(
-                headlineContent = { Text(localized(language, "重命名", "Rename")) },
-                leadingContent = { Icon(Icons.Rounded.Edit, contentDescription = null) },
-                modifier = Modifier.clickable { menuOpen = false; renaming = true },
-            )
-            val currentLabel = projectLabelOf(session, defaultProjectPath)
-                ?: localized(language, "默认项目", "Default project")
-            ListItem(
-                headlineContent = { Text(localized(language, "移动到项目…", "Move to project…")) },
-                supportingContent = { Text(localized(language, "当前：$currentLabel", "Current: $currentLabel")) },
-                leadingContent = {
-                    Icon(com.hermes.client.ui.components.FolderStrokeIcon, contentDescription = null, modifier = Modifier.size(24.dp))
-                },
-                modifier = Modifier
-                    .alpha(if (moveEnabled) 1f else 0.38f)
-                    .clickable(enabled = moveEnabled) { menuOpen = false; onMoveToProject() },
-            )
-            ListItem(
-                headlineContent = { Text(localized(language, "归档", "Archive")) },
-                leadingContent = { Icon(Icons.Rounded.Archive, contentDescription = null) },
-                modifier = Modifier.clickable { menuOpen = false; onArchive() },
-            )
-            ListItem(
-                headlineContent = { Text(localized(language, "删除", "Delete"), color = MaterialTheme.colorScheme.error) },
-                leadingContent = {
-                    Icon(
-                        Icons.Rounded.Delete,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                },
-                modifier = Modifier.clickable { menuOpen = false; confirmingDelete = true },
-            )
-            androidx.compose.foundation.layout.Spacer(Modifier.size(20.dp))
         }
     }
 
@@ -770,6 +743,69 @@ internal fun SessionRow(
             dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text(localized(language, "取消", "Cancel")) } },
         )
     }
+}
+
+/**
+ * The five actions a live session row offers, in the mock's order.
+ *
+ * Its own composable so the Roborazzi goldens can draw them without a live `ModalBottomSheet`
+ * (`sessions.chats.default.row-menu.*` in `ScreenshotTest`), and so the archived list's shorter set sits beside it as an
+ * obvious sibling rather than a copy.
+ *
+ * Copy is the mock's: 「移动到项目」 without the ellipsis (the chevron already says a picker
+ * follows), and 归档会话 / 删除会话 spelled out because a sheet titled with the session name reads
+ * better with the noun repeated than with a bare verb.
+ */
+@Composable
+internal fun SessionActionItems(
+    isPinned: Boolean,
+    currentProjectLabel: String,
+    moveEnabled: Boolean,
+    onTogglePin: () -> Unit,
+    onRename: () -> Unit,
+    onMoveToProject: () -> Unit,
+    onArchive: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val language = LocalAppLanguage.current
+    com.hermes.client.ui.components.RowActionItem(
+        icon = Icons.Rounded.PushPin,
+        label = if (isPinned) localized(language, "取消置顶", "Unpin") else localized(language, "置顶", "Pin"),
+        onClick = onTogglePin,
+    )
+    com.hermes.client.ui.components.RowActionItem(
+        icon = Icons.Rounded.Edit,
+        label = localized(language, "重命名", "Rename"),
+        onClick = onRename,
+    )
+    com.hermes.client.ui.components.RowActionItem(
+        icon = com.hermes.client.ui.components.FolderStrokeIcon,
+        label = localized(language, "移动到项目", "Move to project"),
+        // The project moved from a subline 「当前：X」 to the row's trailing edge, per the mock. It
+        // is the row's current VALUE, and a value belongs where the chevron that changes it is.
+        value = currentProjectLabel,
+        onClick = onMoveToProject,
+        // The gateway refuses to move a running session (4009); grey it out rather than let the
+        // tap fail.
+        enabled = moveEnabled,
+    )
+    com.hermes.client.ui.components.RowActionItem(
+        // The house stroke box, not Material's filled `Icons.Rounded.Archive`. The mock draws a
+        // stroke box, and the same action already uses this glyph in the top bar and on the
+        // archived list — one screen had been showing two archive icons.
+        icon = com.hermes.client.ui.components.ArchiveBoxIcon,
+        label = localized(language, "归档会话", "Archive"),
+        hint = localized(language, "可在归档箱恢复", "Restorable"),
+        onClick = onArchive,
+    )
+    com.hermes.client.ui.components.RowActionDivider()
+    com.hermes.client.ui.components.RowActionItem(
+        icon = Icons.Rounded.Delete,
+        label = localized(language, "删除会话", "Delete"),
+        hint = localized(language, "不可撤销", "Permanent"),
+        destructive = true,
+        onClick = onDelete,
+    )
 }
 
 /**
