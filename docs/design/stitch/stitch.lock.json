@@ -10,12 +10,17 @@
   "project": {
     "id": "8017882098155799612",
     "title": "Hermes GO",
-    "updateTimeAtPull": "2026-09-12T06:16:30.425317Z"
+    "updateTimeAtPull": "2026-09-12T07:09:29.016065Z"
   },
   "pulledAt": "2026-09-12",
   "pullHistory": [
     {
-      "at": "2026-09-12 (第七次)",
+      "at": "2026-09-12（第十次，聊天内搜索条首次入库）",
+      "projectUpdateTime": "2026-09-12T07:09:29.016065Z",
+      "result": "新增 3 张：基线-聊天页/搜索、/暗夜、/无内容状态（实为未输入态，标签待改名）。暗夜那张的 HTML 不可下载，用 =s2000 全尺寸截图入库，是本仓第一张没有 sha256 的基线。顺带把第七次的编号重复修掉：定时任务那次与聊天页那次都写了「第七次」，按 projectUpdateTime 排序定时任务在会话行长按操作单之后，改记为第九次。"
+    },
+    {
+      "at": "2026-09-12（第九次，定时任务首次入库）",
       "projectUpdateTime": "2026-09-12T06:16:30.425317Z",
       "result": "定时任务 4 张入库（新页面，词表新增「定时任务」）；另有 6 张新标签未拉取，见 notCovered"
     },
@@ -1348,6 +1353,112 @@
         "「立即运行」在暗档是 #1E232B + #3A4049 描边（浅档 #181C24）—— 这是 cronActionColor() 与 fabContainerColor() 分岔的地方，也是它单列成 token 的理由（§2.7 第 1 条）。",
         "卡的描边稿子写 rgba(255,255,255,0.05)；§2.1 要成对的不透明字面量，取压平后的 #262C35。"
       ]
+    },
+    {
+      "key": "chat.session.search.light",
+      "screenId": "c569c1cf9f584380b875095ea4bf6672",
+      "stitchLabel": "基线-聊天页/搜索",
+      "stitchTitle": "Hermes 聊天页 - 会话内搜索规范重构版 (温润浅色版)",
+      "page": "chat",
+      "view": "session",
+      "state": "search",
+      "overlay": null,
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.4 聊天页（聊天内搜索）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatSearchBar.kt",
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatSearchHighlight.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/SearchField.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（chatsearch.* 的 design 列从本稿抽取）",
+      "html": "chat.session.search.light.html",
+      "sha256": "e70afc7fb9caa13db6e5009d654345516c815a479a24875505cc760a28d5413c",
+      "canvasHeightCssPx": 884,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "有命中（4/12）"
+      ],
+      "notes": [
+        "本稿是浅色几何真源。搜索条由两行收成一行：计数与上下箭头搬进搜索胶囊内部，关闭由尾部 ✕ 换成首部 ←。",
+        "命中态**没有第二行** —— 来源标签与片段在稿子里不存在。产品 2026-09-12 裁定照稿删除；稿子没画的两态（正在加载对话…、此会话中没有匹配 + 在全部会话中搜索）按「Stitch 不覆盖清单」保留，因为那两态恰恰是回合本身说不出话的时候。",
+        "稿子自相矛盾一处：article 的注释写「外层施加柔和暖蓝定位指示框与微晕」，但 class 里一条描边都没有。整回合描边是搜索之后的定位反馈，按产品要求维持会话页现有处理，不按注释也不按画面删。",
+        "高亮在同一回合里分成 hit-current / hit-other，即按**出现位置**分档，而本仓按**回合**分档。本轮不改（同上一条理由），记在 design-conformance.json 的 note 里。",
+        "框内清除键稿子画 16dp，触达区实现给 28dp（与上下箭头同档）—— 稿子定的是画法。",
+        "本稿是完整聊天页，正文排版、底部输入 dock、回到底部圆钮与「内容由 AI 生成」脚注不属本轮范围。"
+      ]
+    },
+    {
+      "key": "chat.session.search.dark",
+      "screenId": "6bfce9d74a174bd399908b4cb23fda7a",
+      "stitchLabel": "基线-聊天页/搜索/暗夜",
+      "stitchTitle": "Hermes 聊天页 - 会话内搜索规范重构版 (黑曜石深色版)",
+      "page": "chat",
+      "view": "session",
+      "state": "search",
+      "overlay": null,
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.4 聊天页（聊天内搜索）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatSearchBar.kt",
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatSearchHighlight.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/SearchField.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（chatsearch.* 的 design 列从本稿抽取）",
+      "html": null,
+      "sha256": null,
+      "source": "screenshot",
+      "screenshot": "chat.session.search.dark.png",
+      "canvasHeightCssPx": 884,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "有命中（4/12）"
+      ],
+      "notes": [
+        "**本仓第一张没有 HTML 的基线。** 这张稿的 htmlCode.downloadUrl 落在 Stitch 的 stitch_files 存储区，匿名 curl 回来的是 Google 登录页；其余每一张稿（含同批两张浅色）都在 app_companion_generated_files 存储区、可以正常下载。重复 get_screen 拿到的是同一个地址，不是临时故障。",
+        "替代原件：screenshot.downloadUrl 后缀 =s2000 得到 780×1768 PNG，正好等于 390×884 CSS px @2x，与 stitch-render.sh --width 390 --height 884 --scale 2 的产物同尺寸，存为 chat.session.search.dark.png。因此本条没有 sha256（截图会随 Stitch 重出而变，钉它没有意义），也没有 .roborazzi.png（叠图尺寸要重排版，只有 HTML 能出）。",
+        "产品 2026-09-12 裁定：就用截图入库，不为此让设计师重导。要恢复成正常基线，在 Stitch 网页端把这张稿复制/另存一份即可。",
+        "暗档取值是在这张截图上逐点采样得到的：胶囊 #1E232B、胶囊描边 #262C35、条底发丝 #262C35、页底 #0F1217、清除键圆点 #343940、计数 #60A5FA、上下箭头 #E2E0DB、竖分隔 #3A4049、命中 #A6C8FF / #D6E4FF。哪几档逐字转写、哪几档换暖阶，逐行写在 design-conformance.json。",
+        "「/N」与清除叉的字色采不到实色（笔画细，只有抗锯齿边缘 #75–#8D），取仓库暗档 outline #8D897E。"
+      ]
+    },
+    {
+      "key": "chat.session.search.idle.light",
+      "screenId": "ccd58e9d1bfa4db8ba9170ac15904e71",
+      "stitchLabel": "基线-聊天页/搜索/无内容状态",
+      "stitchTitle": "Hermes 聊天页 - 会话内搜索初始态 (未输入·温润浅色版)",
+      "page": "chat",
+      "view": "session",
+      "state": "search",
+      "overlay": "idle",
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.4 聊天页（聊天内搜索）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatSearchBar.kt",
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatSearchHighlight.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/SearchField.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（chatsearch.* 的 design 列从本稿抽取）",
+      "html": "chat.session.search.idle.light.html",
+      "sha256": "430039b5185ba88ca442c8bec1187c97dfba48aee79a488b8d24b6bc410ea5b5",
+      "canvasHeightCssPx": 884,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "未输入（占位符 + 光标）"
+      ],
+      "notes": [
+        "**标签与画面对不上**：标签写「无内容状态」，画的却是**未输入初始态**（占位符「在对话中搜索…」+ 光标），不是「搜索了但没命中」。按 §7 第 8 条与行长按操作单的先例，画面赢：stitchLabel 存原文，键取 .idle.，请产品负责人在 Stitch 网页端改名为「基线-聊天页/搜索/未输入」（MCP 改不了标签）。稿子的 title 也这么写。",
+        "稿子自相矛盾一处：右侧控件组的注释写「禁用置灰状态的空匹配计数与翻页导航」，画面里这一组**整个不存在**。画面赢 —— 没输入时不渲染计数与上下箭头，胶囊让给输入。有输入但 0 命中时仍是 0/0 + 禁用箭头（这一态稿子没画，保留现状）。",
+        "暗色可省（§7 第 8 条：弹层与空态的暗色可省），本轮未出。"
+      ]
     }
   ],
   "pairs": [
@@ -1449,6 +1560,14 @@
       ],
       "geometry": "同构。105 个元素剥掉颜色类后只有 2 处差异：「上次运行」那一行的上内边距 pt-1 → pt-2，「复制」按钮的左右内边距 px-2 → px-2.5。",
       "decision": "几何取浅色稿；两处差异都在 1–2px 量级，不单独记为偏离。"
+    },
+    {
+      "screens": [
+        "chat.session.search.light",
+        "chat.session.search.dark"
+      ],
+      "geometry": "无法逐类比对 —— 暗夜稿没有 HTML（见该条 notes），只能在 780×1768 截图上量。量到的位置与浅色稿一致：← 36dp、胶囊 40dp 全圆角、竖分隔、计数、两枚 28dp 箭头，顺序与间距都对得上。",
+      "decision": "几何取浅色稿。暗档两处颜色不是浅档的变体，各自照稿：① 上下箭头浅色 primary、暗色 onSurface（记成 chatsearch.arrow 一对令牌，绑一个 scheme 角色会推翻其中一张稿）；② 胶囊在暗档多一条 1dp #262C35 描边而浅档没有 —— 与 chat.chip 同一情形，复用 chatChipBorder()，颜色行表达不了「没有」，记在这里。命中高亮浅暗同值，这是本仓唯一一对两档相同的颜色行。"
     }
   ],
   "candidates": [],

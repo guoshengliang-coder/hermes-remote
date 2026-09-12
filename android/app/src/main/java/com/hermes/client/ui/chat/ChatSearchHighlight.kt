@@ -1,13 +1,17 @@
 package com.hermes.client.ui.chat
 
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.buildAnnotatedString
 import com.hermes.client.ui.sessions.highlightRanges
+import com.hermes.client.ui.theme.ChatSearchHitCurrent
+import com.hermes.client.ui.theme.ChatSearchHitCurrentInk
+import com.hermes.client.ui.theme.ChatSearchHitOther
+import com.hermes.client.ui.theme.ChatSearchHitOtherInk
 import com.mikepenz.markdown.model.MarkdownAnnotator
 import com.mikepenz.markdown.model.markdownAnnotator
 import org.intellij.markdown.MarkdownTokenTypes
@@ -65,12 +69,21 @@ fun shouldAutoExpand(ctx: ChatSearchContext?, isCurrentTurn: Boolean, source: Se
     return body.contains(ctx.query.trim(), ignoreCase = true)
 }
 
-/** Mark style for search matches: stronger in the current turn, lighter elsewhere. */
+/**
+ * Mark style for search matches: stronger in the current turn, lighter elsewhere.
+ *
+ * Both tiers are the same pale-blue stickers in light and dark (Stitch 基线-聊天页/搜索 与 /暗夜,
+ * 2026-09-12) — see the tokens for why. What changed with that pull is that a mark now carries its
+ * OWN ink and weight instead of a tinted background alone: `primary@38%` under dark `onSurface`
+ * left the current hit at 1.6:1, the least readable text on the screen, which is the opposite of
+ * what a mark is for.
+ */
 @Composable
-fun searchMarkStyle(current: Boolean): SpanStyle {
-    val accent = MaterialTheme.colorScheme.primary
-    return SpanStyle(background = accent.copy(alpha = if (current) 0.38f else 0.16f))
-}
+fun searchMarkStyle(current: Boolean): SpanStyle = SpanStyle(
+    color = if (current) ChatSearchHitCurrentInk else ChatSearchHitOtherInk,
+    background = if (current) ChatSearchHitCurrent else ChatSearchHitOther,
+    fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium,
+)
 
 /** [text] with the active search marked, or plain when no search is open. */
 @Composable

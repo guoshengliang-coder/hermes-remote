@@ -25,7 +25,17 @@
    `候选-` 前缀（格式 `基线-页面/状态或弹层/暗夜`，见 DESIGN.md §7 第 8 条）；无标签、`hidden: true`
    的忽略。
 3. 对每张要入库的屏幕 `get_screen` → `htmlCode.downloadUrl` 是带签名的临时地址，当场 `curl` 下载，
-   存为 `<key>.html`。缩略图 `screenshot.downloadUrl` 只有 163×512，**不要用它做任何比对**。
+   存为 `<key>.html`。`screenshot.downloadUrl` **不加尺寸后缀时**只有 163/226×512，那个不要用来比对；
+   **加 `=s2000` 后缀**（`curl -sL "<screenshot.downloadUrl>=s2000"`）返回 780×1768，正好等于
+   390×884 CSS px @2x —— 与下面「设计尺寸」渲染出来的 PNG 同尺寸。
+   - **有的稿下不下来。** `htmlCode.name` 形如 `projects/…/files/<id>` 的落在 companion 存储区，
+     匿名可下；形如 `projects/…/screens/<id>/fileEntries/html` 的落在 `stitch_files` 存储区，
+     `curl` 回来的是 Google 登录页（体积异常大、开头是 `<base href="https://accounts.google.com/...">`，
+     一眼可辨）。重复 `get_screen` 拿到的还是同一个地址，不是临时故障。
+     遇到时的两条路：请产品负责人在 Stitch 网页端把那张稿**复制/另存**一份（副本会落进 companion 侧），
+     或者按 2026-09-12 第十次拉取的先例，用 `=s2000` 截图入库 —— 那样这条记录没有 `sha256`
+     （截图会随重出而变，钉它没有意义）也没有 `.roborazzi.png`（叠图尺寸要重排版，只有 HTML 能出），
+     锁文件里写 `"source": "screenshot"` 并在 notes 里说清哪些取值是采样来的。
 4. `shasum -a 256 <key>.html`，与锁文件 `sha256` 比较。变了的屏幕做第 5 步。
 5. 渲染（见下）并跑配对检查：把浅暗两版去掉颜色类后 diff，只看几何类
    （`text-[..px]`、`font-*`、`p*-`、`gap-`、`rounded*`、`w-/h-`、`leading-`、`tracking-`）。

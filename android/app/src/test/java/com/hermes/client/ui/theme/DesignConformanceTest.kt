@@ -157,6 +157,17 @@ class DesignConformanceTest {
                 "chatCurrentDisc" -> if (dark) ChatCurrentDiscDark else ChatCurrentDiscLight
                 "chatCurrentDiscInk" -> if (dark) ChatCurrentDiscInkDark else ChatCurrentDiscInkLight
                 "chatCurrentTime" -> if (dark) ChatCurrentTimeDark else ChatCurrentTimeLight
+                // 聊天内搜索条 (docs/DESIGN.md §5.4 聊天内搜索).
+                "chatSearchField" -> if (dark) ChatSearchFieldDark else ChatSearchFieldLight
+                "chatSearchDivider" -> if (dark) ChatSearchDividerDark else ChatSearchDividerLight
+                "chatSearchHairline" -> if (dark) ChatSearchHairlineDark else ChatSearchHairlineLight
+                "chatSearchArrow" -> if (dark) ChatSearchArrowDark else ChatSearchArrowLight
+                "chatSearchInkFaint" -> if (dark) ChatSearchInkFaintDark else ChatSearchInkFaintLight
+                "chatSearchClearDisc" -> if (dark) ChatSearchClearDiscDark else ChatSearchClearDiscLight
+                "chatSearchHitCurrent" -> ChatSearchHitCurrent
+                "chatSearchHitCurrentInk" -> ChatSearchHitCurrentInk
+                "chatSearchHitOther" -> ChatSearchHitOther
+                "chatSearchHitOtherInk" -> ChatSearchHitOtherInk
 
                 // 会话行长按操作单 (docs/DESIGN.md §5.5 行长按操作单).
                 "rowMenuSheet" -> if (dark) RowMenuSheetDark else RowMenuSheetLight
@@ -225,6 +236,8 @@ class DesignConformanceTest {
             "ChatPromptLabel" -> ChatPromptLabel
             "ChatPromptLabelCurrent" -> ChatPromptLabelCurrent
             "ChatPromptTime" -> ChatPromptTime
+            "ChatSearchQuery" -> ChatSearchQuery
+            "ChatSearchCount" -> ChatSearchCount
 
             "RowMenuTitle" -> RowMenuTitle
             "RowMenuAction" -> RowMenuAction
