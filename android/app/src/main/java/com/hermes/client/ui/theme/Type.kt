@@ -680,3 +680,59 @@ val ChatPromptTime = TextStyle(
     lineHeight = 18.sp,
     letterSpacing = 0.sp,
 )
+
+// ── 会话行长按操作单 (docs/DESIGN.md §5.5, Stitch 基线-会话列表页/长按下拉菜单, 2026-09-12) ────────
+//
+// Every step below is an ARBITRARY Tailwind size (`text-[16px]`, not `text-base`), so none of them
+// carries its own line-height: all four inherit the body's `text-body-md` pairing, 20px. That is
+// why 20sp appears on an 11sp chip as well as on the 16sp title — it is the mock's own number, and
+// it is what makes the chip 24dp tall (20 + py-0.5) and the action row 44dp (20 + py-3).
+//
+// [ExactLineBox] is merged in for the same reason the session row needs it: these are single-line
+// texts, and Compose's default `LineHeightStyle` trims the leading above the first line and below
+// the last, which collapses the line box to the font's own ascent+descent and makes `lineHeight`
+// a no-op. Without it a "44dp" row measures 43.
+//
+// The light and dark mocks disagree on two of these steps — action 15px/16px and hint 12px/13px.
+// Both take the DARK value, which is the one that also lands on an M3 standard step; recorded as a
+// pairs decision in docs/design/stitch/stitch.lock.json.
+
+/** The sheet's title: `text-[16px] font-semibold leading-tight tracking-tight`, one line. */
+val RowMenuTitle = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 16.sp,
+    lineHeight = 20.sp,
+    letterSpacing = (-0.4).sp,
+).merge(ExactLineBox)
+
+/** An action's label: `text-[16px] font-medium tracking-tight` (dark mock; light draws 15px). */
+val RowMenuAction = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 16.sp,
+    lineHeight = 20.sp,
+    letterSpacing = (-0.4).sp,
+).merge(ExactLineBox)
+
+/**
+ * The trailing hint 「可在归档箱恢复」/「不可撤销」 and the trailing project value: `text-[13px]`
+ * (dark mock; light draws 12px). The delete row's hint is this step at 500 — `copy()` at the call
+ * site, the way the mock switches only that one to `font-medium`.
+ */
+val RowMenuHint = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Normal,
+    fontSize = 13.sp,
+    lineHeight = 20.sp,
+    letterSpacing = 0.sp,
+).merge(ExactLineBox)
+
+/** The type chip 「会话」/「已归档」: `text-[11px] font-medium tracking-wide`. */
+val RowMenuChipLabel = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.Medium,
+    fontSize = 11.sp,
+    lineHeight = 20.sp,
+    letterSpacing = 0.275.sp,
+).merge(ExactLineBox)

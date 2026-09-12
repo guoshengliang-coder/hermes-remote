@@ -93,6 +93,7 @@ class DesignConformanceTest {
                 "outlineVariant" -> scheme.outlineVariant
                 "surface" -> scheme.surface
                 "surfaceContainerLow" -> scheme.surfaceContainerLow
+                "error" -> scheme.error
                 else -> error("unknown scheme role '$name' in ref '$ref'")
             }.toArgb()
             // The graphic tier of WARN: the pillar and the waiting dot, which the design source
@@ -156,6 +157,17 @@ class DesignConformanceTest {
                 "chatCurrentDisc" -> if (dark) ChatCurrentDiscDark else ChatCurrentDiscLight
                 "chatCurrentDiscInk" -> if (dark) ChatCurrentDiscInkDark else ChatCurrentDiscInkLight
                 "chatCurrentTime" -> if (dark) ChatCurrentTimeDark else ChatCurrentTimeLight
+
+                // 会话行长按操作单 (docs/DESIGN.md §5.5 行长按操作单).
+                "rowMenuSheet" -> if (dark) RowMenuSheetDark else RowMenuSheetLight
+                "rowMenuSheetBorder" -> if (dark) RowMenuSheetBorderDark else RowMenuSheetBorderLight
+                "rowMenuHandle" -> if (dark) RowMenuHandleDark else RowMenuHandleLight
+                "rowMenuChip" -> if (dark) RowMenuChipDark else RowMenuChipLight
+                "rowMenuChipBorder" -> if (dark) RowMenuChipBorderDark else RowMenuChipBorderLight
+                "rowMenuChipInk" -> if (dark) RowMenuChipInkDark else RowMenuChipInkLight
+                "rowMenuDivider" -> if (dark) RowMenuDividerDark else RowMenuDividerLight
+                "rowMenuInkFaint" -> if (dark) RowMenuInkFaintDark else RowMenuInkFaintLight
+                "rowMenuCloseInk" -> if (dark) RowMenuCloseInkDark else RowMenuCloseInkLight
                 else -> error("unknown tiles role '$name' in ref '$ref'")
             }.toArgb()
             else -> error("unknown ref kind '$kind' in ref '$ref'")
@@ -207,6 +219,11 @@ class DesignConformanceTest {
             "ChatPromptLabel" -> ChatPromptLabel
             "ChatPromptLabelCurrent" -> ChatPromptLabelCurrent
             "ChatPromptTime" -> ChatPromptTime
+
+            "RowMenuTitle" -> RowMenuTitle
+            "RowMenuAction" -> RowMenuAction
+            "RowMenuHint" -> RowMenuHint
+            "RowMenuChipLabel" -> RowMenuChipLabel
             "labelMedium" -> HermesTypography.labelMedium
             "bodyLarge" -> HermesTypography.bodyLarge
             "titleMedium" -> HermesTypography.titleMedium

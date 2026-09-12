@@ -20,7 +20,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -144,30 +143,15 @@ private fun ArchivedRow(
     )
 
     if (menuOpen) {
-        ModalBottomSheet(onDismissRequest = { menuOpen = false }, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
-            Text(
-                session.title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 2,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+        com.hermes.client.ui.components.RowActionSheet(
+            typeLabel = localized(language, "已归档", "Archived"),
+            title = session.title,
+            onDismiss = { menuOpen = false },
+        ) {
+            ArchivedActionItems(
+                onUnarchive = { menuOpen = false; onUnarchive() },
+                onDelete = { menuOpen = false; confirmingDelete = true },
             )
-            ListItem(
-                headlineContent = { Text(localized(language, "取消归档", "Unarchive")) },
-                leadingContent = { Icon(Icons.Rounded.Unarchive, contentDescription = null) },
-                modifier = Modifier.clickable { menuOpen = false; onUnarchive() },
-            )
-            ListItem(
-                headlineContent = { Text(localized(language, "删除", "Delete"), color = MaterialTheme.colorScheme.error) },
-                leadingContent = {
-                    Icon(
-                        Icons.Rounded.Delete,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                },
-                modifier = Modifier.clickable { menuOpen = false; confirmingDelete = true },
-            )
-            Spacer(Modifier.size(20.dp))
         }
     }
 
@@ -186,4 +170,29 @@ private fun ArchivedRow(
             },
         )
     }
+}
+
+/**
+ * The two actions an archived row offers — the same component the live session list uses
+ * (docs/DESIGN.md §5.5 行长按操作单), so the two long-press menus cannot drift apart again.
+ *
+ * 「取消归档」 carries no trailing hint: it IS the undo, so there is nothing to reassure anyone
+ * about. Delete keeps 「不可撤销」 and the second confirm.
+ */
+@Composable
+internal fun ArchivedActionItems(onUnarchive: () -> Unit, onDelete: () -> Unit) {
+    val language = LocalAppLanguage.current
+    com.hermes.client.ui.components.RowActionItem(
+        icon = Icons.Rounded.Unarchive,
+        label = localized(language, "取消归档", "Unarchive"),
+        onClick = onUnarchive,
+    )
+    com.hermes.client.ui.components.RowActionDivider()
+    com.hermes.client.ui.components.RowActionItem(
+        icon = Icons.Rounded.Delete,
+        label = localized(language, "删除会话", "Delete"),
+        hint = localized(language, "不可撤销", "Permanent"),
+        destructive = true,
+        onClick = onDelete,
+    )
 }

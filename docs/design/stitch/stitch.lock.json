@@ -10,7 +10,7 @@
   "project": {
     "id": "8017882098155799612",
     "title": "Hermes GO",
-    "updateTimeAtPull": "2026-09-12T05:29:54.541817Z"
+    "updateTimeAtPull": "2026-09-12T05:55:58.876015Z"
   },
   "pulledAt": "2026-09-12",
   "pullHistory": [
@@ -48,6 +48,11 @@
       "at": "2026-09-12（第七次，聊天页首次入库）",
       "projectUpdateTime": "2026-09-12T05:29:54.541817Z",
       "result": "新增 4 张：基线-聊天页/我的提问 与 /暗夜、基线-聊天页/滑动引导胶囊 与 /暗夜。聊天页此前一张未入库，「聊天页」本就在 §7 第 8 条的页面词表里，故无需归属裁决，章节沿用 §5.4。四张都是「去蓝化」稿：胶囊与弹层当前行的 primaryContainer 全部换成纸白 / 墨黑中性色 + 发丝描边。两张胶囊稿是完整聊天页，顺带画了顶栏、输入 dock 与表格卡，与现状有出入但不属本轮范围，记进 specChanges 的 pending。已有 12 张本轮未重拉。"
+    },
+    {
+      "at": "2026-09-12（第八次，会话行长按操作单首次入库）",
+      "projectUpdateTime": "2026-09-12T05:55:58.876015Z",
+      "result": "新增 2 张（基线-会话列表页/长按下拉菜单 / 暗夜）—— 这是「会话列表行长按操作单」第一次进基线，它此前明确列在 §5.2「Stitch 不覆盖清单」里，本轮从那张清单上划掉。重拉了拉取时已在库的 12 张比对 sha256：只有 card.default.dark 变了，逐字 diff 后确认仍然只是 Stitch 导出包装（<html> 上多了 width/height/overflow 内联样式、末尾多了 snapdom-sandbox 空 div），无设计变化，快照未更新 —— 与第五次同一判定；其余 11 张一字未变。聊天页那 4 张是同一小时内由第七次落进 main 的，本轮没有重拉。本轮原先也自称「第七次」：两个分支在同一天并行拉取、各自编号，合并时按落地顺序改成第八次 —— 编号是流水号，不是拉取时刻的标签。"
     }
   ],
   "specChanges": {
@@ -537,6 +542,74 @@
       ]
     },
     {
+      "key": "sessions.chats.default.row-menu.light",
+      "screenId": "26444bf726dc40029b311ea20453817a",
+      "stitchLabel": "基线-会话列表页/长按下拉菜单",
+      "stitchTitle": "会话列表 - 长按操作底部弹单 (温润浅色版)",
+      "page": "sessions",
+      "view": "chats",
+      "state": "default",
+      "overlay": "row-menu",
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.5（行长按操作单）、§5.2（长按菜单与「移动到项目」）、§5.3（已归档行共用）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/components/RowActionSheet.kt",
+        "android/app/src/main/java/com/hermes/client/ui/sessions/SessionsScreen.kt（SessionRow）",
+        "android/app/src/main/java/com/hermes/client/ui/sessions/ArchivedScreen.kt（ArchivedRow）",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（rowmenu.* 的 design 列从本稿抽取）",
+      "html": "sessions.chats.default.row-menu.light.html",
+      "sha256": "85c4ffb709786840f41c39d7cd905ee61fa52ac3d450f1ec315a12c2bd0e86bb",
+      "canvasHeightCssPx": 1768,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversStates": [
+        "未置顶（稿子只画这一态，取消置顶按同一规则推出）",
+        "可移动（运行中禁用态未画，沿用既有灰化）"
+      ],
+      "notes": [
+        "标签与形态不符，记录在案：标签写「长按下拉菜单」，稿子画的是底部弹层（action sheet）。真正的下拉菜单是 sessions.chats.default.more-menu.*（顶栏「更多」）。键按 §7 第 8 条的页面词表取 sessions（不是「会话列表页」）+ overlay row-menu；已请设计师把 Stitch 标签改成「基线-会话列表/长按菜单」。stitchLabel 照原样存拉取时的原文。",
+        "结构：抓手 36×4dp 全圆角 → 标题行 [类型标][标题 1 行省略][✕ 28dp] → 发丝分隔线 → 5 个操作行 → 删除行前再一条内缩 28dp 的发丝线 → 底部留白。",
+        "操作行照稿自绘，不再用 Material ListItem：左右内边距 28dp（弹层 px-2 + 行 px-5），图标 20dp，图标↔文字 14dp（gap-3.5）。ListItem 单行下限 56dp 装不进这个行高 —— 与会话列表行 2026-09-12 弃用 ListItem 同一个原因。",
+        "行高三个数都量过：44dp 是 py-3 + 20px 行框的算术值、也是拉丁标签实测；中文标签本仓 48.4dp（RowActionItemHeightTest）；而稿子自己的中文行是 46.25dp —— 叠图量得，两条分隔线间 195dp = 4（容器 py-1）+ 4×46.25 + 6（分隔线 my-1.5）。稿子也没落在 44 上，因为 Material Symbols 的字形盒按基线对齐后把 20px 行盒顶开了。真实偏差每行 2.15dp、整单约 10dp，属会话行那条「每行中文多几 dp」的同族，不从外面写死高度（那正是 §5.2 记下的错误）。标题行几何两边一致：抓手块下缘到分隔线，稿 41dp / 本仓 40.4dp。",
+        "两种行尾：说明文字（归档「可在归档箱恢复」、删除「不可撤销」）与值 + chevron（移动到项目「默认项目 ›」）。项目名因此从副行「当前：X」搬到行尾，副行取消。",
+        "文案照稿改动三处：「移动到项目…」去掉省略号、「归档」→「归档会话」、「删除」→「删除会话」。",
+        "标题行内边距 20dp 而操作行图标在 28dp —— 稿子本来就不共用左基线（标题前有类型标）。照稿实现，§5.5「共用 24dp 左基线」那条改为只约束裸标题的弹层。",
+        "类型标做成有信息量的类型标（产品裁决 2026-09-12）：稿子恒定写「会话」，落地按来源变（会话列表「会话」/ 已归档页「已归档」），弹层因此抽成共用组件 RowActionSheet，已归档页长按菜单一并换过来。",
+        "有意偏离一：稿子把身后列表画成 opacity-35 + blur-2px、遮罩再叠 3px 模糊。Android 的 ModalBottomSheet 只有平遮罩，背景模糊要 API 31+ 的 RenderEffect，代价高且低版本无法一致 —— 不实现。",
+        "有意偏离二：归档保留二次确认（产品裁决 2026-09-12，维持 §5.2 / HG-5）。稿子的行尾「可在归档箱恢复」是额外说明，不取代 AlertDialog。同轮修掉一个真 bug：confirmingArchive 是死变量、从没被置 true，所以此前列表里归档是一点就归档，与 HG-5 相反。",
+        "身后那一屏的顶栏、状态栏、FAB、筛选胶囊都是既有基线（sessions.chats.default.*），本轮不重拉、不改。"
+      ]
+    },
+    {
+      "key": "sessions.chats.default.row-menu.dark",
+      "screenId": "58f8a50644e24cdebcd670f6c7a935d4",
+      "stitchLabel": "基线-会话列表页/长按下拉菜单/暗夜",
+      "stitchTitle": "会话列表 - 长按操作底部弹单 (黑曜石深色版)",
+      "page": "sessions",
+      "view": "chats",
+      "state": "default",
+      "overlay": "row-menu",
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.5、§5.2、§5.3",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/components/RowActionSheet.kt",
+        "android/app/src/main/java/com/hermes/client/ui/sessions/SessionsScreen.kt（SessionRow）",
+        "android/app/src/main/java/com/hermes/client/ui/sessions/ArchivedScreen.kt（ArchivedRow）"
+      ],
+      "html": "sessions.chats.default.row-menu.dark.html",
+      "sha256": "4d5844f5cdfbacadd3bfac984089c3b8a1a58ed0d6a31fbdab4c7e05031e78a7",
+      "canvasHeightCssPx": 1768,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "只取颜色；几何以浅色稿为准，两处例外见 pairs（行文字与行尾说明的字号取暗色档）。",
+        "暗色稿的中性色有两处落在冷阶或错档：抓手 #3A4049 是冷灰、行尾值 #777268 是浅色档的 outline。按 §2.1 逐档换成暖阶 outlineVariant #423F3A / outline #8D897E，两条各记一行 reason。其余颜色本就落在本仓暖阶上（#161A22 surfaceContainerLow、#262C35 surfaceContainerHighest、#E2E0DB onSurface、#A8A49C onSurfaceVariant、#FFB4AB error），逐字照抄。",
+        "暗色稿底部多一条 72×4dp 横杠 —— 手势导航条的屏幕模拟，不实现。"
+      ]
+    },
+    {
       "key": "search.results.light",
       "screenId": "e64644f1ecd74ee7afa2fd1f5490406c",
       "stitchLabel": "基线-全局搜索",
@@ -1021,6 +1094,14 @@
       ],
       "geometry": "同构。胶囊本体（h-38、rounded-full、pl-3/pr-2.5、20dp 圆形底片、14dp 箭头、1×15dp 分隔线、右段 px-3、16dp 列表图标、max-w-92% 与标签 max-w-190px）两版逐值相同；差异全在状态栏与正文示意内容。",
       "decision": "几何取浅色稿；暗色只取颜色（底 #1E232B、描边 #2E343D、底片 #2E343D、墨 #E2E0DB）。"
+    },
+    {
+      "screens": [
+        "sessions.chats.default.row-menu.light",
+        "sessions.chats.default.row-menu.dark"
+      ],
+      "geometry": "弹层结构同构（抓手 36×4、圆角 24、5 行 44dp、删除前分隔线、两种行尾都一致）。四处差异：① 行文字 15px 浅 / 16px 暗；② 行尾说明 12px 浅 / 13px 暗；③ ✕ 钮 28dp 圆底 + 18px 字形 浅 / 32dp + 16px 暗；④ 操作行按压底暗色有 rounded-xl、浅色只有 hover:bg-black/2%。另有暗色稿底部多一条 72×4dp 横杠（手势导航条的屏幕模拟）。",
+      "decision": "①② 例外地取暗色稿的 16sp / 13sp —— 与 FAB「56dp + 28px」同一裁决：冲突时取同时符合 M3 标准档的那个，15sp/12sp 在本仓任何主操作文字上都没有先例。③ 取浅色稿 28dp/18px。④ 两色一致做 12dp 圆角按压底（暗色稿的写法更完整，浅色稿的 hover 在 Android 上等价于涟漪）。横杠不实现。这是全库第二处几何不以浅色稿为准（第一处是主题设置的选中单选点）。"
     }
   ],
   "candidates": [],
