@@ -111,6 +111,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.ui.components.connectionBannerModel
 import com.hermes.client.ui.localization.LocalAppLanguage
@@ -1592,6 +1594,52 @@ fun ChatScreen(
         // closes itself instead of showing an empty pager.
         if (viewerOwner != null && viewerItems.isEmpty()) closeViewer()
     }
+    // The editor only ever works on a staged attachment: a sent image has been uploaded and has
+    // nowhere to go back to, and "annotate and resend" is a separate feature.
+    val editTarget = remember(editAttachmentId, state.pendingAttachments) {
+        editAttachmentId?.let { id -> state.pendingAttachments.firstOrNull { it.id == id } }
+    }
+    LaunchedEffect(editAttachmentId, editTarget) {
+        // The chip can be removed while the editor is open.
+        if (editAttachmentId != null && editTarget == null) editAttachmentId = null
+    }
+    editTarget?.let { target ->
+        com.hermes.client.ui.chat.imageedit.ImageEditorDialog(
+            sourceBytes = target.bytes,
+            onCancel = { editAttachmentId = null },
+            onDone = { result ->
+                editAttachmentId = null
+                when (result) {
+                    // Nothing changed, so the original bytes are kept byte-for-byte rather than
+                    // being re-encoded and quietly downscaled.
+                    is com.hermes.client.ui.chat.imageedit.ImageEditResult.Unchanged -> Unit
+                    is com.hermes.client.ui.chat.imageedit.ImageEditResult.Failed ->
+                        showAttachmentError(result.error.localizedMessage(language))
+                    is com.hermes.client.ui.chat.imageedit.ImageEditResult.Edited -> {
+                        val encoded = runCatching {
+                            encodeUnderCap(result.bitmap, target.name, recycle = true)
+                        }.getOrNull()
+                        if (encoded == null) {
+                            showAttachmentError(
+                                AppError(AppErrorCode.IMAGE_EDIT_SAVE_FAILED, retryable = true)
+                                    .localizedMessage(language),
+                            )
+                        } else {
+                            // Same id, so the chip keeps its place in the strip and the upload order
+                            // the user arranged is preserved.
+                            vm.replaceAttachment(
+                                target.id,
+                                encoded.bytes,
+                                encoded.mimeType,
+                                editedAttachmentName(target.name),
+                            )
+                        }
+                    }
+                }
+            },
+        )
+    }
+
     if (viewerOwner != null && viewerItems.isNotEmpty()) {
         ImageViewer(
             items = viewerItems,
