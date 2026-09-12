@@ -100,13 +100,15 @@ The current automated suite covers:
   group/world-readable fallback;
 - committed pre-contract token migration preserving the existing 64-character local credential,
   removing both supported inline field names, writing only the canonical `0600` token file reference,
-  and recording completion only after ordered service restart plus local/account health;
+  and recording completion only after ordered service restart plus local health and an exact bound
+  Cloud health timestamp strictly newer than the pre-Connector-start checkpoint;
 - managed release 0.3.0 compatibility: startup returns before account refresh, file mutation, or
   service restart because its packaged Connector does not consume `HERMES_SESSION_TOKEN_FILE`; 0.3.1
   is the first immutable managed release admitted to the token-file migration;
 - power-loss resume from a matching half-migrated plist pair, completed-state idempotency, rejection
   of mismatched inline values or account binding generation before mutation, and injected readiness
-  failure that restores the exact old plist/token bytes and running service pair;
+  or stale-Cloud-health failure that restores the exact old plist/token bytes and proves the restored
+  running service pair with a fresh Cloud timestamp;
 - an existing responder on reserved port 9119, including 401/403, blocks clean install;
 - packaged ATS configuration explicitly permits local-network health probes while leaving arbitrary
   public and WebView HTTP loads disabled;
@@ -150,7 +152,7 @@ the project-wide `ERROR_HANDLING.md` contract.
 | Existing Connector running | Desktop observes it and does not launch a replacement | Verified on target Mac 2026-09-02; PID and launch count unchanged |
 | Existing Connector migration gate | Healthy configured Hermes plus matching signed-release capability exposes preparation; stopped/unhealthy/unsigned cases preserve legacy | Automated; packaged target-Mac migration still pending |
 | Migration Assistant preserves managed services | Overview reports the effective managed Agent rather than the stopped legacy label; missing this-device-only account credentials require sign-in; a restored legacy label is persistently suppressed only for a proven `account_active` installation | Desktop 0.2.4 packaged reboot passed on migrated Mac 2026-09-11: only managed labels recovered, legacy stayed disabled/unloaded, and post-reboot Android REST/WebSocket carried bidirectional traffic |
-| Pre-contract managed token storage | A committed matching installation moves the existing token from both `0600` plists to the `0600` private file, restarts Hermes then Connector, and commits only after both health proofs; injected failure restores the old configuration | Automated; packaged upgrade on the migrated Mac pending |
+| Pre-contract managed token storage | A committed matching installation moves the existing token from both `0600` plists to the `0600` private file, restarts Hermes then Connector, and commits only after local readiness plus a same-binding Cloud health timestamp newer than Connector startup; injected failure restores the old configuration and requires fresh rollback health | Automated, including stale healthy snapshot regression; Desktop 0.2.9 with managed 0.3.4 completed the packaged migration and ordered service restart on 2026-09-12; physical Android account traffic and full Mac reboot remain pending |
 | Existing Connector absent | UI reports not detected and offers no destructive action | Verified 2026-09-02 |
 | Gateway available | Gateway layer is healthy with safe latency | Verified on target Mac 2026-09-02; 15–18 ms observed |
 | Gateway offline/DNS failure | Only Gateway layer fails; Hermes wording remains accurate | Pending fault injection |

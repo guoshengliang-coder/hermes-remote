@@ -131,13 +131,20 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 maximumAttempts: maximumHealthPolls,
                 delayNanoseconds: healthPollDelayNanoseconds
             ) else { throw DesktopMigrationCoordinatorError.hermesHealthTimedOut }
+            let committedHealthCheckpoint = target.isAlreadyBound
+                ? try await captureBoundHealthCheckpoint(
+                    bindingID: target.id,
+                    generation: target.generation
+                )
+                : nil
             try launchAgent.startAccount(plistURL: accountLaunchAgentURL)
 
             if target.isAlreadyBound {
                 try await waitForCommittedBinding(
                     bindingID: target.id,
                     generation: target.generation,
-                    runID: runID
+                    runID: runID,
+                    healthNewerThan: committedHealthCheckpoint
                 )
             } else {
                 try await waitForCandidate(
@@ -149,7 +156,14 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             _ = try journal.transition(runID: runID, to: .commitPending)
             if target.isAlreadyBound {
                 let reconciled = try await account.refresh()
-                guard isCommitted(reconciled, bindingID: target.id, generation: target.generation) else {
+                guard isCommitted(reconciled, bindingID: target.id, generation: target.generation),
+                      hasFreshCloudHealth(
+                          reconciled,
+                          bindingID: target.id,
+                          generation: target.generation,
+                          newerThan: committedHealthCheckpoint
+                      )
+                else {
                     throw DesktopMigrationCoordinatorError.commitAmbiguous
                 }
             } else {
@@ -330,10 +344,15 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 maximumAttempts: maximumHealthPolls,
                 delayNanoseconds: healthPollDelayNanoseconds
             ) else { throw DesktopMigrationCoordinatorError.hermesHealthTimedOut }
+            let cloudHealthCheckpoint = try await captureBoundHealthCheckpoint(
+                bindingID: previewBindingID,
+                generation: previewGeneration
+            )
             try launchAgent.startAccount(plistURL: migration.connectorLaunchAgentURL)
             try await waitForExistingCommittedBinding(
                 bindingID: previewBindingID,
-                generation: previewGeneration
+                generation: previewGeneration,
+                healthNewerThan: cloudHealthCheckpoint
             )
             try installer.commitHermesSessionTokenFileMigration()
             return true
@@ -378,7 +397,8 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
     private func waitForCommittedBinding(
         bindingID: String,
         generation: Int,
-        runID: String
+        runID: String,
+        healthNewerThan checkpoint: Date?
     ) async throws {
         for attempt in 0..<maximumHealthPolls {
             let state = try await account.refresh()
@@ -388,7 +408,13 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                   binding.id == bindingID,
                   binding.generation == generation
             else { throw DesktopMigrationCoordinatorError.invalidBindingState }
-            if isCommitted(state, bindingID: bindingID, generation: generation) {
+            if isCommitted(state, bindingID: bindingID, generation: generation),
+               hasFreshCloudHealth(
+                   state,
+                   bindingID: bindingID,
+                   generation: generation,
+                   newerThan: checkpoint
+               ) {
                 _ = try journal.transition(runID: runID, to: .candidateAuthenticated)
                 _ = try journal.transition(runID: runID, to: .candidateHealthy)
                 return
@@ -400,13 +426,23 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         throw DesktopMigrationCoordinatorError.healthTimedOut
     }
 
-    private func waitForExistingCommittedBinding(bindingID: String, generation: Int) async throws {
+    private func waitForExistingCommittedBinding(
+        bindingID: String,
+        generation: Int,
+        healthNewerThan checkpoint: Date?
+    ) async throws {
         for attempt in 0..<maximumHealthPolls {
             let state = try await account.refresh()
             guard hasExactBoundBinding(state, bindingID: bindingID, generation: generation) else {
                 throw DesktopMigrationCoordinatorError.invalidBindingState
             }
-            if isCommitted(state, bindingID: bindingID, generation: generation) { return }
+            if isCommitted(state, bindingID: bindingID, generation: generation),
+               hasFreshCloudHealth(
+                   state,
+                   bindingID: bindingID,
+                   generation: generation,
+                   newerThan: checkpoint
+               ) { return }
             if attempt + 1 < maximumHealthPolls, healthPollDelayNanoseconds > 0 {
                 try await Task.sleep(nanoseconds: healthPollDelayNanoseconds)
             }
@@ -436,8 +472,16 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             maximumAttempts: maximumHealthPolls,
             delayNanoseconds: healthPollDelayNanoseconds
         ) else { throw DesktopMigrationCoordinatorError.hermesHealthTimedOut }
+        let cloudHealthCheckpoint = try await captureBoundHealthCheckpoint(
+            bindingID: bindingID,
+            generation: generation
+        )
         try launchAgent.startAccount(plistURL: migration.connectorLaunchAgentURL)
-        try await waitForExistingCommittedBinding(bindingID: bindingID, generation: generation)
+        try await waitForExistingCommittedBinding(
+            bindingID: bindingID,
+            generation: generation,
+            healthNewerThan: cloudHealthCheckpoint
+        )
     }
 
     private func rollback(
@@ -528,6 +572,52 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             && binding.connector.online
             && binding.hermes.reachable == true
             && binding.endToEnd.healthy == true
+    }
+
+    private func captureBoundHealthCheckpoint(
+        bindingID: String,
+        generation: Int
+    ) async throws -> Date? {
+        let state = try await account.refresh()
+        guard case .signedIn(let dashboard) = state,
+              dashboard.binding.state == "bound",
+              let binding = dashboard.binding.binding,
+              binding.id == bindingID,
+              binding.generation == generation
+        else { throw DesktopMigrationCoordinatorError.invalidBindingState }
+        guard let checkedAt = binding.endToEnd.checkedAt else { return nil }
+        guard let parsed = Self.parseRFC3339(checkedAt) else {
+            throw DesktopMigrationCoordinatorError.invalidBindingState
+        }
+        return parsed
+    }
+
+    private func hasFreshCloudHealth(
+        _ state: DesktopAccountState,
+        bindingID: String,
+        generation: Int,
+        newerThan checkpoint: Date?
+    ) -> Bool {
+        guard case .signedIn(let dashboard) = state,
+              dashboard.binding.state == "bound",
+              let binding = dashboard.binding.binding,
+              binding.id == bindingID,
+              binding.generation == generation,
+              let checkedAt = binding.endToEnd.checkedAt,
+              let current = Self.parseRFC3339(checkedAt)
+        else { return false }
+        guard let checkpoint else { return true }
+        return current > checkpoint
+    }
+
+    private static func parseRFC3339(_ value: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: value) { return date }
+
+        let wholeSeconds = ISO8601DateFormatter()
+        wholeSeconds.formatOptions = [.withInternetDateTime]
+        return wholeSeconds.date(from: value)
     }
 
     private static func supportsSessionTokenFile(releaseVersion: String) -> Bool {

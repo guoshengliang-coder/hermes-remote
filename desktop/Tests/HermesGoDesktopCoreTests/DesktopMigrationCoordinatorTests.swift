@@ -484,6 +484,48 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.readiness.waitCount(), 2)
     }
 
+    func testCommittedTokenMigrationRejectsStaleCloudHealthAndRestoresInlineFiles() async throws {
+        let stale = "2026-09-07T00:00:00.000Z"
+        let fresh = "2026-09-07T00:00:01.000Z"
+        let fixture = try Fixture(
+            legacyRunning: false,
+            resumeBoundBinding: true,
+            healthCheckedAtSequence: [stale, stale, stale, stale, stale, fresh]
+        )
+        defer { fixture.cleanup() }
+        let token = String(repeating: "e", count: 64)
+        try fixture.installCommittedManagedServices(inlineToken: token)
+        let originalHermes = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+        let originalConnector = try Data(contentsOf: fixture.layout.connectorLaunchAgent)
+
+        await XCTAssertThrowsErrorAsync(
+            try await fixture.coordinator.reconcileCommittedHermesSessionTokenStorage()
+        ) { error in
+            XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .healthTimedOut)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), originalHermes)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.connectorLaunchAgent), originalConnector)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.hermesSessionToken.path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.layout.hermesSessionTokenContractMarker.path
+        ))
+        XCTAssertEqual(fixture.runner.loadedLabels(), [
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
+        XCTAssertEqual(fixture.serviceMutations(), [
+            "bootout:\(DesktopManagedInstallLayout.connectorLabel)",
+            "bootout:\(DesktopManagedInstallLayout.hermesLabel)",
+            "bootstrap:\(DesktopManagedInstallLayout.hermesLabel)",
+            "bootstrap:\(DesktopManagedInstallLayout.connectorLabel)",
+            "bootout:\(DesktopManagedInstallLayout.connectorLabel)",
+            "bootout:\(DesktopManagedInstallLayout.hermesLabel)",
+            "bootstrap:\(DesktopManagedInstallLayout.hermesLabel)",
+            "bootstrap:\(DesktopManagedInstallLayout.connectorLabel)",
+        ])
+    }
+
     func testCommittedCurrentTokenContractIsIdempotentWithoutServiceMutation() async throws {
         let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
         defer { fixture.cleanup() }
@@ -544,6 +586,7 @@ private final class Fixture {
         hermesHealthy: Bool = true,
         resumeBoundBinding: Bool = false,
         hermesReadinessResponses: [Bool]? = nil,
+        healthCheckedAtSequence: [String?]? = nil,
         manifestVersion: String = "1.2.3"
     ) throws {
         root = FileManager.default.temporaryDirectory
@@ -564,7 +607,8 @@ private final class Fixture {
         account = MigrationAccountFake(
             bindingID: bindingID,
             ambiguousCommit: ambiguousCommit,
-            resumeBoundBinding: resumeBoundBinding
+            resumeBoundBinding: resumeBoundBinding,
+            healthCheckedAtSequence: healthCheckedAtSequence
         )
         readiness = MigrationHermesReadiness(
             responses: hermesReadinessResponses ?? [hermesHealthy]
@@ -752,13 +796,20 @@ private actor MigrationAccountFake: DesktopBindingCoordinating {
     private var committed = false
     private let ambiguousCommit: Bool
     private let resumeBoundBinding: Bool
+    private let healthCheckedAtSequence: [String?]?
     private var confirmationAttempted = false
     private var recordedRetryReferences: [(id: String?, generation: Int?)] = []
 
-    init(bindingID: String, ambiguousCommit: Bool, resumeBoundBinding: Bool = false) {
+    init(
+        bindingID: String,
+        ambiguousCommit: Bool,
+        resumeBoundBinding: Bool = false,
+        healthCheckedAtSequence: [String?]? = nil
+    ) {
         self.bindingID = bindingID
         self.ambiguousCommit = ambiguousCommit
         self.resumeBoundBinding = resumeBoundBinding
+        self.healthCheckedAtSequence = healthCheckedAtSequence
     }
 
     func beginBinding(
@@ -769,7 +820,7 @@ private actor MigrationAccountFake: DesktopBindingCoordinating {
         recordedRetryReferences.append((retryingTerminalBindingID, retryingTerminalGeneration))
         return DesktopBindingPreparation(
             state: resumeBoundBinding
-                ? committedState()
+                ? committedState(checkedAt: "2026-09-07T00:00:00.000Z")
                 : pendingState(keyProved: false, healthy: false),
             credential: AccountConnectorCredentialPayload(data: Data("{\"test\":true}".utf8))
         )
@@ -779,7 +830,7 @@ private actor MigrationAccountFake: DesktopBindingCoordinating {
         refreshes += 1
         if ambiguousCommit, confirmationAttempted { return .signedOut }
         return committed || resumeBoundBinding
-            ? committedState()
+            ? committedState(checkedAt: healthCheckedAtForCurrentRefresh())
             : pendingState(keyProved: true, healthy: true)
     }
 
@@ -788,7 +839,7 @@ private actor MigrationAccountFake: DesktopBindingCoordinating {
         confirmationAttempted = true
         if ambiguousCommit { throw AccountClientError.transport }
         committed = true
-        return committedState()
+        return committedState(checkedAt: healthCheckedAtForCurrentRefresh())
     }
 
     func beginCount() -> Int { began }
@@ -806,19 +857,26 @@ private actor MigrationAccountFake: DesktopBindingCoordinating {
         )))
     }
 
-    private func committedState() -> DesktopAccountState {
+    private func committedState(checkedAt: String?) -> DesktopAccountState {
         .signedIn(dashboard(binding: AccountBindingSnapshot(
             state: "bound", id: nil, generation: nil, deviceId: nil, displayName: nil,
             publicKeyFingerprint: nil, expiresAt: nil, keyProved: nil, healthVerified: nil,
             binding: ActiveAccountBinding(
                 id: bindingID, generation: 1, deviceId: "hermes-pending",
                 desktopDisplayName: "Mac mini", publicKeyFingerprint: String(repeating: "a", count: 64),
-                connector: .init(online: true, lastSeenAt: nil),
+                connector: .init(online: true, lastSeenAt: checkedAt),
                 hermes: .init(reachable: true, version: "1.0.0"),
                 gateway: .init(latencyMs: 10),
-                endToEnd: .init(healthy: true, checkedAt: "2026-09-07T00:00:00Z")
+                endToEnd: .init(healthy: true, checkedAt: checkedAt)
             ), previousBinding: nil
         )))
+    }
+
+    private func healthCheckedAtForCurrentRefresh() -> String? {
+        if let healthCheckedAtSequence, !healthCheckedAtSequence.isEmpty {
+            return healthCheckedAtSequence[min(refreshes - 1, healthCheckedAtSequence.count - 1)]
+        }
+        return String(format: "2026-09-07T00:00:%02d.000Z", refreshes)
     }
 
     private func dashboard(binding: AccountBindingSnapshot) -> AccountDashboard {

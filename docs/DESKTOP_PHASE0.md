@@ -200,8 +200,12 @@ the first immutable package whose Hermes wrapper and Connector both consume the 
 the migration lease, refreshing the account, rewriting a file, or restarting a service. Desktop
 preserves the token value, atomically moves it out of both
 LaunchAgent environments into the `0600` managed secret file, restarts Hermes before Connector, and
-records an owner-only completion marker only after local readiness and bound account health pass. A
-missing marker makes a same-token half migration resumable after power loss. Failure restores the
+records an owner-only completion marker only after local readiness and bound account health pass.
+For an already-bound Connector, Desktop checkpoints the server-provided `endToEnd.checkedAt`
+immediately before startup and requires the exact binding/generation to report a strictly newer
+healthy timestamp. The rollback restart uses the same freshness proof; a cached healthy snapshot is
+never enough. A missing marker makes a same-token half migration resumable after power loss. Failure
+restores the
 original plist/token bytes and proves the restored services healthy; a mismatch fails closed.
 
 Overview health now reduces the effective background mode rather than treating the stopped legacy

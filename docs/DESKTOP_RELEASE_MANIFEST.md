@@ -202,7 +202,11 @@ remote binding confirmation. The coordinator starts managed Hermes first and sta
 after two independent checks pass: an exact `HERMES_BACKEND_READY port=9119` line appended after a
 private-log checkpoint, and a healthy loopback HTTP probe. A stale marker or an unrelated process
 already occupying port 9119 cannot satisfy both process-specific evidence requirements. New log data
-is bounded to 64 KiB and unsafe/symlinked logs fail closed. A pre-commit failure stops Connector then
+is bounded to 64 KiB and unsafe/symlinked logs fail closed. When the Cloud binding is already
+committed, the coordinator also records its server-provided `endToEnd.checkedAt` immediately before
+starting Connector and requires a strictly newer healthy timestamp for the exact binding/generation.
+The same rule protects restoration after a failed token-file migration, so cached booleans cannot
+prove either the candidate or rollback Connector. A pre-commit failure stops Connector then
 Hermes, restores the exact legacy LaunchAgent when applicable, restores the previous managed pointer,
 and records the safe terminal state. An ambiguous remote commit stops both managed services and
 enters manual attention without guessing that legacy should become authoritative.
