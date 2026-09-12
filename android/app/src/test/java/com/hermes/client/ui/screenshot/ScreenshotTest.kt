@@ -515,54 +515,91 @@ class ScreenshotTest {
         profile = "personal", cwd = repo, gitRepoRoot = repo, gitBranch = null,
     )
 
-    // Diagnostic: the REAL row shape (SessionRowTitle + SessionSubline inside a ListItem) across
-    // the content variants a live list actually contains, each on its own tint so the row
-    // rectangles can be measured off the PNG instead of inferred from ListItem's internals.
+    private fun probeRuntime(id: String, phase: com.hermes.client.data.progress.SessionRunPhase) =
+        com.hermes.client.data.progress.SessionRuntime(
+            key = com.hermes.client.data.progress.SessionRuntimeKey("personal", id),
+            phase = phase,
+            toolName = "top-monitor",
+        )
+
+    /**
+     * The REAL production row, one tint each so the rectangles can be measured off the PNG.
+     *
+     * It used to assemble its own `ListItem` with the same styles, which stopped being the real
+     * thing the moment the row was drawn by hand — a probe that mirrors production by copying it
+     * only mirrors production until someone changes one of the two.
+     */
     @androidx.compose.runtime.Composable
     private fun ProbeRow(
         tint: androidx.compose.ui.graphics.Color,
         title: String,
         repo: String?,
-        status: String? = null,
+        runtime: com.hermes.client.data.progress.SessionRuntime? = null,
+        pinned: Boolean = false,
     ) {
-        androidx.compose.material3.ListItem(
-            headlineContent = {
-                androidx.compose.material3.Text(title, style = com.hermes.client.ui.theme.SessionRowTitle)
-            },
-            supportingContent = {
-                // Same 2dp / 4dp rhythm the production row uses (docs/DESIGN.md §5.2) — this
-                // probe is only worth anything if it measures the real thing.
-                androidx.compose.foundation.layout.Column {
-                    androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.size(2.dp))
-                    SessionSubline(listSession(title, repo), defaultProjectPath = "/Users/me")
-                    // Same gate production uses: blank means no line at all, not an empty one.
-                    status?.takeIf { it.isNotBlank() }?.let {
-                        androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.size(4.dp))
-                        androidx.compose.material3.Text(
-                            it,
-                            style = com.hermes.client.ui.theme.SessionRowStatus,
-                        )
-                    }
-                }
-            },
-            colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = tint),
-        )
+        androidx.compose.foundation.layout.Box(
+            androidx.compose.ui.Modifier.background(tint),
+        ) {
+            com.hermes.client.ui.sessions.SessionRow(
+                session = listSession(title, repo),
+                isPinned = pinned,
+                defaultProjectPath = "/Users/me",
+                onMoveToProject = {},
+                runtime = runtime,
+                onOpen = {}, onTogglePin = {}, onRename = {}, onArchive = {}, onDelete = {},
+            )
+        }
     }
 
     @Test fun rowHeightProbe() = snap("row-height-probe") {
         androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
             ProbeRow(androidx.compose.ui.graphics.Color(0xFFFFE0E0), "确认是否正常", null)
             ProbeRow(androidx.compose.ui.graphics.Color(0xFFE0FFE0), "起风工作室数据", "/u/xiaomai")
+            // A title far past the width. It wraps no longer — `truncate` in the mock — so this row
+            // must measure the same as the two above it.
             ProbeRow(
                 androidx.compose.ui.graphics.Color(0xFFE0E0FF),
                 "哎，现在 DeepSeek 说它发了一个最新的 Flash 4.1，我在这个 Hermes 里",
                 "/u/xiaomai",
             )
-            ProbeRow(androidx.compose.ui.graphics.Color(0xFFFFF0D0), "查看机器性能负荷", null, status = "已完成")
-            // The question this probe was written to settle: does an EMPTY status Text still cost
-            // a line? If it does, a row can be 88dp tall while showing only two lines of content.
-            ProbeRow(androidx.compose.ui.graphics.Color(0xFFD0F0FF), "空状态串", "/u/xiaomai", status = "")
-            ProbeRow(androidx.compose.ui.graphics.Color(0xFFF0D0FF), "无状态槽", "/u/xiaomai", status = null)
+            // ANDROID_SMOKE A-05: a Chinese project name used to wrap the subline and tip the row
+            // into `ListItem`'s 88dp three-line tier while the ASCII rows sat at 72dp. Every
+            // fixture here used ASCII, which is exactly why nothing caught it for a week.
+            ProbeRow(androidx.compose.ui.graphics.Color(0xFFD0F0FF), "中文项目名", "/u/赫尔墨斯远程")
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0xFFFFF0D0), "查看机器性能负荷", null,
+                runtime = probeRuntime("probe-done", com.hermes.client.data.progress.SessionRunPhase.COMPLETED_UNREAD),
+            )
+            ProbeRow(androidx.compose.ui.graphics.Color(0xFFF0D0FF), "无状态槽", "/u/xiaomai")
+        }
+    }
+
+    /**
+     * The running row, which nothing used to cover.
+     *
+     * The spinner rides in the row's fixed 28dp trailing column and must sit on the row's vertical
+     * centre. Under `ListItem` it did not: a row with a status line is three lines, three-line
+     * items are TOP-aligned, and the spinner sat high with a hole beneath it. The product owner
+     * found that on a device on 2026-09-12 because no screenshot here had ever rendered a running
+     * row at all.
+     */
+    @Test fun sessionRowRunningStates() = snap("session-rows-running") {
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0xFFE0FFE0), "查看机器性能负荷", "/u/xiaomai",
+                runtime = probeRuntime("run-1", com.hermes.client.data.progress.SessionRunPhase.USING_TOOL),
+            )
+            // Pinned AND running: the two-tone pin on the left, the spinner on the right, both
+            // centred on the same line.
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0xFFE0E0FF), "重构网关心跳", "/u/hermes-remote",
+                runtime = probeRuntime("run-2", com.hermes.client.data.progress.SessionRunPhase.STREAMING),
+                pinned = true,
+            )
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0xFFFFE0E0), "等待你的确认", "/u/xiaomai",
+                runtime = probeRuntime("run-3", com.hermes.client.data.progress.SessionRunPhase.WAITING_APPROVAL),
+            )
         }
     }
 

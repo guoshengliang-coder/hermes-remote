@@ -1,6 +1,8 @@
 package com.hermes.client.ui.theme
 
 import androidx.compose.material3.Typography
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -169,23 +171,69 @@ val HermesTypography = Typography(
  * — which the status line used to borrow — also carries the group headers, whose design role is the
  * opposite setting (wide-tracked uppercase). One token cannot serve both.
  *
- * Line heights are the design's own `leading-[1.45]`, which the row container applies to every step
- * and none of them override: 15.5 × 1.45 = 22.475, 12 × 1.45 = 17.4. Tracking is its `-0.01em` at
- * the step's own size. Both are carried exactly rather than rounded to a whole sp, so the fixture
- * needs no "we rounded it" clause.
+ * Line heights come from [SessionRowLeading], the row container's own `leading-[…]`. Tracking is the
+ * mock's `-0.01em` at the step's own size.
  *
  * **Two title tiers, split by UNREAD state** (decision 2026-09-11). The mock's 600 rows all happen
  * to sit in 需要你处理, but the designer's own system names the tiers `session-title-unread` /
  * `session-title-normal`, and that is what the product owner settled on. The unread dot stays;
  * weight is a second signal, not a replacement for it.
  */
+/**
+ * The row container's `leading-[…]`, applied to all three steps and overridden by none of them.
+ *
+ * It is a named constant rather than three hand-multiplied literals because the mock moves it as one
+ * lever — 1.45 in the 4th pull, 1.35 in the 5th — and three literals drift apart the moment someone
+ * updates two of them. Every step below is `size × this`, carried exactly and never rounded to a
+ * whole sp, so the conformance fixture needs no "we rounded it" clause.
+ */
+const val SessionRowLeading = 1.35f
+
+/**
+ * `size × leading`, rounded to three decimals.
+ *
+ * The rounding is not cosmetic. `11.5f * 1.35f` is 15.525001 in float, and that tail reaches
+ * `design-conformance.json`, which records the number as text and compares it exactly — the
+ * fixture would have to say "15.525001" and nobody reading it could tell that from a typo.
+ * Three decimals is past anything the mock expresses (its finest step is 0.005em) and past
+ * anything a device can render.
+ */
+internal fun rowLeading(sizeSp: Float): androidx.compose.ui.unit.TextUnit =
+    (kotlin.math.round(sizeSp * SessionRowLeading * 1000f) / 1000f).sp
+
+/**
+ * Makes a line box exactly `lineHeight` tall, the way CSS `line-height` does.
+ *
+ * Without this the row's arithmetic does not survive contact with Compose. The default
+ * [LineHeightStyle] trims the leading above the first line and below the last, so a SINGLE-line
+ * `Text` — which every step in a session row is — ends up as tall as the font's own ascent plus
+ * descent and ignores `lineHeight` entirely. Measured: the two-line row came out 43.05dp against
+ * the mock's 49.1dp, and the gap was not constant between row shapes, which is what gives it away
+ * as a per-line effect rather than a missing padding.
+ *
+ * `Trim.None` keeps the leading; `Alignment.Center` splits it evenly above and below, which is
+ * where CSS puts half-leading too. `includeFontPadding = false` is set alongside so the box is the
+ * line box and nothing else — with it on, Android adds the font's own recommended padding on top.
+ *
+ * (An older note on [SessionRowSubline] says these were tried and changed nothing. That was true
+ * then: the row was a Material `ListItem` and its 72dp floor was taller than the text either way,
+ * so nothing could move. The row sets its own height now, and these are load-bearing.)
+ */
+internal val ExactLineBox = TextStyle(
+    platformStyle = PlatformTextStyle(includeFontPadding = false),
+    lineHeightStyle = LineHeightStyle(
+        alignment = LineHeightStyle.Alignment.Center,
+        trim = LineHeightStyle.Trim.None,
+    ),
+)
+
 val SessionRowTitle = TextStyle(
     fontFamily = Default,
     fontWeight = FontWeight.SemiBold,
-    fontSize = 15.5.sp,
-    lineHeight = 22.475.sp,
-    letterSpacing = (-0.155).sp,
-)
+    fontSize = 14.5.sp,
+    lineHeight = rowLeading(14.5f),
+    letterSpacing = (-0.145).sp,
+).merge(ExactLineBox)
 
 /** Read rows: same step, one weight down. See [SessionRowTitle]. */
 val SessionRowTitleRead = SessionRowTitle.copy(fontWeight = FontWeight.Medium)
@@ -194,20 +242,25 @@ val SessionRowTitleRead = SessionRowTitle.copy(fontWeight = FontWeight.Medium)
  * `project · model`. Monospaced in the mock, and this is where bundling [HermesMono] actually shows:
  * the content is repo and model names, so almost none of it falls back to the system face.
  *
- * Note for anyone chasing row heights: a session whose PROJECT NAME is Chinese renders its row at
- * Material's 88dp instead of 72dp, with the content top-aligned and a hole underneath. That is a
- * pre-existing bug, not something this font brought — measured on a HONOR CLK-AN00 against
- * `origin/main` (c736350) as well, where the subline is still the system face. `includeFontPadding`
- * and a trimmed `LineHeightStyle` were tried here and changed nothing, so they are deliberately
- * absent. Recorded in docs/ANDROID_SMOKE.md; fixing it is its own change.
+ * This step is shared by all four consumers of `SessionSubline` (session list, search results,
+ * project drill-down, archived) and must stay one size across them — see docs/DESIGN.md §5.2. So
+ * the 5th pull's 12 → 11.5 reaches those three screens too, even though the rest of that pull's
+ * density change is scoped to the session list.
+ *
+ * Historical note, now fixed: a session whose PROJECT NAME is Chinese used to render its row at
+ * Material's 88dp instead of 72dp with the content top-aligned and a hole underneath
+ * (docs/ANDROID_SMOKE.md A-05). It was never this font's doing — it was `ListItem` switching to
+ * three-line geometry when the wrapped subline overflowed its two-line budget. The session row no
+ * longer uses `ListItem`, so the line-count cliff is gone. `includeFontPadding` and a trimmed
+ * `LineHeightStyle` were tried against the old bug and changed nothing; they stay absent.
  */
 val SessionRowSubline = TextStyle(
     fontFamily = HermesMono,
     fontWeight = FontWeight.Normal,
-    fontSize = 12.sp,
-    lineHeight = 17.4.sp,
+    fontSize = 11.5.sp,
+    lineHeight = rowLeading(11.5f),
     letterSpacing = 0.sp,
-)
+).merge(ExactLineBox)
 
 /**
  * The runtime status line ("正在运行" / "等待你的确认"). The design sets it apart from the subline
@@ -219,16 +272,35 @@ val SessionRowSubline = TextStyle(
 val SessionRowStatus = TextStyle(
     fontFamily = Default,
     fontWeight = FontWeight.Medium,
-    fontSize = 12.sp,
-    lineHeight = 17.4.sp,
-    letterSpacing = (-0.3).sp,
-)
+    fontSize = 11.5.sp,
+    lineHeight = rowLeading(11.5f),
+    // `tracking-tight` is −0.025em, which happened to be exactly −0.3 at the old 12px. At 11.5 it
+    // is −0.2875; carrying the rounded −0.3 would silently make this the one step that is not the
+    // mock's own arithmetic.
+    letterSpacing = (-0.2875).sp,
+).merge(ExactLineBox)
 
 /**
  * 「正在使用 <top-monitor> 工具…」 — the one status line the mock sets in mono, because the thing
  * worth reading in it is a tool name. The Chinese around it falls back to the system face.
  */
 val SessionRowStatusRunning = SessionRowStatus.copy(fontFamily = HermesMono)
+
+/**
+ * The session list's centred top-bar title: the mock's `text-[16px] font-semibold
+ * tracking-[-0.01em]` (17px before the 5th pull).
+ *
+ * Its own style rather than a smaller `titleLarge`, because `titleLarge` is the 20sp step every
+ * other screen's bar uses and the mock only speaks for this one. The 1.45 multiplier is the page
+ * default — `leading-[1.35]` belongs to the row's text column, not to chrome.
+ */
+val SessionsTopBarTitle = TextStyle(
+    fontFamily = Default,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 16.sp,
+    lineHeight = 23.2.sp,
+    letterSpacing = (-0.16).sp,
+)
 
 /**
  * The group header's label (docs/DESIGN.md §5.2): `font-mono text-[11px] uppercase tracking-wider
@@ -257,14 +329,21 @@ val SessionGroupCount = TextStyle(
 
 /**
  * The segmented capsule's label (`ui/components/SegmentedCapsule.kt`): the mock's
- * `text-[13.5px] font-medium tracking-tight`. Sans — the segment labels are prose, not data.
+ * `text-[13px] font-medium tracking-tight`. Sans — the segment labels are prose, not data.
+ *
+ * Tracking was recorded as −0.135 while the mock has always said `tracking-tight`. That is −0.025em,
+ * not the −0.01em the rows use, so the transcription was wrong from the start — at the old 13.5px it
+ * should have been −0.3375. Corrected here along with the 5th pull's 13.5 → 13.
+ *
+ * The 1.45 multiplier is kept: `leading-[1.35]` in the mock sits on the row's text column, and this
+ * label is outside it.
  */
 val SegmentLabel = TextStyle(
     fontFamily = Default,
     fontWeight = FontWeight.Medium,
-    fontSize = 13.5.sp,
-    lineHeight = 19.575.sp,
-    letterSpacing = (-0.135).sp,
+    fontSize = 13.sp,
+    lineHeight = 18.85.sp,
+    letterSpacing = (-0.325).sp,
 )
 
 /** 「仅此设备」: `font-mono text-[10px] tracking-tight font-normal`. */
