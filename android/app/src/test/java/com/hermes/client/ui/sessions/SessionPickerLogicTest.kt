@@ -64,4 +64,12 @@ class SessionPickerLogicTest {
     @Test fun no_slots_left_disables_every_unselected_row() {
         assertFalse(pickerRowEnabled("s1", emptySet(), remainingSlots = 0))
     }
+
+    @Test fun the_two_modes_carry_what_distinguishes_them() {
+        // Reference takes several and therefore has a cap; Deliver takes exactly one and does not.
+        val reference = SessionPickerMode.Reference(remainingSlots = 4)
+        assertEquals(4, reference.remainingSlots)
+        assertTrue(SessionPickerMode.Deliver is SessionPickerMode)
+    }
+
 }

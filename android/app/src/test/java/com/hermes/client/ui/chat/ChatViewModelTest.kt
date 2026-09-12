@@ -165,7 +165,10 @@ class ChatViewModelTest {
         assertEquals("半句话", vm.initialDraft.value)
     }
 
-    @Test fun a_saved_draft_outranks_a_share_handoff() = runTest {
+    // HG-40 changed this: a share used to be dropped when a draft existed. Delivering a transcript
+    // into a conversation someone had already started typing in must not delete their half
+    // sentence — so the two are joined, the user's own words first.
+    @Test fun a_share_is_appended_to_the_draft_the_user_already_had() = runTest {
         drafts = com.hermes.client.data.repository.FakeDraftSnapshot(
             listOf(com.hermes.client.data.repository.DraftRecord(token = draftToken, text = "我自己写的", updatedAt = 1L)),
         )
@@ -173,7 +176,37 @@ class ChatViewModelTest {
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
-        assertEquals("我自己写的", vm.initialDraft.value)
+        assertEquals("我自己写的\n\n分享进来的", vm.initialDraft.value)
+    }
+
+    @Test fun delivered_attachments_are_staged_as_chips_not_sent() = runTest {
+        pendingShareStore.put(
+            "s1",
+            com.hermes.client.share.PendingShare(
+                attachments = listOf(
+                    com.hermes.client.share.PendingShareAttachment("# 记录".toByteArray(), "text/markdown", "对话.md"),
+                ),
+            ),
+        )
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        val staged = vm.state.value.pendingAttachments
+        assertEquals(1, staged.size)
+        assertEquals("对话.md", staged[0].name)
+        assertEquals("text/markdown", staged[0].mimeType)
+        // Nothing may have gone out: the user says what it is for, then presses send.
+        assertTrue(vm.state.value.messages.none { it.role == com.hermes.client.domain.Role.USER })
+    }
+
+    @Test fun delivering_parks_the_payload_for_the_target_conversation_only() = runTest {
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        vm.deliverToSession("other", text = "转录正文")
+        // Opening the wrong conversation must not consume it.
+        assertNull(pendingShareStore.take("s1"))
+        assertEquals("转录正文", pendingShareStore.take("other")?.text)
     }
 
     @Test fun a_share_still_seeds_the_composer_when_there_is_no_draft() = runTest {

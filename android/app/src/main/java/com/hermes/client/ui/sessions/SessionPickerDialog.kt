@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
@@ -66,42 +67,48 @@ import com.hermes.client.ui.localization.localized
  */
 @Composable
 internal fun SessionPickerDialog(
-    /** How many more attachments the composer can take; the selection cannot exceed it (§3.5). */
-    remainingSlots: Int,
-    /** The conversation being composed in — never offered as a choice. */
+    mode: SessionPickerMode,
+    /** The conversation this was opened from — never offered as a choice, in either direction. */
     excludeSessionId: String?,
     onCancel: () -> Unit,
     onPicked: (List<Session>) -> Unit,
+    /** [SessionPickerMode.Deliver] only: the user chose "start a new conversation" instead. */
+    onNewConversation: () -> Unit = {},
     vm: SessionPickerViewModel = hiltViewModel(),
 ) {
     Dialog(
         onDismissRequest = onCancel,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        SessionPickerContent(remainingSlots, excludeSessionId, onCancel, onPicked, vm)
+        SessionPickerContent(mode, excludeSessionId, onCancel, onPicked, onNewConversation, vm)
     }
 }
 
 @Composable
 private fun SessionPickerContent(
-    remainingSlots: Int,
+    mode: SessionPickerMode,
     excludeSessionId: String?,
     onCancel: () -> Unit,
     onPicked: (List<Session>) -> Unit,
+    onNewConversation: () -> Unit,
     vm: SessionPickerViewModel,
 ) {
+    val multi = mode is SessionPickerMode.Reference
+    val remainingSlots = (mode as? SessionPickerMode.Reference)?.remainingSlots ?: 1
     val language = LocalAppLanguage.current
     val state by vm.state.collectAsStateWithLifecycle()
     val activeProfile by vm.activeProfile.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
     var selected by rememberSaveable { mutableStateOf(setOf<String>()) }
 
-    // Archived conversations join the list only once there is something to search for (§3.2).
-    LaunchedEffect(query) { if (query.isNotBlank()) vm.ensureArchivedLoaded() }
+    // Archived conversations join the list only once there is something to search for (§3.2), and
+    // only when referencing: delivering into an archived conversation would revive it somewhere
+    // the list does not show (§6.4).
+    LaunchedEffect(query, multi) { if (multi && query.isNotBlank()) vm.ensureArchivedLoaded() }
 
     val archivedIds = remember(state.archived) { state.archived.mapTo(mutableSetOf()) { it.id } }
-    val rows = remember(state.sessions, state.archived, activeProfile, excludeSessionId, query) {
-        val pool = if (query.isBlank()) state.sessions else state.sessions + state.archived
+    val rows = remember(state.sessions, state.archived, activeProfile, excludeSessionId, query, multi) {
+        val pool = if (multi && query.isNotBlank()) state.sessions + state.archived else state.sessions
         sessionPickerCandidates(pool, activeProfile, excludeSessionId)
             .filter { matchesPickerQuery(it, query) }
             .distinctBy { it.id }
@@ -122,7 +129,8 @@ private fun SessionPickerContent(
                     )
                 }
                 Text(
-                    localized(language, "选择会话", "Pick conversations"),
+                    if (multi) localized(language, "选择会话", "Pick conversations")
+                    else localized(language, "分享到会话", "Share into a conversation"),
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(start = 4.dp).weight(1f),
                 )
@@ -150,22 +158,39 @@ private fun SessionPickerContent(
                             ),
                         )
                     else -> LazyColumn(Modifier.fillMaxSize()) {
+                        if (!multi) {
+                            // Pinned above the list, not buried in it: "somewhere new" is a
+                            // standing option, not one of the conversations being listed.
+                            item(key = "__new__") {
+                                NewConversationRow(onClick = onNewConversation)
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            }
+                        }
                         items(rows, key = { it.id }) { session ->
                             val enabled = pickerRowEnabled(session.id, selected, remainingSlots)
                             SessionPickerRow(
                                 session = session,
-                                checked = session.id in selected,
-                                enabled = enabled,
+                                checked = multi && session.id in selected,
+                                enabled = !multi || enabled,
                                 archived = session.id in archivedIds,
+                                showCheckbox = multi,
                                 onToggle = {
-                                    selected = if (session.id in selected) selected - session.id
-                                    else selected + session.id
+                                    if (!multi) {
+                                        // One tap is the whole decision when delivering.
+                                        onPicked(listOf(session))
+                                    } else {
+                                        selected = if (session.id in selected) selected - session.id
+                                        else selected + session.id
+                                    }
                                 },
                             )
                         }
                     }
                 }
             }
+            // Only multi-select has a footer: with one tap deciding everything, a confirm button
+            // would just be a second tap for the same choice.
+            if (multi) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(
                 Modifier
@@ -192,7 +217,35 @@ private fun SessionPickerContent(
                     Text(localized(language, "添加 ${selected.size} 个会话", "Add ${selected.size}"))
                 }
             }
+            } else {
+                Spacer(Modifier.navigationBarsPadding())
+            }
         }
+    }
+}
+
+/** The standing "somewhere new" option at the head of the delivery picker (HG-40 §6.4). */
+@Composable
+private fun NewConversationRow(onClick: () -> Unit) {
+    val language = LocalAppLanguage.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Rounded.Add,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            localized(language, "开启新对话", "Start a new conversation"),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.primary,
+        )
     }
 }
 
@@ -204,6 +257,8 @@ internal fun SessionPickerRow(
     enabled: Boolean,
     archived: Boolean,
     onToggle: () -> Unit,
+    /** False when one tap is the whole decision (delivery), so there is nothing to tick. */
+    showCheckbox: Boolean = true,
 ) {
     val language = LocalAppLanguage.current
     Row(
@@ -237,7 +292,9 @@ internal fun SessionPickerRow(
             // and the archive — five consumers now, one truth about what a conversation row says.
             SessionSubline(session)
         }
-        Spacer(Modifier.width(8.dp))
-        Checkbox(checked = checked, onCheckedChange = { onToggle() }, enabled = enabled)
+        if (showCheckbox) {
+            Spacer(Modifier.width(8.dp))
+            Checkbox(checked = checked, onCheckedChange = { onToggle() }, enabled = enabled)
+        }
     }
 }
