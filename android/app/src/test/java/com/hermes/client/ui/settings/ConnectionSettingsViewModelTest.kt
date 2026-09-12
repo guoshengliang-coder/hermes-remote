@@ -33,11 +33,13 @@ class ConnectionSettingsViewModelTest {
     private val gatedAuth = mockk<com.hermes.client.data.network.GatedAuth>(relaxed = true)
     // Saving new credentials must drop the on-disk transcripts, so the view model now owns one.
     private val transcripts = mockk<com.hermes.client.data.repository.TranscriptStore>(relaxed = true)
+    // The run-state snapshot goes the same way: a stored clarify question is user content (HG-31).
+    private val phases = mockk<com.hermes.client.data.repository.SessionPhaseStore>(relaxed = true)
 
     @Before fun setUp() { Dispatchers.setMain(StandardTestDispatcher()) }
     @After fun tearDown() = Dispatchers.resetMain()
 
-    private fun buildVm() = ConnectionSettingsViewModel(store, rest, chat, gatedAuth, transcripts)
+    private fun buildVm() = ConnectionSettingsViewModel(store, rest, chat, gatedAuth, transcripts, phases)
 
     @Test fun prefills_fields_from_stored_config() {
         every { store.load() } returns GatewayConfig("https://host.ts.net", "tok123")
@@ -55,6 +57,17 @@ class ConnectionSettingsViewModelTest {
         verify { store.save(GatewayConfig("https://new.ts.net", "newtok")) }
         verify { chat.reconnect() }
         assertEquals(true, vm.state.value.saved)
+    }
+
+    @Test fun save_drops_the_local_run_state_snapshot() = runTest {
+        every { store.load() } returns GatewayConfig("https://old", "")
+        val vm = buildVm()
+        vm.onUrlChange("https://new.ts.net")
+        vm.save()
+        advanceUntilIdle()
+        // Pointing the app at another Relay or account must not leave the previous one's
+        // clarify questions on disk to be restored on the next cold start (HG-31).
+        coVerify { phases.clear() }
     }
 
     @Test fun test_probes_with_entered_values_without_saving() = runTest {

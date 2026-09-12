@@ -192,6 +192,22 @@ missiongoSdkToken=<从 MissionGo 控制台取>
 整个应用任务退到桌面，而不是回到卡片页。应用进程仍在，重新点图标即恢复原状态。与本仓的调起代码无关
 （`ui/feedback/FeedbackEntry.kt` 只把宿主 Activity 交给 SDK），要修得在 SDK 侧。
 
+## 3c. 验"杀掉 App 再冷启动"这一类
+
+有一类状态只有真的经历一次进程死亡才验得到（跨进程持久化、通知栏在进程死后剩下什么）。要点：
+
+- **"划掉 App" ≠ `force-stop`，两者结果不同，别混用。**
+  - 从最近任务划掉：杀进程，**通知栏的卡还在**。这是用户日常做的事，也是绝大多数 bug 报告的场景。
+  - `adb shell am force-stop <pkg>`：杀进程**并清掉该应用的全部通知**。它比用户的操作更狠，用它去验
+    "冷启动后通知还在不在"会得到假阴性。
+  - 脚本化地模拟"划掉"：`adb -s <serial> shell input keyevent KEYCODE_APP_SWITCH` 再滑掉卡片；
+    要确定性更高就用 `am force-stop`，但**只在不关心通知的用例里**用。
+- **`adb install -r` 保留应用数据**（`device-install.py` 走的就是它），这是验持久化的前提。
+  一旦用了 `pm clear` 或卸载重装，本地快照就没了，用例直接失效。
+- 冷启动后先看诊断日志里那一行 `[phase] restored N runtime(s) from disk` —— 它直接告诉你恢复了几条，
+  比在界面上猜快得多（见 `docs/DIAGNOSTICS.md`）。
+- 每一台单独记结果。"划掉 App"的语义和通知栏的清理策略正是各家 ROM 分歧最大的地方。
+
 ## 4. 驱动与取证
 
 - `adb shell input text` 不接受非 ASCII 字符（会抛 NPE）。用 ASCII，空格写成 `%s`。

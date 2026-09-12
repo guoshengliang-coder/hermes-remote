@@ -288,6 +288,7 @@ object AppModule {
         scope: CoroutineScope,
         profiles: com.hermes.client.data.repository.ProfileManager,
         readStore: com.hermes.client.data.repository.SessionReadStore,
+        phaseStore: com.hermes.client.data.repository.SessionPhaseStore,
         sessions: SessionRepository,
         media: com.hermes.client.data.repository.ChatMediaRepository,
         accountSessions: AccountSessionManager,
@@ -297,11 +298,19 @@ object AppModule {
             scope,
             profiles,
             readStore,
+            phaseStore,
             sessions,
             media,
             accountSessions = accountSessions,
             watchdogEnabled = true,
         )
+
+    @Provides
+    @Singleton
+    fun provideSessionPhaseStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.SessionPhaseStore =
+        com.hermes.client.data.repository.SessionPhaseStore(context)
 
     @Provides
     @Singleton

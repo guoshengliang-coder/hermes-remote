@@ -50,6 +50,8 @@ reassigned.
 | `MIGRATE` | Legacy-to-account Connector migration | preflight, duplicate process, rollback |
 | `RPC` | Gateway RPC | remote error, readiness timeout, response timeout |
 | `SESS` | Session/process lifecycle | stale live handle, resume failure, session missing |
+| `CLARIFY` | The agent's structured questions | answer landed on an expired request |
+| `APPROVAL` | The agent's permission requests | answer landed on a timed-out request, request lost with the process |
 | `SYNC` | State and history reconciliation | incomplete history, conflicting terminal state |
 | `MEDIA` | Images and media | decode, preview, upload/download, size limit |
 | `FILE` | General attachments and artifacts | unsupported file, save/open failure |
@@ -252,6 +254,8 @@ expanded without changing the underlying meaning.
 | `HR-SESS-011` | Unmapped failure creating, renaming or removing a project (`projects.*` 5061) | 无法保存项目改动，请重试。 | Couldn't save the project change. Retry. | Yes |
 | `HR-SESS-012` | The Mac could not list a folder while picking a project directory (`GET /api/fs/list` returned an error, or the request failed) | 无法读取该文件夹，请换一个位置。 | Couldn't read that folder. Try another location. | Yes |
 | `HR-CLARIFY-001` | Clarify answer arrived after the request expired server-side | 这个提问已失效，agent 没有收到这次回答，请在输入框直接说明你的选择。 | The clarify question expired before the answer arrived; tell the agent your choice in the composer. | No |
+| `HR-APPROVAL-001` | An approve/deny reached a request Hermes had already timed out and decided for itself. `approval.respond` returns nothing, so this is inferred: the run was confirmed over and its terminal predates the answer | 这次审批没有送达，Hermes 已按超时自行处置了这条命令，请在输入框重新说明。 | The approval didn't reach the agent — Hermes had already timed out and decided on its own. Ask again in the composer. | No |
+| `HR-APPROVAL-002` | The conversation is waiting on an approval whose request did not survive the app restart. An approval carries no id and `approval.respond` addresses only the session, so a card rebuilt from a local snapshot could approve a command the user never saw; it is deliberately not restored | 这条会话在等你确认，但那次审批请求没能在 App 重启后保留下来，这里无法再批准它，请在输入框直接说明你的决定。 | This conversation is waiting for your approval, but the request didn't survive the app restart, so it can't be approved from here. Tell the agent your decision in the composer. | No |
 | `HR-SYNC-001` | Final history reconciliation failed | 无法同步完整会话内容，请重试。 | Couldn't synchronize the complete conversation. Retry. | Yes |
 | `HR-SYNC-002` | Run stopped without a confirmed terminal state (Relay observed `run.interrupted`/`run.unknown`, or the phone marked it interrupted) | 任务停止了，但没有确认完成，请打开会话检查。 | The task stopped without a confirmed completion. Open the conversation to check. | No (open the conversation) |
 | `HR-PERM-001` | Camera permission denied | 相机权限未开启，请前往系统设置允许。 | Camera permission is disabled. Allow it in system settings. | Yes |

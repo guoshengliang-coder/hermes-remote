@@ -8,6 +8,7 @@ import com.hermes.client.data.network.HermesApiException
 import com.hermes.client.data.network.GatewayRpcException
 import com.hermes.client.data.network.ProfileDto
 import com.hermes.client.data.network.str
+import com.hermes.client.data.progress.SessionRunPhase
 import com.hermes.client.data.progress.SessionRuntimeKey
 import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.progress.ManualHistoryResult
@@ -484,6 +485,8 @@ class ChatViewModel @Inject constructor(
     private var sendJob: Job? = null
     private var refreshJob: Job? = null
     private var runtimeKey: SessionRuntimeKey? = null
+    /** Set when [open] finds a restored approval wait; emitted once the transcript is on screen. */
+    private var approvalLostNoticePending = false
 
     /**
      * Upstream told us it reclaimed this conversation (`session.reclaimed`, broadcast when its
@@ -565,6 +568,15 @@ class ChatViewModel @Inject constructor(
         val key = runtimeStore.register(id, profile, resolvedDevice)
         runtimeKey = key
         runtimeStore.setVisible(key, true)
+        // A conversation restored from disk as "waiting for approval" has no card to show: the
+        // request carries no id and approval.respond returns nothing, so rebuilding one locally
+        // could approve a command the user never saw. Say that instead of showing nothing
+        // (HR-APPROVAL-002). Only for restored runtimes — live WAITING_APPROVAL with no card is
+        // the ordinary gap between answering from the shade and the next gateway event.
+        // Assigned outright, not only set: a previous open whose history never arrived must not
+        // leave the flag armed for whatever conversation is opened next.
+        approvalLostNoticePending = key in runtimeStore.restoredKeys.value &&
+            runtimeStore.runtimes.value[key]?.phase == SessionRunPhase.WAITING_APPROVAL
         val cachedMeta = sessions.cachedSession(id, profile, currentDeviceId)
         val fallbackTitle = if (isNewSession) localized(language, "新会话", "New session") else localized(language, "会话", "Chat")
         _sessionTitle.value = when {
@@ -651,6 +663,10 @@ class ChatViewModel @Inject constructor(
                 if (organizedHistory.isNotEmpty()) sessionKnownEmpty = false
                 runtimeStore.acceptHistory(key, organizedHistory, requestStartedAt)
                 runtimeStore.markRead(key)
+                if (approvalLostNoticePending) {
+                    approvalLostNoticePending = false
+                    appendSystem(approvalLostNotice(appLanguage))
+                }
                 // Do not hold the transcript behind image downloads. Show text and placeholders
                 // immediately, then merge cached/downloaded thumbnails by stable history id.
                 launch {
@@ -1443,8 +1459,18 @@ class ChatViewModel @Inject constructor(
     fun respondApproval(choice: ApprovalChoice) {
         mutateState { it.copy(pendingApproval = null) }
         viewModelScope.launch {
+            val respondedAt = System.currentTimeMillis()
             runCatching { chat.respondApproval(sessionId, choice) }
-                .onSuccess { runtimeKey?.let(runtimeStore::continueAfterInput) }
+                .onSuccess {
+                    val key = runtimeKey ?: return@onSuccess
+                    // approval.respond answers nothing, so "did it land" has to be inferred from
+                    // whether the run was still waiting afterwards (HR-APPROVAL-001). An approval
+                    // whose command then finished the turn ends with a terminal AFTER the answer,
+                    // which is why confirmInputAccepted compares against respondedAt.
+                    if (!runtimeStore.confirmInputAccepted(key, respondedAt)) {
+                        appendSystem(approvalExpiredNotice(appLanguage))
+                    }
+                }
                 .onFailure {
                     if (it is kotlinx.coroutines.CancellationException) throw it
                     // The sheet is already gone; surface the failure so a lost approve/deny is visible.

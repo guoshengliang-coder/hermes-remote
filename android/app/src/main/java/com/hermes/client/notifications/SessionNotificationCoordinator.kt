@@ -64,14 +64,19 @@ class SessionNotificationCoordinator @Inject constructor(
                 else -> Unit
             }
         })
-        // Session state is in-memory, so cards left by a previous process (an ongoing "running"
-        // card after an OOM kill, an approval already answered elsewhere) can never be updated
-        // again; clear them and let the live state repost what is still true.
+        // Drop the cards a previous process left that are stale on sight — an ongoing "running"
+        // card after a kill describes a run nobody is watching any more. The 「需要你处理」 cards
+        // stay: they do not need updating, they need to be tappable, and the shade is the only
+        // place an approval survives a swipe-away at all (HG-31, see cancelSessionCards).
         runCatching { notifier.cancelSessionCards() }
         appScope.launch {
             merge(
                 runtimes.runtimes,
                 runtimes.visibleSessions,
+                // refresh() reads this to decide what to suppress, so it has to be a trigger too:
+                // a key leaving the restored set usually coincides with a runtime change, but
+                // markRead clears it without necessarily moving the phase.
+                runtimes.restoredKeys,
                 foreground,
                 settings.prefs.onEach { prefs = it; prefsLoaded = true },
                 actionStates,
@@ -100,8 +105,13 @@ class SessionNotificationCoordinator @Inject constructor(
      */
     fun refresh() = synchronized(lock) {
         val snapshot = runtimes.runtimes.value
+        // A phase restored from disk is an honest thing to draw in a row, but not yet enough to
+        // assert on the high-importance channel: this process has not verified the claim with any
+        // live evidence. Planning around them also leaves the real card a previous process posted
+        // untouched, since nothing is in `posted` yet to diff a Cancel out of (HG-31).
+        val unconfirmed = runtimes.restoredKeys.value
         val plan = planNotifications(
-            runtimes = snapshot.values,
+            runtimes = snapshot.filterKeys { it !in unconfirmed }.values,
             visible = runtimes.visibleSessions.value,
             appInForeground = foreground.value,
             prefs = prefs,
