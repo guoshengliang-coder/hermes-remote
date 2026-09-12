@@ -1144,12 +1144,14 @@ fun ChatMessageList(
                 }
         }
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
-            val pillMaxWidth = maxWidth * 0.7f
+            // 92% per Stitch 基线-聊天页/滑动引导胶囊 (was 70%). This is only a backstop: the
+            // label's own 190dp cap (TURN_PILL_LABEL_MAX_WIDTH) is what actually decides the width.
+            val pillMaxWidth = maxWidth * 0.92f
             androidx.compose.animation.AnimatedVisibility(
                 visible = initialPresentationReady && pillContent != null && !pillIdleHidden,
                 enter = androidx.compose.animation.fadeIn(animationSpec = tween(com.hermes.client.ui.theme.Motion.DurationShort)),
                 exit = androidx.compose.animation.fadeOut(animationSpec = tween(com.hermes.client.ui.theme.Motion.DurationShort)),
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 10.dp),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 4.dp),
             ) {
                 val content = pillContent ?: heldPillContent
                 if (content != null) {

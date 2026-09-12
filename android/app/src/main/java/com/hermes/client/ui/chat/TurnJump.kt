@@ -6,19 +6,23 @@ import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyListItemInfo
@@ -28,6 +32,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -47,10 +53,14 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import com.hermes.client.ui.components.ArrowToTopIcon
+import com.hermes.client.ui.components.ChevronsDownIcon
 import com.hermes.client.ui.components.PromptListIcon
 import com.hermes.client.ui.components.SheetCloseHandle
 import com.hermes.client.ui.components.ThinChevronIcon
@@ -58,7 +68,27 @@ import com.hermes.client.ui.components.hermesSheetState
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.theme.ChatPillLabel
+import com.hermes.client.ui.theme.ChatPromptLabel
+import com.hermes.client.ui.theme.ChatPromptLabelCurrent
+import com.hermes.client.ui.theme.ChatPromptTime
+import com.hermes.client.ui.theme.ChatSheetCount
+import com.hermes.client.ui.theme.ChatSheetTitle
 import com.hermes.client.ui.theme.Motion
+import com.hermes.client.ui.theme.chatChipBorder
+import com.hermes.client.ui.theme.chatChipColor
+import com.hermes.client.ui.theme.chatCurrentBorderColor
+import com.hermes.client.ui.theme.chatCurrentDiscColor
+import com.hermes.client.ui.theme.chatCurrentDiscInkColor
+import com.hermes.client.ui.theme.chatCurrentFillColor
+import com.hermes.client.ui.theme.chatCurrentTimeColor
+import com.hermes.client.ui.theme.chatPillBorderColor
+import com.hermes.client.ui.theme.chatPillDividerColor
+import com.hermes.client.ui.theme.chatPillFillColor
+import com.hermes.client.ui.theme.chatPillIconChipColor
+import com.hermes.client.ui.theme.chatRowChevronColor
+import com.hermes.client.ui.theme.chatSheetColor
+import com.hermes.client.ui.theme.chatSheetHairlineColor
 import kotlin.math.abs
 
 // Turn navigation for long transcripts (docs/DESIGN.md §5.4 「上一组对话胶囊」/「我的提问」):
@@ -131,6 +161,17 @@ internal data class TurnPillTarget(val groupIndex: Int, val showList: Boolean)
 
 /** From this many groups on, the pill always carries the prompt-list segment (decision 2026-09-03). */
 internal const val TURN_PILL_LIST_MIN_GROUPS = 3
+
+/** The pill's fixed height (docs/DESIGN.md §5.4, Stitch 基线-聊天页/滑动引导胶囊). */
+internal val TURN_PILL_HEIGHT: Dp = 38.dp
+
+/**
+ * How wide the summary itself may get.
+ *
+ * This, not the 92% container clamp in ChatComponents, is what actually decides how wide the pill
+ * ends up on a phone — the mock caps the label at 190px and lets the container clamp be a backstop.
+ */
+internal val TURN_PILL_LABEL_MAX_WIDTH: Dp = 190.dp
 
 /** How long the prompt just jumped to keeps the landing highlight (docs/DESIGN.md §5.4). */
 internal const val TURN_JUMP_FLASH_MS = 1_200L
@@ -272,32 +313,49 @@ internal fun TurnJumpPill(
     val language = LocalAppLanguage.current
     val jumpDescription = localized(language, "回到这条提问：$label", "Back to this prompt: $label")
     val listDescription = localized(language, "我的提问", "Your prompts")
-    // Same pill as the session list's 「需要你处理」 (docs/DESIGN.md §5.2): primaryContainer,
-    // 18dp radius, 4dp shadow, labelLarge. Icons are 18dp with a 2.4 stroke so they read at the
-    // same weight as the text (§4.1 small-icon compensation).
+    // De-blued 2026-09-12 (docs/DESIGN.md §5.4, Stitch 基线-聊天页/滑动引导胶囊 / 暗夜). This is
+    // NO LONGER the session list's 「需要你处理」 pill: paper fill, a hairline ring, a full round,
+    // 38dp tall. That pill is a to-do prompt and the brand colour is its meaning; this one is a
+    // scroll-position indicator that sits in front of the reader while they scroll, and a solid
+    // brand fill made it look like a control that had to be dealt with. Do not re-merge them.
     Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shape = RoundedCornerShape(18.dp),
-        shadowElevation = 4.dp,
+        color = chatPillFillColor(),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = CircleShape,
+        border = BorderStroke(1.dp, chatPillBorderColor()),
+        shadowElevation = 2.dp,
         modifier = modifier.testTag("turn-jump-pill"),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.height(TURN_PILL_HEIGHT),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Row(
                 Modifier
                     .weight(1f, fill = false)
+                    .fillMaxHeight()
                     .combinedClickable(onClick = onJump, onLongClick = onOpenList)
                     .semantics { contentDescription = jumpDescription }
-                    .padding(start = 14.dp, end = if (showList) 12.dp else 14.dp, top = 8.dp, bottom = 8.dp),
+                    .padding(start = 12.dp, end = if (showList) 10.dp else 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(ArrowToTopIcon, contentDescription = null, modifier = Modifier.size(18.dp))
+                Box(
+                    Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(chatPillIconChipColor()),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(ArrowToTopIcon, contentDescription = null, modifier = Modifier.size(14.dp))
+                }
                 Text(
                     label,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = ChatPillLabel,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 6.dp),
+                    modifier = Modifier
+                        .padding(start = 6.dp)
+                        .widthIn(max = TURN_PILL_LABEL_MAX_WIDTH),
                 )
             }
             AnimatedVisibility(
@@ -307,21 +365,26 @@ internal fun TurnJumpPill(
                 exit = shrinkHorizontally(animationSpec = tween(Motion.DurationShort)) +
                     fadeOut(animationSpec = tween(Motion.DurationShort)),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier.fillMaxHeight(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Box(
                         Modifier
                             .width(1.dp)
-                            .height(20.dp)
-                            .background(MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.25f)),
+                            .height(15.dp)
+                            .background(chatPillDividerColor()),
                     )
                     Box(
                         Modifier
+                            .fillMaxHeight()
                             .clickable(onClick = onOpenList)
                             .semantics { contentDescription = listDescription }
                             .testTag("turn-jump-pill-list")
-                            .padding(start = 10.dp, end = 12.dp, top = 9.dp, bottom = 9.dp),
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Icon(PromptListIcon, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(PromptListIcon, contentDescription = null, modifier = Modifier.size(16.dp))
                     }
                 }
             }
@@ -376,51 +439,134 @@ internal fun PromptListSheet(
 ) {
     val sheetState = hermesSheetState()
     // Sheet gestures OFF (docs/DESIGN.md §5.8 global rule): scrolling the list never drags or
-    // closes the sheet; closing is the grab bar, the scrim, or back.
+    // closes the sheet. Closing is the grab bar, the scrim, back — and, since 2026-09-12, the
+    // header's ✕ as a FOURTH way in, not a replacement for any of the three (§5.8).
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         sheetGesturesEnabled = false,
+        containerColor = chatSheetColor(),
+        // 24dp: the one documented exception to §5.8's global 16dp, because the mock draws it.
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         dragHandle = { SheetCloseHandle(onDismiss) },
     ) {
-        PromptListHeader(count = rows.count { !it.isLeading }, onLatest = onLatest)
+        PromptListHeader(
+            count = rows.count { !it.isLeading },
+            onLatest = onLatest,
+            onDismiss = onDismiss,
+        )
         PromptListContent(rows, onPick)
         Spacer(Modifier.height(16.dp))
     }
 }
 
 /**
- * Centred title with the prompt count as its subtitle (the model-sheet header pattern, DESIGN.md
- * §5.8) and 「回到最新」 on the right: the only way out of a long list that is not "scroll".
+ * Left-aligned title, the count as a chip beside it, and two 32dp round buttons on the right
+ * (docs/DESIGN.md §5.4, Stitch 基线-聊天页/我的提问, 2026-09-12).
+ *
+ * This used to be a centred title with the count as a subtitle, justified as "the model sheet's
+ * pattern". That justification had already expired: §5.5 made sheet titles left-aligned and the
+ * model sheet followed, leaving this the last centred one in the app.
+ *
+ * The title follows the conversation's origin — read from [LocalBotOrigin], the same source the
+ * user bubbles' speaker label uses — like the menu entry that opens this sheet already did.
+ * Calling a bot's own messages 「我的提问」 while the menu that opened the sheet said 「对方的提问」
+ * was a plain bug (fixed 2026-09-12).
  */
 @Composable
-internal fun PromptListHeader(count: Int, onLatest: () -> Unit, modifier: Modifier = Modifier) {
+internal fun PromptListHeader(
+    count: Int,
+    onLatest: () -> Unit,
+    onDismiss: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
     val language = LocalAppLanguage.current
-    Box(modifier.fillMaxWidth().padding(bottom = 6.dp)) {
-        Column(
-            Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally,
+    val botOrigin = LocalBotOrigin.current
+    Column(modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 12.dp, top = 2.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(localized(language, "我的提问", "Your prompts"), style = MaterialTheme.typography.titleMedium)
-            Text(
-                localized(language, "$count 条", "$count prompts"),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp),
+            Text(promptListTitle(botOrigin, language), style = ChatSheetTitle)
+            Spacer(Modifier.width(8.dp))
+            Surface(
+                color = chatChipColor(),
+                contentColor = MaterialTheme.colorScheme.outline,
+                shape = CircleShape,
+                border = chatChipBorder(),
+            ) {
+                Text(
+                    localized(language, "$count 条", "$count prompts"),
+                    style = ChatSheetCount,
+                    modifier = Modifier
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .testTag("prompt-list-count"),
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            PromptListHeaderButton(
+                icon = ChevronsDownIcon,
+                description = localized(language, "回到最新", "Latest"),
+                testTag = "prompt-list-latest",
+                onClick = onLatest,
+            )
+            Spacer(Modifier.width(8.dp))
+            PromptListHeaderButton(
+                icon = Icons.Rounded.Close,
+                description = localized(language, "关闭", "Close"),
+                testTag = "prompt-list-close",
+                onClick = onDismiss,
             )
         }
-        TextButton(onClick = onLatest, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp).testTag("prompt-list-latest")) {
-            Text(localized(language, "回到最新", "Latest"))
+        HorizontalDivider(color = chatSheetHairlineColor())
+    }
+}
+
+/** One of the header's two round buttons: 32dp of paint, 48dp of touch (§5.7). */
+@Composable
+private fun PromptListHeaderButton(
+    icon: ImageVector,
+    description: String,
+    testTag: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .size(48.dp)
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = description }
+            .testTag(testTag),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            color = chatChipColor(),
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            shape = CircleShape,
+            border = chatChipBorder(),
+            modifier = Modifier.size(32.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+            }
         }
     }
 }
 
 /**
- * The rows (docs/DESIGN.md §5.4, decision 2026-09-03): ordinal circle → prompt (≤2 lines) → time
- * only when the message has one → thin chevron. The ordinal is the stable coordinate because
- * gateway history carries no timestamps; the current row is a primaryContainer block with a filled
- * ordinal and NO extra text — the block and the circle already say "here"; TalkBack gets it as a
- * state description instead.
+ * The rows (docs/DESIGN.md §5.4; restyled 2026-09-12 off Stitch 基线-聊天页/我的提问): ordinal
+ * disc → prompt (≤2 lines) → time only when the message has one → thin chevron. The ordinal is the
+ * stable coordinate; time is the supplement.
+ *
+ * The current row is de-blued: a neutral block with a hairline ring and an INVERTED ordinal disc
+ * (ink on paper in light, paper on ink in dark) where it used to be `primaryContainer` with a
+ * `primary` disc. Still NO extra text — the block and the disc already say "here"; TalkBack gets
+ * it as a state description instead.
+ *
+ * ≤2 lines is a deliberate departure from the mock, which truncates to one: "an over-long summary"
+ * is one of the states this feature has to cover, and the words the mock drops are exactly the
+ * ones that tell two similar prompts apart.
  */
 @Composable
 internal fun PromptListContent(
@@ -430,7 +576,7 @@ internal fun PromptListContent(
     listState: LazyListState = rememberLazyListState(initialFirstVisibleItemIndex = promptListInitialIndex(rows)),
 ) {
     val language = LocalAppLanguage.current
-    val hairline = MaterialTheme.colorScheme.surfaceContainerHigh
+    val hairline = chatSheetHairlineColor()
     LazyColumn(state = listState, modifier = modifier.fillMaxWidth().testTag("prompt-list")) {
         itemsIndexed(rows, key = { _, row -> row.groupIndex }) { index, row ->
             val current = row.isCurrent
@@ -442,17 +588,18 @@ internal fun PromptListContent(
             Column {
                 // Hairline from the text edge; none around the highlighted block.
                 if (index > 0 && !current && !rows[index - 1].isCurrent) {
-                    HorizontalDivider(color = hairline, modifier = Modifier.padding(start = 64.dp, end = 16.dp))
+                    HorizontalDivider(color = hairline, modifier = Modifier.padding(start = 66.dp, end = 20.dp))
                 }
                 Row(
                     Modifier
                         .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = if (current) 4.dp else 0.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .then(
                             if (current) {
                                 Modifier
-                                    .padding(horizontal = 8.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                                    .background(chatCurrentFillColor())
+                                    .border(1.dp, chatCurrentBorderColor(), RoundedCornerShape(12.dp))
                             } else Modifier,
                         )
                         .clickable { onPick(row) }
@@ -460,23 +607,24 @@ internal fun PromptListContent(
                             contentDescription = description
                             if (current) stateDescription = hereLabel
                         }
-                        .padding(start = if (current) 16.dp else 24.dp, end = 16.dp, top = 13.dp, bottom = 13.dp),
+                        .padding(horizontal = if (current) 14.dp else 8.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (row.ordinal != null) {
-                        Box(
-                            Modifier
-                                .size(26.dp)
-                                .clip(CircleShape)
-                                .background(if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest),
-                            contentAlignment = Alignment.Center,
+                        Surface(
+                            color = if (current) chatCurrentDiscColor() else chatChipColor(),
+                            contentColor = if (current) chatCurrentDiscInkColor() else MaterialTheme.colorScheme.onSurfaceVariant,
+                            shape = CircleShape,
+                            border = if (current) null else chatChipBorder(),
+                            modifier = Modifier.size(26.dp),
                         ) {
-                            Text(
-                                row.ordinal.toString(),
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                color = if (current) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    row.ordinal.toString(),
+                                    style = ChatSheetCount.copy(fontWeight = FontWeight.SemiBold, fontSize = 12.sp),
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
                         }
                     } else {
                         Spacer(Modifier.size(26.dp))
@@ -485,7 +633,7 @@ internal fun PromptListContent(
                     Column(Modifier.weight(1f)) {
                         Text(
                             row.label,
-                            style = MaterialTheme.typography.bodyLarge,
+                            style = if (current) ChatPromptLabelCurrent else ChatPromptLabel,
                             color = if (row.isLeading) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
@@ -493,8 +641,8 @@ internal fun PromptListContent(
                         if (row.time != null) {
                             Text(
                                 row.time,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = ChatPromptTime,
+                                color = if (current) chatCurrentTimeColor() else MaterialTheme.colorScheme.outline,
                                 modifier = Modifier.padding(top = 2.dp),
                             )
                         }
@@ -503,7 +651,7 @@ internal fun PromptListContent(
                     Icon(
                         ThinChevronIcon,
                         contentDescription = null,
-                        tint = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (current) MaterialTheme.colorScheme.onSurface else chatRowChevronColor(),
                         modifier = Modifier.size(20.dp),
                     )
                 }

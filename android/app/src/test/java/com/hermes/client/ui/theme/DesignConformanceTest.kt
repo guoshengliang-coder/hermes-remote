@@ -141,6 +141,20 @@ class DesignConformanceTest {
                 "modelSwitchChip" -> if (dark) ModelSwitchChipDark else ModelSwitchChipLight
                 "modelStar" -> if (dark) ModelStarDark else ModelStarLight
                 "modelStarOff" -> if (dark) ModelStarOffDark else ModelStarOffLight
+                // 聊天页浮层 (docs/DESIGN.md §5.4 上一组对话胶囊 / 我的提问).
+                "chatPillFill" -> if (dark) ChatPillFillDark else ChatPillFillLight
+                "chatPillBorder" -> if (dark) ChatPillBorderDark else ChatPillBorderLight
+                "chatPillIconChip" -> if (dark) ChatPillIconChipDark else ChatPillIconChipLight
+                "chatPillDivider" -> if (dark) ChatPillDividerDark else ChatPillDividerLight
+                "chatSheet" -> if (dark) ChatSheetDark else ChatSheetLight
+                "chatSheetHairline" -> if (dark) ChatSheetHairlineDark else ChatSheetHairlineLight
+                "chatChip" -> if (dark) ChatChipDark else ChatChipLight
+                "chatRowChevron" -> if (dark) ChatRowChevronDark else ChatRowChevronLight
+                "chatCurrentFill" -> if (dark) ChatCurrentFillDark else ChatCurrentFillLight
+                "chatCurrentBorder" -> if (dark) ChatCurrentBorderDark else ChatCurrentBorderLight
+                "chatCurrentDisc" -> if (dark) ChatCurrentDiscDark else ChatCurrentDiscLight
+                "chatCurrentDiscInk" -> if (dark) ChatCurrentDiscInkDark else ChatCurrentDiscInkLight
+                "chatCurrentTime" -> if (dark) ChatCurrentTimeDark else ChatCurrentTimeLight
                 else -> error("unknown tiles role '$name' in ref '$ref'")
             }.toArgb()
             else -> error("unknown ref kind '$kind' in ref '$ref'")
@@ -186,6 +200,12 @@ class DesignConformanceTest {
             "ModelRowName" -> ModelRowName
             "ModelRowProvider" -> ModelRowProvider
             "ModelQuickChipProvider" -> ModelQuickChipProvider
+            "ChatPillLabel" -> ChatPillLabel
+            "ChatSheetTitle" -> ChatSheetTitle
+            "ChatSheetCount" -> ChatSheetCount
+            "ChatPromptLabel" -> ChatPromptLabel
+            "ChatPromptLabelCurrent" -> ChatPromptLabelCurrent
+            "ChatPromptTime" -> ChatPromptTime
             "labelMedium" -> HermesTypography.labelMedium
             "bodyLarge" -> HermesTypography.bodyLarge
             "titleMedium" -> HermesTypography.titleMedium
