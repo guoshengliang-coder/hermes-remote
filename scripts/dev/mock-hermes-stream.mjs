@@ -604,6 +604,20 @@ wss.on("connection", (socket) => {
         if (submitted.startsWith("!slow")) setTimeout(ack, 6000); else ack();
         break;
       }
+      case "file.attach":
+      case "image.attach":
+      case "pdf.attach": {
+        // Without this, EVERY attachment send fails locally: the catch-all `default` below
+        // answers `{ ok: true }`, and `ChatRepository.attachFilePath` raises on a reply with no
+        // `ref_text`, so the bubble lands on 未发送 · SESS-007 and looks like an app bug. The
+        // three fields are the ones the client actually reads; the ref_text WORDING is a mock
+        // stand-in, not a claim about what upstream writes (docs/HERMES_CONTRACT.md lists the
+        // method but not its response shape).
+        const attachName = String(request.params?.name ?? "attachment");
+        const attachPath = String(request.params?.path ?? `/tmp/${attachName}`);
+        reply({ name: attachName, path: attachPath, ref_text: `\n\n[attached ${attachName}: ${attachPath}]` });
+        break;
+      }
       case "commands.catalog":
         reply({ commands: [] });
         break;

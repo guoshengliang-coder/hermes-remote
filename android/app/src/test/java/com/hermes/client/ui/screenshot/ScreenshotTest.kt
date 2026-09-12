@@ -662,6 +662,43 @@ class ScreenshotTest {
 
     @Test fun sessionRowsDraft() = snap("session-rows-draft") { DraftRows() }
 
+    /**
+     * The session picker's rows (HG-38). The four states that can appear at once: selected,
+     * selectable, an archived hit from search, and a row disabled because the six-attachment
+     * budget is already spoken for — the last one is the whole point of deciding the cap up front
+     * rather than reporting it afterwards.
+     */
+    @androidx.compose.runtime.Composable
+    private fun PickerRows() {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides
+                com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+            androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+                com.hermes.client.ui.sessions.SessionPickerRow(
+                    session = listSession("重构 gateway 路由中间件", "/u/hermes-remote"),
+                    checked = true, enabled = true, archived = false, onToggle = {},
+                )
+                com.hermes.client.ui.sessions.SessionPickerRow(
+                    session = listSession("翻译 Android 文案", "/u/xiaomai"),
+                    checked = false, enabled = true, archived = false, onToggle = {},
+                )
+                com.hermes.client.ui.sessions.SessionPickerRow(
+                    session = listSession("去年的排查记录", "/u/hk"),
+                    checked = false, enabled = true, archived = true, onToggle = {},
+                )
+                com.hermes.client.ui.sessions.SessionPickerRow(
+                    session = listSession("名额用完了选不动", "/u/xiaomai"),
+                    checked = false, enabled = false, archived = false, onToggle = {},
+                )
+            }
+        }
+    }
+
+    @Test fun sessionPickerRows() = snap("session-picker-rows") { PickerRows() }
+
+    @Test fun sessionPickerRowsDark() = snap("session-picker-rows-dark", darkTheme = true) { PickerRows() }
+
     @Test fun sessionRowsDraftDark() = snap("session-rows-draft-dark", darkTheme = true) { DraftRows() }
 
     @Test fun rowHeightProbe() = snap("row-height-probe") {

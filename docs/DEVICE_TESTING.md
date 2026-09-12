@@ -169,6 +169,14 @@ adb -s <serial> exec-out screencap -p > screen.png
 - mock 把每一条回复都流进同一个固定会话「Mock 会话」，不管你从哪个会话发出；其它会话会一直
   停在"生成中"。多轮对话要在「Mock 会话」里造。
 - mock 会弹出审批和澄清弹层，挡住滑动手势 —— 先点「拒绝」或「跳过，让 agent 自行判断」关掉。
+- **mock 的 `/api/sessions/<id>/messages` 是按「本次 mock 运行里发过几条 prompt」现编的**，不是每个
+  会话各自的历史。所以刚起完开发栈、一条消息都没发时，任何会话的历史都是空的 —— 这时去验
+  「添加会话」（HG-38）会看到零个 chip 加一条 `HR-SESS-014`，那是 mock 没内容，不是 App 的 bug。
+  **先随便发一条消息**，之后每个会话的 `/messages` 才有东西可返回。
+- **`file.attach` / `image.attach` / `pdf.attach` 2026-09-12 才补进 mock。** 在那之前它们落到
+  兜底分支、只回 `{ok:true}`，而客户端读不到 `ref_text` 就抛错 —— 于是**本地发任何带附件的消息
+  都会失败**，气泡停在「未发送 · SESS-007」，看上去完全像 App 的 bug。要验附件相关的东西，先确认
+  你手上的 mock 有这三个 case。
 
 ## 3a. 用 adb 驱动 App 时的两个坑（2026-09-12 实测）
 

@@ -53,6 +53,7 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PhotoLibrary
@@ -368,6 +369,20 @@ fun ChatScreen(
         // A fresh navigation entry must never inherit the outgoing chat's IME/focus state.
         collapseComposer()
     }
+    // One toast for the whole batch: six separate ones for six unreadable conversations would
+    // bury the chips that did arrive (HG-38).
+    LaunchedEffect(sessionId) {
+        vm.sessionAttachFailures.collect { count ->
+            android.widget.Toast.makeText(
+                context,
+                com.hermes.client.data.error.AppError(
+                    com.hermes.client.data.error.AppErrorCode.SESSION_TRANSCRIPT_UNAVAILABLE,
+                    retryable = true,
+                ).localizedMessage(language) + localized(language, "（$count 个）", " ($count)"),
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
     LaunchedEffect(composerFocused) {
         // The compact and expanded layouts use different field placements. Re-request focus after
         // expansion so the keyboard remains open instead of flashing and immediately collapsing.
@@ -434,6 +449,7 @@ fun ChatScreen(
     // Menu entry to the prompt list; the list itself lives in ChatMessageList, which owns the turns.
     var promptListTick by remember { mutableStateOf(0L) }
     var showAttachSheet by remember { mutableStateOf(false) }
+    var showSessionPicker by remember { mutableStateOf(false) }
     var savingImageId by remember { mutableStateOf<String?>(null) }
     var pendingSaveAsImage by remember { mutableStateOf<com.hermes.client.domain.ChatImage?>(null) }
     var showCameraPermissionDialog by rememberSaveable { mutableStateOf(false) }
@@ -814,6 +830,24 @@ fun ChatScreen(
                     .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                // HG-38: the chips all arrive at once when the last conversation is rendered, so
+                // this line is the only thing saying work is in flight. Sits above the chip row,
+                // where the chips it is promising will appear.
+                val attachingSessions by vm.attachingSessions.collectAsStateWithLifecycle()
+                if (attachingSessions > 0) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        com.hermes.client.ui.components.HermesMark(size = 16.dp)
+                        Text(
+                            localized(language, "正在生成 $attachingSessions 份对话记录…", "Preparing $attachingSessions transcripts…"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
                 if (state.pendingAttachments.isNotEmpty()) {
                     LazyRow(
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -1286,8 +1320,31 @@ fun ChatScreen(
                     showPromptSheet = true
                 }.padding(horizontal = 8.dp),
             )
+            // A row, not a fourth tile: the three tiles above are all "take a file off this phone",
+            // while this and 常用提示 are "pick something the system already has" (HG-38).
+            ListItem(
+                headlineContent = { Text(localized(language, "添加会话", "Add conversations"), style = MaterialTheme.typography.titleMedium) },
+                supportingContent = { Text(localized(language, "把已有对话转成 Markdown 一起发出", "Send existing conversations along as Markdown")) },
+                leadingContent = { Icon(Icons.Rounded.Forum, contentDescription = null) },
+                modifier = Modifier.clickable {
+                    showAttachSheet = false
+                    showSessionPicker = true
+                }.padding(horizontal = 8.dp),
+            )
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    if (showSessionPicker) {
+        com.hermes.client.ui.sessions.SessionPickerDialog(
+            remainingSlots = remainingAttachmentSlots(state.pendingAttachments.size),
+            excludeSessionId = sessionId,
+            onCancel = { showSessionPicker = false },
+            onPicked = { picked ->
+                showSessionPicker = false
+                vm.attachSessions(picked)
+            },
+        )
     }
 
     if (showCameraPermissionDialog) {
