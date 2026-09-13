@@ -34,6 +34,8 @@ does not redefine fields or error semantics.
 
 - Existing legacy URL/App-Token state remains intact until the account path has completed live REST
   and WebSocket acceptance. Capability/network failure never deletes or overwrites it.
+- An unexpected account-mode endpoint response is repaired through Account & Devices. It must never
+  open the legacy Relay/App-Token editor or mark the signed-in account session as legacy.
 - Never attach both `Authorization` and `X-Hermes-Session-Token`; the Gateway rejects mixed mode.
 - With multiple accessible Macs, never fall back to unscoped `/api/*` or `/api/ws`; the Gateway
   intentionally returns `HR-BIND-009` instead of guessing.

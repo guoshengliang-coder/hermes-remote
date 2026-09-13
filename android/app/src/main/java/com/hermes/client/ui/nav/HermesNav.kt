@@ -122,6 +122,7 @@ internal fun chatBackTarget(previousRoute: String?): ChatBackTarget = when {
 
 internal fun isAccountSetupRepair(failure: StartupFailure?): Boolean =
     failure == StartupFailure.ACCOUNT_AUTHENTICATION_FAILED ||
+        failure == StartupFailure.ACCOUNT_SERVICE_UNAVAILABLE ||
         failure == StartupFailure.ACCOUNT_DELETION_COMMITTED ||
         failure == StartupFailure.ACCOUNT_DEVICE_UNAVAILABLE
 
