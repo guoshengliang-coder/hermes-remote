@@ -722,7 +722,7 @@ binding and six historical revoked bindings; the operator created no binding. Th
 session-affinity, capacity and recovery exercise therefore remains a physical canary gate for E11 when that Mac is
 available. No F5-A identity/Web or F5-B sharing capability was enabled by this run.
 
-## Production identity and Web account-center gray rollout (R5-F5-A; code gate only)
+## Production identity and Web account-center gray rollout (R5-F5-A; production complete)
 
 F5-A starts only from the exact committed R5-F4 multi-device state and matching release identity. It does not
 change database schema, create an identity, send an email, enable Google, delete an account, or enable sharing.
@@ -770,6 +770,26 @@ recorded run `9d9493b7-3544-401b-992f-8a001f83714b` as `rolled_back`. Blue retur
 `ACCOUNT_WEB_ORIGIN` and the later-sharing `ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN`, each pinned to the configured
 production HTTPS origin. It still accepts the exact older pre-F5 environment only while identity-Web and sharing
 remain disabled, then writes both origins before either feature can start.
+
+The authorized retry used schema-8 operator bundle `Hermes-R5D-Ops-8a4f17a1fb80` from merged `main`
+`8a4f17a1fb806ef0ee71ae6ed9e4d904dc1d682b` (archive SHA-256
+`f14a1f54d07e74717a4e6f50e4b9566ef14331f0c5c3601d6ac6c4a0eb74f0a0`). Its CI, Gateway OCI and SAST workflows
+were green; the bundle verified before and after transfer and again from root-only
+`/opt/hermes-go-ops/8a4f17a1fb80`. After confirming the earlier journal was `rolled_back`, it was preserved as
+`identity-web-rollout.rolled-back-9d9493b7-3544-401b-992f-8a001f83714b.json`. Run
+`925f7085-5f48-4d42-b895-fe1e2f1610de` then committed on blue.
+
+The active release remained Gateway `0.4.15-6b7d60fa6bbf`, schema 15/PostgreSQL 18 readiness stayed green, and the
+healthy container reported zero restarts after its operator restart. Identity management, Web account center and
+Web session are enabled; email OTP, binding, multi-device and Desktop managed installation remain enabled; sharing,
+Google and deletion remain disabled. Both Web origins are pinned to `https://mrlgs.net`. The exact identity-Web route
+file matched SHA-256 `b7ad31a21b8a7933ef82f196be72989af627a5aac48ebaabbed36b37a5ae6229`, both route includes appeared once,
+and `nginx -t` passed. Public verification returned the secured account shell/assets and anonymous session bootstrap,
+401 for unauthenticated identity/installation/device access, and 404/405 for every disabled Google/deletion/sharing
+probe; Connector WebSocket upgrade remained available and the unauthenticated device WebSocket remained 401. The
+operator also preserved the exact preflight Legacy `device_offline` state. PostgreSQL still contained one account,
+one external identity, two installations, one active/online binding and six revoked bindings; every newest business
+record predated this rollout, so F5-A created no account, identity, installation or binding.
 
 ## Production whole-device sharing gray rollout (R5-F5-B; code gate only)
 
