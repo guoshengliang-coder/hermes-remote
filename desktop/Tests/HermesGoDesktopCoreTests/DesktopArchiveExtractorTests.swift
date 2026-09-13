@@ -34,6 +34,48 @@ final class DesktopArchiveExtractorTests: XCTestCase {
         XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o700)
     }
 
+    func testExtractsSchemaV2ComponentWithoutConvertingItToLegacyMetadata() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source")
+        let bin = source.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try Data("node".utf8).write(to: bin.appendingPathComponent("node"))
+        let archive = root.appendingPathComponent("Hermes-Component-node_runtime-22.3.0-arm64.tar.gz")
+        try createArchive(source: source, archive: archive)
+        let data = try Data(contentsOf: archive)
+        let metadata = DesktopComponentReleaseArtifactV2(
+            kind: .nodeRuntime,
+            version: "22.3.0",
+            architecture: "arm64",
+            installPhase: .bootstrap,
+            requiredForBootstrap: true,
+            reuseContract: .exactContent,
+            fileName: archive.lastPathComponent,
+            entrypoint: "bin/node",
+            downloadURL: "https://downloads.example/desktop/components/\(archive.lastPathComponent)",
+            sizeBytes: Int64(data.count),
+            sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+            contentSHA256: String(repeating: "a", count: 64),
+            dependencies: []
+        )
+
+        let result = try DesktopTarArchiveExtractor(
+            runner: SystemOutputCommandRunner()
+        ).extractComponent(
+            archive: archive,
+            metadata: metadata,
+            into: root.appendingPathComponent("extracted"),
+            runID: "10000000-0000-4000-8000-000000000004"
+        )
+
+        XCTAssertEqual(try String(contentsOf: result.appendingPathComponent("bin/node")), "node")
+        XCTAssertTrue(FileManager.default.isExecutableFile(
+            atPath: result.appendingPathComponent("bin/node").path
+        ))
+        XCTAssertTrue(result.lastPathComponent.hasSuffix("-node_runtime"))
+    }
+
     func testRejectsSymlinkMembersBeforeExtraction() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }

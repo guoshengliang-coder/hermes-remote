@@ -78,13 +78,7 @@ public struct DesktopComponentReleaseActivationPlanner: @unchecked Sendable {
         manifest: DesktopComponentReleaseManifestV2,
         healthProbe: HealthProbe
     ) throws -> DesktopComponentReleaseActivationPlan {
-        guard manifest.schemaVersion == 2,
-              DesktopManagedInstallLayout.validVersion(manifest.releaseVersion),
-              Self.validArchitecture(manifest.architecture),
-              Set(manifest.components.map(\.kind)).count == manifest.components.count
-        else { throw DesktopComponentReleaseActivationError.invalidManifest }
-        let byKind = Dictionary(uniqueKeysWithValues: manifest.components.map { ($0.kind, $0) })
-        guard validBootstrapTopology(byKind, manifestArchitecture: manifest.architecture) else {
+        guard Self.validBootstrapManifest(manifest) else {
             throw DesktopComponentReleaseActivationError.invalidManifest
         }
 
@@ -130,7 +124,17 @@ public struct DesktopComponentReleaseActivationPlanner: @unchecked Sendable {
         )
     }
 
-    private func validBootstrapTopology(
+    static func validBootstrapManifest(_ manifest: DesktopComponentReleaseManifestV2) -> Bool {
+        guard manifest.schemaVersion == 2,
+              DesktopManagedInstallLayout.validVersion(manifest.releaseVersion),
+              Self.validArchitecture(manifest.architecture),
+              Set(manifest.components.map(\.kind)).count == manifest.components.count
+        else { return false }
+        let byKind = Dictionary(uniqueKeysWithValues: manifest.components.map { ($0.kind, $0) })
+        return validBootstrapTopology(byKind, manifestArchitecture: manifest.architecture)
+    }
+
+    private static func validBootstrapTopology(
         _ artifacts: [DesktopManagedComponentKind: DesktopComponentReleaseArtifactV2],
         manifestArchitecture: String
     ) -> Bool {
@@ -143,7 +147,7 @@ public struct DesktopComponentReleaseActivationPlanner: @unchecked Sendable {
               let connector = artifacts[.connector],
               Set(artifacts.values.filter({ $0.installPhase == .bootstrap }).map(\.kind)) == baseKinds,
               [python, hermes, node, connector].allSatisfy({
-                validBootstrapArtifact($0, manifestArchitecture: manifestArchitecture)
+                Self.validBootstrapArtifact($0, manifestArchitecture: manifestArchitecture)
               })
         else { return false }
 
@@ -174,7 +178,7 @@ public struct DesktopComponentReleaseActivationPlanner: @unchecked Sendable {
         return true
     }
 
-    private func validBootstrapArtifact(
+    private static func validBootstrapArtifact(
         _ artifact: DesktopComponentReleaseArtifactV2,
         manifestArchitecture: String
     ) -> Bool {

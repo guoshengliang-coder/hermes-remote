@@ -72,6 +72,41 @@ public struct DesktopTarArchiveExtractor<Runner: OutputCommandRunning> {
         into destinationRoot: URL,
         runID: String
     ) throws -> DesktopManagedReleaseSource {
+        let destination = try extractArchive(
+            artifact.fileURL,
+            entrypoint: artifact.metadata.entrypoint,
+            componentName: artifact.metadata.component.rawValue,
+            into: destinationRoot,
+            runID: runID
+        )
+        return DesktopManagedReleaseSource(
+            component: artifact.metadata.component,
+            directory: destination
+        )
+    }
+
+    public func extractComponent(
+        archive: URL,
+        metadata: DesktopComponentReleaseArtifactV2,
+        into destinationRoot: URL,
+        runID: String
+    ) throws -> URL {
+        try extractArchive(
+            archive,
+            entrypoint: metadata.entrypoint,
+            componentName: metadata.kind.rawValue,
+            into: destinationRoot,
+            runID: runID
+        )
+    }
+
+    private func extractArchive(
+        _ archive: URL,
+        entrypoint: String,
+        componentName: String,
+        into destinationRoot: URL,
+        runID: String
+    ) throws -> URL {
         guard let normalizedRunID = UUID(uuidString: runID)?.uuidString.lowercased() else {
             throw DesktopArchiveExtractionError.invalidDestination
         }
@@ -81,14 +116,14 @@ public struct DesktopTarArchiveExtractor<Runner: OutputCommandRunning> {
         }
         try ensurePrivateRoot(root)
         let destination = root.appendingPathComponent(
-            "\(normalizedRunID)-\(artifact.metadata.component.rawValue)",
+            "\(normalizedRunID)-\(componentName)",
             isDirectory: true
         )
         guard !fileManager.fileExists(atPath: destination.path) else {
             throw DesktopArchiveExtractionError.invalidDestination
         }
 
-        try validateArchiveTable(artifact.fileURL)
+        try validateArchiveTable(archive)
         do {
             try fileManager.createDirectory(
                 at: destination,
@@ -98,7 +133,7 @@ public struct DesktopTarArchiveExtractor<Runner: OutputCommandRunning> {
             let extraction = runner.run(
                 executable: tar,
                 arguments: [
-                    "-xzf", artifact.fileURL.path,
+                    "-xzf", archive.path,
                     "-C", destination.path,
                     "--no-same-owner", "--no-same-permissions",
                 ],
@@ -107,20 +142,17 @@ public struct DesktopTarArchiveExtractor<Runner: OutputCommandRunning> {
             guard extraction.status == 0 else {
                 throw DesktopArchiveExtractionError.extractionFailed
             }
-            let entrypoint = destination.appendingPathComponent(artifact.metadata.entrypoint)
-            guard let values = try? entrypoint.resourceValues(forKeys: [
+            let executable = destination.appendingPathComponent(entrypoint)
+            guard let values = try? executable.resourceValues(forKeys: [
                 .isRegularFileKey, .isSymbolicLinkKey,
             ]), values.isRegularFile == true, values.isSymbolicLink != true else {
                 throw DesktopArchiveExtractionError.unsafeArchive
             }
             try fileManager.setAttributes(
                 [.posixPermissions: 0o700],
-                ofItemAtPath: entrypoint.path
+                ofItemAtPath: executable.path
             )
-            return DesktopManagedReleaseSource(
-                component: artifact.metadata.component,
-                directory: destination
-            )
+            return destination
         } catch let error as DesktopArchiveExtractionError {
             try? fileManager.removeItem(at: destination)
             throw error

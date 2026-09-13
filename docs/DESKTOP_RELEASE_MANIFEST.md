@@ -324,6 +324,13 @@ these runtime-root fields, while the schema-v2 writer accepts them only when the
 managed layout and content hashes, which it recomputes immediately before persisting the LaunchAgent.
 This planner is not yet wired into the shipping install transaction.
 
+The local v2 installer accepts a non-forgeable installation token produced by that strict verifier,
+then orders safe download, extraction, immutable store commit, final activation validation, and release
+reference publication. Network interruption keeps a private UUID workspace for exact-manifest resume;
+an explicit cancel may remove that exact validly marked workspace, other failures remove it, and a
+reference is never published for an incomplete activation plan. The returned plan remains preparation
+input only and does not itself modify credentials, `current`, LaunchAgents, or running services.
+
 A real release still requires all of the following outside this local implementation:
 
 - provision and approve the release-signing key and pinned production public key;

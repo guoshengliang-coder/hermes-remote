@@ -81,6 +81,13 @@ The current automated suite covers:
 - component LaunchAgents use content-addressed Hermes/Connector entrypoints and inject only the exact
   Python/Node managed roots; v1 writers reject v2 runtime injection and v2 writers reject paths from a
   different managed layout or content mutated after planning;
+- the v2 component installer accepts only a strict-verifier installation token, orders fresh
+  Python/Node/Hermes/Connector acquisition by dependencies, reuses a second exact install without
+  network access, and publishes the release reference only after the final activation plan passes;
+- extraction or health failure removes only the current UUID workspace and leaves no release
+  reference; a transport interruption instead preserves its partial download and owner-only manifest
+  identity marker, allowing only the same signed manifest and run ID to resume or the bounded cancel
+  path to remove that exact marked workspace;
 - offline component-release publication safely extracts every candidate and recomputes the same
   relative-path/file-byte/executable-bit identity used by the Desktop store before signing, then the
   public-key-only verifier repeats compressed and extracted identity checks;

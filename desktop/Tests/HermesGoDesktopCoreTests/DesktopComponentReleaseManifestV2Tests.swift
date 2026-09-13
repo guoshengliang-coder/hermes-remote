@@ -10,8 +10,12 @@ final class DesktopComponentReleaseManifestV2Tests: XCTestCase {
         let key = Curve25519.Signing.PrivateKey()
         let manifest = fixtureManifest()
         let verified = try verifier(key).verify(try envelope(manifest, signer: key))
+        let installationManifest = try verifier(key).verifyForInstallation(
+            try envelope(manifest, signer: key)
+        )
 
         XCTAssertEqual(verified, manifest)
+        XCTAssertEqual(installationManifest.manifest, manifest)
         let requirements = try verified.preflightRequirements
         XCTAssertEqual(requirements.count, 4)
         XCTAssertEqual(requirements[0].reusePolicy, .exactContent(sha256: hash("a")))
