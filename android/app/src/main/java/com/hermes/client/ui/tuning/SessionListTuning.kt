@@ -56,9 +56,10 @@ data class SessionListTuning(
     val statusTrackingSp: Float = -0.2875f,
     val lineHeightMultiplier: Float = 1.35f,
     // Type — the group header.
-    val headerSizeSp: Float = 11f,
+    val headerSizeSp: Float = 12f,
     val headerWeight: Int = 600,
-    val headerTrackingSp: Float = 0.55f,
+    val headerTrackingSp: Float = -0.3f,
+    val headerLineHeightMultiplier: Float = 1.3333f,
     // Spacing — what makes rows feel tight or loose.
     //
     // rowPaddingVDp is the knob now, and the row's height is whatever the content plus this padding
@@ -70,15 +71,21 @@ data class SessionListTuning(
     val sublineGapDp: Float = 2f,
     val statusGapDp: Float = 2f,
     val sublineGlyphDp: Float = 13f,
-    val headerPaddingVDp: Float = 2f,
+    // The group header's capsule (decision 2026-09-13). headerPaddingVDp changed meaning here: it
+    // used to be the header row's own padding, and is now the capsule's OUTER margin — which is
+    // what sets how far apart the groups sit.
+    val headerPaddingVDp: Float = 4f,
+    val headerCapsuleHeightDp: Float = 32f,
+    val headerCapsuleRadiusDp: Float = 8f,
     // The top bar. It is part of the same density pass, so it needs knobs too, or that half cannot
     // be judged on the device alongside the rows.
     val topBarHeightDp: Float = 48f,
     val avatarSizeDp: Float = 32f,
     val topBarGlyphDp: Float = 20f,
     // The pillars.
-    val pillarWidthDp: Float = 3f,
-    val pillarHeightDp: Float = 12f,
+    val pillarWidthDp: Float = 4f,
+    val pillarHeightDp: Float = 14f,
+    val pillarRadiusDp: Float = 2f,
     val pillarNeedsYouLight: String = "#D97706",
     val pillarPinnedLight: String = "#2563EB",
     val pillarTodayLight: String = "#059669",
@@ -137,16 +144,20 @@ fun SessionListTuning.asReport(): String {
         row("headerSizeSp", headerSizeSp, d.headerSizeSp)
         row("headerWeight", headerWeight, d.headerWeight)
         row("headerTrackingSp", headerTrackingSp, d.headerTrackingSp)
+        row("headerLineHeightMultiplier", headerLineHeightMultiplier, d.headerLineHeightMultiplier)
         row("rowPaddingVDp", rowPaddingVDp, d.rowPaddingVDp)
         row("sublineGapDp", sublineGapDp, d.sublineGapDp)
         row("statusGapDp", statusGapDp, d.statusGapDp)
         row("sublineGlyphDp", sublineGlyphDp, d.sublineGlyphDp)
         row("headerPaddingVDp", headerPaddingVDp, d.headerPaddingVDp)
+        row("headerCapsuleHeightDp", headerCapsuleHeightDp, d.headerCapsuleHeightDp)
+        row("headerCapsuleRadiusDp", headerCapsuleRadiusDp, d.headerCapsuleRadiusDp)
         row("topBarHeightDp", topBarHeightDp, d.topBarHeightDp)
         row("avatarSizeDp", avatarSizeDp, d.avatarSizeDp)
         row("topBarGlyphDp", topBarGlyphDp, d.topBarGlyphDp)
         row("pillarWidthDp", pillarWidthDp, d.pillarWidthDp)
         row("pillarHeightDp", pillarHeightDp, d.pillarHeightDp)
+        row("pillarRadiusDp", pillarRadiusDp, d.pillarRadiusDp)
         row("pillarNeedsYou 浅/深", "$pillarNeedsYouLight / $pillarNeedsYouDark", "${d.pillarNeedsYouLight} / ${d.pillarNeedsYouDark}")
         row("pillarPinned 浅/深", "$pillarPinnedLight / $pillarPinnedDark", "${d.pillarPinnedLight} / ${d.pillarPinnedDark}")
         row("pillarToday 浅/深", "$pillarTodayLight / $pillarTodayDark", "${d.pillarTodayLight} / ${d.pillarTodayDark}")
@@ -229,10 +240,14 @@ fun tunedStatus(mono: Boolean): TextStyle {
 fun tunedGroupHeader(): TextStyle {
     val t = LocalSessionListTuning.current
     return TextStyle(
-        fontFamily = HermesMono,
+        // Sans, not mono, since the 8th pull: the capsule mock sets the label in the prose face.
+        //
+        // Line height is `scaled(...)` like every other step here. It used to be a magic 1.27,
+        // which at the defaults produced 13.97 against Type.kt's 14 — a quiet breach of this
+        // panel's own contract that an untouched panel reproduces the shipped style exactly.
         fontWeight = FontWeight(t.headerWeight),
         fontSize = t.headerSizeSp.sp,
-        lineHeight = (t.headerSizeSp * 1.27f).sp,
+        lineHeight = scaled(t.headerSizeSp, t.headerLineHeightMultiplier),
         letterSpacing = t.headerTrackingSp.sp,
     )
 }
@@ -242,6 +257,9 @@ fun tunedGroupHeader(): TextStyle {
 @Composable fun tunedStatusGap(): Dp = LocalSessionListTuning.current.statusGapDp.dp
 @Composable fun tunedSublineGlyph(): Dp = LocalSessionListTuning.current.sublineGlyphDp.dp
 @Composable fun tunedHeaderPaddingV(): Dp = LocalSessionListTuning.current.headerPaddingVDp.dp
+@Composable fun tunedHeaderCapsuleHeight(): Dp = LocalSessionListTuning.current.headerCapsuleHeightDp.dp
+@Composable fun tunedHeaderCapsuleRadius(): Dp = LocalSessionListTuning.current.headerCapsuleRadiusDp.dp
+@Composable fun tunedPillarRadius(): Dp = LocalSessionListTuning.current.pillarRadiusDp.dp
 @Composable fun tunedTopBarHeight(): Dp = LocalSessionListTuning.current.topBarHeightDp.dp
 @Composable fun tunedAvatarSize(): Dp = LocalSessionListTuning.current.avatarSizeDp.dp
 @Composable fun tunedTopBarGlyph(): Dp = LocalSessionListTuning.current.topBarGlyphDp.dp

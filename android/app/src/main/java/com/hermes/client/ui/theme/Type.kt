@@ -303,19 +303,21 @@ val SessionsTopBarTitle = TextStyle(
 )
 
 /**
- * The group header's label (docs/DESIGN.md §5.2): `font-mono text-[11px] uppercase tracking-wider
- * font-semibold`. Tailwind's `tracking-wider` is 0.05em, so 0.55sp at this size.
+ * The group header's label (docs/DESIGN.md §5.2): the capsule mock's `font-sans text-[12px]
+ * tracking-tight font-semibold`. `tracking-tight` is −0.025em, so −0.3sp at this size.
  *
- * 11sp is below the 12sp floor this file used to observe. The floor was dropped on 2026-09-11 in
- * favour of following the mock exactly; the Chinese headers fall back to the system face anyway,
- * so what this actually resizes is the English ones.
+ * It was mono 11sp uppercase with +0.55 tracking until the 8th pull (2026-09-13), which moved the
+ * label into a tinted capsule and set it in the prose face. Both drafts of that mock agree on the
+ * step, so this is not a light/dark judgement call. The uppercase went with it — see
+ * `ui/components/SectionHeader.kt`; Chinese never showed it, so the visible change is the English
+ * build's.
  */
 val SessionGroupHeader = TextStyle(
-    fontFamily = HermesMono,
+    fontFamily = Default,
     fontWeight = FontWeight.SemiBold,
-    fontSize = 11.sp,
-    lineHeight = 14.sp,
-    letterSpacing = 0.55.sp,
+    fontSize = 12.sp,
+    lineHeight = 16.sp,
+    letterSpacing = (-0.3).sp,
 )
 
 /** The group header's count chip: `font-mono text-[10.5px]`, 600 on the hot group, 500 elsewhere. */

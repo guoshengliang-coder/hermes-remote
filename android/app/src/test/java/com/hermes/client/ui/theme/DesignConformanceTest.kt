@@ -109,6 +109,11 @@ class DesignConformanceTest {
                 "pillarPinned" -> if (dark) PillarPinnedDark else PillarPinnedLight
                 "pillarToday" -> if (dark) PillarTodayDark else PillarTodayLight
                 "pillarOlder" -> if (dark) PillarOlderDark else PillarOlderLight
+                // Group header LABELS, separate from the pillars since 2026-09-13: a pillar is a
+                // mark and a label is text, so 更早 cannot share one value across both.
+                "groupLabelPinned" -> if (dark) GroupLabelPinnedDark else GroupLabelPinnedLight
+                "groupLabelToday" -> if (dark) GroupLabelTodayDark else GroupLabelTodayLight
+                "groupLabelOlder" -> if (dark) GroupLabelOlderDark else GroupLabelOlderLight
                 // Card page (docs/DESIGN.md §5.1), second pull 2026-09-11.
                 "cardDrawer" -> if (dark) CardDrawerDark else CardDrawerLight
                 "cardTile" -> if (dark) CardTileDark else CardTileLight

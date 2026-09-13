@@ -180,10 +180,6 @@ fun sublineFaintColor(): Color = if (isDarkSurface()) SublineFaintDark else Subl
  * design source — the 2026-09-10 "only 需要你处理 carries a hue" rule was reversed on 2026-09-11
  * because an all-neutral list of headers reads flat.
  *
- * Only the PILLAR is coloured. Header labels and count chips stay neutral for every group except
- * 需要你处理, which is what the mock does and what keeps "this one needs action" the loudest thing
- * on the screen rather than one of four competing hues.
- *
  * 需要你处理's pillar is the graphic amber and lives in StatusColors, next to the dot it matches.
  *
  * **Known collision, accepted**: the dark 今天 pillar is `#34D399`, which is exactly the dark
@@ -206,6 +202,39 @@ fun pillarTodayColor(): Color = if (isDarkSurface()) PillarTodayDark else Pillar
 
 @Composable
 fun pillarOlderColor(): Color = if (isDarkSurface()) PillarOlderDark else PillarOlderLight
+
+/**
+ * The group-header LABEL colours (docs/DESIGN.md §5.2, decision 2026-09-13).
+ *
+ * Every group's label now carries its own hue, reversing the 2026-09-10 rule that only 需要你处理
+ * did. The 8th pull's two group-header mocks disagreed — the light draft colours one label, the
+ * dark draft colours all four — and the product owner settled on all four in both themes.
+ *
+ * **These are not the pillar values, and that is the point.** A pillar is a 4×14dp mark; a label is
+ * text. Light 更早's pillar is `#94A3B8`, which as text on the warm paper is about 2.1:1 — the light
+ * draft itself writes that label in a neutral rather than in its pillar colour, which is the tell.
+ * So each tone gets a readable grade of its own hue: the dark values are the ones the dark draft
+ * actually draws (`#60A5FA` / `#34D399` / `#CBD5E1`), and only light 更早 is derived — it borrows the
+ * darker slate from the dark pillar pair, ~4.3:1.
+ *
+ * 需要你处理 is not here: its label has always been `statusColor(StatusTone.WARN)`, the deep text
+ * amber, which is already the readable grade of the graphic amber its pillar uses.
+ */
+internal val GroupLabelPinnedLight = Color(0xFF2563EB)
+internal val GroupLabelPinnedDark = Color(0xFF60A5FA)
+internal val GroupLabelTodayLight = Color(0xFF059669)
+internal val GroupLabelTodayDark = Color(0xFF34D399)
+internal val GroupLabelOlderLight = Color(0xFF64748B)
+internal val GroupLabelOlderDark = Color(0xFFCBD5E1)
+
+@Composable
+fun groupLabelPinnedColor(): Color = if (isDarkSurface()) GroupLabelPinnedDark else GroupLabelPinnedLight
+
+@Composable
+fun groupLabelTodayColor(): Color = if (isDarkSurface()) GroupLabelTodayDark else GroupLabelTodayLight
+
+@Composable
+fun groupLabelOlderColor(): Color = if (isDarkSurface()) GroupLabelOlderDark else GroupLabelOlderLight
 
 @Composable
 fun tileShadow(): Dp = if (isDarkSurface()) 0.dp else 1.dp

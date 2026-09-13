@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>Hermes 会话列表 - 方案1：微通透下沉胶囊底衬 (黑曜石暗夜版)</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            obsidian: {
+              bg: '#0F1217',
+              low: '#161A22',
+              container: '#1A1F27',
+              surface: '#262C35',
+              border: '#2C333D',
+              subborder: '#3A4049',
+              text: '#E2E0DB',
+              secondary: '#A8A49C',
+              tertiary: '#76736C'
+            }
+          },
+          fontFamily: {
+            sans: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Text"', '"SF Pro Display"', '"Segoe UI"', 'Roboto', '"Noto Sans SC"', 'sans-serif'],
+            mono: ['"SF Mono"', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+<style data-purpose="custom-scroll-and-layout">
+    body {
+      background-color: #0F1217;
+      color: #E2E0DB;
+      -webkit-font-smoothing: antialiased;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    /* 隐藏滚动条但保留滚动能力 */
+    ::-webkit-scrollbar {
+      display: none;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-[#0F1217] flex justify-center selection:bg-neutral-800">
+<!-- Mobile Outer Shell Container (iPhone / Modern Android Proportion) -->
+<main class="w-full max-w-[420px] min-h-screen relative flex flex-col bg-[#0F1217] border-x border-neutral-900 shadow-2xl overflow-x-hidden pb-10">
+<!-- BEGIN: StatusBar -->
+<header class="w-full pt-3 px-6 pb-2 flex items-center justify-between text-xs text-[#E2E0DB] font-medium tracking-tight shrink-0 z-20">
+<!-- Left: Clock -->
+<span class="text-[13px] font-semibold tracking-normal">11:34</span>
+<!-- Right: System Icons -->
+<div class="flex items-center space-x-2 text-sm">
+<!-- Signal / Cellular -->
+<svg class="w-3.5 h-3.5 fill-current" viewbox="0 0 24 24">
+<path d="M12 3c-4.97 0-9 4.03-9 9 0 2.12.74 4.07 1.97 5.61L12 22l7.03-4.39C20.26 16.07 21 14.12 21 12c0-4.97-4.03-9-9-9zm0 2c3.87 0 7 3.13 7 7 0 1.5-.47 2.89-1.28 4.04L12 19.34l-5.72-3.3C5.47 14.89 5 13.5 5 12c0-3.87 3.13-7 7-7z" fill="none"></path>
+<path d="M2 18h3v4H2zm5-4h3v8H7zm5-4h3v12h-3zm5-5h3v17h-3z"></path>
+</svg>
+<!-- WiFi -->
+<svg class="w-4 h-4 fill-current" viewbox="0 0 24 24">
+<path d="M12 4C7.31 4 3.07 5.9 0 8.98L12 21 24 8.98A16.88 16.88 0 0012 4zm0 3.32c3.62 0 6.94 1.34 9.47 3.56L12 19.4 2.53 10.88A14.94 14.94 0 0112 7.32z"></path>
+</svg>
+<!-- Battery with charging pill -->
+<div class="flex items-center space-x-0.5">
+<div class="w-5 h-2.5 border border-[#E2E0DB] rounded-[3px] p-[1.5px] flex items-center">
+<div class="h-full w-full bg-[#E2E0DB] rounded-[1px]"></div>
+</div>
+<div class="w-0.5 h-1 bg-[#E2E0DB] rounded-r-[1px]"></div>
+</div>
+</div>
+</header>
+<!-- END: StatusBar -->
+<!-- BEGIN: TopBar -->
+<section class="px-4 py-2 flex items-center justify-between z-10" data-purpose="top-navigation">
+<!-- Left: User Profile Avatar with Online Dot -->
+<div class="relative w-9 h-9 rounded-full bg-[#1F242C] border border-[#3A4049]/60 flex items-center justify-center cursor-pointer">
+<svg class="w-5 h-5 text-[#A8A49C]" fill="currentColor" viewbox="0 0 24 24">
+<path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"></path>
+</svg>
+<!-- Green indicator badge on bottom-right of avatar -->
+<span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#10B981] border-2 border-[#0F1217] rounded-full"></span>
+</div>
+<!-- Center: Screen Title -->
+<h1 class="text-lg font-bold text-[#E2E0DB] tracking-wide">会话</h1>
+<!-- Right: Action Icons (Search + Overflow Menu) -->
+<div class="flex items-center space-x-3 text-[#E2E0DB]">
+<button aria-label="Search" class="p-1 hover:text-white transition" type="button">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<circle cx="11" cy="11" r="7"></circle>
+<line stroke-linecap="round" x1="21" x2="16.65" y1="21" y2="16.65"></line>
+</svg>
+</button>
+<button aria-label="More Options" class="p-1 hover:text-white transition" type="button">
+<svg class="w-5 h-5" fill="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="5" r="1.5"></circle>
+<circle cx="12" cy="12" r="1.5"></circle>
+<circle cx="12" cy="19" r="1.5"></circle>
+</svg>
+</button>
+</div>
+</section>
+<!-- END: TopBar -->
+<!-- BEGIN: SegmentedControl -->
+<div class="px-4 mt-2" data-purpose="tab-switcher">
+<div class="w-full bg-[#1A1F27] p-1 rounded-xl border border-[#2C333D]/60 flex items-center">
+<!-- Active Segment: 会话 -->
+<button class="flex-1 py-1.5 rounded-lg bg-[#262C35] text-white font-medium text-sm flex items-center justify-center space-x-1.5 shadow-sm border border-[#3A4049]/50 transition-all">
+<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<rect height="15" rx="2" width="18" x="3" y="4"></rect>
+<path d="M7 19v2l4-2h6" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span class="tracking-tight">会话</span>
+</button>
+<!-- Inactive Segment: 机器人 -->
+<button class="flex-1 py-1.5 rounded-lg text-[#A8A49C] hover:text-[#E2E0DB] font-medium text-sm flex items-center justify-center space-x-1.5 transition-all">
+<svg class="w-4 h-4 text-[#A8A49C]" fill="none" stroke="currentColor" stroke-width="1.8" viewbox="0 0 24 24">
+<rect height="12" rx="2" width="16" x="4" y="6"></rect>
+<circle cx="9" cy="12" fill="currentColor" r="1.2"></circle>
+<circle cx="15" cy="12" fill="currentColor" r="1.2"></circle>
+<path d="M12 2v4M9 22v-2M15 22v-2" stroke-linecap="round"></path>
+</svg>
+<span class="tracking-tight">机器人</span>
+</button>
+</div>
+</div>
+<!-- END: SegmentedControl -->
+<!-- BEGIN: IncidentStrip -->
+<section class="px-4 mt-3" data-purpose="incident-alert">
+<div class="w-full bg-[rgba(159,18,57,0.18)] border border-[rgba(244,63,94,0.25)] rounded-xl py-2 px-3 flex items-center justify-between cursor-pointer active:opacity-80 transition">
+<div class="flex items-center space-x-2 text-[#FCA5A5] text-xs font-medium tracking-tight truncate">
+<!-- Warning Triangle Icon -->
+<svg class="w-4 h-4 shrink-0 text-[#FCA5A5]" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span class="truncate">Slack 未连接 · 3 个定时任务受影响</span>
+</div>
+<!-- Right Arrow chevron -->
+<svg class="w-3.5 h-3.5 text-[#FCA5A5]/80 shrink-0 ml-1" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</div>
+</section>
+<!-- END: IncidentStrip -->
+<!-- BEGIN: ConversationContentList -->
+<div class="flex-1 mt-4 space-y-4" data-purpose="sessions-list">
+<!-- Section: 需要你处理 (未显式带组名胶囊，顶层直出条目，同 SCREEN_8) -->
+<section class="px-4" data-purpose="section-action-required">
+<div class="py-2.5 flex items-start justify-between group cursor-pointer border-b border-[#1A1F27]/50 pb-3">
+<div class="flex-1 pr-3">
+<h2 class="text-[15px] font-semibold text-[#E2E0DB] leading-snug tracking-tight">生产环境部署审批 · PR #412</h2>
+<div class="flex items-center space-x-1.5 text-xs text-[#A8A49C] mt-1 font-mono tracking-tight">
+<svg class="w-3.5 h-3.5 text-[#A8A49C]" fill="none" stroke="currentColor" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path>
+</svg>
+<span>hermes-remote</span>
+<span>·</span>
+<span>gpt-5.6-terra</span>
+</div>
+<div class="text-xs text-[#FBBF24] font-medium mt-1">等待你的确认</div>
+</div>
+<!-- Status Dot: Amber -->
+<div class="pt-1.5 shrink-0">
+<span class="inline-block w-2.5 h-2.5 rounded-full bg-[#F59E0B] shadow-[0_0_8px_rgba(245,158,11,0.4)]"></span>
+</div>
+</div>
+</section>
+<!-- BEGIN: Group - 已置顶 -->
+<section class="space-y-1" data-purpose="group-pinned">
+<!-- 方案1：微通透下沉胶囊底衬 (已置顶 - 品牌蓝) -->
+<div class="px-4">
+<div class="h-8 rounded-lg bg-[rgba(59,130,246,0.10)] border border-[rgba(59,130,246,0.20)] px-2.5 flex items-center justify-between">
+<div class="flex items-center space-x-2">
+<!-- Blue vertical bar -->
+<div class="w-1 h-3.5 rounded-full bg-[#3B82F6]"></div>
+<span class="text-xs font-semibold text-[#60A5FA]">已置顶</span>
+<span class="text-[11px] text-[#A8A49C]/80 font-normal">仅此设备</span>
+</div>
+<div class="flex items-center space-x-1.5">
+<span class="px-1.5 py-0.2 bg-[#1A1F27]/80 text-[#E2E0DB] rounded-full text-[11px] font-mono font-medium">1</span>
+<svg class="w-3.5 h-3.5 text-[#A8A49C]" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M5 15l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</div>
+</div>
+</div>
+<!-- 条目: 查看机器性能负荷 -->
+<div class="px-4 py-2.5 flex items-start justify-between cursor-pointer active:bg-[#161A22]/50 transition rounded-lg">
+<div class="flex-1 pr-3">
+<h3 class="text-[15px] font-medium text-[#E2E0DB] leading-snug">查看机器性能负荷</h3>
+<div class="flex items-center space-x-1 text-xs text-[#A8A49C] mt-1 font-mono">
+<span class="text-rose-400">📌</span>
+<span>deepseek-v4-flash</span>
+</div>
+<div class="text-xs text-[#34D399] font-medium mt-1">已完成</div>
+</div>
+<!-- Status Dot: Emerald Green -->
+<div class="pt-1.5 shrink-0">
+<span class="inline-block w-2.5 h-2.5 rounded-full bg-[#10B981] shadow-[0_0_8px_rgba(16,185,129,0.35)]"></span>
+</div>
+</div>
+</section>
+<!-- END: Group - 已置顶 -->
+<!-- BEGIN: Group - 今天 -->
+<section class="space-y-1" data-purpose="group-today">
+<!-- 方案1：微通透下沉胶囊底衬 (今天 - 墨绿/青绿) -->
+<div class="px-4">
+<div class="h-8 rounded-lg bg-[rgba(16,185,129,0.10)] border border-[rgba(16,185,129,0.20)] px-2.5 flex items-center justify-between">
+<div class="flex items-center space-x-2">
+<!-- Green vertical bar -->
+<div class="w-1 h-3.5 rounded-full bg-[#10B981]"></div>
+<span class="text-xs font-semibold text-[#34D399]">今天</span>
+</div>
+<div class="flex items-center space-x-1.5">
+<span class="px-1.5 py-0.2 bg-[#1A1F27]/80 text-[#E2E0DB] rounded-full text-[11px] font-mono font-medium">2</span>
+<svg class="w-3.5 h-3.5 text-[#A8A49C]" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M5 15l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</div>
+</div>
+</div>
+<!-- 条目 1: 测试功能 -->
+<div class="px-4 py-2 cursor-pointer active:bg-[#161A22]/50 transition rounded-lg">
+<h3 class="text-[15px] font-medium text-[#E2E0DB] leading-snug">测试功能</h3>
+<div class="text-xs text-[#A8A49C] mt-1 font-mono">gpt-5.6-terra</div>
+</div>
+<!-- 条目 2: 查看昨天公司数据 #3 -->
+<div class="px-4 py-2 cursor-pointer active:bg-[#161A22]/50 transition rounded-lg">
+<h3 class="text-[15px] font-medium text-[#E2E0DB] leading-snug">查看昨天公司数据 #3</h3>
+<div class="flex items-center space-x-1 text-xs text-[#A8A49C] mt-1 font-mono">
+<span class="text-rose-400">📌</span>
+<span>deepseek-flash</span>
+</div>
+</div>
+</section>
+<!-- END: Group - 今天 -->
+<!-- BEGIN: Group - 前 7 天 -->
+<section class="space-y-1" data-purpose="group-past-7-days">
+<!-- 方案1：微通透下沉胶囊底衬 (前7天 - 灰蓝/石板灰) -->
+<div class="px-4">
+<div class="h-8 rounded-lg bg-[rgba(148,163,184,0.08)] border border-[rgba(148,163,184,0.15)] px-2.5 flex items-center justify-between">
+<div class="flex items-center space-x-2">
+<!-- Slate grey vertical bar -->
+<div class="w-1 h-3.5 rounded-full bg-[#94A3B8]"></div>
+<span class="text-xs font-semibold text-[#CBD5E1]">前 7 天</span>
+</div>
+<div class="flex items-center space-x-1.5">
+<span class="px-1.5 py-0.2 bg-[#1A1F27]/80 text-[#E2E0DB] rounded-full text-[11px] font-mono font-medium">19</span>
+<svg class="w-3.5 h-3.5 text-[#A8A49C]" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M5 15l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</div>
+</div>
+</div>
+<!-- 条目 1: 生成三个审核测试选项 -->
+<div class="px-4 py-2 cursor-pointer active:bg-[#161A22]/50 transition rounded-lg">
+<h3 class="text-[15px] font-medium text-[#E2E0DB] leading-snug">生成三个审核测试选项</h3>
+<div class="flex items-center space-x-1.5 text-xs text-[#A8A49C] mt-1 font-mono">
+<svg class="w-3.5 h-3.5 text-[#A8A49C]" fill="none" stroke="currentColor" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path>
+</svg>
+<span>xiaomai-daily-report</span>
+<span>·</span>
+<span>gpt-5.6-terra</span>
+</div>
+</div>
+<!-- 条目 2: 查看最近7天起风工作室数据 -->
+<div class="px-4 py-2 cursor-pointer active:bg-[#161A22]/50 transition rounded-lg">
+<h3 class="text-[15px] font-medium text-[#E2E0DB] leading-snug">查看最近7天起风工作室数据</h3>
+<div class="flex items-center space-x-1.5 text-xs text-[#A8A49C] mt-1 font-mono">
+<svg class="w-3.5 h-3.5 text-[#A8A49C]" fill="none" stroke="currentColor" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path>
+</svg>
+<span>xiaomai-daily-report</span>
+<span>·</span>
+<span>deepseek-v4-flash</span>
+</div>
+</div>
+<!-- 条目 3: 迁移助理迁移 Claude 和 ChatGPT -->
+<div class="px-4 py-2 cursor-pointer active:bg-[#161A22]/50 transition rounded-lg">
+<h3 class="text-[15px] font-medium text-[#E2E0DB] leading-snug">迁移助理迁移 Claude 和 ChatGPT</h3>
+<div class="text-xs text-[#A8A49C] mt-1 font-mono">gpt-5.6-terra</div>
+</div>
+</section>
+<!-- END: Group - 前 7 天 -->
+</div>
+<!-- END: ConversationContentList -->
+<!-- BEGIN: FloatingActionButton (FAB) -->
+<!-- 56dp 圆形沉稳深灰/类黑按钮（#1E232B），搭配 1px #3A4049 精密微边框，白色十字加号 -->
+<div class="fixed bottom-9 right-[calc(50%-186px)] max-sm:right-5 z-30" data-purpose="floating-action-button">
+<button aria-label="New Chat" class="w-14 h-14 rounded-full bg-[#1E232B] border border-[#3A4049] flex items-center justify-center shadow-xl hover:bg-[#262C35] active:scale-95 transition-all text-white" type="button">
+<svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24">
+<line x1="12" x2="12" y1="5" y2="19"></line>
+<line x1="5" x2="19" y1="12" y2="12"></line>
+</svg>
+</button>
+</div>
+<!-- END: FloatingActionButton (FAB) -->
+<!-- BEGIN: HomeGestureIndicator -->
+<footer class="w-full mt-auto pt-4 pb-2 flex justify-center shrink-0" data-purpose="home-indicator">
+<div class="w-32 h-1 bg-[#4B5563]/60 rounded-full"></div>
+</footer>
+<!-- END: HomeGestureIndicator -->
+</main>
+</body></html>
