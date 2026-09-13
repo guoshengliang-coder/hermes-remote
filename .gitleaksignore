@@ -32,3 +32,7 @@ fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generi
 0699f148f0f8c5999615c0761fcc6250a42d6435:gateway/src/email-otp-database.integration.test.ts:generic-api-key:227
 0699f148f0f8c5999615c0761fcc6250a42d6435:gateway/src/email-otp-http.test.ts:generic-api-key:15
 0699f148f0f8c5999615c0761fcc6250a42d6435:gateway/src/account-web-session.test.ts:generic-api-key:17
+
+# The type annotation in the schema-v2 Ed25519 unit test is source code, not key material.
+# The follow-up commit renames the argument; retain this exact historical fingerprint for PR scanning.
+165388c759e8069f7c5cb0d1cc760e759daf280a:desktop/Tests/HermesGoDesktopCoreTests/DesktopComponentReleaseManifestV2Tests.swift:generic-api-key:183

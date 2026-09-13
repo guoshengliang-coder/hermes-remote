@@ -9,7 +9,7 @@ final class DesktopComponentReleaseManifestV2Tests: XCTestCase {
     func testSignedManifestPinsComponentsDependenciesAndPreflightPolicies() throws {
         let key = Curve25519.Signing.PrivateKey()
         let manifest = fixtureManifest()
-        let verified = try verifier(key).verify(try envelope(manifest, key: key))
+        let verified = try verifier(key).verify(try envelope(manifest, signingKey: key))
 
         XCTAssertEqual(verified, manifest)
         let requirements = try verified.preflightRequirements
@@ -27,7 +27,7 @@ final class DesktopComponentReleaseManifestV2Tests: XCTestCase {
         var components = payload["components"] as! [[String: Any]]
         components[0]["futureAction"] = true
         payload["components"] = components
-        XCTAssertThrowsError(try verifier(key).verify(try envelope(payload, key: key))) { error in
+        XCTAssertThrowsError(try verifier(key).verify(try envelope(payload, signingKey: key))) { error in
             XCTAssertEqual(error as? DesktopComponentReleaseVerificationError, .unknownField)
         }
 
@@ -35,7 +35,7 @@ final class DesktopComponentReleaseManifestV2Tests: XCTestCase {
         components = payload["components"] as! [[String: Any]]
         components[0]["kind"] = "future_runtime"
         payload["components"] = components
-        XCTAssertThrowsError(try verifier(key).verify(try envelope(payload, key: key))) { error in
+        XCTAssertThrowsError(try verifier(key).verify(try envelope(payload, signingKey: key))) { error in
             XCTAssertEqual(error as? DesktopComponentReleaseVerificationError, .invalidManifest)
         }
     }
@@ -44,7 +44,9 @@ final class DesktopComponentReleaseManifestV2Tests: XCTestCase {
         let key = Curve25519.Signing.PrivateKey()
         var duplicate = fixtureManifest().components
         duplicate[1] = duplicate[0]
-        XCTAssertThrowsError(try verifier(key).verify(try envelope(fixtureManifest(components: duplicate), key: key)))
+        XCTAssertThrowsError(try verifier(key).verify(try envelope(
+            fixtureManifest(components: duplicate), signingKey: key
+        )))
 
         var payload = try payloadObject(fixtureManifest())
         var components = payload["components"] as! [[String: Any]]
@@ -54,7 +56,7 @@ final class DesktopComponentReleaseManifestV2Tests: XCTestCase {
         connector["dependencies"] = dependencies
         components[2] = connector
         payload["components"] = components
-        XCTAssertThrowsError(try verifier(key).verify(try envelope(payload, key: key))) { error in
+        XCTAssertThrowsError(try verifier(key).verify(try envelope(payload, signingKey: key))) { error in
             XCTAssertEqual(error as? DesktopComponentReleaseVerificationError, .invalidManifest)
         }
     }
@@ -65,7 +67,7 @@ final class DesktopComponentReleaseManifestV2Tests: XCTestCase {
         var components = payload["components"] as! [[String: Any]]
         components[0]["dependencies"] = [["kind": "connector", "contentSHA256": hash("c")]]
         payload["components"] = components
-        XCTAssertThrowsError(try verifier(key).verify(try envelope(payload, key: key))) { error in
+        XCTAssertThrowsError(try verifier(key).verify(try envelope(payload, signingKey: key))) { error in
             XCTAssertEqual(error as? DesktopComponentReleaseVerificationError, .invalidManifest)
         }
     }
@@ -76,14 +78,14 @@ final class DesktopComponentReleaseManifestV2Tests: XCTestCase {
         var components = payload["components"] as! [[String: Any]]
         components[0]["requiredForBootstrap"] = false
         payload["components"] = components
-        XCTAssertThrowsError(try verifier(key).verify(try envelope(payload, key: key)))
+        XCTAssertThrowsError(try verifier(key).verify(try envelope(payload, signingKey: key)))
 
         payload = try payloadObject(fixtureManifest())
         components = payload["components"] as! [[String: Any]]
         components[0]["reuseContract"] = "verified_compatibility"
         components[0]["compatibilityIdentifier"] = "python-any"
         payload["components"] = components
-        XCTAssertThrowsError(try verifier(key).verify(try envelope(payload, key: key)))
+        XCTAssertThrowsError(try verifier(key).verify(try envelope(payload, signingKey: key)))
 
         payload = try payloadObject(fixtureManifest())
         components = payload["components"] as! [[String: Any]]
@@ -91,16 +93,18 @@ final class DesktopComponentReleaseManifestV2Tests: XCTestCase {
         components[1]["requiredForBootstrap"] = false
         components[1]["onDemandTrigger"] = "hermes"
         payload["components"] = components
-        XCTAssertThrowsError(try verifier(key).verify(try envelope(payload, key: key)))
+        XCTAssertThrowsError(try verifier(key).verify(try envelope(payload, signingKey: key)))
     }
 
-    private func verifier(_ key: Curve25519.Signing.PrivateKey) throws -> DesktopComponentReleaseManifestV2Verifier {
+    private func verifier(
+        _ signingKey: Curve25519.Signing.PrivateKey
+    ) throws -> DesktopComponentReleaseManifestV2Verifier {
         try DesktopComponentReleaseManifestV2Verifier(
             expectedOrigin: URL(string: "https://downloads.example")!,
             expectedChannel: "internal",
             expectedArchitecture: "arm64",
             currentMacOS: OperatingSystemVersion(majorVersion: 14, minorVersion: 8, patchVersion: 0),
-            signingKeys: ["test-key": key.publicKey.rawRepresentation],
+            signingKeys: ["test-key": signingKey.publicKey.rawRepresentation],
             now: { self.now }
         )
     }
@@ -180,17 +184,23 @@ final class DesktopComponentReleaseManifestV2Tests: XCTestCase {
 
     private func envelope(
         _ manifest: DesktopComponentReleaseManifestV2,
-        key: Curve25519.Signing.PrivateKey
+        signingKey: Curve25519.Signing.PrivateKey
     ) throws -> Data {
-        try envelope(encoded(manifest), key: key)
+        try envelope(encoded(manifest), signingKey: signingKey)
     }
 
-    private func envelope(_ object: [String: Any], key: Curve25519.Signing.PrivateKey) throws -> Data {
-        try envelope(JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), key: key)
+    private func envelope(
+        _ object: [String: Any],
+        signingKey: Curve25519.Signing.PrivateKey
+    ) throws -> Data {
+        try envelope(
+            JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+            signingKey: signingKey
+        )
     }
 
-    private func envelope(_ payload: Data, key: Curve25519.Signing.PrivateKey) throws -> Data {
-        let signature = try key.signature(for: payload)
+    private func envelope(_ payload: Data, signingKey: Curve25519.Signing.PrivateKey) throws -> Data {
+        let signature = try signingKey.signature(for: payload)
         return try JSONSerialization.data(withJSONObject: [
             "algorithm": "Ed25519", "keyId": "test-key",
             "payload": payload.v2TestBase64URL, "signature": signature.v2TestBase64URL,
