@@ -71,6 +71,10 @@ The current automated suite covers:
 - shared-component commit stages content plus its receipt under one private UUID, rehashes and probes
   the staged copy, atomically exposes both together, is idempotent when exact content already exists,
   records deterministic release references, and removes only the current workspace on probe failure;
+- fixed-path external-environment scanning reports Python/Node without trusting version-only reuse,
+  resolves Homebrew-style runtime symlinks for reporting only, admits a safe architecture-matched
+  system browser only after an explicit compatibility probe, and rejects browser symlinks,
+  group-writable executables, failed/oversized probes, and architecture mismatch;
 - redirect-free bounded downloads, exact size and streaming SHA-256 artifact validation;
 - tar member preflight, including traversal/link/special-file rejection before extraction, realistic
   dependency trees above the former 4,096-entry limit, and rejection beyond the new 65,536 bound;
