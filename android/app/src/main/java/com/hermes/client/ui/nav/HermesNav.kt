@@ -159,6 +159,8 @@ fun HermesNav(
     onDeepLinkConsumed: () -> Unit = {},
     configurationRepair: StartupFailure? = null,
     accountSetupRepairRequired: Boolean = false,
+    /** `HR-*` code explaining why a previous session ended; null after an explicit sign-out. */
+    signInReasonCode: String? = null,
     repairCompletion: Long = 0L,
     onConnectionConfigurationSaved: () -> Unit = {},
     onInitialConfigurationSaved: () -> Unit = {},
@@ -403,11 +405,11 @@ fun HermesNav(
                 modifier = contentModifier,
             ) {
             composable("setup") {
-                com.hermes.client.ui.account.AccountDevicesScreen(
-                    onBack = null,
+                com.hermes.client.ui.account.AccountSignInFlow(
+                    reasonCode = signInReasonCode,
                     onOpenLegacy = { nav.navigate("legacy_setup") { launchSingleTop = true } },
                     onOpenDiagnostics = { nav.navigate("settings_diagnostics") { launchSingleTop = true } },
-                    onConnected = {
+                    onCompleted = {
                         pendingSetupCompletion = repairCompletion + 1L
                         onInitialConfigurationSaved()
                     },
@@ -622,9 +624,11 @@ fun HermesNav(
             }
             composable("settings_language") { LanguageScreen(onBack = { nav.popBackStack() }) }
             composable("settings_account") {
-                com.hermes.client.ui.account.AccountDevicesScreen(
+                com.hermes.client.ui.account.AccountSettingsScreen(
                     onBack = { nav.popBackStack() },
-                    accountOnly = true,
+                    // Reachable while signed out: a phone still holding legacy Relay credentials
+                    // has a configuration, so it never passed through the sign-in gate.
+                    onSignIn = { nav.navigate("setup") { launchSingleTop = true } },
                     onSignedOut = {
                         if (!onAccountSignedOut()) {
                             nav.navigate("setup") { popUpTo(0) { inclusive = true } }
@@ -633,7 +637,7 @@ fun HermesNav(
                 )
             }
             composable("remote_devices") {
-                com.hermes.client.ui.account.AccountDevicesScreen(
+                com.hermes.client.ui.account.DeviceSelectionScreen(
                     onBack = { nav.popBackStack() },
                     onOpenLegacy = { nav.navigate("settings_connection") { launchSingleTop = true } },
                     onOpenDiagnostics = { nav.navigate("settings_diagnostics") { launchSingleTop = true } },
