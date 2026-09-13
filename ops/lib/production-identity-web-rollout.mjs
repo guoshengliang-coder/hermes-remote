@@ -395,7 +395,8 @@ async function verifyIdentityWebRoutes(origin, fetchImpl, enabled, sleep) {
     "/v2/web/share-invitations/hsi_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/accept",
   ]) {
     const method = absent === "/v2/web/account" ? "DELETE" : (absent.includes("google") || absent.includes("accept") ? "POST" : "GET");
-    if (await fetchStatusRetry(fetchImpl, `${origin}${absent}`, sleep, { method }) !== 404) {
+    const status = await fetchStatusRetry(fetchImpl, `${origin}${absent}`, sleep, { method });
+    if (status !== 404 && status !== 405) {
       fail("identity_web_rollout_forbidden_route_exposed", "production_identity_web_rollout_verify");
     }
   }

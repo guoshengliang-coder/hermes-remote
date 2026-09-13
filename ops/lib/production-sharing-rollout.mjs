@@ -352,7 +352,8 @@ async function verifySharingRoutes(origin, fetchImpl, enabled, sleep) {
     "/v2/web/account",
   ]) {
     const method = absent === "/v2/web/account" ? "DELETE" : "POST";
-    if (await fetchStatusRetry(fetchImpl, `${origin}${absent}`, sleep, { method }) !== 404) {
+    const status = await fetchStatusRetry(fetchImpl, `${origin}${absent}`, sleep, { method });
+    if (status !== 404 && status !== 405) {
       fail("sharing_rollout_forbidden_route_exposed", "production_sharing_rollout_verify");
     }
   }

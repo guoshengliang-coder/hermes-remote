@@ -306,7 +306,9 @@ F5-A 的默认关闭源码操作器、严格配置 schema、schema-7 不可变 b
 故障注入和稳定 `HR-OPS-023` 已完成。操作器要求 committed R5-F4，并独立固定当前 release identity，
 只把 identity management、Web account center 和 Web session 三个标志一同打开；Google、删除和 sharing
 继续关闭。公开 smoke 检查账号 shell 的 CSP/no-store、安全 Cookie、CSRF/Origin 拒绝、未认证身份与安装
-管理 guard，并证明 Google、删除和分享路径仍由边缘返回 404。失败时逐字节恢复多终端环境与站点文件、
+管理 guard，并证明 Google、删除和分享探针仍由边缘以 404 absent 或 405 method rejected 拒绝。2026-09-13
+第一次生产尝试因旧操作器只接受 404 而在变更前停止；未创建 journal、路由或修改标志，随后增加 405
+生产边缘合同回归。失败时逐字节恢复多终端环境与站点文件、
 删除独立 identity-Web include 并再次验证多终端状态。代码合并和 bundle 生成不授权生产执行。
 
 F5-B 的默认关闭源码操作器、严格配置 schema、schema-8 不可变 bundle 入口、独立 sharing Nginx
