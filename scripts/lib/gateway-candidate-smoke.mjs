@@ -38,8 +38,8 @@ export function gatewayRuntimePolicy(runtimeMode = "disabled") {
       desktopBootstrapRuntimeContract: null,
     };
   }
-  if (runtimeMode === "email_otp" || runtimeMode === "email_binding") {
-    const bindingEnabled = runtimeMode === "email_binding";
+  if (runtimeMode === "email_otp" || runtimeMode === "email_binding" || runtimeMode === "email_multi_device") {
+    const bindingEnabled = runtimeMode !== "email_otp";
     return {
       runtimeMode,
       readiness: {
@@ -63,13 +63,16 @@ export function gatewayRuntimePolicy(runtimeMode = "disabled") {
 export function verifyGatewayCapabilities(capabilities, runtimePolicy, expectedVersion) {
   const binding = capabilities?.binding;
   const desktopBootstrap = capabilities?.desktopBootstrap;
+  const multiDeviceEnabled = runtimePolicy.runtimeMode === "email_multi_device";
   const valid = capabilities?.accountAuth?.enabled === runtimePolicy.accountAuthEnabled
     && (runtimePolicy.accountProviders === null
       || JSON.stringify(capabilities.accountAuth?.providers) === JSON.stringify(runtimePolicy.accountProviders))
     && binding?.enabled === runtimePolicy.bindingEnabled
     && binding?.replacement === runtimePolicy.bindingEnabled
-    && binding?.maxActiveConnectorsPerAccount === 1
-    && !Object.hasOwn(binding ?? {}, "supportsDeviceSelection")
+    && binding?.maxActiveConnectorsPerAccount === (multiDeviceEnabled ? 3 : 1)
+    && (multiDeviceEnabled
+      ? binding?.supportsDeviceSelection === true
+      : !Object.hasOwn(binding ?? {}, "supportsDeviceSelection"))
     && !Object.hasOwn(binding ?? {}, "supportsDeviceSharing")
     && (runtimePolicy.desktopBootstrapRuntimeContract === null
       ? desktopBootstrap === undefined

@@ -61,6 +61,7 @@ try {
   verifyStagedProductionReleaseEntrypoint(temporaryRoot);
   verifyStagedProductionAccountRolloutEntrypoint(temporaryRoot);
   verifyStagedProductionBindingRolloutEntrypoint(temporaryRoot);
+  verifyStagedProductionMultiDeviceRolloutEntrypoint(temporaryRoot);
 
   const sourceShort = sourceCommit.slice(0, 12);
   const archiveFile = `Hermes-R5D-Ops-${sourceShort}.tar.gz`;
@@ -150,6 +151,7 @@ async function stageRuntime(root) {
     "scripts/production-release.mjs",
     "scripts/production-account-rollout.mjs",
     "scripts/production-binding-rollout.mjs",
+    "scripts/production-multi-device-rollout.mjs",
     "scripts/production-monitor.mjs",
     "scripts/postgresql-recovery.mjs",
     "scripts/postgresql-automation.mjs",
@@ -164,6 +166,8 @@ async function stageRuntime(root) {
     "ops/hermes-go-production-account-rollout-config.schema.json",
     "ops/production.binding-rollout.example.json",
     "ops/hermes-go-production-binding-rollout-config.schema.json",
+    "ops/production.multi-device-rollout.example.json",
+    "ops/hermes-go-production-multi-device-rollout-config.schema.json",
     "ops/hermesctl-production-monitor-config.schema.json",
     "ops/postgresql-backup-status.schema.json",
     "ops/postgresql.capture-schedule.example.json",
@@ -311,6 +315,27 @@ function verifyStagedProductionBindingRolloutEntrypoint(root) {
       || diagnostic?.code !== "HR-OPS-021"
       || diagnostic?.stage !== "production_binding_rollout_arguments") {
     fail("production_baseline_bundle_binding_rollout_entrypoint_invalid");
+  }
+}
+
+function verifyStagedProductionMultiDeviceRolloutEntrypoint(root) {
+  const result = spawnSync(process.execPath, ["scripts/production-multi-device-rollout.mjs"], {
+    cwd: root,
+    encoding: "utf8",
+    env: {},
+    maxBuffer: 64 * 1024,
+    timeout: 10_000,
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let diagnostic;
+  try {
+    diagnostic = JSON.parse(String(result.stderr ?? "").trim());
+  } catch {}
+  if (result.error || result.status !== 1 || String(result.stdout ?? "") !== ""
+      || diagnostic?.code !== "HR-OPS-022"
+      || diagnostic?.stage !== "production_multi_device_rollout_arguments") {
+    fail("production_baseline_bundle_multi_device_rollout_entrypoint_invalid");
   }
 }
 

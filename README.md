@@ -102,6 +102,9 @@ capture, Mac off-host restore rehearsal, evidence-bound status activation, produ
 and deployment of the daily capture/hourly off-host recovery loop. R5-E7A repaired the minimal-PATH Mac
 LaunchAgent issue found by the first scheduled cycle; that generation's restore, activation, acknowledgement,
 and following production monitor passed. Account enablement remains disabled pending the separate R5-F go/no-go.
+The default-off R5-F4 source operator can now advance an already committed single-Mac account runtime to the
+multi-device route/flag contract with exact rollback before any second binding is created. Its merge does not
+authorize production execution or bind another Mac.
 
 Android now contains a capability-gated email-code account path beside the existing Relay URL +
 `APP_TOKEN` mode. Account mode stores its own encrypted phone session, selects owned/shared Macs by

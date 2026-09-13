@@ -139,6 +139,13 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "inspect_binding_rollout_stage_and_retry",
   }),
+  productionMultiDeviceRollout: Object.freeze({
+    code: "HR-OPS-022",
+    summaryZh: "生产多终端灰度未完成，已阻止启用或恢复为单终端状态。请检查灰度阶段后重试。",
+    summaryEn: "The production multi-device rollout did not complete. Enablement was blocked or single-device mode was restored. Inspect the rollout stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_multi_device_rollout_stage_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;

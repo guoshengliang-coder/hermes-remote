@@ -44,7 +44,7 @@ Android/Connector 的 URL、Token 与协议。
 | R5-F1 常规发版 | 受管基线内的 blue↔green 常规 deploy/rollback 路径（`scripts/production-release.mjs`），账号与数据库标志继续关闭；只改 upstream include，不动站点文件 | 一次性演练完成接管→发版→回滚且站点文件不变；单测覆盖授权矩阵 | 是，每次发版单独授权 |
 | R5-F2 邮箱登录灰度 | 只启用邮箱 OTP、schema 15、邮件回执与账号会话，其他账号能力关闭 | 实际投递、恢复证据、Legacy 兼容与两轮 smoke 全绿 | 是，已按独立授权执行并记录 |
 | R5-F3 单终端绑定灰度 | 只启用一台自有 Mac 的绑定、V2 Connector 与 Desktop 托管安装 | 精确 binding/generation、端到端流量、回滚点和单 Connector 不变量通过 | 是，每次执行单独授权 |
-| R5-F4 多自有终端灰度 | 独立启用 plural devices、显式设备路由与最多三台自有 Mac；分享仍关闭 | 两台 canary Mac 独立在线、选择/会话亲和、容量竞争和恢复策略通过 | 是，尚需实现操作器并单独授权 |
+| R5-F4 多自有终端灰度 | 独立启用 plural devices、显式设备路由与最多三台自有 Mac；分享仍关闭 | 默认关闭的操作器与故障测试已在源码完成；两台 canary Mac 独立在线、选择/会话亲和、容量竞争和恢复策略仍待另行授权执行 | 是，生产执行单独授权 |
 | R5-F5 整机共享灰度 | F5-A 先启用身份/Web 接受面，F5-B 再启用账号 B→账号 A 的邀请、使用、撤销与退出 | 邮件接受、operator 权限、跨账号隔离、五秒内断流和无孤儿 grant 通过 | 是，两个子阶段分别授权 |
 | R5-F 正式晋级 | 使用已在 GitHub 一次性 staging 验证的同一制品执行生产候选与切换 | 观察窗、Android/Desktop/Connector、回滚点和审计通过 | 是，最终 go/no-go |
 
@@ -277,9 +277,9 @@ Hermes 与 release identity 持续健康。失败时逐字节恢复环境和站�
 
 ## R5-F4 / R5-F5 后续多终端与共享晋级
 
-R5-F4 必须是 R5-F3 之后的独立操作器能力，不能通过手改活动槽环境启用
-`ACCOUNT_MULTI_DEVICE_ENABLED`。代码阶段需要新增受 manifest 固定的脚本、配置 schema、一次性
-演练和稳定 `HR-OPS-*` 失败码。操作器只允许从精确 committed 的单终端状态开始，安装 plural device
+R5-F4 是 R5-F3 之后的独立操作器能力，不能通过手改活动槽环境启用
+`ACCOUNT_MULTI_DEVICE_ENABLED`。默认关闭的源码操作器、配置 schema、manifest 固定入口、故障测试和
+稳定 `HR-OPS-022` 失败码已经完成。操作器只允许从精确 committed 的单终端状态开始，安装 plural device
 和显式 device-scoped REST/WebSocket 路由，保持邮箱 provider、数据库 schema、Legacy 路由、分享、
 Google、删除以及其他环境字节不变。候选与公网 smoke 必须同时证明原 Mac 仍在线、第二台 canary Mac
 拥有不同的 binding/generation/device ID、选择不会移动旧会话、任一 Connector 重启不影响另一台，且

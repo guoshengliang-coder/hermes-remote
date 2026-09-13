@@ -634,7 +634,7 @@ multi-device selection, sharing, identity management, Web sessions, deletion, an
 and Connector tokens stay accepted throughout the test window.
 
 Prepare a root-only `0600` configuration from `ops/production.binding-rollout.example.json`, validate it against
-`ops/hermes-go-production-binding-rollout-config.schema.json`, and run only from the matching immutable schema-5
+`ops/hermes-go-production-binding-rollout-config.schema.json`, and run only from a matching immutable schema-5-or-newer
 operator bundle:
 
 ```bash
@@ -660,6 +660,39 @@ component manifest is hosted at its exact HTTPS paths, and the target Mac has a 
 operator commits, perform one explicit target-Mac migration while the legacy Connector rollback point is healthy.
 Record artifact identities, the binding run ID, target-Mac journal, account binding generation, and rollback evidence
 in this section. Source merge or artifact upload alone does not authorize capability enablement.
+
+## Production multi-device gray rollout (R5-F4; code gate only)
+
+R5-F4 starts only from the exact committed R5-F3 single-Mac state. It does not migrate the database, create or
+remove a binding, enable identity management, or enable sharing. It replaces the existing binding route include
+with the reviewed plural-device routes, changes only `ACCOUNT_MULTI_DEVICE_ENABLED=1`, restarts the active Gateway,
+and verifies the result twice while preserving email-only authentication, Desktop bootstrap, Legacy traffic and
+the exact release identity.
+
+Prepare a root-only `0600` configuration from `ops/production.multi-device-rollout.example.json`, validate it
+against `ops/hermes-go-production-multi-device-rollout-config.schema.json`, and run only from the matching immutable
+schema-6 operator bundle:
+
+```bash
+node scripts/production-multi-device-rollout.mjs \
+  --config /secure-input/hermes-go/production-multi-device-rollout.json \
+  --confirm production:<configured-hostname>
+```
+
+Admission requires the committed binding journal, schema 15/PostgreSQL 18 release identity, exact single-device
+environment, exact original binding routes, one matching Nginx include, active service, healthy public/loopback
+email and binding surfaces, and the production deployment lock. The installed route set exposes the existing
+binding endpoints plus `GET /v2/devices`, device detail/default/unbind, explicit device REST, and explicit device
+WebSocket traffic. Sharing, installation management and Web routes stay absent at Nginx. Smoke requires
+`maxActiveConnectorsPerAccount=3`, `supportsDeviceSelection=true`, no sharing fields, unauthenticated device REST
+and WebSocket guards, the existing Connector WebSocket, Legacy health, and unchanged release identity.
+
+Any failure during this transition restores the environment and binding route file byte-for-byte, reloads Nginx,
+restarts the active Gateway, and re-verifies single-device mode. This automatic rollback is valid only before a
+second binding is created. Once an owner completes a second binding, do not disable multi-device mode: forward-fix,
+or first remove the canary through the normal owner-authorized unbind flow. `HR-OPS-022` names all operator failures;
+inspect `/var/lib/hermes-go/ops/multi-device-rollout.json` before retrying. Source merge and bundle generation do not
+authorize production execution.
 
 ## Edge JSON compression (2026-09-07, authorized)
 

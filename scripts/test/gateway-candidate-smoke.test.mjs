@@ -166,6 +166,22 @@ test("candidate smoke uses the exact readiness contract for the preserved runtim
     bindingEnabled: true,
     desktopBootstrapRuntimeContract: "hermes-serve-v1",
   });
+  assert.deepEqual(gatewayRuntimePolicy("email_multi_device"), {
+    runtimeMode: "email_multi_device",
+    readiness: {
+      status: "ready",
+      checks: {
+        config: "ok",
+        database: "ok",
+        migrations: "ok",
+        postgresql: "supported",
+      },
+    },
+    accountAuthEnabled: true,
+    accountProviders: ["email_otp"],
+    bindingEnabled: true,
+    desktopBootstrapRuntimeContract: "hermes-serve-v1",
+  });
   assert.throws(
     () => gatewayRuntimePolicy("binding"),
     (error) => error instanceof GatewayCandidateSmokeError
@@ -196,6 +212,32 @@ test("candidate smoke accepts only the exact email-binding capability surface", 
       (error) => error instanceof GatewayCandidateSmokeError
         && error.message === "smoke_check=capabilities",
     );
+  }
+});
+
+test("candidate smoke accepts only the exact multi-device capability surface", () => {
+  const policy = gatewayRuntimePolicy("email_multi_device");
+  const capabilities = {
+    accountAuth: { enabled: true, providers: ["email_otp"] },
+    binding: {
+      enabled: true,
+      replacement: true,
+      maxActiveConnectorsPerAccount: 3,
+      supportsDeviceSelection: true,
+    },
+    desktopBootstrap: { runtimeContract: "hermes-serve-v1" },
+    legacy: { appTokenAccepted: true, connectorTokenAccepted: true },
+    server: { version: "0.4.15" },
+  };
+  assert.doesNotThrow(() => verifyGatewayCapabilities(capabilities, policy, "0.4.15"));
+  for (const mutation of [
+    (value) => { value.binding.maxActiveConnectorsPerAccount = 1; },
+    (value) => { delete value.binding.supportsDeviceSelection; },
+    (value) => { value.binding.supportsDeviceSharing = true; },
+  ]) {
+    const changed = structuredClone(capabilities);
+    mutation(changed);
+    assert.throws(() => verifyGatewayCapabilities(changed, policy, "0.4.15"));
   }
 });
 

@@ -194,8 +194,8 @@ test("R5-D operator bundle manifest binds one safe archive to the exact source c
   });
   await writeJson(manifestPath, manifest);
   const parsed = await loadProductionBaselineBundleManifest(manifestPath);
-  assert.equal(parsed.schemaVersion, 5);
-  assert.equal(parsed.kind, "hermes-go-production-baseline-bundle-v5");
+  assert.equal(parsed.schemaVersion, 6);
+  assert.equal(parsed.kind, "hermes-go-production-baseline-bundle-v6");
   assert.equal(parsed.sourceCommit, sourceCommit);
   assert.equal(parsed.entrypoint, "scripts/production-baseline.mjs");
   assert.equal(parsed.connectorEntry, "connector/dist/index.js");
@@ -203,8 +203,14 @@ test("R5-D operator bundle manifest binds one safe archive to the exact source c
   assert.equal(parsed.releaseEntrypoint, "scripts/production-release.mjs");
   assert.equal(parsed.accountRolloutEntrypoint, "scripts/production-account-rollout.mjs");
   assert.equal(parsed.bindingRolloutEntrypoint, "scripts/production-binding-rollout.mjs");
+  assert.equal(parsed.multiDeviceRolloutEntrypoint, "scripts/production-multi-device-rollout.mjs");
 
-  const accountManifest = { ...manifest, schemaVersion: 4, kind: "hermes-go-production-baseline-bundle-v4" };
+  const bindingManifest = { ...manifest, schemaVersion: 5, kind: "hermes-go-production-baseline-bundle-v5" };
+  delete bindingManifest.multiDeviceRolloutEntrypoint;
+  await writeJson(manifestPath, bindingManifest);
+  assert.equal((await loadProductionBaselineBundleManifest(manifestPath)).multiDeviceRolloutEntrypoint, undefined);
+
+  const accountManifest = { ...bindingManifest, schemaVersion: 4, kind: "hermes-go-production-baseline-bundle-v4" };
   delete accountManifest.bindingRolloutEntrypoint;
   await writeJson(manifestPath, accountManifest);
   assert.equal((await loadProductionBaselineBundleManifest(manifestPath)).bindingRolloutEntrypoint, undefined);
@@ -251,6 +257,9 @@ test("the immutable operator bundle carries the R5-E and production monitoring e
   assert.match(packager, /"scripts\/production-binding-rollout\.mjs"/);
   assert.match(packager, /"ops\/production\.binding-rollout\.example\.json"/);
   assert.match(packager, /"ops\/hermes-go-production-binding-rollout-config\.schema\.json"/);
+  assert.match(packager, /"scripts\/production-multi-device-rollout\.mjs"/);
+  assert.match(packager, /"ops\/production\.multi-device-rollout\.example\.json"/);
+  assert.match(packager, /"ops\/hermes-go-production-multi-device-rollout-config\.schema\.json"/);
   assert.match(packager, /"scripts\/postgresql-provision\.mjs"/);
   assert.match(packager, /"scripts\/postgresql-recovery\.mjs"/);
   assert.match(packager, /"scripts\/postgresql-automation\.mjs"/);
