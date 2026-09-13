@@ -55,12 +55,21 @@ The current automated suite covers:
   after lost reauthentication or invitation responses, without persisting the six-digit code;
 - strict signed Desktop manifest parsing, pinned Ed25519 keys, tamper/expiry/origin/architecture and
   unknown-field rejection;
+- schema-v2 component manifests pin compressed and extracted identities, activation/reuse contracts,
+  entrypoints and content-addressed dependencies; Swift and the offline verifier reject unknown or
+  duplicate components, dependency identity mismatch, cycles, and invalid compatibility fallbacks;
+- resumable v2 component downloads require exact 206/Content-Range semantics, retain only an
+  owner-only partial file after interruption, re-read the whole completed file for signed size and
+  SHA-256, and remove a poisoned full-size partial;
 - offline managed-release publication with owner-only Ed25519 key custody, exact two-archive output,
   independent public-key verification, no-overwrite/partial-cleanup behavior, and redacted
   `HR-RELEASE-004` diagnostics;
 - component-archive construction from exact clean Git identities, an allowlisted secret-free Hermes
   source/runtime boundary, production-only Connector JavaScript, bundled architecture-matched
   runtimes, relative launchers, bounded trees, and no-overwrite cleanup;
+- offline component-release publication safely extracts every candidate and recomputes the same
+  relative-path/file-byte/executable-bit identity used by the Desktop store before signing, then the
+  public-key-only verifier repeats compressed and extracted identity checks;
 - componentized-install preflight planning: exact content identity is required for mutable runtimes,
   a version-only external Python is rejected, an explicitly compatible healthy system browser may be
   reused, wrong architecture/digest/failed probes are rejected, optional capabilities are deferred,

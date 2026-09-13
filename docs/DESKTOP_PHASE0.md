@@ -232,12 +232,15 @@ a Connector using production-only compiled JavaScript plus bundled Node and its 
 Neither launcher relies on launchd `PATH`, and neither component archive carries `HERMES_HOME`, `.env`,
 account sessions, Connector credentials, or Git metadata.
 
-The next packaging iteration replaces that monolithic runtime layout with the componentized preflight
-and shared-store design in `DESKTOP_COMPONENTIZED_INSTALL_PLAN.md`. Its C1 decision core is local and
-default-inert: it distinguishes exact-content reuse from an explicitly signed compatibility contract,
-refuses version-only reuse of mutable Python environments, and separates bootstrap bytes from optional
-on-demand bytes. It does not change the shipping schema-v1 manifest, download, installation, or
-production capability.
+The componentized path in `DESKTOP_COMPONENTIZED_INSTALL_PLAN.md` remains local and default-inert. Its
+C1/C2 core distinguishes exact-content reuse from an explicitly signed compatibility contract,
+refuses version-only reuse of mutable Python environments, separates bootstrap bytes from optional
+on-demand bytes, and verifies shared-store content before reuse. C3 adds a separate schema-v2
+publisher, public-key-only verifier, Desktop verifier, and resumable component downloader. Both
+offline tools safely extract every archive and recompute the same normalized content identity used by
+the Desktop store before accepting it. The downloader exposes a component only after full signed size
+and SHA-256 verification. None of these paths changes the shipping schema-v1 manifest, current
+installation transaction, or production capability.
 
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
