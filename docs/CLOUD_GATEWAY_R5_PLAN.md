@@ -19,8 +19,9 @@ R5-C4 timer 和首次 R5-E6 异机恢复/状态激活已完成。2026-09-06 又�
 受保护制品修复并重放同一代次，异机恢复、schema 7、账号 smoke、状态激活、ack 和后续监控全部通过。
 2026-09-09 又以 `main 787bdc917190` 完成 Gateway 0.4.9 常规发布、邮箱 OTP 生产灰度、schema 15 迁移，
 以及迁移后的新一轮加密捕获、Mac PostgreSQL 18 真实恢复、0.4.9 镜像账号 smoke、状态激活和监控复查。
-R5-E 数据库恢复自动化门禁与 R5-F2 邮箱登录灰度均已完成；Google、绑定、多设备分享、身份管理、Web
-账号中心和 Desktop 托管安装仍未启用。
+R5-E 数据库恢复自动化门禁、R5-F2 邮箱登录、R5-F3 单终端绑定、R5-F4 多自有终端开关以及 F5-A
+身份管理/Web 账号中心均已完成生产执行。Desktop 托管安装、身份管理和 Web session 已启用；Google、
+账号删除与整机分享仍关闭。第二台自有 Mac 的 F4 实机 canary 和 F5-B 双账号分享 canary 仍待执行。
 邮箱登录验收后的只读绑定预检发现，0.4.9 镜像内置 Docker healthcheck 把开发端口 `8787` 写死，而
 受管 green 槽实际监听 `PORT=18788`；因此公开业务/readiness 正常，但容器被 Docker 持续标记为
 `unhealthy`。后续绑定灰度在新版本镜像使用运行时 `PORT`、非默认容器端口 OCI 门禁通过并完成常规
@@ -45,7 +46,7 @@ Android/Connector 的 URL、Token 与协议。
 | R5-F2 邮箱登录灰度 | 只启用邮箱 OTP、schema 15、邮件回执与账号会话，其他账号能力关闭 | 实际投递、恢复证据、Legacy 兼容与两轮 smoke 全绿 | 是，已按独立授权执行并记录 |
 | R5-F3 单终端绑定灰度 | 只启用一台自有 Mac 的绑定、V2 Connector 与 Desktop 托管安装 | 精确 binding/generation、端到端流量、回滚点和单 Connector 不变量通过 | 是，每次执行单独授权 |
 | R5-F4 多自有终端灰度 | 独立启用 plural devices、显式设备路由与最多三台自有 Mac；分享仍关闭 | 2026-09-13 生产 flag 与路由已 committed，原 Mac 在线且未创建第二个 binding；第二台 canary Mac 的选择/会话亲和、容量竞争和恢复策略仍待实机验收 | 是，生产执行已授权完成；实机绑定仍需所有者操作 |
-| R5-F5 整机共享灰度 | F5-A 先启用身份/Web 接受面，F5-B 再启用账号 B→账号 A 的邀请、使用、撤销与退出 | 邮件接受、operator 权限、跨账号隔离、五秒内断流和无孤儿 grant 通过 | 是，两个子阶段分别授权 |
+| R5-F5 整机共享灰度 | F5-A 先启用身份/Web 接受面，F5-B 再启用账号 B→账号 A 的邀请、使用、撤销与退出 | F5-A 已于 2026-09-13 committed；F5-B 仍需邮件接受、operator 权限、跨账号隔离、五秒内断流和无孤儿 grant 通过 | 是，F5-A 已执行；F5-B 仍需单独授权 |
 | R5-F 正式晋级 | 使用已在 GitHub 一次性 staging 验证的同一制品执行生产候选与切换 | 观察窗、Android/Desktop/Connector、回滚点和审计通过 | 是，最终 go/no-go |
 
 任何源码合并、GitHub staging 成功或只读审计通过都不等于生产授权。安装软件、修改监听、创建数据库、
@@ -315,6 +316,13 @@ F5-A 的默认关闭源码操作器、严格配置 schema、schema-7 不可变 b
 `ACCOUNT_WEB_ORIGIN`，readiness 因进程拒绝启动而失败；操作器完整恢复 F4，journal 记录为
 `rolled_back`，Connector 随后重连。规范环境现同时固定 `ACCOUNT_WEB_ORIGIN` 与 F5-B 将使用的
 `ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN`，并只对尚未启用身份/Web/分享的旧 F4 环境提供一次兼容升级。
+
+2026-09-13 的授权重试使用全绿 `main 8a4f17a1fb80` 的 schema-8 运维 bundle；run
+`925f7085-5f48-4d42-b895-fe1e2f1610de` 在 blue committed。Gateway 仍为 `0.4.15-6b7d60fa6bbf`，
+schema 15/PostgreSQL 18、Nginx 和容器健康；identity management、Web account center/session 已开启，
+sharing、Google 和删除仍关闭。公网安全合同、401 guard、禁用路由 404/405、Connector/device WebSocket、
+Legacy `device_offline` 保持和零新增业务记录均通过。数据库仍为一个 active/online binding 与六个 revoked
+binding；F5-A 没有创建账号、身份、installation 或 binding。下一项生产开关是需单独授权的 F5-B。
 
 F5-B 的默认关闭源码操作器、严格配置 schema、schema-8 不可变 bundle 入口、独立 sharing Nginx
 allowlist、故障注入和稳定 `HR-OPS-024` 已完成。操作器只接受 committed F5-A、committed R5-F4、
