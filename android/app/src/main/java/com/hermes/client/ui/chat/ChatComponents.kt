@@ -467,8 +467,13 @@ fun ChatMessageList(
     viewportController: ChatViewportController? = null,
     onBlankAreaTap: () -> Unit = {},
     openPromptListTick: Long = 0L,
-    /** Active in-chat search (query + current hit) for text marks and card auto-expand. */
+    /** Active in-chat search (query + which mark the counter points at) for the text marks. */
     searchContext: ChatSearchContext? = null,
+    /**
+     * The search bar is up. Not the same thing as `searchContext != null`, which goes null again
+     * on a blank query — the floating controls stand down for the whole session of searching.
+     */
+    searchOpen: Boolean = false,
 ) {
     val language = LocalAppLanguage.current
     val semanticViewport = viewportController ?: remember(sessionId) { ChatViewportController() }
@@ -623,7 +628,13 @@ fun ChatMessageList(
         }
     }
     val pillTarget = visibleSpan?.let { span ->
-        turnPillFor(turnGroups, topVisibleMessageIndex = span.first, visibleMessageRange = span, atBottom = atBottom)
+        turnPillFor(
+            turnGroups,
+            topVisibleMessageIndex = span.first,
+            visibleMessageRange = span,
+            atBottom = atBottom,
+            searchOpen = searchOpen,
+        )
     }
     val currentGroupIndex = visibleSpan?.let { groupIndexOf(turnGroups, it.first) } ?: turnGroups.lastIndex
     val turnTopInsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { (2.dp - TURN_SPACING).roundToPx() }
@@ -1174,7 +1185,7 @@ fun ChatMessageList(
         // -> the "sudden snap to bottom". While scrolling the node simply does not exist, so the
         // arresting tap cannot hit it. Avoid an exit animation here: AnimatedVisibility keeps its
         // exiting subtree interactive until the fade completes, recreating the same ghost target.
-        if (initialPresentationReady && !atBottom && !listState.isScrollInProgress) {
+        if (scrollToBottomShown(initialPresentationReady, atBottom, listState.isScrollInProgress, searchOpen)) {
             Surface(
                 onClick = { bottomRequests.trySend(Unit) },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
@@ -1763,7 +1774,7 @@ internal fun AssistantTurn(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
-                            renderedText,
+                            searchHighlighted(renderedText),
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(12.dp),
@@ -1771,6 +1782,21 @@ internal fun AssistantTurn(
                     }
                 } else {
                     val blocks = remember(renderedText) { markdownRenderBlocks(renderedText) }
+                    // Which mark is "the one" is answered by ordinal, not by position: prefix sums
+                    // of the marks per block let each block name its own marks in turn coordinates.
+                    val searchQuery = LocalChatSearch.current?.query
+                    val markPrefix = remember(blocks, searchQuery) {
+                        val terms = searchQuery?.let { searchHighlightTerms(it) }.orEmpty()
+                        if (terms.isEmpty()) IntArray(blocks.size) else {
+                            val prefix = IntArray(blocks.size)
+                            var running = 0
+                            blocks.forEachIndexed { i, block ->
+                                prefix[i] = running
+                                running += searchHighlightRangesFor(withCjkEmphasisRepaired(block), terms).size
+                            }
+                            prefix
+                        }
+                    }
                     Column {
                         blocks.forEachIndexed { blockIndex, block ->
                             key(blockIndex) {
@@ -1779,6 +1805,7 @@ internal fun AssistantTurn(
                                     anchorKey = "${msg.id}:markdown:$blockIndex",
                                     onOpenTableFullscreen = onOpenTableFullscreen,
                                     modifier = Modifier.testTag("chat-block-${msg.id}-$blockIndex"),
+                                    searchRangeOffset = markPrefix.getOrElse(blockIndex) { 0 },
                                 )
                             }
                         }
@@ -1894,6 +1921,7 @@ internal fun AssistantMarkdownBlock(
     anchorKey: String,
     onOpenTableFullscreen: (String) -> Unit,
     modifier: Modifier = Modifier,
+    searchRangeOffset: Int = 0,
 ) {
     val viewport = LocalChatViewportController.current
     val components = remember(onOpenTableFullscreen, anchorKey) {
@@ -1916,6 +1944,7 @@ internal fun AssistantMarkdownBlock(
     HermesMarkdown(
         surface = MarkdownSurface.CHAT,
         content = renderable,
+        searchRangeOffset = searchRangeOffset,
         modifier = modifier.onGloballyPositioned { viewport?.updateBlock(anchorKey, it.boundsInWindow()) },
         typography = markdownTypography(
             h1 = MaterialTheme.typography.headlineSmall.copy(lineHeight = 34.sp),
@@ -2876,10 +2905,6 @@ private fun ThinkingCard(messageId: String, text: String) {
     // rememberSaveable keyed by the message id: plain remember lost the expanded state whenever
     // the item scrolled out of the Lazy viewport and was recycled.
     var expanded by androidx.compose.runtime.saveable.rememberSaveable(messageId) { mutableStateOf(false) }
-    // The search counter landed on a hit inside this reasoning: open it so the hit is visible.
-    // Closing the search does not fold it back; the reader may be mid-read.
-    val autoExpand = shouldAutoExpand(LocalChatSearch.current, LocalTurnIsCurrentHit.current, SearchSource.THINKING, text)
-    LaunchedEffect(autoExpand) { if (autoExpand) expanded = true }
     // Quiet in BOTH states: unlike the tool timeline this toggle never shows progress (a live run's
     // reasoning is voiced by RunningStatusLine), so restyling it at completion would only flash.
     QuietFoldSummary(
@@ -2891,8 +2916,10 @@ private fun ThinkingCard(messageId: String, text: String) {
     )
     if (expanded) {
         SelectionContainer {
+            // Not search-marked: reasoning is out of the search scope (HG-45), and marking text
+            // the counter does not count is a worse mismatch than not marking it.
             Text(
-                searchHighlighted(text),
+                text,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),

@@ -723,18 +723,19 @@ internal val ChatSearchClearDiscLight = Color(0xFFE4E2DC)
 internal val ChatSearchClearDiscDark = Color(0xFF343940)
 
 /**
- * The hit marks, and the one place in this repo where a pair holds the SAME value twice.
+ * Every hit EXCEPT the one the counter points at, and the one place in this repo where a pair
+ * holds the SAME value twice.
  *
  * Both mocks paint the marks identically — a pale blue sticker with dark blue ink — so the dark
  * tier is not a darkened variant of the light one, it is the light one. That is deliberate in the
  * mock: a hit has to read as an overlay ON the text rather than as part of the theme, and it is
  * the reason these survived de-blueing (§5.4: 常驻中性 / 反馈用品牌色).
  *
- * Ink is carried explicitly rather than left to `onSurface`, which in dark would put #E2E0DB on
- * #A6C8FF at 1.6:1 and make the current hit the least readable text on the screen.
+ * The focused hit is NOT here: HG-45 replaced the mock's #A6C8FF current tier with a solid brand
+ * fill taken straight from the scheme, because half a step of blue away from this one could not be
+ * told apart when both were on screen. Ink is carried explicitly rather than left to `onSurface`,
+ * which in dark would put #E2E0DB on this at 1.6:1 — the least readable text on the screen.
  */
-internal val ChatSearchHitCurrent = Color(0xFFA6C8FF)
-internal val ChatSearchHitCurrentInk = Color(0xFF002B7A)
 internal val ChatSearchHitOther = Color(0xFFD6E4FF)
 internal val ChatSearchHitOtherInk = Color(0xFF173B8A)
 

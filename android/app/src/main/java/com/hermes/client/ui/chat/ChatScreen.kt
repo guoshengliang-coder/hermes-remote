@@ -344,7 +344,7 @@ fun ChatScreen(
         ChatSearchContext(
             query = query,
             currentMessageId = currentHit?.let { conversationTurns.getOrNull(it.turnIndex)?.id },
-            currentSource = currentHit?.source,
+            currentOccurrence = currentHit?.occurrence,
         )
     } else null
     // Highlight scrolling lives inside ChatMessageList: with reverseLayout the turn index must be
@@ -1206,6 +1206,7 @@ fun ChatScreen(
                         listState = listState,
                         highlightIndex = highlightIndex,
                         searchContext = chatSearchContext,
+                        searchOpen = searchOpen,
                         scrollToBottomTick = sendToBottomTick,
                         openPromptListTick = promptListTick,
                         viewportController = viewportController,

@@ -193,18 +193,40 @@ internal fun turnPillShown(hasTarget: Boolean, scrolling: Boolean, idleMs: Long)
  * @param topVisibleMessageIndex message index of the item touching the top of the viewport.
  * @param visibleMessageRange every message index with any part on screen.
  * @param atBottom the list rests at the newest content (following the live tail).
+ * @param searchOpen the search bar has the top bar's place; the pill stands down for it (HG-45).
+ *   Both float over the transcript, and while you are stepping through hits the pill is answering
+ *   a question you are not asking.
  */
 internal fun turnPillFor(
     groups: List<TurnGroup>,
     topVisibleMessageIndex: Int,
     visibleMessageRange: IntRange,
     atBottom: Boolean,
+    searchOpen: Boolean = false,
 ): TurnPillTarget? {
-    if (atBottom || groups.isEmpty() || topVisibleMessageIndex < 0) return null
+    if (searchOpen || atBottom || groups.isEmpty() || topVisibleMessageIndex < 0) return null
     val groupIndex = groupIndexOf(groups, topVisibleMessageIndex)
     if (groups[groupIndex].anchorIndex in visibleMessageRange) return null
     return TurnPillTarget(groupIndex, showList = groups.size >= TURN_PILL_LIST_MIN_GROUPS)
 }
+
+/**
+ * Whether the round "back to the newest message" button is on screen.
+ *
+ * Pure for the same reason [turnPillShown] is: the only test that ever touched this button is an
+ * androidTest, which CI does not run, so the rule lived exclusively inside a composable `if`.
+ *
+ * @param scrolling hidden mid-scroll on purpose — the tap that arrests a fling lands where the
+ *   button would be, and used to be swallowed as a click (android/README.md).
+ * @param searchOpen hidden while searching (HG-45): the search bar owns downward movement now,
+ *   and its ↓ means "next hit", not "jump to the end".
+ */
+internal fun scrollToBottomShown(
+    presentationReady: Boolean,
+    atBottom: Boolean,
+    scrolling: Boolean,
+    searchOpen: Boolean,
+): Boolean = presentationReady && !atBottom && !scrolling && !searchOpen
 
 /** A queued jump: the reversed list index to align plus the message the landing feedback marks. */
 internal data class TurnJumpRequest(val listIndex: Int, val anchorIndex: Int)
