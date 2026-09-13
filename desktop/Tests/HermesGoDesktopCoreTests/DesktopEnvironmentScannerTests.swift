@@ -53,7 +53,10 @@ final class DesktopEnvironmentScannerTests: XCTestCase {
         let accepted = scanner.scan(requirements: [requirement(
             .browserAutomation,
             version: "1.2.3",
-            reuse: .verifiedCompatibility(identifier: "playwright-system-chromium-v1")
+            reuse: .verifiedCompatibility(
+                contentSHA256: String(repeating: "c", count: 64),
+                identifier: "playwright-system-chromium-v1"
+            )
         )])
         XCTAssertEqual(accepted.observations.map(\.status), [.reusable])
         XCTAssertEqual(
@@ -64,7 +67,10 @@ final class DesktopEnvironmentScannerTests: XCTestCase {
         let unknown = scanner.scan(requirements: [requirement(
             .browserAutomation,
             version: "1.2.3",
-            reuse: .verifiedCompatibility(identifier: "future-browser-contract")
+            reuse: .verifiedCompatibility(
+                contentSHA256: String(repeating: "c", count: 64),
+                identifier: "future-browser-contract"
+            )
         )])
         XCTAssertEqual(unknown.observations.map(\.status), [.detected])
         XCTAssertEqual(unknown.reusableCandidates, [])
@@ -97,7 +103,10 @@ final class DesktopEnvironmentScannerTests: XCTestCase {
         ).scan(requirements: [requirement(
             .browserAutomation,
             version: "1.2.3",
-            reuse: .verifiedCompatibility(identifier: "playwright-system-chromium-v1")
+            reuse: .verifiedCompatibility(
+                contentSHA256: String(repeating: "c", count: 64),
+                identifier: "playwright-system-chromium-v1"
+            )
         )])
 
         XCTAssertEqual(scan.observations.map(\.status), [.incompatible, .detected, .detected])

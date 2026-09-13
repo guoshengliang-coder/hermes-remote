@@ -61,7 +61,10 @@ final class DesktopComponentPreflightTests: XCTestCase {
             .browserAutomation,
             bytes: 130_000_000,
             phase: .onDemand,
-            reuse: .verifiedCompatibility(identifier: "playwright-chromium-cdp-v1")
+            reuse: .verifiedCompatibility(
+                contentSHA256: String(repeating: "c", count: 64),
+                identifier: "playwright-chromium-cdp-v1"
+            )
         )
         let chrome = DesktopManagedComponentCandidate(
             kind: .browserAutomation,
@@ -82,12 +85,43 @@ final class DesktopComponentPreflightTests: XCTestCase {
         XCTAssertEqual(plan.deferredDownloadBytes, 0)
     }
 
+    func testCompatibilityRequirementCanReuseItsExactManagedFallback() throws {
+        let digest = String(repeating: "c", count: 64)
+        let browser = requirement(
+            .browserAutomation,
+            bytes: 130_000_000,
+            phase: .onDemand,
+            reuse: .verifiedCompatibility(
+                contentSHA256: digest,
+                identifier: "playwright-chromium-cdp-v1"
+            )
+        )
+        let managed = DesktopManagedComponentCandidate(
+            kind: .browserAutomation,
+            version: "1.2.3",
+            architecture: "arm64",
+            source: .managedStore,
+            contentSHA256: digest,
+            healthProbePassed: true
+        )
+
+        let plan = try DesktopManagedComponentPreflightPlanner.plan(
+            requirements: [browser], candidates: [managed]
+        )
+
+        XCTAssertEqual(plan.decisions.map(\.action), [.reuse(managed)])
+        XCTAssertEqual(plan.deferredDownloadBytes, 0)
+    }
+
     func testMissingOptionalCapabilitiesAreDeferred() throws {
         let browser = requirement(
             .browserAutomation,
             bytes: 130_000_000,
             phase: .onDemand,
-            reuse: .verifiedCompatibility(identifier: "playwright-chromium-cdp-v1")
+            reuse: .verifiedCompatibility(
+                contentSHA256: String(repeating: "c", count: 64),
+                identifier: "playwright-chromium-cdp-v1"
+            )
         )
 
         let plan = try DesktopManagedComponentPreflightPlanner.plan(
@@ -165,6 +199,23 @@ final class DesktopComponentPreflightTests: XCTestCase {
         XCTAssertThrowsError(try DesktopManagedComponentPreflightPlanner.plan(
             requirements: [malformed],
             candidates: []
+        )) { error in
+            XCTAssertEqual(error as? DesktopManagedComponentPreflightError, .invalidRequirement)
+        }
+
+        let malformedCompatibility = DesktopManagedComponentRequirement(
+            kind: .browserAutomation,
+            version: "1.2.3",
+            architecture: "arm64",
+            downloadBytes: 1,
+            installPhase: .onDemand,
+            reusePolicy: .verifiedCompatibility(
+                contentSHA256: "bad",
+                identifier: "playwright-chromium-cdp-v1"
+            )
+        )
+        XCTAssertThrowsError(try DesktopManagedComponentPreflightPlanner.plan(
+            requirements: [malformedCompatibility], candidates: []
         )) { error in
             XCTAssertEqual(error as? DesktopManagedComponentPreflightError, .invalidRequirement)
         }
