@@ -31,7 +31,7 @@ Homebrew、pyenv 和用户虚拟环境均可在 Desktop 之外被修改。`Pytho
 │   └── <component>/<content-identity>/
 ├── releases/
 │   └── <release>/
-├── receipts/
+├── references/
 ├── state/
 ├── secrets/
 └── current
@@ -86,7 +86,9 @@ Desktop 对未知字段、未知组件、重复组件、循环依赖和未签名
 
 C2 的第一批只读实现已经定义规范化内容身份：相对路径、文件字节和可执行位共同进入
 SHA-256；符号链接、特殊文件、越界树、非 owner 安全收据、摘要篡改和失败健康探针都不能成为
-可复用候选。写入、引用计数、垃圾回收与系统浏览器探针仍留在 C2 后续批次。
+可复用候选。每个内容身份目录将 `content/` 与 `receipt.json` 一起原子提交，版本引用另以 owner-only
+文件幂等记录，避免断电后出现只有组件或只有收据的可见状态。垃圾回收与系统浏览器探针仍留在
+C2 后续批次。
 
 ### C3：签名清单 v2 与下载器
 

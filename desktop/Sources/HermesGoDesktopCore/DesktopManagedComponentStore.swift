@@ -9,10 +9,16 @@ public struct DesktopManagedComponentContentIdentity: Equatable, Sendable {
 
 public enum DesktopManagedComponentStoreError: Error, Equatable, Sendable {
     case invalidRoot
+    case invalidRunID
     case unsafeTree
     case treeTooLarge
     case invalidReceipt
     case identityMismatch
+    case healthProbeFailed
+    case workspaceAlreadyExists
+    case componentConflict
+    case referenceConflict
+    case cleanupFailed
 }
 
 /// Computes a stable identity over relative paths, file bytes, and the executable bit. Component
@@ -185,12 +191,13 @@ public struct DesktopManagedComponentStoreInspector: @unchecked Sendable {
             .appendingPathComponent("components", isDirectory: true)
             .appendingPathComponent(requirement.kind.rawValue, isDirectory: true)
             .appendingPathComponent(expectedIdentity, isDirectory: true)
-        let receiptURL = root
-            .appendingPathComponent("receipts", isDirectory: true)
-            .appendingPathComponent("\(requirement.kind.rawValue)-\(expectedIdentity).json")
+            .appendingPathComponent("content", isDirectory: true)
+        let container = component.deletingLastPathComponent()
+        let receiptURL = container.appendingPathComponent("receipt.json")
         guard fileManager.fileExists(atPath: component.path),
               fileManager.fileExists(atPath: receiptURL.path)
         else { return nil }
+        try requireOwnedSafeObject(container, directory: true)
         try requireOwnedSafeObject(component, directory: true)
         try requireOwnedSafeObject(receiptURL, directory: false)
         let receiptData = try Data(contentsOf: receiptURL, options: [.mappedIfSafe])
@@ -236,5 +243,261 @@ public struct DesktopManagedComponentStoreInspector: @unchecked Sendable {
         guard owner == currentUserID, permissions & 0o022 == 0 else {
             throw DesktopManagedComponentStoreError.unsafeTree
         }
+    }
+}
+
+public struct DesktopManagedComponentReference: Codable, Equatable, Sendable {
+    public let kind: DesktopManagedComponentKind
+    public let contentSHA256: String
+
+    public init(kind: DesktopManagedComponentKind, contentSHA256: String) {
+        self.kind = kind
+        self.contentSHA256 = contentSHA256
+    }
+}
+
+public struct DesktopManagedComponentReferenceSet: Codable, Equatable, Sendable {
+    public let schemaVersion: Int
+    public let releaseVersion: String
+    public let components: [DesktopManagedComponentReference]
+
+    public init(
+        schemaVersion: Int = 1,
+        releaseVersion: String,
+        components: [DesktopManagedComponentReference]
+    ) {
+        self.schemaVersion = schemaVersion
+        self.releaseVersion = releaseVersion
+        self.components = components
+    }
+}
+
+/// Atomically commits one already verified component container. The final move carries content and
+/// receipt together, so a power loss cannot expose one without the other. Release references are
+/// written separately and idempotently; later garbage collection may retain every referenced hash.
+public final class DesktopManagedComponentStoreWriter: @unchecked Sendable {
+    public typealias HealthProbe = @Sendable (URL) throws -> Bool
+
+    private let root: URL
+    private let currentUserID: UInt32
+    private let fileManager: FileManager
+    private let hasher: DesktopManagedComponentContentHasher
+
+    public init(
+        root: URL,
+        currentUserID: UInt32,
+        fileManager: FileManager = .default
+    ) throws {
+        let normalized = root.standardizedFileURL
+        guard normalized.isFileURL, normalized.path.hasPrefix("/"), normalized.path != "/" else {
+            throw DesktopManagedComponentStoreError.invalidRoot
+        }
+        self.root = normalized
+        self.currentUserID = currentUserID
+        self.fileManager = fileManager
+        hasher = DesktopManagedComponentContentHasher(fileManager: fileManager)
+    }
+
+    @discardableResult
+    public func commit(
+        sourceDirectory: URL,
+        receipt: DesktopManagedComponentReceipt,
+        runID: String,
+        healthProbe: HealthProbe
+    ) throws -> URL {
+        guard let normalizedRunID = UUID(uuidString: runID)?.uuidString.lowercased() else {
+            throw DesktopManagedComponentStoreError.invalidRunID
+        }
+        guard receipt.schemaVersion == 1,
+              receipt.contentSHA256.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil
+        else { throw DesktopManagedComponentStoreError.invalidReceipt }
+        let requirement = DesktopManagedComponentRequirement(
+            kind: receipt.kind,
+            version: receipt.version,
+            architecture: receipt.architecture,
+            downloadBytes: 1,
+            installPhase: .bootstrap,
+            reusePolicy: .exactContent(sha256: receipt.contentSHA256)
+        )
+        _ = try DesktopManagedComponentPreflightPlanner.plan(
+            requirements: [requirement], candidates: []
+        )
+        let sourceIdentity = try hasher.identify(directory: sourceDirectory)
+        guard sourceIdentity.sha256 == receipt.contentSHA256 else {
+            throw DesktopManagedComponentStoreError.identityMismatch
+        }
+
+        try preparePrivateDirectory(root)
+        let componentsRoot = root.appendingPathComponent("components", isDirectory: true)
+        let kindRoot = componentsRoot.appendingPathComponent(receipt.kind.rawValue, isDirectory: true)
+        let stagingRoot = root.appendingPathComponent(".staging", isDirectory: true)
+        try preparePrivateDirectory(componentsRoot)
+        try preparePrivateDirectory(kindRoot)
+        try preparePrivateDirectory(stagingRoot)
+        let destination = kindRoot.appendingPathComponent(receipt.contentSHA256, isDirectory: true)
+        if fileManager.fileExists(atPath: destination.path) {
+            return try requireExisting(requirement, healthProbe: healthProbe)
+        }
+
+        let workspace = stagingRoot.appendingPathComponent(normalizedRunID, isDirectory: true)
+        guard !fileManager.fileExists(atPath: workspace.path) else {
+            throw DesktopManagedComponentStoreError.workspaceAlreadyExists
+        }
+        do {
+            try fileManager.createDirectory(
+                at: workspace, withIntermediateDirectories: false,
+                attributes: [.posixPermissions: 0o700]
+            )
+            let content = workspace.appendingPathComponent("content", isDirectory: true)
+            try fileManager.copyItem(at: sourceDirectory, to: content)
+            guard try hasher.identify(directory: content).sha256 == receipt.contentSHA256 else {
+                throw DesktopManagedComponentStoreError.identityMismatch
+            }
+            guard try healthProbe(content) else {
+                throw DesktopManagedComponentStoreError.healthProbeFailed
+            }
+            let receiptURL = workspace.appendingPathComponent("receipt.json")
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            try encoder.encode(receipt).write(to: receiptURL, options: [.withoutOverwriting])
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o600], ofItemAtPath: receiptURL.path
+            )
+            do {
+                try fileManager.moveItem(at: workspace, to: destination)
+            } catch {
+                if fileManager.fileExists(atPath: destination.path) {
+                    try cleanup(workspace, beneath: stagingRoot)
+                    return try requireExisting(requirement, healthProbe: healthProbe)
+                }
+                throw DesktopManagedComponentStoreError.componentConflict
+            }
+            return destination.appendingPathComponent("content", isDirectory: true)
+        } catch {
+            if fileManager.fileExists(atPath: workspace.path) {
+                do { try cleanup(workspace, beneath: stagingRoot) }
+                catch { throw DesktopManagedComponentStoreError.cleanupFailed }
+            }
+            throw error
+        }
+    }
+
+    public func recordReferences(
+        releaseVersion: String,
+        receipts: [DesktopManagedComponentReceipt],
+        runID: String
+    ) throws -> URL {
+        guard UUID(uuidString: runID) != nil,
+              releaseVersion.range(
+                of: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+                options: .regularExpression
+              ) != nil,
+              Set(receipts.map(\.kind)).count == receipts.count,
+              !receipts.isEmpty,
+              receipts.allSatisfy({ $0.schemaVersion == 1 })
+        else { throw DesktopManagedComponentStoreError.invalidReceipt }
+        let sorted = receipts.sorted { $0.kind.rawValue < $1.kind.rawValue }
+        for receipt in sorted {
+            let requirement = DesktopManagedComponentRequirement(
+                kind: receipt.kind,
+                version: receipt.version,
+                architecture: receipt.architecture,
+                downloadBytes: 1,
+                installPhase: .bootstrap,
+                reusePolicy: .exactContent(sha256: receipt.contentSHA256)
+            )
+            _ = try requireExisting(requirement) { _ in true }
+        }
+        let reference = DesktopManagedComponentReferenceSet(
+            releaseVersion: releaseVersion,
+            components: sorted.map {
+                DesktopManagedComponentReference(
+                    kind: $0.kind, contentSHA256: $0.contentSHA256
+                )
+            }
+        )
+        let referencesRoot = root.appendingPathComponent("references", isDirectory: true)
+        try preparePrivateDirectory(referencesRoot)
+        let destination = referencesRoot.appendingPathComponent("\(releaseVersion).json")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(reference)
+        if fileManager.fileExists(atPath: destination.path) {
+            try requireOwnedSafeFile(destination)
+            guard let existing = try? Data(contentsOf: destination), existing == data else {
+                throw DesktopManagedComponentStoreError.referenceConflict
+            }
+            return destination
+        }
+        let temporary = referencesRoot.appendingPathComponent(".\(runID.lowercased()).tmp")
+        guard !fileManager.fileExists(atPath: temporary.path) else {
+            throw DesktopManagedComponentStoreError.workspaceAlreadyExists
+        }
+        do {
+            try data.write(to: temporary, options: [.withoutOverwriting])
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+            try fileManager.moveItem(at: temporary, to: destination)
+            return destination
+        } catch {
+            try? fileManager.removeItem(at: temporary)
+            throw error
+        }
+    }
+
+    private func requireExisting(
+        _ requirement: DesktopManagedComponentRequirement,
+        healthProbe: HealthProbe
+    ) throws -> URL {
+        let inspector = try DesktopManagedComponentStoreInspector(
+            root: root, currentUserID: currentUserID, fileManager: fileManager
+        )
+        guard let candidate = try inspector.candidate(
+            for: requirement, healthProbe: healthProbe
+        ), candidate.healthProbePassed else {
+            throw DesktopManagedComponentStoreError.componentConflict
+        }
+        guard case .exactContent(let identity) = requirement.reusePolicy else {
+            throw DesktopManagedComponentStoreError.componentConflict
+        }
+        return root.appendingPathComponent(
+            "components/\(requirement.kind.rawValue)/\(identity)/content", isDirectory: true
+        )
+    }
+
+    private func preparePrivateDirectory(_ value: URL) throws {
+        if !fileManager.fileExists(atPath: value.path) {
+            try fileManager.createDirectory(
+                at: value, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+        }
+        let resource = try value.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        let attributes = try fileManager.attributesOfItem(atPath: value.path)
+        let owner = (attributes[.ownerAccountID] as? NSNumber)?.uint32Value
+        let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0
+        guard resource.isDirectory == true, resource.isSymbolicLink != true,
+              owner == currentUserID, permissions & 0o077 == 0
+        else { throw DesktopManagedComponentStoreError.unsafeTree }
+    }
+
+    private func requireOwnedSafeFile(_ value: URL) throws {
+        let resource = try value.resourceValues(forKeys: [
+            .isRegularFileKey, .isSymbolicLinkKey,
+        ])
+        let attributes = try fileManager.attributesOfItem(atPath: value.path)
+        let owner = (attributes[.ownerAccountID] as? NSNumber)?.uint32Value
+        let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0
+        guard resource.isRegularFile == true, resource.isSymbolicLink != true,
+              owner == currentUserID, permissions & 0o077 == 0
+        else { throw DesktopManagedComponentStoreError.unsafeTree }
+    }
+
+    private func cleanup(_ value: URL, beneath parent: URL) throws {
+        let normalized = value.standardizedFileURL
+        let prefix = parent.standardizedFileURL.path + "/"
+        guard normalized.path.hasPrefix(prefix), normalized.path != parent.path else {
+            throw DesktopManagedComponentStoreError.cleanupFailed
+        }
+        try fileManager.removeItem(at: normalized)
     }
 }
