@@ -37,6 +37,8 @@ const EMAIL_KEYS = Object.freeze([
   "ACCOUNT_DATABASE_CONNECT_TIMEOUT_MS",
   "ACCOUNT_TRUST_LOOPBACK_PROXY",
   "ACCOUNT_GATEWAY_ORIGIN",
+  "ACCOUNT_WEB_ORIGIN",
+  "ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN",
   "ACCOUNT_MAX_PENDING_CONNECTOR_PROOFS",
   "ACCOUNT_MAX_UNAUTHENTICATED_CONNECTORS",
   "ACCOUNT_MAX_UNAUTHENTICATED_CONNECTORS_PER_IP",
@@ -45,6 +47,12 @@ const EMAIL_KEYS = Object.freeze([
   "ACCOUNT_AUDIT_RETENTION_DAYS",
   "MAX_LIFECYCLE_EVENTS",
 ]);
+
+const ORIGIN_KEYS = Object.freeze([
+  "ACCOUNT_WEB_ORIGIN",
+  "ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN",
+]);
+const LEGACY_EMAIL_KEYS = Object.freeze(EMAIL_KEYS.filter((key) => !ORIGIN_KEYS.includes(key)));
 
 const EMAIL_EXACT = Object.freeze({
   HOST: "127.0.0.1",
@@ -110,6 +118,14 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
   const identityWebEnabled = identityManagementEnabled && webAccountCenterEnabled && webSessionEnabled;
   const identityWebPartiallyEnabled = identityManagementEnabled || webAccountCenterEnabled || webSessionEnabled;
   const sharingEnabled = values.ACCOUNT_DEVICE_SHARING_ENABLED === "1";
+  const originKeysMissing = ORIGIN_KEYS.every((key) => values[key] === undefined);
+  const originKeysPresent = ORIGIN_KEYS.every((key) => values[key] !== undefined);
+  if ((!originKeysMissing && !originKeysPresent) || (originKeysMissing && (identityWebEnabled || sharingEnabled))) {
+    fail("production_release_email_environment_invalid");
+  }
+  if (originKeysMissing) {
+    for (const key of ORIGIN_KEYS) values[key] = origin;
+  }
   if ((!bindingEnabled && !emailOnly) || (multiDeviceEnabled && !bindingEnabled)
       || (identityWebPartiallyEnabled && !identityWebEnabled)
       || (identityWebEnabled && !multiDeviceEnabled)
@@ -129,6 +145,8 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
     ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED: identityWebEnabled ? "1" : "0",
     ACCOUNT_WEB_SESSION_ENABLED: identityWebEnabled ? "1" : "0",
     ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED: bindingEnabled ? "1" : "0",
+    ACCOUNT_WEB_ORIGIN: origin,
+    ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN: origin,
   };
   for (const key of EMAIL_KEYS) {
     if (key === "ACCOUNT_DATABASE_SSL") {
@@ -248,13 +266,16 @@ function parseCanonicalEnvironment(content) {
     fail("production_release_environment_format_invalid");
   }
   const lines = content.slice(0, -1).split("\n");
-  if (lines.length !== EMAIL_KEYS.length) fail("production_release_environment_fields_invalid");
+  const keys = lines.length === EMAIL_KEYS.length
+    ? EMAIL_KEYS
+    : (lines.length === LEGACY_EMAIL_KEYS.length ? LEGACY_EMAIL_KEYS : null);
+  if (!keys) fail("production_release_environment_fields_invalid");
   const values = {};
   lines.forEach((line, index) => {
     const separator = line.indexOf("=");
     const key = line.slice(0, separator);
     const value = line.slice(separator + 1);
-    if (separator < 1 || key !== EMAIL_KEYS[index] || key in values || !value) {
+    if (separator < 1 || key !== keys[index] || key in values || !value) {
       fail("production_release_environment_fields_invalid");
     }
     values[key] = value;

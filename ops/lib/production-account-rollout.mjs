@@ -224,6 +224,8 @@ export function renderEmailRolloutEnvironment(releaseConfig, config, activeSlot)
     "ACCOUNT_DATABASE_CONNECT_TIMEOUT_MS=3000",
     `ACCOUNT_TRUST_LOOPBACK_PROXY=${config.gateway.trustLoopbackProxy ? "1" : "0"}`,
     `ACCOUNT_GATEWAY_ORIGIN=${config.gateway.origin}`,
+    `ACCOUNT_WEB_ORIGIN=${config.gateway.origin}`,
+    `ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN=${config.gateway.origin}`,
     "ACCOUNT_MAX_PENDING_CONNECTOR_PROOFS=256",
     "ACCOUNT_MAX_UNAUTHENTICATED_CONNECTORS=16",
     "ACCOUNT_MAX_UNAUTHENTICATED_CONNECTORS_PER_IP=4",
