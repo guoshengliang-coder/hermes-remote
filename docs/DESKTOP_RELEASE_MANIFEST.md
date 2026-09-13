@@ -331,6 +331,12 @@ an explicit cancel may remove that exact validly marked workspace, other failure
 reference is never published for an incomplete activation plan. The returned plan remains preparation
 input only and does not itself modify credentials, `current`, LaunchAgents, or running services.
 
+Before that transaction, the local component preflight coordinator accepts the same verifier-only
+token and combines rehashed managed-store candidates with allowlisted external observations. It emits
+the per-component reuse/download/defer decisions and exact bootstrap/deferred byte totals. A matching
+Python or Node version is never sufficient for reuse, and a managed component that exists but fails
+its health probe blocks the plan instead of being mislabeled as safely replaceable.
+
 A real release still requires all of the following outside this local implementation:
 
 - provision and approve the release-signing key and pinned production public key;

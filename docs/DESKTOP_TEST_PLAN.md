@@ -88,6 +88,10 @@ The current automated suite covers:
   reference; a transport interruption instead preserves its partial download and owner-only manifest
   identity marker, allowing only the same signed manifest and run ID to resume or the bounded cancel
   path to remove that exact marked workspace;
+- the component preflight coordinator reports all bootstrap downloads and deferred optional bytes on
+  a clean store, reuses only rehashed healthy managed content, permits a compatible probed external
+  browser while keeping observed Python non-reusable, and stops before external scanning for an
+  unhealthy managed component or invalid signed bootstrap topology;
 - offline component-release publication safely extracts every candidate and recomputes the same
   relative-path/file-byte/executable-bit identity used by the Desktop store before signing, then the
   public-key-only verifier repeats compressed and extracted identity checks;
