@@ -149,6 +149,15 @@ C4 第一批本地构建合同已经把原来的两个整体归档拆成四个 s
 arm64 本地候选上成立。Playwright、语音/ONNX、Google 等 extras 后续进入各自的签名按需组件，不能
 重新混入基础环境；PDF 提取当前仍是上游核心依赖，移出前需要上游调用边界配合。
 
+C4 第二批把四包从构建产物推进到 Desktop 的只读激活计划。Desktop 只从签名清单指定的
+`components/<kind>/<content-sha>/content` 解析入口；计划生成前重新核对 owner-only 收据、整树内容
+身份、入口的普通文件/owner/权限/可执行位和调用方健康探针。基础拓扑固定为 Python 与 Node 无依赖、
+Hermes 精确依赖 Python、Connector 精确依赖 Hermes 与 Node，缺包、额外基础包或依赖身份偏离都会
+整体拒绝。生成的 LaunchAgent 为 Hermes 注入精确的 `HERMES_PYTHON_RUNTIME_ROOT`，为 Connector
+注入精确的 `HERMES_NODE_RUNTIME_ROOT`；v1 写入器拒绝这两个 v2 字段，v2 写入器也会再次确认路径
+确实位于当前受管根的内容身份目录，并在落盘 LaunchAgent 前再次重算相关组件身份。该入口仍未接到
+现行安装按钮或启动事务。
+
 ### C5：界面与真实机器门禁
 
 - 原生预检页展示复用、下载、磁盘占用和按需组件；

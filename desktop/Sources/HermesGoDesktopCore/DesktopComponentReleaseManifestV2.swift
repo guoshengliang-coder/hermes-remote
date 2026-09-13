@@ -6,7 +6,7 @@ public enum DesktopComponentReuseContract: String, Codable, Sendable {
     case verifiedCompatibility = "verified_compatibility"
 }
 
-public struct DesktopComponentReleaseDependency: Codable, Equatable, Sendable {
+public struct DesktopComponentReleaseDependency: Codable, Equatable, Hashable, Sendable {
     public let kind: DesktopManagedComponentKind
     public let contentSHA256: String
 

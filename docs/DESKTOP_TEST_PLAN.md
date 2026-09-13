@@ -75,6 +75,12 @@ The current automated suite covers:
 - the arm64 core-only composition starts the real Hermes 0.21.0 server, emits its readiness marker,
   serves `/api/status`, imports its core API modules, and imports `tui_gateway` from a child interpreter
   after `PYTHONPATH` is removed; the measured bootstrap set is 98.12 MiB compressed;
+- schema-v2 activation rehashes all four bootstrap components and their owner-only receipts, requires
+  executable owner-safe entrypoints and successful bounded health probes, and rejects missing
+  components, unexpected bootstrap kinds, or any deviation from the exact runtime dependency graph;
+- component LaunchAgents use content-addressed Hermes/Connector entrypoints and inject only the exact
+  Python/Node managed roots; v1 writers reject v2 runtime injection and v2 writers reject paths from a
+  different managed layout or content mutated after planning;
 - offline component-release publication safely extracts every candidate and recomputes the same
   relative-path/file-byte/executable-bit identity used by the Desktop store before signing, then the
   public-key-only verifier repeats compressed and extracted identity checks;
