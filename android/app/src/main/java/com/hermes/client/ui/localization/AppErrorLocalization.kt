@@ -122,6 +122,8 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "消息未发送，点按气泡重试。", "The message was not sent. Tap the bubble to retry.")
         AppErrorCode.SESSION_OWNED_ELSEWHERE ->
             localized(language, "该会话正在另一个客户端上运行，请在那边结束后重试。", "This conversation is running on another client. Finish it there, then retry.")
+        AppErrorCode.UNSENT_ATTACHMENTS_LOST ->
+            localized(language, "附件已丢失，请重新选择附件后发送。", "The attachments are gone. Pick them again and send.")
         AppErrorCode.SESSION_TRANSCRIPT_UNAVAILABLE ->
             localized(language, "无法读取所选会话的内容，请重试。", "Couldn't read the selected conversation. Retry.")
         AppErrorCode.SESSION_ARCHIVE_FAILED ->

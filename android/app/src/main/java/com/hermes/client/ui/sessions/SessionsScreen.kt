@@ -119,6 +119,7 @@ fun SessionsScreen(
     val runtimes by vm.runtimes.collectAsStateWithLifecycle()
     val unreadTokens by vm.unreadTokens.collectAsStateWithLifecycle()
     val draftTokens by vm.draftTokens.collectAsStateWithLifecycle()
+    val unsentTokens by vm.unsentTokens.collectAsStateWithLifecycle()
     val defaultProjectPath by vm.defaultProjectPath.collectAsStateWithLifecycle()
     // Session whose「移动到项目…」picker is open (from the long-press menu).
     var moveTarget by remember { mutableStateOf<Session?>(null) }
@@ -331,15 +332,18 @@ fun SessionsScreen(
                 }
                 Box(Modifier.fillMaxSize()) {
                     // Delegated properties do not smart-cast; the local also makes the
-                    // "pins and drafts are known from here down" boundary explicit.
+                    // "pins, drafts and unsent sends are known from here down" boundary explicit.
                     val pins = pinnedTokens
                     val drafts = draftTokens
+                    val unsent = unsentTokens
                     when {
                         // Pins unread: rendering now would draw a list with no 已置顶 section and
                         // then insert one above the viewport a beat later (HG-11). Drafts join the
                         // same gate rather than opening a second one — a 「草稿」 marker appearing a
-                        // frame after its row is the same defect, one size smaller.
-                        pins == null || drafts == null || (state.loading && state.sessions.isEmpty()) ->
+                        // frame after its row is the same defect, one size smaller. So does 未发送
+                        // (HG-49), which is read off disk by the same kind of store.
+                        pins == null || drafts == null || unsent == null ||
+                            (state.loading && state.sessions.isEmpty()) ->
                             com.hermes.client.ui.components.ListLoadingState()
                         state.error != null && state.sessions.isEmpty() -> com.hermes.client.ui.components.ErrorState(
                             error = state.error!!,
@@ -390,6 +394,7 @@ fun SessionsScreen(
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
                                                 hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
+                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -415,6 +420,7 @@ fun SessionsScreen(
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
                                                 hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
+                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -439,6 +445,7 @@ fun SessionsScreen(
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
                                                 hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
+                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -463,6 +470,7 @@ fun SessionsScreen(
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
                                                 hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
+                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -487,6 +495,7 @@ fun SessionsScreen(
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
                                                 hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
+                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -574,6 +583,7 @@ internal fun SessionRow(
     runtime: SessionRuntime? = null,
     unread: Boolean = false,
     hasDraft: Boolean = false,
+    hasUnsent: Boolean = false,
     onOpen: () -> Unit,
     onTogglePin: () -> Unit,
     onRename: (String) -> Unit,
@@ -653,14 +663,18 @@ internal fun SessionRow(
             // Gate on the TEXT, not on the phase. The phase-based guard let a blank label through,
             // and a blank Text still costs a full line — under `ListItem` that used to tip the row
             // into the 88dp tier; now it would just add an empty line. Either way it is wrong.
-            sessionStatusLine(runtime, language)?.let { label ->
+            val unsentLine = sessionStatusIsUnsent(runtime, hasUnsent)
+            sessionStatusLine(runtime, language, hasUnsent)?.let { label ->
                 androidx.compose.foundation.layout.Spacer(Modifier.size(com.hermes.client.ui.tuning.tunedStatusGap())) // TUNING-TEMP
                 Text(
                     label,
                     // Only the running line is monospaced in the mock; the verdicts
-                    // (已完成 / 运行失败 / 已中断) stay on the prose face.
-                    style = com.hermes.client.ui.tuning.tunedStatus(runtime!!.phase.isActive), // TUNING-TEMP
-                    color = runtimeColor(runtime.phase),
+                    // (已完成 / 运行失败 / 已中断 / 未发送) stay on the prose face.
+                    style = com.hermes.client.ui.tuning.tunedStatus(!unsentLine && runtime?.phase?.isActive == true), // TUNING-TEMP
+                    // 未发送 borrows the same red as 运行失败 rather than inventing a tone: both are
+                    // "this did not work", and a second red would have to justify itself in
+                    // design-conformance.json (docs/DESIGN.md §7).
+                    color = if (unsentLine) statusColor(StatusTone.BAD) else runtimeColor(runtime!!.phase),
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
@@ -830,11 +844,27 @@ internal fun SessionActionItems(
 internal fun sessionStatusLine(
     runtime: SessionRuntime?,
     language: com.hermes.client.ui.localization.AppLanguage,
+    hasUnsent: Boolean = false,
 ): String? {
+    if (sessionStatusIsUnsent(runtime, hasUnsent)) return localized(language, "未发送", "Not sent")
     val value = runtime ?: return null
     if (value.phase == SessionRunPhase.IDLE && !value.hasRunningProcesses) return null
     return runtimeLabel(value, language).takeIf { it.isNotBlank() }
 }
+
+/**
+ * Whether the status line is reporting a refused send rather than a run (HG-49).
+ *
+ * A message that was submitted and refused outranks every SETTLED state — idle, 已完成, 运行失败,
+ * 已中断 — because it is the one thing on the row that is waiting on the user, and unlike a run it
+ * will not resolve itself. It does NOT outrank a run still in flight: what is happening now is more
+ * informative, and the unsent message is still there when the run ends.
+ *
+ * Pure so that precedence is unit-testable without a Compose runtime, exactly like
+ * [sessionRowTrailing] and [sessionStatusPaint].
+ */
+internal fun sessionStatusIsUnsent(runtime: SessionRuntime?, hasUnsent: Boolean): Boolean =
+    hasUnsent && runtime?.phase?.isActive != true
 
 private fun runtimeLabel(runtime: SessionRuntime, language: com.hermes.client.ui.localization.AppLanguage): String {
     if (!runtime.phase.isActive && runtime.hasRunningProcesses) {

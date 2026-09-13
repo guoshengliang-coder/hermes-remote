@@ -65,6 +65,11 @@ enum class AppErrorCode(val value: String) {
     // attachment (HG-38). Not HR-SYNC-001: nothing is out of sync and the open conversation is
     // untouched — one conversation the user asked to reference could not be read.
     SESSION_TRANSCRIPT_UNAVAILABLE("HR-SESS-014"),
+    // A refused send restored after the app restarted, whose staged attachments did not survive:
+    // they are in-memory bytes and only the text is persisted (HG-49, data/repository/UnsentStore).
+    // The words are still on screen, but replaying the send would deliver less than the user meant,
+    // so the tap is withheld rather than quietly sending half of it.
+    UNSENT_ATTACHMENTS_LOST("HR-SESS-015"),
     INSTALL_PERMISSION_REQUIRED("HR-PERM-003"),
     HISTORY_INCOMPLETE("HR-SYNC-001"),
     RUN_UNCONFIRMED("HR-SYNC-002"),
