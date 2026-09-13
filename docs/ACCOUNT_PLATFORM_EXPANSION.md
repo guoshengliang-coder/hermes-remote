@@ -516,17 +516,18 @@ window must stop before Desktop version allocation, artifact installation, physi
 Developer ID signing/notarization, production artifact upload, remote service restart, or any account flag
 change. Those actions remain explicit version, physical, signing, or production gates.
 
-The preferred order is R5-F4 code gate first, then F5-A identity/Web acceptance prerequisites, then F5-B
-sharing. E10 release notes and acceptance commands may be prepared in parallel, but Desktop 0.2.10/build 13
-is not allocated until the version gate is confirmed. The handback record must leave the owner a short list
-containing only the exact version decision, Mac/package actions, named-device evidence, and separately
-authorized production commands that could not run unattended.
+The R5-F4, F5-A and F5-B production flag sequence completed on 2026-09-13 without creating a second binding,
+share invitation or grant. The next acceptance work is therefore physical: E11 adds the second owned Mac and
+E12 performs the B-to-A share/use/revoke/leave matrix. E10 release notes and acceptance commands may be prepared
+in parallel, but later Desktop version allocation still follows its separate version gate. The handback record
+must leave the owner a short list containing only the exact version decision, Mac/package actions and named-device
+evidence that could not run unattended.
 
 The unattended repository gates for R5-F4, F5-A, and F5-B have default-off operators, rollback tests,
-routine-release preservation, immutable-bundle entries, and runbook coverage. R5-F4 and F5-A completed their
-separately authorized production executions on 2026-09-13; F5-B remains disabled and requires its own production
-authorization. The owner handback starts with the Desktop 0.2.10/build 13 version decision, followed by
-package/install and restart-health acceptance on the named Mac. Physical acceptance records two owned Macs for
+routine-release preservation, immutable-bundle entries, and runbook coverage. All three completed their separately
+authorized production flag executions on 2026-09-13; F5-B contains zero invitations and grants until the owner
+starts the canary. The owner handback starts with package/install and restart-health acceptance on the named Mac.
+Physical acceptance records two owned Macs for
 E11 and two independent accounts for E12, including
 B-to-A invite/use/revoke/leave, forbidden owner actions, and the five-second socket-close bound. Developer ID
 signing, notarization, stapling, and clean-Mac launch remain the final E13 distribution gate.

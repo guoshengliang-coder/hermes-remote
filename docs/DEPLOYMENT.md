@@ -791,7 +791,7 @@ operator also preserved the exact preflight Legacy `device_offline` state. Postg
 one external identity, two installations, one active/online binding and six revoked bindings; every newest business
 record predated this rollout, so F5-A created no account, identity, installation or binding.
 
-## Production whole-device sharing gray rollout (R5-F5-B; code gate only)
+## Production whole-device sharing gray rollout (R5-F5-B; production switch complete, canary pending)
 
 F5-B starts only from the exact committed F5-A identity-Web state, the committed R5-F4 multi-device
 journal, and the same active release identity. It changes only
@@ -825,6 +825,25 @@ closes within five seconds before disabling the flag. Never hide an active grant
 capability. `HR-OPS-024` names operator failures; inspect
 `/var/lib/hermes-go/ops/sharing-rollout.json` before retrying. Source merge and bundle generation do
 not authorize production execution.
+
+The separately authorized production execution reused the verified schema-8
+`Hermes-R5D-Ops-8a4f17a1fb80` bundle. The F5-B configuration was validated locally, transferred with exact
+SHA-256 `5b9ea7ba41528700a57ca598dd52893422a4c0ad1c75e96c26ee6a8f6f824102`, installed `0600 root:root`, and
+revalidated against the exact committed F4/F5-A state before mutation. Run
+`eed13c62-ab0d-44ea-b1da-adcb8f117afa` committed on blue with the active Gateway still
+`0.4.15-6b7d60fa6bbf` and schema 15/PostgreSQL 18.
+
+The sharing route file matched the locally rendered 4,289 bytes and SHA-256
+`12a4a6be42265fdcabd3e41ea75d1eed6781f6780f9474f468b7745eecf8ec07`; binding, identity-Web and sharing
+includes each appeared exactly once and `nginx -t` passed. The blue container stayed healthy with zero restarts.
+Public checks preserved the secured account shell/session, returned 401 for unauthenticated native and Web sharing
+lists, rejected a Web write without CSRF with 403, kept identity/installation/device guards at 401, kept Google and
+deletion at 405/404, preserved Connector upgrade and device-WebSocket rejection, and preserved the exact Legacy
+preflight state. The environment changed only `ACCOUNT_DEVICE_SHARING_ENABLED=1`; all earlier account flags and both
+Web origins stayed exact. PostgreSQL still held one account, one identity, two installations, one active/online
+binding and six revoked bindings, with zero share invitations and zero access grants. The remaining F5-B work is
+the explicitly user-driven B-to-A invitation/use/revoke/leave canary; do not call that matrix complete from the flag
+rollout alone.
 
 ## Edge JSON compression (2026-09-07, authorized)
 

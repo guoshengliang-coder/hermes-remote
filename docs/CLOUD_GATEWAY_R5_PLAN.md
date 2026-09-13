@@ -19,9 +19,10 @@ R5-C4 timer 和首次 R5-E6 异机恢复/状态激活已完成。2026-09-06 又�
 受保护制品修复并重放同一代次，异机恢复、schema 7、账号 smoke、状态激活、ack 和后续监控全部通过。
 2026-09-09 又以 `main 787bdc917190` 完成 Gateway 0.4.9 常规发布、邮箱 OTP 生产灰度、schema 15 迁移，
 以及迁移后的新一轮加密捕获、Mac PostgreSQL 18 真实恢复、0.4.9 镜像账号 smoke、状态激活和监控复查。
-R5-E 数据库恢复自动化门禁、R5-F2 邮箱登录、R5-F3 单终端绑定、R5-F4 多自有终端开关以及 F5-A
-身份管理/Web 账号中心均已完成生产执行。Desktop 托管安装、身份管理和 Web session 已启用；Google、
-账号删除与整机分享仍关闭。第二台自有 Mac 的 F4 实机 canary 和 F5-B 双账号分享 canary 仍待执行。
+R5-E 数据库恢复自动化门禁、R5-F2 邮箱登录、R5-F3 单终端绑定、R5-F4 多自有终端开关以及 F5-A/F5-B
+身份/Web/分享开关均已完成生产执行。Desktop 托管安装、身份管理、Web session 和整机分享已启用；
+Google 与账号删除仍关闭，当前没有邀请或 grant。第二台自有 Mac 的 F4 实机 canary 和 F5-B 双账号分享
+canary 仍待执行。
 邮箱登录验收后的只读绑定预检发现，0.4.9 镜像内置 Docker healthcheck 把开发端口 `8787` 写死，而
 受管 green 槽实际监听 `PORT=18788`；因此公开业务/readiness 正常，但容器被 Docker 持续标记为
 `unhealthy`。后续绑定灰度在新版本镜像使用运行时 `PORT`、非默认容器端口 OCI 门禁通过并完成常规
@@ -46,7 +47,7 @@ Android/Connector 的 URL、Token 与协议。
 | R5-F2 邮箱登录灰度 | 只启用邮箱 OTP、schema 15、邮件回执与账号会话，其他账号能力关闭 | 实际投递、恢复证据、Legacy 兼容与两轮 smoke 全绿 | 是，已按独立授权执行并记录 |
 | R5-F3 单终端绑定灰度 | 只启用一台自有 Mac 的绑定、V2 Connector 与 Desktop 托管安装 | 精确 binding/generation、端到端流量、回滚点和单 Connector 不变量通过 | 是，每次执行单独授权 |
 | R5-F4 多自有终端灰度 | 独立启用 plural devices、显式设备路由与最多三台自有 Mac；分享仍关闭 | 2026-09-13 生产 flag 与路由已 committed，原 Mac 在线且未创建第二个 binding；第二台 canary Mac 的选择/会话亲和、容量竞争和恢复策略仍待实机验收 | 是，生产执行已授权完成；实机绑定仍需所有者操作 |
-| R5-F5 整机共享灰度 | F5-A 先启用身份/Web 接受面，F5-B 再启用账号 B→账号 A 的邀请、使用、撤销与退出 | F5-A 已于 2026-09-13 committed；F5-B 仍需邮件接受、operator 权限、跨账号隔离、五秒内断流和无孤儿 grant 通过 | 是，F5-A 已执行；F5-B 仍需单独授权 |
+| R5-F5 整机共享灰度 | F5-A 先启用身份/Web 接受面，F5-B 再启用账号 B→账号 A 的邀请、使用、撤销与退出 | F5-A/F5-B 开关和路由已于 2026-09-13 committed；仍需双账号邮件接受、operator 权限、跨账号隔离、五秒内断流和无孤儿 grant 实机验收 | 是，生产开关已执行；业务 canary 仍需所有者操作 |
 | R5-F 正式晋级 | 使用已在 GitHub 一次性 staging 验证的同一制品执行生产候选与切换 | 观察窗、Android/Desktop/Connector、回滚点和审计通过 | 是，最终 go/no-go |
 
 任何源码合并、GitHub staging 成功或只读审计通过都不等于生产授权。安装软件、修改监听、创建数据库、
@@ -332,6 +333,14 @@ native/Web 未认证 guard、Web CSRF 拒绝、原有账号中心安全边界、
 逐字节恢复 F5-A 环境与站点文件并删除独立 sharing include；操作器自身不创建邀请或 grant，代码合并
 和 bundle 生成仍不授权生产执行。
 
+2026-09-13 的单独授权生产执行复用已验证的 `Hermes-R5D-Ops-8a4f17a1fb80`；run
+`eed13c62-ab0d-44ea-b1da-adcb8f117afa` 在 blue committed。分享路由 4,289 bytes、SHA-256
+`12a4a6be42265fdcabd3e41ea75d1eed6781f6780f9474f468b7745eecf8ec07` 与本地渲染一致，三份 include
+各一次，Gateway `0.4.15-6b7d60fa6bbf`、schema 15/PostgreSQL 18、Nginx 与容器保持健康。公网 native/Web
+分享 guard、CSRF 拒绝、身份/安装/设备 guard、禁用的 Google/删除、Connector/device WebSocket 和 Legacy
+状态全部通过；数据库邀请和 grant 均为零，其他业务计数不变。F5-B 开关已完成，但双账号业务 canary
+仍不能在无账号 A/B 和可操作 Mac 的情况下代验。
+
 F5-B canary 使用两个独立账号和一台由账号 B 拥有的 Mac。B 完成 `device.share` 邮箱复核与整机披露后
 邀请 A；A 通过自己的已验证邮箱接受 72 小时邀请，以 `operator` 身份执行 REST、WebSocket、普通 prompt、
 `/model`、`/compact` 和文件流量，但不能分享、绑定、替换、解绑、旋转或管理 B 的资源。B 撤销和 A 退出
@@ -339,5 +348,5 @@ F5-B canary 使用两个独立账号和一台由账号 B 拥有的 Mac。B 完�
 
 F5-B 在邀请接受前回滚时必须取消 canary invitation。已有 grant 后，操作器必须先走正常撤销并证明断流，
 才能关闭 sharing flag；不得把活跃 grant 隐藏在关闭的 capability 后面。容量门禁继续固定每台终端五个
-grantee、每个账号十台已接受共享终端。R5-F4、F5-A、F5-B 的实现、合并和 staging 只完成各自代码门禁，
-任何生产执行仍逐次适用本文件的明确授权要求。
+grantee、每个账号十台已接受共享终端。R5-F4、F5-A、F5-B 的生产开关已经按各自授权执行；第二台
+自有 Mac 与双账号分享验收仍需真实设备和账号，不得用开关成功代替。
