@@ -110,13 +110,16 @@ fun SessionListTuningScreen(
             Stepper("headerSizeSp", tuning.headerSizeSp, d.headerSizeSp, 0.5f) { onChange(tuning.copy(headerSizeSp = it)) }
             IntStepper("headerWeight", tuning.headerWeight, d.headerWeight, 50, 100, 900) { onChange(tuning.copy(headerWeight = it)) }
             Stepper("headerTrackingSp", tuning.headerTrackingSp, d.headerTrackingSp, 0.05f, min = -2f, max = 3f) { onChange(tuning.copy(headerTrackingSp = it)) }
+            Stepper("headerLineHeightMultiplier", tuning.headerLineHeightMultiplier, d.headerLineHeightMultiplier, 0.05f, min = 1f, max = 2f) { onChange(tuning.copy(headerLineHeightMultiplier = it)) }
 
             Section(localized(language, "间距", "Spacing"))
             Stepper("rowPaddingVDp（行上下内边距，决定行间疏密）", tuning.rowPaddingVDp, d.rowPaddingVDp, 1f, min = 0f, max = 32f) { onChange(tuning.copy(rowPaddingVDp = it)) }
             Stepper("sublineGapDp", tuning.sublineGapDp, d.sublineGapDp, 1f, min = 0f, max = 24f) { onChange(tuning.copy(sublineGapDp = it)) }
             Stepper("statusGapDp", tuning.statusGapDp, d.statusGapDp, 1f, min = 0f, max = 24f) { onChange(tuning.copy(statusGapDp = it)) }
             Stepper("sublineGlyphDp", tuning.sublineGlyphDp, d.sublineGlyphDp, 1f, min = 8f, max = 24f) { onChange(tuning.copy(sublineGlyphDp = it)) }
-            Stepper("headerPaddingVDp", tuning.headerPaddingVDp, d.headerPaddingVDp, 1f, min = 0f, max = 32f) { onChange(tuning.copy(headerPaddingVDp = it)) }
+            Stepper("headerPaddingVDp（组头胶囊外边距，决定分组间距）", tuning.headerPaddingVDp, d.headerPaddingVDp, 1f, min = 0f, max = 32f) { onChange(tuning.copy(headerPaddingVDp = it)) }
+            Stepper("headerCapsuleHeightDp", tuning.headerCapsuleHeightDp, d.headerCapsuleHeightDp, 1f, min = 20f, max = 56f) { onChange(tuning.copy(headerCapsuleHeightDp = it)) }
+            Stepper("headerCapsuleRadiusDp", tuning.headerCapsuleRadiusDp, d.headerCapsuleRadiusDp, 1f, min = 0f, max = 20f) { onChange(tuning.copy(headerCapsuleRadiusDp = it)) }
 
             Section(localized(language, "顶栏", "Top bar"))
             Stepper("topBarHeightDp", tuning.topBarHeightDp, d.topBarHeightDp, 2f, min = 36f, max = 72f) { onChange(tuning.copy(topBarHeightDp = it)) }
@@ -126,6 +129,7 @@ fun SessionListTuningScreen(
             Section(localized(language, "立柱", "Pillars"))
             Stepper("pillarWidthDp", tuning.pillarWidthDp, d.pillarWidthDp, 1f, min = 1f, max = 12f) { onChange(tuning.copy(pillarWidthDp = it)) }
             Stepper("pillarHeightDp", tuning.pillarHeightDp, d.pillarHeightDp, 1f, min = 4f, max = 40f) { onChange(tuning.copy(pillarHeightDp = it)) }
+            Stepper("pillarRadiusDp", tuning.pillarRadiusDp, d.pillarRadiusDp, 1f, min = 0f, max = 12f) { onChange(tuning.copy(pillarRadiusDp = it)) }
             ListItem(
                 headlineContent = {
                     Text(

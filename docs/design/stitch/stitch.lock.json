@@ -45,6 +45,11 @@
       "result": "card.default.light / dark 两张内容变更（结构性重做，见 specChanges）；新增 2 张已打标的主题弹层基线待入库（见 candidates）；会话列表两张的画布高度也变了，本轮未重拉（归属会话列表分支）"
     },
     {
+      "at": "2026-09-13（第八次，会话列表分组色柱行）",
+      "projectUpdateTime": "2026-09-11T15:53:04.972204Z",
+      "result": "新增 2 张基线（基线-会话列表页/色柱行优化 + 暗夜），只改分组色柱行，页面其余部分不动。组头从「无底无边的一行」改为 32dp 高、8dp 圆角、两端 16dp 留白的着色胶囊；色柱 3×12 全圆 → 4×14 圆角 2dp；组名等宽 11sp 大写 → sans 12sp 不大写并四组全部着色；计数 chip 加描边改全圆；箭头 17 → 16dp。浅暗两稿在间距与组名着色上分歧较大，均按裁决取暗色稿，记在 specChanges。项目级 updateTime 仍是第五次那个值，这两张同样是按 screenId 直接拉的。"
+    },
+    {
       "at": "2026-09-12（第六次，只重拉会话列表两张）",
       "projectUpdateTime": "2026-09-11T15:53:04.972204Z",
       "result": "按 screenId 重拉 sessions.chats.default.light / dark，落地第五次发现的密度收紧。注意 projectUpdateTime 与第五次相同 —— 项目级时间戳在第五次就已经更新过，拿它当闸门会判定「没变」，所以这两张必须按 screenId 直接重拉。浅色 sha bd68d115→3d7b777d，暗色 aea4d75e→82d1d52d，画布 1229→1223 css px。颜色 token 一个字未改，纯密度。暗色稿只跟进了一半（行收紧跟上了，顶栏与字号没有），记进 pairs；几何按既有规则以浅色稿为准。"
@@ -570,6 +575,49 @@
         "change": "两张胶囊稿是完整聊天页，顺带画了：顶栏标题 19px/700 + 文件夹副行（现状无文件夹行）、输入 dock 为 48dp 全圆白底 + 1dp 描边 +「发消息或按住说话」占位（现状不同）、底部「内容由 AI 生成」脚注（现状无）、助手表格卡为 1dp 描边 + 等宽数字。",
         "decision": "本轮不落地。用户这次要的是「我的提问」相关模块（胶囊 + 弹层），这几项属于聊天页整页改版，改动面与回归面都另算。快照与哈希已入库，下一次做聊天页整页时从这里接着走。",
         "status": "pending"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.group-header.light",
+          "sessions.chats.default.group-header.dark"
+        ],
+        "change": "组头进「微通透下沉胶囊底衬」：32dp 高、8dp 圆角、两端 16dp 留白，底色为该组色柱色的低透明度，配同色描边",
+        "decision": "已落地。底色与描边由色柱色 copy(alpha=) 推导而非新增令牌 —— 这样定时任务列表那两个走 scheme 角色的档（已启用/已暂停）不用有自己的稿也能按同一公式成立。浅 8% / 暗 10% 底、两版都 20% 描边。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.group-header.light"
+        ],
+        "change": "分组之间 pt-6（24dp）+ 胶囊 my-1.5（6dp）+ border-t 发丝分隔线",
+        "decision": "不采纳。实测这会把组头块从 21.3dp 撑到 72dp，四个组头 85 → 276dp，多 191dp —— 约等于一屏少 3.6 行，把 2026-09-12 密度收紧省下的约 230dp 还回去大半。改用同一轮暗色稿的紧凑版：胶囊上下各 4dp 外边距、无分隔线，四个组头 85 → 160dp。产品负责人 2026-09-13 裁定。有意偏离。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.group-header.light"
+        ],
+        "change": "只有「需要你处理」的组名着色，其余三组中性",
+        "decision": "不采纳，取暗色稿的「四组全部按各自色柱着色」，浅暗统一。产品负责人 2026-09-13 裁定，推翻了 2026-09-10「四个彩色组名会让四样东西互相竞争」那条。有意偏离。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.group-header.light",
+          "sessions.chats.default.group-header.dark"
+        ],
+        "change": "组名颜色直接取色柱色",
+        "decision": "部分推导。深色三档（#60A5FA / #34D399 / #CBD5E1）是暗色稿里真有的值；浅色「更早」不用色柱的 #94A3B8 —— 那是给 4×14dp 色标定的，当文字放在暖纸上只有约 2.1:1，读不动，浅色稿本身也把这一档写成中性色。改用暗色档的 #64748B（约 4.3:1）。记在 design-conformance.json 的 group.label.older，reason 写明。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.group-header.light",
+          "sessions.chats.default.group-header.dark"
+        ],
+        "change": "两稿各有一处 alpha 例外：浅色琥珀描边 22%（其余 20%）、暗色灰蓝底 8% 描边 15%（其余 10%/20%）",
+        "decision": "不采纳，统一用一套公式（浅 8% / 暗 10% 底，两版 20% 描边）。八个组合里两个例外、肉眼不可辨，多两个特例换不来什么，却让「胶囊色由色柱推导」这条规则不再成立。有意偏离。",
+        "status": "rejected"
       }
     ]
   },
@@ -580,15 +628,15 @@
   "designSystem": {
     "_": "仓库 → Stitch 的反向同步记录（DESIGN.md §7 第 8 条）。漂移以 frontMatterSha256 为准而非整文件：实测这条通道只承载 token，改正文在 Stitch 那边什么都不会变（见 pushFidelity）。scripts/design/stitch-design-system.mjs --check 核对。",
     "file": "design-system.md",
-    "sha256": "c6f4fe0d004e6c3d846300fa0275dbdde4ac6031e5648a7652a296c9bb9ed268",
-    "frontMatterSha256": "9b7fb05b9c7f4d761b5e583468a37d769136a819963ab70933bc42ba21b14d31",
+    "sha256": "9934b5dd692d3a5b6d3c540729410de479e118b0c0279b4d09f4bb314592c66f",
+    "frontMatterSha256": "96211722c937bfd564f388172ac71c11c8a0e6b9c815f0756101a036c258155c",
     "pinnedBy": "android/app/src/test/java/com/hermes/client/ui/theme/DesignSystemExportTest.kt",
     "assetId": "8a7217d53f5e4f8399c25714f8833e79",
     "pushedFrontMatterSha256": "7e0f37cc751c09a8bb0f1327c998da3c5cd7bc51b8f507a9744a5b0fd36421f9",
     "pushedFileSha256": "7c41a1a56cdda3cd5eeb56d5f0b4887d3e4c6d78c79076f2b1b4b23441ec942d",
     "pushedAt": "2026-09-11",
     "rePushPending": true,
-    "rePushNote": "2026-09-11 严格照稿落地后 token 变了（状态色四档、WARN 图形档、subline-faint、FAB 深色档、六个排版档），Stitch 上那套是改动前的版本。未立即重推：update_design_system 被 API 拒绝，每次重推都会在设计师项目里再建一套资产，所以攒到一批再推，且推之前要先把 --summary 给产品负责人看。 2026-09-11 卡片页两次入库又改了 card-* 令牌与排版档（第二版删掉胶囊五色、加了 icon-tile / dot-good / footer-rule），同样攒着。 2026-09-12 第六次拉取的密度收紧又动了五档排版令牌（session-row-title / -read / -subline / -status、segment-label），一并攒进下一次重推。",
+    "rePushNote": "2026-09-11 严格照稿落地后 token 变了（状态色四档、WARN 图形档、subline-faint、FAB 深色档、六个排版档），Stitch 上那套是改动前的版本。未立即重推：update_design_system 被 API 拒绝，每次重推都会在设计师项目里再建一套资产，所以攒到一批再推，且推之前要先把 --summary 给产品负责人看。 2026-09-11 卡片页两次入库又改了 card-* 令牌与排版档（第二版删掉胶囊五色、加了 icon-tile / dot-good / footer-rule），同样攒着。 2026-09-12 第六次拉取的密度收紧又动了五档排版令牌（session-row-title / -read / -subline / -status、segment-label），一并攒进下一次重推。 2026-09-13 第八次拉取又动了 session-group-header（等宽 11 → sans 12），同样攒着。",
     "pushedVia": "upload_design_md → create_design_system_from_design_md（项目 8017882098155799612）",
     "activeInStitch": false,
     "activeNote": "MCP 没有「设为项目当前设计系统」的接口，需产品负责人在 Stitch 网页里手动选中。",
@@ -618,6 +666,58 @@
     }
   },
   "screens": [
+    {
+      "key": "sessions.chats.default.group-header.light",
+      "screenId": "7c4e04d7444343ccae7c47d605d31e1e",
+      "stitchLabel": "基线-会话列表页/色柱行优化",
+      "stitchTitle": "Hermes 会话列表 - 方案1：微通透下沉胶囊底衬标准版",
+      "page": "sessions",
+      "view": "chats",
+      "state": "default",
+      "overlay": "group-header",
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.2（分组色柱行）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/components/SectionHeader.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（group.header 与 group.label.* 从本稿抽取）",
+      "html": "sessions.chats.default.group-header.light.html",
+      "sha256": "80ebb4e953f67a2301d52753d3fddb0e0943279ffbee374ea6673a9712760294",
+      "canvasHeightCssPx": 934,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "只为分组色柱行而画，页面其余部分与 sessions.chats.default.light 相同；整屏基线仍以那张为准，这张只管组头。",
+        "胶囊底色与描边在 class 上写的是 bg-[#F2F1EC] + border-stone-200/40，但每个组头都用内联 style 覆盖成各自色柱色的 8% 底 / 20% 描边 —— 以内联值为准，平底那版没有出现在任何一个组头上。",
+        "组间 pt-6（24dp）+ my-1.5 + border-t 分隔线未采纳，见 specChanges：四个组头会多占 191dp。"
+      ]
+    },
+    {
+      "key": "sessions.chats.default.group-header.dark",
+      "screenId": "56deaba00fbb4a348c5ff075b22e7850",
+      "stitchLabel": "基线-会话列表页/色柱行优化/暗夜",
+      "stitchTitle": "Hermes 会话列表 - 方案1：微通透下沉胶囊底衬 (黑曜石深色版)",
+      "page": "sessions",
+      "view": "chats",
+      "state": "default",
+      "overlay": "group-header",
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.2（分组色柱行）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/components/SectionHeader.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（group.label.* 的深色列）",
+      "html": "sessions.chats.default.group-header.dark.html",
+      "sha256": "bb36e6989769a56e35674e128bbca2beaef690bdd17d7851fc7d30af66d2ec58",
+      "canvasHeightCssPx": 885,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "这一版的「需要你处理」组根本没画组头胶囊（注释写「未显式带组名胶囊，顶层直出条目」）；实现按浅色稿给它胶囊。",
+        "分组间距用的是 space-y-1（4dp）、无分隔线 —— 与浅色稿差约 40dp/组，产品负责人 2026-09-13 裁定取这一版，见 specChanges。",
+        "四个组名全部用各自色柱的亮色调，浅色稿只给「需要你处理」着色；裁定取这一版。"
+      ]
+    },
     {
       "key": "sessions.chats.default.light",
       "screenId": "446ebc3297a645909fc6551848c2d9c8",

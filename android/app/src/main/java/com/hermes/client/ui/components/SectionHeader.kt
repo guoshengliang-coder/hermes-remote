@@ -1,11 +1,13 @@
 package com.hermes.client.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -20,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.hermes.client.ui.localization.LocalAppLanguage
@@ -54,17 +57,25 @@ internal fun SectionHeader(
     onToggle: (() -> Unit)? = null,
 ) {
     val language = LocalAppLanguage.current
-    // The pillar carries the group's weight so the four headers stop reading as one texture.
-    // Time buckets get a neutral bar on purpose — a time range is not a state, and colouring it
-    // would spend the reader's attention on "when" instead of "what needs me".
-    // Header text and pillar share one colour per group, so the two never disagree about how
-    // urgent the group is. Only the group that needs action carries a hue (DESIGN.md §1 原则3,
-    // amended 2026-09-10: the group header is no longer unconditionally the brand colour).
+    // Every group's label carries its own hue (decision 2026-09-13), reversing "only 需要你处理
+    // colours its label". The 8th pull's two group-header mocks disagreed — light colours one
+    // label, dark colours all four — and the product owner settled on all four in both themes.
+    //
+    // These are label grades, not the pillar values: a pillar is a mark, a label is text, and
+    // light 更早's pillar reads at ~2.1:1 as text on the warm paper. See Tiles.kt.
     val accent = when (tone) {
-        // Only 需要你处理 colours its LABEL. The other groups colour the pillar and leave the words
-        // neutral — four coloured labels would put four things in competition.
         SectionTone.NEEDS_YOU -> statusColor(StatusTone.WARN)
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+        SectionTone.PINNED -> com.hermes.client.ui.theme.groupLabelPinnedColor()
+        SectionTone.TODAY -> com.hermes.client.ui.theme.groupLabelTodayColor()
+        SectionTone.OLDER -> com.hermes.client.ui.theme.groupLabelOlderColor()
+        // The scheduled-jobs pair stays neutral: 已启用 / 已暂停 are not categories competing for
+        // attention, and they have no mock of their own to take a hue from.
+        //
+        // Both take `onSurfaceVariant` and NOT their own pillar role. 已暂停's pillar is
+        // `outlineVariant`, which is `#C9C7C2` in light — about 1.5:1 as text on the warm paper,
+        // i.e. unreadable. Caught by looking at the re-recorded cron golden: the label had all but
+        // disappeared. A faint mark is the point of that pillar; a faint label is a bug.
+        SectionTone.ACTIVE, SectionTone.PAUSED -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     // TUNING-TEMP
     val tunedPillars = com.hermes.client.ui.tuning.pillarsOf(
@@ -87,24 +98,49 @@ internal fun SectionHeader(
         SectionTone.ACTIVE -> MaterialTheme.colorScheme.outline
         SectionTone.PAUSED -> MaterialTheme.colorScheme.outlineVariant
     }
-    Row(
-        // px-4 py-2 in the mock: 16dp either side, 8dp above and below. The old 16/4 split
-        // predates the mock being read as dp (docs/DESIGN.md §3.4).
-        Modifier.fillMaxWidth()
-            .then(if (onToggle != null) Modifier.clickable(onClick = onToggle) else Modifier)
-            .padding(horizontal = 16.dp, vertical = com.hermes.client.ui.tuning.tunedHeaderPaddingV()), // TUNING-TEMP
-        verticalAlignment = Alignment.CenterVertically,
+    // 「微通透下沉胶囊底衬」 (decision 2026-09-13, 8th pull): the header sits in its own tinted
+    // capsule — `mx-4 h-8 rounded-lg`, the group's own hue at a low alpha with a matching hairline.
+    // The design note's words for it: the capsule does not tear the body's sightline, and the
+    // margins at both ends keep the page feeling flat and open.
+    //
+    // Fill and stroke are DERIVED from the pillar rather than being new tokens. That is what lets
+    // the scheduled-jobs list — which has no mock for this — get correct capsules for its two
+    // scheme-role tones out of the same formula.
+    val fillAlpha = if (com.hermes.client.ui.theme.isDarkSurface()) 0.10f else 0.08f
+    val capsuleShape = RoundedCornerShape(com.hermes.client.ui.tuning.tunedHeaderCapsuleRadius()) // TUNING-TEMP
+    Box(
+        // The capsule's margins. Vertical is what sets how far apart the groups sit: the light
+        // draft spends 24dp between groups plus a divider, which measured +191dp over four headers
+        // and would have handed back most of the density pass landed the day before. The dark draft
+        // of the same round is the compact one — 4dp, no divider — and that is what ships
+        // (decision 2026-09-13). Recorded as a deliberate deviation from the light draft.
+        Modifier.padding(
+            horizontal = 16.dp,
+            vertical = com.hermes.client.ui.tuning.tunedHeaderPaddingV(), // TUNING-TEMP
+        ),
     ) {
+        Row(
+            Modifier.fillMaxWidth()
+                .clip(capsuleShape)
+                .background(pillar.copy(alpha = fillAlpha))
+                .border(1.dp, pillar.copy(alpha = 0.20f), capsuleShape)
+                .then(if (onToggle != null) Modifier.clickable(onClick = onToggle) else Modifier)
+                .height(com.hermes.client.ui.tuning.tunedHeaderCapsuleHeight()) // TUNING-TEMP
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
         Box(
-            // 3 × 12dp, fully rounded — `w-[3px] h-3 rounded-full`. Recorded as 3 × 14dp with a
-            // 2dp radius on 2026-09-10; the mock says otherwise and the mock now wins.
+            // 4 × 14dp with a 2dp radius — `w-1 h-3.5 rounded-[2px]`. The light draft's radius
+            // wins over the dark draft's `rounded-full`, per the geometry-from-light rule.
             Modifier
                 .size(width = com.hermes.client.ui.tuning.tunedPillarWidth(), height = com.hermes.client.ui.tuning.tunedPillarHeight()) // TUNING-TEMP
-                .background(pillar, CircleShape),
+                .background(pillar, RoundedCornerShape(com.hermes.client.ui.tuning.tunedPillarRadius())), // TUNING-TEMP
         )
         Spacer(Modifier.size(8.dp))
         Text(
-            label.uppercase(),
+            // Not uppercased any more: the mock sets the label in sans at 12px and leaves the case
+            // alone. Chinese never saw the uppercase anyway — this is visible on the English build.
+            label,
             style = com.hermes.client.ui.tuning.tunedGroupHeader(), // TUNING-TEMP
             color = accent,
         )
@@ -120,9 +156,17 @@ internal fun SectionHeader(
         // number gave all four groups the same visual weight.
         val hot = tone == SectionTone.NEEDS_YOU
         Surface(
-            shape = RoundedCornerShape(6.dp),
+            // A full pill with its own hairline now (`rounded-full` plus a border in the mock), so
+            // it still reads as a chip against the tinted capsule behind it instead of dissolving
+            // into it.
+            shape = CircleShape,
             color = if (hot) statusColor(StatusTone.WARN).copy(alpha = 0.12f)
             else MaterialTheme.colorScheme.surfaceContainerHigh,
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                if (hot) statusColor(StatusTone.WARN).copy(alpha = 0.30f)
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.20f),
+            ),
         ) {
             Text(
                 count.toString(),
@@ -140,9 +184,10 @@ internal fun SectionHeader(
                 contentDescription = if (collapsed) localized(language, "展开 $label", "Expand $label")
                 else localized(language, "收起 $label", "Collapse $label"),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                // 17px glyph in the mock, against Material's 24dp default.
-                modifier = Modifier.padding(start = 8.dp).size(17.dp),
+                // 16px glyph in the mock, against Material's 24dp default.
+                modifier = Modifier.padding(start = 8.dp).size(16.dp),
             )
+        }
         }
     }
 }

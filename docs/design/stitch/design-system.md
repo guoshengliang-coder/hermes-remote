@@ -142,11 +142,11 @@ typography:
     lineHeight: 19.575px
     letterSpacing: -0.145px
   session-group-header:
-    fontFamily: JetBrains Mono
-    fontSize: 11px
+    fontFamily: Roboto Flex
+    fontSize: 12px
     fontWeight: '600'
-    lineHeight: 14px
-    letterSpacing: 0.55px
+    lineHeight: 16px
+    letterSpacing: -0.3px
   session-group-count:
     fontFamily: JetBrains Mono
     fontSize: 10.5px

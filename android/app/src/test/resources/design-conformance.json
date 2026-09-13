@@ -67,6 +67,21 @@
       "design": ["#94A3B8", "#64748B"], "impl": ["#94A3B8", "#64748B"],
       "reason": "" },
 
+    { "role": "group.label.pinned", "ref": "tiles:groupLabelPinned",
+      "design": ["#2563EB", "#60A5FA"], "impl": ["#2563EB", "#60A5FA"],
+      "reason": "",
+      "note": "第八次拉取（2026-09-13）起四个组名全部着色。浅色等于色柱；深色 #60A5FA 取自暗色稿。" },
+
+    { "role": "group.label.today", "ref": "tiles:groupLabelToday",
+      "design": ["#059669", "#34D399"], "impl": ["#059669", "#34D399"],
+      "reason": "",
+      "note": "浅色等于色柱；深色 #34D399 取自暗色稿。" },
+
+    { "role": "group.label.older", "ref": "tiles:groupLabelOlder",
+      "design": ["#94A3B8", "#CBD5E1"], "impl": ["#64748B", "#CBD5E1"],
+      "reason": "浅色不用色柱的 #94A3B8：那是给 4×14dp 色标定的，当文字放在暖纸上只有约 2.1:1，读不动 —— 浅色稿本身也把这一档的组名写成中性色而不是色柱色。改用暗色档的 #64748B（约 4.3:1）。深色 #CBD5E1 取自暗色稿。",
+      "note": "" },
+
     { "role": "subline.text", "ref": "scheme:outline",
       "design": ["#78716C", "#8C8882"], "impl": ["#777268", "#8D897E"],
       "reason": "走 token；浅色档为达文字 4.5 下限压深了一步（#7A766C 只有 4.30）。" },
@@ -506,9 +521,9 @@
       "note": "0.1.115 之前借 labelMedium（12/600/+0.48），字重与字距方向都相反。labelMedium 同时供分组头用，那里的稿是宽字距大写，故拆出专用样式而不是改 token。 第五次拉取（2026-09-12）：12 → 11.5。字距是稿子 tracking-tight（-0.025em）按 11.5px 折算 = -0.2875；旧的 -0.3 是同一公式在 12px 下的精确值，不是取整。" },
 
     { "role": "group.header", "ref": "type:SessionGroupHeader",
-      "design": ["11", "600", "14", "0.55"], "impl": ["11", "600", "14", "0.55"],
+      "design": ["12", "600", "16", "-0.3"], "impl": ["12", "600", "16", "-0.3"],
       "reason": "",
-      "note": "字距是稿子的 tracking-wider（0.05em）按 11px 折算。2026-09-11 之前是 12sp/labelMedium 并附「不打包等宽」的偏离说明；两条都随下限废除一起改掉了，JetBrains Mono 现已打包。" },
+      "note": "第八次拉取（2026-09-13）组头进胶囊，这一档从等宽 11px 大写改为 sans 12px、tracking-tight（-0.025em → -0.3），不再大写；浅暗两版稿子在这一档一致。以下为旧记录：字距是稿子的 tracking-wider（0.05em）按 11px 折算。2026-09-11 之前是 12sp/labelMedium 并附「不打包等宽」的偏离说明；两条都随下限废除一起改掉了，JetBrains Mono 现已打包。" },
 
     { "role": "group.count", "ref": "type:SessionGroupCount",
       "design": ["10.5", "500", "14", "0"], "impl": ["10.5", "500", "14", "0"],
