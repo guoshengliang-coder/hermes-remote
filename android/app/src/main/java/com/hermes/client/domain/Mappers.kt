@@ -52,21 +52,7 @@ private val ATTACHED_FILE_PLACEHOLDER = Regex(
     "(?m)^\\s*\\[User attached (?:file|PDF):[^]]+]\\s*$",
     RegexOption.IGNORE_CASE,
 )
-private val MARKDOWN_IMAGE = Regex("!\\[([^]]*)]\\((https://[^\\s)]+)(?:\\s+[\"'][^)]*)?\\)")
 
-/**
- * Any other Markdown image: `http://`, a bare host, `data:`, a relative path. None of them can
- * be fetched — the image path is HTTPS-only by design, so that an assistant-supplied URL can
- * never be talked into a cleartext or private-address request — and leaving the markup in place
- * would hand the renderer an image it is guaranteed to fail, drawing an empty box. Collapse to
- * the alt text, which is what a reader can actually use.
- */
-private val UNFETCHABLE_MARKDOWN_IMAGE =
-    Regex("!\\[([^]\\r\\n]*)]\\((?!https://)[^\\s)]*(?:\\s+[\"'][^)]*)?\\)")
-private val LOCAL_MARKDOWN_IMAGE = Regex(
-    "!\\[([^]\\r\\n]*)]\\(\\s*(<?(?:file://)?/[^)\\r\\n>]*?\\.(?:png|jpe?g|gif|webp)>?)(?:\\s+[\"'][^)\\r\\n]*[\"'])?\\s*\\)",
-    RegexOption.IGNORE_CASE,
-)
 internal val MEDIA_DELIVERY_EXTENSIONS = listOf(
     // Keep this aligned with Hermes gateway.platforms.base.MEDIA_DELIVERY_EXTS. Android previews
     // the four formats supported by ChatImage; every other format remains downloadable.
@@ -92,10 +78,26 @@ private val FILE_SIZE_AT_START = Regex(
     "^\\s*[（(]\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(B|KB|MB|GB|KIB|MIB|GIB)\\s*[）)]",
     RegexOption.IGNORE_CASE,
 )
-private val LOCAL_MARKDOWN_FILE = Regex(
-    "(?<!!)\\[([^]\\r\\n]*)]\\(\\s*(<?(?:file://)?/[^)\\r\\n>]*?\\.(?:$MEDIA_DELIVERY_EXTENSION_PATTERN)>?)(?:\\s+[\"'][^)\\r\\n]*[\"'])?\\s*\\)",
+/**
+ * A link destination naming a file on the Mac, as opposed to somewhere on the web. Told apart by
+ * the destination alone now that the AST supplies it — each rule used to carry its own copy of the
+ * bracket syntax, and the copies disagreed about escaping and about whether an image counted.
+ */
+private val LOCAL_MEDIA_PATH = Regex(
+    "^<?(?:file://)?/.*\\.(?:$MEDIA_DELIVERY_EXTENSION_PATTERN)>?$",
     RegexOption.IGNORE_CASE,
 )
+
+private val LOCAL_IMAGE_PATH = Regex(
+    "^<?(?:file://)?/.*\\.(?:png|jpe?g|gif|webp)>?$",
+    RegexOption.IGNORE_CASE,
+)
+
+private fun String.matchesLocalMediaPath(): Boolean = LOCAL_MEDIA_PATH.matches(trim())
+
+/** Either kind of local target: the prose collapses to the label for both. */
+private fun String.looksLocal(): Boolean =
+    LOCAL_MEDIA_PATH.matches(trim()) || LOCAL_IMAGE_PATH.matches(trim())
 private val LABELED_IMAGE_PATH = Regex(
     "^\\s*(?:图片(?:的)?保存(?:路径|位置)|图片路径|图片(?:已)?保存(?:到|至|在)|生成(?:的)?图片(?:保存)?(?:路径|位置)|image\\s+(?:saved|written|stored)(?:\\s+(?:to|at))?|generated\\s+image\\s+(?:path|location)|已生成|generated)\\s*[：:]?\\s*(.*)$",
     RegexOption.IGNORE_CASE,
@@ -139,21 +141,6 @@ private data class LabeledFileExtraction(
     val references: List<LabeledFileReference>,
 )
 
-/**
- * True when [range] covers everything on its line except whitespace and other images.
- *
- * That is the shape DESIGN.md §5.4 hoists into the message's image grid: an image the assistant
- * produced *as* the content. An image sharing its line with text is a different thing — a 16px
- * GitHub mark inside a table cell, a logo mid-sentence — and hoisting it produced HG-25: the icon
- * vanished from the cell and reappeared, absurdly, as a full-width card above the answer (or not
- * at all, once it deduplicated against another row's copy).
- */
-private fun isStandaloneImageLine(text: String, range: IntRange): Boolean {
-    val lineStart = text.lastIndexOf('\n', range.first).let { if (it < 0) 0 else it + 1 }
-    val lineEnd = text.indexOf('\n', range.last).let { if (it < 0) text.length else it }
-    return MARKDOWN_IMAGE.replace(text.substring(lineStart, lineEnd), "").isBlank()
-}
-
 private data class ExplicitMediaExtraction(
     val text: String,
     val paths: List<String>,
@@ -173,32 +160,26 @@ internal fun parseMessageContent(raw: String): ParsedMessageContent {
     val explicitImages = explicitMedia.paths.mapNotNull { path ->
         path.takeIf { imageMimeTypeForPath(it) != null }?.let(::remoteImage)
     }
-    val localMarkdownImages = LOCAL_MARKDOWN_IMAGE.findAll(labeledFiles.text).mapNotNull { match ->
-        normalizeLocalImagePath(match.groupValues[2])?.takeIf(::looksLikeMacAbsolutePath)?.let(::remoteImage)
-    }.toList()
-    // Directives and placeholders are stripped first so "is this image alone on its line" is asked
-    // of the line the reader will actually see, and asked once — the answer decides both whether
-    // the image becomes a card and whether its markup survives, and those two must never disagree.
+    // Directives and placeholders are stripped first so every question below is asked of the text
+    // the reader will actually see, and asked once — the answers decide both what becomes a card
+    // and what survives in the prose, and those two must never disagree.
     val withoutDirectives = labeledFiles.text
         .replace(IMAGE_DIRECTIVE, "")
         .replace(ATTACHED_IMAGE_PLACEHOLDER, "")
         .replace(FILE_DIRECTIVE, "")
         .replace(ATTACHED_FILE_PLACEHOLDER, "")
-        // Both of these still collapse to the link label whether or not the target became a card:
-        // a root-relative URL cannot resolve in this transcript either, so showing the reader its
-        // text is no worse than showing them a link that goes nowhere. Only the attachment card
-        // is withheld — that is the part that promised a downloadable file (HG-23).
-        .replace(LOCAL_MARKDOWN_IMAGE) { it.groupValues[1].takeIf(String::isNotBlank).orEmpty() }
-        .replace(LOCAL_MARKDOWN_FILE) { it.groupValues[1].takeIf(String::isNotBlank).orEmpty() }
-    val webImages = MARKDOWN_IMAGE.findAll(withoutDirectives)
-        .filter { isStandaloneImageLine(withoutDirectives, it.range) }
-        .mapIndexed { index, match ->
-            val url = match.groupValues[2]
-            ChatImage(
-                id = "web-${url.hashCode()}-$index",
-                sourceUrl = url,
-            )
-        }.toList()
+    // One parse, and every Markdown rule below reads off it. These used to be four regex passes
+    // over the whole message, which is why an assistant explaining Markdown had its own fenced
+    // example rewritten underneath it and the message grew a phantom image card and a phantom
+    // downloadable file: a regex cannot see that it is standing inside a code fence.
+    val spans = markdownAttachmentSpans(withoutDirectives)
+    val actionable = spans.filter { it.context != MarkdownSpanContext.CODE }
+    val localMarkdownImages = actionable
+        .filter { it.isImage && LOCAL_IMAGE_PATH.matches(it.destination.trim()) }
+        .mapNotNull { normalizeLocalImagePath(it.destination)?.takeIf(::looksLikeMacAbsolutePath)?.let(::remoteImage) }
+    val webImages = actionable
+        .filter { it.isImage && it.context == MarkdownSpanContext.STANDALONE && it.destination.startsWith("https://") }
+        .mapIndexed { index, span -> ChatImage(id = "web-${span.destination.hashCode()}-$index", sourceUrl = span.destination) }
     val images = (explicitImages + pathImages + labeledImages + localMarkdownImages + webImages)
         .distinctBy { it.remotePath ?: it.sourceUrl ?: it.id }
     val directiveFiles = FILE_DIRECTIVE.findAll(labeledFiles.text).mapIndexed { index, match ->
@@ -224,20 +205,32 @@ internal fun parseMessageContent(raw: String): ParsedMessageContent {
     val explicitFiles = explicitMedia.paths
         .filter { imageMimeTypeForPath(it) == null }
         .map(::remoteFile)
-    val localMarkdownFiles = LOCAL_MARKDOWN_FILE.findAll(labeledFiles.text).mapNotNull { match ->
-        normalizeExplicitMediaPath(match.groupValues[2]).takeIf(::looksLikeMacAbsolutePath)?.let(::remoteFile)
-    }.toList()
+    val localMarkdownFiles = actionable
+        .filter { !it.isImage && it.destination.matchesLocalMediaPath() }
+        .mapNotNull { normalizeExplicitMediaPath(it.destination).takeIf(::looksLikeMacAbsolutePath)?.let(::remoteFile) }
     val files = (explicitFiles + directiveFiles + naturalFiles + localMarkdownFiles)
         .distinctBy { it.remotePath ?: it.localPath ?: it.id }
     val visible = withoutDirectives
-        .replace(UNFETCHABLE_MARKDOWN_IMAGE) { it.groupValues[1].takeIf(String::isNotBlank).orEmpty() }
-        .replace(MARKDOWN_IMAGE) { match ->
-            // A hoisted image has already left the prose as a card, so its markup goes. An inline
-            // one stays exactly where the author put it and is rendered in place (HG-25).
-            if (isStandaloneImageLine(withoutDirectives, match.range)) {
-                match.groupValues[1].takeIf(String::isNotBlank).orEmpty()
-            } else {
-                match.value
+        .rewriteSpans(spans) { span ->
+            when {
+                // Inside a fence the author is showing markup, not using it. Untouched — including
+                // the destination, which four separate regexes each used to help themselves to.
+                span.context == MarkdownSpanContext.CODE -> null
+                // A local path cannot resolve in this transcript, so the reader gets the label
+                // whether or not the target became a card. Only the card is withheld — that is the
+                // part that promised a downloadable file (HG-23).
+                span.destination.looksLocal() -> span.label.takeIf(String::isNotBlank).orEmpty()
+                // Not an image, and not a local file: an ordinary link, which stays a link.
+                !span.isImage -> null
+                // Only https is fetchable, by design, so that an assistant-supplied URL can never
+                // be talked into a cleartext or private-address request. Anything else would reach
+                // the renderer as an image guaranteed to fail and draw an empty box; the label is
+                // what a reader can actually use.
+                !span.destination.startsWith("https://") -> span.label.takeIf(String::isNotBlank).orEmpty()
+                // Hoisted to the image grid, so its markup has already left the prose.
+                span.context == MarkdownSpanContext.STANDALONE -> span.label.takeIf(String::isNotBlank).orEmpty()
+                // Inline: stays exactly where the author put it, rendered in place (HG-25).
+                else -> null
             }
         }
         .lines()
