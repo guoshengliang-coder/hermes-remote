@@ -194,8 +194,8 @@ test("R5-D operator bundle manifest binds one safe archive to the exact source c
   });
   await writeJson(manifestPath, manifest);
   const parsed = await loadProductionBaselineBundleManifest(manifestPath);
-  assert.equal(parsed.schemaVersion, 7);
-  assert.equal(parsed.kind, "hermes-go-production-baseline-bundle-v7");
+  assert.equal(parsed.schemaVersion, 8);
+  assert.equal(parsed.kind, "hermes-go-production-baseline-bundle-v8");
   assert.equal(parsed.sourceCommit, sourceCommit);
   assert.equal(parsed.entrypoint, "scripts/production-baseline.mjs");
   assert.equal(parsed.connectorEntry, "connector/dist/index.js");
@@ -205,8 +205,14 @@ test("R5-D operator bundle manifest binds one safe archive to the exact source c
   assert.equal(parsed.bindingRolloutEntrypoint, "scripts/production-binding-rollout.mjs");
   assert.equal(parsed.multiDeviceRolloutEntrypoint, "scripts/production-multi-device-rollout.mjs");
   assert.equal(parsed.identityWebRolloutEntrypoint, "scripts/production-identity-web-rollout.mjs");
+  assert.equal(parsed.sharingRolloutEntrypoint, "scripts/production-sharing-rollout.mjs");
 
-  const multiDeviceManifest = { ...manifest, schemaVersion: 6, kind: "hermes-go-production-baseline-bundle-v6" };
+  const identityWebManifest = { ...manifest, schemaVersion: 7, kind: "hermes-go-production-baseline-bundle-v7" };
+  delete identityWebManifest.sharingRolloutEntrypoint;
+  await writeJson(manifestPath, identityWebManifest);
+  assert.equal((await loadProductionBaselineBundleManifest(manifestPath)).sharingRolloutEntrypoint, undefined);
+
+  const multiDeviceManifest = { ...identityWebManifest, schemaVersion: 6, kind: "hermes-go-production-baseline-bundle-v6" };
   delete multiDeviceManifest.identityWebRolloutEntrypoint;
   await writeJson(manifestPath, multiDeviceManifest);
   assert.equal((await loadProductionBaselineBundleManifest(manifestPath)).identityWebRolloutEntrypoint, undefined);
@@ -269,6 +275,9 @@ test("the immutable operator bundle carries the R5-E and production monitoring e
   assert.match(packager, /"scripts\/production-identity-web-rollout\.mjs"/);
   assert.match(packager, /"ops\/production\.identity-web-rollout\.example\.json"/);
   assert.match(packager, /"ops\/hermes-go-production-identity-web-rollout-config\.schema\.json"/);
+  assert.match(packager, /"scripts\/production-sharing-rollout\.mjs"/);
+  assert.match(packager, /"ops\/production\.sharing-rollout\.example\.json"/);
+  assert.match(packager, /"ops\/hermes-go-production-sharing-rollout-config\.schema\.json"/);
   assert.match(packager, /"scripts\/postgresql-provision\.mjs"/);
   assert.match(packager, /"scripts\/postgresql-recovery\.mjs"/);
   assert.match(packager, /"scripts\/postgresql-automation\.mjs"/);

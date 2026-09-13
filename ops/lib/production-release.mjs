@@ -266,6 +266,7 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
   bindingEnabled = false,
   multiDeviceEnabled = false,
   identityWebEnabled = false,
+  sharingEnabled = false,
 } = {}) {
   const capabilitiesResponse = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/capabilities`);
   if (!capabilitiesResponse?.ok) fail("production_release_email_capabilities_unavailable");
@@ -293,7 +294,13 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
       || (multiDeviceEnabled
         ? binding?.supportsDeviceSelection !== true
         : Object.hasOwn(binding ?? {}, "supportsDeviceSelection"))
-      || Object.hasOwn(binding ?? {}, "supportsDeviceSharing")
+      || (sharingEnabled
+        ? (binding?.supportsDeviceSharing !== true
+          || binding?.maxSharedDevices !== 10
+          || binding?.maxGranteesPerDevice !== 5)
+        : (Object.hasOwn(binding ?? {}, "supportsDeviceSharing")
+          || Object.hasOwn(binding ?? {}, "maxSharedDevices")
+          || Object.hasOwn(binding ?? {}, "maxGranteesPerDevice")))
       || (bindingEnabled
         ? capabilities?.desktopBootstrap?.runtimeContract !== "hermes-serve-v1"
         : Object.hasOwn(capabilities ?? {}, "desktopBootstrap"))) {
@@ -304,10 +311,10 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
   const bindingRoute = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/connector-binding`);
   const expectedBindingStatus = bindingEnabled ? 401 : (request.publicRoute === true ? 404 : 503);
   if (bindingRoute?.status !== expectedBindingStatus) fail("production_release_binding_route_must_stay_absent");
-  if (identityWebEnabled) await verifyPreservedIdentityWebSurface(request, fetchImpl);
+  if (identityWebEnabled) await verifyPreservedIdentityWebSurface(request, fetchImpl, sharingEnabled);
 }
 
-async function verifyPreservedIdentityWebSurface(request, fetchImpl) {
+async function verifyPreservedIdentityWebSurface(request, fetchImpl, sharingEnabled) {
   const shell = await boundedFetch(fetchImpl, `${request.gatewayUrl}/account`);
   const contentType = shell?.headers?.get?.("content-type") ?? "";
   const csp = shell?.headers?.get?.("content-security-policy") ?? "";
@@ -334,16 +341,21 @@ async function verifyPreservedIdentityWebSurface(request, fetchImpl) {
     const response = await boundedFetch(fetchImpl, `${request.gatewayUrl}${route}`);
     if (response?.status !== 401) fail("production_release_identity_web_guard_invalid");
   }
+  const shares = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/web/devices/probe-device/shares`);
+  if (shares?.status !== (sharingEnabled ? 401 : (request.publicRoute === true ? 404 : 503))) {
+    fail("production_release_sharing_route_guard_invalid");
+  }
 }
 
 function preserveAccountSurface(smoke, runtimeEnvironment, fetchImpl) {
-  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web"]).has(runtimeEnvironment.mode)) return smoke;
+  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing"]).has(runtimeEnvironment.mode)) return smoke;
   return async (request) => {
     await smoke({ ...request, expectedRuntimeMode: runtimeEnvironment.mode });
     await verifyPreservedEmailSurface(request, fetchImpl, {
       bindingEnabled: runtimeEnvironment.mode !== "email_otp",
-      multiDeviceEnabled: new Set(["email_multi_device", "email_identity_web"]).has(runtimeEnvironment.mode),
-      identityWebEnabled: runtimeEnvironment.mode === "email_identity_web",
+      multiDeviceEnabled: new Set(["email_multi_device", "email_identity_web", "email_sharing"]).has(runtimeEnvironment.mode),
+      identityWebEnabled: new Set(["email_identity_web", "email_sharing"]).has(runtimeEnvironment.mode),
+      sharingEnabled: runtimeEnvironment.mode === "email_sharing",
     });
   };
 }

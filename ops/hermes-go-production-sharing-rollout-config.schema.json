@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mrlgs.net/schemas/hermes-go-production-sharing-rollout-config.schema.json",
+  "title": "Hermes GO production sharing rollout configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "environment", "operator", "productionReleaseConfig", "host", "gateway", "deployment"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "environment": { "const": "production" },
+    "operator": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+    "productionReleaseConfig": { "$ref": "#/$defs/absolutePath" },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostname", "architecture"],
+      "properties": {
+        "hostname": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$" },
+        "architecture": { "const": "amd64" }
+      }
+    },
+    "gateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "runtimeContract"],
+      "properties": {
+        "origin": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "runtimeContract": { "const": "hermes-serve-v1" }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observationSeconds"],
+      "properties": {
+        "observationSeconds": { "type": "integer", "minimum": 1, "maximum": 300 }
+      }
+    }
+  },
+  "$defs": {
+    "absolutePath": { "type": "string", "pattern": "^/[A-Za-z0-9._/-]+$" }
+  }
+}

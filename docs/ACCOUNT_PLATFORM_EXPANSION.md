@@ -522,6 +522,14 @@ is not allocated until the version gate is confirmed. The handback record must l
 containing only the exact version decision, Mac/package actions, named-device evidence, and separately
 authorized production commands that could not run unattended.
 
+The unattended repository gates for R5-F4, F5-A, and F5-B now have default-off operators, rollback tests,
+routine-release preservation, immutable-bundle entries, and runbook coverage. The owner handback therefore
+starts with the Desktop 0.2.10/build 13 version decision, followed by package/install and restart-health
+acceptance on the named Mac. Production then advances through separately authorized F4, F5-A, and F5-B
+commands. Physical acceptance records two owned Macs for E11 and two independent accounts for E12, including
+B-to-A invite/use/revoke/leave, forbidden owner actions, and the five-second socket-close bound. Developer ID
+signing, notarization, stapling, and clean-Mac launch remain the final E13 distribution gate.
+
 Local E3 backend status (2026-09-07): schema 10, the atomic three-owned-device limit, plural
 discovery/detail/default selection, explicit device-scoped REST/WebSocket routing, singular-route
 ambiguity protection, and disposable-PostgreSQL/network tests are implemented behind

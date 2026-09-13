@@ -302,6 +302,14 @@ F5-A 的默认关闭源码操作器、严格配置 schema、schema-7 不可变 b
 管理 guard，并证明 Google、删除和分享路径仍由边缘返回 404。失败时逐字节恢复多终端环境与站点文件、
 删除独立 identity-Web include 并再次验证多终端状态。代码合并和 bundle 生成不授权生产执行。
 
+F5-B 的默认关闭源码操作器、严格配置 schema、schema-8 不可变 bundle 入口、独立 sharing Nginx
+allowlist、故障注入和稳定 `HR-OPS-024` 已完成。操作器只接受 committed F5-A、committed R5-F4、
+完全匹配的 identity-Web 环境/路由与当前 release identity，只打开 sharing 标志；Google、删除、三台
+自有终端上限及其他能力保持不变。公开与 loopback smoke 固定五名 grantee、十台已接受共享终端，检查
+native/Web 未认证 guard、Web CSRF 拒绝、原有账号中心安全边界、Legacy 和 release identity。即时失败会
+逐字节恢复 F5-A 环境与站点文件并删除独立 sharing include；操作器自身不创建邀请或 grant，代码合并
+和 bundle 生成仍不授权生产执行。
+
 F5-B canary 使用两个独立账号和一台由账号 B 拥有的 Mac。B 完成 `device.share` 邮箱复核与整机披露后
 邀请 A；A 通过自己的已验证邮箱接受 72 小时邀请，以 `operator` 身份执行 REST、WebSocket、普通 prompt、
 `/model`、`/compact` 和文件流量，但不能分享、绑定、替换、解绑、旋转或管理 B 的资源。B 撤销和 A 退出

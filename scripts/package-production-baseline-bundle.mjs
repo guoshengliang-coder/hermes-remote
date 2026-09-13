@@ -63,6 +63,7 @@ try {
   verifyStagedProductionBindingRolloutEntrypoint(temporaryRoot);
   verifyStagedProductionMultiDeviceRolloutEntrypoint(temporaryRoot);
   verifyStagedProductionIdentityWebRolloutEntrypoint(temporaryRoot);
+  verifyStagedProductionSharingRolloutEntrypoint(temporaryRoot);
 
   const sourceShort = sourceCommit.slice(0, 12);
   const archiveFile = `Hermes-R5D-Ops-${sourceShort}.tar.gz`;
@@ -154,6 +155,7 @@ async function stageRuntime(root) {
     "scripts/production-binding-rollout.mjs",
     "scripts/production-multi-device-rollout.mjs",
     "scripts/production-identity-web-rollout.mjs",
+    "scripts/production-sharing-rollout.mjs",
     "scripts/production-monitor.mjs",
     "scripts/postgresql-recovery.mjs",
     "scripts/postgresql-automation.mjs",
@@ -172,6 +174,8 @@ async function stageRuntime(root) {
     "ops/hermes-go-production-multi-device-rollout-config.schema.json",
     "ops/production.identity-web-rollout.example.json",
     "ops/hermes-go-production-identity-web-rollout-config.schema.json",
+    "ops/production.sharing-rollout.example.json",
+    "ops/hermes-go-production-sharing-rollout-config.schema.json",
     "ops/hermesctl-production-monitor-config.schema.json",
     "ops/postgresql-backup-status.schema.json",
     "ops/postgresql.capture-schedule.example.json",
@@ -361,6 +365,27 @@ function verifyStagedProductionIdentityWebRolloutEntrypoint(root) {
       || diagnostic?.code !== "HR-OPS-023"
       || diagnostic?.stage !== "production_identity_web_rollout_arguments") {
     fail("production_baseline_bundle_identity_web_rollout_entrypoint_invalid");
+  }
+}
+
+function verifyStagedProductionSharingRolloutEntrypoint(root) {
+  const result = spawnSync(process.execPath, ["scripts/production-sharing-rollout.mjs"], {
+    cwd: root,
+    encoding: "utf8",
+    env: {},
+    maxBuffer: 64 * 1024,
+    timeout: 10_000,
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let diagnostic;
+  try {
+    diagnostic = JSON.parse(String(result.stderr ?? "").trim());
+  } catch {}
+  if (result.error || result.status !== 1 || String(result.stdout ?? "") !== ""
+      || diagnostic?.code !== "HR-OPS-024"
+      || diagnostic?.stage !== "production_sharing_rollout_arguments") {
+    fail("production_baseline_bundle_sharing_rollout_entrypoint_invalid");
   }
 }
 

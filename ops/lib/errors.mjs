@@ -153,6 +153,13 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "inspect_identity_web_rollout_stage_and_retry",
   }),
+  productionSharingRollout: Object.freeze({
+    code: "HR-OPS-024",
+    summaryZh: "生产整机共享灰度未完成，已阻止启用或恢复为身份与 Web 账号中心状态。请检查灰度阶段后重试。",
+    summaryEn: "The production whole-device sharing rollout did not complete. Enablement was blocked or the identity and Web account-center state was restored. Inspect the rollout stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_sharing_rollout_stage_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;

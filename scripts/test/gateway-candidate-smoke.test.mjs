@@ -284,6 +284,42 @@ test("candidate smoke accepts the identity-Web runtime without sharing, deletion
   }
 });
 
+test("candidate smoke accepts the exact sharing runtime and fixed capacity contract", () => {
+  const policy = gatewayRuntimePolicy("email_sharing");
+  const capabilities = {
+    accountAuth: {
+      enabled: true,
+      providers: ["email_otp"],
+      identityManagement: true,
+      webAccountCenter: true,
+      webSessions: true,
+    },
+    binding: {
+      enabled: true,
+      replacement: true,
+      maxActiveConnectorsPerAccount: 3,
+      supportsDeviceSelection: true,
+      supportsDeviceSharing: true,
+      maxSharedDevices: 10,
+      maxGranteesPerDevice: 5,
+    },
+    desktopBootstrap: { runtimeContract: "hermes-serve-v1" },
+    legacy: { appTokenAccepted: true, connectorTokenAccepted: true },
+    server: { version: "0.4.15" },
+  };
+  assert.doesNotThrow(() => verifyGatewayCapabilities(capabilities, policy, "0.4.15"));
+  for (const mutation of [
+    (value) => { value.binding.supportsDeviceSharing = false; },
+    (value) => { value.binding.maxSharedDevices = 11; },
+    (value) => { value.binding.maxGranteesPerDevice = 6; },
+    (value) => { value.accountAuth.providers.push("google"); },
+  ]) {
+    const changed = structuredClone(capabilities);
+    mutation(changed);
+    assert.throws(() => verifyGatewayCapabilities(changed, policy, "0.4.15"));
+  }
+});
+
 test("candidate forwarding readiness has a bounded stable timeout", async () => {
   let calls = 0;
   await assert.rejects(
