@@ -762,6 +762,15 @@ file was created, all three identity/Web flags remained disabled, and the blue s
 gate accepts only 404 absence or 405 method rejection for these forbidden probes; authentication guards, successful
 responses, redirects and server failures remain disallowed.
 
+The second authorized attempt admitted the corrected edge contract and entered the live transition, but the enabled
+Gateway rejected its generated environment because `ACCOUNT_WEB_ORIGIN` was absent. The operator observed invalid
+readiness, restored the exact F4 environment and site, removed the identity-Web route file, restarted blue, and
+recorded run `9d9493b7-3544-401b-992f-8a001f83714b` as `rolled_back`. Blue returned healthy on schema 15/PostgreSQL
+18 and the account Connector reconnected. The corrected canonical environment carries both
+`ACCOUNT_WEB_ORIGIN` and the later-sharing `ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN`, each pinned to the configured
+production HTTPS origin. It still accepts the exact older pre-F5 environment only while identity-Web and sharing
+remain disabled, then writes both origins before either feature can start.
+
 ## Production whole-device sharing gray rollout (R5-F5-B; code gate only)
 
 F5-B starts only from the exact committed F5-A identity-Web state, the committed R5-F4 multi-device

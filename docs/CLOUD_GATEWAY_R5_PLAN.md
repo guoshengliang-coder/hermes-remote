@@ -311,6 +311,11 @@ F5-A 的默认关闭源码操作器、严格配置 schema、schema-7 不可变 b
 生产边缘合同回归。失败时逐字节恢复多终端环境与站点文件、
 删除独立 identity-Web include 并再次验证多终端状态。代码合并和 bundle 生成不授权生产执行。
 
+第二次生产尝试进入启用阶段后发现生成环境漏掉 Gateway Web Session 强制要求的
+`ACCOUNT_WEB_ORIGIN`，readiness 因进程拒绝启动而失败；操作器完整恢复 F4，journal 记录为
+`rolled_back`，Connector 随后重连。规范环境现同时固定 `ACCOUNT_WEB_ORIGIN` 与 F5-B 将使用的
+`ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN`，并只对尚未启用身份/Web/分享的旧 F4 环境提供一次兼容升级。
+
 F5-B 的默认关闭源码操作器、严格配置 schema、schema-8 不可变 bundle 入口、独立 sharing Nginx
 allowlist、故障注入和稳定 `HR-OPS-024` 已完成。操作器只接受 committed F5-A、committed R5-F4、
 完全匹配的 identity-Web 环境/路由与当前 release identity，只打开 sharing 标志；Google、删除、三台
