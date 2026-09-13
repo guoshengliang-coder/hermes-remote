@@ -68,6 +68,9 @@ The current automated suite covers:
 - shared-component inventory rehashes relative paths, bytes, and executable bits before reuse;
   stable trees produce stable identities, byte/mode changes invalidate them, and symbolic links,
   unsafe receipt permissions, receipt mismatches, and tampered trees fail closed;
+- shared-component commit stages content plus its receipt under one private UUID, rehashes and probes
+  the staged copy, atomically exposes both together, is idempotent when exact content already exists,
+  records deterministic release references, and removes only the current workspace on probe failure;
 - redirect-free bounded downloads, exact size and streaming SHA-256 artifact validation;
 - tar member preflight, including traversal/link/special-file rejection before extraction, realistic
   dependency trees above the former 4,096-entry limit, and rejection beyond the new 65,536 bound;
