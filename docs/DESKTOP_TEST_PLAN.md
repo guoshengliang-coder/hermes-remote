@@ -67,6 +67,11 @@ The current automated suite covers:
 - component-archive construction from exact clean Git identities, an allowlisted secret-free Hermes
   source/runtime boundary, production-only Connector JavaScript, bundled architecture-matched
   runtimes, relative launchers, bounded trees, and no-overwrite cleanup;
+- schema-v2 component archive construction keeps CPython/dependencies, Hermes core, Node, and
+  Connector JavaScript in four disjoint archives; validates clean source commits, runtime versions and
+  architectures and rejects Homebrew/unresolved dynamic-library dependencies; reports compressed and
+  normalized content hashes; removes only artifacts created by
+  a failed attempt; and preserves HG-28 child imports through the activation-time core-root `.pth`;
 - offline component-release publication safely extracts every candidate and recomputes the same
   relative-path/file-byte/executable-bit identity used by the Desktop store before signing, then the
   public-key-only verifier repeats compressed and extracted identity checks;

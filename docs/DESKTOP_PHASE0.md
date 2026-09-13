@@ -242,6 +242,14 @@ the Desktop store before accepting it. The downloader exposes a component only a
 and SHA-256 verification. None of these paths changes the shipping schema-v1 manifest, current
 installation transaction, or production capability.
 
+C4's first offline slice adds a separate four-archive builder for `python_runtime`, `hermes_core`,
+`node_runtime`, and `connector`. Runtime versions and architectures are checked before staging; each
+result reports compressed size/hash, normalized extracted-content identity, entrypoint, and dependency
+edges for schema v2. The application launchers accept only absolute activation-time component roots,
+so the shared store stays immutable. The Python runtime's managed `.pth` reads the active Hermes core
+root from the launch environment, preserving slash-worker imports after upstream removes the repo root
+from `PYTHONPATH`. Optional Python dependency extraction remains a later tested C4 slice.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 

@@ -268,6 +268,23 @@ origin, archive names and entrypoints, byte sizes, and SHA-256 digests. Any publ
 failure is emitted as the bilingual, retryable `HR-RELEASE-004` diagnostic. The example values are
 documentation placeholders and are not approved production identities.
 
+Build schema-v2 inputs from `desktop/Packaging/component-archives-v2.example.json` with the separate
+default-inert command:
+
+```bash
+npm run desktop:components-v2:package -- \
+  --config /absolute/protected/path/component-archives-v2.json \
+  --output /absolute/empty/component-output
+```
+
+It produces independent `python_runtime`, `hermes_core`, `node_runtime`, and `connector` archives.
+Success prints each archive's size, byte SHA-256, normalized extracted-content SHA-256, entrypoint, and
+dependency kinds plus the total bootstrap download. `hermes_core` requires `python_runtime`; Connector
+requires both `hermes_core` and `node_runtime`. During activation Desktop supplies
+`HERMES_PYTHON_RUNTIME_ROOT` to Hermes and `HERMES_NODE_RUNTIME_ROOT` to Connector. These values point
+to already verified content-store roots and are never baked into or written back to a shared component.
+The output identities can be copied directly into the schema-v2 publisher input.
+
 Schema v2 uses separate commands and cannot enter the schema-v1 acquisition/install types. Start
 from `desktop/Packaging/component-release-v2.example.json`. Each component input supplies the content
 identity produced by the component builder; the publisher safely extracts the archive, normalizes the
