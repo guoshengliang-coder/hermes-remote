@@ -1,12 +1,14 @@
 # Hermes Go Desktop
 
-Current internal test release: **0.2.9** (build 12), installed with managed release 0.3.4 on the
-historical test Mac. It retains the managed migration and rollback behavior from 0.2.8. That
-immutable release
-keeps the Hermes slash-worker and token-reader fixes and corrects the packaged Connector reader so
-both new 43-character base64url tokens and preserved 64-character lowercase-hex tokens are accepted.
-Component packaging now executes the staged Connector reader against both formats before creating its
-archive. The 0.3.4 artifacts are published, and the installed token-file migration plus an ordered
+Current internal test release candidate: **0.2.10** (build 13). It packages the post-restart Cloud
+health freshness correction on top of the installed 0.2.9/managed 0.3.4 pair. Immediately before
+starting an already-bound Connector, Desktop records the exact binding's server-provided
+`endToEnd.checkedAt`; acceptance requires the same binding ID and generation to become healthy with a
+strictly newer timestamp. The same rule protects token-file migration rollback, preventing a cached
+healthy snapshot from masking a failed Connector restart.
+
+Desktop 0.2.9 (build 12) remains installed with managed release 0.3.4 on the historical test Mac.
+The 0.3.4 artifacts are published, and the installed token-file migration plus an ordered
 Hermes/Connector service restart passed. Physical Android account traffic and a full Mac reboot remain
 deferred.
 

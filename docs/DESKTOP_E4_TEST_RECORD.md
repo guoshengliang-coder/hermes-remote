@@ -620,3 +620,24 @@ new Cloud timestamp appears. The focused 19-test migration-coordinator suite pas
 correction also passed the canonical asset check, all 187 Desktop tests, and the release app build.
 It does not allocate a Desktop version, publish an artifact, install an app, or deploy a service;
 those remain separate release gates.
+
+## 2026-09-13 Desktop 0.2.10 release candidate
+
+Desktop 0.2.10/build 13 allocates the internal app version for the post-restart Cloud-health
+freshness correction merged in PR #230. Managed release 0.3.4 remains unchanged and already
+published; this Desktop update changes no component archive, Gateway setting, account binding, or
+managed service configuration.
+
+The release branch passed the canonical asset comparison, all 187 Desktop tests, the focused
+19-test migration-coordinator coverage included in that suite, and a release-mode app build with
+strict ad-hoc codesign verification. The version-only change needs no additional regression test;
+the source correction already covers the stale-timestamp failure and the rollback path.
+
+Final configured-DMG packaging must run from the clean merged `origin/main` commit. Physical
+acceptance must first prove that replacing and launching the app preserves the existing managed
+Hermes and Connector processes. A separate Connector restart must then preserve the exact Cloud
+binding ID and generation while producing a strictly newer server-provided `endToEnd.checkedAt`.
+The target Mac mini was unreachable over its recorded Tailscale SSH address while this candidate was
+prepared, so this entry does not claim installation or live acceptance. This remains an internal
+ad-hoc release and is not Developer ID signed, notarized, stapled, or approved for public
+distribution.
