@@ -31,6 +31,7 @@ class RepairNavigationTest {
 
     @Test fun accountRepairPreservesTheCurrentNavigationStack() {
         assertTrue(isAccountSetupRepair(StartupFailure.ACCOUNT_AUTHENTICATION_FAILED))
+        assertTrue(isAccountSetupRepair(StartupFailure.ACCOUNT_SERVICE_UNAVAILABLE))
         assertTrue(isAccountSetupRepair(StartupFailure.ACCOUNT_DELETION_COMMITTED))
         assertTrue(isAccountSetupRepair(StartupFailure.ACCOUNT_DEVICE_UNAVAILABLE))
         assertFalse(isAccountSetupRepair(StartupFailure.AUTHENTICATION_FAILED))

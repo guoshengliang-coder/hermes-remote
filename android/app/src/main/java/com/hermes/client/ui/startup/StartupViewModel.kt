@@ -328,7 +328,18 @@ class StartupViewModel @Inject constructor(
                     }
                     is GatewayProbeResult.InvalidEndpoint -> {
                         minimumDisplay?.cancel()
-                        requireConfigurationRepair(reason, StartupFailure.INVALID_URL)
+                        // An account-mode request is already pinned to the signed-in account's
+                        // Gateway URL. A 404 or another unexpected response therefore cannot be
+                        // repaired by editing the retained legacy Relay/App-Token configuration.
+                        // Keep both local stores intact and send the user to Account & Devices.
+                        requireConfigurationRepair(
+                            reason,
+                            if (accountMode) {
+                                StartupFailure.ACCOUNT_SERVICE_UNAVAILABLE
+                            } else {
+                                StartupFailure.INVALID_URL
+                            },
+                        )
                         return@coroutineScope
                     }
                     is GatewayProbeResult.ServerFailure -> {
