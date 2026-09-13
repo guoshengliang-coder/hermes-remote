@@ -193,16 +193,16 @@ private fun TranscriptTurn(message: ChatMessage, origin: com.hermes.client.ui.se
                     message.text.trim(),
                     immediate = true,
                 )
-                Markdown(
-                    markdownState = mdState,
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    colors = markdownColor(),
-                    typography = markdownTypography(
-                        text = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 22.sp),
-                    ),
+                HermesMarkdown(
                     // Cache only, for the same reason the attachment lines below never download:
                     // sharing must not block on the network (DESIGN.md §5.13).
-                    imageTransformer = rememberInlineImageTransformer(allowFetch = false),
+                    surface = MarkdownSurface.EXPORT,
+                    state = mdState,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    typography = markdownTypography(
+                        textLink = hermesLinkStyles(),
+                        text = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 22.sp),
+                    ),
                 )
             }
         }

@@ -317,3 +317,11 @@ adb -s <serial> shell rm /sdcard/Pictures/<测试图片>
   2048m 确实偏紧：Kotlin 编译守护进程**继承**这个值，峰值用到 1703 MB（83%），放开后用到 2339 MB。
   但时间花在 KSP、Hilt、Kotlin 编译的 CPU 上，不在 GC 上。调大只算防 OOM 的保险；项目里那份保持
   `-Xmx2048m`，因为 CI runner 也读它。想提速先测量，别从 heap 下手。
+
+- **`-Proborazzi.test.record=true` 不是逐字节稳定的，别整类重录。** 在 `markdown-entry` 分支上
+  只想重录一张新 golden，跑了整个 `ScreenshotTest` 的 record，结果 `card.*` / `startup-*` /
+  `update-*` 共 16 张与本次改动**毫无关系**的 golden 全被改写（2026-09-13，M4 / 24 GB）。把它们
+  `git checkout --` 还原后，`--rerun-tasks` 跑校验模式**全部通过**——也就是说那些差异是重录噪声，
+  不是回归。所以：**重录时用 `--tests` 精确到你要的那个测试类**，重录完一定看 `git status`，
+  出现无关 golden 就还原它们、再用校验模式确认还原后仍然通过。把这类噪声提交进去，下一个人就
+  再也分不清哪张 golden 是被真正改动过的。

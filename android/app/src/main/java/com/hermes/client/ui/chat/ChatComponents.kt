@@ -1907,66 +1907,16 @@ internal fun AssistantMarkdownBlock(
         lineHeight = 29.sp,
         letterSpacing = 0.sp,
     )
-    val linkColor = MaterialTheme.colorScheme.primary
-    // Colour AND underline AND a leading glyph: in CJK body text an underlined run is nearly
-    // indistinguishable from **bold**, and colour alone is not an accessible-enough signal.
-    val linkStyles = remember(linkColor) {
-        TextLinkStyles(
-            style = SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline),
-            pressedStyle = SpanStyle(color = linkColor.copy(alpha = 0.7f), textDecoration = TextDecoration.Underline),
-        )
-    }
-    // Held across recompositions on purpose: InlineTextContent has no equals(), so rebuilding
-    // this map on every streaming tick would hand Markdown a "changed" argument each frame.
-    // The placeholder is 17sp square while the glyph is 13sp, which is where the gap between
-    // icon and link text comes from; both are sp so the pair tracks the system font scale.
-    val linkIcon = remember(linkColor) {
-        DefaultMarkdownInlineContent(
-            mapOf(
-                MARKDOWN_LINK_ICON_TAG to InlineTextContent(
-                    Placeholder(17.sp, 17.sp, PlaceholderVerticalAlign.TextCenter),
-                ) {
-                    Icon(
-                        ExternalLinkIcon,
-                        contentDescription = null,
-                        modifier = Modifier.size(with(LocalDensity.current) { 13.sp.toDp() }),
-                        tint = linkColor,
-                    )
-                },
-            ),
-        )
-    }
-    // Two annotators share this one slot. They are disjoint — search highlighting only claims
-    // TEXT tokens, the glyph only reacts to link nodes — so the link pass runs first and always
-    // defers, then search decides whether it handled the node.
-    val searchAnnotator = rememberSearchAnnotator()
-    val annotator = remember(searchAnnotator) {
-        markdownAnnotator(config = searchAnnotator.config) { content, child ->
-            if (shouldPrefixLinkIcon(child)) {
-                appendInlineContent(MARKDOWN_LINK_ICON_TAG, "\uFFFC")
-                // WORD JOINER: without it the line breaker treats the glyph as its own word and
-                // happily leaves it stranded at the end of the previous line.
-                append('\u2060')
-            }
-            searchAnnotator.annotate?.invoke(this, content, child) ?: false
-        }
-    }
+    val linkStyles = hermesLinkStyles()
     // Chinese sentences keep their punctuation inside the emphasis and start the next word right
     // after it — exactly the shape CommonMark refuses to close — so `**关键问题：…？**有的话` reached
     // the reader as four literal asterisks. Repaired for display only; copy, share, export and
     // read-aloud all read the original message text. See CjkEmphasis.kt (HG-24).
     val renderable = remember(content) { withCjkEmphasisRepaired(content) }
-    // The renderer captures LocalUriHandler when it builds the link annotations, so the guarded
-    // handler has to be in scope around Markdown() rather than at the tap site.
-    CompositionLocalProvider(LocalUriHandler provides rememberSafeUriHandler()) {
-    Markdown(
+    HermesMarkdown(
+        surface = MarkdownSurface.CHAT,
         content = renderable,
-        annotator = annotator,
         modifier = modifier.onGloballyPositioned { viewport?.updateBlock(anchorKey, it.boundsInWindow()) },
-        colors = markdownColor(
-            inlineCodeBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-            codeBackground = MaterialTheme.colorScheme.surfaceVariant,
-        ),
         typography = markdownTypography(
             h1 = MaterialTheme.typography.headlineSmall.copy(lineHeight = 34.sp),
             h2 = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp, lineHeight = 32.sp),
@@ -1984,11 +1934,9 @@ internal fun AssistantMarkdownBlock(
             list = body,
             quote = body.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
             textLink = linkStyles,
-            table = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 23.sp),
+            table = hermesTableTextStyle(),
         ),
         components = components,
-        inlineContent = linkIcon,
-        imageTransformer = rememberInlineImageTransformer(),
         padding = markdownPadding(
             block = MD_BLOCK,
             list = MD_LIST,
@@ -1996,9 +1944,8 @@ internal fun AssistantMarkdownBlock(
             listItemBottom = MD_LIST_ITEM,
             listIndent = MD_LIST_INDENT,
         ),
-        dimens = markdownDimens(tableCellWidth = 110.dp, tableCellPadding = 8.dp),
+        dimens = markdownDimens(tableCellWidth = CHAT_TABLE_CELL_WIDTH, tableCellPadding = CHAT_TABLE_CELL_PADDING),
     )
-    }
 }
 
 private const val STREAM_RENDER_INTERVAL_MS = 64L
@@ -2043,7 +1990,6 @@ private val MARKDOWN_LINK_TYPES = setOf(
     MarkdownElementTypes.SHORT_REFERENCE_LINK,
     GFMTokenTypes.GFM_AUTOLINK,
 )
-private const val MARKDOWN_LINK_ICON_TAG = "hermes-link-icon"
 
 /**
  * Whether this AST node is a link that should get the external-link glyph in front of it.
@@ -2315,18 +2261,15 @@ private fun SemanticAnchorBox(
 /** Gallery/sample entry: renders a raw markdown table with the chat table styling. */
 @Composable
 internal fun StyledMarkdownTableSample(raw: String) {
-    Markdown(
+    HermesMarkdown(
+        surface = MarkdownSurface.CHAT,
         content = raw,
         modifier = Modifier.fillMaxWidth(),
-        colors = markdownColor(),
-        typography = markdownTypography(
-            table = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 23.sp),
-        ),
+        typography = markdownTypography(textLink = hermesLinkStyles(), table = hermesTableTextStyle()),
         components = markdownComponents(
             table = { m -> StyledMarkdownTable(m.content, m.node, m.typography.table) },
         ),
-        imageTransformer = rememberInlineImageTransformer(),
-        dimens = markdownDimens(tableCellWidth = 110.dp, tableCellPadding = 8.dp),
+        dimens = markdownDimens(tableCellWidth = CHAT_TABLE_CELL_WIDTH, tableCellPadding = CHAT_TABLE_CELL_PADDING),
     )
 }
 
@@ -2358,20 +2301,20 @@ internal fun OffscreenTableExporter(raw: String, action: TableExportAction, onDo
                 // record only — no drawLayer, so nothing appears on screen.
                 .drawWithContent { layer.record { this@drawWithContent.drawContent() } },
         ) {
-            Markdown(
-                markdownState = mdState,
+            HermesMarkdown(
+                // EXPORT: renders from cache and never starts a download (DESIGN.md §5.13), and
+                // leaves the search highlight out of a saved image.
+                surface = MarkdownSurface.EXPORT,
+                state = mdState,
                 modifier = Modifier.fillMaxWidth(),
-                colors = markdownColor(),
                 typography = markdownTypography(
-                    table = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 24.sp),
+                    textLink = hermesLinkStyles(),
+                    table = hermesTableTextStyle(exportScale = true),
                 ),
                 components = markdownComponents(
                     table = { m -> StyledMarkdownTable(m.content, m.node, m.typography.table) },
                 ),
-                // Cache only: an export renders what is already on the device and never starts a
-                // download (DESIGN.md §5.13).
-                imageTransformer = rememberInlineImageTransformer(allowFetch = false),
-                dimens = markdownDimens(tableCellWidth = 170.dp, tableCellPadding = 10.dp),
+                dimens = markdownDimens(tableCellWidth = 170.dp, tableCellPadding = EXPORT_TABLE_CELL_PADDING),
             )
         }
     }
@@ -2620,18 +2563,21 @@ internal fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
                             .width(tableWidth)
                             .background(MaterialTheme.colorScheme.background),
                     ) {
-                        Markdown(
-                            markdownState = mdState,
+                        HermesMarkdown(
+                            surface = MarkdownSurface.FULLSCREEN,
+                            state = mdState,
                             modifier = Modifier.fillMaxWidth(),
-                            colors = markdownColor(),
                             typography = markdownTypography(
-                                table = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 24.sp),
+                                textLink = hermesLinkStyles(),
+                                table = hermesTableTextStyle(exportScale = true),
                             ),
                             components = markdownComponents(
                                 table = { m -> StyledMarkdownTable(m.content, m.node, m.typography.table) },
                             ),
-                            imageTransformer = rememberInlineImageTransformer(),
-                            dimens = markdownDimens(tableCellWidth = exportCellWidth.dp, tableCellPadding = 10.dp),
+                            dimens = markdownDimens(
+                                tableCellWidth = exportCellWidth.dp,
+                                tableCellPadding = EXPORT_TABLE_CELL_PADDING,
+                            ),
                         )
                     }
                     }
