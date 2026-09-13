@@ -88,6 +88,7 @@ class DesignConformanceTest {
             "scheme" -> when (name) {
                 "primary" -> scheme.primary
                 "onSurface" -> scheme.onSurface
+                "onPrimary" -> scheme.onPrimary
                 "onSurfaceVariant" -> scheme.onSurfaceVariant
                 "outline" -> scheme.outline
                 "outlineVariant" -> scheme.outlineVariant
@@ -164,8 +165,6 @@ class DesignConformanceTest {
                 "chatSearchArrow" -> if (dark) ChatSearchArrowDark else ChatSearchArrowLight
                 "chatSearchInkFaint" -> if (dark) ChatSearchInkFaintDark else ChatSearchInkFaintLight
                 "chatSearchClearDisc" -> if (dark) ChatSearchClearDiscDark else ChatSearchClearDiscLight
-                "chatSearchHitCurrent" -> ChatSearchHitCurrent
-                "chatSearchHitCurrentInk" -> ChatSearchHitCurrentInk
                 "chatSearchHitOther" -> ChatSearchHitOther
                 "chatSearchHitOtherInk" -> ChatSearchHitOtherInk
 

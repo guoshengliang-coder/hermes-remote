@@ -91,6 +91,8 @@ internal fun HermesMarkdown(
     components: MarkdownComponents = markdownComponents(),
     dimens: MarkdownDimens = markdownDimens(),
     padding: MarkdownPadding = markdownPadding(),
+    /** Marks already drawn above this block within the same turn — see [rememberSearchAnnotator]. */
+    searchRangeOffset: Int = 0,
 ) {
     require((content == null) != (state == null)) {
         "HermesMarkdown takes either content or a parsed state, not both and not neither"
@@ -99,7 +101,10 @@ internal fun HermesMarkdown(
         inlineCodeBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
         codeBackground = MaterialTheme.colorScheme.surfaceVariant,
     )
-    val annotator = rememberHermesAnnotator(highlightSearch = surface != MarkdownSurface.EXPORT)
+    val annotator = rememberHermesAnnotator(
+        highlightSearch = surface != MarkdownSurface.EXPORT,
+        searchRangeOffset = searchRangeOffset,
+    )
     val inlineContent = rememberLinkIconContent()
     val imageTransformer = rememberInlineImageTransformer(allowFetch = surface != MarkdownSurface.EXPORT)
     // The renderer captures LocalUriHandler when it builds the link annotations, so the guarded
@@ -183,8 +188,8 @@ private fun rememberLinkIconContent(): MarkdownInlineContent {
  * then search decides whether it handled the node.
  */
 @Composable
-private fun rememberHermesAnnotator(highlightSearch: Boolean): MarkdownAnnotator {
-    val searchAnnotator = rememberSearchAnnotator()
+private fun rememberHermesAnnotator(highlightSearch: Boolean, searchRangeOffset: Int): MarkdownAnnotator {
+    val searchAnnotator = rememberSearchAnnotator(searchRangeOffset)
     return remember(searchAnnotator, highlightSearch) {
         markdownAnnotator(config = if (highlightSearch) searchAnnotator.config else markdownAnnotatorConfig()) { content, child ->
             if (shouldPrefixLinkIcon(child)) {
