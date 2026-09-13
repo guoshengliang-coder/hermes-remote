@@ -113,6 +113,14 @@ identity, About page, and QR center mark use that artwork without redrawing or r
 `desktop/Packaging/AppIcon.png` is a synchronized packaging copy, and the packaging gate fails if it
 drifts from the canonical source.
 
+### Menu-bar status glyph
+
+The menu-bar extra is an exception to the full-color identity treatment: it uses the native
+monochrome `h.circle` template glyph at 15 pt, rather than the square app artwork. This keeps one
+small system-tinted (gray in an inactive/light menu bar) indicator aligned with neighboring macOS
+status icons, avoids a white app-icon tile, and remains legible in both appearance modes. The glyph
+opens the same Hermes Go Desktop menu; it is a status affordance, not a replacement app icon.
+
 ## Status and error language
 
 - Every layer keeps its own state: Desktop Agent, Gateway, local Hermes, optional observer, end to end.

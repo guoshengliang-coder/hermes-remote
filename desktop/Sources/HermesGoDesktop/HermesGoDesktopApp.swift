@@ -18,10 +18,12 @@ struct HermesGoDesktopApp: App {
             MenuBarContentView()
                 .environmentObject(model)
         } label: {
-            Image(nsImage: NSApplication.shared.applicationIconImage)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 18, height: 18)
+            // The full-color app artwork is for app/window identity. A status item needs a
+            // small template glyph so macOS can keep it legible alongside other menu extras.
+            Image(systemName: "h.circle")
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: 15, weight: .medium))
+                .accessibilityLabel("Hermes Go Desktop")
         }
         .menuBarExtraStyle(.window)
     }
