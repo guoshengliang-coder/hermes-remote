@@ -341,8 +341,8 @@ function requireSingleInclude(content, routesPath) {
   if (!/^\/[A-Za-z0-9._/-]+$/.test(routesPath)) {
     fail("multi_device_rollout_nginx_routes_path_invalid", "production_multi_device_rollout_preflight");
   }
-  const escaped = routesPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const matches = content.match(new RegExp(`^[\\t ]*include[\\t ]+${escaped};[\\t ]*$`, "gm")) ?? [];
+  const directive = `include ${routesPath};`;
+  const matches = content.split("\n").filter((line) => line.trim() === directive);
   if (matches.length !== 1) {
     fail("multi_device_rollout_binding_include_invalid", "production_multi_device_rollout_preflight");
   }
