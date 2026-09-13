@@ -274,6 +274,12 @@ an external browser is reusable only through the signed compatibility contract a
 probe. An unhealthy managed component fails before external scanning so the future UI cannot promise
 an overwrite that the immutable store would reject. This result is not yet wired to the shipping UI.
 
+The next local UI slice maps that trusted result into a native component card with release identity,
+reuse count, bootstrap/deferred byte totals, and one status row per component. It distinguishes managed
+reuse, compatible system reuse, install-time download, and first-use download, and keeps the read-only
+Homebrew/service boundary visible. The bilingual presentation model and production SwiftUI build are
+covered locally; the card remains unwired until a real v2 capability and signing configuration exist.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 

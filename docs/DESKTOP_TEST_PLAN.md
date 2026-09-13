@@ -92,6 +92,9 @@ The current automated suite covers:
   a clean store, reuses only rehashed healthy managed content, permits a compatible probed external
   browser while keeping observed Python non-reusable, and stops before external scanning for an
   unhealthy managed component or invalid signed bootstrap topology;
+- the component preflight presentation maps managed/system reuse and bootstrap/on-demand downloads to
+  distinct bilingual rows, reports stable binary byte totals, names every supported component kind,
+  and compiles as a native SwiftUI card without exposing an unwired install action;
 - offline component-release publication safely extracts every candidate and recomputes the same
   relative-path/file-byte/executable-bit identity used by the Desktop store before signing, then the
   public-key-only verifier repeats compressed and extracted identity checks;

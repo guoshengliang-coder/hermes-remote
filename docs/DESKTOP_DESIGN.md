@@ -33,6 +33,14 @@ explicit “安装并连接” action may enter the machine-changing phase. Comm
 and duplicate installation. A successful install with pending temporary cleanup shows only “重试清理”
 and `HR-MIGRATE-005`; it never suggests reinstalling.
 
+The componentized v2 preflight uses a separate native card before the machine-changing confirmation.
+Its header names the target release. Three compact pills show direct reuse count, bootstrap download,
+and deferred first-use download; the deferred pill is omitted when its byte total is zero. Every
+component row has one unambiguous state: managed reuse, compatible system reuse, install-time download,
+or on-demand download. Sizes use stable `KiB`/`MiB`/`GiB` units, and the footer always states that this
+read-only scan does not modify Homebrew, the user's environment, or running services. The card has no
+install action until a production v2 capability and signing configuration make the result actionable.
+
 For the email-first release, the signed-out Desktop surface must use email plus a six-digit one-time
 code as its only login action. It must not show or attempt Google when the Gateway advertises only
 `email_otp`. The existing browser OAuth UI remains future-provider code and is not part of the first
