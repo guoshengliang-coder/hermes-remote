@@ -186,7 +186,11 @@ public struct DesktopManagedComponentStoreInspector: @unchecked Sendable {
         for requirement: DesktopManagedComponentRequirement,
         healthProbe: HealthProbe
     ) throws -> DesktopManagedComponentCandidate? {
-        guard case .exactContent(let expectedIdentity) = requirement.reusePolicy else { return nil }
+        let expectedIdentity: String
+        switch requirement.reusePolicy {
+        case .exactContent(let sha256), .verifiedCompatibility(let sha256, _):
+            expectedIdentity = sha256
+        }
         let component = root
             .appendingPathComponent("components", isDirectory: true)
             .appendingPathComponent(requirement.kind.rawValue, isDirectory: true)
@@ -456,8 +460,10 @@ public final class DesktopManagedComponentStoreWriter: @unchecked Sendable {
         ), candidate.healthProbePassed else {
             throw DesktopManagedComponentStoreError.componentConflict
         }
-        guard case .exactContent(let identity) = requirement.reusePolicy else {
-            throw DesktopManagedComponentStoreError.componentConflict
+        let identity: String
+        switch requirement.reusePolicy {
+        case .exactContent(let sha256), .verifiedCompatibility(let sha256, _):
+            identity = sha256
         }
         return root.appendingPathComponent(
             "components/\(requirement.kind.rawValue)/\(identity)/content", isDirectory: true

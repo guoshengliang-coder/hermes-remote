@@ -20,7 +20,7 @@ public enum DesktopManagedComponentInstallPhase: String, Codable, Sendable {
 /// such as a supported system browser.
 public enum DesktopManagedComponentReusePolicy: Equatable, Sendable {
     case exactContent(sha256: String)
-    case verifiedCompatibility(identifier: String)
+    case verifiedCompatibility(contentSHA256: String, identifier: String)
 }
 
 public struct DesktopManagedComponentRequirement: Equatable, Sendable {
@@ -166,7 +166,12 @@ public enum DesktopManagedComponentPreflightPlanner {
             return candidate.version == requirement.version
                 && validSHA256(sha256)
                 && candidate.contentSHA256 == sha256
-        case .verifiedCompatibility(let identifier):
+        case .verifiedCompatibility(let sha256, let identifier):
+            if candidate.source == .managedStore {
+                return candidate.version == requirement.version
+                    && validSHA256(sha256)
+                    && candidate.contentSHA256 == sha256
+            }
             return validCompatibilityIdentifier(identifier)
                 && candidate.compatibilityIdentifier == identifier
         }
@@ -183,8 +188,8 @@ public enum DesktopManagedComponentPreflightPlanner {
         switch requirement.reusePolicy {
         case .exactContent(let sha256):
             return validSHA256(sha256)
-        case .verifiedCompatibility(let identifier):
-            return validCompatibilityIdentifier(identifier)
+        case .verifiedCompatibility(let sha256, let identifier):
+            return validSHA256(sha256) && validCompatibilityIdentifier(identifier)
         }
     }
 

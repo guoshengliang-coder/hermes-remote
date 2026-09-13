@@ -65,6 +65,8 @@ The current automated suite covers:
   a version-only external Python is rejected, an explicitly compatible healthy system browser may be
   reused, wrong architecture/digest/failed probes are rejected, optional capabilities are deferred,
   and only missing bootstrap components contribute to the initial download total;
+- compatibility requirements retain an exact managed fallback identity, allowing a downloaded optional
+  component to be reused after external compatibility disappears;
 - shared-component inventory rehashes relative paths, bytes, and executable bits before reuse;
   stable trees produce stable identities, byte/mode changes invalidate them, and symbolic links,
   unsafe receipt permissions, receipt mismatches, and tampered trees fail closed;

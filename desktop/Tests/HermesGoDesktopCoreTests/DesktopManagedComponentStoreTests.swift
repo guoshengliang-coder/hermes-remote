@@ -101,6 +101,33 @@ final class DesktopManagedComponentStoreTests: XCTestCase {
         }
     }
 
+    func testInspectorFindsManagedFallbackForCompatibilityRequirement() throws {
+        let fixture = try StoreFixture()
+        defer { fixture.remove() }
+        guard case .exactContent(let identity) = fixture.requirement.reusePolicy else {
+            return XCTFail("fixture must carry an exact identity")
+        }
+        let requirement = DesktopManagedComponentRequirement(
+            kind: .pythonRuntime,
+            version: "3.11.15",
+            architecture: "arm64",
+            downloadBytes: 1,
+            installPhase: .bootstrap,
+            reusePolicy: .verifiedCompatibility(
+                contentSHA256: identity,
+                identifier: "external-python-contract-for-test"
+            )
+        )
+        let inspector = try DesktopManagedComponentStoreInspector(
+            root: fixture.root, currentUserID: Darwin.getuid()
+        )
+
+        let candidate = try inspector.candidate(for: requirement) { _ in true }
+
+        XCTAssertEqual(candidate?.source, .managedStore)
+        XCTAssertEqual(candidate?.contentSHA256, identity)
+    }
+
     func testWriterCommitsContentAndReceiptTogetherThenRecordsIdempotentReferences() throws {
         let base = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: base) }

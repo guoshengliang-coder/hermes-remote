@@ -131,7 +131,7 @@ public struct DesktopExternalEnvironmentScanner<Runner: OutputCommandRunning> {
                 )
             }
             guard path.kind == .browserAutomation,
-                  case .verifiedCompatibility(let identifier) = requirement.reusePolicy,
+                  case .verifiedCompatibility(_, let identifier) = requirement.reusePolicy,
                   browserCompatibilityProbe(safeExecutable, version, identifier)
             else {
                 return DesktopExternalEnvironmentObservation(
