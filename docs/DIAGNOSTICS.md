@@ -58,6 +58,9 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 | `[ws] reconnect scheduled in Nms (gen=N, attempt=N)` | 退避已排期 | 每次断开 |
 | `[ws] reconnect dropped (gen=N): <原因>` | **排期的重连没有执行，以及为什么** | 见下 |
 | `[ws] close() requested: <理由>` / `cancelNow()` | App 主动关闭，以及是哪一个调用方 | 退后台 / 关通知 |
+| `[ws] opening socket refused: closed by the app` | 已关闭的客户端拒绝重新进入 `Connecting`（HG-42 的入口守卫） | 竞态；出现即说明守卫拦住了一次 |
+| `[ws] connect() forcing a fresh socket — stalled: <snapshot>` | 一个超过握手超时仍 `socket=none` 的 `Connecting` 被强行换掉 | 罕见；出现即异常，见下 |
+| `[health] <上一档> → <这一档>` | `/api/status` 探测的结论变化（`healthy` / `unreachable` / `device-offline`），红条就由它驱动 | 只在换档时 |
 | `[session] upstream reclaimed <id>; next send will recover` | 上游把这个会话回收了（`event session.reclaimed`），它之后的任何 prompt 都会失败 | 掉线超过 120s 后重连 |
 | `[session] recreated <旧id> as <新id> → handle=…` | 被回收的空会话已被静默换成新会话，消息照常送达 | 承接上一行 |
 | `[ws] rpc#N session.create ← ok (…ms)` | 会话确实建出来了。**只有 `session.create` 记回包**，别的方法成功时不记 | 每次新建 |
@@ -84,6 +87,27 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 没有动手，去找 `handshake watchdog skipped (gen=N)` —— 它会写明是哪条 guard 拦下的。两条都没有，
 就是协程体没跑到，这时 `[ws] snapshot` 那一行（横幅升起时写的）给出当时的全部内部状态。
 HG-27 就停在这里：那一版还没有这些行，四处缺陷叠加，只能靠杀进程脱身。
+
+**红条与 socket 是两件事**：顶部粉色的「Relay 暂时无法连接」由 `[health]` 驱动（`/api/status` 探测），
+聊天页的「正在连接 Relay…」由 `[ws]` 驱动（WebSocket 状态）。两者可以互相矛盾，而且矛盾本身就是线索：
+REST 一路 200 而 socket 卡死，是 HG-19 那一类；socket 已经 `gateway.ready` 而红条还挂着，是探测结果
+过期。探测在前台每 30 秒一次、退后台完全停止，所以红条**必须**在 socket 恢复时立刻重探一次，否则它
+描述的是上一个坏时刻而不是现在（HG-42）。排查时按时间对齐这两类行：`[health] … → healthy` 应当紧跟在
+`gateway.ready` 之后，而不是落后半分钟。
+
+**Connecting 但根本没有 socket（HG-42）**：上面几种停滞里，至少还有一个 socket 或一个看门狗在场。
+最后一种什么都没有：`[ws] snapshot` 读作 `state=Connecting … manuallyClosed=true … watchdog=finished
+socket=none`，而 `connectingFor` 一路涨到几百秒。这是**已被关闭**的客户端却停在 `Connecting`——
+`onSocketClosed()` 需要一个 socket 才会触发，看门狗早已按「closed by the app」退场，于是之后每一次
+`connect()` 都被打印成 `connect() no-op — already Connecting`，每一个 RPC 都以
+`rpc … blocked: no gateway.ready in 15000ms` 失败。判据就是这三者同时出现：`Connecting`、
+`manuallyClosed=true`、`socket=none`。
+
+0.1.124 起这个组合不应再出现：`openSocket()` 会拒绝一个已关闭的客户端（日志写
+`opening socket refused: closed by the app`），而一个超过握手超时仍然 `socket=none` 的 `Connecting`
+会被下一次 `connect()` 强行换掉，写作 `connect() forcing a fresh socket — stalled: …`。看到后面这行，
+说明兜底生效了、而某条路径仍然制造了停滞的 `Connecting`——把那一行连同它前面的 `close() requested`
+一起带走，那是定位入口的全部线索。
 
 **连接停下来了但没人说为什么**：`reconnect scheduled in Nms` 之后应当出现下一个
 `opening socket`。若换来的是 `reconnect dropped`，那一行会说明是 App 主动关闭（对应前面的

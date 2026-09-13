@@ -8,6 +8,8 @@ fun AppError.localizedMessage(language: AppLanguage): String {
     val summary = when (code) {
         AppErrorCode.CONNECTION_FAILED ->
             localized(language, "无法连接 Relay，请重试。", "Couldn't connect to the Relay. Retry.")
+        AppErrorCode.HANDSHAKE_TIMEOUT ->
+            localized(language, "Relay 已连接，但会话握手超时。", "The Relay connected, but the session handshake timed out.")
         AppErrorCode.CONNECTION_INTERRUPTED ->
             localized(language, "连接已中断，请重试。", "The connection was interrupted. Retry.")
         AppErrorCode.CONNECTOR_OFFLINE ->
