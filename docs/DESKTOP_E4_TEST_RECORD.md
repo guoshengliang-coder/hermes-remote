@@ -641,3 +641,35 @@ The target Mac mini was unreachable over its recorded Tailscale SSH address whil
 prepared, so this entry does not claim installation or live acceptance. This remains an internal
 ad-hoc release and is not Developer ID signed, notarized, stapled, or approved for public
 distribution.
+
+## 2026-09-13 Desktop 0.2.10 activation and Cloud-health freshness acceptance
+
+PR #240 merged the 0.2.10/build 13 release gate as
+`d868b7996e85b2fb8cf1630d3a0e9023d2d1fcd8`; every applicable PR check and the resulting `main` CI
+and SAST workflows completed successfully. A fresh detached worktree whose `HEAD` exactly matched
+that `origin/main` commit repeated the canonical asset comparison and all 187 Desktop tests, then
+built the configured internal DMG. The mounted app carried version/build 0.2.10/13, enabled managed
+bootstrap, the immutable 0.3.4 manifest, `internal`/`arm64`, the approved key ID and public key, and
+the `hermes-serve-v1` runtime contract. Strict ad-hoc codesign and `hdiutil verify` passed. The final
+2,078,505-byte DMG SHA-256 is
+`eba645ef54f95b0b69981209ba543d6689604cea1c9ea0742a42d0039926aded`.
+
+The execution host was the target `LGS-MACMINI` itself; only its obsolete self-referential Tailscale
+SSH route was unreachable. Desktop 0.2.10 replaced 0.2.9 in `/Applications`, with the prior app kept
+in an owner-only Recovery directory. Launching the new app preserved managed Hermes PID 22269 and
+managed Connector PID 22750. The current component pointer remained 0.3.4, the journal remained
+`account_active` at binding generation 7, and the legacy Connector remained unloaded.
+
+A separate Connector-only restart then changed its PID from 22750 to 60731 while Hermes retained PID
+22269. The Connector log recorded the old process shutdown and a new account-mode Gateway connection;
+one established TLS socket was present afterward. Authenticated loopback `/api/status` returned HTTP
+200 and Hermes version 0.21.0. A read-only server-side query against the exact journal binding showed
+generation 7, active state, online Connector, reachable Hermes, and healthy end-to-end status both
+before and after the restart. Its server-provided `endToEnd.checkedAt` advanced strictly from
+2026-09-12 15:22:05.18103 +08:00 to 2026-09-13 13:34:30.67518 +08:00. No account access token was
+exported to a diagnostic script.
+
+This closes the ordinary-upgrade process-preservation and Connector-restart Cloud-freshness gates.
+Physical Android account traffic and a full Mac reboot remain separate deferred checks. This is an
+internal ad-hoc Desktop build; it is not Developer ID signed, notarized, stapled, or approved for
+public distribution.

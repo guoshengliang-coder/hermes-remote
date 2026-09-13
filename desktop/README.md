@@ -1,16 +1,16 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.10** (build 13). It packages the post-restart Cloud
-health freshness correction on top of the installed 0.2.9/managed 0.3.4 pair. Immediately before
+Current internal test release: **0.2.10** (build 13), installed with managed release 0.3.4 on the
+historical test Mac. It packages the post-restart Cloud health freshness correction. Immediately before
 starting an already-bound Connector, Desktop records the exact binding's server-provided
 `endToEnd.checkedAt`; acceptance requires the same binding ID and generation to become healthy with a
 strictly newer timestamp. The same rule protects token-file migration rollback, preventing a cached
 healthy snapshot from masking a failed Connector restart.
 
-Desktop 0.2.9 (build 12) remains installed with managed release 0.3.4 on the historical test Mac.
-The 0.3.4 artifacts are published, and the installed token-file migration plus an ordered
-Hermes/Connector service restart passed. Physical Android account traffic and a full Mac reboot remain
-deferred.
+The ordinary 0.2.9-to-0.2.10 app replacement preserved both managed service PIDs. A subsequent
+Connector-only restart kept the exact account binding and generation, advanced the Cloud health
+timestamp, and restored its Gateway TLS connection while Hermes kept running. The 0.3.4 artifacts
+remain published and unchanged. Physical Android account traffic and a full Mac reboot remain deferred.
 
 Physical upgrade on the historical Mac found that managed release 0.3.3 corrected only the packaged
 Hermes reader; its Connector reader still rejected the existing valid 64-character lowercase-hex
