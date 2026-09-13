@@ -1127,10 +1127,24 @@ grant/挑战并要求重新获取验证码，不得清除仍有效的账号会�
     无 scheme 的 `www.` 自动链接补 `https://`，其余拒绝 → `HR-LINK-002`。系统无法打开时
     （设备没有浏览器，Compose 默认 handler 会把 `ActivityNotFoundException` 重抛成
     `IllegalArgumentException` 直接崩）→ 复制链接到剪贴板 + `HR-LINK-001`。
+  - **只有一个渲染入口**：`ui/chat/HermesMarkdown.kt` 的 `HermesMarkdown(surface = …)`。助手正文有
+    五个渲染面（会话、组件展廊、全屏表格、表格导出 PNG、长图分享），过去每个面各自调库的
+    `Markdown(...)` 并各写一份参数表，结果只有会话那一处传了 annotator 与 inlineContent——另外四个
+    面悄悄丢了外链图标，而且**上面那条受控 handler 只包住了会话那一处**，其余四个面的链接走的是
+    Compose 默认 handler，既不过 scheme 白名单、也没有 `HR-LINK-001/002` 的兜底。表格单元格是模型
+    输出，这是最不该敞开的一个面。
+    因此：颜色、annotator、inlineContent、imageTransformer、受控 UriHandler 一律由入口统一提供，
+    **不作为参数暴露**；`typography` / `components` / `dimens` 才是各面真正不同的部分（导出面单元格
+    更宽、行高 24 而不是 23）。`surface` 只决定两件事：是否允许联网取图（`EXPORT` 只读缓存，见
+    §5.13），以及是否带搜索高亮（`EXPORT` 不带——那个标记表示「此刻搜索命中在这里」，不是会话的
+    事实，不该进到存下来的图里）。
+    这条规则由 `MarkdownEntryPointTest` 扫源码守住：`ui/` 下除入口文件外不得直接调用库的
+    `Markdown(`，确有例外时在该行标注 `markdown-entry-allow:` 及理由。
   - **待办**（未立项）：超长无空格 URL 不做中间断行。
   - **验证**：`MarkdownTypographyScreenshotTest` 的 golden（浅色 / 深色 / 边界情况 / 大字号 /
-    行内图片 / 行内图片大字号）覆盖上述全部取值，改动后用 `-Proborazzi.test.record=true` 重录并
-    肉眼比对。
+    行内图片 / 行内图片大字号）覆盖上述全部取值，另有 `ScreenshotTest.tableCardLinks` 钉住
+    「表格单元格里的链接带外链图标」——它走的正是共用入口，所以四个面一起被这一张 golden 覆盖。
+    改动后用 `-Proborazzi.test.record=true` 重录并肉眼比对。
 - 输入区：浮动 `Surface`，圆角 30（聚焦 28）、tonal 1dp + shadow 7dp、最小高 60dp；
   内含麦克风、无边框输入框、48dp 圆形发送键 —— 发送键用 **theme primary**（明确决策：
   核心全局控件不随身份变色）。

@@ -268,6 +268,18 @@ class ScreenshotTest {
         )
     }
 
+    /**
+     * A table cell carrying a link. The glyph beside it is the evidence that this surface shares
+     * the conversation's annotator and inline content: before HermesMarkdown it did not, and the
+     * gallery, the fullscreen dialog and both exports all drew links bare.
+     */
+    @Test fun tableCardLinks() = snap("table-card-links") {
+        val raw = "| \u63d0\u6848 | \u94fe\u63a5 |\n| --- | --- |\n| PR | [#30332](https://example.com/pull/30332) |\n"
+        com.hermes.client.ui.chat.ChatTableCard(raw, onOpenFullscreen = {}) {
+            com.hermes.client.ui.chat.StyledMarkdownTableSample(raw)
+        }
+    }
+
     @Test fun tableCardNarrow() = snap("table-card-narrow") {
         val raw = "| 项目 | 期望值 | 实际值 |\n|---|---|---|\n| 证书深度 | 4 | 2 |\n| 读超时 | 75s | 75s |"
         com.hermes.client.ui.chat.ChatTableCard(raw, onOpenFullscreen = {}) {
