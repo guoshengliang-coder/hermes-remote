@@ -44,6 +44,7 @@ class ConnectionSettingsViewModel @Inject constructor(
     private val transcripts: com.hermes.client.data.repository.TranscriptStore,
     private val phases: com.hermes.client.data.repository.SessionPhaseStore,
     private val drafts: com.hermes.client.data.repository.DraftStore,
+    private val unsent: com.hermes.client.data.repository.UnsentStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(
         runCatching { store.load() }.getOrNull()?.let {
@@ -130,10 +131,11 @@ class ConnectionSettingsViewModel @Inject constructor(
         // Transcripts are now kept on disk, so pointing the app at a different Relay or account
         // must drop them: nobody may open a session and be shown the previous account's history.
         // The run-state snapshot goes with them — a stored clarify question is user content too,
-        // and so is an unsent draft.
+        // and so is an unsent draft — or a message that was sent and refused (HG-49).
         viewModelScope.launch { transcripts.clear() }
         viewModelScope.launch { phases.clear() }
         viewModelScope.launch { drafts.clearAll() }
+        viewModelScope.launch { unsent.clearAll() }
         if (reconnect) runCatching { chat.reconnect() }
         _state.value = _state.value.copy(saved = true, testResult = localizedText("已保存，正在重新连接", "Saved — reconnecting"))
     }

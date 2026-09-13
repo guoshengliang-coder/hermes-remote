@@ -83,6 +83,25 @@ class DeliveryStateTest {
         )
     }
 
+    // HG-49: the fourth shape. A refused send restored from disk after the app restarted, whose
+    // staged attachments did not survive with it — the bytes are never persisted. Replaying it
+    // would deliver less than the user meant, so unlike SESS-007 and SESS-013 this one withholds
+    // the tap rather than offering a retry that quietly drops the images.
+    @Test fun attachments_lost_code_is_registered_bilingual_and_not_retryable() {
+        val error = AppError(AppErrorCode.UNSENT_ATTACHMENTS_LOST, retryable = false)
+        val zh = error.localizedMessage(AppLanguage.ZH)
+        val en = error.localizedMessage(AppLanguage.EN)
+        assertTrue(zh.contains("HR-SESS-015") && en.contains("HR-SESS-015"))
+        assertTrue(zh.any { it.code > 0x4E00 } && zh != en)
+        assertFalse("the attachments are gone; re-sending the text alone is not the same send", error.retryable)
+        assertEquals("SESS-015", AppErrorCode.UNSENT_ATTACHMENTS_LOST.compact)
+        // It has to read differently from the generic failure, or the user retries into nothing.
+        assertNotEquals(
+            zh,
+            AppError(AppErrorCode.MESSAGE_SEND_FAILED, retryable = true).localizedMessage(AppLanguage.ZH),
+        )
+    }
+
     @Test fun compact_code_drops_only_the_prefix_and_stays_unique() {
         assertEquals("SESS-007", AppErrorCode.MESSAGE_SEND_FAILED.compact)
         assertEquals("RPC-001", AppErrorCode.RPC_FAILED.compact)

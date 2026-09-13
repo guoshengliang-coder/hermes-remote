@@ -72,9 +72,19 @@ class SessionsViewModelTest {
         listOf(com.hermes.client.data.repository.DraftRecord(token = "personal/s1", text = "半句话", updatedAt = 1L)),
     )
 
+    // HG-49: one conversation holds a message that was submitted and refused.
+    private val unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(
+        listOf(
+            com.hermes.client.data.repository.UnsentRecord(
+                token = "personal/s2", messageId = "u-1", text = "巨浪事业群呢",
+                code = "HR-SESS-013", updatedAt = 1L,
+            ),
+        ),
+    )
+
     private fun buildVm(accountSessions: com.hermes.client.data.auth.AccountSessionManager? = null) = SessionsViewModel(
         sessionRepo, chatRepo, profileManager, pinStore, viewModeStore, runtimeStore, toolsRepo, projectPrefs,
-        projectsRepo, projectCatalog, drafts, accountSessions,
+        projectsRepo, projectCatalog, drafts, unsent, accountSessions,
     )
 
     private fun repoSession(id: String, repo: String?, profile: String = "personal") = Session(
@@ -103,6 +113,32 @@ class SessionsViewModelTest {
         assertEquals(setOf("personal/s1"), vm.draftTokens.value)
         assertTrue(vm.hasDraft(session("s1", "有草稿")))
         assertFalse(vm.hasDraft(session("s2", "没有")))
+        collect.cancel()
+    }
+
+    // HG-49. Same gate, same reason, and deliberately a SEPARATE set from draftTokens: a draft was
+    // never sent and is the user's own business; this one was sent and refused, and the row has to
+    // say so. s2 is the conversation holding the refusal — note it is not the one holding a draft.
+    @Test fun unsentTokens_start_unknown_and_then_resolve() = runTest {
+        val vm = buildVm()
+        assertNull(vm.unsentTokens.value)
+        val collect = launch { vm.unsentTokens.collect {} }
+        advanceUntilIdle()
+        assertEquals(setOf("personal/s2"), vm.unsentTokens.value)
+        assertTrue(vm.hasUnsent(session("s2", "发送失败了")))
+        assertFalse(vm.hasUnsent(session("s1", "只有草稿")))
+        // The two markers are independent; neither implies the other.
+        assertFalse(vm.hasDraft(session("s2", "发送失败了")))
+        collect.cancel()
+    }
+
+    /** The token carries the profile, so another tenant's conversation with the same id is not it. */
+    @Test fun unsent_is_scoped_to_the_conversations_own_profile() = runTest {
+        val vm = buildVm()
+        val collect = launch { vm.unsentTokens.collect {} }
+        advanceUntilIdle()
+        assertTrue(vm.hasUnsent(session("s2", "发送失败了", profile = "personal")))
+        assertFalse(vm.hasUnsent(session("s2", "同名但别的身份", profile = "work")))
         collect.cancel()
     }
 
