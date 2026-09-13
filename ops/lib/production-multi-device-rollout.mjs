@@ -10,6 +10,7 @@ import { acquireDeploymentLock, releaseDeploymentLock } from "./deploy-state.mjs
 import { satisfiesProductionNginxContract } from "./deploy-switch.mjs";
 import { OpsError } from "./errors.mjs";
 import { loadManagedBaselineConfig } from "./managed-baseline-config.mjs";
+import { verifyPreservedLegacyStatus } from "./production-legacy-status.mjs";
 import { renderBindingNginxRoutes } from "./production-binding-rollout.mjs";
 import {
   inspectProductionReleaseEnvironment,
@@ -87,8 +88,9 @@ export async function executeProductionMultiDeviceRollout(config, options = {}) 
     fail("multi_device_rollout_smoke_secret_invalid", "production_multi_device_rollout_preflight");
   }
   const verifyPrevious = options.verifyPrevious ?? verifySingleDeviceSurface;
+  let legacyState;
   try {
-    await verifyPrevious({
+    legacyState = await verifyPrevious({
       config, releaseConfig, activeSlot, currentManifest, fetchImpl, sleep, runner, material, probeWebSocket,
       probeDeviceWebSocket: options.probeDeviceWebSocket ?? probeDeviceWebSocketStatus,
     });
@@ -131,6 +133,7 @@ export async function executeProductionMultiDeviceRollout(config, options = {}) 
     const verifyEnabled = options.verifyEnabled ?? verifyMultiDeviceSurface;
     const verification = {
       config, releaseConfig, activeSlot, currentManifest, fetchImpl, sleep, runner, material, probeWebSocket,
+      expectedLegacyState: legacyState,
       probeDeviceWebSocket: options.probeDeviceWebSocket ?? probeDeviceWebSocketStatus,
     };
     await verifyEnabled(verification);
@@ -163,6 +166,7 @@ export async function executeProductionMultiDeviceRollout(config, options = {}) 
         runner.run("systemctl", ["restart", `${selected.serviceName}.service`], { timeout: 90_000 });
         await verifyPrevious({
           config, releaseConfig, activeSlot, currentManifest, fetchImpl, sleep, runner, material, probeWebSocket,
+          expectedLegacyState: legacyState,
           probeDeviceWebSocket: options.probeDeviceWebSocket ?? probeDeviceWebSocketStatus,
         });
       } catch (rollbackFailure) {
@@ -247,26 +251,30 @@ location ~ ^/v2/devices/[^/]+/ws$ {
 }
 
 export async function verifyMultiDeviceSurface(request) {
-  await verifyCommon(request, true);
+  const legacyState = await verifyCommon(request, true);
   if (!await request.probeWebSocket(request.config.gateway.origin)) {
     fail("multi_device_rollout_websocket_unavailable", "production_multi_device_rollout_verify");
   }
   if (await request.probeDeviceWebSocket(request.config.gateway.origin) !== 401) {
     fail("multi_device_rollout_device_websocket_guard_invalid", "production_multi_device_rollout_verify");
   }
+  return legacyState;
 }
 
 export async function verifySingleDeviceSurface(request) {
-  await verifyCommon(request, false);
+  const legacyState = await verifyCommon(request, false);
   if (!await request.probeWebSocket(request.config.gateway.origin)) {
     fail("multi_device_rollout_connector_websocket_unavailable", "production_multi_device_rollout_verify");
   }
   if (await request.probeDeviceWebSocket(request.config.gateway.origin) !== 404) {
     fail("multi_device_rollout_device_websocket_exposed_while_disabled", "production_multi_device_rollout_verify");
   }
+  return legacyState;
 }
 
-async function verifyCommon({ config, releaseConfig, activeSlot, currentManifest, fetchImpl, sleep, runner, material }, multiDeviceEnabled) {
+async function verifyCommon({
+  config, releaseConfig, activeSlot, currentManifest, fetchImpl, sleep, runner, material, expectedLegacyState = null,
+}, multiDeviceEnabled) {
   const service = `${releaseConfig.slots[activeSlot].serviceName}.service`;
   if (runner.run("systemctl", ["is-active", "--quiet", service], { allowFailure: true }).status !== 0) {
     fail("multi_device_rollout_service_inactive", "production_multi_device_rollout_verify");
@@ -289,10 +297,14 @@ async function verifyCommon({ config, releaseConfig, activeSlot, currentManifest
   if (devices !== (multiDeviceEnabled ? 401 : 404)) {
     fail("multi_device_rollout_device_route_guard_invalid", "production_multi_device_rollout_verify");
   }
-  const status = await fetchJsonRetry(fetchImpl, `${config.gateway.origin}/api/status`, {
-    headers: { "x-hermes-session-token": material.appToken },
-  }, sleep);
-  if (!(status?.status === "ok" || (status?.overall === "ok" && status?.gateway_running === true))) {
+  const legacyState = await verifyPreservedLegacyStatus({
+    fetchImpl,
+    url: `${config.gateway.origin}/api/status`,
+    appToken: material.appToken,
+    sleep,
+    expectedState: expectedLegacyState,
+  });
+  if (legacyState === null) {
     fail("multi_device_rollout_legacy_unhealthy", "production_multi_device_rollout_verify");
   }
   const version = await fetchJsonRetry(fetchImpl, `${loopback}/internal/version`, {
@@ -301,6 +313,7 @@ async function verifyCommon({ config, releaseConfig, activeSlot, currentManifest
   if (version?.serverVersion !== currentManifest.serverVersion || version?.sourceCommit !== currentManifest.sourceCommit) {
     fail("multi_device_rollout_release_identity_mismatch", "production_multi_device_rollout_verify");
   }
+  return legacyState;
 }
 
 async function verifyPreservedEmailSurfaceRetry(request, fetchImpl, options, sleep) {

@@ -51,8 +51,11 @@ test("production multi-device rollout advances only the plural-device capability
   const result = await executeProductionMultiDeviceRollout(fixture.config, {
     ...fixture.dependencies,
     runner: runner(calls),
-    verifyPrevious: async () => { previousChecks += 1; },
-    verifyEnabled: async () => { enabledChecks += 1; },
+    verifyPrevious: async () => { previousChecks += 1; return "device_offline"; },
+    verifyEnabled: async ({ expectedLegacyState }) => {
+      enabledChecks += 1;
+      assert.equal(expectedLegacyState, "device_offline");
+    },
   });
   assert.equal(result.stage, "committed");
   assert.equal(result.bindingEnabled, true);

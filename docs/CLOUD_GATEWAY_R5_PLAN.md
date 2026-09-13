@@ -285,6 +285,12 @@ Google、删除以及其他环境字节不变。候选与公网 smoke 必须同�
 拥有不同的 binding/generation/device ID、选择不会移动旧会话、任一 Connector 重启不影响另一台，且
 并发第四台只能得到一个稳定容量拒绝。
 
+账号托管接管会按设计停用 Legacy Connector，因此 F4/F5 操作器在变更前捕获 Legacy App-Token 路径的
+精确状态：仍有旧 Connector 时必须是健康响应；已完成托管接管时允许精确的
+`503 {"error":"device_offline"}`。重启后和观察窗口后的两轮检查必须保持同一状态；认证失败、其他 5xx
+或格式漂移仍然失败关闭。2026-09-13 的第一次 F4 生产尝试正是在旧门禁上于预检阶段停止，未创建 journal
+且未修改环境或 Nginx，随后补上了这项迁移态回归覆盖。
+
 R5-F4 的回滚边界取决于是否已经产生第二个 committed binding。在此之前，操作器可以逐字节恢复单终端
 环境和 Nginx 路由。此后关闭 multi-device 会让合法状态失去可达入口，因此自动回滚必须失败关闭：只能
 向前修复，或先由所有者通过正常、已确认的 unbind 流程移除 canary binding，再恢复单终端模式。操作器

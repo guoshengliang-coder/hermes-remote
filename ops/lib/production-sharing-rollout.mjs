@@ -10,6 +10,7 @@ import { acquireDeploymentLock, releaseDeploymentLock } from "./deploy-state.mjs
 import { satisfiesProductionNginxContract } from "./deploy-switch.mjs";
 import { OpsError } from "./errors.mjs";
 import { loadManagedBaselineConfig } from "./managed-baseline-config.mjs";
+import { verifyPreservedLegacyStatus } from "./production-legacy-status.mjs";
 import {
   renderIdentityWebNginxRoutes,
 } from "./production-identity-web-rollout.mjs";
@@ -98,8 +99,9 @@ export async function executeProductionSharingRollout(config, options = {}) {
     fail("sharing_rollout_smoke_secret_invalid", "production_sharing_rollout_preflight");
   }
   const verifyPrevious = options.verifyPrevious ?? verifyPreviousIdentityWebSurface;
+  let legacyState;
   try {
-    await verifyPrevious({
+    legacyState = await verifyPrevious({
       config, releaseConfig, activeSlot, currentManifest, fetchImpl, sleep, runner, material, probeWebSocket,
       probeDeviceWebSocket: options.probeDeviceWebSocket ?? probeDeviceWebSocketStatus,
     });
@@ -148,6 +150,7 @@ export async function executeProductionSharingRollout(config, options = {}) {
     const verifyEnabled = options.verifyEnabled ?? verifySharingSurface;
     const verification = {
       config, releaseConfig, activeSlot, currentManifest, fetchImpl, sleep, runner, material, probeWebSocket,
+      expectedLegacyState: legacyState,
       probeDeviceWebSocket: options.probeDeviceWebSocket ?? probeDeviceWebSocketStatus,
     };
     await verifyEnabled(verification);
@@ -187,6 +190,7 @@ export async function executeProductionSharingRollout(config, options = {}) {
         runner.run("systemctl", ["restart", `${selected.serviceName}.service`], { timeout: 90_000 });
         await verifyPrevious({
           config, releaseConfig, activeSlot, currentManifest, fetchImpl, sleep, runner, material, probeWebSocket,
+          expectedLegacyState: legacyState,
           probeDeviceWebSocket: options.probeDeviceWebSocket ?? probeDeviceWebSocketStatus,
         });
       } catch (rollbackFailure) {
@@ -239,26 +243,30 @@ export function renderSharingNginxRoutes() {
 }
 
 export async function verifySharingSurface(request) {
-  await verifyCommon(request, true);
+  const legacyState = await verifyCommon(request, true);
   if (!await request.probeWebSocket(request.config.gateway.origin)) {
     fail("sharing_rollout_websocket_unavailable", "production_sharing_rollout_verify");
   }
   if (await request.probeDeviceWebSocket(request.config.gateway.origin) !== 401) {
     fail("sharing_rollout_device_websocket_guard_invalid", "production_sharing_rollout_verify");
   }
+  return legacyState;
 }
 
 export async function verifyPreviousIdentityWebSurface(request) {
-  await verifyCommon(request, false);
+  const legacyState = await verifyCommon(request, false);
   if (!await request.probeWebSocket(request.config.gateway.origin)) {
     fail("sharing_rollout_connector_websocket_unavailable", "production_sharing_rollout_verify");
   }
   if (await request.probeDeviceWebSocket(request.config.gateway.origin) !== 401) {
     fail("sharing_rollout_device_websocket_guard_invalid", "production_sharing_rollout_verify");
   }
+  return legacyState;
 }
 
-async function verifyCommon({ config, releaseConfig, activeSlot, currentManifest, fetchImpl, sleep, runner, material }, sharingEnabled) {
+async function verifyCommon({
+  config, releaseConfig, activeSlot, currentManifest, fetchImpl, sleep, runner, material, expectedLegacyState = null,
+}, sharingEnabled) {
   const service = `${releaseConfig.slots[activeSlot].serviceName}.service`;
   if (runner.run("systemctl", ["is-active", "--quiet", service], { allowFailure: true }).status !== 0) {
     fail("sharing_rollout_service_inactive", "production_sharing_rollout_verify");
@@ -282,10 +290,14 @@ async function verifyCommon({ config, releaseConfig, activeSlot, currentManifest
     fail("sharing_rollout_device_route_guard_invalid", "production_sharing_rollout_verify");
   }
   await verifySharingRoutes(config.gateway.origin, fetchImpl, sharingEnabled, sleep);
-  const status = await fetchJsonRetry(fetchImpl, `${config.gateway.origin}/api/status`, {
-    headers: { "x-hermes-session-token": material.appToken },
-  }, sleep);
-  if (!(status?.status === "ok" || (status?.overall === "ok" && status?.gateway_running === true))) {
+  const legacyState = await verifyPreservedLegacyStatus({
+    fetchImpl,
+    url: `${config.gateway.origin}/api/status`,
+    appToken: material.appToken,
+    sleep,
+    expectedState: expectedLegacyState,
+  });
+  if (legacyState === null) {
     fail("sharing_rollout_legacy_unhealthy", "production_sharing_rollout_verify");
   }
   const version = await fetchJsonRetry(fetchImpl, `${loopback}/internal/version`, {
@@ -294,6 +306,7 @@ async function verifyCommon({ config, releaseConfig, activeSlot, currentManifest
   if (version?.serverVersion !== currentManifest.serverVersion || version?.sourceCommit !== currentManifest.sourceCommit) {
     fail("sharing_rollout_release_identity_mismatch", "production_sharing_rollout_verify");
   }
+  return legacyState;
 }
 
 async function verifySharingRoutes(origin, fetchImpl, enabled, sleep) {

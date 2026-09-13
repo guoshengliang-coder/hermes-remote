@@ -681,11 +681,13 @@ node scripts/production-multi-device-rollout.mjs \
 
 Admission requires the committed binding journal, schema 15/PostgreSQL 18 release identity, exact single-device
 environment, exact original binding routes, one matching Nginx include, active service, healthy public/loopback
-email and binding surfaces, and the production deployment lock. The installed route set exposes the existing
+email and binding surfaces, the captured preflight Legacy state, and the production deployment lock. The Legacy
+state is either an authenticated healthy response or the exact `503 {"error":"device_offline"}` response left
+after a successful Desktop managed takeover intentionally retires the Legacy Connector. The installed route set exposes the existing
 binding endpoints plus `GET /v2/devices`, device detail/default/unbind, explicit device REST, and explicit device
 WebSocket traffic. Sharing, installation management and Web routes stay absent at Nginx. Smoke requires
 `maxActiveConnectorsPerAccount=3`, `supportsDeviceSelection=true`, no sharing fields, unauthenticated device REST
-and WebSocket guards, the existing Connector WebSocket, Legacy health, and unchanged release identity.
+and WebSocket guards, the existing Connector WebSocket, the unchanged preflight Legacy state, and unchanged release identity.
 
 Any failure during this transition restores the environment and binding route file byte-for-byte, reloads Nginx,
 restarts the active Gateway, and re-verifies single-device mode. This automatic rollback is valid only before a
@@ -693,6 +695,14 @@ second binding is created. Once an owner completes a second binding, do not disa
 or first remove the canary through the normal owner-authorized unbind flow. `HR-OPS-022` names all operator failures;
 inspect `/var/lib/hermes-go/ops/multi-device-rollout.json` before retrying. Source merge and bundle generation do not
 authorize production execution.
+
+The first authorized production attempt on 2026-09-13 used schema-8 operator bundle
+`Hermes-R5D-Ops-e50c7d070695` and stopped before mutation with `HR-OPS-022`: the active account-mode Desktop had
+correctly retired its Legacy Connector, so authenticated `/api/status` returned the exact `device_offline` state,
+while the original operator admitted only a healthy Legacy Connector. No multi-device journal was created, the
+active blue service stayed running, and the environment and Nginx routes remained unchanged. The corrected gate
+captures either legitimate preflight state and requires that exact state after restart and after the observation
+window; authentication failures, other 5xx responses and malformed bodies still fail closed.
 
 ## Production identity and Web account-center gray rollout (R5-F5-A; code gate only)
 
@@ -714,14 +724,14 @@ node scripts/production-identity-web-rollout.mjs \
 
 Admission requires the committed multi-device journal, independently pins the active server version and source
 commit, requires the exact R5-F4 environment and binding routes, proves the new identity-Web route file and include are absent, checks
-schema 15/PostgreSQL 18, Legacy health, both device WebSocket guards, and takes the shared deployment lock. The
+schema 15/PostgreSQL 18, the captured preflight Legacy state, both device WebSocket guards, and takes the shared deployment lock. The
 allowlist exposes only the account shell/assets, Web session and email flows, identity management, installation
 management, audit events and default-device selection. It deliberately omits Google, account deletion and every
 sharing route.
 
 Post-restart smoke checks the account shell's CSP/no-store boundary, secure SameSite cookies, CSRF/Origin rejection,
 unauthenticated identity and installation guards, absent Google/deletion/sharing routes, preserved multi-device and
-Desktop capabilities, Legacy health and exact release identity. Any failure restores the previous environment and
+Desktop capabilities, the unchanged preflight Legacy state and exact release identity. Any failure restores the previous environment and
 site file byte-for-byte, removes the new include file, reloads Nginx, restarts the active Gateway and re-verifies
 R5-F4. `HR-OPS-023` names all failures; inspect
 `/var/lib/hermes-go/ops/identity-web-rollout.json` before retrying. Source merge and bundle generation do not
@@ -746,12 +756,12 @@ node scripts/production-sharing-rollout.mjs \
 ```
 
 Admission requires both committed prerequisite journals, exact identity-Web environment and route
-bytes, one matching identity-Web include, active schema-15/PostgreSQL-18 service, Legacy and device
+bytes, one matching identity-Web include, active schema-15/PostgreSQL-18 service, the captured preflight Legacy state and device
 guards, matching release identity, and the shared deployment lock. The new allowlist contains only
 native and Web list/invite/accept/cancel/revoke/leave sharing paths. Post-restart smoke requires the
 fixed capability limits of five grantees per terminal and ten accepted shared terminals per account,
 unauthenticated native/Web guards, Web CSRF rejection, the existing identity-Web security boundary,
-multi-device routing, Legacy health, and unchanged release identity.
+multi-device routing, the unchanged preflight Legacy state, and unchanged release identity.
 
 An immediate rollout failure restores the identity-Web environment and site file byte-for-byte,
 removes the sharing include, restarts the active Gateway, and re-verifies F5-A. This operator must run
