@@ -1,0 +1,582 @@
+import CryptoKit
+import Darwin
+import Foundation
+import XCTest
+@testable import HermesGoDesktopCore
+
+final class DesktopComponentReleaseInstallerTests: XCTestCase {
+    func testInstallCommitsFourComponentsRecordsReferenceAndReturnsActivationPlan() async throws {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let downloader = FixtureComponentDownloader()
+        let installer = try fixture.installer(downloader: downloader)
+
+        let installed = try await installer.install(
+            verifiedManifest: fixture.verifiedManifest,
+            workspaceRoot: fixture.workspace,
+            runID: "10000000-0000-4000-8000-000000000001",
+            healthProbe: executableProbe
+        )
+
+        let requested = await downloader.requestedKinds()
+        XCTAssertEqual(requested, [
+            .pythonRuntime, .nodeRuntime, .hermesCore, .connector,
+        ])
+        XCTAssertEqual(installed.activationPlan.components.count, 4)
+        for artifact in fixture.manifest.components {
+            let component = fixture.managedContent(artifact)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: component.path))
+            XCTAssertEqual(
+                installed.activationPlan.component(artifact.kind)?.root.standardizedFileURL,
+                component.standardizedFileURL
+            )
+        }
+        let reference = try JSONDecoder().decode(
+            DesktopManagedComponentReferenceSet.self,
+            from: Data(contentsOf: installed.referenceURL)
+        )
+        XCTAssertEqual(reference.releaseVersion, fixture.manifest.releaseVersion)
+        XCTAssertEqual(Set(reference.components.map(\.kind)), Set([
+            .pythonRuntime, .nodeRuntime, .hermesCore, .connector,
+        ]))
+
+        try installer.discard(installed)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: installed.workspaceDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: installed.referenceURL.path))
+    }
+
+    func testSecondInstallReusesExactStoreWithoutDownloading() async throws {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let firstDownloader = FixtureComponentDownloader()
+        let first = try fixture.installer(downloader: firstDownloader)
+        let installed = try await first.install(
+            verifiedManifest: fixture.verifiedManifest,
+            workspaceRoot: fixture.workspace,
+            runID: "20000000-0000-4000-8000-000000000002",
+            healthProbe: executableProbe
+        )
+        try first.discard(installed)
+
+        let secondDownloader = FixtureComponentDownloader()
+        let second = try fixture.installer(downloader: secondDownloader)
+        let reused = try await second.install(
+            verifiedManifest: fixture.verifiedManifest,
+            workspaceRoot: fixture.workspace,
+            runID: "30000000-0000-4000-8000-000000000003",
+            healthProbe: executableProbe
+        )
+
+        let secondRequests = await secondDownloader.requestedKinds()
+        XCTAssertEqual(secondRequests, [])
+        XCTAssertEqual(reused.referenceURL, installed.referenceURL)
+        XCTAssertEqual(reused.activationPlan, installed.activationPlan)
+        try second.discard(reused)
+    }
+
+    func testExtractionFailureRemovesRunWorkspaceAndDoesNotPublishReference() async throws {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let downloader = FixtureComponentDownloader()
+        let installer = try fixture.installer(
+            downloader: downloader,
+            failExtractionFor: .hermesCore
+        )
+        let runID = "40000000-0000-4000-8000-000000000004"
+
+        await XCTAssertThrowsErrorAsync(try await installer.install(
+            verifiedManifest: fixture.verifiedManifest,
+            workspaceRoot: fixture.workspace,
+            runID: runID,
+            healthProbe: executableProbe
+        )) { error in
+            XCTAssertEqual(error as? FixtureComponentInstallError, .extractionFailed)
+        }
+
+        let requested = await downloader.requestedKinds()
+        XCTAssertEqual(requested, [
+            .pythonRuntime, .nodeRuntime, .hermesCore,
+        ])
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.workspace.appendingPathComponent(runID).path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.referenceURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: fixture.managedContent(fixture.artifact(.pythonRuntime)).path
+        ))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: fixture.managedContent(fixture.artifact(.nodeRuntime)).path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.managedContent(fixture.artifact(.connector)).path
+        ))
+    }
+
+    func testExistingUnhealthyComponentFailsWithoutReplacingOrDownloading() async throws {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let first = try fixture.installer(downloader: FixtureComponentDownloader())
+        let installed = try await first.install(
+            verifiedManifest: fixture.verifiedManifest,
+            workspaceRoot: fixture.workspace,
+            runID: "50000000-0000-4000-8000-000000000005",
+            healthProbe: executableProbe
+        )
+        try first.discard(installed)
+        let downloader = FixtureComponentDownloader()
+        let second = try fixture.installer(downloader: downloader)
+        let runID = "60000000-0000-4000-8000-000000000006"
+
+        await XCTAssertThrowsErrorAsync(try await second.install(
+            verifiedManifest: fixture.verifiedManifest,
+            workspaceRoot: fixture.workspace,
+            runID: runID,
+            healthProbe: { kind, _, _ in kind != .nodeRuntime }
+        )) { error in
+            XCTAssertEqual(
+                error as? DesktopComponentReleaseInstallError,
+                .componentHealthProbeFailed(.nodeRuntime)
+            )
+        }
+
+        let requests = await downloader.requestedKinds()
+        XCTAssertEqual(requests, [])
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.workspace.appendingPathComponent(runID).path
+        ))
+    }
+
+    func testInvalidTopologyFailsBeforeWorkspaceOrNetworkMutation() async throws {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let downloader = FixtureComponentDownloader()
+        let installer = try fixture.installer(downloader: downloader)
+        var components = fixture.manifest.components
+        let connectorIndex = try XCTUnwrap(components.firstIndex(where: { $0.kind == .connector }))
+        let connector = components[connectorIndex]
+        components[connectorIndex] = fixture.makeArtifact(
+            kind: .connector,
+            contentSHA256: connector.contentSHA256,
+            dependencies: connector.dependencies.filter { $0.kind != .nodeRuntime }
+        )
+        let invalid = fixture.manifest(with: components)
+        let verifiedInvalid = try fixture.verify(invalid)
+        let runID = "70000000-0000-4000-8000-000000000007"
+
+        await XCTAssertThrowsErrorAsync(try await installer.install(
+            verifiedManifest: verifiedInvalid,
+            workspaceRoot: fixture.workspace,
+            runID: runID,
+            healthProbe: executableProbe
+        )) { error in
+            XCTAssertEqual(error as? DesktopComponentReleaseInstallError, .invalidManifest)
+        }
+
+        let requests = await downloader.requestedKinds()
+        XCTAssertEqual(requests, [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.workspace.path))
+    }
+
+    func testTransportInterruptionKeepsManifestBoundWorkspaceAndResumesSameRun() async throws {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let downloader = FixtureComponentDownloader(failOnceFor: .hermesCore)
+        let installer = try fixture.installer(downloader: downloader)
+        let runID = "80000000-0000-4000-8000-000000000008"
+        let runRoot = fixture.workspace.appendingPathComponent(runID)
+
+        await XCTAssertThrowsErrorAsync(try await installer.install(
+            verifiedManifest: fixture.verifiedManifest,
+            workspaceRoot: fixture.workspace,
+            runID: runID,
+            healthProbe: executableProbe
+        )) { error in
+            XCTAssertEqual(error as? DesktopComponentDownloadError, .transportFailed)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: runRoot.appendingPathComponent("install.json").path
+        ))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: runRoot.appendingPathComponent(
+                "downloads/.Hermes-Component-hermes_core-1.2.3-arm64.tar.gz.partial"
+            ).path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.referenceURL.path))
+
+        let otherManifest = fixture.manifest(
+            releaseVersion: "0.4.2",
+            components: fixture.manifest.components
+        )
+        let otherVerified = try fixture.verify(otherManifest)
+        await XCTAssertThrowsErrorAsync(try await installer.install(
+            verifiedManifest: otherVerified,
+            workspaceRoot: fixture.workspace,
+            runID: runID,
+            healthProbe: executableProbe
+        )) { error in
+            XCTAssertEqual(
+                error as? DesktopComponentReleaseInstallError,
+                .workspaceAlreadyExists
+            )
+        }
+
+        let installed = try await installer.install(
+            verifiedManifest: fixture.verifiedManifest,
+            workspaceRoot: fixture.workspace,
+            runID: runID,
+            healthProbe: executableProbe
+        )
+        let requests = await downloader.requestedKinds()
+        XCTAssertEqual(requests, [
+            .pythonRuntime, .nodeRuntime, .hermesCore, .hermesCore, .connector,
+        ])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: installed.referenceURL.path))
+        try installer.discard(installed)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: runRoot.path))
+    }
+
+    func testInterruptedWorkspaceCanBeExplicitlyDiscarded() async throws {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let installer = try fixture.installer(
+            downloader: FixtureComponentDownloader(failOnceFor: .pythonRuntime)
+        )
+        let runID = "90000000-0000-4000-8000-000000000009"
+        let runRoot = fixture.workspace.appendingPathComponent(runID)
+        await XCTAssertThrowsErrorAsync(try await installer.install(
+            verifiedManifest: fixture.verifiedManifest,
+            workspaceRoot: fixture.workspace,
+            runID: runID,
+            healthProbe: executableProbe
+        )) { error in
+            XCTAssertEqual(error as? DesktopComponentDownloadError, .transportFailed)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: runRoot.path))
+
+        let marker = runRoot.appendingPathComponent("install.json")
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o644], ofItemAtPath: marker.path
+        )
+        XCTAssertThrowsError(try installer.discardInterruptedInstall(
+            workspaceRoot: fixture.workspace,
+            runID: runID
+        )) { error in
+            XCTAssertEqual(error as? DesktopComponentReleaseInstallError, .invalidWorkspace)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: runRoot.path))
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: marker.path
+        )
+
+        try installer.discardInterruptedInstall(
+            workspaceRoot: fixture.workspace,
+            runID: runID
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: runRoot.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.referenceURL.path))
+        XCTAssertNoThrow(try installer.discardInterruptedInstall(
+            workspaceRoot: fixture.workspace,
+            runID: runID
+        ))
+    }
+
+    private var executableProbe: DesktopComponentReleaseInstaller.HealthProbe {
+        { _, root, entrypoint in
+            FileManager.default.fileExists(atPath: root.path)
+                && FileManager.default.isExecutableFile(atPath: entrypoint.path)
+        }
+    }
+}
+
+private func XCTAssertThrowsErrorAsync<T>(
+    _ expression: @autoclosure () async throws -> T,
+    _ errorHandler: (Error) -> Void
+) async {
+    do {
+        _ = try await expression()
+        XCTFail("Expected expression to throw")
+    } catch {
+        errorHandler(error)
+    }
+}
+
+private enum FixtureComponentInstallError: Error, Equatable {
+    case extractionFailed
+}
+
+private actor FixtureComponentDownloader: DesktopComponentReleaseDownloading {
+    private var requested: [DesktopManagedComponentKind] = []
+    private let failOnceKind: DesktopManagedComponentKind?
+    private var didFail = false
+
+    init(failOnceFor kind: DesktopManagedComponentKind? = nil) {
+        failOnceKind = kind
+    }
+
+    func download(
+        _ component: DesktopComponentReleaseArtifactV2,
+        into downloadRoot: URL
+    ) async throws -> URL {
+        requested.append(component.kind)
+        if component.kind == failOnceKind, !didFail {
+            didFail = true
+            let partial = downloadRoot.appendingPathComponent(".\(component.fileName).partial")
+            try Data("partial".utf8).write(to: partial)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600], ofItemAtPath: partial.path
+            )
+            throw DesktopComponentDownloadError.transportFailed
+        }
+        let destination = downloadRoot.appendingPathComponent(component.fileName)
+        try Data(component.kind.rawValue.utf8).write(to: destination)
+        return destination
+    }
+
+    func requestedKinds() -> [DesktopManagedComponentKind] { requested }
+}
+
+private final class FixtureComponentExtractor: DesktopComponentArchiveExtracting {
+    private let sources: [DesktopManagedComponentKind: URL]
+    private let failedKind: DesktopManagedComponentKind?
+
+    init(
+        sources: [DesktopManagedComponentKind: URL],
+        failedKind: DesktopManagedComponentKind?
+    ) {
+        self.sources = sources
+        self.failedKind = failedKind
+    }
+
+    func extractComponent(
+        archive: URL,
+        metadata: DesktopComponentReleaseArtifactV2,
+        into destinationRoot: URL,
+        runID: String
+    ) throws -> URL {
+        guard metadata.kind != failedKind else {
+            throw FixtureComponentInstallError.extractionFailed
+        }
+        let source = sources[metadata.kind]!
+        let destination = destinationRoot.appendingPathComponent(
+            "\(runID.lowercased())-\(metadata.kind.rawValue)",
+            isDirectory: true
+        )
+        try FileManager.default.copyItem(at: source, to: destination)
+        return destination
+    }
+}
+
+private final class ComponentInstallFixture {
+    let base: URL
+    let workspace: URL
+    let store: URL
+    let manifest: DesktopComponentReleaseManifestV2
+    let verifiedManifest: VerifiedDesktopComponentReleaseManifestV2
+    private let sources: [DesktopManagedComponentKind: URL]
+
+    var referenceURL: URL {
+        store.appendingPathComponent("references/\(manifest.releaseVersion).json")
+    }
+
+    init() throws {
+        base = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "hermes-component-installer-\(UUID().uuidString)", isDirectory: true
+        )
+        workspace = base.appendingPathComponent("workspace", isDirectory: true)
+        store = base.appendingPathComponent("managed", isDirectory: true)
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: false)
+        let paths: [DesktopManagedComponentKind: String] = [
+            .pythonRuntime: "bin/python3",
+            .nodeRuntime: "bin/node",
+            .hermesCore: "bin/hermes",
+            .connector: "bin/hermes-connector",
+        ]
+        var sourceByKind: [DesktopManagedComponentKind: URL] = [:]
+        var hashes: [DesktopManagedComponentKind: String] = [:]
+        for kind in [
+            DesktopManagedComponentKind.pythonRuntime, .nodeRuntime, .hermesCore, .connector,
+        ] {
+            let source = base.appendingPathComponent("source-\(kind.rawValue)", isDirectory: true)
+            let entrypoint = source.appendingPathComponent(paths[kind]!)
+            try FileManager.default.createDirectory(
+                at: entrypoint.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try Data("#!/bin/sh\nexit 0\n".utf8).write(to: entrypoint)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700], ofItemAtPath: entrypoint.path
+            )
+            sourceByKind[kind] = source
+            hashes[kind] = try DesktopManagedComponentContentHasher()
+                .identify(directory: source).sha256
+        }
+        sources = sourceByKind
+        let python = Self.artifact(
+            kind: .pythonRuntime,
+            contentSHA256: hashes[.pythonRuntime]!,
+            dependencies: []
+        )
+        let node = Self.artifact(
+            kind: .nodeRuntime,
+            contentSHA256: hashes[.nodeRuntime]!,
+            dependencies: []
+        )
+        let hermes = Self.artifact(
+            kind: .hermesCore,
+            contentSHA256: hashes[.hermesCore]!,
+            dependencies: [.init(
+                kind: .pythonRuntime, contentSHA256: hashes[.pythonRuntime]!
+            )]
+        )
+        let connector = Self.artifact(
+            kind: .connector,
+            contentSHA256: hashes[.connector]!,
+            dependencies: [
+                .init(kind: .hermesCore, contentSHA256: hashes[.hermesCore]!),
+                .init(kind: .nodeRuntime, contentSHA256: hashes[.nodeRuntime]!),
+            ]
+        )
+        let builtManifest = DesktopComponentReleaseManifestV2(
+            releaseVersion: "0.4.1",
+            channel: "internal",
+            architecture: "arm64",
+            minimumMacOS: "14.0",
+            createdAt: "2026-09-01T00:00:00Z",
+            expiresAt: "2026-09-20T00:00:00Z",
+            components: [connector, hermes, node, python]
+        )
+        manifest = builtManifest
+        verifiedManifest = try Self.verify(builtManifest)
+    }
+
+    func installer(
+        downloader: FixtureComponentDownloader,
+        failExtractionFor failedKind: DesktopManagedComponentKind? = nil
+    ) throws -> DesktopComponentReleaseInstaller {
+        try DesktopComponentReleaseInstaller(
+            storeRoot: store,
+            currentUserID: Darwin.getuid(),
+            downloader: downloader,
+            extractor: FixtureComponentExtractor(sources: sources, failedKind: failedKind)
+        )
+    }
+
+    func artifact(_ kind: DesktopManagedComponentKind) -> DesktopComponentReleaseArtifactV2 {
+        manifest.components.first(where: { $0.kind == kind })!
+    }
+
+    func managedContent(_ artifact: DesktopComponentReleaseArtifactV2) -> URL {
+        store.appendingPathComponent(
+            "components/\(artifact.kind.rawValue)/\(artifact.contentSHA256)/content",
+            isDirectory: true
+        )
+    }
+
+    func makeArtifact(
+        kind: DesktopManagedComponentKind,
+        contentSHA256: String,
+        dependencies: [DesktopComponentReleaseDependency]
+    ) -> DesktopComponentReleaseArtifactV2 {
+        Self.artifact(
+            kind: kind,
+            contentSHA256: contentSHA256,
+            dependencies: dependencies
+        )
+    }
+
+    func manifest(
+        with components: [DesktopComponentReleaseArtifactV2]
+    ) -> DesktopComponentReleaseManifestV2 {
+        manifest(releaseVersion: manifest.releaseVersion, components: components)
+    }
+
+    func manifest(
+        releaseVersion: String,
+        components: [DesktopComponentReleaseArtifactV2]
+    ) -> DesktopComponentReleaseManifestV2 {
+        DesktopComponentReleaseManifestV2(
+            releaseVersion: releaseVersion,
+            channel: manifest.channel,
+            architecture: manifest.architecture,
+            minimumMacOS: manifest.minimumMacOS,
+            createdAt: manifest.createdAt,
+            expiresAt: manifest.expiresAt,
+            components: components
+        )
+    }
+
+    func verify(
+        _ manifest: DesktopComponentReleaseManifestV2
+    ) throws -> VerifiedDesktopComponentReleaseManifestV2 {
+        try Self.verify(manifest)
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: base)
+    }
+
+    private static func artifact(
+        kind: DesktopManagedComponentKind,
+        contentSHA256: String,
+        dependencies: [DesktopComponentReleaseDependency]
+    ) -> DesktopComponentReleaseArtifactV2 {
+        let paths: [DesktopManagedComponentKind: String] = [
+            .pythonRuntime: "bin/python3",
+            .nodeRuntime: "bin/node",
+            .hermesCore: "bin/hermes",
+            .connector: "bin/hermes-connector",
+        ]
+        let fileName = "Hermes-Component-\(kind.rawValue)-1.2.3-arm64.tar.gz"
+        return DesktopComponentReleaseArtifactV2(
+            kind: kind,
+            version: "1.2.3",
+            architecture: "arm64",
+            installPhase: .bootstrap,
+            requiredForBootstrap: true,
+            reuseContract: .exactContent,
+            fileName: fileName,
+            entrypoint: paths[kind]!,
+            downloadURL: "https://downloads.example/desktop/components/\(fileName)",
+            sizeBytes: 1,
+            sha256: SHA256.hash(data: Data(kind.rawValue.utf8))
+                .map { String(format: "%02x", $0) }.joined(),
+            contentSHA256: contentSHA256,
+            dependencies: dependencies
+        )
+    }
+
+    private static func verify(
+        _ manifest: DesktopComponentReleaseManifestV2
+    ) throws -> VerifiedDesktopComponentReleaseManifestV2 {
+        let signer = Curve25519.Signing.PrivateKey()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let payload = try encoder.encode(manifest)
+        let signature = try signer.signature(for: payload)
+        let envelope = try JSONSerialization.data(withJSONObject: [
+            "algorithm": "Ed25519",
+            "keyId": "test-key",
+            "payload": base64URL(payload),
+            "signature": base64URL(signature),
+        ], options: [.sortedKeys])
+        let now = ISO8601DateFormatter().date(from: "2026-09-10T00:00:00Z")!
+        let verifier = try DesktopComponentReleaseManifestV2Verifier(
+            expectedOrigin: URL(string: "https://downloads.example")!,
+            expectedChannel: "internal",
+            expectedArchitecture: "arm64",
+            currentMacOS: OperatingSystemVersion(
+                majorVersion: 14, minorVersion: 8, patchVersion: 0
+            ),
+            signingKeys: ["test-key": signer.publicKey.rawRepresentation],
+            now: { now }
+        )
+        return try verifier.verifyForInstallation(envelope)
+    }
+
+    private static func base64URL(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+}

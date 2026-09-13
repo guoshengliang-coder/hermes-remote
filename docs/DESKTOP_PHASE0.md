@@ -258,6 +258,15 @@ schema-v1 writers reject those schema-v2 runtime fields, and schema-v2 writers r
 the active managed layout or content changed after planning. This remains an unwired local primitive
 and does not start either service.
 
+C4's third local slice composes the signed v2 manifest token, resumable downloader, safe tar
+extractor, immutable component-store writer, release references, and activation planner into one
+ordered preparation transaction. Only the strict Ed25519 verifier can create the installation token.
+A transport interruption preserves an owner-only UUID workspace bound to the exact normalized
+manifest identity; the same run may resume it, while a different manifest cannot claim it. Other
+failures clean that workspace, and no reference becomes visible until all four components and the
+activation plan pass. An explicit cancel can remove only the exact UUID workspace carrying a valid
+installer marker. The result still does not mutate credentials, `current`, launchd, or processes.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 
