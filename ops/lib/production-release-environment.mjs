@@ -109,9 +109,11 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
   const webSessionEnabled = values.ACCOUNT_WEB_SESSION_ENABLED === "1";
   const identityWebEnabled = identityManagementEnabled && webAccountCenterEnabled && webSessionEnabled;
   const identityWebPartiallyEnabled = identityManagementEnabled || webAccountCenterEnabled || webSessionEnabled;
+  const sharingEnabled = values.ACCOUNT_DEVICE_SHARING_ENABLED === "1";
   if ((!bindingEnabled && !emailOnly) || (multiDeviceEnabled && !bindingEnabled)
       || (identityWebPartiallyEnabled && !identityWebEnabled)
-      || (identityWebEnabled && !multiDeviceEnabled)) {
+      || (identityWebEnabled && !multiDeviceEnabled)
+      || (sharingEnabled && !identityWebEnabled)) {
     fail("production_release_email_environment_invalid");
   }
   const expected = {
@@ -122,6 +124,7 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
     ACCOUNT_GATEWAY_ORIGIN: origin,
     ACCOUNT_BINDING_ENABLED: bindingEnabled ? "1" : "0",
     ACCOUNT_MULTI_DEVICE_ENABLED: multiDeviceEnabled ? "1" : "0",
+    ACCOUNT_DEVICE_SHARING_ENABLED: sharingEnabled ? "1" : "0",
     ACCOUNT_IDENTITY_MANAGEMENT_ENABLED: identityWebEnabled ? "1" : "0",
     ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED: identityWebEnabled ? "1" : "0",
     ACCOUNT_WEB_SESSION_ENABLED: identityWebEnabled ? "1" : "0",
@@ -135,9 +138,11 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
     }
   }
   return Object.freeze({
-    mode: identityWebEnabled
-      ? "email_identity_web"
-      : (multiDeviceEnabled ? "email_multi_device" : (bindingEnabled ? "email_binding" : "email_otp")),
+    mode: sharingEnabled
+      ? "email_sharing"
+      : identityWebEnabled
+        ? "email_identity_web"
+        : (multiDeviceEnabled ? "email_multi_device" : (bindingEnabled ? "email_binding" : "email_otp")),
     digest: digest(content),
     values: Object.freeze({ ...values }),
   });
@@ -147,7 +152,7 @@ export function renderProductionReleaseEnvironment(config, slot, inspected) {
   const selected = config.slots[slot];
   if (!selected) fail("production_release_candidate_slot_unknown");
   if (inspected?.mode === "disabled") return renderDeployGatewayEnvironment(config, slot);
-  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web"]).has(inspected?.mode)
+  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing"]).has(inspected?.mode)
       || !inspected.values) {
     fail("production_release_environment_mode_invalid");
   }
@@ -210,6 +215,23 @@ export function renderIdentityWebRolloutEnvironment(config, slot, inspected) {
       "ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED",
       "ACCOUNT_WEB_SESSION_ENABLED",
     ]).has(key)) value = "1";
+    if (typeof value !== "string" || /[\r\n\0]/.test(value)) {
+      fail("production_release_email_environment_invalid");
+    }
+    return `${key}=${value}`;
+  }).join("\n") + "\n";
+}
+
+export function renderSharingRolloutEnvironment(config, slot, inspected) {
+  const selected = config.slots[slot];
+  if (!selected) fail("production_release_candidate_slot_unknown");
+  if (inspected?.mode !== "email_identity_web" || !inspected.values) {
+    fail("production_release_sharing_requires_identity_web_environment");
+  }
+  return EMAIL_KEYS.map((key) => {
+    let value = inspected.values[key];
+    if (key === "PORT") value = String(selected.gatewayPort);
+    if (key === "ACCOUNT_DEVICE_SHARING_ENABLED") value = "1";
     if (typeof value !== "string" || /[\r\n\0]/.test(value)) {
       fail("production_release_email_environment_invalid");
     }

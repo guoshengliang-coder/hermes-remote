@@ -17,6 +17,7 @@ import {
   renderIdentityWebRolloutEnvironment,
   renderMultiDeviceRolloutEnvironment,
   renderProductionReleaseEnvironment,
+  renderSharingRolloutEnvironment,
 } from "../../ops/lib/production-release-environment.mjs";
 import {
   executeProductionRelease,
@@ -166,6 +167,29 @@ test("R5-F1 recognizes and preserves the exact identity-Web runtime", async (t) 
   assert.match(candidate, /^ACCOUNT_DELETION_ENABLED=0$/m);
 });
 
+test("R5-F1 recognizes and preserves the exact sharing runtime", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  await writeEmailEnvironment(config, "blue");
+  const email = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderBindingRolloutEnvironment(config, "blue", email), { mode: 0o600 });
+  const binding = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderMultiDeviceRolloutEnvironment(config, "blue", binding), { mode: 0o600 });
+  const multiDevice = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderIdentityWebRolloutEnvironment(config, "blue", multiDevice), { mode: 0o600 });
+  const identityWeb = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderSharingRolloutEnvironment(config, "blue", identityWeb), { mode: 0o600 });
+
+  const inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  assert.equal(inspected.mode, "email_sharing");
+  const candidate = renderProductionReleaseEnvironment(config, "green", inspected);
+  assert.match(candidate, /^PORT=18788$/m);
+  assert.match(candidate, /^ACCOUNT_DEVICE_SHARING_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_IDENTITY_MANAGEMENT_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_GOOGLE_AUTH_ENABLED=0$/m);
+  assert.match(candidate, /^ACCOUNT_DELETION_ENABLED=0$/m);
+});
+
 test("R5-F1 rejects email-mode schema changes and post-admission environment drift", async (t) => {
   const fixture = await createFixture(t);
   const config = await loadManagedBaselineConfig(fixture.configPath);
@@ -288,6 +312,9 @@ test("R5-F1 identity-Web smoke requires the live shell, secure bootstrap, and au
     if (["/v2/account", "/v2/connector-binding", "/v2/web/identities", "/v2/web/installations"].includes(pathname)) {
       return new Response("{}", { status: 401 });
     }
+    if (pathname === "/v2/web/devices/probe-device/shares") {
+      return new Response("not found", { status: 404 });
+    }
     if (pathname === "/account") {
       return new Response("<!doctype html>", { headers: {
         "content-type": "text/html; charset=utf-8",
@@ -314,6 +341,7 @@ test("R5-F1 identity-Web smoke requires the live shell, secure bootstrap, and au
   assert.deepEqual(requests, [
     "/v2/capabilities", "/v2/account", "/v2/connector-binding", "/account", "/v2/web/session",
     "/v2/web/identities", "/v2/web/installations",
+    "/v2/web/devices/probe-device/shares",
   ]);
 });
 

@@ -38,7 +38,7 @@ export function gatewayRuntimePolicy(runtimeMode = "disabled") {
       desktopBootstrapRuntimeContract: null,
     };
   }
-  if (new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web"]).has(runtimeMode)) {
+  if (new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing"]).has(runtimeMode)) {
     const bindingEnabled = runtimeMode !== "email_otp";
     return {
       runtimeMode,
@@ -63,8 +63,9 @@ export function gatewayRuntimePolicy(runtimeMode = "disabled") {
 export function verifyGatewayCapabilities(capabilities, runtimePolicy, expectedVersion) {
   const binding = capabilities?.binding;
   const desktopBootstrap = capabilities?.desktopBootstrap;
-  const multiDeviceEnabled = new Set(["email_multi_device", "email_identity_web"]).has(runtimePolicy.runtimeMode);
-  const identityWebEnabled = runtimePolicy.runtimeMode === "email_identity_web";
+  const multiDeviceEnabled = new Set(["email_multi_device", "email_identity_web", "email_sharing"]).has(runtimePolicy.runtimeMode);
+  const identityWebEnabled = new Set(["email_identity_web", "email_sharing"]).has(runtimePolicy.runtimeMode);
+  const sharingEnabled = runtimePolicy.runtimeMode === "email_sharing";
   const valid = capabilities?.accountAuth?.enabled === runtimePolicy.accountAuthEnabled
     && (runtimePolicy.accountProviders === null
       || JSON.stringify(capabilities.accountAuth?.providers) === JSON.stringify(runtimePolicy.accountProviders))
@@ -80,7 +81,13 @@ export function verifyGatewayCapabilities(capabilities, runtimePolicy, expectedV
     && (multiDeviceEnabled
       ? binding?.supportsDeviceSelection === true
       : !Object.hasOwn(binding ?? {}, "supportsDeviceSelection"))
-    && !Object.hasOwn(binding ?? {}, "supportsDeviceSharing")
+    && (sharingEnabled
+      ? (binding?.supportsDeviceSharing === true
+        && binding?.maxSharedDevices === 10
+        && binding?.maxGranteesPerDevice === 5)
+      : (!Object.hasOwn(binding ?? {}, "supportsDeviceSharing")
+        && !Object.hasOwn(binding ?? {}, "maxSharedDevices")
+        && !Object.hasOwn(binding ?? {}, "maxGranteesPerDevice")))
     && (runtimePolicy.desktopBootstrapRuntimeContract === null
       ? desktopBootstrap === undefined
       : desktopBootstrap?.runtimeContract === runtimePolicy.desktopBootstrapRuntimeContract)

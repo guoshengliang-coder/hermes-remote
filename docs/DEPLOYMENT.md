@@ -727,6 +727,41 @@ R5-F4. `HR-OPS-023` names all failures; inspect
 `/var/lib/hermes-go/ops/identity-web-rollout.json` before retrying. Source merge and bundle generation do not
 authorize production execution.
 
+## Production whole-device sharing gray rollout (R5-F5-B; code gate only)
+
+F5-B starts only from the exact committed F5-A identity-Web state, the committed R5-F4 multi-device
+journal, and the same active release identity. It changes only
+`ACCOUNT_DEVICE_SHARING_ENABLED=1` and adds a separate sharing-route include. It does not create an
+invitation or grant, send mail, enable Google, enable account deletion, change the three-owned-device
+limit, or touch a Mac.
+
+Prepare a root-only `0600` configuration from `ops/production.sharing-rollout.example.json`, validate
+it against `ops/hermes-go-production-sharing-rollout-config.schema.json`, and run only from the
+matching immutable schema-8 operator bundle:
+
+```bash
+node scripts/production-sharing-rollout.mjs \
+  --config /secure-input/hermes-go/production-sharing-rollout.json \
+  --confirm production:<configured-hostname>
+```
+
+Admission requires both committed prerequisite journals, exact identity-Web environment and route
+bytes, one matching identity-Web include, active schema-15/PostgreSQL-18 service, Legacy and device
+guards, matching release identity, and the shared deployment lock. The new allowlist contains only
+native and Web list/invite/accept/cancel/revoke/leave sharing paths. Post-restart smoke requires the
+fixed capability limits of five grantees per terminal and ten accepted shared terminals per account,
+unauthenticated native/Web guards, Web CSRF rejection, the existing identity-Web security boundary,
+multi-device routing, Legacy health, and unchanged release identity.
+
+An immediate rollout failure restores the identity-Web environment and site file byte-for-byte,
+removes the sharing include, restarts the active Gateway, and re-verifies F5-A. This operator must run
+before canary invitations are created. After it commits, canary cleanup follows the normal API: cancel
+a pending invitation before disabling sharing, or revoke an accepted grant and prove its active socket
+closes within five seconds before disabling the flag. Never hide an active grant behind the disabled
+capability. `HR-OPS-024` names operator failures; inspect
+`/var/lib/hermes-go/ops/sharing-rollout.json` before retrying. Source merge and bundle generation do
+not authorize production execution.
+
 ## Edge JSON compression (2026-09-07, authorized)
 
 Nothing on the path compressed anything. Hermes returns no `Content-Encoding` even when asked for gzip, the
