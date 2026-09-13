@@ -75,6 +75,9 @@ The current automated suite covers:
   resolves Homebrew-style runtime symlinks for reporting only, admits a safe architecture-matched
   system browser only after an explicit compatibility probe, and rejects browser symlinks,
   group-writable executables, failed/oversized probes, and architecture mismatch;
+- read-only component garbage-collection planning retains every referenced identity, requires current
+  and rollback reference sets supplied by the caller, validates component content again, and fails
+  closed on unsafe references, unknown kinds, missing components, symlinks, or tampered content;
 - redirect-free bounded downloads, exact size and streaming SHA-256 artifact validation;
 - tar member preflight, including traversal/link/special-file rejection before extraction, realistic
   dependency trees above the former 4,096-entry limit, and rejection beyond the new 65,536 bound;
