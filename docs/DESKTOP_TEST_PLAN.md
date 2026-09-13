@@ -65,6 +65,9 @@ The current automated suite covers:
   a version-only external Python is rejected, an explicitly compatible healthy system browser may be
   reused, wrong architecture/digest/failed probes are rejected, optional capabilities are deferred,
   and only missing bootstrap components contribute to the initial download total;
+- shared-component inventory rehashes relative paths, bytes, and executable bits before reuse;
+  stable trees produce stable identities, byte/mode changes invalidate them, and symbolic links,
+  unsafe receipt permissions, receipt mismatches, and tampered trees fail closed;
 - redirect-free bounded downloads, exact size and streaming SHA-256 artifact validation;
 - tar member preflight, including traversal/link/special-file rejection before extraction, realistic
   dependency trees above the former 4,096-entry limit, and rejection beyond the new 65,536 bound;
