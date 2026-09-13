@@ -25,6 +25,8 @@ const MANIFEST_V4_KEYS = Object.freeze([...MANIFEST_V3_KEYS, "accountRolloutEntr
 const MANIFEST_V5_KEYS = Object.freeze([...MANIFEST_V4_KEYS, "bindingRolloutEntrypoint"]);
 // Schema 6 carries the separately confirmed, fail-closed multi-device rollout.
 const MANIFEST_V6_KEYS = Object.freeze([...MANIFEST_V5_KEYS, "multiDeviceRolloutEntrypoint"]);
+// Schema 7 carries the separately confirmed email-identity and Web account-center rollout.
+const MANIFEST_V7_KEYS = Object.freeze([...MANIFEST_V6_KEYS, "identityWebRolloutEntrypoint"]);
 const MANIFEST_KEYS_BY_SCHEMA = Object.freeze({
   1: MANIFEST_V1_KEYS,
   2: MANIFEST_V2_KEYS,
@@ -32,6 +34,7 @@ const MANIFEST_KEYS_BY_SCHEMA = Object.freeze({
   4: MANIFEST_V4_KEYS,
   5: MANIFEST_V5_KEYS,
   6: MANIFEST_V6_KEYS,
+  7: MANIFEST_V7_KEYS,
 });
 
 export async function loadProductionBaselineBundleManifest(filePath, {
@@ -70,6 +73,10 @@ export async function loadProductionBaselineBundleManifest(filePath, {
         && raw.multiDeviceRolloutEntrypoint !== "scripts/production-multi-device-rollout.mjs") {
       fail("bundle_multi_device_rollout_entrypoint_invalid");
     }
+    if (raw.schemaVersion >= 7
+        && raw.identityWebRolloutEntrypoint !== "scripts/production-identity-web-rollout.mjs") {
+      fail("bundle_identity_web_rollout_entrypoint_invalid");
+    }
     if (verifyArchive) {
       const archivePath = path.join(path.dirname(filePath), raw.archiveFile);
       const archive = await readSafeFile(archivePath, 128 * 1024 * 1024);
@@ -84,8 +91,8 @@ export async function loadProductionBaselineBundleManifest(filePath, {
 
 export function createProductionBaselineBundleManifest({ sourceCommit, createdAt, archiveFile, archiveSha256 }) {
   return {
-    schemaVersion: 6,
-    kind: "hermes-go-production-baseline-bundle-v6",
+    schemaVersion: 7,
+    kind: "hermes-go-production-baseline-bundle-v7",
     sourceCommit,
     createdAt,
     archiveFile,
@@ -97,6 +104,7 @@ export function createProductionBaselineBundleManifest({ sourceCommit, createdAt
     accountRolloutEntrypoint: "scripts/production-account-rollout.mjs",
     bindingRolloutEntrypoint: "scripts/production-binding-rollout.mjs",
     multiDeviceRolloutEntrypoint: "scripts/production-multi-device-rollout.mjs",
+    identityWebRolloutEntrypoint: "scripts/production-identity-web-rollout.mjs",
   };
 }
 

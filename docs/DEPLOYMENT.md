@@ -694,6 +694,39 @@ or first remove the canary through the normal owner-authorized unbind flow. `HR-
 inspect `/var/lib/hermes-go/ops/multi-device-rollout.json` before retrying. Source merge and bundle generation do not
 authorize production execution.
 
+## Production identity and Web account-center gray rollout (R5-F5-A; code gate only)
+
+F5-A starts only from the exact committed R5-F4 multi-device state and matching release identity. It does not
+change database schema, create an identity, send an email, enable Google, delete an account, or enable sharing.
+It installs a separate exact-path Nginx allowlist and changes only
+`ACCOUNT_IDENTITY_MANAGEMENT_ENABLED=1`, `ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED=1`, and
+`ACCOUNT_WEB_SESSION_ENABLED=1` before restarting the active Gateway.
+
+Prepare a root-only `0600` configuration from `ops/production.identity-web-rollout.example.json`, validate it
+against `ops/hermes-go-production-identity-web-rollout-config.schema.json`, and run only from the matching
+immutable schema-7 operator bundle:
+
+```bash
+node scripts/production-identity-web-rollout.mjs \
+  --config /secure-input/hermes-go/production-identity-web-rollout.json \
+  --confirm production:<configured-hostname>
+```
+
+Admission requires the committed multi-device journal, independently pins the active server version and source
+commit, requires the exact R5-F4 environment and binding routes, proves the new identity-Web route file and include are absent, checks
+schema 15/PostgreSQL 18, Legacy health, both device WebSocket guards, and takes the shared deployment lock. The
+allowlist exposes only the account shell/assets, Web session and email flows, identity management, installation
+management, audit events and default-device selection. It deliberately omits Google, account deletion and every
+sharing route.
+
+Post-restart smoke checks the account shell's CSP/no-store boundary, secure SameSite cookies, CSRF/Origin rejection,
+unauthenticated identity and installation guards, absent Google/deletion/sharing routes, preserved multi-device and
+Desktop capabilities, Legacy health and exact release identity. Any failure restores the previous environment and
+site file byte-for-byte, removes the new include file, reloads Nginx, restarts the active Gateway and re-verifies
+R5-F4. `HR-OPS-023` names all failures; inspect
+`/var/lib/hermes-go/ops/identity-web-rollout.json` before retrying. Source merge and bundle generation do not
+authorize production execution.
+
 ## Edge JSON compression (2026-09-07, authorized)
 
 Nothing on the path compressed anything. Hermes returns no `Content-Encoding` even when asked for gzip, the

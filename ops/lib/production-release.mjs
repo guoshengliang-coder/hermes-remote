@@ -265,6 +265,7 @@ export async function verifyReleaseInputs(config, activeSlot, runner, expectedEn
 export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
   bindingEnabled = false,
   multiDeviceEnabled = false,
+  identityWebEnabled = false,
 } = {}) {
   const capabilitiesResponse = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/capabilities`);
   if (!capabilitiesResponse?.ok) fail("production_release_email_capabilities_unavailable");
@@ -282,10 +283,10 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
       || auth.providers[0] !== "email_otp"
       || auth.android !== true
       || auth.macos !== true
-      || auth.identityManagement !== false
-      || auth.webAccountCenter !== false
+      || auth.identityManagement !== identityWebEnabled
+      || auth.webAccountCenter !== identityWebEnabled
       || auth.accountDeletion === true
-      || auth.webSessions === true
+      || (identityWebEnabled ? auth.webSessions !== true : auth.webSessions === true)
       || binding?.enabled !== bindingEnabled
       || binding?.replacement !== bindingEnabled
       || binding?.maxActiveConnectorsPerAccount !== (multiDeviceEnabled ? 3 : 1)
@@ -303,15 +304,46 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
   const bindingRoute = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/connector-binding`);
   const expectedBindingStatus = bindingEnabled ? 401 : (request.publicRoute === true ? 404 : 503);
   if (bindingRoute?.status !== expectedBindingStatus) fail("production_release_binding_route_must_stay_absent");
+  if (identityWebEnabled) await verifyPreservedIdentityWebSurface(request, fetchImpl);
+}
+
+async function verifyPreservedIdentityWebSurface(request, fetchImpl) {
+  const shell = await boundedFetch(fetchImpl, `${request.gatewayUrl}/account`);
+  const contentType = shell?.headers?.get?.("content-type") ?? "";
+  const csp = shell?.headers?.get?.("content-security-policy") ?? "";
+  if (shell?.status !== 200 || !contentType.startsWith("text/html")
+      || !csp.includes("default-src 'none'") || !csp.includes("script-src 'self'")
+      || !csp.includes("frame-ancestors 'none'") || shell.headers.get("cache-control") !== "no-store") {
+    fail("production_release_identity_web_shell_invalid");
+  }
+  const bootstrap = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/web/session`);
+  let body;
+  try {
+    body = await bootstrap?.json();
+  } catch {}
+  const setCookie = bootstrap?.headers?.get?.("set-cookie") ?? "";
+  if (bootstrap?.status !== 200 || body?.session?.authenticated !== false
+      || !/^hgc_[A-Za-z0-9_-]{43}$/.test(body?.csrfToken ?? "")
+      || !setCookie.includes("__Host-hermes_go_installation=")
+      || !setCookie.includes("__Host-hermes_go_csrf=")
+      || !setCookie.includes("Secure") || !setCookie.includes("HttpOnly")
+      || !setCookie.includes("SameSite=Strict")) {
+    fail("production_release_identity_web_session_invalid");
+  }
+  for (const route of ["/v2/web/identities", "/v2/web/installations"]) {
+    const response = await boundedFetch(fetchImpl, `${request.gatewayUrl}${route}`);
+    if (response?.status !== 401) fail("production_release_identity_web_guard_invalid");
+  }
 }
 
 function preserveAccountSurface(smoke, runtimeEnvironment, fetchImpl) {
-  if (!new Set(["email_otp", "email_binding", "email_multi_device"]).has(runtimeEnvironment.mode)) return smoke;
+  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web"]).has(runtimeEnvironment.mode)) return smoke;
   return async (request) => {
     await smoke({ ...request, expectedRuntimeMode: runtimeEnvironment.mode });
     await verifyPreservedEmailSurface(request, fetchImpl, {
       bindingEnabled: runtimeEnvironment.mode !== "email_otp",
-      multiDeviceEnabled: runtimeEnvironment.mode === "email_multi_device",
+      multiDeviceEnabled: new Set(["email_multi_device", "email_identity_web"]).has(runtimeEnvironment.mode),
+      identityWebEnabled: runtimeEnvironment.mode === "email_identity_web",
     });
   };
 }

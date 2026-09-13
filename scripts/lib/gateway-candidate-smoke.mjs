@@ -38,7 +38,7 @@ export function gatewayRuntimePolicy(runtimeMode = "disabled") {
       desktopBootstrapRuntimeContract: null,
     };
   }
-  if (runtimeMode === "email_otp" || runtimeMode === "email_binding" || runtimeMode === "email_multi_device") {
+  if (new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web"]).has(runtimeMode)) {
     const bindingEnabled = runtimeMode !== "email_otp";
     return {
       runtimeMode,
@@ -63,10 +63,17 @@ export function gatewayRuntimePolicy(runtimeMode = "disabled") {
 export function verifyGatewayCapabilities(capabilities, runtimePolicy, expectedVersion) {
   const binding = capabilities?.binding;
   const desktopBootstrap = capabilities?.desktopBootstrap;
-  const multiDeviceEnabled = runtimePolicy.runtimeMode === "email_multi_device";
+  const multiDeviceEnabled = new Set(["email_multi_device", "email_identity_web"]).has(runtimePolicy.runtimeMode);
+  const identityWebEnabled = runtimePolicy.runtimeMode === "email_identity_web";
   const valid = capabilities?.accountAuth?.enabled === runtimePolicy.accountAuthEnabled
     && (runtimePolicy.accountProviders === null
       || JSON.stringify(capabilities.accountAuth?.providers) === JSON.stringify(runtimePolicy.accountProviders))
+    && capabilities?.accountAuth?.identityManagement === identityWebEnabled
+    && capabilities?.accountAuth?.webAccountCenter === identityWebEnabled
+    && (identityWebEnabled
+      ? capabilities?.accountAuth?.webSessions === true
+      : capabilities?.accountAuth?.webSessions !== true)
+    && capabilities?.accountAuth?.accountDeletion !== true
     && binding?.enabled === runtimePolicy.bindingEnabled
     && binding?.replacement === runtimePolicy.bindingEnabled
     && binding?.maxActiveConnectorsPerAccount === (multiDeviceEnabled ? 3 : 1)

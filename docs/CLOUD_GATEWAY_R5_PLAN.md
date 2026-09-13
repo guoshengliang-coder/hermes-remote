@@ -295,6 +295,13 @@ Secure/HttpOnly/SameSite Cookie、CSRF、Origin、CSP、邮件域和投递监控
 `ACCOUNT_DEVICE_SHARING_ENABLED` 仍为 `0`。F5-B 只能从 committed F5-A 加上 committed R5-F4 开始，
 再启用整机共享及其邀请/接受/撤销/退出路由，保持 Google、删除和自有终端上限不变。
 
+F5-A 的默认关闭源码操作器、严格配置 schema、schema-7 不可变 bundle 入口、精确 Nginx allowlist、
+故障注入和稳定 `HR-OPS-023` 已完成。操作器要求 committed R5-F4，并独立固定当前 release identity，
+只把 identity management、Web account center 和 Web session 三个标志一同打开；Google、删除和 sharing
+继续关闭。公开 smoke 检查账号 shell 的 CSP/no-store、安全 Cookie、CSRF/Origin 拒绝、未认证身份与安装
+管理 guard，并证明 Google、删除和分享路径仍由边缘返回 404。失败时逐字节恢复多终端环境与站点文件、
+删除独立 identity-Web include 并再次验证多终端状态。代码合并和 bundle 生成不授权生产执行。
+
 F5-B canary 使用两个独立账号和一台由账号 B 拥有的 Mac。B 完成 `device.share` 邮箱复核与整机披露后
 邀请 A；A 通过自己的已验证邮箱接受 72 小时邀请，以 `operator` 身份执行 REST、WebSocket、普通 prompt、
 `/model`、`/compact` 和文件流量，但不能分享、绑定、替换、解绑、旋转或管理 B 的资源。B 撤销和 A 退出

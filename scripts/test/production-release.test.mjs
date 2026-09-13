@@ -14,6 +14,7 @@ import { renderEmailRolloutEnvironment } from "../../ops/lib/production-account-
 import {
   inspectProductionReleaseEnvironment,
   renderBindingRolloutEnvironment,
+  renderIdentityWebRolloutEnvironment,
   renderMultiDeviceRolloutEnvironment,
   renderProductionReleaseEnvironment,
 } from "../../ops/lib/production-release-environment.mjs";
@@ -141,6 +142,30 @@ test("R5-F1 recognizes and preserves the exact multi-device runtime", async (t) 
   assert.match(candidate, /^ACCOUNT_IDENTITY_MANAGEMENT_ENABLED=0$/m);
 });
 
+test("R5-F1 recognizes and preserves the exact identity-Web runtime", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  await writeEmailEnvironment(config, "blue");
+  const email = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderBindingRolloutEnvironment(config, "blue", email), { mode: 0o600 });
+  const binding = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderMultiDeviceRolloutEnvironment(config, "blue", binding), { mode: 0o600 });
+  const multiDevice = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderIdentityWebRolloutEnvironment(config, "blue", multiDevice), { mode: 0o600 });
+
+  const inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  assert.equal(inspected.mode, "email_identity_web");
+  const candidate = renderProductionReleaseEnvironment(config, "green", inspected);
+  assert.match(candidate, /^PORT=18788$/m);
+  assert.match(candidate, /^ACCOUNT_MULTI_DEVICE_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_IDENTITY_MANAGEMENT_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_WEB_SESSION_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_DEVICE_SHARING_ENABLED=0$/m);
+  assert.match(candidate, /^ACCOUNT_GOOGLE_AUTH_ENABLED=0$/m);
+  assert.match(candidate, /^ACCOUNT_DELETION_ENABLED=0$/m);
+});
+
 test("R5-F1 rejects email-mode schema changes and post-admission environment drift", async (t) => {
   const fixture = await createFixture(t);
   const config = await loadManagedBaselineConfig(fixture.configPath);
@@ -244,6 +269,52 @@ test("R5-F1 binding smoke requires singular binding and the managed runtime cont
     ),
     (error) => error?.technicalCause === "production_release_email_capabilities_invalid",
   );
+});
+
+test("R5-F1 identity-Web smoke requires the live shell, secure bootstrap, and auth guards", async () => {
+  const requests = [];
+  const fetchImpl = async (url) => {
+    const pathname = new URL(url).pathname;
+    requests.push(pathname);
+    if (pathname === "/v2/capabilities") {
+      const value = bindingCapabilities();
+      value.accountAuth.identityManagement = true;
+      value.accountAuth.webAccountCenter = true;
+      value.accountAuth.webSessions = true;
+      value.binding.maxActiveConnectorsPerAccount = 3;
+      value.binding.supportsDeviceSelection = true;
+      return jsonResponse(value);
+    }
+    if (["/v2/account", "/v2/connector-binding", "/v2/web/identities", "/v2/web/installations"].includes(pathname)) {
+      return new Response("{}", { status: 401 });
+    }
+    if (pathname === "/account") {
+      return new Response("<!doctype html>", { headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'none'; script-src 'self'; frame-ancestors 'none'",
+      } });
+    }
+    if (pathname === "/v2/web/session") {
+      return new Response(JSON.stringify({
+        session: { authenticated: false },
+        csrfToken: `hgc_${"A".repeat(43)}`,
+      }), { headers: {
+        "content-type": "application/json",
+        "set-cookie": "__Host-hermes_go_installation=id; Secure; HttpOnly; SameSite=Strict, __Host-hermes_go_csrf=token; Secure; SameSite=Strict",
+      } });
+    }
+    assert.fail(`unexpected URL ${url}`);
+  };
+  await verifyPreservedEmailSurface(
+    { gatewayUrl: "https://gateway.example.com", publicRoute: true },
+    fetchImpl,
+    { bindingEnabled: true, multiDeviceEnabled: true, identityWebEnabled: true },
+  );
+  assert.deepEqual(requests, [
+    "/v2/capabilities", "/v2/account", "/v2/connector-binding", "/account", "/v2/web/session",
+    "/v2/web/identities", "/v2/web/installations",
+  ]);
 });
 
 test("R5-F1 tells both candidate and public smoke to expect the preserved email runtime", async (t) => {
