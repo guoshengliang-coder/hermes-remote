@@ -1,9 +1,12 @@
 # Hermes GO account-platform expansion
 
-Status: accepted expansion contract with an email-first release sequence. The default-off local
-source implementation now spans E0-E9 across Gateway, Web, Desktop, and Android; live mail-domain
-delivery, privacy approval, packaged/physical accessibility, signed releases, and production rollout
-remain independent gates. This document extends the completed local I0-I3A
+Status: accepted expansion contract with an email-first release sequence. The local source
+implementation spans E0-E9 across Gateway, Web, Desktop, and Android. The next execution sequence is
+now explicit: E10 stabilizes the Desktop restart-health fix, E11 admits multiple owned Mac/Hermes
+terminals, E12 admits whole-terminal sharing from an owner account B to a grantee account A, and E13
+closes the combined physical and distribution gates. Live mail-domain delivery, privacy approval,
+packaged/physical accessibility, signed releases, and production rollout remain independent gates.
+This document extends the completed local I0-I3A
 account-mode baseline. It does not enable account mode, authorize production deployment, or change
 any production service. The current Android source now includes the default-off E8 account client
 and E9 deletion adoption; no APK was versioned or published.
@@ -448,7 +451,61 @@ All new user-visible failures must be registered in `ERROR_HANDLING.md` before r
 | E7 | Desktop email-code adoption and staged migration | Desktop can request/exchange email codes and use email reauthentication without any Google client configuration |
 | E8 | Android adoption | Android selects owned/shared devices and preserves existing functionality; local JVM/debug baseline passes and the separate APK release remains gated |
 | E9 | Account lifecycle and deletion | Default-off Server/Web/Desktop/Android deletion state machine and privacy cleanup pass locally; privacy, physical, release, and production gates remain separate |
+| E10 | Desktop restart-health stabilization | Desktop 0.2.10/build 13 carries the post-restart Cloud-health freshness proof, passes the package gate, and preserves managed release 0.3.4; versioning, installation, and publication remain separate gates |
+| E11 | Multiple owned terminals | A separately reversible production canary admits up to three owned Mac/Hermes terminals, preserves the first terminal and Legacy traffic, and proves selection plus conversation affinity before broadening access |
+| E12 | Account B shares a terminal with account A | Identity/Web prerequisites and whole-device sharing advance through separate sub-gates; B invites A, A accepts and uses the terminal as an operator, and revoke/leave remove only A's access |
+| E13 | Combined physical and distribution acceptance | Two accounts, two Macs, two phones, restart/outage/revocation and rollback matrices pass; Desktop Developer ID signing, notarization, stapling, and clean-Mac launch pass before public distribution |
 | Future P1 | Google and Apple providers | Explicit provider-linking design, platform credentials/review, live-provider tests, and separate rollout gate pass |
+
+### 10.1 Post-E9 execution order
+
+E10 is the immediate release-stabilization iteration. It allocates Desktop 0.2.10/build 13 only after
+the version gate is confirmed, keeps the already published managed component at 0.3.4, rebuilds from
+a clean `origin/main`, and repeats the Desktop asset, test, app-build, package-integrity, and clean
+diff checks. Installing the resulting internal build is a separate publish/deployment decision. The
+target-Mac acceptance must show that an ordinary app upgrade does not restart managed services and
+that any separately initiated Connector restart produces a newer Cloud `endToEnd.checkedAt` for the
+same binding/generation.
+
+E11 turns the implemented E3/E7/E8 multi-device source into an independently operable production
+capability. Its operator path enables only the plural device/discovery and explicit device-routing
+surface, records the exact prior environment and Nginx bytes, and keeps sharing, Google, deletion,
+and unrelated account capabilities unchanged. Before a second binding commits, rollback must restore
+the exact single-terminal capability and routes. After a second owned binding commits, disabling the
+flag would strand valid state; recovery must instead move forward or explicitly remove the canary
+binding through the normal owner-authorized unbind flow before restoring single-terminal mode.
+
+E11 acceptance uses one owner account and at least two Macs. The existing Mac remains reachable while
+the second is added; each Connector has a distinct binding, generation, machine key, and `deviceId`.
+Desktop and Android list both without display-name authorization, selection changes only new
+navigation, an existing conversation stays pinned to its originating terminal, and concurrent
+fourth-device attempts admit exactly three owned terminals overall. Restarting either Mac, Connector,
+Desktop, or phone must not switch or revoke the other terminal.
+
+E12 advances in two separately reversible sub-gates. E12-A enables the identity-management and
+recipient acceptance surface required by sharing, with the verified email provider, HTTPS account
+center origin, Cookie/CSRF boundary, and delivery monitoring all proven. E12-B then enables
+`ACCOUNT_DEVICE_SHARING_ENABLED` without changing owned-terminal limits or enabling Google. Account
+B selects an owned terminal, completes fresh `device.share` email verification, acknowledges the
+whole-Hermes disclosure, and invites account A. A signs into its own account, accepts the exact
+72-hour invitation, sees the terminal as `operator`, and can select it for REST, WebSocket, normal
+prompt, `/model`, `/compact`, and file traffic.
+
+The E12 authorization gate proves that A cannot re-share, bind, replace, unbind, rotate, rename, or
+manage B's account or other grantees. B's revoke and A's leave each clear only the matching grant,
+reject new access immediately, and close A's active WebSocket within five seconds while B and all
+other authorized clients continue. A pre-grant rollback cancels the canary invitation before
+disabling sharing. Once a grant exists, rollback first revokes that canary grant and verifies socket
+closure; the operator must never hide the capability while leaving an unaccounted active grant.
+Capacity acceptance keeps the existing limits of three owned terminals per account, five grantees per
+terminal, and ten accepted shared terminals per account.
+
+E13 repeats the E11/E12 routes across two physical phones and two physical Macs, then restarts each
+client, each Connector, and the Mac hosts, injects Gateway/provider/network outages, and exercises
+explicit rollback. The release record must name every device and preserve redacted evidence for
+binding/generation, `connectedAt`, `endToEnd.checkedAt`, revocation latency, artifact identity, and
+Legacy compatibility. Public Desktop distribution remains blocked until the exact artifact also
+passes Developer ID signing, notarization, stapling, and clean-Mac Gatekeeper launch.
 
 Local E3 backend status (2026-09-07): schema 10, the atomic three-owned-device limit, plural
 discovery/detail/default selection, explicit device-scoped REST/WebSocket routing, singular-route

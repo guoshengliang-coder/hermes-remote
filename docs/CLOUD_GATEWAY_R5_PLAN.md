@@ -42,6 +42,10 @@ Android/Connector 的 URL、Token 与协议。
 | R5-D 受管基线 | 从已验证的旧服务进入可回滚的受管 release/slot 基线，账号标志保持关闭 | `current`/`previous`、journal、自动恢复和兼容 smoke 全绿 | 是，维护窗与切流需授权 |
 | R5-E 数据库准备 | 用目标不可变镜像迁移 schema；加密导出、异机复制、独立恢复及账号 smoke | 30 天内的严格恢复证据，legacy 客户端仍正常 | 是，迁移/备份需授权 |
 | R5-F1 常规发版 | 受管基线内的 blue↔green 常规 deploy/rollback 路径（`scripts/production-release.mjs`），账号与数据库标志继续关闭；只改 upstream include，不动站点文件 | 一次性演练完成接管→发版→回滚且站点文件不变；单测覆盖授权矩阵 | 是，每次发版单独授权 |
+| R5-F2 邮箱登录灰度 | 只启用邮箱 OTP、schema 15、邮件回执与账号会话，其他账号能力关闭 | 实际投递、恢复证据、Legacy 兼容与两轮 smoke 全绿 | 是，已按独立授权执行并记录 |
+| R5-F3 单终端绑定灰度 | 只启用一台自有 Mac 的绑定、V2 Connector 与 Desktop 托管安装 | 精确 binding/generation、端到端流量、回滚点和单 Connector 不变量通过 | 是，每次执行单独授权 |
+| R5-F4 多自有终端灰度 | 独立启用 plural devices、显式设备路由与最多三台自有 Mac；分享仍关闭 | 两台 canary Mac 独立在线、选择/会话亲和、容量竞争和恢复策略通过 | 是，尚需实现操作器并单独授权 |
+| R5-F5 整机共享灰度 | F5-A 先启用身份/Web 接受面，F5-B 再启用账号 B→账号 A 的邀请、使用、撤销与退出 | 邮件接受、operator 权限、跨账号隔离、五秒内断流和无孤儿 grant 通过 | 是，两个子阶段分别授权 |
 | R5-F 正式晋级 | 使用已在 GitHub 一次性 staging 验证的同一制品执行生产候选与切换 | 观察窗、Android/Desktop/Connector、回滚点和审计通过 | 是，最终 go/no-go |
 
 任何源码合并、GitHub staging 成功或只读审计通过都不等于生产授权。安装软件、修改监听、创建数据库、
@@ -270,3 +274,33 @@ binding/V2 WebSocket Nginx include，并仅把 `ACCOUNT_BINDING_ENABLED` 与
 Hermes 与 release identity 持续健康。失败时逐字节恢复环境和站点并验证公开 binding 回到 404、私有回到
 503，统一返回 `HR-OPS-021`。多设备、分享、身份管理、Web、删除与 Google 仍关闭；本段是代码门禁，尚未
 构成生产执行结果。
+
+## R5-F4 / R5-F5 后续多终端与共享晋级
+
+R5-F4 必须是 R5-F3 之后的独立操作器能力，不能通过手改活动槽环境启用
+`ACCOUNT_MULTI_DEVICE_ENABLED`。代码阶段需要新增受 manifest 固定的脚本、配置 schema、一次性
+演练和稳定 `HR-OPS-*` 失败码。操作器只允许从精确 committed 的单终端状态开始，安装 plural device
+和显式 device-scoped REST/WebSocket 路由，保持邮箱 provider、数据库 schema、Legacy 路由、分享、
+Google、删除以及其他环境字节不变。候选与公网 smoke 必须同时证明原 Mac 仍在线、第二台 canary Mac
+拥有不同的 binding/generation/device ID、选择不会移动旧会话、任一 Connector 重启不影响另一台，且
+并发第四台只能得到一个稳定容量拒绝。
+
+R5-F4 的回滚边界取决于是否已经产生第二个 committed binding。在此之前，操作器可以逐字节恢复单终端
+环境和 Nginx 路由。此后关闭 multi-device 会让合法状态失去可达入口，因此自动回滚必须失败关闭：只能
+向前修复，或先由所有者通过正常、已确认的 unbind 流程移除 canary binding，再恢复单终端模式。操作器
+不得直接删除数据库行、撤销第一台 Mac，或用显示名猜测要删除的设备。
+
+R5-F5 分为两个独立 journal 和授权。F5-A 启用共享所需的身份管理与 HTTPS 账户接受面，验证邮箱 provider、
+Secure/HttpOnly/SameSite Cookie、CSRF、Origin、CSP、邮件域和投递监控；此时
+`ACCOUNT_DEVICE_SHARING_ENABLED` 仍为 `0`。F5-B 只能从 committed F5-A 加上 committed R5-F4 开始，
+再启用整机共享及其邀请/接受/撤销/退出路由，保持 Google、删除和自有终端上限不变。
+
+F5-B canary 使用两个独立账号和一台由账号 B 拥有的 Mac。B 完成 `device.share` 邮箱复核与整机披露后
+邀请 A；A 通过自己的已验证邮箱接受 72 小时邀请，以 `operator` 身份执行 REST、WebSocket、普通 prompt、
+`/model`、`/compact` 和文件流量，但不能分享、绑定、替换、解绑、旋转或管理 B 的资源。B 撤销和 A 退出
+分别验证只删除匹配 grant、新请求立即失败、活动 WebSocket 最迟五秒关闭，而 B 与其他授权客户端继续。
+
+F5-B 在邀请接受前回滚时必须取消 canary invitation。已有 grant 后，操作器必须先走正常撤销并证明断流，
+才能关闭 sharing flag；不得把活跃 grant 隐藏在关闭的 capability 后面。容量门禁继续固定每台终端五个
+grantee、每个账号十台已接受共享终端。R5-F4、F5-A、F5-B 的实现、合并和 staging 只完成各自代码门禁，
+任何生产执行仍逐次适用本文件的明确授权要求。
