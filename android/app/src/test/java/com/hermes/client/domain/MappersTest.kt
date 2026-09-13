@@ -4,6 +4,7 @@ import com.hermes.client.data.network.MessageDto
 import com.hermes.client.data.network.SessionDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MappersTest {
@@ -58,6 +59,63 @@ class MappersTest {
 
         assertEquals("图如下：\n架构图", parsed.text)
         assertEquals("https://cdn.example.com/diagram.png", parsed.images.single().sourceUrl)
+    }
+
+    /**
+     * HG-25. The desktop renders `PR ![](…/gh.png) #30332` inside a table cell with the GitHub mark
+     * in place. On Android the mark vanished, because the rule that hoists an assistant's images
+     * into the message's image grid was context-blind: it deleted the markup from the cell and
+     * filed a 16px favicon as a full-width card above the answer. An image sharing its line with
+     * text is punctuation, and belongs where the author put it.
+     */
+    @Test fun an_image_inside_a_table_cell_stays_in_the_prose_and_is_not_hoisted() {
+        val parsed = parseMessageContent(
+            """
+                | 提案 | 上限 |
+                |---|---|
+                | PR ![](https://github.githubassets.com/gh.png) #30332 | 8,000 |
+            """.trimIndent(),
+        )
+
+        assertTrue(
+            "the cell must keep its image markup, got: ${parsed.text}",
+            parsed.text.contains("![](https://github.githubassets.com/gh.png)"),
+        )
+        assertTrue("and it must not become a card, got ${parsed.images}", parsed.images.isEmpty())
+    }
+
+    @Test fun an_image_mid_sentence_stays_in_the_prose() {
+        val parsed = parseMessageContent("构建状态 ![绿](https://ci.example.com/ok.svg) 一切正常。")
+
+        assertEquals("构建状态 ![绿](https://ci.example.com/ok.svg) 一切正常。", parsed.text)
+        assertTrue(parsed.images.isEmpty())
+    }
+
+    /**
+     * The other half of the same rule: an image that IS the content still becomes a card, and its
+     * markup still collapses to the alt text, exactly as before.
+     */
+    @Test fun an_image_alone_on_its_line_is_still_hoisted_into_the_image_grid() {
+        val parsed = parseMessageContent("结果：\n![图一](https://cdn.example.com/a.png)\n![图二](https://cdn.example.com/b.png)")
+
+        assertEquals("结果：\n图一\n图二", parsed.text)
+        assertEquals(
+            listOf("https://cdn.example.com/a.png", "https://cdn.example.com/b.png"),
+            parsed.images.map { it.sourceUrl },
+        )
+    }
+
+    /**
+     * Only HTTPS is fetchable, so anything else must collapse to the alt text rather than reach the
+     * renderer as an image it is guaranteed to fail — which drew an empty box where a word belonged.
+     */
+    @Test fun an_image_that_can_never_be_fetched_collapses_to_its_alt_text() {
+        assertEquals(
+            "状态 绿 一切正常。",
+            parseMessageContent("状态 ![绿](http://ci.example.com/ok.svg) 一切正常。").text,
+        )
+        assertEquals("图 示意图", parseMessageContent("图 ![示意图](data:image/png;base64,AAAA)").text)
+        assertTrue(parseMessageContent("图 ![示意图](data:image/png;base64,AAAA)").images.isEmpty())
     }
 
     @Test fun image_generate_natural_language_path_becomes_remote_image() {

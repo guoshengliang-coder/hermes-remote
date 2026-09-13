@@ -1104,6 +1104,23 @@ grant/挑战并要求重新获取验证码，不得清除仍有效的账号会�
   - **任务清单**用 M3 复选框。给 `Markdown()` 传自定义 `components` 会覆盖掉 m3 默认注入的
     `checkbox`，漏传时 `- [ ]` 会渲染成字面文本 `[ ]`，必须显式带上。
   - **表格**正文 15sp/23。
+  - **行内图片**（HG-25，`ui/chat/MarkdownInlineImages.kt`）：**独立成一行**的图片仍然被提到消息级
+    图片宫格（见上文「图片不下移」），markdown 只留 alt 文本；**与文字同行**的图片留在原处按行内
+    渲染。判据是整行除空白外只有图片。理由是它们是两种东西：前者是助手生成的**内容**，后者是
+    **标点**——表格单元格里的 GitHub 小标、句中的构建状态图标。把后者也提走，就是 HG-25：图标从
+    单元格里消失，一个 16px 的 favicon 变成答案上方的整幅卡片，或者直接和别行的同一张图去重掉。
+    - 尺寸：钳到 **17sp 行盒**（与外链图标的 17sp placeholder 同一行高，同为 sp，随系统字号一起缩放），
+      等比缩小。库自己的 placeholder 规则是给「图片即内容」设计的：没有已知固有尺寸时预留
+      200dp（或整个容器）见方，在 110dp 的单元格里就等于整行。钳制同时压住库的
+      `shouldPromote` 启发式，不让行内图标被提成块级而离开单元格。
+    - 垂直对齐 `TextCenter`，不用库默认的 `Bottom`——中文正文里贴基线会读成「掉下去了」。
+    - 只取 **https**。其余（`http:`、`data:`、相对路径）在解析期就降级成 alt 文本，不交给渲染器，
+      免得画出一个必然失败的空盒子。
+    - 取图走 `ChatMediaRepository` 既有的**不带凭证**、带 SSRF 防护（拒绝 loopback/link-local/
+      site-local/`fc00::/7`）、限定 `image/*`、限字节数的通道，并按 URL 落 SHA-256 缓存。正文里的
+      地址是模型输出，和链接一样不可信；绝不可把 Relay 凭证带去第三方主机。
+    - **导出只读缓存**：长图分享与表格导出 PNG 用 `allowFetch = false` 的 transformer，已缓存的
+      正常渲染，未缓存的留空——与 §5.13「导出绝不触发下载」同一条规则。
   - **链接点击**（`ui/components/AppLinks.kt`，全 app 共用）：正文里的地址是模型输出，不可信。渲染器在构建链接注解时就
     捕获 `LocalUriHandler`，所以受控 handler 必须包在 `Markdown()` 外层，而不是点击处。
     只放行 `http/https/mailto/tel`（`intent:` 能指定任意组件、`file:` 能指向本地存储），
@@ -1111,8 +1128,9 @@ grant/挑战并要求重新获取验证码，不得清除仍有效的账号会�
     （设备没有浏览器，Compose 默认 handler 会把 `ActivityNotFoundException` 重抛成
     `IllegalArgumentException` 直接崩）→ 复制链接到剪贴板 + `HR-LINK-001`。
   - **待办**（未立项）：超长无空格 URL 不做中间断行。
-  - **验证**：`MarkdownTypographyScreenshotTest` 三张 golden（浅色 / 深色 / 边界情况）覆盖上述
-    全部取值，改动后用 `-Proborazzi.test.record=true` 重录并肉眼比对。
+  - **验证**：`MarkdownTypographyScreenshotTest` 的 golden（浅色 / 深色 / 边界情况 / 大字号 /
+    行内图片 / 行内图片大字号）覆盖上述全部取值，改动后用 `-Proborazzi.test.record=true` 重录并
+    肉眼比对。
 - 输入区：浮动 `Surface`，圆角 30（聚焦 28）、tonal 1dp + shadow 7dp、最小高 60dp；
   内含麦克风、无边框输入框、48dp 圆形发送键 —— 发送键用 **theme primary**（明确决策：
   核心全局控件不随身份变色）。

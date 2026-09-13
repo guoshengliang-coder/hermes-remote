@@ -192,6 +192,51 @@ class ChatMediaRepository @Inject constructor(
         }
     }
 
+    /**
+     * The cached file for an inline Markdown image, or null.
+     *
+     * Separate from [hydrateMessages] because the two answer different questions. That one owns
+     * images that are the message's content and belong to a profile; an inline icon inside a table
+     * cell belongs to nobody — the same GitHub mark appears under every profile — so it is keyed by
+     * URL alone and shared.
+     */
+    fun cachedInlineImage(url: String): File? {
+        if (!url.startsWith("https://")) return null
+        val key = inlineCacheKey(url)
+        return directory.listFiles()?.firstOrNull { it.name.startsWith(key) }?.takeIf { it.length() > 0L }
+    }
+
+    /**
+     * [cachedInlineImage], fetching when it misses. Goes through the same credential-free,
+     * SSRF-guarded, HTTPS-only, size-capped path as every other third-party image: an assistant
+     * can put any URL in a table cell, and this must never carry a Relay credential to it or be
+     * talked into dialling a private address.
+     */
+    suspend fun loadInlineImage(url: String): File? {
+        cachedInlineImage(url)?.let { return it }
+        if (!url.startsWith("https://")) return null
+        return runCatching {
+            withContext(Dispatchers.IO) {
+                downloads.withPermit {
+                    // Re-check under the permit: several cells can reference one icon, and without
+                    // this they all download it.
+                    cachedInlineImage(url) ?: run {
+                        val (mime, bytes) = downloadExternalImage(url)
+                        val file = File(directory, safeName(inlineCacheKey(url), mime))
+                        file.writeBytes(bytes)
+                        trimCache()
+                        file
+                    }
+                }
+            }
+        }.getOrElse { error ->
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            null
+        }
+    }
+
+    private fun inlineCacheKey(url: String): String = sha256("inline\n$url")
+
     private fun downloadExternalImage(url: String): Pair<String, ByteArray> {
         require(url.startsWith("https://")) { "only HTTPS images are supported" }
         externalHttp.newCall(Request.Builder().url(url).get().build()).execute().use { response ->

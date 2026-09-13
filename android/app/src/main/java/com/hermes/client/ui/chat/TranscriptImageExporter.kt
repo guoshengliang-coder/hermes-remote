@@ -200,6 +200,9 @@ private fun TranscriptTurn(message: ChatMessage, origin: com.hermes.client.ui.se
                     typography = markdownTypography(
                         text = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 22.sp),
                     ),
+                    // Cache only, for the same reason the attachment lines below never download:
+                    // sharing must not block on the network (DESIGN.md §5.13).
+                    imageTransformer = rememberInlineImageTransformer(allowFetch = false),
                 )
             }
         }

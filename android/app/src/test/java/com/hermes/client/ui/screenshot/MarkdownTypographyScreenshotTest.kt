@@ -90,6 +90,21 @@ fun main() { println("hi") }
 链接密集段落：见 [文档 A](https://a.example.com)、[文档 B](https://b.example.com) 和 [文档 C](https://c.example.com)。
 """.trimIndent()
 
+    /**
+     * HG-25. A table whose cells carry inline icons, which is the shape the report arrived in:
+     * `PR ![](…) #30332`. What the golden is for is the sizing — the icon has to sit on the text's
+     * line and leave the row's height alone. The library's own placeholder rule would reserve a
+     * 110dp square here, one per cell.
+     */
+    private val inlineIcons = """
+| 提案 | 上限 |
+| --- | --- |
+| PR ![](https://example.com/mark.png) #30332 | 8,000 |
+| PR ![](https://example.com/mark.png) #101505 | 6,000 |
+
+正文里的图标 ![](https://example.com/mark.png) 也一样贴着这一行，后面继续写字。
+""".trimIndent()
+
     @Test fun general() = shot("markdown-body", general, false)
     @Test fun generalDark() = shot("markdown-body-dark", general, true)
     @Test fun edges() = shot("markdown-body-edge-cases", edgeCases, false)
@@ -101,6 +116,31 @@ fun main() { println("hi") }
      */
     @Test fun largeFont() = shot("markdown-body-large-font", general, false, fontScale = 1.5f)
 
+    @Test fun inlineImages() = shot("markdown-body-inline-images", inlineIcons, false)
+
+    /** Sized in sp, so an inline icon has to grow with the text beside it. */
+    @Test fun inlineImagesLargeFont() =
+        shot("markdown-body-inline-images-large-font", inlineIcons, false, fontScale = 1.5f)
+
+    /**
+     * A loader backed by a real file on disk, so the decode and the intrinsic-size clamp both run.
+     * Deliberately not a network stub: the point of the golden is the geometry the transformer
+     * produces once bytes exist.
+     */
+    private object FakeIcons : com.hermes.client.ui.chat.MarkdownImageLoader {
+        private val file: java.io.File by lazy {
+            val bitmap = android.graphics.Bitmap.createBitmap(128, 128, android.graphics.Bitmap.Config.ARGB_8888)
+            android.graphics.Canvas(bitmap).drawColor(android.graphics.Color.rgb(0x24, 0x29, 0x2f))
+            java.io.File.createTempFile("hermes-inline-icon", ".png").apply {
+                outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                deleteOnExit()
+            }
+        }
+
+        override fun cached(url: String): java.io.File = file
+        override suspend fun load(url: String): java.io.File = file
+    }
+
     private fun shot(name: String, text: String, dark: Boolean, fontScale: Float? = null) {
         compose.setContent {
             com.hermes.client.ui.theme.HermesTheme(darkTheme = dark) {
@@ -110,6 +150,9 @@ fun main() { println("hi") }
                         density.density,
                         fontScale ?: density.fontScale,
                     ),
+                ) {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    com.hermes.client.ui.chat.LocalMarkdownImageLoader provides FakeIcons,
                 ) {
                 androidx.compose.material3.Surface {
                     com.hermes.client.ui.chat.AssistantTurn(
@@ -122,6 +165,7 @@ fun main() { println("hi") }
                         isSpeaking = false, onReadAloud = {}, onStopReading = {},
                         onOpenImage = { _, _ -> }, onFileOpen = {}, onFileShare = {},
                     )
+                }
                 }
                 }
             }
