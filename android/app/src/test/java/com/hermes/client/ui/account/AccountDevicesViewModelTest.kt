@@ -1019,7 +1019,7 @@ class AccountDevicesViewModelTest {
             deletionCommitted = false
         }
         override fun clearAccountSession() { account = null }
-        override fun clearAccountSession(requireReauthentication: Boolean) {
+        override fun clearAccountSession(requireReauthentication: Boolean, reason: String?) {
             account = null
             reauthenticationRequired = requireReauthentication
             pendingDeletion = null
@@ -1028,7 +1028,7 @@ class AccountDevicesViewModelTest {
         }
         override fun lastAccountBaseUrl() = lastBaseUrl
         override fun accountReauthenticationRequired() = reauthenticationRequired
-        override fun setAccountReauthenticationRequired(required: Boolean) {
+        override fun setAccountReauthenticationRequired(required: Boolean, reason: String?) {
             reauthenticationRequired = required
         }
         override fun loadPendingEmailChallenge(): PendingEmailChallenge? = pending

@@ -260,6 +260,12 @@ class MainActivity : ComponentActivity() {
                                                     AccountTransportMode.DEVICE_SELECTION_REQUIRED ||
                                                     accountSessions.transportMode() ==
                                                     AccountTransportMode.ACCOUNT_DELETION_COMMITTED,
+                                            // Null unless the SERVER ended the last session, so a
+                                            // user who tapped "sign out" is not told why they are
+                                            // signed out. Recomposed with the block above whenever
+                                            // the session flow emits.
+                                            signInReasonCode =
+                                                accountSessions.accountReauthenticationReason(),
                                             repairCompletion = repairCompletion,
                                             onConnectionConfigurationSaved = startupViewModel::onConfigurationSaved,
                                             onInitialConfigurationSaved = {

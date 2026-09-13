@@ -2275,6 +2275,56 @@ Hermes 时，Hermes 会带着这句他没见过的话回答。
     `cron.detail.default.{light,dark,failed}`（`CronScreenshotTest`）。删除确认框在自己的 window 里，
     `onRoot()` 够不着，没有金图。
 
+### 5.19 登录页（`ui/account/SignInScreen.kt`，决策 2026-09-13，需求见 `LOGIN_REQUIREMENTS.md`）
+
+行为契约全部在 §5.0（挑战与倒计时、fail-closed 重登门禁、错误卡重试语义、不清导航栈）。
+本节只管这一页**长什么样**，以及 §5.0 没写的两件事：登录页是独立页面，失效重登要说明原因。
+
+- **它不是启动门。** §5.11 的品牌组（144dp 图标 / 32sp 字标 / 屏高 22.5% 锚点）是给一个没有
+  输入控件的全屏门设计的；登录页底下要放表单、上面要让键盘弹起，照抄会把表单顶出屏幕。
+  登录页用**紧凑品牌组**：图标 72dp → 10dp → 字标 `HERMES GO` 24sp/Bold/字距 0.16em
+  （`colorScheme.onSurface`）→ 6dp → 一行中文说明 13sp 次要色，整组顶边锚在屏高 12%。
+  键盘弹起时品牌组整组隐藏（不是缩小），把高度让给验证码框和倒计时。
+- **配色走 `colorScheme`，不碰 `StartupPalette`。** 后者那两组字面量之所以成对硬写，是因为
+  必须和 window 资源 `@color/startup_background` 对齐（§5.11）；登录页没有这个约束，
+  照 §2.2 由生效主题判定，所有颜色从 `MaterialTheme.colorScheme` 取，禁止只定义一套。
+- **底部主按钮**按 §5.12：`Scaffold` `bottomBar`，实心 52dp 高，左右 16dp / 上 8dp / 下 16dp，
+  加 `navigationBarsPadding` 与 `imePadding`，内容在其下方滚动、列末留 16dp。文案随状态变：
+  「发送验证码」→「验证并登录」。页面横向内边距 16dp（与设置类页面一致，不另立尺度，§5.8）。
+- **失效原因横幅**：位置在品牌组下方、邮箱框上方，`shapes.medium` 圆角，容器用中性的
+  `surfaceContainer`，摘要文字用 `colorScheme.error`，**不是**填充的 `errorContainer`。后者是给
+  "你刚才那一下失败了"准备的；横幅说的是一个用户没做错、也无法在此处补救的状态，深色下整块
+  饱和红对着一个只需要重填邮箱的人是在喊。§5.11 的失败态早就为同类消息定了「错误色文字 + 常规
+  底」这个形状，这里沿用。错误码 `HR-*` **单独一行** `labelSmall` 次要色（同 §5.11）。
+  **横幅不带任何按钮**——这四个码（`HR-AUTH-003/004/005`、`HR-BIND-004`）在注册表里都是不可
+  重试，§5.0 规定不可重试错误不显示可执行的重试入口。横幅只解释"你为什么在这一页"，动作在下面
+  的表单里。横幅只在本次登录成功后消失，不因换邮箱或重发而提前撤掉。
+- **横幅与错误卡并存，互不替代**。横幅说上一段会话怎么结束的；错误卡（表单下方，位置与现有
+  一致）说刚才这一下操作为什么没成功。两者同时出现时，横幅在上。
+  用户**主动**退出或切换账号后进入的登录页**没有横幅**——他自己点的，不解释。
+- **次要入口收进页脚**。登录页主路径上不出现「兼容连接」分区；旧版 Relay / App Token 与诊断
+  降级为底部按钮上方的一行文字入口「其他连接方式」，点开后才展开。§5.0 要求保留这条兼容出口，
+  但它不是登录流程的一部分，摆在主路径上会让第一次用的人以为要在两种登录方式之间做选择。
+- **不要为它新造覆盖层**。§5.0「不清空导航栈」已经由既有的修复导航实现：账号失效走
+  `nav.navigate("setup") { launchSingleTop = true }` 压栈、修复完成 `popBackStack("setup",
+  inclusive = true)` 弹回被打断的页面，而 `shouldReplaceStackWithSetup` 的 `popUpTo(0)` 带着
+  `!accountRepairRequested` 前提，账号失效时根本不会执行（单测
+  `accountRepairPreservesTheCurrentNavigationStack`）。清栈只属于用户主动退出。再加一层全屏遮罩
+  等于给同一件事造第二套机制，还会和已经压栈的登录页同时出现。
+- **选 Mac 是流程的下一步，但不是第二个返回栈条目**。`AccountSignInFlow` 在一个目的地内按
+  `AccountStage` 切换两块内容：已经登录完还能退回登录表单，不是用户能拿来做任何事的状态。
+  设备选择沿用 §5.0 既有规则，与卡片页「远程节点」详情页**共用同一份内容**，不构成第三个入口。
+- **设置页未登录时不长第二个表单**。「设置 > Hermes GO 账号」在未登录状态只给一张说明卡加一个
+  「登录」按钮，跳到这一页；全 App 只有一个登录页。
+- **暂无 Stitch 基线。** 本节是文字契约，按 §3.4 的对稿方法论留待真机定稿；若定稿后仍不满意，
+  再补基线并回来覆盖本节。
+- 验证：`AccountScreensTest`（横幅出现/缺席、横幅与操作错误卡并存、冷却态禁用、兼容入口需要
+  先点开）、`AccountSessionManagerTest`（原因码只在服务端结束会话时落盘）、`SignInScreenshotTest`
+  金图 `signin.default.{light,dark}` / `signin.code-sent.light` / `signin.expired-banner.light` /
+  `signin.revoked-banner.dark-fs13` / `signin.unavailable.light` / `signin.code-sent.en-fs13`。
+  深色金图在浅色 qualifier 下渲染，即 §7 的「系统浅色 + 应用深色」组合；`dark-fs13` 一张同时
+  覆盖横幅两行 + 码行、底部按钮、「更换邮箱」/「重新发送」并列两动作这三处最易挤爆的地方。
+
 ## 6. 文案
 
 - 产品名统一 **Hermes GO**（字标、磁贴、关于页、崩溃报告、诊断/对话分享主题、表格导出
