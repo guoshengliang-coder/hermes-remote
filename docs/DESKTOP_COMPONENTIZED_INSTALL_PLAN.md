@@ -141,6 +141,14 @@ C4 第一批本地构建合同已经把原来的两个整体归档拆成四个 s
 只下载约 17 MiB/56 KiB，也证明完整 Python 输入仍混入 Playwright、语音/ONNX、Google 与文档树，
 必须完成下一批按需拆分才能达到全新机器基础聊天不超过 100 MB 的目标。
 
+同日从同一 Hermes commit 的锁文件重新生成“无 extras、无 dev”的 62 包核心环境后，Python 归档降为
+48,062,721 bytes（45.84 MiB），四个基础归档合计 102,881,798 bytes（98.12 MiB）。解压后的组合候选
+通过了 `hermes --help`、OpenAI/FastAPI/Hermes 核心导入、清除 `PYTHONPATH` 后的子进程
+`tui_gateway` 导入、自包含 Node 启动、Connector 模块加载，以及真实 `hermes serve --skip-build`
+启动与 `/api/status` 请求；服务报告 `HERMES_BACKEND_READY` 和版本 0.21.0。由此首装体积目标已在
+arm64 本地候选上成立。Playwright、语音/ONNX、Google 等 extras 后续进入各自的签名按需组件，不能
+重新混入基础环境；PDF 提取当前仍是上游核心依赖，移出前需要上游调用边界配合。
+
 ### C5：界面与真实机器门禁
 
 - 原生预检页展示复用、下载、磁盘占用和按需组件；

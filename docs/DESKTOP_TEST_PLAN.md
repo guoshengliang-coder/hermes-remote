@@ -72,6 +72,9 @@ The current automated suite covers:
   architectures and rejects Homebrew/unresolved dynamic-library dependencies; reports compressed and
   normalized content hashes; removes only artifacts created by
   a failed attempt; and preserves HG-28 child imports through the activation-time core-root `.pth`;
+- the arm64 core-only composition starts the real Hermes 0.21.0 server, emits its readiness marker,
+  serves `/api/status`, imports its core API modules, and imports `tui_gateway` from a child interpreter
+  after `PYTHONPATH` is removed; the measured bootstrap set is 98.12 MiB compressed;
 - offline component-release publication safely extracts every candidate and recomputes the same
   relative-path/file-byte/executable-bit identity used by the Desktop store before signing, then the
   public-key-only verifier repeats compressed and extracted identity checks;
