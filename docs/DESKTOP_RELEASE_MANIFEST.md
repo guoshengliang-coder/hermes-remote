@@ -1,7 +1,7 @@
 # Desktop managed-release contract
 
-Status: local E4-D implementation contract. No production release key, artifact, endpoint, or rollout
-flag is configured by this document.
+Status: local E4-D schema-v1 and componentized C3 schema-v2 implementation contract. No production
+release key, artifact, endpoint, or rollout flag is configured by this document.
 
 ## Trust boundary
 
@@ -267,6 +267,37 @@ The verifier rechecks the Ed25519 signature over the exact payload bytes, strict
 origin, archive names and entrypoints, byte sizes, and SHA-256 digests. Any publisher or verifier
 failure is emitted as the bilingual, retryable `HR-RELEASE-004` diagnostic. The example values are
 documentation placeholders and are not approved production identities.
+
+Schema v2 uses separate commands and cannot enter the schema-v1 acquisition/install types. Start
+from `desktop/Packaging/component-release-v2.example.json`. Each component input supplies the content
+identity produced by the component builder; the publisher safely extracts the archive, normalizes the
+declared entrypoint to owner-executable, and recomputes relative paths, file bytes and executable bits
+before signing. A dependency names both its component kind and exact content identity. Bootstrap
+Hermes and Connector components cannot depend on an on-demand component. Only browser automation may
+declare `verified_compatibility`, and that declaration still carries the exact managed fallback
+content identity.
+
+```bash
+npm run desktop:component-release:package -- \
+  --config /absolute/protected/path/component-publisher.json \
+  --output /absolute/empty/component-output
+
+npm run desktop:component-release:verify -- \
+  --manifest /absolute/component-output/Hermes-Desktop-Components-0.4.0-arm64.manifest.json \
+  --artifacts /absolute/component-output \
+  --key-id desktop-internal-2026-a \
+  --public-key '<unpadded-base64url-public-key>' \
+  --origin https://downloads.example \
+  --channel internal \
+  --architecture arm64
+```
+
+The independent verifier repeats signature, field, dependency, compressed-file and extracted-content
+checks. Desktop maps the same verified entries directly to the component preflight model. Its v2
+downloader keeps an owner-only partial file after an interrupted transfer, accepts a resumed response
+only with the exact `206` and `Content-Range`, and re-reads the completed file for the full signed size
+and SHA-256 before exposing the final archive name. These commands create and verify local candidates;
+they do not replace the production schema-v1 endpoint.
 
 A real release still requires all of the following outside this local implementation:
 

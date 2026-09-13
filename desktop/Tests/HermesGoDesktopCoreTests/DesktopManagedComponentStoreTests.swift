@@ -16,6 +16,7 @@ final class DesktopManagedComponentStoreTests: XCTestCase {
 
         let first = try hasher.identify(directory: root)
         XCTAssertEqual(try hasher.identify(directory: root), first)
+        XCTAssertEqual(first.sha256, "c3a207f2656841667491852cbf5e699077bdda037473f789ee8fad5a4c545415")
 
         try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: executable.path)
         XCTAssertNotEqual(try hasher.identify(directory: root).sha256, first.sha256)
