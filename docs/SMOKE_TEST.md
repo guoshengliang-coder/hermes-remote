@@ -401,9 +401,15 @@ need a phone with a working Relay connection.
    somewhere: the diagnostic contains the code and no token. Restore the network and tap 重试:
    results appear.
 4. Tap a message hit: the chat opens with the search bar in the top bar's place, the query filled,
-   the counter at 1/N, the first hit's turn outlined and the matching words marked inside the
-   text (Markdown body, user bubble). Tap ↓ repeatedly: the counter advances and the outlined turn
-   follows. When a hit is inside 查看思考过程 or a tool card, that card opens by itself.
+   the counter at 1/N, and the matching words marked inside the text (Markdown body, user bubble).
+   The turn itself carries NO outline, fill or shadow (HG-46) — the marks are the only marking.
+   Tap ↓ repeatedly: the counter advances, the transcript follows, and within a turn that has
+   several marks the solid brand-coloured one moves from mark to mark (HG-45). A hit is never
+   inside 查看思考过程 or a tool card: those are out of the search scope and draw no marks.
+4a. With the search bar open, the message composer at the bottom is gone (HG-46) and the transcript
+   still sits above the keyboard rather than under it; the 「内容由 AI 生成」 footer goes with it.
+   Type a draft first, then open search, then close it: the composer comes back with the draft
+   intact. Neither the turn-jump pill nor the 回到最新消息 button appears while search is open.
 5. In a chat, search for a word that does not occur: the bar reads 此会话中没有匹配 with
    在全部会话中搜索; tap it and confirm the search screen opens with the query filled and the
    message search running by itself.

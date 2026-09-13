@@ -1141,15 +1141,15 @@ class ScreenshotTest {
             modifier = androidx.compose.ui.Modifier.padding(horizontal = 22.dp, vertical = 16.dp),
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(18.dp),
         ) {
-            listOf(
-                Triple("plain", 0f, false),
-                Triple("landing", 1f, false),
-                Triple("search", 0f, true),
-            ).forEach { (id, landing, search) ->
+            // The third variant used to be "search", contrasting the landing outline against the
+            // search fill+outline. HG-46 removed the search decoration entirely, so that variant
+            // would now be a second copy of "plain" — what is left to pin is that the landing
+            // outline, which is a different feature, still draws.
+            listOf("plain" to 0f, "landing" to 1f).forEach { (id, landing) ->
                 com.hermes.client.ui.chat.UserBubble(
                     msg = userTurn(id, "可以进一步加大虚拟内存什么的吗", com.hermes.client.domain.DeliveryState.SENT),
                     onEditResend = {}, onOpenImage = { _, _ -> },
-                    onFileOpen = {}, onFileShare = {}, highlighted = search, landingAlpha = landing,
+                    onFileOpen = {}, onFileShare = {}, landingAlpha = landing,
                 )
             }
         }

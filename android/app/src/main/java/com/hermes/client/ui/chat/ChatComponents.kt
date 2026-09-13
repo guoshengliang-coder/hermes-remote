@@ -1120,7 +1120,6 @@ fun ChatMessageList(
                         onFileOpen,
                         onFileShare,
                         smoothLiveResize = smoothLiveResize,
-                        highlighted = index == highlightIndex,
                         landingAlpha = if (index == jumpFlashIndex) jumpFlash.value else 0f,
                         searchContext = searchContext,
                     )
@@ -1323,7 +1322,6 @@ private fun MessageBubble(
     onFileOpen: (ChatFile) -> Unit,
     onFileShare: (ChatFile) -> Unit,
     smoothLiveResize: Boolean = false,
-    highlighted: Boolean = false,
     landingAlpha: Float = 0f,
     searchContext: ChatSearchContext? = null,
 ) {
@@ -1338,8 +1336,8 @@ private fun MessageBubble(
         LocalTurnIsCurrentHit provides (searchContext != null && searchContext.currentMessageId == msg.id),
     ) {
         when (msg.role) {
-            Role.USER -> UserBubble(msg, onEditResend, onOpenImage, onFileOpen, onFileShare, highlighted = highlighted, landingAlpha = landingAlpha, onRetrySend = onRetrySend, sendDiagnostic = sendDiagnosticFor(msg.id), sendErrorCode = sendErrorCodeFor(msg.id))
-            else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onOpenImage, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, highlighted = highlighted, landingAlpha = landingAlpha)
+            Role.USER -> UserBubble(msg, onEditResend, onOpenImage, onFileOpen, onFileShare, landingAlpha = landingAlpha, onRetrySend = onRetrySend, sendDiagnostic = sendDiagnosticFor(msg.id), sendErrorCode = sendErrorCodeFor(msg.id))
+            else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onOpenImage, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, landingAlpha = landingAlpha)
     }
     }
 }
@@ -1352,7 +1350,6 @@ internal fun UserBubble(
     onOpenImage: (String, ChatImage) -> Unit,
     onFileOpen: (ChatFile) -> Unit,
     onFileShare: (ChatFile) -> Unit,
-    highlighted: Boolean = false,
     landingAlpha: Float = 0f,
     onRetrySend: (String) -> Unit = {},
     sendDiagnostic: String? = null,
@@ -1432,13 +1429,12 @@ internal fun UserBubble(
                     // Asymmetric corners (a small "tail" corner) mark this as the sender's bubble.
                     .clip(userShape)
                     .background(bg)
+                    // Landing outline: border only, fading. A search hit draws NOTHING here
+                    // (HG-46) — the marked words already say which turn you are on, and a tinted,
+                    // outlined bubble on top of them was the loudest thing on the screen.
                     .then(
-                        when {
-                            highlighted -> Modifier.background(accent.copy(alpha = 0.18f)).border(1.5.dp, accent, userShape)
-                            // Landing outline: border only, fading — never the search fill.
-                            landingAlpha > 0f -> Modifier.border(1.5.dp, accent.copy(alpha = landingAlpha), userShape)
-                            else -> Modifier
-                        },
+                        if (landingAlpha > 0f) Modifier.border(1.5.dp, accent.copy(alpha = landingAlpha), userShape)
+                        else Modifier,
                     )
                     .padding(horizontal = 16.dp, vertical = 11.dp)
                     .semantics {
@@ -1702,7 +1698,6 @@ internal fun AssistantTurn(
     onFileOpen: (ChatFile) -> Unit,
     onFileShare: (ChatFile) -> Unit,
     smoothLiveResize: Boolean = false,
-    highlighted: Boolean = false,
     landingAlpha: Float = 0f,
 ) {
     val language = LocalAppLanguage.current
@@ -1739,14 +1734,12 @@ internal fun AssistantTurn(
                         )
                     } else Modifier
                 )
-                // No conditional padding here: background/border draw within existing bounds, so
-                // toggling the highlight causes no layout shift (a conditional .padding would).
+                // No conditional padding here: the border draws within existing bounds, so
+                // toggling it causes no layout shift (a conditional .padding would). A search hit
+                // draws nothing at all now (HG-46); only the turn-jump landing still outlines.
                 .then(
-                    when {
-                        highlighted -> Modifier.clip(hlShape).background(accent.copy(alpha = 0.12f)).border(1.5.dp, accent, hlShape)
-                        landingAlpha > 0f -> Modifier.clip(hlShape).border(1.5.dp, accent.copy(alpha = landingAlpha), hlShape)
-                        else -> Modifier
-                    },
+                    if (landingAlpha > 0f) Modifier.clip(hlShape).border(1.5.dp, accent.copy(alpha = landingAlpha), hlShape)
+                    else Modifier,
                 )
                 .padding(vertical = 2.dp)
                 .combinedClickable(onClick = {}, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); menuOpen = true }),
