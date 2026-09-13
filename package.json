@@ -25,6 +25,7 @@
     "desktop:component-release:package": "node scripts/package-desktop-component-release-v2.mjs",
     "desktop:component-release:verify": "node scripts/verify-desktop-component-release-v2.mjs",
     "desktop:components:package": "node scripts/package-desktop-components.mjs",
+    "desktop:components-v2:package": "node scripts/package-desktop-components-v2.mjs",
     "smoke": "node scripts/smoke-client.mjs",
     "smoke:compat": "node scripts/smoke-compat-client.mjs",
     "mock:hermes": "node scripts/mock-hermes.mjs",

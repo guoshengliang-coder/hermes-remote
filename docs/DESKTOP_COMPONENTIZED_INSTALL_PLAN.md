@@ -123,6 +123,32 @@ C3 的本地合同实现已经加入独立的 v2 发布与验证命令。每个�
 - Playwright、语音/ONNX、PDF/文档依赖改为延迟加载；
 - 缺少按需组件时返回结构化错误和安装动作，不暴露原始异常。
 
+C4 第一批本地构建合同已经把原来的两个整体归档拆成四个 schema-v2 输入：
+`python_runtime` 独占 CPython 与基础 `site-packages`，`hermes_core` 只保留上游源码、启动器和私有
+会话令牌读取器，`node_runtime` 只保留经过版本/架构核验的 Node 可执行文件，`connector` 只保留
+生产 JavaScript、Protocol 和 `ws`。Hermes 与 Connector 启动器从 Desktop 激活配置取得绝对的
+运行时组件根目录，组件仓库本身保持只读；Python 的 `.pth` 通过激活时的核心根目录恢复子进程导入，
+继续覆盖 HG-28。构建结果直接给出每包压缩大小、压缩 SHA-256、规范化内容 SHA-256 和依赖边，能直接
+填入 C3 清单。这个入口仍为本地 default-inert 候选，不改变 v1 安装器。
+
+第一批刻意完整保留现有基础 Python 依赖。浏览器、语音/ONNX、PDF/文档依赖必须先建立启动期和首次
+调用回归测试，再从 `python_runtime` 移入按需组件；仅凭包名裁剪会把隐式导入故障推迟到用户会话中。
+
+2026-09-13 用当前受管 0.3.4 的完整 Python/Node 输入、Hermes `f159e581` 和本分支 Connector
+进行了一次未签名、未发布的 arm64 实测：Python 运行时 267,275,980 bytes（254.89 MiB），Hermes
+核心 17,762,189 bytes（16.94 MiB），Node 36,999,103 bytes（35.29 MiB），Connector 57,789 bytes
+（0.06 MiB），基础合计 322,095,061 bytes（307.17 MiB）。这证明常规 Hermes/Connector 更新已经能
+只下载约 17 MiB/56 KiB，也证明完整 Python 输入仍混入 Playwright、语音/ONNX、Google 与文档树，
+必须完成下一批按需拆分才能达到全新机器基础聊天不超过 100 MB 的目标。
+
+同日从同一 Hermes commit 的锁文件重新生成“无 extras、无 dev”的 62 包核心环境后，Python 归档降为
+48,062,721 bytes（45.84 MiB），四个基础归档合计 102,881,798 bytes（98.12 MiB）。解压后的组合候选
+通过了 `hermes --help`、OpenAI/FastAPI/Hermes 核心导入、清除 `PYTHONPATH` 后的子进程
+`tui_gateway` 导入、自包含 Node 启动、Connector 模块加载，以及真实 `hermes serve --skip-build`
+启动与 `/api/status` 请求；服务报告 `HERMES_BACKEND_READY` 和版本 0.21.0。由此首装体积目标已在
+arm64 本地候选上成立。Playwright、语音/ONNX、Google 等 extras 后续进入各自的签名按需组件，不能
+重新混入基础环境；PDF 提取当前仍是上游核心依赖，移出前需要上游调用边界配合。
+
 ### C5：界面与真实机器门禁
 
 - 原生预检页展示复用、下载、磁盘占用和按需组件；

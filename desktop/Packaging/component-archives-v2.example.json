@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 2,
+  "architecture": "arm64",
+  "sourceCommit": "0000000000000000000000000000000000000000",
+  "pythonRuntime": {
+    "version": "3.11.15",
+    "root": "/absolute/path/to/cpython-3.11.15-macos-aarch64-none",
+    "sitePackages": "/absolute/path/to/hermes-bootstrap-venv/lib/python3.11/site-packages"
+  },
+  "nodeRuntime": {
+    "version": "22.23.2",
+    "binary": "/absolute/path/to/arm64/node"
+  },
+  "hermesCore": {
+    "version": "0.21.0",
+    "sourceCommit": "f159e581c7afd22a5c94652c569e3859f1b994d2",
+    "sourceRoot": "/absolute/path/to/clean/hermes-agent"
+  },
+  "connector": {
+    "version": "0.1.2"
+  }
+}

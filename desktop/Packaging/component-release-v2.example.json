@@ -43,6 +43,18 @@
       ]
     },
     {
+      "kind": "node_runtime",
+      "version": "22.23.2",
+      "architecture": "arm64",
+      "installPhase": "bootstrap",
+      "requiredForBootstrap": true,
+      "reuseContract": "exact_content",
+      "source": "/absolute/staging/path/node-runtime.tar.gz",
+      "entrypoint": "bin/node",
+      "contentSHA256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "dependencies": []
+    },
+    {
       "kind": "connector",
       "version": "0.3.0",
       "architecture": "arm64",
@@ -53,6 +65,10 @@
       "entrypoint": "bin/hermes-connector",
       "contentSHA256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "dependencies": [
+        {
+          "kind": "node_runtime",
+          "contentSHA256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
         {
           "kind": "hermes_core",
           "contentSHA256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
