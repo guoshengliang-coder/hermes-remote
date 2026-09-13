@@ -748,12 +748,19 @@ management, audit events and default-device selection. It deliberately omits Goo
 sharing route.
 
 Post-restart smoke checks the account shell's CSP/no-store boundary, secure SameSite cookies, CSRF/Origin rejection,
-unauthenticated identity and installation guards, absent Google/deletion/sharing routes, preserved multi-device and
+unauthenticated identity and installation guards, edge-rejected Google/deletion/sharing routes, preserved multi-device and
 Desktop capabilities, the unchanged preflight Legacy state and exact release identity. Any failure restores the previous environment and
 site file byte-for-byte, removes the new include file, reloads Nginx, restarts the active Gateway and re-verifies
 R5-F4. `HR-OPS-023` names all failures; inspect
 `/var/lib/hermes-go/ops/identity-web-rollout.json` before retrying. Source merge and bundle generation do not
 authorize production execution.
+
+The first authorized F5-A attempt on 2026-09-13 stopped before mutation with `HR-OPS-023`. The production edge
+returned its established 405 method rejection for unconfigured Google exchange, account deletion and sharing
+acceptance mutations, while the original operator admitted only a 404 response. No identity-Web journal or route
+file was created, all three identity/Web flags remained disabled, and the blue service stayed active. The corrected
+gate accepts only 404 absence or 405 method rejection for these forbidden probes; authentication guards, successful
+responses, redirects and server failures remain disallowed.
 
 ## Production whole-device sharing gray rollout (R5-F5-B; code gate only)
 

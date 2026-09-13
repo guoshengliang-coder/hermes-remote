@@ -151,7 +151,7 @@ test("live verification pins Web security, route guards, multi-device, Legacy, a
     if (["/v2/web/auth/google/exchange"].includes(parsed.pathname)
         || parsed.pathname.includes("share-invitations")
         || (parsed.pathname === "/v2/web/account" && init.method === "DELETE")) {
-      return new Response("not found", { status: 404 });
+      return new Response("method not allowed", { status: 405 });
     }
     assert.fail(`unexpected URL ${url}`);
   };
