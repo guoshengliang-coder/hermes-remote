@@ -47,6 +47,7 @@
     "ops:production-account-rollout": "node scripts/production-account-rollout.mjs",
     "ops:production-binding-rollout": "node scripts/production-binding-rollout.mjs",
     "ops:production-multi-device-rollout": "node scripts/production-multi-device-rollout.mjs",
+    "ops:production-identity-web-rollout": "node scripts/production-identity-web-rollout.mjs",
     "ops:managed-baseline:package": "node scripts/package-production-baseline-bundle.mjs",
     "ops:managed-baseline:verify-bundle": "node scripts/verify-production-baseline-bundle.mjs",
     "dev:gateway": "npm run dev -w @hermes-remote/gateway",

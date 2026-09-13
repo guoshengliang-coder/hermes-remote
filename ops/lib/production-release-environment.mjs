@@ -104,7 +104,14 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
   const emailOnly = values.ACCOUNT_BINDING_ENABLED === "0"
     && values.ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED === "0";
   const multiDeviceEnabled = values.ACCOUNT_MULTI_DEVICE_ENABLED === "1";
-  if ((!bindingEnabled && !emailOnly) || (multiDeviceEnabled && !bindingEnabled)) {
+  const identityManagementEnabled = values.ACCOUNT_IDENTITY_MANAGEMENT_ENABLED === "1";
+  const webAccountCenterEnabled = values.ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED === "1";
+  const webSessionEnabled = values.ACCOUNT_WEB_SESSION_ENABLED === "1";
+  const identityWebEnabled = identityManagementEnabled && webAccountCenterEnabled && webSessionEnabled;
+  const identityWebPartiallyEnabled = identityManagementEnabled || webAccountCenterEnabled || webSessionEnabled;
+  if ((!bindingEnabled && !emailOnly) || (multiDeviceEnabled && !bindingEnabled)
+      || (identityWebPartiallyEnabled && !identityWebEnabled)
+      || (identityWebEnabled && !multiDeviceEnabled)) {
     fail("production_release_email_environment_invalid");
   }
   const expected = {
@@ -115,6 +122,9 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
     ACCOUNT_GATEWAY_ORIGIN: origin,
     ACCOUNT_BINDING_ENABLED: bindingEnabled ? "1" : "0",
     ACCOUNT_MULTI_DEVICE_ENABLED: multiDeviceEnabled ? "1" : "0",
+    ACCOUNT_IDENTITY_MANAGEMENT_ENABLED: identityWebEnabled ? "1" : "0",
+    ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED: identityWebEnabled ? "1" : "0",
+    ACCOUNT_WEB_SESSION_ENABLED: identityWebEnabled ? "1" : "0",
     ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED: bindingEnabled ? "1" : "0",
   };
   for (const key of EMAIL_KEYS) {
@@ -125,7 +135,9 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
     }
   }
   return Object.freeze({
-    mode: multiDeviceEnabled ? "email_multi_device" : (bindingEnabled ? "email_binding" : "email_otp"),
+    mode: identityWebEnabled
+      ? "email_identity_web"
+      : (multiDeviceEnabled ? "email_multi_device" : (bindingEnabled ? "email_binding" : "email_otp")),
     digest: digest(content),
     values: Object.freeze({ ...values }),
   });
@@ -135,7 +147,8 @@ export function renderProductionReleaseEnvironment(config, slot, inspected) {
   const selected = config.slots[slot];
   if (!selected) fail("production_release_candidate_slot_unknown");
   if (inspected?.mode === "disabled") return renderDeployGatewayEnvironment(config, slot);
-  if (!new Set(["email_otp", "email_binding", "email_multi_device"]).has(inspected?.mode) || !inspected.values) {
+  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web"]).has(inspected?.mode)
+      || !inspected.values) {
     fail("production_release_environment_mode_invalid");
   }
   return EMAIL_KEYS.map((key) => {
@@ -176,6 +189,27 @@ export function renderMultiDeviceRolloutEnvironment(config, slot, inspected) {
     let value = inspected.values[key];
     if (key === "PORT") value = String(selected.gatewayPort);
     if (key === "ACCOUNT_MULTI_DEVICE_ENABLED") value = "1";
+    if (typeof value !== "string" || /[\r\n\0]/.test(value)) {
+      fail("production_release_email_environment_invalid");
+    }
+    return `${key}=${value}`;
+  }).join("\n") + "\n";
+}
+
+export function renderIdentityWebRolloutEnvironment(config, slot, inspected) {
+  const selected = config.slots[slot];
+  if (!selected) fail("production_release_candidate_slot_unknown");
+  if (inspected?.mode !== "email_multi_device" || !inspected.values) {
+    fail("production_release_identity_web_requires_multi_device_environment");
+  }
+  return EMAIL_KEYS.map((key) => {
+    let value = inspected.values[key];
+    if (key === "PORT") value = String(selected.gatewayPort);
+    if (new Set([
+      "ACCOUNT_IDENTITY_MANAGEMENT_ENABLED",
+      "ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED",
+      "ACCOUNT_WEB_SESSION_ENABLED",
+    ]).has(key)) value = "1";
     if (typeof value !== "string" || /[\r\n\0]/.test(value)) {
       fail("production_release_email_environment_invalid");
     }

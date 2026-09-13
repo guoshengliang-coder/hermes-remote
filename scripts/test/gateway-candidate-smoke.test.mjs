@@ -192,7 +192,12 @@ test("candidate smoke uses the exact readiness contract for the preserved runtim
 test("candidate smoke accepts only the exact email-binding capability surface", () => {
   const policy = gatewayRuntimePolicy("email_binding");
   const capabilities = {
-    accountAuth: { enabled: true, providers: ["email_otp"] },
+    accountAuth: {
+      enabled: true,
+      providers: ["email_otp"],
+      identityManagement: false,
+      webAccountCenter: false,
+    },
     binding: { enabled: true, replacement: true, maxActiveConnectorsPerAccount: 1 },
     desktopBootstrap: { runtimeContract: "hermes-serve-v1" },
     legacy: { appTokenAccepted: true, connectorTokenAccepted: true },
@@ -218,7 +223,12 @@ test("candidate smoke accepts only the exact email-binding capability surface", 
 test("candidate smoke accepts only the exact multi-device capability surface", () => {
   const policy = gatewayRuntimePolicy("email_multi_device");
   const capabilities = {
-    accountAuth: { enabled: true, providers: ["email_otp"] },
+    accountAuth: {
+      enabled: true,
+      providers: ["email_otp"],
+      identityManagement: false,
+      webAccountCenter: false,
+    },
     binding: {
       enabled: true,
       replacement: true,
@@ -233,6 +243,39 @@ test("candidate smoke accepts only the exact multi-device capability surface", (
   for (const mutation of [
     (value) => { value.binding.maxActiveConnectorsPerAccount = 1; },
     (value) => { delete value.binding.supportsDeviceSelection; },
+    (value) => { value.binding.supportsDeviceSharing = true; },
+  ]) {
+    const changed = structuredClone(capabilities);
+    mutation(changed);
+    assert.throws(() => verifyGatewayCapabilities(changed, policy, "0.4.15"));
+  }
+});
+
+test("candidate smoke accepts the identity-Web runtime without sharing, deletion, or Google", () => {
+  const policy = gatewayRuntimePolicy("email_identity_web");
+  const capabilities = {
+    accountAuth: {
+      enabled: true,
+      providers: ["email_otp"],
+      identityManagement: true,
+      webAccountCenter: true,
+      webSessions: true,
+    },
+    binding: {
+      enabled: true,
+      replacement: true,
+      maxActiveConnectorsPerAccount: 3,
+      supportsDeviceSelection: true,
+    },
+    desktopBootstrap: { runtimeContract: "hermes-serve-v1" },
+    legacy: { appTokenAccepted: true, connectorTokenAccepted: true },
+    server: { version: "0.4.15" },
+  };
+  assert.doesNotThrow(() => verifyGatewayCapabilities(capabilities, policy, "0.4.15"));
+  for (const mutation of [
+    (value) => { value.accountAuth.webSessions = false; },
+    (value) => { value.accountAuth.providers.push("google"); },
+    (value) => { value.accountAuth.accountDeletion = true; },
     (value) => { value.binding.supportsDeviceSharing = true; },
   ]) {
     const changed = structuredClone(capabilities);
