@@ -264,6 +264,7 @@ export async function verifyReleaseInputs(config, activeSlot, runner, expectedEn
 
 export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
   bindingEnabled = false,
+  multiDeviceEnabled = false,
 } = {}) {
   const capabilitiesResponse = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/capabilities`);
   if (!capabilitiesResponse?.ok) fail("production_release_email_capabilities_unavailable");
@@ -287,8 +288,10 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
       || auth.webSessions === true
       || binding?.enabled !== bindingEnabled
       || binding?.replacement !== bindingEnabled
-      || binding?.maxActiveConnectorsPerAccount !== 1
-      || Object.hasOwn(binding ?? {}, "supportsDeviceSelection")
+      || binding?.maxActiveConnectorsPerAccount !== (multiDeviceEnabled ? 3 : 1)
+      || (multiDeviceEnabled
+        ? binding?.supportsDeviceSelection !== true
+        : Object.hasOwn(binding ?? {}, "supportsDeviceSelection"))
       || Object.hasOwn(binding ?? {}, "supportsDeviceSharing")
       || (bindingEnabled
         ? capabilities?.desktopBootstrap?.runtimeContract !== "hermes-serve-v1"
@@ -303,11 +306,12 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
 }
 
 function preserveAccountSurface(smoke, runtimeEnvironment, fetchImpl) {
-  if (!new Set(["email_otp", "email_binding"]).has(runtimeEnvironment.mode)) return smoke;
+  if (!new Set(["email_otp", "email_binding", "email_multi_device"]).has(runtimeEnvironment.mode)) return smoke;
   return async (request) => {
     await smoke({ ...request, expectedRuntimeMode: runtimeEnvironment.mode });
     await verifyPreservedEmailSurface(request, fetchImpl, {
-      bindingEnabled: runtimeEnvironment.mode === "email_binding",
+      bindingEnabled: runtimeEnvironment.mode !== "email_otp",
+      multiDeviceEnabled: runtimeEnvironment.mode === "email_multi_device",
     });
   };
 }

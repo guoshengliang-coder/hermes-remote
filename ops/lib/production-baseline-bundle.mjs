@@ -23,12 +23,15 @@ const MANIFEST_V3_KEYS = Object.freeze([...MANIFEST_V2_KEYS, "releaseEntrypoint"
 const MANIFEST_V4_KEYS = Object.freeze([...MANIFEST_V3_KEYS, "accountRolloutEntrypoint"]);
 // Schema 5 carries the separately confirmed, fail-closed single-Mac binding/Desktop-bootstrap rollout.
 const MANIFEST_V5_KEYS = Object.freeze([...MANIFEST_V4_KEYS, "bindingRolloutEntrypoint"]);
+// Schema 6 carries the separately confirmed, fail-closed multi-device rollout.
+const MANIFEST_V6_KEYS = Object.freeze([...MANIFEST_V5_KEYS, "multiDeviceRolloutEntrypoint"]);
 const MANIFEST_KEYS_BY_SCHEMA = Object.freeze({
   1: MANIFEST_V1_KEYS,
   2: MANIFEST_V2_KEYS,
   3: MANIFEST_V3_KEYS,
   4: MANIFEST_V4_KEYS,
   5: MANIFEST_V5_KEYS,
+  6: MANIFEST_V6_KEYS,
 });
 
 export async function loadProductionBaselineBundleManifest(filePath, {
@@ -63,6 +66,10 @@ export async function loadProductionBaselineBundleManifest(filePath, {
     if (raw.schemaVersion >= 5 && raw.bindingRolloutEntrypoint !== "scripts/production-binding-rollout.mjs") {
       fail("bundle_binding_rollout_entrypoint_invalid");
     }
+    if (raw.schemaVersion >= 6
+        && raw.multiDeviceRolloutEntrypoint !== "scripts/production-multi-device-rollout.mjs") {
+      fail("bundle_multi_device_rollout_entrypoint_invalid");
+    }
     if (verifyArchive) {
       const archivePath = path.join(path.dirname(filePath), raw.archiveFile);
       const archive = await readSafeFile(archivePath, 128 * 1024 * 1024);
@@ -77,8 +84,8 @@ export async function loadProductionBaselineBundleManifest(filePath, {
 
 export function createProductionBaselineBundleManifest({ sourceCommit, createdAt, archiveFile, archiveSha256 }) {
   return {
-    schemaVersion: 5,
-    kind: "hermes-go-production-baseline-bundle-v5",
+    schemaVersion: 6,
+    kind: "hermes-go-production-baseline-bundle-v6",
     sourceCommit,
     createdAt,
     archiveFile,
@@ -89,6 +96,7 @@ export function createProductionBaselineBundleManifest({ sourceCommit, createdAt
     releaseEntrypoint: "scripts/production-release.mjs",
     accountRolloutEntrypoint: "scripts/production-account-rollout.mjs",
     bindingRolloutEntrypoint: "scripts/production-binding-rollout.mjs",
+    multiDeviceRolloutEntrypoint: "scripts/production-multi-device-rollout.mjs",
   };
 }
 

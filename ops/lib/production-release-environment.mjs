@@ -103,7 +103,10 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
     && values.ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED === "1";
   const emailOnly = values.ACCOUNT_BINDING_ENABLED === "0"
     && values.ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED === "0";
-  if (!bindingEnabled && !emailOnly) fail("production_release_email_environment_invalid");
+  const multiDeviceEnabled = values.ACCOUNT_MULTI_DEVICE_ENABLED === "1";
+  if ((!bindingEnabled && !emailOnly) || (multiDeviceEnabled && !bindingEnabled)) {
+    fail("production_release_email_environment_invalid");
+  }
   const expected = {
     ...EMAIL_EXACT,
     PORT: String(selected.gatewayPort),
@@ -111,6 +114,7 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
     ACCOUNT_EMAIL_OTP_ISSUER: origin,
     ACCOUNT_GATEWAY_ORIGIN: origin,
     ACCOUNT_BINDING_ENABLED: bindingEnabled ? "1" : "0",
+    ACCOUNT_MULTI_DEVICE_ENABLED: multiDeviceEnabled ? "1" : "0",
     ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED: bindingEnabled ? "1" : "0",
   };
   for (const key of EMAIL_KEYS) {
@@ -121,7 +125,7 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
     }
   }
   return Object.freeze({
-    mode: bindingEnabled ? "email_binding" : "email_otp",
+    mode: multiDeviceEnabled ? "email_multi_device" : (bindingEnabled ? "email_binding" : "email_otp"),
     digest: digest(content),
     values: Object.freeze({ ...values }),
   });
@@ -131,7 +135,7 @@ export function renderProductionReleaseEnvironment(config, slot, inspected) {
   const selected = config.slots[slot];
   if (!selected) fail("production_release_candidate_slot_unknown");
   if (inspected?.mode === "disabled") return renderDeployGatewayEnvironment(config, slot);
-  if (!new Set(["email_otp", "email_binding"]).has(inspected?.mode) || !inspected.values) {
+  if (!new Set(["email_otp", "email_binding", "email_multi_device"]).has(inspected?.mode) || !inspected.values) {
     fail("production_release_environment_mode_invalid");
   }
   return EMAIL_KEYS.map((key) => {
@@ -155,6 +159,23 @@ export function renderBindingRolloutEnvironment(config, slot, inspected) {
     if (key === "ACCOUNT_BINDING_ENABLED" || key === "ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED") {
       value = "1";
     }
+    if (typeof value !== "string" || /[\r\n\0]/.test(value)) {
+      fail("production_release_email_environment_invalid");
+    }
+    return `${key}=${value}`;
+  }).join("\n") + "\n";
+}
+
+export function renderMultiDeviceRolloutEnvironment(config, slot, inspected) {
+  const selected = config.slots[slot];
+  if (!selected) fail("production_release_candidate_slot_unknown");
+  if (inspected?.mode !== "email_binding" || !inspected.values) {
+    fail("production_release_multi_device_requires_binding_environment");
+  }
+  return EMAIL_KEYS.map((key) => {
+    let value = inspected.values[key];
+    if (key === "PORT") value = String(selected.gatewayPort);
+    if (key === "ACCOUNT_MULTI_DEVICE_ENABLED") value = "1";
     if (typeof value !== "string" || /[\r\n\0]/.test(value)) {
       fail("production_release_email_environment_invalid");
     }

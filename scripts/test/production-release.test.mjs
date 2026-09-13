@@ -14,6 +14,7 @@ import { renderEmailRolloutEnvironment } from "../../ops/lib/production-account-
 import {
   inspectProductionReleaseEnvironment,
   renderBindingRolloutEnvironment,
+  renderMultiDeviceRolloutEnvironment,
   renderProductionReleaseEnvironment,
 } from "../../ops/lib/production-release-environment.mjs";
 import {
@@ -117,6 +118,27 @@ test("R5-F1 recognizes and preserves the exact single-Mac binding runtime", asyn
   assert.match(candidate, /^ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED=1$/m);
   assert.match(candidate, /^ACCOUNT_MULTI_DEVICE_ENABLED=0$/m);
   assert.match(candidate, /^ACCOUNT_DEVICE_SHARING_ENABLED=0$/m);
+});
+
+test("R5-F1 recognizes and preserves the exact multi-device runtime", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  await writeEmailEnvironment(config, "blue");
+  const email = await inspectProductionReleaseEnvironment(config, "blue");
+  const bindingEnvironment = renderBindingRolloutEnvironment(config, "blue", email);
+  await writeFile(environmentPath(config, "blue"), bindingEnvironment, { mode: 0o600 });
+  const binding = await inspectProductionReleaseEnvironment(config, "blue");
+  const multiDeviceEnvironment = renderMultiDeviceRolloutEnvironment(config, "blue", binding);
+  await writeFile(environmentPath(config, "blue"), multiDeviceEnvironment, { mode: 0o600 });
+
+  const inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  assert.equal(inspected.mode, "email_multi_device");
+  const candidate = renderProductionReleaseEnvironment(config, "green", inspected);
+  assert.match(candidate, /^PORT=18788$/m);
+  assert.match(candidate, /^ACCOUNT_BINDING_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_MULTI_DEVICE_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_DEVICE_SHARING_ENABLED=0$/m);
+  assert.match(candidate, /^ACCOUNT_IDENTITY_MANAGEMENT_ENABLED=0$/m);
 });
 
 test("R5-F1 rejects email-mode schema changes and post-admission environment drift", async (t) => {

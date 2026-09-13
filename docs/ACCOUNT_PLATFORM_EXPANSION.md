@@ -507,6 +507,21 @@ binding/generation, `connectedAt`, `endToEnd.checkedAt`, revocation latency, art
 Legacy compatibility. Public Desktop distribution remains blocked until the exact artifact also
 passes Developer ID signing, notarization, stapling, and clean-Mac Gatekeeper launch.
 
+### 10.2 Unattended development window
+
+When the product owner cannot reach the Mac mini or physical phones, development may continue through
+reversible repository gates: implementation, local fault-injection tests, documentation, pull requests,
+manual inspection of every reported check, and merge after all checks complete successfully. Work in this
+window must stop before Desktop version allocation, artifact installation, physical-device acceptance,
+Developer ID signing/notarization, production artifact upload, remote service restart, or any account flag
+change. Those actions remain explicit version, physical, signing, or production gates.
+
+The preferred order is R5-F4 code gate first, then F5-A identity/Web acceptance prerequisites, then F5-B
+sharing. E10 release notes and acceptance commands may be prepared in parallel, but Desktop 0.2.10/build 13
+is not allocated until the version gate is confirmed. The handback record must leave the owner a short list
+containing only the exact version decision, Mac/package actions, named-device evidence, and separately
+authorized production commands that could not run unattended.
+
 Local E3 backend status (2026-09-07): schema 10, the atomic three-owned-device limit, plural
 discovery/detail/default selection, explicit device-scoped REST/WebSocket routing, singular-route
 ambiguity protection, and disposable-PostgreSQL/network tests are implemented behind
