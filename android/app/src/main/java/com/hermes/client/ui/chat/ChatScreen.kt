@@ -838,6 +838,19 @@ fun ChatScreen(
             )
         },
         bottomBar = {
+            // While search is open the composer is gone (HG-46): it cannot be used from here, and
+            // a full-width input under a list you are stepping through is mostly a way to tap the
+            // wrong thing. Its INSET job survives it, though — the search field raises the same
+            // keyboard, and with nothing consuming that inset the transcript would run underneath
+            // it. So the bar keeps its height and gives up its content.
+            if (searchOpen) {
+                Spacer(
+                    Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
+                )
+                return@Scaffold
+            }
             Column(
                 Modifier
                     .fillMaxWidth()
