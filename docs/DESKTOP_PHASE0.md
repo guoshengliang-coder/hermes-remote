@@ -267,6 +267,13 @@ failures clean that workspace, and no reference becomes visible until all four c
 activation plan pass. An explicit cancel can remove only the exact UUID workspace carrying a valid
 installer marker. The result still does not mutate credentials, `current`, launchd, or processes.
 
+C5's first read-only slice composes that verified manifest with managed-store identity/health checks
+and the fixed-path external environment scanner. It produces one trusted decision list with exact
+bootstrap and deferred byte totals. Mutable Python and Node installations remain observations only;
+an external browser is reusable only through the signed compatibility contract and Desktop-owned
+probe. An unhealthy managed component fails before external scanning so the future UI cannot promise
+an overwrite that the immutable store would reject. This result is not yet wired to the shipping UI.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 
