@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
@@ -78,6 +79,12 @@ open class HermesGatewayClient(
      * report its own timeout first, rather than be cut short by a reconnect it cannot explain.
      */
     private val handshakeTimeoutMs: Long = HANDSHAKE_TIMEOUT_MS,
+    /**
+     * How long the client may stay in one non-terminal state before [superviseLiveness] treats it
+     * as stopped. Must exceed both [handshakeTimeoutMs] and the longest backoff, or the supervisor
+     * would interrupt work that is still legitimately in progress.
+     */
+    private val stallDeadlineMs: Long = HANDSHAKE_TIMEOUT_MS + BackoffPolicy().maxMs + 15_000L,
     // suspend so gated mode can fetch a fresh single-use WS ticket (an HTTP round trip) before
     // each connect; loopback mode returns immediately.
     private val wsEndpointProvider: suspend () -> GatewayWebSocketEndpoint,
@@ -118,6 +125,17 @@ open class HermesGatewayClient(
      * a lock gives the pair atomicity.
      */
     private val lifecycleLock = Any()
+
+    /**
+     * Test-only scheduling seam, invoked between the lifecycle steps by name.
+     *
+     * A fuzz cannot find a race whose window is the few nanoseconds between releasing a lock and
+     * taking it again; measured, 1,600 concurrent lifecycle calls entered that window zero times.
+     * Races this narrow are not found by shaking the box harder, they are found by being able to
+     * stop time at the seam — so the seams say where they are, and a test decides what lands
+     * there. Null in production, where this costs one null check per connect.
+     */
+    @Volatile internal var lifecycleSeam: ((String) -> Unit)? = null
     @Volatile private var accountAuthorizationClassificationPending = false
     private val attempt = AtomicInteger(0)
     // Monotonic socket generation. Each openSocket() bumps it; a socket's callbacks are
@@ -143,6 +161,7 @@ open class HermesGatewayClient(
             }
         }
         DebugLog.setStateSnapshot { connectionSnapshot() }
+        superviseLiveness()
     }
 
     /**
@@ -230,6 +249,65 @@ open class HermesGatewayClient(
         return since != 0L && System.currentTimeMillis() - since > handshakeTimeoutMs
     }
 
+    /**
+     * What must be true of this client whenever it is at rest, named so a failure can say which
+     * rule broke. Empty means every rule holds.
+     *
+     * These exist because HG-19, HG-27 and HG-42 were the same bug three times: the client came to
+     * rest somewhere it could not leave. Each was fixed by adding another guard, and after each fix
+     * nothing in the codebase actually *said* what resting states are legal — so the next way in
+     * was found by a user rather than by CI. Stating the rules is what lets a test look for a
+     * violation it was not told to expect.
+     */
+    internal fun invariantViolations(): List<String> = synchronized(lifecycleLock) {
+        // Under the lock, because the whole point is that the flag and the state move together.
+        // Reading them as two volatiles can observe a torn pair that no interleaving ever actually
+        // produced — which would make this report failures that are not real, and, worse, make a
+        // reader distrust it when it reports one that is.
+        val state = _state.value
+        val violations = mutableListOf<String>()
+        if (manuallyClosed && state !is ConnectionState.Disconnected && state !is ConnectionState.Error) {
+            violations += "a client the app closed is $state, not Disconnected"
+        }
+        if (state is ConnectionState.Connected && ws == null) {
+            violations += "Connected with no socket"
+        }
+        if (connectingHasStalled()) {
+            violations += "Connecting with no attempt behind it for ${System.currentTimeMillis() - connectingSinceMs}ms"
+        }
+        return violations
+    }
+
+
+    /**
+     * The one place that says a non-terminal state must not become permanent.
+     *
+     * The handshake watchdog covers a socket that opened and went mute; the backoff covers a socket
+     * that died; `connect()` covers a stalled Connecting *if somebody calls it*. Between them they
+     * covered every path anyone had thought of, which is exactly what was true before HG-42 as
+     * well. This one asks the only question that generalises — "is this still moving?" — and needs
+     * no theory about how it stopped.
+     *
+     * Driven by the state itself rather than a timer: collectLatest cancels the wait the moment
+     * anything changes, so an idle or a healthy client schedules nothing at all.
+     */
+    private fun superviseLiveness() {
+        scope.launch {
+            _state.collectLatest { state ->
+                if (state !is ConnectionState.Connecting && state !is ConnectionState.Reconnecting) return@collectLatest
+                kotlinx.coroutines.delay(stallDeadlineMs)
+                // Reached only because the state has not changed for the whole deadline — which is
+                // longer than the handshake watchdog and longer than the longest backoff, so by now
+                // something that should have moved has not.
+                if (manuallyClosed) return@collectLatest
+                val snapshot = connectionSnapshot()
+                DebugLog.log("error", "connection stalled in $state — repairing: $snapshot")
+                com.hermes.client.data.diagnostics.ConnectionIncidents.record("stalled-$state", snapshot)
+                reconnectNow()
+            }
+        }
+    }
+
     fun connect() {
         // Idempotent: multiple owners (the foreground service, view models, etc.) may all call
         // connect() on this shared singleton. If a socket is already open, or a connect/backoff
@@ -254,10 +332,15 @@ open class HermesGatewayClient(
                 return
             }
             if (stalled) {
-                DebugLog.log("ws", "connect() forcing a fresh socket — stalled: ${connectionSnapshot()}")
+                val snapshot = connectionSnapshot()
+                DebugLog.log("ws", "connect() forcing a fresh socket — stalled: $snapshot")
+                com.hermes.client.data.diagnostics.ConnectionIncidents.record("stalled-on-connect", snapshot)
             }
             manuallyClosed = false
         }
+        // The seam HG-42 came through: the flag says "the app wants a connection", and the state
+        // does not say so yet. A close() landing here used to leave the client Connecting forever.
+        lifecycleSeam?.invoke("connect:flag-cleared")
         openSocket()
     }
 
@@ -506,6 +589,7 @@ open class HermesGatewayClient(
             // before this line the log simply stopped, and nothing said whether the app had closed
             // the socket on purpose or a newer generation had taken over. Those look identical
             // from outside and only one of them is a bug.
+            lifecycleSeam?.invoke("reconnect:before-guard")
             if (manuallyClosed || gen != generation.get()) {
                 DebugLog.log("ws", "reconnect dropped (gen=$gen): " +
                     if (manuallyClosed) "closed by the app" else "superseded by gen=${generation.get()}")
