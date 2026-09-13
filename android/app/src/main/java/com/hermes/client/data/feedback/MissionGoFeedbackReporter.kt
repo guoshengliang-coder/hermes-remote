@@ -3,6 +3,7 @@ package com.hermes.client.data.feedback
 import android.app.Activity
 import android.app.Application
 import com.hermes.client.BuildConfig
+import com.hermes.client.data.diagnostics.ConnectionIncidents
 import com.hermes.client.data.diagnostics.DebugLog
 import java.io.File
 import io.missiongo.feedback.FeedbackOptions
@@ -49,6 +50,12 @@ class MissionGoFeedbackReporter private constructor(
      * produces, and often the part of the history that explains the report.
      */
     override fun prepare(prefill: FeedbackPrefill): FeedbackPrefill {
+        // Every report carries the connection stalls the app repaired by itself, whether or not
+        // the user ever turned diagnostics on. That toggle is off by default, so in HG-27 and
+        // HG-42 the app had already detected the fault and had nowhere durable to say so; the
+        // report that followed could not mention what the app already knew. Empty on a healthy
+        // device, so a normal report gains no noise.
+        ConnectionIncidents.feedbackContext().takeIf { it.isNotEmpty() }?.let { setContext("connection", it) }
         val dir = attachmentDir()
         FeedbackAttachments.pruneStale(dir)
         val snapshot = FeedbackAttachments.snapshot(dir, "diagnostic", DebugLog.exportFull())
