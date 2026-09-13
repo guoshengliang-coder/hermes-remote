@@ -61,6 +61,10 @@ The current automated suite covers:
 - component-archive construction from exact clean Git identities, an allowlisted secret-free Hermes
   source/runtime boundary, production-only Connector JavaScript, bundled architecture-matched
   runtimes, relative launchers, bounded trees, and no-overwrite cleanup;
+- componentized-install preflight planning: exact content identity is required for mutable runtimes,
+  a version-only external Python is rejected, an explicitly compatible healthy system browser may be
+  reused, wrong architecture/digest/failed probes are rejected, optional capabilities are deferred,
+  and only missing bootstrap components contribute to the initial download total;
 - redirect-free bounded downloads, exact size and streaming SHA-256 artifact validation;
 - tar member preflight, including traversal/link/special-file rejection before extraction, realistic
   dependency trees above the former 4,096-entry limit, and rejection beyond the new 65,536 bound;
