@@ -661,7 +661,7 @@ operator commits, perform one explicit target-Mac migration while the legacy Con
 Record artifact identities, the binding run ID, target-Mac journal, account binding generation, and rollback evidence
 in this section. Source merge or artifact upload alone does not authorize capability enablement.
 
-## Production multi-device gray rollout (R5-F4; code gate only)
+## Production multi-device gray rollout (R5-F4; enabled 2026-09-13, physical canary pending)
 
 R5-F4 starts only from the exact committed R5-F3 single-Mac state. It does not migrate the database, create or
 remove a binding, enable identity management, or enable sharing. It replaces the existing binding route include
@@ -703,6 +703,24 @@ while the original operator admitted only a healthy Legacy Connector. No multi-d
 active blue service stayed running, and the environment and Nginx routes remained unchanged. The corrected gate
 captures either legitimate preflight state and requires that exact state after restart and after the observation
 window; authentication failures, other 5xx responses and malformed bodies still fail closed.
+
+The authorized retry used the merged `main` operator bundle `Hermes-R5D-Ops-568d4896668d` (schema 8,
+archive SHA-256 `f6739f1429d79a31f84f274fb0574cc98eb2d52656a45d972b4a86557064159f`). The bundle was generated
+from clean commit `568d4896668de311da3fb4944881ab18e6a4c38f`, verified locally, re-hashed after transfer, verified
+again from `/opt/hermes-go-ops/568d4896668d`, and executed only after the merge commit's CI, Gateway OCI and
+SAST workflows passed. Run `3b863a6f-b1f2-4901-9eae-a1ff88ec51ae` committed on the blue slot at
+2026-09-13T10:50:16Z. The active Gateway identity remained `0.4.15-6b7d60fa6bbf`, its container stayed healthy
+with zero restarts after the operator restart, and schema 15/PostgreSQL 18 readiness remained green.
+
+The final environment changed only `ACCOUNT_MULTI_DEVICE_ENABLED=1`; email OTP, binding and Desktop managed
+installation remained enabled, while sharing, identity management, Web account center/session, deletion and Google
+remained disabled. The plural binding route file matched SHA-256
+`56d7ea3c24eee59176b279a939dd77ce0e908771a8171596a8812fae00158494`, `nginx -t` passed, unauthenticated
+`/v2/devices` and device WebSocket returned 401, and the account shell and sharing routes remained 404. The exact
+preflight Legacy response remained `503 {"error":"device_offline"}`. PostgreSQL contained one active, online
+binding and six historical revoked bindings; the operator created no binding. The second-Mac binding, selection,
+session-affinity, capacity and recovery exercise therefore remains a physical canary gate for E11 when that Mac is
+available. No F5-A identity/Web or F5-B sharing capability was enabled by this run.
 
 ## Production identity and Web account-center gray rollout (R5-F5-A; code gate only)
 
