@@ -316,6 +316,14 @@ only with the exact `206` and `Content-Range`, and re-reads the completed file f
 and SHA-256 before exposing the final archive name. These commands create and verify local candidates;
 they do not replace the production schema-v1 endpoint.
 
+After the four bootstrap archives have been committed, Desktop's v2 activation planner reopens their
+receipts, recomputes every content identity, validates executable entrypoints and health probes, and
+requires the exact builder dependency graph. It then derives Hermes and Connector LaunchAgents using
+the immutable content-store paths and the signed Python/Node identities. The schema-v1 writer refuses
+these runtime-root fields, while the schema-v2 writer accepts them only when their roots match the same
+managed layout and content hashes, which it recomputes immediately before persisting the LaunchAgent.
+This planner is not yet wired into the shipping install transaction.
+
 A real release still requires all of the following outside this local implementation:
 
 - provision and approve the release-signing key and pinned production public key;

@@ -250,6 +250,14 @@ so the shared store stays immutable. The Python runtime's managed `.pth` reads t
 root from the launch environment, preserving slash-worker imports after upstream removes the repo root
 from `PYTHONPATH`. Optional Python dependency extraction remains a later tested C4 slice.
 
+C4's second local slice resolves those four archives only from their rehashed managed-store content
+identities, enforces the exact Python-to-Hermes and Node/Hermes-to-Connector bootstrap topology,
+reruns a bounded health probe, and rejects missing, unsafe, or non-executable entries before producing
+a launch plan. The corresponding LaunchAgents carry only the exact Python and Node content roots;
+schema-v1 writers reject those schema-v2 runtime fields, and schema-v2 writers reject roots outside
+the active managed layout or content changed after planning. This remains an unwired local primitive
+and does not start either service.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 
