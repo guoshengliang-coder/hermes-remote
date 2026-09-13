@@ -101,7 +101,21 @@ class GatewayLivenessTest {
                     }.apply { isDaemon = true }.start()
                 }
                 start.countDown()
-                done.await(60, TimeUnit.SECONDS)
+                assertTrue(
+                    "the fuzz threads must be done before anything below is asserted",
+                    done.await(60, TimeUnit.SECONDS),
+                )
+
+                // The seam has done its job here, and leaving it installed makes everything below
+                // measure the injector instead of the client. connect() clears manuallyClosed,
+                // fires the seam, and only then calls openSocket() — so a seam that rolls a
+                // close() at that point (one time in three) sets the flag again, openSocket()
+                // refuses, and the client stays Disconnected with nothing left that would retry
+                // it. The reopen check at the end of this test then times out having found a
+                // property of the fuzz, not of the state machine. That was the whole of this
+                // test's flakiness: about one run in ten locally, and it failed the 0.1.124
+                // release PR once before passing on a rerun of the same commit.
+                c.lifecycleSeam = null
 
                 // Quiesce, then judge. Mid-flight readings are allowed to be in transition; what
                 // must never survive is a violation once everything has settled. The supervisor's
@@ -163,7 +177,10 @@ class GatewayLivenessTest {
                     repeat(400) { c.close("fuzz: app idle in the background") }
                     done.countDown()
                 }.apply { isDaemon = true }.start()
-                done.await(60, TimeUnit.SECONDS)
+                assertTrue(
+                    "the fuzz threads must be done before anything below is asserted",
+                    done.await(60, TimeUnit.SECONDS),
+                )
 
                 c.close("test asked for it")
                 Thread.sleep(300)
