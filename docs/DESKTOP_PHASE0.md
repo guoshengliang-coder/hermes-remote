@@ -320,9 +320,20 @@ atomically replaces the Hermes LaunchAgent, restarts only Hermes, and requires b
 line and healthy loopback status. Any activation failure restores the exact previous plist and, when
 Hermes was stopped, proves the restored service healthy before returning the original failure. After
 successful activation the original capability closure is invoked exactly once; a retry failure does
-not roll back an otherwise healthy installed runtime. The shipping request path is still unwired and
-must next derive the complete active set from the signed capability references and missing-capability
-signal before enabling this coordinator.
+not roll back an otherwise healthy installed runtime. That slice still accepted a caller-assembled
+active set; the following resolver closes that boundary before shipping request wiring is added.
+
+C4's ninth default-inert slice now derives that complete set without trusting caller-assembled paths.
+It fail-closes on an invalid shared-store snapshot, reads only the exact base release's managed
+capability references, matches every identity to the signed manifest, and rehashes, probes, and checks
+the executable entrypoint again. This preserves an earlier managed optional component when a later
+trigger installs another one. A system browser has no managed reference, so it is retained from the
+current owner-only Hermes LaunchAgent only after the exact executable passes the signed compatibility
+contract and a fresh fixed-path scan. The activation transaction now owns this resolver and runs it
+only after acquiring the migration operation lease and confirming the managed service topology, so
+callers cannot submit an assembled path set. The production missing-capability signal remains
+unwired; the next local slice maps that signal to a signed trigger and composes installation with the
+activation transaction behind the default-off gate.
 
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.

@@ -108,12 +108,14 @@ public enum DesktopOnDemandRuntimeActivationError: Error, Equatable, Sendable {
     case rollbackFailed
 }
 
-/// Applies one already-installed optional capability to a healthy managed Hermes service. The
-/// replacement LaunchAgent is health-gated and restored on activation failure. The caller-supplied
+/// Applies one already-installed optional capability to a healthy managed Hermes service. While the
+/// migration lease is held, it resolves the complete active optional set before replacing the
+/// LaunchAgent. The replacement is health-gated and restored on activation failure. The caller's
 /// capability operation runs exactly once after the new runtime is ready; its own error is returned
 /// without rolling back a healthy installation.
 public actor DesktopOnDemandRuntimeActivator {
     private let journal: DesktopMigrationJournalStore
+    private let resolver: any DesktopActiveOnDemandComponentResolving
     private let preparer: any DesktopOnDemandRuntimePreparing
     private let service: any DesktopHermesServiceControlling
     private let readiness: any DesktopHermesCandidateReadinessChecking
@@ -123,6 +125,7 @@ public actor DesktopOnDemandRuntimeActivator {
 
     public init(
         journal: DesktopMigrationJournalStore,
+        resolver: any DesktopActiveOnDemandComponentResolving,
         preparer: any DesktopOnDemandRuntimePreparing,
         service: any DesktopHermesServiceControlling,
         readiness: any DesktopHermesCandidateReadinessChecking = DesktopHermesCandidateReadinessChecker(),
@@ -133,6 +136,7 @@ public actor DesktopOnDemandRuntimeActivator {
             throw DesktopOnDemandRuntimeActivationError.invalidInput
         }
         self.journal = journal
+        self.resolver = resolver
         self.preparer = preparer
         self.service = service
         self.readiness = readiness
@@ -142,8 +146,9 @@ public actor DesktopOnDemandRuntimeActivator {
 
     public func activateAndRetry<T: Sendable>(
         installed: DesktopInstalledOnDemandCapability,
-        activeComponents: [DesktopResolvedOnDemandComponent],
+        hermesLaunchAgentURL: URL,
         activationPlan: DesktopComponentReleaseActivationPlan,
+        componentHealthProbe: DesktopOnDemandComponentInstaller.HealthProbe,
         retry: @Sendable () async throws -> T
     ) async throws -> T {
         guard !running else { throw DesktopOnDemandRuntimeActivationError.operationInProgress }
@@ -166,6 +171,12 @@ public actor DesktopOnDemandRuntimeActivator {
         guard !services.legacyLoaded, services.accountLoaded, services.hermesLoaded else {
             throw DesktopOnDemandRuntimeActivationError.invalidStartingState
         }
+
+        let activeComponents = try resolver.resolve(
+            installed: installed,
+            hermesLaunchAgentURL: hermesLaunchAgentURL,
+            healthProbe: componentHealthProbe
+        )
 
         let prepared = try preparer.prepare(
             installed: installed,

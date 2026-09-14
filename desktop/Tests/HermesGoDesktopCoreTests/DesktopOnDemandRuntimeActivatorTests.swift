@@ -90,8 +90,10 @@ final class DesktopOnDemandRuntimeActivatorTests: XCTestCase {
         let service = HermesServiceMock()
         let readiness = RuntimeReadinessMock(results: [true])
         let retries = LockedCounter()
+        let resolver = RuntimeResolverMock(fixture.installed.components)
         let activator = try DesktopOnDemandRuntimeActivator(
             journal: fixture.journal,
+            resolver: resolver,
             preparer: preparer,
             service: service,
             readiness: readiness,
@@ -101,8 +103,9 @@ final class DesktopOnDemandRuntimeActivatorTests: XCTestCase {
 
         let value: String = try await activator.activateAndRetry(
             installed: fixture.installed,
-            activeComponents: fixture.installed.components,
-            activationPlan: fixture.plan
+            hermesLaunchAgentURL: fixture.prepared.launchAgentURL,
+            activationPlan: fixture.plan,
+            componentHealthProbe: { _, _, _ in true }
         ) {
             retries.increment()
             return "retried"
@@ -110,6 +113,7 @@ final class DesktopOnDemandRuntimeActivatorTests: XCTestCase {
 
         XCTAssertEqual(value, "retried")
         XCTAssertEqual(retries.value(), 1)
+        XCTAssertEqual(resolver.resolveCount(), 1)
         XCTAssertEqual(preparer.prepareCount(), 1)
         XCTAssertEqual(preparer.rollbackCount(), 0)
         XCTAssertEqual(service.mutations(), ["stop", "start"])
@@ -125,6 +129,7 @@ final class DesktopOnDemandRuntimeActivatorTests: XCTestCase {
         let retries = LockedCounter()
         let activator = try DesktopOnDemandRuntimeActivator(
             journal: fixture.journal,
+            resolver: RuntimeResolverMock(fixture.installed.components),
             preparer: preparer,
             service: service,
             readiness: readiness,
@@ -134,8 +139,9 @@ final class DesktopOnDemandRuntimeActivatorTests: XCTestCase {
 
         await XCTAssertThrowsErrorAsync(try await activator.activateAndRetry(
             installed: fixture.installed,
-            activeComponents: fixture.installed.components,
-            activationPlan: fixture.plan
+            hermesLaunchAgentURL: fixture.prepared.launchAgentURL,
+            activationPlan: fixture.plan,
+            componentHealthProbe: { _, _, _ in true }
         ) {
             retries.increment()
         }) { error in
@@ -156,6 +162,7 @@ final class DesktopOnDemandRuntimeActivatorTests: XCTestCase {
         let retries = LockedCounter()
         let activator = try DesktopOnDemandRuntimeActivator(
             journal: fixture.journal,
+            resolver: RuntimeResolverMock(fixture.installed.components),
             preparer: preparer,
             service: service,
             readiness: RuntimeReadinessMock(results: [true]),
@@ -165,8 +172,9 @@ final class DesktopOnDemandRuntimeActivatorTests: XCTestCase {
 
         await XCTAssertThrowsErrorAsync(try await activator.activateAndRetry(
             installed: fixture.installed,
-            activeComponents: fixture.installed.components,
-            activationPlan: fixture.plan
+            hermesLaunchAgentURL: fixture.prepared.launchAgentURL,
+            activationPlan: fixture.plan,
+            componentHealthProbe: { _, _, _ in true }
         ) {
             retries.increment()
             throw RetryFailure.expected
@@ -184,8 +192,10 @@ final class DesktopOnDemandRuntimeActivatorTests: XCTestCase {
         defer { fixture.cleanup() }
         let preparer = RuntimePreparerMock(fixture.prepared)
         let service = HermesServiceMock()
+        let resolver = RuntimeResolverMock(fixture.installed.components)
         let activator = try DesktopOnDemandRuntimeActivator(
             journal: fixture.journal,
+            resolver: resolver,
             preparer: preparer,
             service: service,
             readiness: RuntimeReadinessMock(results: [true]),
@@ -195,13 +205,15 @@ final class DesktopOnDemandRuntimeActivatorTests: XCTestCase {
 
         await XCTAssertThrowsErrorAsync(try await activator.activateAndRetry(
             installed: fixture.installed,
-            activeComponents: fixture.installed.components,
+            hermesLaunchAgentURL: fixture.prepared.launchAgentURL,
             activationPlan: fixture.plan,
+            componentHealthProbe: { _, _, _ in true },
             retry: {}
         )) { error in
             XCTAssertEqual(error as? DesktopOnDemandRuntimeActivationError, .invalidStartingState)
         }
         XCTAssertEqual(preparer.prepareCount(), 0)
+        XCTAssertEqual(resolver.resolveCount(), 0)
         XCTAssertTrue(service.mutations().isEmpty)
     }
 
@@ -211,8 +223,10 @@ final class DesktopOnDemandRuntimeActivatorTests: XCTestCase {
         let heldLease = try fixture.journal.acquireOperationLease()
         let preparer = RuntimePreparerMock(fixture.prepared)
         let service = HermesServiceMock()
+        let resolver = RuntimeResolverMock(fixture.installed.components)
         let activator = try DesktopOnDemandRuntimeActivator(
             journal: fixture.journal,
+            resolver: resolver,
             preparer: preparer,
             service: service,
             readiness: RuntimeReadinessMock(results: [true]),
@@ -222,13 +236,51 @@ final class DesktopOnDemandRuntimeActivatorTests: XCTestCase {
 
         await XCTAssertThrowsErrorAsync(try await activator.activateAndRetry(
             installed: fixture.installed,
-            activeComponents: fixture.installed.components,
+            hermesLaunchAgentURL: fixture.prepared.launchAgentURL,
             activationPlan: fixture.plan,
+            componentHealthProbe: { _, _, _ in true },
             retry: {}
         )) { error in
             XCTAssertEqual(error as? DesktopOnDemandRuntimeActivationError, .operationInProgress)
         }
         withExtendedLifetime(heldLease) {}
+        XCTAssertEqual(preparer.prepareCount(), 0)
+        XCTAssertEqual(resolver.resolveCount(), 0)
+        XCTAssertTrue(service.mutations().isEmpty)
+    }
+
+    func testResolutionFailureStopsBeforePreparationOrServiceMutation() async throws {
+        let fixture = try RuntimeActivationFixture()
+        defer { fixture.cleanup() }
+        let resolver = RuntimeResolverMock(
+            fixture.installed.components,
+            failure: .invalidManagedStore
+        )
+        let preparer = RuntimePreparerMock(fixture.prepared)
+        let service = HermesServiceMock()
+        let activator = try DesktopOnDemandRuntimeActivator(
+            journal: fixture.journal,
+            resolver: resolver,
+            preparer: preparer,
+            service: service,
+            readiness: RuntimeReadinessMock(results: [true]),
+            maximumReadinessAttempts: 1,
+            readinessDelayNanoseconds: 0
+        )
+
+        await XCTAssertThrowsErrorAsync(try await activator.activateAndRetry(
+            installed: fixture.installed,
+            hermesLaunchAgentURL: fixture.prepared.launchAgentURL,
+            activationPlan: fixture.plan,
+            componentHealthProbe: { _, _, _ in true },
+            retry: {}
+        )) { error in
+            XCTAssertEqual(
+                error as? DesktopActiveOnDemandComponentResolutionError,
+                .invalidManagedStore
+            )
+        }
+        XCTAssertEqual(resolver.resolveCount(), 1)
         XCTAssertEqual(preparer.prepareCount(), 0)
         XCTAssertTrue(service.mutations().isEmpty)
     }
@@ -242,6 +294,33 @@ final class DesktopOnDemandRuntimeActivatorTests: XCTestCase {
 }
 
 private enum RetryFailure: Error, Equatable { case expected }
+
+private final class RuntimeResolverMock: DesktopActiveOnDemandComponentResolving, @unchecked Sendable {
+    private let lock = NSLock()
+    private let components: [DesktopResolvedOnDemandComponent]
+    private let failure: DesktopActiveOnDemandComponentResolutionError?
+    private var resolutions = 0
+
+    init(
+        _ components: [DesktopResolvedOnDemandComponent],
+        failure: DesktopActiveOnDemandComponentResolutionError? = nil
+    ) {
+        self.components = components
+        self.failure = failure
+    }
+
+    func resolve(
+        installed: DesktopInstalledOnDemandCapability,
+        hermesLaunchAgentURL: URL,
+        healthProbe: DesktopOnDemandComponentInstaller.HealthProbe
+    ) throws -> [DesktopResolvedOnDemandComponent] {
+        lock.withLock { resolutions += 1 }
+        if let failure { throw failure }
+        return components
+    }
+
+    func resolveCount() -> Int { lock.withLock { resolutions } }
+}
 
 private final class RuntimePreparerMock: DesktopOnDemandRuntimePreparing, @unchecked Sendable {
     private let lock = NSLock()
