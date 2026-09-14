@@ -384,6 +384,20 @@ from a version, URL, or display row. The compatibility `load` API still returns 
 slice creates no workspace, download action, component-store write, reference, LaunchAgent, credential,
 process, binding, production configuration, or release.
 
+C5's eighth default-unwired slice adds the single state machine that consumes that trusted session.
+Preparation accepts only the matching scanned result and verifier token and may write only its private
+cache. The exact release confirmation is required before it revalidates and commits all four bootstrap
+components, derives LaunchAgents from the returned content-addressed Python/Node plan, and calls one
+persistent migration boundary. Foreign preparations and mismatched trusted input fail before component
+or service mutation; cancellation and terminal failures remove the private workspace. An interrupted
+download before handle issuance remains removable only through the installer's UUID-and-private-marker
+checked path. A migration failure may leave only the inactive immutable component/reference cache for
+safe retry or GC. Successful migration remains successful when temporary cleanup needs its bounded
+retry handle. The concrete v2
+migration adapter is still deliberately absent because interrupted recovery must first distinguish v2
+component activation from the v1 `current` symlink contract in the durable journal. No install action,
+production configuration, service behavior, or release changes in this slice.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 
