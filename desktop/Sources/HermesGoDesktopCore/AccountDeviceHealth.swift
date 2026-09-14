@@ -57,7 +57,7 @@ public enum AccountDeviceHealth {
         checkedAt: Date
     ) -> ComponentHealth {
         switch device.hermes.reachable {
-        case true:
+        case .some(true):
             let detail = device.hermes.version.map { "可访问 · \($0)" } ?? "可访问"
             return ComponentHealth(
                 component: .hermes,
@@ -65,7 +65,7 @@ public enum AccountDeviceHealth {
                 detail: detail,
                 checkedAt: checkedAt
             )
-        case false:
+        case .some(false):
             let issue = DesktopIssue(code: .hermesUnavailable)
             return ComponentHealth(
                 component: .hermes,
@@ -74,7 +74,7 @@ public enum AccountDeviceHealth {
                 checkedAt: checkedAt,
                 issue: issue
             )
-        case nil:
+        case .none:
             return ComponentHealth(
                 component: .hermes,
                 level: .degraded,
@@ -89,14 +89,14 @@ public enum AccountDeviceHealth {
         checkedAt: Date
     ) -> ComponentHealth {
         switch device.endToEnd.healthy {
-        case true:
+        case .some(true):
             return ComponentHealth(
                 component: .endToEnd,
                 level: .healthy,
                 detail: "账号链路正常",
                 checkedAt: checkedAt
             )
-        case false:
+        case .some(false):
             let issue = DesktopIssue(code: .relayFailure)
             return ComponentHealth(
                 component: .endToEnd,
@@ -105,7 +105,7 @@ public enum AccountDeviceHealth {
                 checkedAt: checkedAt,
                 issue: issue
             )
-        case nil:
+        case .none:
             return ComponentHealth(
                 component: .endToEnd,
                 level: .degraded,
