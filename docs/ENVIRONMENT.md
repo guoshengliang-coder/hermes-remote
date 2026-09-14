@@ -221,8 +221,11 @@ and Nginx bytes and returns `HR-OPS-021`.
 `ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED` is a second, default-off gate for schema-v2 component
 installation and requires `ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED=1`. When enabled, Gateway adds
 `desktopBootstrap.componentManifestSchemaVersion: 2` without changing the existing runtime contract.
-The production binding rollout above does not set or admit this flag; enabling it belongs to a later
-component-release rollout after the signed v2 manifest and Desktop acceptance gates pass.
+The production binding rollout above does not set this flag. Enable it only with the immutable operator
+bundle's `scripts/production-component-rollout.mjs` after the signed v2 manifest and configured Desktop
+candidate pass their release gates. The operator independently downloads and verifies the manifest and every
+declared component before changing the exact active-slot environment, then verifies the schema-2 capability
+twice and restores the previous environment on any failure.
 
 `ACCOUNT_MULTI_DEVICE_ENABLED` is the independent, default-off E3 switch and requires
 `ACCOUNT_BINDING_ENABLED=1`. When off, the transactional ownership limit and advertised capability

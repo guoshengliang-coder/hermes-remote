@@ -160,6 +160,13 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "inspect_sharing_rollout_stage_and_retry",
   }),
+  productionComponentRollout: Object.freeze({
+    code: "HR-OPS-025",
+    summaryZh: "生产 Desktop 组件安装灰度未完成，已阻止启用或恢复为原组件能力状态。请检查灰度阶段后重试。",
+    summaryEn: "The production Desktop component rollout did not complete. Enablement was blocked or the previous component capability was restored. Inspect the rollout stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_component_rollout_stage_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;

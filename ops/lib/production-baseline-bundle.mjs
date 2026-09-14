@@ -29,6 +29,8 @@ const MANIFEST_V6_KEYS = Object.freeze([...MANIFEST_V5_KEYS, "multiDeviceRollout
 const MANIFEST_V7_KEYS = Object.freeze([...MANIFEST_V6_KEYS, "identityWebRolloutEntrypoint"]);
 // Schema 8 carries the separately confirmed whole-device sharing rollout.
 const MANIFEST_V8_KEYS = Object.freeze([...MANIFEST_V7_KEYS, "sharingRolloutEntrypoint"]);
+// Schema 9 carries the separately confirmed Desktop component-manifest capability rollout.
+const MANIFEST_V9_KEYS = Object.freeze([...MANIFEST_V8_KEYS, "componentRolloutEntrypoint"]);
 const MANIFEST_KEYS_BY_SCHEMA = Object.freeze({
   1: MANIFEST_V1_KEYS,
   2: MANIFEST_V2_KEYS,
@@ -38,6 +40,7 @@ const MANIFEST_KEYS_BY_SCHEMA = Object.freeze({
   6: MANIFEST_V6_KEYS,
   7: MANIFEST_V7_KEYS,
   8: MANIFEST_V8_KEYS,
+  9: MANIFEST_V9_KEYS,
 });
 
 export async function loadProductionBaselineBundleManifest(filePath, {
@@ -84,6 +87,10 @@ export async function loadProductionBaselineBundleManifest(filePath, {
         && raw.sharingRolloutEntrypoint !== "scripts/production-sharing-rollout.mjs") {
       fail("bundle_sharing_rollout_entrypoint_invalid");
     }
+    if (raw.schemaVersion >= 9
+        && raw.componentRolloutEntrypoint !== "scripts/production-component-rollout.mjs") {
+      fail("bundle_component_rollout_entrypoint_invalid");
+    }
     if (verifyArchive) {
       const archivePath = path.join(path.dirname(filePath), raw.archiveFile);
       const archive = await readSafeFile(archivePath, 128 * 1024 * 1024);
@@ -98,8 +105,8 @@ export async function loadProductionBaselineBundleManifest(filePath, {
 
 export function createProductionBaselineBundleManifest({ sourceCommit, createdAt, archiveFile, archiveSha256 }) {
   return {
-    schemaVersion: 8,
-    kind: "hermes-go-production-baseline-bundle-v8",
+    schemaVersion: 9,
+    kind: "hermes-go-production-baseline-bundle-v9",
     sourceCommit,
     createdAt,
     archiveFile,
@@ -113,6 +120,7 @@ export function createProductionBaselineBundleManifest({ sourceCommit, createdAt
     multiDeviceRolloutEntrypoint: "scripts/production-multi-device-rollout.mjs",
     identityWebRolloutEntrypoint: "scripts/production-identity-web-rollout.mjs",
     sharingRolloutEntrypoint: "scripts/production-sharing-rollout.mjs",
+    componentRolloutEntrypoint: "scripts/production-component-rollout.mjs",
   };
 }
 

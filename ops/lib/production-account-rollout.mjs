@@ -212,6 +212,7 @@ export function renderEmailRolloutEnvironment(releaseConfig, config, activeSlot)
     "ACCOUNT_WEB_SESSION_ENABLED=0",
     "ACCOUNT_DELETION_ENABLED=0",
     "ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED=0",
+    "ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED=0",
     "ACCOUNT_DATABASE_URL_FILE=/run/hermes-go/secrets/account-database-url",
     "ACCOUNT_TOKEN_HASH_KEY_FILE=/run/hermes-go/secrets/account-token-hash-key",
     "ACCOUNT_EMAIL_OTP_HASH_KEY_FILE=/run/hermes-go/secrets/account-email-otp-hash-key",

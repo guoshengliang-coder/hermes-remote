@@ -267,6 +267,7 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
   multiDeviceEnabled = false,
   identityWebEnabled = false,
   sharingEnabled = false,
+  componentInstallEnabled = false,
 } = {}) {
   const capabilitiesResponse = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/capabilities`);
   if (!capabilitiesResponse?.ok) fail("production_release_email_capabilities_unavailable");
@@ -302,7 +303,10 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
           || Object.hasOwn(binding ?? {}, "maxSharedDevices")
           || Object.hasOwn(binding ?? {}, "maxGranteesPerDevice")))
       || (bindingEnabled
-        ? capabilities?.desktopBootstrap?.runtimeContract !== "hermes-serve-v1"
+        ? (capabilities?.desktopBootstrap?.runtimeContract !== "hermes-serve-v1"
+          || (componentInstallEnabled
+            ? capabilities.desktopBootstrap.componentManifestSchemaVersion !== 2
+            : Object.hasOwn(capabilities.desktopBootstrap, "componentManifestSchemaVersion")))
         : Object.hasOwn(capabilities ?? {}, "desktopBootstrap"))) {
     fail("production_release_email_capabilities_invalid");
   }
@@ -348,14 +352,15 @@ async function verifyPreservedIdentityWebSurface(request, fetchImpl, sharingEnab
 }
 
 function preserveAccountSurface(smoke, runtimeEnvironment, fetchImpl) {
-  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing"]).has(runtimeEnvironment.mode)) return smoke;
+  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components"]).has(runtimeEnvironment.mode)) return smoke;
   return async (request) => {
     await smoke({ ...request, expectedRuntimeMode: runtimeEnvironment.mode });
     await verifyPreservedEmailSurface(request, fetchImpl, {
       bindingEnabled: runtimeEnvironment.mode !== "email_otp",
-      multiDeviceEnabled: new Set(["email_multi_device", "email_identity_web", "email_sharing"]).has(runtimeEnvironment.mode),
-      identityWebEnabled: new Set(["email_identity_web", "email_sharing"]).has(runtimeEnvironment.mode),
-      sharingEnabled: runtimeEnvironment.mode === "email_sharing",
+      multiDeviceEnabled: new Set(["email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components"]).has(runtimeEnvironment.mode),
+      identityWebEnabled: new Set(["email_identity_web", "email_sharing", "email_sharing_components"]).has(runtimeEnvironment.mode),
+      sharingEnabled: new Set(["email_sharing", "email_sharing_components"]).has(runtimeEnvironment.mode),
+      componentInstallEnabled: runtimeEnvironment.mode === "email_sharing_components",
     });
   };
 }
