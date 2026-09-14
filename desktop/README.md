@@ -1,6 +1,6 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.11** (build 14). It adds the separately gated schema-v2
+Current internal test release candidate: **0.2.12** (build 15). It adds the separately gated schema-v2
 component bootstrap path: Desktop verifies the signed component manifest, reuses exact compatible
 local runtimes, downloads only missing bootstrap components into a private cache, and requires a
 second explicit confirmation before it changes the managed component store, account binding,
