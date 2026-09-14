@@ -928,13 +928,41 @@ class SessionRuntimeStore(
         return if (previous == committed) ManualHistoryResult.UNCHANGED else ManualHistoryResult.CHANGED
     }
 
-    /** Apply asynchronously downloaded thumbnails without replacing newer live text/deltas. */
+    /** The transcript as committed right now — what is on screen, after any id alignment. */
+    fun messagesFor(key: SessionRuntimeKey): List<ChatMessage> =
+        _runtimes.value[key]?.chat?.messages.orEmpty()
+
+    /**
+     * Apply asynchronously downloaded thumbnails without replacing newer live text/deltas.
+     *
+     * **Matched by IMAGE id, not by message id** (HG-44). Message ids are not stable across this
+     * boundary: [acceptHistory] runs `alignMessageIds`, which rewrites a REST row's `h-*` id to the
+     * local `u-*`/`a-*` it corresponds to. One caller hydrates the list it fetched — i.e. the one
+     * from BEFORE that rewrite — so every lookup missed and the downloaded thumbnails were dropped
+     * without a word. The symptom was exact: images visible while the message was live, and three
+     * waiting marks forever after the first reconcile replaced it with remote-only rows.
+     *
+     * Image ids are stable by construction on both sides. An outgoing image keeps its attachment
+     * uuid, and one parsed out of history is keyed on its own remote path
+     * (`domain/Mappers.kt` `remoteImage`), so the same picture has the same id whichever route it
+     * arrived by. Matching on them makes this correct for every caller instead of only the ones
+     * that happen to pass a post-alignment list.
+     */
     fun acceptHydratedImages(key: SessionRuntimeKey, hydrated: List<ChatMessage>) {
-        val byId = hydrated.associate { it.id to it.images }
+        val byImageId = hydrated
+            .flatMap { it.images }
+            // Only images that gained something. A hydrate that failed comes back with no local
+            // path and must not overwrite a copy that still has one.
+            .filter { !it.localPath.isNullOrBlank() }
+            .associateBy { it.id }
+        if (byImageId.isEmpty()) return
         updateRuntime(key) { runtime ->
             runtime.copy(chat = runtime.chat.copy(messages = runtime.chat.messages.map { message ->
-                val images = byId[message.id]
-                if (!images.isNullOrEmpty()) message.copy(images = images) else message
+                if (message.images.none { byImageId.containsKey(it.id) }) {
+                    message
+                } else {
+                    message.copy(images = message.images.map { byImageId[it.id] ?: it })
+                }
             }))
         }
     }
