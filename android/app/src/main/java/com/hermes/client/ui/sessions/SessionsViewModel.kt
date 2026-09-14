@@ -680,8 +680,26 @@ class SessionsViewModel @Inject constructor(
             )
     }
 
+    /**
+     * Re-reads every list the changed session could be sitting in.
+     *
+     * [refresh] only refills `sessions`, which the Bots segment does not render — it reads the same
+     * endpoint separately (see [loadBots]). Archiving a bot row therefore used to succeed upstream
+     * while the row stayed on screen until the next resume. The row actions are shared with the
+     * Chats segment (HG-54), so their refresh has to be too.
+     *
+     * Gated on the SESSION, not on [viewMode]: that flow is `WhileSubscribed`, so its `.value`
+     * falls back to SESSIONS whenever nothing is collecting it — which is exactly the window a
+     * background write can land in. What the session IS does not have that problem.
+     */
+    private fun refreshListsHolding(session: Session) {
+        refresh()
+        if (isBotSession(session.source)) loadBots()
+    }
+
     fun rename(session: Session, title: String) = viewModelScope.launch {
-        runCatching { sessions.rename(session.id, title, session.profile, session.deviceId) }.onSuccess { refresh() }
+        runCatching { sessions.rename(session.id, title, session.profile, session.deviceId) }
+            .onSuccess { refreshListsHolding(session) }
     }
 
     fun archive(session: Session) = viewModelScope.launch {
@@ -689,11 +707,12 @@ class SessionsViewModel @Inject constructor(
         // gateway 404s (wrong per-profile DB) and the session never disappears.
         runCatching {
             sessions.archive(session.id, archived = true, session.profile, session.deviceId)
-        }.onSuccess { refresh() }
+        }.onSuccess { refreshListsHolding(session) }
     }
 
     fun delete(session: Session) = viewModelScope.launch {
-        runCatching { sessions.delete(session.id, session.profile, session.deviceId) }.onSuccess { refresh() }
+        runCatching { sessions.delete(session.id, session.profile, session.deviceId) }
+            .onSuccess { refreshListsHolding(session) }
     }
 
     /** Pin/unpin keyed by the session's OWN profile, so it works regardless of the active one. */

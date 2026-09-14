@@ -41,8 +41,13 @@ import com.hermes.client.ui.theme.statusColor
  * [ACTIVE] and [PAUSED] are the scheduled-jobs list's two neutral groups (docs/DESIGN.md §5.18).
  * They take scheme roles rather than the literal pillar colours: 已启用 / 已暂停 are not time
  * buckets, and borrowing 今天's green would claim a health state the group does not carry.
+ *
+ * [CHANNEL] is the Bots list's one group tone (HG-54, docs/DESIGN.md §5.16) and follows the same
+ * reasoning: 钉钉 / 飞书 / 微信 are channels, not time buckets and not health states, so it takes a
+ * scheme role instead of one of the six pillar colours. Nor does it get a colour PER channel —
+ * thirteen hues competing down one screen is noise, and the channel name already says which is which.
  */
-internal enum class SectionTone { NEEDS_YOU, PINNED, TODAY, YESTERDAY, RECENT, OLDER, ACTIVE, PAUSED }
+internal enum class SectionTone { NEEDS_YOU, PINNED, TODAY, YESTERDAY, RECENT, OLDER, ACTIVE, PAUSED, CHANNEL }
 
 /**
  * The group header shared by every grouped list — sessions, and now scheduled jobs
@@ -82,6 +87,9 @@ internal fun SectionHeader(
         // i.e. unreadable. Caught by looking at the re-recorded cron golden: the label had all but
         // disappeared. A faint mark is the point of that pillar; a faint label is a bug.
         SectionTone.ACTIVE, SectionTone.PAUSED -> MaterialTheme.colorScheme.onSurfaceVariant
+        // The Bots list's channel headers. `primary` is what the old bare-Text header already
+        // used, so the capsule is the change and the hue is not.
+        SectionTone.CHANNEL -> MaterialTheme.colorScheme.primary
     }
     // TUNING-TEMP
     val tunedPillars = com.hermes.client.ui.tuning.pillarsOf(
@@ -105,6 +113,8 @@ internal fun SectionHeader(
         // scheme roles and move with the palette, not with that panel.
         SectionTone.ACTIVE -> MaterialTheme.colorScheme.outline
         SectionTone.PAUSED -> MaterialTheme.colorScheme.outlineVariant
+        // Same reason as those two: a scheme role, not a session-list tuning slot.
+        SectionTone.CHANNEL -> MaterialTheme.colorScheme.primary
     }
     // 「微通透下沉胶囊底衬」 (decision 2026-09-13, 8th pull): the header sits in its own tinted
     // capsule — `mx-4 h-8 rounded-lg`, the group's own hue at a low alpha with a matching hairline.

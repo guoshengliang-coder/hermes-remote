@@ -30,8 +30,9 @@ import java.io.IOException
 // Type.kt / Tiles.kt / docs, and then THIS WHOLE THING GOES AWAY.
 //
 // To remove it, in one pass:   grep -rn TUNING-TEMP android/app/src
-// That covers this package, the settings entry, the nav route, the provider in MainActivity, and
-// every call site in the session list. Nothing else should ever read these values — if a second
+// That covers this package, the entry on the Diagnostics screen (under 组件展廊 — it moved off the
+// settings hub in HG-53), the nav route, the provider in MainActivity, and every call site in the
+// session list. Nothing else should ever read these values — if a second
 // screen starts depending on the panel, the values have stopped being a spike and need promoting
 // into the theme properly.
 //

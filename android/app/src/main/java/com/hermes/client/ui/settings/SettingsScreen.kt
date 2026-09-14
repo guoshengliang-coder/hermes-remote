@@ -56,10 +56,9 @@ fun SettingsScreen(
             HorizontalDivider()
             Entry(localized(language, "诊断", "Diagnostics"), localized(language, "生成可分享的调试日志以排查错误", "Capture a shareable debug log to troubleshoot errors")) { onNavigate("settings_diagnostics") }
             HorizontalDivider()
-            // TUNING-TEMP: a spike panel for dialling in the session list on a device. Remove
-            // the whole entry together with ui/tuning/ once the numbers are chosen.
-            Entry(localized(language, "会话列表调参（临时）", "Session list tuning (temporary)"), localized(language, "字号、行距、间距与立柱颜色，定完即删", "Type, spacing and pillar colours — deleted once decided")) { onNavigate("settings_tuning") }
-            HorizontalDivider()
+            // TUNING-TEMP: the session-list tuning panel used to sit here, between 诊断 and 关于.
+            // It moved under 诊断 → 组件展廊 (HG-53): a spike panel is a diagnostic, not a setting,
+            // and the top level of this page should only carry things a user is meant to change.
             Entry(localized(language, "关于", "About"), localized(language, "应用与网关版本", "App and gateway version")) { onNavigate("settings_about") }
         }
     }

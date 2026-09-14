@@ -883,6 +883,83 @@ class ScreenshotTest {
 
     @Test fun sectionHeaderTonesDark() = snap("section-header-tones-dark", darkTheme = true) { SectionHeaders() }
 
+    // ── Bots segment (docs/DESIGN.md §5.16, HG-54) ───────────────────────────────────────────
+    // The list had no golden at all while it was a bare `ListItem`, which is part of how it drifted
+    // a whole design system away from the Chats list. What this picture has to hold: the channel
+    // header is the tinted capsule with a count, not a bare label; the row is the SAME hand-drawn
+    // row as Chats (28dp trailing column reserved, one-line title); the subline says the model and
+    // says 模型未知 rather than going blank; and the status line reads `<when> · <how many>`.
+
+    /** Fixed instant so 「12 分钟前」/「昨天」 are stable across runs. */
+    private val botNow = 1_700_000_000_000L
+
+    private fun botSession(
+        id: String,
+        title: String,
+        model: String?,
+        minutesAgo: Long,
+        messages: Int,
+    ) = com.hermes.client.domain.Session(
+        id = id, title = title, model = model, provider = null, messageCount = messages,
+        profile = "personal", source = "dingtalk", lastActive = botNow - minutesAgo * 60_000L,
+    )
+
+    @androidx.compose.runtime.Composable
+    private fun BotsList() {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+            androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+                com.hermes.client.ui.components.SectionHeader(
+                    "钉钉", 2, com.hermes.client.ui.components.SectionTone.CHANNEL, onToggle = {},
+                )
+                for (s in listOf(
+                    botSession("b1", "产品发布排期讨论", "gpt-5.6-terra", minutesAgo = 12, messages = 26),
+                    // The third model state: upstream did not tell us what answered on DingTalk.
+                    botSession("b2", "周报汇总怎么写才不像周报", null, minutesAgo = 26 * 60, messages = 8),
+                )) {
+                    com.hermes.client.ui.sessions.SessionRow(
+                        session = s,
+                        isPinned = false,
+                        defaultProjectPath = null,
+                        onMoveToProject = {},
+                        isBot = true,
+                        nowMs = botNow,
+                        onOpen = {},
+                        onTogglePin = {},
+                        onRename = {},
+                        onArchive = {},
+                        onDelete = {},
+                    )
+                }
+                com.hermes.client.ui.components.SectionHeader(
+                    "飞书", 1, com.hermes.client.ui.components.SectionTone.CHANNEL, onToggle = {},
+                )
+                com.hermes.client.ui.sessions.SessionRow(
+                    session = botSession("b3", "帮我查下这个季度的报销规则", "claude-sonnet-5", minutesAgo = 0, messages = 1),
+                    isPinned = false,
+                    defaultProjectPath = null,
+                    onMoveToProject = {},
+                    isBot = true,
+                    nowMs = botNow,
+                    onOpen = {},
+                    onTogglePin = {},
+                    onRename = {},
+                    onArchive = {},
+                    onDelete = {},
+                )
+            }
+        }
+    }
+
+    @Test fun botsList() = snap("sessions.bots.default") { BotsList() }
+
+    @Test fun botsListDark() = snap("sessions.bots.default-dark", darkTheme = true) { BotsList() }
+
+    // 1.3 is where the CJK subline used to wrap and tip the old `ListItem` into its 88dp tier
+    // (ANDROID_SMOKE A-05). The hand-drawn row has no floor, so the rows should simply grow.
+    @Test fun botsListLargeFont() = snap("sessions.bots.default-fs13", fontScale = 1.3f) { BotsList() }
+
     // The two title tiers side by side, same string, so the ONLY difference in the picture is the
     // weight (docs/DESIGN.md §5.2: unread 600, read 500). Worth a golden of its own because the
     // difference is easy to doubt on a screen — CJK at Medium already reads fairly heavy — and

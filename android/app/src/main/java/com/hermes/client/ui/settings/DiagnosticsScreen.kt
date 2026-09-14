@@ -43,6 +43,8 @@ import com.hermes.client.ui.localization.l10n
 fun DiagnosticsScreen(
     onBack: () -> Unit,
     onOpenGallery: () -> Unit = {},
+    // TUNING-TEMP: goes away with ui/tuning/.
+    onOpenTuning: () -> Unit = {},
     vm: DiagnosticsViewModel = hiltViewModel(),
 ) {
     val enabled by vm.enabled.collectAsStateWithLifecycle()
@@ -85,6 +87,16 @@ fun DiagnosticsScreen(
                 headlineContent = { Text(l10n("组件展廊", "Component gallery")) },
                 supportingContent = { Text(l10n("用固定假数据渲染聊天组件的各个状态，用于视觉检查。", "Chat components rendered from fixed fake data, for visual checks.")) },
                 modifier = Modifier.clickable(onClick = onOpenGallery),
+            )
+            HorizontalDivider()
+            // TUNING-TEMP: a spike panel for dialling in the session list on a device. It sits
+            // under the gallery because the two are the same kind of thing — a developer looking
+            // at rendering, not a setting anyone is meant to keep. Remove the whole entry together
+            // with ui/tuning/ once the numbers are chosen (HG-53).
+            ListItem(
+                headlineContent = { Text(l10n("会话列表调参（临时）", "Session list tuning (temporary)")) },
+                supportingContent = { Text(l10n("字号、行距、间距与立柱颜色，定完即删。", "Type, spacing and pillar colours — deleted once decided.")) },
+                modifier = Modifier.clickable(onClick = onOpenTuning),
             )
             HorizontalDivider()
 
