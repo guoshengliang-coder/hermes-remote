@@ -673,3 +673,20 @@ This closes the ordinary-upgrade process-preservation and Connector-restart Clou
 Physical Android account traffic and a full Mac reboot remain separate deferred checks. This is an
 internal ad-hoc Desktop build; it is not Developer ID signed, notarized, stapled, or approved for
 public distribution.
+
+## 2026-09-14 Desktop 0.2.11 component-install candidate
+
+Desktop 0.2.11/build 14 allocates the internal app version for the schema-v2 component preflight and
+two-stage installation path merged through PRs #292–#294. The path remains inert unless the packaged
+app contains a complete pinned v2 trust configuration and Gateway independently advertises component
+manifest schema 2 beside `hermes-serve-v1`. Preparation rechecks both gates and the machine state,
+writes only an owner-private UUID cache, and downloads only missing exact-content components. Commit
+requires the executor-issued release confirmation and repeats both checks before the existing account
+binding, Hermes-first startup, Cloud health, rollback, and cleanup transaction may run.
+
+The version branch must pass the canonical asset comparison, all Desktop tests, and a release-mode
+app build before review. Final configured-DMG packaging must run from the clean merged `origin/main`
+commit and pin the separately signed internal schema-v2 component release 0.4.0. Publication,
+production capability enablement, and clean/existing-Mac installation remain separate recorded gates.
+No Developer ID identity is installed on the build Mac, so this candidate remains ad-hoc signed and
+cannot claim notarization, stapling, clean-machine Gatekeeper acceptance, or public distribution.
