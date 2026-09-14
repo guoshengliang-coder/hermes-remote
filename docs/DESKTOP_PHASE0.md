@@ -7,7 +7,7 @@ Gateway, and Hermes behavior, and be packaged as an app/DMG before any backgroun
 
 ## Implemented in the first slice
 
-- SwiftUI menu-bar app and reopenable main window.
+- Dock-visible SwiftUI macOS app with a menu-bar utility and reopenable main window.
 - Shared overview, diagnostics, logs, pairing, and settings navigation.
 - Read-only detection of the existing `com.hermesremote.connector` user LaunchAgent.
 - Strict allowlist parsing of non-secret fields from the legacy `connector.env`.
