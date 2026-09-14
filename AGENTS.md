@@ -23,9 +23,13 @@ reset, or delete another worktree. The integration agent owns the final merge, v
 and release artifact so those operations happen exactly once.
 
 A worktree created for a task is removed by the agent that created it, once the task's pull request is
-merged and the resulting `main` checks pass. Confirm `git status --porcelain` is empty, then run
-`git worktree remove <path>` (never `rm -rf`) and `git branch -d <branch>`; if Git refuses either, stop
-and report instead of forcing it. A task that did not create its own worktree removes nothing. Never
+merged and the resulting `main` checks pass. Confirm `git status --porcelain` is empty and run
+`git worktree remove <path>` (never `rm -rf`); if Git refuses, stop and report instead of forcing it.
+Then delete the branch: run `git fetch --prune origin`, and only if
+`git merge-base --is-ancestor <branch> origin/main` succeeds, run `git branch -D <branch>`; otherwise
+stop and report. Do not rely on `git branch -d`: once the remote branch is gone it compares against the
+current checkout's `HEAD`, not `main`, and refuses merged branches. A task that did not create its own
+worktree removes nothing. Never
 remove the integration worktree, a worktree locked with `git worktree lock`, or one holding
 uncommitted or untracked changes — report those. A release worktree is removed only after the
 publication's public size and hash verification has passed. Follow-up work after a merge starts a new
