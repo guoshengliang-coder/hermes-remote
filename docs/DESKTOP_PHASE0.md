@@ -366,6 +366,17 @@ at the signed entrypoint. The probe deliberately does not launch Hermes or Conne
 scan; process readiness remains part of installation and activation. Disabled, invalid, download,
 verification, and scan paths show no card and cannot reach installation or service mutation.
 
+C5's sixth slice establishes the component installer confirmation boundary before wiring any UI
+action. Preparation downloads, verifies, and extracts missing bootstrap components only inside the
+owner-private cache; it cannot write the managed component store or release reference. The returned
+capability token is bound to the issuing installer. Commit rehashes every staged tree and health-checks
+its signed entrypoint before writing immutable components, then publishes the release reference and
+activation plan only after all four components validate. Cancellation removes the exact workspace.
+A transport retry preserves only safe signed-name partials, discarding completed archives and extracted
+trees so they are revalidated. The existing one-call API composes prepare and commit for compatibility.
+No Desktop button, credential, LaunchAgent, process, binding, production configuration, or release is
+changed by this slice.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 

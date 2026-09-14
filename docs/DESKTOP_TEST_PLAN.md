@@ -85,10 +85,13 @@ The current automated suite covers:
 - the v2 component installer accepts only a strict-verifier installation token, orders fresh
   Python/Node/Hermes/Connector acquisition by dependencies, reuses a second exact install without
   network access, and publishes the release reference only after the final activation plan passes;
+- v2 component preparation downloads and extracts only into its private workspace, leaves the managed
+  store and release reference absent before commit, binds commit/cancel to the issuing installer,
+  rehashes staged content after the confirmation boundary, and publishes no reference after tampering;
 - extraction or health failure removes only the current UUID workspace and leaves no release
   reference; a transport interruption instead preserves its partial download and owner-only manifest
-  identity marker, allowing only the same signed manifest and run ID to resume or the bounded cancel
-  path to remove that exact marked workspace;
+  identity marker, clears completed archives/extractions before retry, allows only the same signed
+  manifest and run ID to resume, and lets the bounded cancel path remove that exact marked workspace;
 - the component preflight coordinator reports all bootstrap downloads and deferred optional bytes on
   a clean store, reuses only rehashed healthy managed content, permits a compatible probed external
   browser while keeping observed Python non-reusable, and stops before external scanning for an
