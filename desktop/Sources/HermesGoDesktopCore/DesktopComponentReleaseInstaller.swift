@@ -27,7 +27,21 @@ public enum DesktopComponentReleaseInstallError: Error, Equatable, Sendable {
     case workspaceAlreadyExists
     case invalidManifest
     case componentHealthProbeFailed(DesktopManagedComponentKind)
+    case preparationMismatch
     case cleanupFailed
+}
+
+public struct DesktopPreparedComponentRelease: Equatable, Identifiable, Sendable {
+    public let id: String
+    public let runID: String
+    public let manifest: DesktopComponentReleaseManifestV2
+    public let workspaceDirectory: URL
+
+    fileprivate let issuerID: UUID
+    fileprivate let verifiedManifest: VerifiedDesktopComponentReleaseManifestV2
+    fileprivate let receipts: [DesktopManagedComponentReceipt]
+    fileprivate let stagedSources: [DesktopManagedComponentKind: URL]
+    fileprivate let workspaceBaseDirectory: URL
 }
 
 public struct DesktopInstalledComponentRelease: Equatable, Sendable {
@@ -53,9 +67,11 @@ public struct DesktopInstalledComponentRelease: Equatable, Sendable {
     }
 }
 
-/// Commits the four verified schema-v2 bootstrap archives into the shared component store and
-/// records an immutable release reference. It does not write credentials, LaunchAgents, `current`,
-/// or launchd state; the returned activation plan is the input to the later migration transaction.
+/// Prepares and commits the four verified schema-v2 bootstrap archives. `prepare` may download and
+/// extract into a private cache but cannot change the component store. `commit` accepts only a token
+/// issued by this installer, rechecks every staged component, writes the immutable store/reference,
+/// and returns the activation plan. Neither phase writes credentials, LaunchAgents, `current`, or
+/// launchd state.
 public final class DesktopComponentReleaseInstaller: @unchecked Sendable {
     public typealias HealthProbe = DesktopComponentReleaseActivationPlanner.HealthProbe
 
@@ -68,7 +84,9 @@ public final class DesktopComponentReleaseInstaller: @unchecked Sendable {
     private let inspector: DesktopManagedComponentStoreInspector
     private let writer: DesktopManagedComponentStoreWriter
     private let activationPlanner: DesktopComponentReleaseActivationPlanner
+    private let contentHasher: DesktopManagedComponentContentHasher
     private let fileManager: FileManager
+    private let issuerID = UUID()
 
     public init(
         storeRoot: URL,
@@ -96,6 +114,7 @@ public final class DesktopComponentReleaseInstaller: @unchecked Sendable {
             currentUserID: currentUserID,
             fileManager: fileManager
         )
+        contentHasher = DesktopManagedComponentContentHasher(fileManager: fileManager)
         self.fileManager = fileManager
     }
 
@@ -105,6 +124,21 @@ public final class DesktopComponentReleaseInstaller: @unchecked Sendable {
         runID: String,
         healthProbe: HealthProbe
     ) async throws -> DesktopInstalledComponentRelease {
+        let prepared = try await prepare(
+            verifiedManifest: verifiedManifest,
+            workspaceRoot: workspaceRoot,
+            runID: runID,
+            healthProbe: healthProbe
+        )
+        return try commit(prepared, healthProbe: healthProbe)
+    }
+
+    public func prepare(
+        verifiedManifest: VerifiedDesktopComponentReleaseManifestV2,
+        workspaceRoot: URL,
+        runID: String,
+        healthProbe: HealthProbe
+    ) async throws -> DesktopPreparedComponentRelease {
         let manifest = verifiedManifest.manifest
         guard DesktopComponentReleaseActivationPlanner.validBootstrapManifest(manifest) else {
             throw DesktopComponentReleaseInstallError.invalidManifest
@@ -126,6 +160,7 @@ public final class DesktopComponentReleaseInstaller: @unchecked Sendable {
             try prepareRunDirectory(downloadRoot)
             try prepareRunDirectory(extractionRoot)
             var receipts: [DesktopManagedComponentReceipt] = []
+            var stagedSources: [DesktopManagedComponentKind: URL] = [:]
 
             for kind in Self.installOrder {
                 guard let artifact = manifest.components.first(where: { $0.kind == kind }) else {
@@ -165,10 +200,70 @@ public final class DesktopComponentReleaseInstaller: @unchecked Sendable {
                     into: extractionRoot,
                     runID: normalizedRunID
                 )
+                let entrypoint = extracted
+                    .appendingPathComponent(artifact.entrypoint)
+                    .standardizedFileURL
+                guard try healthProbe(artifact.kind, extracted, entrypoint) else {
+                    throw DesktopComponentReleaseInstallError.componentHealthProbeFailed(kind)
+                }
+                stagedSources[kind] = extracted
+            }
+
+            return DesktopPreparedComponentRelease(
+                id: UUID().uuidString.lowercased(),
+                runID: normalizedRunID,
+                manifest: manifest,
+                workspaceDirectory: runRoot,
+                issuerID: issuerID,
+                verifiedManifest: verifiedManifest,
+                receipts: receipts,
+                stagedSources: stagedSources,
+                workspaceBaseDirectory: base
+            )
+        } catch let error as DesktopComponentDownloadError where error == .transportFailed {
+            guard resetForTransportResume(runRoot, manifest: manifest) else {
+                _ = cleanupRunRoot(runRoot, beneath: base)
+                throw DesktopComponentReleaseInstallError.cleanupFailed
+            }
+            throw error
+        } catch {
+            guard cleanupRunRoot(runRoot, beneath: base) else {
+                throw DesktopComponentReleaseInstallError.cleanupFailed
+            }
+            throw error
+        }
+    }
+
+    public func commit(
+        _ preparation: DesktopPreparedComponentRelease,
+        healthProbe: HealthProbe
+    ) throws -> DesktopInstalledComponentRelease {
+        guard preparation.issuerID == issuerID,
+              preparation.verifiedManifest.manifest == preparation.manifest,
+              preparation.workspaceDirectory.deletingLastPathComponent()
+                == preparation.workspaceBaseDirectory,
+              validPrivateDirectory(preparation.workspaceDirectory),
+              validInterruptedMarker(
+                  preparation.workspaceDirectory.appendingPathComponent("install.json"),
+                  runID: preparation.runID
+              ),
+              (try? manifestIdentity(preparation.manifest))
+                == (try? workspaceManifestIdentity(preparation.workspaceDirectory))
+        else { throw DesktopComponentReleaseInstallError.preparationMismatch }
+
+        do {
+            try validatePreparedContent(preparation, healthProbe: healthProbe)
+            for kind in Self.installOrder {
+                guard let artifact = preparation.manifest.components.first(where: {
+                    $0.kind == kind
+                }),
+                      let receipt = preparation.receipts.first(where: { $0.kind == kind })
+                else { throw DesktopComponentReleaseInstallError.preparationMismatch }
+                guard let source = preparation.stagedSources[kind] else { continue }
                 _ = try writer.commit(
-                    sourceDirectory: extracted,
+                    sourceDirectory: source,
                     receipt: receipt,
-                    runID: normalizedRunID,
+                    runID: preparation.runID,
                     healthProbe: { root in
                         try healthProbe(
                             artifact.kind,
@@ -180,29 +275,79 @@ public final class DesktopComponentReleaseInstaller: @unchecked Sendable {
             }
 
             let activationPlan = try activationPlanner.plan(
-                manifest: manifest,
+                manifest: preparation.manifest,
                 healthProbe: healthProbe
             )
             let referenceURL = try writer.recordReferences(
-                releaseVersion: manifest.releaseVersion,
-                receipts: receipts,
-                runID: normalizedRunID
+                releaseVersion: preparation.manifest.releaseVersion,
+                receipts: preparation.receipts,
+                runID: preparation.runID
             )
             return DesktopInstalledComponentRelease(
-                manifest: manifest,
+                manifest: preparation.manifest,
                 activationPlan: activationPlan,
                 referenceURL: referenceURL,
-                workspaceDirectory: runRoot,
-                workspaceBaseDirectory: base
+                workspaceDirectory: preparation.workspaceDirectory,
+                workspaceBaseDirectory: preparation.workspaceBaseDirectory
             )
-        } catch let error as DesktopComponentDownloadError where error == .transportFailed {
-            throw error
         } catch {
-            guard cleanupRunRoot(runRoot, beneath: base) else {
-                throw DesktopComponentReleaseInstallError.cleanupFailed
-            }
+            guard cleanupRunRoot(
+                preparation.workspaceDirectory,
+                beneath: preparation.workspaceBaseDirectory
+            ) else { throw DesktopComponentReleaseInstallError.cleanupFailed }
             throw error
         }
+    }
+
+    private func validatePreparedContent(
+        _ preparation: DesktopPreparedComponentRelease,
+        healthProbe: HealthProbe
+    ) throws {
+        for kind in Self.installOrder {
+            guard let artifact = preparation.manifest.components.first(where: {
+                $0.kind == kind
+            }),
+                  let receipt = preparation.receipts.first(where: { $0.kind == kind }),
+                  receipt.contentSHA256 == artifact.contentSHA256
+            else { throw DesktopComponentReleaseInstallError.preparationMismatch }
+            if let source = preparation.stagedSources[kind] {
+                guard try contentHasher.identify(directory: source).sha256
+                    == artifact.contentSHA256
+                else { throw DesktopManagedComponentStoreError.identityMismatch }
+                let entrypoint = source
+                    .appendingPathComponent(artifact.entrypoint)
+                    .standardizedFileURL
+                guard try healthProbe(kind, source, entrypoint) else {
+                    throw DesktopComponentReleaseInstallError.componentHealthProbeFailed(kind)
+                }
+                continue
+            }
+            let requirement: DesktopManagedComponentRequirement
+            do { requirement = try artifact.preflightRequirement }
+            catch { throw DesktopComponentReleaseInstallError.invalidManifest }
+            guard let candidate = try inspector.candidate(
+                for: requirement,
+                healthProbe: { root in
+                    try healthProbe(
+                        kind,
+                        root,
+                        root.appendingPathComponent(artifact.entrypoint).standardizedFileURL
+                    )
+                }
+            ), candidate.healthProbePassed else {
+                throw DesktopComponentReleaseInstallError.componentHealthProbeFailed(kind)
+            }
+        }
+    }
+
+    public func discard(_ preparation: DesktopPreparedComponentRelease) throws {
+        guard preparation.issuerID == issuerID else {
+            throw DesktopComponentReleaseInstallError.preparationMismatch
+        }
+        guard cleanupRunRoot(
+            preparation.workspaceDirectory,
+            beneath: preparation.workspaceBaseDirectory
+        ) else { throw DesktopComponentReleaseInstallError.cleanupFailed }
     }
 
     public func discard(_ release: DesktopInstalledComponentRelease) throws {
@@ -323,6 +468,52 @@ public final class DesktopComponentReleaseInstaller: @unchecked Sendable {
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// A transport interruption may keep only signed-name partial downloads. Completed archives and
+    /// extracted trees are removed so a retry revalidates them instead of trusting stale workspace
+    /// content. The interrupted archive itself still resumes through the downloader's Range contract.
+    private func resetForTransportResume(
+        _ runRoot: URL,
+        manifest: DesktopComponentReleaseManifestV2
+    ) -> Bool {
+        let downloadRoot = runRoot.appendingPathComponent("downloads", isDirectory: true)
+        let extractionRoot = runRoot.appendingPathComponent("extracted", isDirectory: true)
+        guard validPrivateDirectory(runRoot), validPrivateDirectory(downloadRoot),
+              validPrivateDirectory(extractionRoot)
+        else { return false }
+        let allowedPartials = Dictionary(uniqueKeysWithValues: manifest.components.map {
+            (".\($0.fileName).partial", $0.sizeBytes)
+        })
+        do {
+            for value in try fileManager.contentsOfDirectory(
+                at: downloadRoot,
+                includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
+                options: [.skipsHiddenFiles]
+            ) {
+                try fileManager.removeItem(at: value)
+            }
+            // Hidden partials are skipped above and must be exact signed names and private files.
+            let hidden = try fileManager.contentsOfDirectory(
+                at: downloadRoot,
+                includingPropertiesForKeys: nil,
+                options: []
+            ).filter { $0.lastPathComponent.hasPrefix(".") }
+            guard hidden.allSatisfy({
+                guard let maximum = allowedPartials[$0.lastPathComponent] else { return false }
+                return validPrivatePartialFile($0, maximumBytes: maximum)
+            }) else { return false }
+            try fileManager.removeItem(at: extractionRoot)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func workspaceManifestIdentity(_ runRoot: URL) throws -> String {
+        let data = try Data(contentsOf: runRoot.appendingPathComponent("install.json"))
+        let marker = try JSONDecoder().decode(ComponentInstallWorkspaceMarker.self, from: data)
+        return marker.manifestSHA256
+    }
+
     private func cleanupRunRoot(_ value: URL, beneath base: URL) -> Bool {
         let standardized = value.standardizedFileURL
         guard standardized.deletingLastPathComponent() == base,
@@ -379,6 +570,27 @@ public final class DesktopComponentReleaseInstaller: @unchecked Sendable {
               permissions.intValue & 0o077 == 0,
               let size = attributes[.size] as? NSNumber,
               (1...1_024).contains(size.intValue)
+        else { return false }
+        return true
+    }
+
+    private func validPrivatePartialFile(_ value: URL, maximumBytes: Int64) -> Bool {
+        let standardized = value.standardizedFileURL
+        guard maximumBytes > 0,
+              standardized.resolvingSymlinksInPath() == standardized,
+              let resource = try? standardized.resourceValues(forKeys: [
+                  .isRegularFileKey, .isSymbolicLinkKey,
+              ]),
+              resource.isRegularFile == true,
+              resource.isSymbolicLink != true,
+              let attributes = try? fileManager.attributesOfItem(atPath: standardized.path),
+              let owner = attributes[.ownerAccountID] as? NSNumber,
+              owner.uint32Value == Darwin.getuid(),
+              let permissions = attributes[.posixPermissions] as? NSNumber,
+              permissions.intValue & 0o077 == 0,
+              let size = attributes[.size] as? NSNumber,
+              size.int64Value >= 0,
+              size.int64Value <= maximumBytes
         else { return false }
         return true
     }
