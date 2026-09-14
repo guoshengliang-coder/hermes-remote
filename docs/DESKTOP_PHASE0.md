@@ -332,8 +332,17 @@ current owner-only Hermes LaunchAgent only after the exact executable passes the
 contract and a fresh fixed-path scan. The activation transaction now owns this resolver and runs it
 only after acquiring the migration operation lease and confirming the managed service topology, so
 callers cannot submit an assembled path set. The production missing-capability signal remains
-unwired; the next local slice maps that signal to a signed trigger and composes installation with the
-activation transaction behind the default-off gate.
+unwired; the next local slice composes installation with the activation transaction behind a fixed
+capability type while leaving upstream signal adoption separate.
+
+C4's tenth default-inert slice now composes that transaction behind a closed browser/speech/document
+capability enum. It selects the exact trigger from the verifier-backed manifest, performs the
+first-use install, regenerates the complete bootstrap activation plan, enters the locked resolver and
+Hermes activation path, and runs the original operation once. Unsupported capabilities and install
+failures stop before service mutation, while concurrent requests cannot start a second install. The
+adapted Hermes 0.21.0 source has no structured missing-capability event; tool dependency failures are
+ordinary error text or silent feature fallback. Shipping request wiring therefore remains blocked on
+an explicit upstream wire contract and must never infer a capability by parsing prose.
 
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.

@@ -651,7 +651,7 @@ private final class OnDemandScanner: DesktopExternalEnvironmentScanning {
     }
 }
 
-private final class OnDemandFixture {
+final class OnDemandFixture {
     let base: URL
     let workspace: URL
     let store: URL
@@ -811,7 +811,7 @@ private final class OnDemandFixture {
         ])
     }
 
-    func installer(
+    fileprivate func installer(
         downloader: OnDemandDownloader,
         scanner: OnDemandScanner,
         failExtractionFor failedKind: DesktopManagedComponentKind? = nil
