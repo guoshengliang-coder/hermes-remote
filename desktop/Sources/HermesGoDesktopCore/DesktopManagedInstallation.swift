@@ -322,6 +322,41 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
               try sessionTokenStorage(in: connector.object) == .file
         else { throw DesktopManagedInstallError.unsafeFilesystemObject }
         _ = try validatedSessionTokenIfPresent(required: true)
+        try writeHermesSessionTokenContractMarker()
+    }
+
+    public func commitHermesSessionTokenFileMigration(
+        activationPlan: DesktopComponentReleaseActivationPlan
+    ) throws {
+        guard let hermesComponent = activationPlan.component(.hermesCore),
+              let connectorComponent = activationPlan.component(.connector),
+              validManagedComponent(hermesComponent),
+              validManagedComponent(connectorComponent)
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        let hermes = try loadManagedLaunchAgent(
+            layout.hermesLaunchAgent,
+            label: DesktopManagedInstallLayout.hermesLabel,
+            expectedExecutable: hermesComponent.entrypoint,
+            trailingArguments: ["serve", "--host", "127.0.0.1", "--port", "9119"],
+            expectedLog: layout.logsRoot.appendingPathComponent("hermes-server.log"),
+            expectedErrorLog: layout.logsRoot.appendingPathComponent("hermes-server.error.log")
+        )
+        let connector = try loadManagedLaunchAgent(
+            layout.connectorLaunchAgent,
+            label: DesktopManagedInstallLayout.connectorLabel,
+            expectedExecutable: connectorComponent.entrypoint,
+            trailingArguments: [],
+            expectedLog: layout.logsRoot.appendingPathComponent("connector.log"),
+            expectedErrorLog: layout.logsRoot.appendingPathComponent("connector.error.log")
+        )
+        guard try sessionTokenStorage(in: hermes.object) == .file,
+              try sessionTokenStorage(in: connector.object) == .file
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        _ = try validatedSessionTokenIfPresent(required: true)
+        try writeHermesSessionTokenContractMarker()
+    }
+
+    private func writeHermesSessionTokenContractMarker() throws {
         try atomicWrite(
             Data("1\n".utf8),
             to: layout.hermesSessionTokenContractMarker,
@@ -687,7 +722,29 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         expectedLog: URL,
         expectedErrorLog: URL
     ) throws -> ManagedLaunchAgentPropertyList {
+        try loadManagedLaunchAgent(
+            url,
+            label: label,
+            expectedExecutable: layout.currentRelease
+                .appendingPathComponent(component.rawValue, isDirectory: true),
+            executableMustBeDescendant: true,
+            trailingArguments: trailingArguments,
+            expectedLog: expectedLog,
+            expectedErrorLog: expectedErrorLog
+        )
+    }
+
+    private func loadManagedLaunchAgent(
+        _ url: URL,
+        label: String,
+        expectedExecutable: URL,
+        executableMustBeDescendant: Bool = false,
+        trailingArguments: [String],
+        expectedLog: URL,
+        expectedErrorLog: URL
+    ) throws -> ManagedLaunchAgentPropertyList {
         var metadata = stat()
+        let expectedPath = expectedExecutable.standardizedFileURL.path
         guard Darwin.lstat(url.path, &metadata) == 0,
               (metadata.st_mode & S_IFMT) == S_IFREG,
               metadata.st_uid == Darwin.getuid(),
@@ -702,11 +759,9 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
               let executable = arguments.first,
               arguments == [executable] + trailingArguments,
               URL(fileURLWithPath: executable).standardizedFileURL.path == executable,
-              executable.hasPrefix(
-                layout.currentRelease
-                    .appendingPathComponent(component.rawValue, isDirectory: true)
-                    .standardizedFileURL.path + "/"
-              ),
+              executableMustBeDescendant
+                ? executable.hasPrefix(expectedPath + "/")
+                : executable == expectedPath,
               !executable.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
               let logPath = object["StandardOutPath"] as? String,
               logPath == expectedLog.standardizedFileURL.path,
