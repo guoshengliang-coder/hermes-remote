@@ -591,6 +591,15 @@ underlying legacy profile and its explicit save-time probe remain available in t
 editor for rollback during the staged retirement period; no protocol or stored credential is deleted
 by this UI-only step.
 
+### Account-selected Overview correction
+
+When an account has more than one Mac, Overview follows the device selected in Account & Devices.
+Its heading, connection summary, and Connector/Gateway/Hermes/end-to-end topology come from that
+authenticated device snapshot. A retained legacy App-Token profile remains available for rollback,
+but it cannot rename the selected Mac or report its missing legacy Gateway URL as a failure. Device
+selection changes presentation and future content only; it does not restart or reconfigure either
+Mac's services.
+
 ### Effective-Agent correction release — 2026-09-10
 
 - Desktop 0.2.2 (bundle build 5) was built from clean merged commit

@@ -166,6 +166,10 @@ opens the same Hermes Go Desktop menu; it is a status affordance, not a replacem
 - While a Hermes GO account session is signed in, Overview, Diagnostics, and aggregate health omit
   the legacy App-Token end-to-end probe. The probe remains scoped to the collapsed legacy editor and
   must not make a healthy account-mode connection appear degraded or unconfigured.
+- In account mode, Overview names the Desktop-selected Mac and projects its Connector, Gateway,
+  Hermes, and end-to-end state from the authenticated device snapshot. A saved legacy profile must
+  not rename that device or turn a healthy account Gateway into an unconfigured failure. Switching
+  devices changes only this presentation and future content; it never changes a local service.
 - A managed local Hermes WebSocket is authenticated with one private installation token shared by
   file path between Hermes and Connector. The value is never rendered, copied into diagnostics, or
   sent to Gateway; a missing or unsafe file leaves the path offline rather than weakening auth.

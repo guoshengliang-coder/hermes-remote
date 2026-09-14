@@ -17,6 +17,7 @@ public enum DesktopRecoveryAction: String, Codable, Equatable, Sendable {
 public enum DesktopIssueCode: String, Codable, Equatable, Sendable {
     case connectionFailed = "HR-CONN-002"
     case connectorOffline = "HR-CONN-005"
+    case hermesUnavailable = "HR-CONN-006"
     case appTokenRejected = "HR-AUTH-001"
     case googleSignInFailed = "HR-AUTH-002"
     case accountSessionExpired = "HR-AUTH-003"
@@ -117,6 +118,8 @@ public struct DesktopIssue: Error, Equatable, Sendable {
             ("无法连接 Relay", "Couldn't connect to the Relay", "连接失败，请检查网络和地址。", "Connection failed. Check the network and URL.", true, .retry)
         case .connectorOffline:
             ("Mac 端离线", "The Mac is offline", "Mac 端当前离线，请启动 Hermes Go Desktop。", "The Mac is offline. Start Hermes Go Desktop.", true, .startDesktop)
+        case .hermesUnavailable:
+            ("Hermes 当前不可访问", "Hermes is unavailable", "Hermes 当前不可访问，请检查这台 Mac 上的 Hermes 服务。", "Hermes is unavailable. Check the Hermes service on this Mac.", true, .details)
         case .appTokenRejected:
             ("App Token 无效", "Invalid App Token", "App Token 无效或已失效，请重新配置。", "The App Token is invalid or expired. Configure it again.", false, .settings)
         case .googleSignInFailed:

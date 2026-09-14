@@ -15,7 +15,7 @@ struct OverviewView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 HStack {
-                    Text((model.legacy?.config.deviceID ?? "MAC MINI").uppercased())
+                    Text(model.overviewDeviceName.uppercased())
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .tracking(0.8)
@@ -88,6 +88,11 @@ struct OverviewView: View {
     }
 
     private var compatibilityDetail: String {
+        if let device = model.selectedAccountDevice {
+            return device.connector.online
+                ? "\(device.desktopDisplayName) 已通过账号连接到 Gateway；状态来自该设备最近一次健康上报。"
+                : "\(device.desktopDisplayName) 当前离线；现有本机服务不会因查看其他设备而改变。"
+        }
         switch model.agentPresentation.mode {
         case .managedVerified(let releaseVersion):
             return "托管版本 \(releaseVersion) 已接管后台连接；旧 Connector 不会同时启动。"
@@ -105,7 +110,10 @@ struct OverviewView: View {
     }
 
     private var agentBannerTitle: String {
-        switch model.agentPresentation.mode {
+        if let device = model.selectedAccountDevice {
+            return device.connector.online ? "账号 Connector 正在运行" : "账号 Connector 当前离线"
+        }
+        return switch model.agentPresentation.mode {
         case .managedVerified:
             "托管后台连接正在运行"
         case .managedUnverified:
@@ -150,7 +158,7 @@ struct OverviewView: View {
                     .font(.system(size: 19, weight: .regular))
                     .foregroundStyle(Color.hermesBlue)
             }
-            Text(component.title)
+            Text(component == .hermes && model.selectedAccountDevice != nil ? "Hermes" : component.title)
                 .font(.system(size: 13, weight: .semibold))
             HStack(spacing: 6) {
                 StatusDot(level: item.level, size: 8)
@@ -175,9 +183,9 @@ struct OverviewView: View {
 
     private var informationCard: some View {
         infoCard(title: "连接信息", rows: [
-            ("设备", model.legacy?.config.deviceID ?? "—"),
-            ("Gateway", model.legacy?.config.gatewayURL?.host ?? "未配置"),
-            ("Hermes", model.legacy?.config.hermesBaseURL.host ?? "127.0.0.1"),
+            ("设备", model.overviewDeviceName),
+            ("Gateway", model.overviewGatewaySummary),
+            ("Hermes", model.overviewHermesSummary),
         ])
     }
 
@@ -201,7 +209,8 @@ struct OverviewView: View {
     }
 
     private var backgroundModeSummary: String {
-        switch model.agentPresentation.mode {
+        if model.selectedAccountDevice != nil { return "账号连接" }
+        return switch model.agentPresentation.mode {
         case .managedVerified(let releaseVersion): "托管 \(releaseVersion)"
         case .managedUnverified(let releaseVersion): "托管 \(releaseVersion) · 待核验"
         case .legacy: "旧 Connector"

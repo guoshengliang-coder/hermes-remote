@@ -25,6 +25,22 @@ final class DesktopIssueTests: XCTestCase {
         XCTAssertTrue(issue.sanitizedDiagnostic.contains("<redacted>"))
     }
 
+    func testHermesUnavailableHasBilingualRetryableDiagnosticContract() {
+        let issue = DesktopIssue(
+            code: .hermesUnavailable,
+            technicalCause: "Authorization: Bearer secret-token"
+        )
+
+        XCTAssertEqual(issue.code.rawValue, "HR-CONN-006")
+        XCTAssertEqual(issue.summaryChinese, "Hermes 当前不可访问")
+        XCTAssertEqual(issue.summaryEnglish, "Hermes is unavailable")
+        XCTAssertTrue(issue.retryable)
+        XCTAssertEqual(issue.recoveryAction, .details)
+        XCTAssertTrue(issue.displayChinese.contains("HR-CONN-006"))
+        XCTAssertTrue(issue.displayEnglish.contains("HR-CONN-006"))
+        XCTAssertFalse(issue.sanitizedDiagnostic.contains("secret-token"))
+    }
+
     func testIncompletePairingConfigurationHasBilingualRecoveryContract() {
         let issue = DesktopIssue(code: .incompletePairingConfiguration)
 
