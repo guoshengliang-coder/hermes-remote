@@ -690,3 +690,33 @@ commit and pin the separately signed internal schema-v2 component release 0.4.0.
 production capability enablement, and clean/existing-Mac installation remain separate recorded gates.
 No Developer ID identity is installed on the build Mac, so this candidate remains ad-hoc signed and
 cannot claim notarization, stapling, clean-machine Gatekeeper acceptance, or public distribution.
+
+## 2026-09-14 Desktop 0.2.11 and component 0.4.0 production availability
+
+PR #295 merged Desktop 0.2.11/build 14 as `813b78300ef373d87b61e2890051f6524aeeb94e`. A fresh detached
+worktree at that exact `origin/main` built the production-configured internal DMG with managed bootstrap and
+preflight enabled, schema-v2 component manifest URL, the approved `desktop-internal-2026-a` trust identity,
+`internal`/`arm64`, and `hermes-serve-v1`. Strict ad-hoc codesign and `hdiutil verify` passed. The final
+2,662,459-byte DMG has SHA-256 `028049016ee3115fd50b97c97a8a60d4507ae6dbab5cdf1be7aaeac88e869a60`
+and is published at
+`https://mrlgs.net/desktop/apps/0.2.11/Hermes-Go-Desktop-0.2.11-dev.dmg` with immutable caching and `nosniff`.
+
+The signed component release 0.4.0 is published beneath `/desktop/components/0.4.0/`. Its exact schema-v2
+manifest is 3,816 bytes with SHA-256
+`31e85f64d3347cb0302450f400b1357acd440c7dff041e8a896d67ee13dfa47f`; independent public-key verification
+passed against all four public archives. The bootstrap download is 102,881,663 bytes (98.12 MiB): Python
+48,062,625 bytes, Hermes core 17,762,179 bytes, Node 36,999,070 bytes, and Connector 57,789 bytes. Their
+archive SHA-256 values are respectively
+`7af7938616e059de81e165b13ff13e02b61dcb4468211037709dadedabc774e4`,
+`09dc9bc70547c47053b8f1d7f8a2feaab5a33932cb0500a72d50fb0f1d8ba49c`,
+`3d5fd7a8da312dfc5ce8718fc278e56403df4aa2c17411e95b923edb0d647021`, and
+`65ccf7fc79b08c81d8f4d2867877cc24e0c62db07db2ddd3f605726ce92d21dc`.
+
+Gateway 0.4.16 merge `0adccd7b834f1ab3366caf6091c2a3426b5b28f1` is active in production and the
+authorized component rollout run `a310a75c-ada9-4e0a-b64a-010a3fdf0434` committed schema-v2 capability.
+Public `/v2/capabilities` now advertises `hermes-serve-v1` and `componentManifestSchemaVersion: 2`; the active
+green container is healthy with zero restarts and the manifest downloaded through the public route reproduces
+the exact signed hash. This closes publication and production capability enablement. Normal-user installation,
+the explicit two-stage confirmation flow, existing-Hermes reuse, managed-service activation and rollback still
+need physical acceptance on the user's MacBook. The DMG remains ad-hoc signed and has not passed Developer ID
+signing, notarization, stapling or clean-machine Gatekeeper acceptance.

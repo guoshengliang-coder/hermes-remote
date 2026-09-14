@@ -852,7 +852,7 @@ binding and six revoked bindings, with zero share invitations and zero access gr
 the explicitly user-driven B-to-A invitation/use/revoke/leave canary; do not call that matrix complete from the flag
 rollout alone.
 
-## Production Desktop component gray rollout (R5-F6; pending)
+## Production Desktop component gray rollout (R5-F6; production complete)
 
 R5-F6 starts only from the exact production sharing state on a Gateway release that includes the schema-v2
 capability. It changes only `ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED=1`; it does not edit Nginx, the database,
@@ -878,6 +878,37 @@ and verifies the full account/sharing/Legacy/WebSocket surface plus
 the previous environment and verifies that the component capability disappeared again. `HR-OPS-025` names all
 failures; inspect `/var/lib/hermes-go/ops/component-rollout.json` before retrying. Source merge and bundle
 generation do not authorize production execution.
+
+The authorized Gateway 0.4.16 deployment on 2026-09-14 first used merge `29abbc9294bd` and schema-9 operator
+bundle `Hermes-R5D-Ops-29abbc9294bd` (archive SHA-256 `2234ab054e88c1987cfdd2a5b39a1009787a0eb1a4836f568d38e94a13bea136`).
+Run `597ad2fe-ba76-448f-b314-40fc120cb612` reached `route_switched`, then failed with `HR-OPS-016`: account-mode
+Desktop had intentionally retired the Legacy Connector, while the routine public smoke still waited for
+`connectors: 1`. The same obsolete assumption made the recovery smoke report failure after it had already restored
+the blue service, Nginx upstream, release links and lifecycle state. Independent checks found blue 0.4.15 active,
+green inactive, upstream `127.0.0.1:18787`, zero restarts and a healthy public route; no failed state was declared
+committed.
+
+PR #299 corrected the smoke and recovery boundaries. Its merge `0adccd7b834f1ab3366caf6091c2a3426b5b28f1`
+passed the PR and resulting `main` CI, Gateway OCI, off-host recovery and SAST workflows. The paired production
+artifacts were Gateway archive SHA-256 `73c3b7de382937ee4745cc19f011cbb517c8e45013ac79647b984dd7dcda9555`
+(containerd image `sha256:ccd744d56b6aed32645683a378429eaa13634d3ae3d2e1507cb71405db47b879`)
+and schema-9 operator archive SHA-256 `dac61f6e0d5f43b62f07f2f7716461778513d770998422915df78f2f223958e4`.
+Both matched locally and after transfer, and the extracted operator verified itself on the production host.
+The corrected `production-recover` accepted the failed `route_switched` journal only after every restored-state
+gate passed, then restored the archived 0.4.15 committed journal. Retry run
+`a1ee338f-3651-4e81-bbc9-25a75d6a7406` committed Gateway `0.4.16-0adccd7b834f` on green with blue inactive,
+upstream `127.0.0.1:18788`, a healthy container, zero restarts and rollback point
+`releases/0.4.15-6b7d60fa6bbf`.
+
+The separately authorized component run `a310a75c-ada9-4e0a-b64a-010a3fdf0434` then committed release 0.4.0.
+It pinned schema 2 manifest SHA-256 `31e85f64d3347cb0302450f400b1357acd440c7dff041e8a896d67ee13dfa47f`,
+verified its Ed25519 signature and every declared public archive, changed only
+`ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED=1`, restarted green and repeated the complete account/sharing/Legacy/
+WebSocket and component-capability checks across the 30-second observation window. Independent verification found
+the same healthy image with zero restarts, all preceding account flags still enabled, `/relay-health` healthy with
+the expected retired-Legacy `connectors: 0`, and public capabilities advertising
+`desktopBootstrap.runtimeContract: hermes-serve-v1` plus `componentManifestSchemaVersion: 2`. Physical Desktop
+download, confirmation, installation and managed-service acceptance remain a user-driven Mac gate.
 
 ## Edge JSON compression (2026-09-07, authorized)
 
