@@ -357,6 +357,15 @@ channel, architecture, key identifier, and Ed25519 public key only after all fie
 ambiguous, non-HTTPS, credential-bearing, or non-canonical values fail closed. This slice still does
 not construct the runtime, fetch a manifest, scan the machine, or render the card.
 
+C5's fifth slice composes that default-off gate, trusted runtime, read-only managed-store scan, and
+native presentation. Only a complete enabled configuration constructs the runtime. After account
+bootstrap, and again when the user refreshes Account & Devices, Desktop downloads and verifies the
+schema-v2 manifest before inspecting the component store and showing the independent preflight card.
+Managed reuse requires the full content identity plus an owned, non-writable, non-symlink executable
+at the signed entrypoint. The probe deliberately does not launch Hermes or Connector during a read-only
+scan; process readiness remains part of installation and activation. Disabled, invalid, download,
+verification, and scan paths show no card and cannot reach installation or service mutation.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 

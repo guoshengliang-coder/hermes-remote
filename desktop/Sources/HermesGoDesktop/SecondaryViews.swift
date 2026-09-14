@@ -69,7 +69,10 @@ struct AccountDevicesView: View {
                     subtitle: "一个账号可管理多台 Mac；当前选择只影响接下来打开的新内容。"
                 ) {
                     Button {
-                        Task { await model.refreshAccount() }
+                        Task {
+                            await model.refreshAccount()
+                            await model.refreshComponentPreflight()
+                        }
                     } label: {
                         Label("刷新", systemImage: "arrow.clockwise")
                     }
@@ -303,6 +306,9 @@ struct AccountDevicesView: View {
         HStack(alignment: .top, spacing: 18) {
             accountCard(dashboard)
             bindingCard(dashboard.binding)
+        }
+        if let presentation = model.componentPreflightPresentation {
+            ComponentPreflightCard(presentation: presentation)
         }
         bootstrapPlanCard(model.bootstrapPlan)
         if let issue = model.managedBootstrapIssue {
