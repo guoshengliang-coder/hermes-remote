@@ -68,6 +68,14 @@ preparation action must consume that token directly; it may not reconstruct auth
 version, component rows, URLs, or byte counts. Refresh failure, capability withdrawal, and sign-out
 discard both the token and its presentation.
 
+The component UI may call `prepare` only with that retained token and only after a fresh Cloud
+capability check plus the clean-machine/legacy-service preflight. Preparation downloads and verifies
+missing bootstrap components in its private UUID workspace without changing services. The native
+confirmation passes the executor's exact release-specific text; immediately before `commit`, Desktop
+refreshes the capability and machine preflight again. Schema-v1 and schema-v2 operations are mutually
+exclusive. A cleanup failure retains only the executor-issued preparation or exact interrupted run ID
+for cleanup retry and never reconstructs another install request.
+
 The packaged Account & Devices surface uses the same split: “下载并验证安装包” is preparation, and a
 second native sheet displays the exact signed version before “安装并连接” can commit. The clean-Mac
 preflight runs again immediately before commit. Any responder on reserved loopback port 9119,

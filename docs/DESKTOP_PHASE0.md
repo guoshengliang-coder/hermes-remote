@@ -443,6 +443,19 @@ refresh so an in-flight result cannot republish after withdrawal. The UI still c
 installation action, so no workspace, component store, credential, LaunchAgent, binding, process,
 production configuration, or release is changed.
 
+C5's fourteenth slice connects that trusted session to a two-stage native component install action.
+The card offers “下载缺失组件” only when both the component plan and machine migration preflight are
+ready. Desktop refreshes the Cloud capability and machine state before private-cache preparation, then
+does both again before the exact signed-version confirmation can commit components, bind the account,
+start Hermes before Connector, and enter the existing health/rollback transaction. Schema-v1 and
+schema-v2 installation, account mutations, and manual refresh are mutually excluded. Preparation
+failures attempt exact UUID cleanup; retained cleanup state exposes only a cleanup retry, including
+after an otherwise successful migration. Existing structured `HR-MIGRATE-001` through
+`HR-MIGRATE-005` messages cover the visible failure paths. Once Cloud and local configuration select
+schema 2, a trust or scan failure cannot expose the schema-v1 download action as an implicit fallback.
+Production capability/configuration stays
+off, so this slice performs no deployment, installation, running-service change, or release.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 
