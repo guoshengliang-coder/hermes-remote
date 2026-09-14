@@ -46,6 +46,9 @@ signed result after account bootstrap and again from the existing Refresh action
 advertises component manifest schema 2 and the exact `hermes-serve-v1` runtime contract. An absent or
 future schema, runtime mismatch, failed download, signature check, or local scan stays fail-closed,
 performs no component-manifest request, and does not expose a machine-changing fallback.
+A successful refresh keeps the verifier-issued installation token only in model memory beside that
+exact displayed result; the card itself still receives presentation data only and cannot manufacture
+an installation request.
 
 For the email-first release, the signed-out Desktop surface must use email plus a six-digit one-time
 code as its only login action. It must not show or attempt Google when the Gateway advertises only

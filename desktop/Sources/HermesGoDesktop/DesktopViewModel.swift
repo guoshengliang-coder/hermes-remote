@@ -45,8 +45,9 @@ final class DesktopViewModel: ObservableObject {
     private let componentPreflightConfiguration: DesktopComponentPreflightConfigurationState
     private let managedBootstrapRuntime: DesktopManagedBootstrapRuntime?
     private let managedRecoveryRuntime: DesktopManagedRecoveryRuntime?
-    private let componentPreflightRuntime: DesktopComponentReleasePreflightRuntime?
+    private let componentBootstrapRuntime: DesktopComponentBootstrapRuntime?
     private let componentEntrypointProbe: DesktopManagedComponentEntrypointProbe
+    private var trustedComponentPreflight: DesktopTrustedComponentPreflight?
     private var monitorTask: Task<Void, Never>?
 
     init(profileStore: any ConnectionProfileStoring = KeychainConnectionProfileStore()) {
@@ -91,19 +92,16 @@ final class DesktopViewModel: ObservableObject {
             managedBootstrapRuntime = nil
         }
         if case .configured(let releaseConfiguration) = componentConfiguration,
-           let managedPaths,
-           let verifier = try? releaseConfiguration.makeManifestVerifier(),
-           let scanner = try? DesktopComponentReleasePreflightCoordinator(
-               storeRoot: managedPaths.managedRoot,
-               currentUserID: getuid()
-           ) {
-            componentPreflightRuntime = try? DesktopComponentReleasePreflightRuntime(
-                manifestURL: releaseConfiguration.manifestURL,
-                verifier: verifier,
-                scanner: scanner
+           let managedPaths {
+            componentBootstrapRuntime = try? DesktopComponentBootstrapRuntime(
+                releaseConfiguration: releaseConfiguration,
+                accountGatewayURL: configuration.gatewayURL,
+                runtimeContract: .serveV1,
+                account: controller,
+                paths: managedPaths
             )
         } else {
-            componentPreflightRuntime = nil
+            componentBootstrapRuntime = nil
         }
         do {
             if let profile = try profileStore.load() {
@@ -175,10 +173,11 @@ final class DesktopViewModel: ObservableObject {
     }
 
     func refreshComponentPreflight() async {
+        guard !isComponentPreflightRefreshing else { return }
         guard componentBootstrapAvailability == .ready,
-              let runtime = componentPreflightRuntime,
-              !isComponentPreflightRefreshing
+              let runtime = componentBootstrapRuntime
         else {
+            trustedComponentPreflight = nil
             componentPreflightPresentation = nil
             return
         }
@@ -186,15 +185,22 @@ final class DesktopViewModel: ObservableObject {
         defer { isComponentPreflightRefreshing = false }
         do {
             let probe = componentEntrypointProbe
-            let result = try await runtime.load { kind, root, entrypoint in
+            let trusted = try await runtime.preflight.loadTrusted { kind, root, entrypoint in
                 try probe(kind, root: root, entrypoint: entrypoint)
             }
+            guard componentBootstrapAvailability == .ready else {
+                trustedComponentPreflight = nil
+                componentPreflightPresentation = nil
+                return
+            }
+            trustedComponentPreflight = trusted
             componentPreflightPresentation = DesktopComponentPreflightPresentation(
-                result: result
+                result: trusted.result
             )
         } catch {
             // The candidate feature stays fail-closed and non-actionable. A user-visible rollout
             // error is added only with the production capability and its registered HR code.
+            trustedComponentPreflight = nil
             componentPreflightPresentation = nil
         }
     }
@@ -500,6 +506,7 @@ final class DesktopViewModel: ObservableObject {
             }
         }
         if componentBootstrapAvailability != .ready {
+            trustedComponentPreflight = nil
             componentPreflightPresentation = nil
         }
     }
@@ -795,7 +802,7 @@ final class DesktopViewModel: ObservableObject {
         }
         let configuration: DesktopComponentPreflightConfigurationState
         if case .configured = componentPreflightConfiguration,
-           componentPreflightRuntime == nil {
+           componentBootstrapRuntime == nil {
             configuration = .invalid
         } else {
             configuration = componentPreflightConfiguration
