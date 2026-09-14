@@ -18,5 +18,35 @@
   },
   "connector": {
     "version": "0.1.2"
-  }
+  },
+  "optionalComponents": [
+    {
+      "kind": "browser_automation",
+      "version": "123.0.0",
+      "root": "/absolute/path/to/normalized-browser-component",
+      "entrypoint": "bin/chromium",
+      "onDemandTrigger": "browser_automation",
+      "reuseContract": "verified_compatibility",
+      "compatibilityIdentifier": "chromium-cdp-1",
+      "dependencies": []
+    },
+    {
+      "kind": "speech_runtime",
+      "version": "1.2.1",
+      "root": "/absolute/path/to/speech-component",
+      "entrypoint": "bin/health-check",
+      "onDemandTrigger": "speech_runtime",
+      "reuseContract": "exact_content",
+      "dependencies": ["python_runtime"]
+    },
+    {
+      "kind": "document_tools",
+      "version": "0.1.6",
+      "root": "/absolute/path/to/document-component",
+      "entrypoint": "bin/health-check",
+      "onDemandTrigger": "document_tools",
+      "reuseContract": "exact_content",
+      "dependencies": ["python_runtime"]
+    }
+  ]
 }

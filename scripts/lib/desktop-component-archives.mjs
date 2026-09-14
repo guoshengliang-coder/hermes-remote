@@ -36,6 +36,9 @@ const MAX_COMPONENT_BYTES = 2 * 1024 * 1024 * 1024;
 const COMPONENT_V2_ORDER = Object.freeze([
   "python_runtime", "hermes_core", "node_runtime", "connector",
 ]);
+const OPTIONAL_COMPONENT_V2_KINDS = Object.freeze([
+  "browser_automation", "speech_runtime", "document_tools",
+]);
 
 export async function packageDesktopComponentArchives({
   configPath,
@@ -175,6 +178,7 @@ export async function packageDesktopComponentArchivesV2({
   inspectPortability = defaultInspectPortability,
   inspectPythonVersion = defaultInspectPythonVersion,
   inspectNodeVersion = defaultInspectNodeVersion,
+  inspectOptionalComponent = defaultInspectOptionalComponent,
 }) {
   const created = [];
   let temporaryRoot;
@@ -207,7 +211,11 @@ export async function packageDesktopComponentArchivesV2({
     await inspectNodeVersion(nodeBinary, config.nodeRuntime.version);
 
     temporaryRoot = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-desktop-components-v2-")));
-    const stages = Object.fromEntries(COMPONENT_V2_ORDER.map((kind) => [kind, path.join(temporaryRoot, kind)]));
+    const componentOrder = [
+      ...COMPONENT_V2_ORDER,
+      ...config.optionalComponents.map((component) => component.kind),
+    ];
+    const stages = Object.fromEntries(componentOrder.map((kind) => [kind, path.join(temporaryRoot, kind)]));
     await stagePythonRuntimeV2({
       destination: stages.python_runtime,
       pythonRoot,
@@ -239,6 +247,25 @@ export async function packageDesktopComponentArchivesV2({
     });
     await verifyConnectorSessionTokenContract(stages.connector, temporaryRoot);
 
+    for (const optional of config.optionalComponents) {
+      const sourceRoot = await requireDirectory(optional.root);
+      await stageOptionalComponentV2({
+        destination: stages[optional.kind],
+        sourceRoot,
+        kind: optional.kind,
+        version: optional.version,
+        sourceCommit: config.sourceCommit,
+        architecture: config.architecture,
+      });
+      const entrypoint = path.join(stages[optional.kind], optional.entrypoint);
+      await inspectOptionalComponent({
+        kind: optional.kind,
+        root: stages[optional.kind],
+        entrypoint,
+        architecture: config.architecture,
+      });
+    }
+
     const definitions = [
       componentV2("python_runtime", config.pythonRuntime.version, "bin/python3", []),
       componentV2("hermes_core", config.hermesCore.version, "bin/hermes", ["python_runtime"]),
@@ -246,6 +273,18 @@ export async function packageDesktopComponentArchivesV2({
       componentV2("connector", config.connector.version, "bin/hermes-connector", [
         "hermes_core", "node_runtime",
       ]),
+      ...config.optionalComponents.map((component) => componentV2(
+        component.kind,
+        component.version,
+        component.entrypoint,
+        component.dependencies,
+        {
+          installPhase: "on_demand",
+          onDemandTrigger: component.onDemandTrigger,
+          reuseContract: component.reuseContract,
+          compatibilityIdentifier: component.compatibilityIdentifier,
+        },
+      )),
     ];
     const artifacts = [];
     for (const definition of definitions) {
@@ -281,7 +320,12 @@ export async function packageDesktopComponentArchivesV2({
       schemaVersion: 2,
       architecture: config.architecture,
       totalSizeBytes: artifacts.reduce((sum, artifact) => sum + artifact.sizeBytes, 0),
-      bootstrapSizeBytes: artifacts.reduce((sum, artifact) => sum + artifact.sizeBytes, 0),
+      bootstrapSizeBytes: artifacts
+        .filter((artifact) => artifact.installPhase === "bootstrap")
+        .reduce((sum, artifact) => sum + artifact.sizeBytes, 0),
+      deferredSizeBytes: artifacts
+        .filter((artifact) => artifact.installPhase === "on_demand")
+        .reduce((sum, artifact) => sum + artifact.sizeBytes, 0),
       artifacts,
     };
   } catch (error) {
@@ -299,7 +343,7 @@ export async function loadComponentConfigV2(configPath) {
   try { config = JSON.parse(await readFile(file, "utf8")); } catch { fail("component_config_invalid"); }
   exactKeys(config, [
     "schemaVersion", "architecture", "sourceCommit", "pythonRuntime", "nodeRuntime",
-    "hermesCore", "connector",
+    "hermesCore", "connector", "optionalComponents",
   ], "component_config_fields_invalid");
   if (config.schemaVersion !== 2 || !["arm64", "x86_64"].includes(config.architecture)
       || !fullCommit(config.sourceCommit)) fail("component_config_identity_invalid");
@@ -322,11 +366,71 @@ export async function loadComponentConfigV2(configPath) {
   }
   exactKeys(config.connector, ["version"], "component_config_connector_invalid");
   if (!semanticVersion(config.connector.version)) fail("component_config_connector_invalid");
-  return config;
+  if (!Array.isArray(config.optionalComponents)) fail("component_config_optional_invalid");
+  const optionalKinds = new Set();
+  for (const optional of config.optionalComponents) {
+    const baseKeys = [
+      "kind", "version", "root", "entrypoint", "onDemandTrigger", "reuseContract",
+      "dependencies",
+    ];
+    const keys = optional?.reuseContract === "verified_compatibility"
+      ? [...baseKeys, "compatibilityIdentifier"] : baseKeys;
+    exactKeys(optional, keys, "component_config_optional_invalid");
+    if (!OPTIONAL_COMPONENT_V2_KINDS.includes(optional.kind)
+        || optionalKinds.has(optional.kind)
+        || !semanticVersion(optional.version)
+        || typeof optional.root !== "string" || !path.isAbsolute(optional.root)
+        || !validRelativePath(optional.entrypoint)
+        || !validIdentifier(optional.onDemandTrigger)
+        || !["exact_content", "verified_compatibility"].includes(optional.reuseContract)
+        || !Array.isArray(optional.dependencies)
+        || optional.dependencies.some((dependency) => typeof dependency !== "string")) {
+      fail("component_config_optional_invalid");
+    }
+    if (optional.reuseContract === "verified_compatibility") {
+      if (optional.kind !== "browser_automation"
+          || !validIdentifier(optional.compatibilityIdentifier)) {
+        fail("component_config_optional_invalid");
+      }
+    }
+    const expectedDependencies = optional.kind === "browser_automation" ? [] : ["python_runtime"];
+    if (optional.dependencies.length !== expectedDependencies.length
+        || optional.dependencies.some((dependency, index) => dependency !== expectedDependencies[index])) {
+      fail("component_config_optional_invalid");
+    }
+    optionalKinds.add(optional.kind);
+  }
+  return {
+    ...config,
+    optionalComponents: [...config.optionalComponents].sort(
+      (left, right) => OPTIONAL_COMPONENT_V2_KINDS.indexOf(left.kind)
+        - OPTIONAL_COMPONENT_V2_KINDS.indexOf(right.kind),
+    ),
+  };
 }
 
-function componentV2(component, version, entrypoint, dependencies) {
-  return { component, version, entrypoint, dependencies };
+function componentV2(component, version, entrypoint, dependencies, extra = {}) {
+  return { component, version, entrypoint, dependencies, installPhase: "bootstrap", ...extra };
+}
+
+function validIdentifier(value) {
+  return typeof value === "string" && /^[A-Za-z0-9._-]{1,96}$/.test(value);
+}
+
+function validRelativePath(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= 512
+    && !path.isAbsolute(value) && !value.includes("\\")
+    && !value.split("/").some((part) => !part || part === "." || part === "..")
+    && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+}
+
+async function stageOptionalComponentV2({
+  destination, sourceRoot, kind, version, sourceCommit, architecture,
+}) {
+  await copyStrict(sourceRoot, destination, optionalComponentFilter);
+  await writeIdentityV2(destination, {
+    component: kind, version, sourceCommit, architecture,
+  });
 }
 
 function pythonMajorMinor(version) {
@@ -698,6 +802,10 @@ function runtimeJavaScriptFilter(value, name) {
   return defaultCopyFilter(value, name) && name !== "test" && name !== "docs";
 }
 
+function optionalComponentFilter(value, name) {
+  return hermesSourceFilter(value, name) && name !== "BUILD-IDENTITY.json";
+}
+
 async function assertGitIdentity(root, expectedCommit) {
   const commit = run("git", ["-C", root, "rev-parse", "HEAD"]).trim();
   const status = run("git", ["-C", root, "status", "--porcelain", "--untracked-files=normal"]).trim();
@@ -746,6 +854,18 @@ async function defaultInspectPythonVersion(file, expected) {
 async function defaultInspectNodeVersion(file, expected) {
   const observed = run(file, ["--version"]).trim().replace(/^v/, "");
   if (observed !== expected) fail("component_node_version_invalid");
+}
+
+async function defaultInspectOptionalComponent({ kind, entrypoint, architecture }) {
+  const executable = await requireRegularFile(entrypoint, MAX_COMPONENT_BYTES);
+  const info = await stat(executable);
+  if ((info.mode & 0o111) === 0) fail("component_optional_entrypoint_invalid");
+  if (kind === "browser_automation") {
+    await defaultInspectArchitecture(executable, architecture);
+    run(executable, ["--version"], { timeout: 30_000 });
+    return;
+  }
+  run(executable, ["--health-check"], { timeout: 120_000 });
 }
 
 async function hashRegularFile(file) {

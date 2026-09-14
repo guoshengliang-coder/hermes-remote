@@ -30,6 +30,7 @@ test("v2 builder creates four independently reusable component archives with mea
   assert.equal(result.schemaVersion, 2);
   assert.equal(result.architecture, "arm64");
   assert.equal(result.totalSizeBytes, result.bootstrapSizeBytes);
+  assert.equal(result.deferredSizeBytes, 0);
   assert.deepEqual(result.artifacts.map((artifact) => artifact.component), [
     "python_runtime", "hermes_core", "node_runtime", "connector",
   ]);
@@ -116,6 +117,105 @@ test("v2 builder rejects unknown configuration fields", async (t) => {
   await assert.rejects(build(fixture), isCause("component_config_fields_invalid"));
 });
 
+test("v2 builder packages validated optional roots without adding them to bootstrap bytes", async (t) => {
+  const fixture = await makeFixture(t);
+  const browserRoot = await optionalRoot(fixture.root, "browser", "bin/chromium");
+  const speechRoot = await optionalRoot(fixture.root, "speech", "bin/health-check");
+  const documentRoot = await optionalRoot(fixture.root, "document", "bin/health-check");
+  const config = JSON.parse(await readFile(fixture.configPath, "utf8"));
+  config.optionalComponents = [
+    {
+      kind: "browser_automation", version: "123.0.0", root: browserRoot,
+      entrypoint: "bin/chromium", onDemandTrigger: "browser_automation",
+      reuseContract: "verified_compatibility", compatibilityIdentifier: "chromium-cdp-1",
+      dependencies: [],
+    },
+    {
+      kind: "speech_runtime", version: "1.2.1", root: speechRoot,
+      entrypoint: "bin/health-check", onDemandTrigger: "speech_runtime",
+      reuseContract: "exact_content", dependencies: ["python_runtime"],
+    },
+    {
+      kind: "document_tools", version: "0.1.6", root: documentRoot,
+      entrypoint: "bin/health-check", onDemandTrigger: "document_tools",
+      reuseContract: "exact_content", dependencies: ["python_runtime"],
+    },
+  ];
+  await writeFile(fixture.configPath, `${JSON.stringify(config)}\n`);
+
+  const inspected = [];
+  const result = await packageDesktopComponentArchivesV2({
+    configPath: fixture.configPath,
+    outputDirectory: fixture.output,
+    repositoryRoot: fixture.repo,
+    prepareConnector: async () => {},
+    inspectArchitecture: async () => {},
+    inspectPortability: async () => {},
+    inspectPythonVersion: async () => {},
+    inspectNodeVersion: async () => {},
+    inspectOptionalComponent: async (value) => inspected.push(value.kind),
+  });
+
+  assert.deepEqual(inspected, ["browser_automation", "speech_runtime", "document_tools"]);
+  assert.deepEqual(result.artifacts.map((artifact) => artifact.component), [
+    "python_runtime", "hermes_core", "node_runtime", "connector",
+    "browser_automation", "speech_runtime", "document_tools",
+  ]);
+  assert.equal(result.totalSizeBytes, result.bootstrapSizeBytes + result.deferredSizeBytes);
+  assert.ok(result.deferredSizeBytes > 0);
+  assert.deepEqual(result.artifacts.slice(4).map((artifact) => artifact.installPhase), [
+    "on_demand", "on_demand", "on_demand",
+  ]);
+  assert.deepEqual(result.artifacts.slice(4).map((artifact) => artifact.dependencies), [
+    [], ["python_runtime"], ["python_runtime"],
+  ]);
+  assert.match(archiveNames(result, "speech_runtime"), /site-packages\/feature\.py/);
+  assert.doesNotMatch(archiveNames(result, "speech_runtime"), /owner\.pem/);
+});
+
+test("v2 builder rejects unsafe optional topology before publishing archives", async (t) => {
+  const fixture = await makeFixture(t);
+  const speechRoot = await optionalRoot(fixture.root, "speech", "bin/health-check");
+  const config = JSON.parse(await readFile(fixture.configPath, "utf8"));
+  config.optionalComponents = [{
+    kind: "speech_runtime", version: "1.2.1", root: speechRoot,
+    entrypoint: "bin/health-check", onDemandTrigger: "speech_runtime",
+    reuseContract: "exact_content", dependencies: [],
+  }];
+  await writeFile(fixture.configPath, `${JSON.stringify(config)}\n`);
+  await assert.rejects(build(fixture), isCause("component_config_optional_invalid"));
+  assert.deepEqual(await readdir(fixture.output), []);
+});
+
+test("v2 builder runs a prepared Python optional component health entrypoint", async (t) => {
+  const fixture = await makeFixture(t);
+  const speechRoot = await optionalRoot(fixture.root, "speech", "bin/health-check");
+  await writeFile(
+    path.join(speechRoot, "bin/health-check"),
+    "#!/bin/sh\n[ \"${1:-}\" = \"--health-check\" ] || exit 8\nexit 9\n",
+    { mode: 0o700 },
+  );
+  const config = JSON.parse(await readFile(fixture.configPath, "utf8"));
+  config.optionalComponents = [{
+    kind: "speech_runtime", version: "1.2.1", root: speechRoot,
+    entrypoint: "bin/health-check", onDemandTrigger: "speech_runtime",
+    reuseContract: "exact_content", dependencies: ["python_runtime"],
+  }];
+  await writeFile(fixture.configPath, `${JSON.stringify(config)}\n`);
+
+  await assert.rejects(packageDesktopComponentArchivesV2({
+    configPath: fixture.configPath,
+    outputDirectory: fixture.output,
+    repositoryRoot: fixture.repo,
+    prepareConnector: async () => {},
+    inspectArchitecture: async () => {},
+    inspectPortability: async () => {},
+    inspectPythonVersion: async () => {},
+    inspectNodeVersion: async () => {},
+  }), isCause("component_command_failed"));
+  assert.deepEqual(await readdir(fixture.output), []);
+});
+
 test("v2 portability gate rejects Homebrew and unresolved runtime dependencies", () => {
   const dependencies = nonPortableMachODependencies(`/opt/homebrew/bin/node:
 \t@rpath/libnode.127.dylib (compatibility version 0.0.0, current version 0.0.0)
@@ -175,8 +275,19 @@ async function makeFixture(t) {
     nodeRuntime: { version: "22.23.2", binary: nodeBinary },
     hermesCore: { version: "0.21.0", sourceCommit: hermesCommit, sourceRoot: hermes },
     connector: { version: "0.1.2" },
+    optionalComponents: [],
   })}\n`, { mode: 0o600 });
   return { root, repo, hermes, sitePackages, output, configPath };
+}
+
+async function optionalRoot(root, name, entrypoint) {
+  const component = path.join(root, `optional-${name}`);
+  await mkdir(path.join(component, path.dirname(entrypoint)), { recursive: true });
+  await mkdir(path.join(component, "site-packages"), { recursive: true });
+  await writeFile(path.join(component, entrypoint), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+  await writeFile(path.join(component, "site-packages/feature.py"), "# optional feature\n");
+  await writeFile(path.join(component, "owner.pem"), "must not ship\n");
+  return component;
 }
 
 async function writeFixtureRepo(repo) {

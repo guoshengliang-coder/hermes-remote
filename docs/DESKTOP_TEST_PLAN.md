@@ -67,10 +67,11 @@ The current automated suite covers:
 - component-archive construction from exact clean Git identities, an allowlisted secret-free Hermes
   source/runtime boundary, production-only Connector JavaScript, bundled architecture-matched
   runtimes, relative launchers, bounded trees, and no-overwrite cleanup;
-- schema-v2 component archive construction keeps CPython/dependencies, Hermes core, Node, and
-  Connector JavaScript in four disjoint archives; validates clean source commits, runtime versions and
-  architectures and rejects Homebrew/unresolved dynamic-library dependencies; reports compressed and
-  normalized content hashes; removes only artifacts created by
+- schema-v2 component archive construction keeps CPython/bootstrap dependencies, Hermes core, Node,
+  Connector JavaScript, and any prepared browser/speech/document roots in disjoint archives; validates
+  clean source commits, runtime versions, architectures, executable optional health entrypoints, fixed
+  optional dependency edges, and rejects Homebrew/unresolved dynamic-library dependencies; reports
+  compressed and normalized content hashes plus separate bootstrap/deferred bytes; removes only artifacts created by
   a failed attempt; and preserves HG-28 child imports through the activation-time core-root `.pth`;
 - the arm64 core-only composition starts the real Hermes 0.21.0 server, emits its readiness marker,
   serves `/api/status`, imports its core API modules, and imports `tui_gateway` from a child interpreter
