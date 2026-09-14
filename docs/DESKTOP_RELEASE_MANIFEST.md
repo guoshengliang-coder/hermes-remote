@@ -392,6 +392,12 @@ anything. Failed downloads and signatures are inert, and overlapping refreshes a
 result remains a read-only preflight value: production configuration and install-flow wiring are
 separate release work.
 
+The packaged app now reserves a separate default-false `HermesGoComponentPreflightEnabled` gate and
+an empty `HermesGoDesktopComponentManifestURL`. Enabling the gate requires a complete unambiguous HTTPS
+v2 URL plus the already pinned release origin, channel, architecture, key ID, and Ed25519 public key;
+every partial or malformed combination is invalid. The v1 manifest URL remains distinct, preventing a
+schema-v1 bootstrap envelope from being routed into the component verifier.
+
 Before that transaction, the local component preflight coordinator accepts the same verifier-only
 token and combines rehashed managed-store candidates with allowlisted external observations. It emits
 the per-component reuse/download/defer decisions and exact bootstrap/deferred byte totals. A matching

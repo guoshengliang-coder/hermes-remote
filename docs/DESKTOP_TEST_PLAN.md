@@ -140,6 +140,9 @@ The current automated suite covers:
 - the default-off preflight runtime accepts only a fixed unambiguous HTTPS manifest URL, orders bounded
   manifest fetch → strict schema-v2 signature verification → read-only environment scan, prevents
   download/signature failures from reaching the scanner, and rejects overlapping refreshes;
+- the component-preflight package gate is false with an empty v2 URL by default, loads only a complete
+  HTTPS URL plus canonical pinned release trust inputs, keeps the schema-v1 URL separate, and rejects
+  partial, malformed, credential-bearing, or ambiguous configuration;
 - fixed-path external-environment scanning reports Python/Node without trusting version-only reuse,
   resolves Homebrew-style runtime symlinks for reporting only, admits a safe architecture-matched
   system browser only after an explicit compatibility probe, and rejects browser symlinks,

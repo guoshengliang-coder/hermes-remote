@@ -351,6 +351,12 @@ scan. Download or signature failure cannot reach the scanner, and one runtime re
 refreshes. No production manifest URL, trust configuration, feature flag, install button, workspace,
 credential, LaunchAgent, or service behavior is changed by this slice.
 
+C5's fourth slice adds a separate packaged configuration gate for that runtime. The gate is false by
+default and has its own empty schema-v2 manifest URL; it reuses the existing pinned release origin,
+channel, architecture, key identifier, and Ed25519 public key only after all fields validate. Missing,
+ambiguous, non-HTTPS, credential-bearing, or non-canonical values fail closed. This slice still does
+not construct the runtime, fetch a manifest, scan the machine, or render the card.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 

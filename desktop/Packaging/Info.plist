@@ -32,6 +32,10 @@
   <string></string>
   <key>HermesGoManagedBootstrapEnabled</key>
   <false/>
+  <key>HermesGoComponentPreflightEnabled</key>
+  <false/>
+  <key>HermesGoDesktopComponentManifestURL</key>
+  <string></string>
   <key>HermesGoDesktopReleaseManifestURL</key>
   <string></string>
   <key>HermesGoDesktopReleaseArtifactOrigin</key>
