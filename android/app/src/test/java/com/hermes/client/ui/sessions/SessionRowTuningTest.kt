@@ -37,15 +37,16 @@ import org.robolectric.annotation.GraphicsMode
  *
  * The numbers, at 411dp / 420dpi (2.625×), measured rather than assumed:
  *
- *   Latin title + Latin project     130px = 49.52dp   ← the mock's 49.10, plus pixel rounding
- *   CJK title   + Latin project     134px = 51.05dp
- *   Latin title + CJK project       134px = 51.05dp
- *   CJK title   + CJK project       138px = 52.57dp
+ *   two-line   = 10 + 15.5×1.4 + 2 + 12×1.4 + 10 = 60.50dp  (measured 60.57)
+ *   three-line = two-line + 4 + 12×1.4              = 81.30dp
  *
- * So **every line of Chinese costs exactly 4px**. `leading-[1.35]` is derived from the mock's Latin
- * setting, and the CJK fallback face needs more ascent + descent than `size × 1.35` at these sizes,
- * so that line box grows to what the font requires. Nothing can be done about it short of clipping
- * the glyphs, and it is recorded as an intentional deviation in docs/DESIGN.md §5.2.
+ * **These are the SHIPPED numbers, not the mock's.** The product owner tuned on a device on
+ * 2026-09-14 and settled a step looser everywhere: 10dp row padding against the mock's 6, leading
+ * 1.4 against 1.35, title back to 15.5sp, subline and status back to 12sp. The mock's own values
+ * stay in docs/design/stitch/; what this file pins is what users get.
+ *
+ * Chinese still costs extra leading, but far less than before: **0.76dp per line**, down from 1.52
+ * at leading 1.35 — a looser leading covers more of what the CJK fallback face asks for.
  *
  * That is also the shape of the old bug, and the contrast is the point: a CJK project name used to
  * add **16dp** by tipping the row into `ListItem`'s three-line tier, top-aligned with a hole under
@@ -100,30 +101,30 @@ class SessionRowTuningTest {
     private fun heightOf(title: String): Float =
         compose.onNodeWithText(title).fetchSemanticsNode().size.height / compose.density.density
 
-    @Test fun a_latin_row_is_the_mock_arithmetic() {
-        // 6 + 14.5×1.35 + 2 + 11.5×1.35 + 6 = 49.10dp.
+    @Test fun a_latin_row_is_the_shipped_arithmetic() {
+        // 10 + 15.5×1.4 + 2 + 12×1.4 + 10 = 60.50dp.
         val s = session("Refactor the gateway router", "hermes-remote")
         show { Row(s) }
-        assertEquals(49.10f, heightOf(s.title), 0.6f)
+        assertEquals(60.50f, heightOf(s.title), 0.6f)
     }
 
     @Test fun a_status_line_adds_one_step_and_no_cliff() {
         // The old row jumped 72 → 88dp here, because a third line put it in another Material tier.
-        // Now it grows by exactly the step it gained: 2 + 11.5×1.35 = 17.53dp — plus the 1.52dp
-        // every Chinese line costs, and 「运行失败」 is Chinese under InChinese, which is the
-        // language this list is read in.
+        // Now it grows by exactly the step it gained: 4 + 12×1.4 = 20.80dp — plus the 0.76dp every
+        // Chinese line costs, and 「运行失败」 is Chinese under InChinese, which is the language this
+        // list is read in.
         val two = session("Refactor the gateway router", "hermes-remote")
         val three = session("Tidy the deployment docs", "hermes-remote")
         show {
             Row(two)
             Row(three, runtime = failed(three.id))
         }
-        assertEquals(heightOf(two.title) + 17.53f + 1.52f, heightOf(three.title), 0.3f)
+        assertEquals(heightOf(two.title) + 20.80f + 0.76f, heightOf(three.title), 0.4f)
     }
 
     @Test fun chinese_costs_one_line_of_leading_and_nothing_more() {
         // ANDROID_SMOKE A-05 was 16dp and came from the line-count floor. What is left is the CJK
-        // face needing more than `size × 1.35`, which is 1.52dp per Chinese line and unavoidable.
+        // face needing more than `size × leading`, now 0.76dp per Chinese line at leading 1.4.
         val latin = session("Refactor the gateway router", "hermes-remote")
         val cjkTitle = session("重构网关路由中间件", "hermes-remote")
         val cjkBoth = session("整理部署文档", "赫尔墨斯远程")
@@ -133,8 +134,10 @@ class SessionRowTuningTest {
             Row(cjkBoth)
         }
         val base = heightOf(latin.title)
-        assertEquals(base + 1.52f, heightOf(cjkTitle.title), 0.3f)
-        assertEquals(base + 3.05f, heightOf(cjkBoth.title), 0.3f)
+        // Not quite linear — each line box rounds to a whole pixel on its own, so two Chinese
+        // lines cost 1.14dp rather than twice 0.76. Measured, not derived.
+        assertEquals(base + 0.76f, heightOf(cjkTitle.title), 0.3f)
+        assertEquals(base + 1.14f, heightOf(cjkBoth.title), 0.3f)
     }
 
     @Test fun a_long_title_does_not_make_the_row_taller() {
@@ -161,7 +164,7 @@ class SessionRowTuningTest {
         show {
             Row(base)
             CompositionLocalProvider(
-                LocalSessionListTuning provides SessionListTuning(rowPaddingVDp = 12f),
+                LocalSessionListTuning provides SessionListTuning(rowPaddingVDp = 16f),
             ) { Row(loose) }
         }
         assertEquals(heightOf(base.title) + 12f, heightOf(loose.title), 0.3f)
