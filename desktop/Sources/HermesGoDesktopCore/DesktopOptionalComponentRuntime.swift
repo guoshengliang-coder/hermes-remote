@@ -126,6 +126,7 @@ public final class DesktopOptionalComponentRuntimeWriter: @unchecked Sendable {
         }
 
         let staging = releaseRoot.appendingPathComponent(".\(UUID().uuidString.lowercased())", isDirectory: true)
+        var publishedByThisAttempt = false
         do {
             try fileManager.createDirectory(
                 at: staging, withIntermediateDirectories: false,
@@ -143,32 +144,36 @@ public final class DesktopOptionalComponentRuntimeWriter: @unchecked Sendable {
                     ofItemAtPath: staging.appendingPathComponent(file).path
                 )
             }
-            try fileManager.setAttributes([.posixPermissions: 0o500], ofItemAtPath: staging.path)
             if Darwin.rename(staging.path, destination.path) != 0 {
-                let renameError = errno
                 guard fileManager.fileExists(atPath: destination.path) else {
-                    #if DEBUG
-                    fputs("DesktopOptionalComponentRuntime rename errno=\(renameError)\n", stderr)
-                    #endif
                     throw DesktopOptionalComponentRuntimeError.persistenceFailed
                 }
                 try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staging.path)
                 try? fileManager.removeItem(at: staging)
+            } else {
+                publishedByThisAttempt = true
+                // macOS 15 rejects renaming a directory after owner write permission is removed.
+                // Publish the complete owner-only tree first, then seal it before validation.
+                try fileManager.setAttributes([.posixPermissions: 0o500], ofItemAtPath: destination.path)
             }
             try validateProjection(destination, abi: pythonABITag, paths: pathText)
         } catch let error as DesktopOptionalComponentRuntimeError {
-            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staging.path)
-            try? fileManager.removeItem(at: staging)
+            cleanupFailedPublication(staging: staging, destination: destination, published: publishedByThisAttempt)
             throw error
         } catch {
-            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staging.path)
-            try? fileManager.removeItem(at: staging)
+            cleanupFailedPublication(staging: staging, destination: destination, published: publishedByThisAttempt)
             throw DesktopOptionalComponentRuntimeError.persistenceFailed
         }
         return DesktopOptionalComponentRuntimeEnvironment(
             lazyInstallTarget: destination,
             browserExecutable: browserExecutable
         )
+    }
+
+    private func cleanupFailedPublication(staging: URL, destination: URL, published: Bool) {
+        let target = published ? destination : staging
+        try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: target.path)
+        try? fileManager.removeItem(at: target)
     }
 
     private func validateManaged(
