@@ -143,6 +143,9 @@ The current automated suite covers:
 - the component-preflight package gate is false with an empty v2 URL by default, loads only a complete
   HTTPS URL plus canonical pinned release trust inputs, keeps the schema-v1 URL separate, and rejects
   partial, malformed, credential-bearing, or ambiguous configuration;
+- the read-only managed-entrypoint probe requires the signed entrypoint to stay inside the rehashed
+  component root as an owned, non-writable, regular executable file, rejecting paths outside the root,
+  symlinks, non-executable files, and group-writable files without launching a process;
 - fixed-path external-environment scanning reports Python/Node without trusting version-only reuse,
   resolves Homebrew-style runtime symlinks for reporting only, admits a safe architecture-matched
   system browser only after an explicit compatibility probe, and rejects browser symlinks,
@@ -253,6 +256,7 @@ the project-wide `ERROR_HANDLING.md` contract.
 | Two phones use current Gateway | Existing phone configuration remains usable | Pending device check |
 | Light/dark mode | Same cool-blue surface language and semantic states | Light verified 2026-09-02; dark pending |
 | App icon | Desktop packaging copy equals canonical Android icon | Verified by packaging gate 2026-09-02 |
+| Componentized v2 preflight card | Default package remains absent/inert; a development package with complete signed-v2 configuration loads after account bootstrap and Refresh, then renders the verified card before the v1 installation card; failed trust or scan stays hidden and non-actionable | Core runtime, configuration, probe, presentation, and full SwiftUI compilation automated; enabled packaged UI run pending |
 | Keychain profile | App Token persists across restart and is never shown in visible UI | Verified locally and on target with disposable test Token 2026-09-02 |
 | Invalid App Token | End-to-end check reports `HR-AUTH-001` with recovery guidance | Automated + local/target UI verified 2026-09-02 |
 | v1 QR payload | JSON contains only compatible `v`, `url`, and `token` fields | Automated 2026-09-02 |

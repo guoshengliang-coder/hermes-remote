@@ -40,6 +40,10 @@ component row has one unambiguous state: managed reuse, compatible system reuse,
 or on-demand download. Sizes use stable `KiB`/`MiB`/`GiB` units, and the footer always states that this
 read-only scan does not modify Homebrew, the user's environment, or running services. The card has no
 install action until a production v2 capability and signing configuration make the result actionable.
+The packaged feature remains visually absent and performs no network or filesystem scan while its
+default-off configuration gate is closed. With a complete development configuration, Desktop loads the
+signed result after account bootstrap and again from the existing Refresh action. A failed download,
+signature check, or local scan stays fail-closed and does not expose a machine-changing fallback.
 
 For the email-first release, the signed-out Desktop surface must use email plus a six-digit one-time
 code as its only login action. It must not show or attempt Google when the Gateway advertises only

@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 import HermesGoDesktopCore
 
@@ -32,6 +33,9 @@ final class DesktopViewModel: ObservableObject {
     @Published private(set) var managedBootstrapOperation: DesktopManagedBootstrapOperation = .idle
     @Published private(set) var managedBootstrapPreparation: DesktopManagedBootstrapPreparation?
     @Published private(set) var managedBootstrapIssue: DesktopIssue?
+    @Published private(set) var componentPreflightPresentation:
+        DesktopComponentPreflightPresentation?
+    @Published private(set) var isComponentPreflightRefreshing = false
 
     private let inspector = LegacyConnectorInspector(runner: SystemCommandRunner())
     private let prober = HTTPHealthProber()
@@ -40,13 +44,19 @@ final class DesktopViewModel: ObservableObject {
     private let managedBootstrapConfiguration: DesktopManagedBootstrapConfigurationState
     private let managedBootstrapRuntime: DesktopManagedBootstrapRuntime?
     private let managedRecoveryRuntime: DesktopManagedRecoveryRuntime?
+    private let componentPreflightRuntime: DesktopComponentReleasePreflightRuntime?
+    private let componentEntrypointProbe: DesktopManagedComponentEntrypointProbe
     private var monitorTask: Task<Void, Never>?
 
     init(profileStore: any ConnectionProfileStoring = KeychainConnectionProfileStore()) {
         self.profileStore = profileStore
         let configuration = DesktopAccountConfiguration.load()
         let bootstrapConfiguration = DesktopManagedBootstrapConfigurationState.load()
+        let componentConfiguration = DesktopComponentPreflightConfigurationState.load()
         managedBootstrapConfiguration = bootstrapConfiguration
+        componentEntrypointProbe = DesktopManagedComponentEntrypointProbe(
+            currentUserID: getuid()
+        )
         let oauth = configuration.googleClientID.map { GoogleOAuthFlow(clientID: $0) }
         let controller = DesktopAccountController(
             api: AccountAPIClient(gatewayURL: configuration.gatewayURL),
@@ -77,6 +87,21 @@ final class DesktopViewModel: ObservableObject {
             )
         } else {
             managedBootstrapRuntime = nil
+        }
+        if case .configured(let releaseConfiguration) = componentConfiguration,
+           let managedPaths,
+           let verifier = try? releaseConfiguration.makeManifestVerifier(),
+           let scanner = try? DesktopComponentReleasePreflightCoordinator(
+               storeRoot: managedPaths.managedRoot,
+               currentUserID: getuid()
+           ) {
+            componentPreflightRuntime = try? DesktopComponentReleasePreflightRuntime(
+                manifestURL: releaseConfiguration.manifestURL,
+                verifier: verifier,
+                scanner: scanner
+            )
+        } else {
+            componentPreflightRuntime = nil
         }
         do {
             if let profile = try profileStore.load() {
@@ -134,6 +159,7 @@ final class DesktopViewModel: ObservableObject {
         monitorTask = Task { [weak self] in
             await self?.refreshAccount(bootstrap: true)
             await self?.recoverManagedBootstrapAfterRestart()
+            await self?.refreshComponentPreflight()
             var cycle = 0
             while !Task.isCancelled {
                 await self?.refresh()
@@ -143,6 +169,27 @@ final class DesktopViewModel: ObservableObject {
                 }
                 try? await Task.sleep(for: .seconds(15))
             }
+        }
+    }
+
+    func refreshComponentPreflight() async {
+        guard let runtime = componentPreflightRuntime,
+              !isComponentPreflightRefreshing
+        else { return }
+        isComponentPreflightRefreshing = true
+        defer { isComponentPreflightRefreshing = false }
+        do {
+            let probe = componentEntrypointProbe
+            let result = try await runtime.load { kind, root, entrypoint in
+                try probe(kind, root: root, entrypoint: entrypoint)
+            }
+            componentPreflightPresentation = DesktopComponentPreflightPresentation(
+                result: result
+            )
+        } catch {
+            // The candidate feature stays fail-closed and non-actionable. A user-visible rollout
+            // error is added only with the production capability and its registered HR code.
+            componentPreflightPresentation = nil
         }
     }
 
