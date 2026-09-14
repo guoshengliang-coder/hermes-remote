@@ -130,10 +130,14 @@ V2166BA also opened the full MissionGo editor. Only the metadata race was wrong.
 `android/releases/0.1.121.json` must mirror that public entry rather than claim that an immutable
 record was changed later.
 
-Two shipped changes still need a public note: HG-29 reclaimed-session recovery (already present in
-0.1.120) and the model-selector waiting-indicator correction (present in 0.1.121). The next Android
-release must carry both notes forward. Do not rerun or tag 0.1.121 to repair prose: a same-version
-entry with a different source commit or release-note list is a conflict by design.
+Two shipped changes still needed a public note: HG-29 reclaimed-session recovery (already present in
+0.1.120) and the model-selector waiting-indicator correction (present in 0.1.121). Do not rerun or
+tag 0.1.121 to repair prose: a same-version entry with a different source commit or release-note
+list is a conflict by design.
+
+**Discharged by 0.1.124** (2026-09-13). Both notes are in `android/releases/0.1.124.json`, each
+saying which version it actually shipped in. Nothing is outstanding here — a later release that
+repeats them would be telling users about a change they received weeks ago.
 
 `scripts/bootstrap-release-server.sh` creates `/opt/hermes-release-server`, `/srv/hermes-releases`, a
 legal empty index, TLS directory, environment, and systemd unit. Test locally with
@@ -183,8 +187,10 @@ Two obligations follow, and neither is optional:
 
 - **A superseded bump orphans its notes file.** When conflict resolution moves a release to a higher
   number, the notes of the number being dropped must be folded into the surviving release's notes.
-  `android/releases/0.1.97.json` is the outstanding case: its three entries describe work that shipped
-  undocumented, and the next release that carries a notes file must absorb them.
+  `android/releases/0.1.97.json` was the outstanding case: its three entries describe work that
+  shipped undocumented. **Discharged by 0.1.124** (2026-09-13), which carries the per-session
+  diagnostic-log filtering and sharing notes and says they took effect in 0.1.98. Do not absorb them
+  again.
 - **Nothing currently detects this.** The publisher verifies the entry it just wrote; it never asks
   whether some earlier `android/releases/*.json` never made it into the index. A pre-publish check
   comparing local notes files against the public index would have flagged 0.1.97 the moment 0.1.98
