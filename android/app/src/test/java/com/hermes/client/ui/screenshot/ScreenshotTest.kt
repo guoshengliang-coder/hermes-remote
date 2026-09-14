@@ -846,10 +846,15 @@ class ScreenshotTest {
         }
     }
 
-    // All four group headers in one picture. The amber one is the only coloured pillar in the
-    // product, and it only ever appears when a session is actually waiting on you — which the
-    // local mock can hold for about six seconds, so it has never been caught on a device
-    // (docs/ANDROID_SMOKE.md A-01). This is the one place its colour can be looked at.
+    // All six session-list group headers in one picture. The amber one is only ever on screen when
+    // a session is actually waiting on you — which the local mock can hold for about six seconds,
+    // so it has never been caught on a device (docs/ANDROID_SMOKE.md A-01). This is the one place
+    // its colour can be looked at.
+    //
+    // The last three are the reason this picture matters after HG-52 (2026-09-14): 昨天, 前 7 天 and
+    // 更早 have to be three pillars a reader can tell apart, and 前 7 天 / 更早 are the same two
+    // slates swapped per theme — so the light and dark snapshots have to be compared to each other,
+    // not just to themselves.
     @androidx.compose.runtime.Composable
     private fun SectionHeaders() {
         androidx.compose.foundation.layout.Column {
@@ -863,7 +868,13 @@ class ScreenshotTest {
                 "今天", 4, com.hermes.client.ui.components.SectionTone.TODAY, onToggle = {},
             )
             com.hermes.client.ui.components.SectionHeader(
-                "前 7 天", 19, com.hermes.client.ui.components.SectionTone.OLDER, collapsed = true, onToggle = {},
+                "昨天", 3, com.hermes.client.ui.components.SectionTone.YESTERDAY, onToggle = {},
+            )
+            com.hermes.client.ui.components.SectionHeader(
+                "前 7 天", 19, com.hermes.client.ui.components.SectionTone.RECENT, collapsed = true, onToggle = {},
+            )
+            com.hermes.client.ui.components.SectionHeader(
+                "更早", 55, com.hermes.client.ui.components.SectionTone.OLDER, collapsed = true, onToggle = {},
             )
         }
     }

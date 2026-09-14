@@ -41,6 +41,8 @@ colors:
   status-warn-graphic: '#d97706'
   pillar-pinned: '#2563eb'
   pillar-today: '#059669'
+  pillar-yesterday: '#0d9488'
+  pillar-recent: '#64748b'
   pillar-older: '#94a3b8'
   fab-container: '#181c24'
   spinner: '#2563eb'
@@ -315,6 +317,8 @@ front matter 只能放一套颜色（Stitch 的格式限制），那是浅色档
 | status-warn-graphic | #D97706 | #F59E0B |
 | pillar-pinned | #2563EB | #3B82F6 |
 | pillar-today | #059669 | #34D399 |
+| pillar-yesterday | #0D9488 | #2DD4BF |
+| pillar-recent | #64748B | #94A3B8 |
 | pillar-older | #94A3B8 | #64748B |
 | subline-faint | #A8A29E | #64615B |
 | fab-container | #181C24 | #181C24 |
@@ -344,10 +348,17 @@ front matter 只能放一套颜色（Stitch 的格式限制），那是浅色档
   等待状态句用 status-warn（深）。这是稿子自己的区分：看的标记和读的词不是一回事。其余三个状态
   标记与文字同色。
 - **每个分组的立柱各有自己的颜色**：需要你处理 = status-warn-graphic（亮琥珀）、已置顶 =
-  pillar-pinned（蓝）、今天 = pillar-today（绿）、前 7 天与更早 = pillar-older（石板灰）。
-  **只有立柱上色**；组头文字与计数 chip 除「需要你处理」外一律中性，四个彩色标签会互相抢。
+  pillar-pinned（蓝）、今天 = pillar-today（绿）、昨天 = pillar-yesterday（青）、
+  前 7 天 = pillar-recent、更早 = pillar-older（两支石板灰）。
   已知且接受的撞色：深色下 pillar-today 与 status-good 是同一支薄荷绿 `#34D399` —— 稿子自己
   就是这么画的。（2026-09-10 曾定「只有需要你处理带色」，2026-09-11 因全灰太素而推翻。）
+- **时间三档的排序规则是「越近越实」**（HG-52，2026-09-14）。原先前 7 天与更早共用
+  pillar-older，条目要求拆开。不新增色相：昨天取今天那支 emerald 的邻档 teal，让
+  今天→昨天→前 7 天读成一条 绿→青→灰 的降温坡；前 7 天与更早复用既有的两支灰**按主题互换**
+  （浅色前 7 天 #64748B / 更早 #94A3B8，深色反过来），于是「更近的一档更实」在浅暗两档都成立。
+  稿子里没有这两档，取值是推导，`design-conformance.json` 里注明了这一点。
+- **组名不跟着拆。** 拆的是立柱。三档可读灰做文字读者分不出来，拆了只会牺牲可读性去表达一个
+  看不见的区分 —— 前 7 天与更早的组名仍共用同一支，只有昨天加了自己的可读档。
 - **FAB 是中性近黑，不是品牌色**：浅暗两档都是 #181C24；深色再加 1px #3A4049 描边，
   因为近黑对暗底只有 1.19:1，不描边就是页面上一个洞。
 - **转圈是品牌蓝 + 25% 同色完整轨道**，不是状态青，不是无轨道的孤弧。

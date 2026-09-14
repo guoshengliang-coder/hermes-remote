@@ -456,10 +456,35 @@ fun SessionsScreen(
                                         }
                                     }
                                 }
+                                if (groups.yesterday.isNotEmpty()) {
+                                    item(key = "h-yesterday") {
+                                        SectionHeader(
+                                            localized(language, "昨天", "Yesterday"), groups.yesterday.size, SectionTone.YESTERDAY,
+                                            collapsed = "yesterday" in collapsed, onToggle = { toggle("yesterday") },
+                                        )
+                                    }
+                                    if ("yesterday" !in collapsed) {
+                                        items(groups.yesterday, key = { "yesterday-${it.profile.orEmpty()}:${it.id}" }) { s ->
+                                            SessionRow(
+                                                session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
+                                                runtime = vm.runtimeFor(s, runtimes),
+                                                unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
+                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
+                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
+                                                onOpen = { openExisting(s) },
+                                                onTogglePin = { vm.togglePin(s) },
+                                                onRename = { vm.rename(s, it) },
+                                                onArchive = { vm.archive(s) },
+                                                onDelete = { vm.delete(s) },
+                                                modifier = Modifier.animateItem(),
+                                            )
+                                        }
+                                    }
+                                }
                                 if (groups.week.isNotEmpty()) {
                                     item(key = "h-week") {
                                         SectionHeader(
-                                            localized(language, "前 7 天", "Previous 7 days"), groups.week.size, SectionTone.OLDER,
+                                            localized(language, "前 7 天", "Previous 7 days"), groups.week.size, SectionTone.RECENT,
                                             collapsed = "week" in collapsed, onToggle = { toggle("week") },
                                         )
                                     }

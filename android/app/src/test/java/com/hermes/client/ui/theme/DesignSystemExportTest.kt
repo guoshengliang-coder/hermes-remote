@@ -128,6 +128,8 @@ class DesignSystemExportTest {
         "subline-faint" to (SublineFaintLight to SublineFaintDark),
         "pillar-pinned" to (PillarPinnedLight to PillarPinnedDark),
         "pillar-today" to (PillarTodayLight to PillarTodayDark),
+        "pillar-yesterday" to (PillarYesterdayLight to PillarYesterdayDark),
+        "pillar-recent" to (PillarRecentLight to PillarRecentDark),
         "pillar-older" to (PillarOlderLight to PillarOlderDark),
         "fab-container" to (FabContainerLight to FabContainerDark),
         "fab-outline" to (null to FabOutlineDark),
