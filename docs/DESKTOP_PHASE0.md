@@ -398,6 +398,15 @@ migration adapter is still deliberately absent because interrupted recovery must
 component activation from the v1 `current` symlink contract in the durable journal. No install action,
 production configuration, service behavior, or release changes in this slice.
 
+C5's ninth slice makes interrupted recovery layout-aware before adding the concrete component
+migration adapter. New migration journals use schema 2 and bind each run to either the historical
+`bundled_release` layout or the v2 `component_store`; every transition preserves that immutable field,
+and a same-run layout mismatch fails closed. Existing schema-1 journals decode strictly as bundled
+releases and atomically upgrade on their next valid transition. A schema-1 file carrying the new field,
+a schema-2 file missing it, an unknown value, or an unknown schema is rejected. Existing v1 recovery
+behavior remains unchanged, and no install action, service, production configuration, or release is
+changed by this slice.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 
