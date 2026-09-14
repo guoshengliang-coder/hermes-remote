@@ -137,6 +137,9 @@ The current automated suite covers:
   the verifier-backed manifest, orders install → bootstrap-plan regeneration → locked activation →
   one retry, rejects unsupported kinds before work begins, stops after install failure, and admits
   only one concurrent request;
+- the default-off preflight runtime accepts only a fixed unambiguous HTTPS manifest URL, orders bounded
+  manifest fetch → strict schema-v2 signature verification → read-only environment scan, prevents
+  download/signature failures from reaching the scanner, and rejects overlapping refreshes;
 - fixed-path external-environment scanning reports Python/Node without trusting version-only reuse,
   resolves Homebrew-style runtime symlinks for reporting only, admits a safe architecture-matched
   system browser only after an explicit compatibility probe, and rejects browser symlinks,
