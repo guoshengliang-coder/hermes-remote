@@ -4,6 +4,7 @@ import com.hermes.client.data.network.CronJobDto
 import com.hermes.client.data.network.MessagingPlatformDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -104,5 +105,44 @@ class HealthAlertsTest {
         )
         assertEquals(1, merged.channels.single().affectedJobs)
         assertEquals(0, merged.standaloneCronJobs)
+    }
+
+    // HG-50: one failing job is answerable precisely, so the strip has to carry which job it is.
+    // This used to be a bare Int, which is why the strip could only ever open the list.
+    @Test fun a_single_failing_job_is_identified_so_the_strip_can_open_it() {
+        val merged = mergeHealth(
+            crons = listOf(job("nightly", "error")),
+            platforms = emptyList(),
+            nowMs = NOW,
+        )
+        val sole = merged.soleStandaloneJob
+        assertEquals("nightly", sole?.jobId)
+        assertEquals("cron_detail/nightly", sole?.route)
+    }
+
+    @Test fun two_failing_jobs_name_none_of_them() {
+        val merged = mergeHealth(
+            crons = listOf(job("nightly", "error"), job("weekly", "error")),
+            platforms = emptyList(),
+            nowMs = NOW,
+        )
+        assertEquals(2, merged.standaloneCronJobs)
+        assertNull(merged.soleStandaloneJob)
+    }
+
+    /**
+     * Root cause still outranks precision. One job failing on its own alongside a dead channel is
+     * not a case for opening that job: the strip's text is about the channel, and a tap has to land
+     * where the text points (docs/DESIGN.md §5.16).
+     */
+    @Test fun a_channel_cause_outranks_a_lone_failing_job() {
+        val merged = mergeHealth(
+            crons = listOf(job("broken", "error", deliver = "slack")),
+            platforms = listOf(platform("slack", "startup_failed")),
+            nowMs = NOW,
+        )
+        assertEquals(1, merged.standaloneCronJobs)
+        assertTrue(merged.hasChannelCause)
+        assertNull(merged.soleStandaloneJob)
     }
 }
