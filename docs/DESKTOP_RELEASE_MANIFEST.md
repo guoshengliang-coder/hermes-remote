@@ -375,7 +375,15 @@ currently configured external browser is retained only when its exact LaunchAgen
 signed compatibility rule and a fresh allowlisted scan. The activation transaction owns the resolver
 and calls it under the migration operation lease before preparing a replacement LaunchAgent; an
 external caller can no longer supply an arbitrary active-component array. Production signal-to-trigger
-wiring and the enclosing install/activate coordinator remain separate.
+wiring remains separate; the enclosing default-inert coordinator is described next.
+
+The default-inert capability coordinator now supplies the enclosing transaction. Its input is a fixed
+browser, speech, or document type; the corresponding trigger is read only from the verifier-backed
+manifest. It installs that dependency closure, regenerates the exact bootstrap activation plan, then
+hands the result to the locked resolver/activation path and one-shot retry. Unsupported manifest
+capabilities, failed installs, and duplicate concurrent requests stop before LaunchAgent or service
+mutation. Hermes 0.21.0 exposes no structured producer for this input, so no shipping request path is
+wired and no error text is treated as a capability signal.
 
 Before that transaction, the local component preflight coordinator accepts the same verifier-only
 token and combines rehashed managed-store candidates with allowlisted external observations. It emits

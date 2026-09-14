@@ -133,6 +133,10 @@ The current automated suite covers:
   later independent trigger, revalidates each identity, receipt, content tree, entrypoint, and health
   probe against the signed release, and retains a current external browser only when its exact
   owner-only LaunchAgent path passes a fresh signed-compatibility scan;
+- the default-off capability coordinator maps only browser/speech/document kinds to exact triggers in
+  the verifier-backed manifest, orders install → bootstrap-plan regeneration → locked activation →
+  one retry, rejects unsupported kinds before work begins, stops after install failure, and admits
+  only one concurrent request;
 - fixed-path external-environment scanning reports Python/Node without trusting version-only reuse,
   resolves Homebrew-style runtime symlinks for reporting only, admits a safe architecture-matched
   system browser only after an explicit compatibility probe, and rejects browser symlinks,
