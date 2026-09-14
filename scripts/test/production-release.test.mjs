@@ -491,6 +491,95 @@ test("R5-F1 recovery restores the archived committed journal only while the fail
   );
 });
 
+test("R5-F1 recovery restores the committed journal after a post-switch smoke failure was fully reversed", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  const opsRoot = path.join(config.paths.stateRoot, "ops");
+  const historyRoot = path.join(opsRoot, "history");
+  await mkdir(historyRoot, { mode: 0o700 });
+  const committed = await readDeploymentJournal(fixture.journalPath);
+  await writeDeploymentJournal(
+    path.join(historyRoot, `deploy-state.committed.${committed.runId}.json`),
+    committed,
+    currentOwnership().host,
+  );
+  const checkpoint = {
+    currentReleaseTarget: CURRENT_RELEASE,
+    previousReleaseTarget: LEGACY_RELEASE,
+    nginxConfigSha256: createHash("sha256").update(await readFile(config.nginx.configFile)).digest("hex"),
+    upstreamSha256: createHash("sha256").update(await readFile(config.nginx.upstreamConfigFile)).digest("hex"),
+  };
+  const failed = {
+    schemaVersion: 2,
+    operation: "deploy",
+    planDigest: "8".repeat(64),
+    runId: "failed-post-switch-smoke",
+    stage: "route_switched",
+    activeSlot: "blue",
+    candidateSlot: "green",
+    source: identity(fixture.currentManifest),
+    target: identity(fixture.nextManifest),
+    checkpoint,
+    startedAt: "2026-09-14T10:58:13.000Z",
+    updatedAt: "2026-09-14T10:58:39.000Z",
+  };
+  await writeDeploymentJournal(fixture.journalPath, failed, currentOwnership().host);
+  const handoffPath = path.join(opsRoot, `lifecycle-handoff.${failed.planDigest}.json`);
+  const handoff = {
+    schemaVersion: 1,
+    planDigest: failed.planDigest,
+    sourceStateDirectory: path.join(config.paths.stateRoot, "gateway-slots", "blue"),
+    candidateStateDirectory: path.join(config.paths.stateRoot, "gateway-slots", "green"),
+    phase: "forward",
+    updatedAt: "2026-09-14T10:59:00.000Z",
+  };
+  await writeJson(handoffPath, handoff);
+  await writeFile(path.join(opsRoot, "operations.jsonl"), `${JSON.stringify({
+    runId: failed.runId,
+    operation: "deploy",
+    stage: "failed",
+    result: "failed",
+    errorCode: "HR-OPS-016",
+    finishedAt: "2026-09-14T10:59:01.000Z",
+  })}\n`, { mode: 0o600 });
+
+  await assert.rejects(
+    () => recoverFailedProductionRelease(config, fixture.nextManifest, {
+      confirmation: "production:prod-host",
+      platform: "linux",
+      architecture: "x64",
+      hostname: "prod-host",
+      getUid: () => 0,
+      runner: recoveryRunner({ blue: true }),
+      owner: currentOwnership().host,
+      runId: "unsafe-post-switch-journal-recovery",
+    }),
+    (error) => error?.technicalCause === "recovery_handoff_not_restored",
+  );
+  await writeJson(handoffPath, { ...handoff, phase: "restored" });
+
+  const result = await recoverFailedProductionRelease(config, fixture.nextManifest, {
+    confirmation: "production:prod-host",
+    platform: "linux",
+    architecture: "x64",
+    hostname: "prod-host",
+    getUid: () => 0,
+    runner: recoveryRunner({ blue: true }),
+    owner: currentOwnership().host,
+    runId: "post-switch-journal-recovery",
+  });
+
+  assert.equal(result.command, "production-recover");
+  assert.equal(result.recoveredRunId, failed.runId);
+  assert.equal(result.recoveredStage, "route_switched");
+  assert.equal(result.recoveredAfterSwitch, true);
+  assert.deepEqual(await readDeploymentJournal(fixture.journalPath), committed);
+  assert.deepEqual(
+    await readDeploymentJournal(path.join(historyRoot, `deploy-state.failed.${failed.runId}.json`)),
+    failed,
+  );
+});
+
 test("R5-F1 refuses to run before R5-D committed a managed release behind current", async (t) => {
   const fixture = await createFixture(t);
   const config = await loadManagedBaselineConfig(fixture.configPath);

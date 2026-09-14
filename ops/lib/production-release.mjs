@@ -14,12 +14,13 @@ import {
   renderProductionReleaseEnvironment,
   sameProductionReleaseEnvironment,
 } from "./production-release-environment.mjs";
-import { satisfiesProductionNginxContract } from "./deploy-switch.mjs";
+import { satisfiesProductionNginxContract, verifyRestoredSwitchHandoff } from "./deploy-switch.mjs";
 import { renderNginxUpstream } from "./deploy-system.mjs";
 import { OpsError } from "./errors.mjs";
 import { createCommandRunner } from "./system.mjs";
 
 const OPERATIONS = new Set(["deploy", "rollback"]);
+const RECOVERABLE_FAILED_STAGES = new Set(["candidate_started", "route_switched", "draining"]);
 const RELEASE_TARGET = /^releases\/(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-[0-9a-f]{12}$/;
 const FILE_LIMIT = 1024 * 1024;
 
@@ -197,13 +198,15 @@ export async function recoverFailedProductionRelease(config, targetManifest, opt
     const historyRoot = path.join(config.paths.stateRoot, "ops", "history");
     const auditPath = path.join(config.paths.stateRoot, "ops", "operations.jsonl");
     const journal = await readDeploymentJournal(journalPath);
-    if (journal.stage !== "candidate_started"
+    if (!RECOVERABLE_FAILED_STAGES.has(journal.stage)
         || journal.operation !== "deploy"
         || journal.activeSlot === null
         || JSON.stringify(journal.source) !== JSON.stringify(releaseIdentity(sourceManifest))) {
       fail("production_release_failed_candidate_not_recoverable");
     }
     await verifyFailedCandidateLiveState(config, journal, runner, sourceManifest);
+    const recoveredAfterSwitch = new Set(["route_switched", "draining"]).has(journal.stage);
+    if (recoveredAfterSwitch) await verifyRestoredSwitchHandoff(config, journal);
 
     const lockPath = path.join(config.paths.stateRoot, "ops", "deploy.lock");
     lock = await acquireDeploymentLock(lockPath, runId);
@@ -217,6 +220,7 @@ export async function recoverFailedProductionRelease(config, targetManifest, opt
       activeSlot: journal.activeSlot,
       currentCheckpoint,
       owner,
+      allowedStages: [...RECOVERABLE_FAILED_STAGES],
     });
     await verifyFailedCandidateLiveState(config, recovered.failed, runner, sourceManifest);
     return {
@@ -227,6 +231,8 @@ export async function recoverFailedProductionRelease(config, targetManifest, opt
       candidateSlot: recovered.failed.candidateSlot,
       sourceVersion: sourceManifest.serverVersion,
       targetVersion: targetManifest.serverVersion,
+      recoveredStage: recovered.failed.stage,
+      recoveredAfterSwitch,
     };
   } catch (error) {
     if (error instanceof OpsError) throw error;

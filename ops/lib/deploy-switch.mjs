@@ -334,6 +334,19 @@ async function readOptionalHandoffMarker(filePath, planDigest, source, candidate
   }
 }
 
+export async function verifyRestoredSwitchHandoff(config, journal) {
+  const source = sourceDescriptor(config, journal.activeSlot);
+  const candidate = slotDescriptor(config, journal.candidateSlot);
+  const marker = await readHandoffMarker(
+    switchPaths(config).handoff(journal.planDigest),
+    journal.planDigest,
+    source,
+    candidate,
+  );
+  if (marker.phase !== "restored") fail("recovery_handoff_not_restored", "switch_recovery_verify");
+  return marker;
+}
+
 async function readJsonFile(filePath, limit, missingCause, invalidCause) {
   let handle;
   try {

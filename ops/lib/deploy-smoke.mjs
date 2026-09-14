@@ -49,19 +49,20 @@ export async function createStagingSmokeCallbacks(config, options = {}) {
   const spawnImpl = options.spawnImpl ?? spawn;
   const fetchImpl = options.fetchImpl ?? fetch;
   const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+  const startConnector = (gatewayUrl) => spawnImpl(process.execPath, [connectorEntry], {
+    env: {
+      ...env,
+      GATEWAY_URL: `${gatewayUrl.replace(/^http:/, "ws:").replace(/^https:/, "wss:")}/v1/connect`,
+      CONNECTOR_TOKEN: connectorToken,
+      DEVICE_ID: config.gateway.defaultDeviceId,
+      SESSION_OBSERVER_ENABLED: "0",
+    },
+    stdio: "ignore",
+  });
 
   return {
     candidateSmoke: async (request) => {
-      const child = spawnImpl(process.execPath, [connectorEntry], {
-        env: {
-          ...env,
-          GATEWAY_URL: `${request.gatewayUrl.replace(/^http:/, "ws:").replace(/^https:/, "wss:")}/v1/connect`,
-          CONNECTOR_TOKEN: connectorToken,
-          DEVICE_ID: config.gateway.defaultDeviceId,
-          SESSION_OBSERVER_ENABLED: "0",
-        },
-        stdio: "ignore",
-      });
+      const child = startConnector(request.gatewayUrl);
       try {
         await waitForConnector(request.gatewayUrl, fetchImpl, sleep);
         await runVerifier(request, request.gatewayUrl, {
@@ -75,16 +76,26 @@ export async function createStagingSmokeCallbacks(config, options = {}) {
       }
     },
     publicSmoke: async (request) => {
-      await waitForConnector(request.gatewayUrl, fetchImpl, sleep, "/relay-health");
-      const internalPort = request.candidateSlot === null
-        ? config.legacySource.gatewayPort
-        : config.slots[request.candidateSlot].gatewayPort;
-      await runVerifier(request, `http://127.0.0.1:${internalPort}`, {
-        appToken,
-        internalStatusToken,
-        env,
-        spawnImpl,
-      });
+      // A managed account-mode Desktop intentionally retires its Legacy Connector, so the
+      // production edge can legitimately report zero connectors between releases. Start a
+      // short-lived verifier Connector only in that state; an already-online Connector keeps
+      // serving unchanged and is never displaced by the smoke harness.
+      const connectorCount = await waitForReportedConnectorCount(request.gatewayUrl, fetchImpl, sleep);
+      const child = connectorCount === 0 ? startConnector(request.gatewayUrl) : null;
+      try {
+        await waitForConnector(request.gatewayUrl, fetchImpl, sleep, "/relay-health");
+        const internalPort = request.candidateSlot === null
+          ? config.legacySource.gatewayPort
+          : config.slots[request.candidateSlot].gatewayPort;
+        await runVerifier(request, `http://127.0.0.1:${internalPort}`, {
+          appToken,
+          internalStatusToken,
+          env,
+          spawnImpl,
+        });
+      } finally {
+        if (child) await stopChild(child, sleep);
+      }
     },
   };
 }
@@ -211,6 +222,18 @@ async function waitForConnector(gatewayUrl, fetchImpl, sleep, healthPath = "/hea
     try {
       const response = await fetchImpl(`${gatewayUrl}${healthPath}`, { signal: AbortSignal.timeout(1_000) });
       if (response.ok && (await response.json()).connectors === 1) return;
+    } catch {}
+    if (attempt < 79) await sleep(250);
+  }
+  throw new OpsError("deployment", "candidate_connector_attach_timeout", "deploy_smoke_connector");
+}
+
+async function waitForReportedConnectorCount(gatewayUrl, fetchImpl, sleep) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    try {
+      const response = await fetchImpl(`${gatewayUrl}/relay-health`, { signal: AbortSignal.timeout(1_000) });
+      const connectors = response.ok ? (await response.json()).connectors : null;
+      if (Number.isSafeInteger(connectors) && connectors >= 0) return connectors;
     } catch {}
     if (attempt < 79) await sleep(250);
   }
