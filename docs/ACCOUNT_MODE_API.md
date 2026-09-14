@@ -119,7 +119,8 @@ Response `200`:
     }
   },
   "desktopBootstrap": {
-    "runtimeContract": "hermes-serve-v1"
+    "runtimeContract": "hermes-serve-v1",
+    "componentManifestSchemaVersion": 2
   }
 }
 ```
@@ -129,6 +130,14 @@ Response `200`:
 authorize an install by itself: Desktop additionally requires its packaged HTTPS manifest URL,
 artifact origin, channel, architecture, pinned Ed25519 public key, and the exact same runtime
 contract. Missing or mismatched inputs keep the install surface read-only.
+
+`componentManifestSchemaVersion` is independently absent by default, including from the existing
+schema-v1 managed-install response. Gateway emits the exact value `2` only when
+`ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED=1`; that flag requires the managed-install flag above,
+which in turn requires account binding. Desktop enables the component runtime only when its local v2
+configuration is valid, this field is exactly `2`, and `runtimeContract` is exactly
+`hermes-serve-v1`. A missing or future schema therefore cannot accidentally enter the component
+download or migration path.
 
 When the independently gated E3 multi-device control plane is enabled, `binding` instead advertises
 `maxActiveConnectorsPerAccount: 3` and `supportsDeviceSelection: true`. The new fields are absent and

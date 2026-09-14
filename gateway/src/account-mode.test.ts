@@ -850,12 +850,38 @@ test("Desktop managed install is default-off and advertises only the frozen runt
     { runtimeContract: "hermes-serve-v1" },
   );
 
+  const componentResponse = new MemoryResponse();
+  await new AccountHttpController(true, undefined, {
+    controlEnabled: true,
+    desktopManagedInstallEnabled: true,
+    desktopComponentInstallEnabled: true,
+  }).handle(
+    memoryRequest("GET"),
+    componentResponse.asServerResponse(),
+    new URL("http://localhost/v2/capabilities"),
+  );
+  assert.deepEqual(
+    (componentResponse.json() as { desktopBootstrap?: unknown }).desktopBootstrap,
+    {
+      runtimeContract: "hermes-serve-v1",
+      componentManifestSchemaVersion: 2,
+    },
+  );
+
   assert.throws(() => createAccountRuntime({
     ACCOUNT_AUTH_ENABLED: "1",
     ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED: "1",
     ACCOUNT_DATABASE_URL: "postgresql://127.0.0.1:1/not-connected-by-this-test",
     ACCOUNT_TOKEN_HASH_KEY: "account-token-test-key-with-at-least-thirty-two-bytes",
   }), /ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED requires ACCOUNT_BINDING_ENABLED=1/);
+
+  assert.throws(() => createAccountRuntime({
+    ACCOUNT_AUTH_ENABLED: "1",
+    ACCOUNT_BINDING_ENABLED: "1",
+    ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED: "1",
+    ACCOUNT_DATABASE_URL: "postgresql://127.0.0.1:1/not-connected-by-this-test",
+    ACCOUNT_TOKEN_HASH_KEY: "account-token-test-key-with-at-least-thirty-two-bytes",
+  }), /ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED requires ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED=1/);
 
   const runtime = createAccountRuntime({
     ACCOUNT_AUTH_ENABLED: "1",
@@ -878,6 +904,33 @@ test("Desktop managed install is default-off and advertises only the frozen runt
     );
   } finally {
     await runtime.close();
+  }
+
+  const componentRuntime = createAccountRuntime({
+    ACCOUNT_AUTH_ENABLED: "1",
+    ACCOUNT_BINDING_ENABLED: "1",
+    ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED: "1",
+    ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED: "1",
+    ACCOUNT_GATEWAY_ORIGIN: "https://mrlgs.net",
+    ACCOUNT_DATABASE_URL: "postgresql://127.0.0.1:1/not-connected-by-this-test",
+    ACCOUNT_TOKEN_HASH_KEY: "account-token-test-key-with-at-least-thirty-two-bytes",
+  });
+  try {
+    const runtimeResponse = new MemoryResponse();
+    await componentRuntime.controller.handle(
+      memoryRequest("GET"),
+      runtimeResponse.asServerResponse(),
+      new URL("http://localhost/v2/capabilities"),
+    );
+    assert.deepEqual(
+      (runtimeResponse.json() as { desktopBootstrap?: unknown }).desktopBootstrap,
+      {
+        runtimeContract: "hermes-serve-v1",
+        componentManifestSchemaVersion: 2,
+      },
+    );
+  } finally {
+    await componentRuntime.close();
   }
 });
 

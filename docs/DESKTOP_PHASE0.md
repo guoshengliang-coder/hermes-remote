@@ -425,6 +425,16 @@ trust configuration and frozen Hermes runtime contract enter this boundary direc
 reconstruct installation authority from presentation rows or a schema-v1 manifest. A production v2
 capability signal and UI action remain separate later gates, so packaged behavior is unchanged.
 
+C5's twelfth slice adds the separate, default-off Cloud capability signal for that runtime. The
+existing schema-v1 `desktopBootstrap.runtimeContract` can no longer be mistaken for component-install
+authorization: Gateway adds `componentManifestSchemaVersion: 2` only when account binding, managed
+installation, and the new component-install flag are all enabled. Desktop requires valid local v2
+configuration, that exact schema value, and `hermes-serve-v1` before reporting the component runtime
+ready. Missing, future-schema, and runtime-mismatch responses fail closed. Production operations do
+not yet admit the new flag. An unavailable capability prevents even the component-manifest request and
+clears a previously displayed read-only result; no UI install action, running service, or release changes
+in this slice.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 

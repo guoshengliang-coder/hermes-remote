@@ -55,6 +55,13 @@ Gateway must independently advertise `desktopBootstrap.runtimeContract=hermes-se
 key/URL, an absent server capability, or a contract mismatch closes the install gate before any
 download or machine mutation.
 
+The schema-v2 component path has an additional independent capability. Gateway advertises
+`desktopBootstrap.componentManifestSchemaVersion=2` only behind the default-off
+`ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED=1` flag, which requires the managed-install gate above.
+Desktop requires its valid local component-preflight configuration, that exact schema value, and the
+same `hermes-serve-v1` contract before treating the component bootstrap runtime as available. The
+existing schema-v1 capability alone can never authorize component download or migration.
+
 The packaged Account & Devices surface uses the same split: “下载并验证安装包” is preparation, and a
 second native sheet displays the exact signed version before “安装并连接” can commit. The clean-Mac
 preflight runs again immediately before commit. Any responder on reserved loopback port 9119,
