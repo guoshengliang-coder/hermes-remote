@@ -435,6 +435,14 @@ not yet admit the new flag. An unavailable capability prevents even the componen
 clears a previously displayed read-only result; no UI install action, running service, or release changes
 in this slice.
 
+C5's thirteenth slice replaces the UI's standalone read-only preflight dependency with the composed
+component bootstrap runtime after the local and Cloud gates pass. A successful refresh now retains the
+verifier-issued manifest token in memory beside its matching presentation result; refresh failure,
+capability withdrawal, and sign-out clear both. Availability is checked again after the asynchronous
+refresh so an in-flight result cannot republish after withdrawal. The UI still consumes presentation data only and has no
+installation action, so no workspace, component store, credential, LaunchAgent, binding, process,
+production configuration, or release is changed.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 

@@ -62,6 +62,12 @@ Desktop requires its valid local component-preflight configuration, that exact s
 same `hermes-serve-v1` contract before treating the component bootstrap runtime as available. The
 existing schema-v1 capability alone can never authorize component download or migration.
 
+After those gates pass, Desktop's preflight uses the composed component runtime and retains the exact
+verifier-issued schema-v2 token only in memory beside the matching presentation result. A later
+preparation action must consume that token directly; it may not reconstruct authority from the release
+version, component rows, URLs, or byte counts. Refresh failure, capability withdrawal, and sign-out
+discard both the token and its presentation.
+
 The packaged Account & Devices surface uses the same split: “下载并验证安装包” is preparation, and a
 second native sheet displays the exact signed version before “安装并连接” can commit. The clean-Mac
 preflight runs again immediately before commit. Any responder on reserved loopback port 9119,
