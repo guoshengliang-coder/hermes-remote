@@ -160,7 +160,36 @@ final class DesktopViewModel: ObservableObject {
     }
 
     var presentedHealth: DesktopHealthSnapshot {
-        health.presented(accountModeActive: isAccountModeActive)
+        if let device = selectedAccountDevice {
+            return AccountDeviceHealth.snapshot(for: device, checkedAt: health.checkedAt)
+        }
+        return health.presented(accountModeActive: isAccountModeActive)
+    }
+
+    var selectedAccountDevice: AccountDevice? {
+        guard case .signedIn(let dashboard) = accountState else { return nil }
+        return dashboard.selectedDevice
+    }
+
+    var overviewDeviceName: String {
+        selectedAccountDevice?.desktopDisplayName
+            ?? legacy?.config.deviceID
+            ?? "Mac"
+    }
+
+    var overviewGatewaySummary: String {
+        guard let device = selectedAccountDevice else {
+            return legacy?.config.gatewayURL?.host ?? "未配置"
+        }
+        return device.gateway.latencyMs.map { "账号连接 · \($0) ms" } ?? "账号连接"
+    }
+
+    var overviewHermesSummary: String {
+        guard let device = selectedAccountDevice else {
+            return legacy?.config.hermesBaseURL.host ?? "127.0.0.1"
+        }
+        return device.hermes.version
+            ?? (device.hermes.reachable == true ? "可访问" : "不可访问")
     }
 
     private var isAccountModeActive: Bool {

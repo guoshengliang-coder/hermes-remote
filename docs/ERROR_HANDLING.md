@@ -133,6 +133,7 @@ expanded without changing the underlying meaning.
 | `HR-CONN-003` | `gateway.ready` handshake timed out | Relay 已连接，但会话握手超时。 | The Relay connected, but the session handshake timed out. | Yes |
 | `HR-CONN-004` | Connection was interrupted during an operation | 连接中断，正在恢复会话。 | The connection was interrupted. Restoring the conversation. | Yes |
 | `HR-CONN-005` | Relay is reachable but the Mac Connector is offline | Mac 端当前离线，请启动 Hermes Go Desktop。 | The Mac is offline. Start Hermes Go Desktop. | Yes |
+| `HR-CONN-006` | The selected account device is online or known, but its reported Hermes service is unreachable | Hermes 当前不可访问，请检查这台 Mac 上的 Hermes 服务。 | Hermes is unavailable. Check the Hermes service on this Mac. | Yes |
 | `HR-AUTH-001` | App Token rejected | App Token 无效或已失效，请重新配置。 | The App Token is invalid or expired. Configure it again. | No |
 | `HR-AUTH-002` | Google identity proof is invalid, expired, for the wrong audience/issuer, or fails nonce verification | 无法验证 Google 登录，请重新登录。 | Couldn't verify the Google sign-in. Sign in again. | No (interactive sign-in) |
 | `HR-AUTH-003` | Hermes GO account session expired and cannot be refreshed | 登录已过期，请重新登录。 | Your session expired. Sign in again. | No (interactive sign-in) |
