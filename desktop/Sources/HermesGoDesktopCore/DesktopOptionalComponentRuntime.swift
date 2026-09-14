@@ -126,36 +126,46 @@ public final class DesktopOptionalComponentRuntimeWriter: @unchecked Sendable {
         }
 
         let staging = releaseRoot.appendingPathComponent(".\(UUID().uuidString.lowercased())", isDirectory: true)
+        var persistenceStep = "create-staging"
         do {
             try fileManager.createDirectory(
                 at: staging, withIntermediateDirectories: false,
                 attributes: [.posixPermissions: 0o700]
             )
+            persistenceStep = "write-abi"
             try Data((pythonABITag + "\n").utf8).write(
                 to: staging.appendingPathComponent(Self.abiFileName)
             )
+            persistenceStep = "write-paths"
             try Data(pathText.utf8).write(
                 to: staging.appendingPathComponent(Self.pathFileName)
             )
+            persistenceStep = "seal-files"
             for file in [Self.abiFileName, Self.pathFileName] {
                 try fileManager.setAttributes(
                     [.posixPermissions: 0o400],
                     ofItemAtPath: staging.appendingPathComponent(file).path
                 )
             }
+            persistenceStep = "seal-directory"
             try fileManager.setAttributes([.posixPermissions: 0o500], ofItemAtPath: staging.path)
+            persistenceStep = "publish-directory"
             do {
                 try fileManager.moveItem(at: staging, to: destination)
             } catch where fileManager.fileExists(atPath: destination.path) {
                 try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staging.path)
                 try? fileManager.removeItem(at: staging)
             }
+            persistenceStep = "validate-published-directory"
             try validateProjection(destination, abi: pythonABITag, paths: pathText)
         } catch let error as DesktopOptionalComponentRuntimeError {
             try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staging.path)
             try? fileManager.removeItem(at: staging)
             throw error
         } catch {
+            #if DEBUG
+            fputs("DesktopOptionalComponentRuntime persistence failure at \(persistenceStep)\n", stderr)
+            #endif
             try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staging.path)
             try? fileManager.removeItem(at: staging)
             throw DesktopOptionalComponentRuntimeError.persistenceFailed
