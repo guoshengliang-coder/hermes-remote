@@ -377,6 +377,13 @@ trees so they are revalidated. The existing one-call API composes prepare and co
 No Desktop button, credential, LaunchAgent, process, binding, production configuration, or release is
 changed by this slice.
 
+C5's seventh slice preserves the verifier-issued schema-v2 token beside the result of that same
+trusted preflight. The UI can continue to consume only the ordinary presentation result, while later
+component preparation receives the non-forgeable token directly instead of reconstructing authority
+from a version, URL, or display row. The compatibility `load` API still returns only the result. This
+slice creates no workspace, download action, component-store write, reference, LaunchAgent, credential,
+process, binding, production configuration, or release.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 

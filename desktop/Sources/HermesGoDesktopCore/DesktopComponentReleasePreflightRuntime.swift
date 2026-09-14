@@ -20,6 +20,22 @@ public enum DesktopComponentReleasePreflightRuntimeError: Error, Equatable, Send
     case operationInProgress
 }
 
+/// Carries the exact verifier-issued capability beside its read-only presentation input. The
+/// manifest token cannot be constructed outside Core and is the only value accepted by component
+/// preparation, so callers never need to rebuild install authority from display data.
+public struct DesktopTrustedComponentPreflight: Equatable, Sendable {
+    public let result: DesktopComponentReleasePreflightResult
+    public let verifiedManifest: VerifiedDesktopComponentReleaseManifestV2
+
+    fileprivate init(
+        result: DesktopComponentReleasePreflightResult,
+        verifiedManifest: VerifiedDesktopComponentReleaseManifestV2
+    ) {
+        self.result = result
+        self.verifiedManifest = verifiedManifest
+    }
+}
+
 /// Fetches one bounded HTTPS manifest, verifies its Ed25519 envelope, then performs the read-only
 /// component and external-environment scan. Construction is inert, and failures before verification
 /// never reach the scanner. This runtime does not install content or change services.
@@ -48,6 +64,12 @@ public actor DesktopComponentReleasePreflightRuntime {
     public func load(
         healthProbe: @escaping DesktopComponentReleasePreflightCoordinator.HealthProbe
     ) async throws -> DesktopComponentReleasePreflightResult {
+        try await loadTrusted(healthProbe: healthProbe).result
+    }
+
+    public func loadTrusted(
+        healthProbe: @escaping DesktopComponentReleasePreflightCoordinator.HealthProbe
+    ) async throws -> DesktopTrustedComponentPreflight {
         guard !running else {
             throw DesktopComponentReleasePreflightRuntimeError.operationInProgress
         }
@@ -56,9 +78,13 @@ public actor DesktopComponentReleasePreflightRuntime {
 
         let envelope = try await downloader.fetchManifest(from: manifestURL)
         let verifiedManifest = try verifier.verifyForInstallation(envelope)
-        return try scanner.scan(
+        let result = try scanner.scan(
             verifiedManifest: verifiedManifest,
             healthProbe: healthProbe
+        )
+        return DesktopTrustedComponentPreflight(
+            result: result,
+            verifiedManifest: verifiedManifest
         )
     }
 

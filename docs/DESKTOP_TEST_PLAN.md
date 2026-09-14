@@ -143,6 +143,8 @@ The current automated suite covers:
 - the default-off preflight runtime accepts only a fixed unambiguous HTTPS manifest URL, orders bounded
   manifest fetch → strict schema-v2 signature verification → read-only environment scan, prevents
   download/signature failures from reaching the scanner, and rejects overlapping refreshes;
+- the trusted preflight session retains the exact verifier-only schema-v2 token beside the matching
+  scanned presentation result, while the compatibility load path exposes only the ordinary result;
 - the component-preflight package gate is false with an empty v2 URL by default, loads only a complete
   HTTPS URL plus canonical pinned release trust inputs, keeps the schema-v1 URL separate, and rejects
   partial, malformed, credential-bearing, or ambiguous configuration;
