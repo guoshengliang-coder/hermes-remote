@@ -42,6 +42,7 @@ final class DesktopViewModel: ObservableObject {
     private let profileStore: any ConnectionProfileStoring
     private let accountController: DesktopAccountController
     private let managedBootstrapConfiguration: DesktopManagedBootstrapConfigurationState
+    private let componentPreflightConfiguration: DesktopComponentPreflightConfigurationState
     private let managedBootstrapRuntime: DesktopManagedBootstrapRuntime?
     private let managedRecoveryRuntime: DesktopManagedRecoveryRuntime?
     private let componentPreflightRuntime: DesktopComponentReleasePreflightRuntime?
@@ -54,6 +55,7 @@ final class DesktopViewModel: ObservableObject {
         let bootstrapConfiguration = DesktopManagedBootstrapConfigurationState.load()
         let componentConfiguration = DesktopComponentPreflightConfigurationState.load()
         managedBootstrapConfiguration = bootstrapConfiguration
+        componentPreflightConfiguration = componentConfiguration
         componentEntrypointProbe = DesktopManagedComponentEntrypointProbe(
             currentUserID: getuid()
         )
@@ -173,9 +175,13 @@ final class DesktopViewModel: ObservableObject {
     }
 
     func refreshComponentPreflight() async {
-        guard let runtime = componentPreflightRuntime,
+        guard componentBootstrapAvailability == .ready,
+              let runtime = componentPreflightRuntime,
               !isComponentPreflightRefreshing
-        else { return }
+        else {
+            componentPreflightPresentation = nil
+            return
+        }
         isComponentPreflightRefreshing = true
         defer { isComponentPreflightRefreshing = false }
         do {
@@ -493,6 +499,9 @@ final class DesktopViewModel: ObservableObject {
                 _ = await self?.refreshManagedBootstrapPreflight()
             }
         }
+        if componentBootstrapAvailability != .ready {
+            componentPreflightPresentation = nil
+        }
     }
 
     private func currentAccountID(_ state: DesktopAccountState) -> String? {
@@ -777,6 +786,25 @@ final class DesktopViewModel: ObservableObject {
             return dashboard.desktopBootstrapRuntimeContract
         }
         return nil
+    }
+
+    private var componentBootstrapAvailability: DesktopComponentBootstrapAvailability {
+        let dashboard: AccountDashboard? = switch accountState {
+        case .signedIn(let dashboard): dashboard
+        default: nil
+        }
+        let configuration: DesktopComponentPreflightConfigurationState
+        if case .configured = componentPreflightConfiguration,
+           componentPreflightRuntime == nil {
+            configuration = .invalid
+        } else {
+            configuration = componentPreflightConfiguration
+        }
+        return DesktopComponentBootstrapAvailability.evaluate(
+            configuration: configuration,
+            serverManifestSchemaVersion: dashboard?.desktopComponentManifestSchemaVersion,
+            serverRuntimeContract: dashboard?.desktopBootstrapRuntimeContract
+        )
     }
 
     private func inspectRawManagedBootstrapInstallation() async

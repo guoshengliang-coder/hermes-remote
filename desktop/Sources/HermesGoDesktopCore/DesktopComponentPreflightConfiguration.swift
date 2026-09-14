@@ -105,6 +105,37 @@ public enum DesktopComponentPreflightConfigurationState: Equatable, Sendable {
     }
 }
 
+public enum DesktopComponentBootstrapAvailability: Equatable, Sendable {
+    case disabled
+    case invalidConfiguration
+    case serverCapabilityUnavailable
+    case manifestSchemaMismatch
+    case runtimeContractMismatch
+    case ready
+
+    public static func evaluate(
+        configuration: DesktopComponentPreflightConfigurationState,
+        serverManifestSchemaVersion: Int?,
+        serverRuntimeContract: String?
+    ) -> DesktopComponentBootstrapAvailability {
+        switch configuration {
+        case .disabled:
+            return .disabled
+        case .invalid:
+            return .invalidConfiguration
+        case .configured:
+            guard let serverManifestSchemaVersion, let serverRuntimeContract else {
+                return .serverCapabilityUnavailable
+            }
+            guard serverManifestSchemaVersion == 2 else { return .manifestSchemaMismatch }
+            guard serverRuntimeContract == DesktopHermesRuntimeContract.serveV1.rawValue else {
+                return .runtimeContractMismatch
+            }
+            return .ready
+        }
+    }
+}
+
 private struct DesktopComponentPreflightConfigurationValues {
     let enabled: String?
     let manifestURL: String?

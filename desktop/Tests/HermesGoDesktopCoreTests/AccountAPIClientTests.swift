@@ -10,7 +10,7 @@ final class AccountAPIClientTests: XCTestCase {
 
     func testCapabilitiesDecodeOptionalDesktopBootstrapRuntimeContract() async throws {
         StubURLProtocol.handler = { _ in
-            (200, ["Content-Type": "application/json"], Data(#"{"version":1,"accountAuth":{"enabled":true,"providers":["email_otp"],"android":true,"macos":true,"identityManagement":true,"webAccountCenter":false},"binding":{"enabled":true,"replacement":true,"maxActiveConnectorsPerAccount":3},"legacy":{"appTokenAccepted":true,"connectorTokenAccepted":true},"desktopBootstrap":{"runtimeContract":"hermes-serve-v1"}}"#.utf8))
+            (200, ["Content-Type": "application/json"], Data(#"{"version":1,"accountAuth":{"enabled":true,"providers":["email_otp"],"android":true,"macos":true,"identityManagement":true,"webAccountCenter":false},"binding":{"enabled":true,"replacement":true,"maxActiveConnectorsPerAccount":3},"legacy":{"appTokenAccepted":true,"connectorTokenAccepted":true},"desktopBootstrap":{"runtimeContract":"hermes-serve-v1","componentManifestSchemaVersion":2}}"#.utf8))
         }
         let client = AccountAPIClient(
             gatewayURL: URL(string: "https://relay.example")!,
@@ -20,6 +20,7 @@ final class AccountAPIClientTests: XCTestCase {
         let capabilities = try await client.capabilities()
 
         XCTAssertEqual(capabilities.desktopBootstrap?.runtimeContract, "hermes-serve-v1")
+        XCTAssertEqual(capabilities.desktopBootstrap?.componentManifestSchemaVersion, 2)
     }
 
     func testRefreshUsesCallerPersistedIdempotencyKeyAndExactClientInstallationID() async throws {

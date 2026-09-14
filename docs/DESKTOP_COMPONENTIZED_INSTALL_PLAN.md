@@ -301,5 +301,13 @@ C5 第十一批将 v2 可信预检、组件安装器、迁移适配器、日志�
 确认后进入。运行时单独接收 v2 发布信任配置和冻结的 Hermes 运行合同，避免从展示行或 v1 清单重建
 安装权限。生产 v2 能力信号和 UI 动作仍留在后续批次，因此默认包行为不变。
 
+C5 第十二批增加独立、默认关闭的 Cloud 能力信号。现有 v1
+`desktopBootstrap.runtimeContract` 不再被当作组件安装授权；只有账号绑定、现有受管安装门和新的
+`ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED` 同时开启时，Gateway 才额外声明
+`componentManifestSchemaVersion: 2`。Desktop 将该字段传入单独的 fail-closed 可用性判断，要求本地
+v2 配置有效、schema 精确为 2 且运行合同精确为 `hermes-serve-v1`。缺字段、未来 schema 或合同不匹配
+都不能进入组件运行时或发起 v2 清单请求，已显示的只读结果在能力撤回或退出账号时清除。生产运维尚
+不接纳新开关，UI 安装动作、服务和发布物仍不改变。
+
 任何阶段都不授权生产发布。Developer ID、公证、stapling 和干净机器启动仍按 Desktop 发布门禁
 单独完成。

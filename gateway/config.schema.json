@@ -39,6 +39,7 @@
     "ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED": { "$ref": "#/$defs/booleanFlag" },
     "ACCOUNT_WEB_SESSION_ENABLED": { "$ref": "#/$defs/booleanFlag" },
     "ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED": { "$ref": "#/$defs/booleanFlag" },
+    "ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED": { "$ref": "#/$defs/booleanFlag" },
     "ACCOUNT_DATABASE_URL": { "$ref": "#/$defs/secret8" },
     "ACCOUNT_DATABASE_URL_FILE": { "$ref": "#/$defs/path" },
     "ACCOUNT_DATABASE_SSL": { "$ref": "#/$defs/booleanFlag" },

@@ -60,6 +60,50 @@ final class DesktopComponentPreflightConfigurationTests: XCTestCase {
         XCTAssertNoThrow(try configuration.makeManifestVerifier())
     }
 
+    func testComponentBootstrapRequiresSeparateSchemaV2ServerCapability() {
+        let configured = load(validValues())
+        XCTAssertEqual(
+            DesktopComponentBootstrapAvailability.evaluate(
+                configuration: .disabled,
+                serverManifestSchemaVersion: 2,
+                serverRuntimeContract: "hermes-serve-v1"
+            ),
+            .disabled
+        )
+        XCTAssertEqual(
+            DesktopComponentBootstrapAvailability.evaluate(
+                configuration: configured,
+                serverManifestSchemaVersion: nil,
+                serverRuntimeContract: "hermes-serve-v1"
+            ),
+            .serverCapabilityUnavailable
+        )
+        XCTAssertEqual(
+            DesktopComponentBootstrapAvailability.evaluate(
+                configuration: configured,
+                serverManifestSchemaVersion: 1,
+                serverRuntimeContract: "hermes-serve-v1"
+            ),
+            .manifestSchemaMismatch
+        )
+        XCTAssertEqual(
+            DesktopComponentBootstrapAvailability.evaluate(
+                configuration: configured,
+                serverManifestSchemaVersion: 2,
+                serverRuntimeContract: "future-contract"
+            ),
+            .runtimeContractMismatch
+        )
+        XCTAssertEqual(
+            DesktopComponentBootstrapAvailability.evaluate(
+                configuration: configured,
+                serverManifestSchemaVersion: 2,
+                serverRuntimeContract: "hermes-serve-v1"
+            ),
+            .ready
+        )
+    }
+
     private func load(_ environment: [String: String]) -> DesktopComponentPreflightConfigurationState {
         DesktopComponentPreflightConfigurationState.load(environment: environment)
     }

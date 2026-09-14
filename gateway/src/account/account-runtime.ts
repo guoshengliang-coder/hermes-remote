@@ -181,6 +181,11 @@ export function createAccountRuntime(
     "ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED",
     false,
   );
+  const desktopComponentInstallEnabled = booleanFlag(
+    environment,
+    "ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED",
+    false,
+  );
   if (webAccountCenterEnabled && !identityManagementEnabled) {
     throw new Error(
       "ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED requires ACCOUNT_IDENTITY_MANAGEMENT_ENABLED=1",
@@ -205,6 +210,12 @@ export function createAccountRuntime(
   if (desktopManagedInstallEnabled && !controlEnabled) {
     throw new Error(
       "ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED requires ACCOUNT_BINDING_ENABLED=1",
+    );
+  }
+  if (desktopComponentInstallEnabled && !desktopManagedInstallEnabled) {
+    throw new Error(
+      "ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED requires "
+      + "ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED=1",
     );
   }
   if (sharingEnabled && (!controlEnabled || !multiDeviceEnabled || !identityManagementEnabled)) {
@@ -346,6 +357,7 @@ export function createAccountRuntime(
       multiDeviceEnabled,
       sharingEnabled,
       desktopManagedInstallEnabled,
+      desktopComponentInstallEnabled,
       sharingService,
       serverRelease: release,
     }),

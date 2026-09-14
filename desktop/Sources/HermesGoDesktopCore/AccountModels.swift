@@ -33,9 +33,14 @@ public struct DesktopAccountConfiguration: Equatable, Sendable {
 public struct AccountCapabilities: Codable, Equatable, Sendable {
     public struct DesktopBootstrap: Codable, Equatable, Sendable {
         public let runtimeContract: String
+        public let componentManifestSchemaVersion: Int?
 
-        public init(runtimeContract: String) {
+        public init(
+            runtimeContract: String,
+            componentManifestSchemaVersion: Int? = nil
+        ) {
             self.runtimeContract = runtimeContract
+            self.componentManifestSchemaVersion = componentManifestSchemaVersion
         }
     }
 
@@ -361,6 +366,7 @@ public struct AccountDashboard: Equatable, Sendable {
     public let maxSharedDevices: Int
     public let accountDeletionEnabled: Bool
     public let desktopBootstrapRuntimeContract: String?
+    public let desktopComponentManifestSchemaVersion: Int?
 
     public init(
         session: AccountSessionRecord,
@@ -373,7 +379,8 @@ public struct AccountDashboard: Equatable, Sendable {
         supportsDeviceSharing: Bool = false,
         maxSharedDevices: Int = 0,
         accountDeletionEnabled: Bool = false,
-        desktopBootstrapRuntimeContract: String? = nil
+        desktopBootstrapRuntimeContract: String? = nil,
+        desktopComponentManifestSchemaVersion: Int? = nil
     ) {
         self.session = session
         self.binding = binding
@@ -386,6 +393,7 @@ public struct AccountDashboard: Equatable, Sendable {
         self.maxSharedDevices = maxSharedDevices
         self.accountDeletionEnabled = accountDeletionEnabled
         self.desktopBootstrapRuntimeContract = desktopBootstrapRuntimeContract
+        self.desktopComponentManifestSchemaVersion = desktopComponentManifestSchemaVersion
     }
 
     public var phones: [ManagedAccountInstallation] {
