@@ -113,6 +113,11 @@ The current automated suite covers:
 - optional-component references can be recorded only for browser, speech, or document content that
   already exists under a valid base release; exact retries are idempotent and a conflicting identity
   for the same release/kind is rejected;
+- first-use component installation requires a verifier-only v2 token and an exact signed trigger,
+  validates the base reference and all bootstrap health before scanning or network access, installs
+  optional dependencies in topological order, reuses managed content or a revalidated system browser,
+  publishes capability references only for managed content, resumes only a manifest/trigger-bound
+  transport interruption, and safely cleans extraction failures or explicitly discarded workspaces;
 - fixed-path external-environment scanning reports Python/Node without trusting version-only reuse,
   resolves Homebrew-style runtime symlinks for reporting only, admits a safe architecture-matched
   system browser only after an explicit compatibility probe, and rejects browser symlinks,
