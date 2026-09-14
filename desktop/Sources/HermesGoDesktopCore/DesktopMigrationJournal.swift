@@ -21,22 +21,31 @@ public enum DesktopLastKnownGoodMode: String, Codable, Equatable, Sendable {
     case account
 }
 
+/// Identifies the immutable release layout whose services a journal run is activating. Schema 1
+/// journals predate the component store and are decoded strictly as `bundledRelease`.
+public enum DesktopManagedReleaseLayoutKind: String, Codable, Equatable, Sendable {
+    case bundledRelease = "bundled_release"
+    case componentStore = "component_store"
+}
+
 public struct DesktopMigrationJournal: Codable, Equatable, Sendable {
     public let schemaVersion: Int
     public let runID: String
     public let state: DesktopMigrationState
     public let lastKnownGoodMode: DesktopLastKnownGoodMode
     public let releaseVersion: String
+    public let releaseLayout: DesktopManagedReleaseLayoutKind
     public let bindingID: String?
     public let bindingGeneration: Int?
     public let updatedAt: String
 
     public init(
-        schemaVersion: Int = 1,
+        schemaVersion: Int = 2,
         runID: String,
         state: DesktopMigrationState,
         lastKnownGoodMode: DesktopLastKnownGoodMode,
         releaseVersion: String,
+        releaseLayout: DesktopManagedReleaseLayoutKind = .bundledRelease,
         bindingID: String?,
         bindingGeneration: Int?,
         updatedAt: String
@@ -46,9 +55,61 @@ public struct DesktopMigrationJournal: Codable, Equatable, Sendable {
         self.state = state
         self.lastKnownGoodMode = lastKnownGoodMode
         self.releaseVersion = releaseVersion
+        self.releaseLayout = releaseLayout
         self.bindingID = bindingID
         self.bindingGeneration = bindingGeneration
         self.updatedAt = updatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case runID
+        case state
+        case lastKnownGoodMode
+        case releaseVersion
+        case releaseLayout
+        case bindingID
+        case bindingGeneration
+        case updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try values.decode(Int.self, forKey: .schemaVersion)
+        runID = try values.decode(String.self, forKey: .runID)
+        state = try values.decode(DesktopMigrationState.self, forKey: .state)
+        lastKnownGoodMode = try values.decode(
+            DesktopLastKnownGoodMode.self,
+            forKey: .lastKnownGoodMode
+        )
+        releaseVersion = try values.decode(String.self, forKey: .releaseVersion)
+        switch schemaVersion {
+        case 1:
+            releaseLayout = .bundledRelease
+        default:
+            releaseLayout = try values.decode(
+                DesktopManagedReleaseLayoutKind.self,
+                forKey: .releaseLayout
+            )
+        }
+        bindingID = try values.decodeIfPresent(String.self, forKey: .bindingID)
+        bindingGeneration = try values.decodeIfPresent(Int.self, forKey: .bindingGeneration)
+        updatedAt = try values.decode(String.self, forKey: .updatedAt)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(schemaVersion, forKey: .schemaVersion)
+        try values.encode(runID, forKey: .runID)
+        try values.encode(state, forKey: .state)
+        try values.encode(lastKnownGoodMode, forKey: .lastKnownGoodMode)
+        try values.encode(releaseVersion, forKey: .releaseVersion)
+        if schemaVersion >= 2 {
+            try values.encode(releaseLayout, forKey: .releaseLayout)
+        }
+        try values.encodeIfPresent(bindingID, forKey: .bindingID)
+        try values.encodeIfPresent(bindingGeneration, forKey: .bindingGeneration)
+        try values.encode(updatedAt, forKey: .updatedAt)
     }
 }
 
@@ -142,6 +203,7 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
         runID: String,
         lastKnownGoodMode: DesktopLastKnownGoodMode,
         releaseVersion: String,
+        releaseLayout: DesktopManagedReleaseLayoutKind = .bundledRelease,
         bindingID: String?,
         bindingGeneration: Int?
     ) throws -> DesktopMigrationJournal {
@@ -151,6 +213,7 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
                 state: .preflight,
                 lastKnownGoodMode: lastKnownGoodMode,
                 releaseVersion: try semanticVersion(releaseVersion),
+                releaseLayout: releaseLayout,
                 bindingID: try optionalUUID(bindingID),
                 bindingGeneration: try validGeneration(bindingGeneration),
                 updatedAt: canonicalTimestamp(now())
@@ -159,6 +222,7 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
                 if existing.runID == requested.runID {
                     guard existing.lastKnownGoodMode == requested.lastKnownGoodMode,
                           existing.releaseVersion == requested.releaseVersion,
+                          existing.releaseLayout == requested.releaseLayout,
                           existing.bindingID == requested.bindingID,
                           existing.bindingGeneration == requested.bindingGeneration
                     else { throw DesktopMigrationJournalError.inputMismatch }
@@ -201,10 +265,12 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
                 throw DesktopMigrationJournalError.invalidTransition
             }
             let updated = DesktopMigrationJournal(
+                schemaVersion: 2,
                 runID: current.runID,
                 state: next,
                 lastKnownGoodMode: next == .accountActive ? .account : current.lastKnownGoodMode,
                 releaseVersion: current.releaseVersion,
+                releaseLayout: current.releaseLayout,
                 bindingID: current.bindingID,
                 bindingGeneration: current.bindingGeneration,
                 updatedAt: canonicalTimestamp(now())
@@ -232,21 +298,35 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
         let data: Data
         do { data = try Data(contentsOf: journalURL) }
         catch { throw DesktopMigrationJournalError.persistenceFailed }
-        let allowedKeys = Set([
+        let legacyKeys = Set([
                 "schemaVersion", "runID", "state", "lastKnownGoodMode", "releaseVersion",
                 "bindingID", "bindingGeneration", "updatedAt",
               ])
-        let requiredKeys = allowedKeys.subtracting(["bindingID", "bindingGeneration"])
+        let currentKeys = legacyKeys.union(["releaseLayout"])
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              Set(object.keys).isSubset(of: allowedKeys),
-              requiredKeys.isSubset(of: Set(object.keys)),
               let journal = try? JSONDecoder().decode(DesktopMigrationJournal.self, from: data),
-              journal.schemaVersion == 1,
               (try? requiredUUID(journal.runID)) != nil,
               (try? semanticVersion(journal.releaseVersion)) != nil,
               parseCanonicalTimestamp(journal.updatedAt) != nil,
               validBindingReference(journal.bindingID, journal.bindingGeneration)
         else { throw DesktopMigrationJournalError.invalidState }
+        let actualKeys = Set(object.keys)
+        let validSchema: Bool
+        switch journal.schemaVersion {
+        case 1:
+            validSchema = actualKeys.isSubset(of: legacyKeys)
+                && legacyKeys.subtracting(["bindingID", "bindingGeneration"])
+                    .isSubset(of: actualKeys)
+                && object["releaseLayout"] == nil
+                && journal.releaseLayout == .bundledRelease
+        case 2:
+            validSchema = actualKeys.isSubset(of: currentKeys)
+                && currentKeys.subtracting(["bindingID", "bindingGeneration"])
+                    .isSubset(of: actualKeys)
+        default:
+            validSchema = false
+        }
+        guard validSchema else { throw DesktopMigrationJournalError.invalidState }
         return journal
     }
 

@@ -152,6 +152,10 @@ The current automated suite covers:
   immutable references remain reusable/collectable, and post-success cleanup failure returns a bounded
   retry handle without reclassifying the committed migration; a transport interruption before handle
   issuance is removable only by the UUID-and-private-marker checked cleanup path;
+- migration-journal schema 2 binds each run to bundled-release or component-store layout across every
+  state transition, rejects a same-run layout change and malformed/unknown schema-layout combinations,
+  reads historical schema 1 strictly as bundled-release, and atomically upgrades that legacy record on
+  its next valid transition;
 - the component-preflight package gate is false with an empty v2 URL by default, loads only a complete
   HTTPS URL plus canonical pinned release trust inputs, keeps the schema-v1 URL separate, and rejects
   partial, malformed, credential-bearing, or ambiguous configuration;
