@@ -132,10 +132,10 @@ public final class DesktopOptionalComponentRuntimeWriter: @unchecked Sendable {
                 attributes: [.posixPermissions: 0o700]
             )
             try Data((pythonABITag + "\n").utf8).write(
-                to: staging.appendingPathComponent(Self.abiFileName), options: .withoutOverwriting
+                to: staging.appendingPathComponent(Self.abiFileName)
             )
             try Data(pathText.utf8).write(
-                to: staging.appendingPathComponent(Self.pathFileName), options: .withoutOverwriting
+                to: staging.appendingPathComponent(Self.pathFileName)
             )
             for file in [Self.abiFileName, Self.pathFileName] {
                 try fileManager.setAttributes(
