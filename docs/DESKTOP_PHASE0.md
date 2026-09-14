@@ -313,6 +313,17 @@ duplicate component kinds, external Python content, ABI-probe failure, and any m
 existing projection. It does not persist a LaunchAgent or restart a process; first-use activation,
 controlled restart, and one-shot capability retry remain the next local integration gate.
 
+C4's eighth default-inert slice performs that controlled activation under the existing migration
+operation lease. It accepts only an `account_active` journal for the exact base release with the
+managed Connector and Hermes services loaded, projects the caller's complete active optional set,
+atomically replaces the Hermes LaunchAgent, restarts only Hermes, and requires both a fresh readiness
+line and healthy loopback status. Any activation failure restores the exact previous plist and, when
+Hermes was stopped, proves the restored service healthy before returning the original failure. After
+successful activation the original capability closure is invoked exactly once; a retry failure does
+not roll back an otherwise healthy installed runtime. The shipping request path is still unwired and
+must next derive the complete active set from the signed capability references and missing-capability
+signal before enabling this coordinator.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 
