@@ -1,11 +1,18 @@
 # Hermes Go Desktop
 
-Current internal test release: **0.2.10** (build 13), installed with managed release 0.3.4 on the
-historical test Mac. It packages the post-restart Cloud health freshness correction. Immediately before
-starting an already-bound Connector, Desktop records the exact binding's server-provided
-`endToEnd.checkedAt`; acceptance requires the same binding ID and generation to become healthy with a
-strictly newer timestamp. The same rule protects token-file migration rollback, preventing a cached
-healthy snapshot from masking a failed Connector restart.
+Current internal test release candidate: **0.2.11** (build 14). It adds the separately gated schema-v2
+component bootstrap path: Desktop verifies the signed component manifest, reuses exact compatible
+local runtimes, downloads only missing bootstrap components into a private cache, and requires a
+second explicit confirmation before it changes the managed component store, account binding,
+LaunchAgents, or services. The production capability remains off until the signed 0.4.0 component
+release is published and its rollout is explicitly enabled.
+
+Desktop 0.2.10 (build 13) remains installed with managed release 0.3.4 on the historical test Mac. It
+packages the post-restart Cloud health freshness correction. Immediately before starting an
+already-bound Connector, Desktop records the exact binding's server-provided `endToEnd.checkedAt`;
+acceptance requires the same binding ID and generation to become healthy with a strictly newer
+timestamp. The same rule protects token-file migration rollback, preventing a cached healthy snapshot
+from masking a failed Connector restart.
 
 The ordinary 0.2.9-to-0.2.10 app replacement preserved both managed service PIDs. A subsequent
 Connector-only restart kept the exact account binding and generation, advanced the Cloud health
