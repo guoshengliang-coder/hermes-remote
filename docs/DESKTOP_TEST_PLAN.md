@@ -162,6 +162,10 @@ The current automated suite covers:
   neither creates a bundled version directory nor changes `current`; failure and interrupted recovery
   restore legacy service state while preserving an unrelated bundled `current`, and the existing bundled
   recovery test still proves that a v1 candidate deactivates its expected link;
+- the composed schema-v2 bootstrap runtime binds the trusted preflight, component installer, migration
+  journal/controller and content-addressed commit configuration to the same managed paths and account
+  boundary; construction preserves an absent managed root, cache, LaunchAgents directory, and Hermes
+  home, proving that merely enabling dependency composition cannot start a download or mutate the Mac;
 - the component-preflight package gate is false with an empty v2 URL by default, loads only a complete
   HTTPS URL plus canonical pinned release trust inputs, keeps the schema-v1 URL separate, and rejects
   partial, malformed, credential-bearing, or ambiguous configuration;

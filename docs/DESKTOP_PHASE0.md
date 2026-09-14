@@ -417,6 +417,14 @@ Rollback and interrupted recovery consult the durable layout field, so component
 unrelated bundled `current` while historical bundled runs retain their existing deactivation behavior.
 No install button, production configuration, running service, or release is changed by this slice.
 
+C5's eleventh default-unwired slice composes the trusted v2 preflight, component installer, concrete
+migration adapter, journal, exact-label LaunchAgent controller, and commit configuration into one
+runtime. Constructing it remains inert: no managed root, cache, LaunchAgent directory, or Hermes home
+is created, and the first network/read-only scan still begins only when preflight is called. The v2
+trust configuration and frozen Hermes runtime contract enter this boundary directly; callers cannot
+reconstruct installation authority from presentation rows or a schema-v1 manifest. A production v2
+capability signal and UI action remain separate later gates, so packaged behavior is unchanged.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 
