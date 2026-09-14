@@ -331,6 +331,12 @@ an explicit cancel may remove that exact validly marked workspace, other failure
 reference is never published for an incomplete activation plan. The returned plan remains preparation
 input only and does not itself modify credentials, `current`, LaunchAgents, or running services.
 
+Installed optional components receive a separate immutable
+`capability-references/<release>/<kind>.json` reference only after the base release reference exists
+and the exact managed content has been revalidated. Garbage collection validates and snapshots both
+reference classes, keeps content shared by multiple releases, and refuses orphaned or malformed
+capability-reference trees. This contract does not itself download or activate an optional component.
+
 Before that transaction, the local component preflight coordinator accepts the same verifier-only
 token and combines rehashed managed-store candidates with allowlisted external observations. It emits
 the per-component reuse/download/defer decisions and exact bootstrap/deferred byte totals. A matching

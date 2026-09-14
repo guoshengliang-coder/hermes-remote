@@ -28,6 +28,57 @@ final class DesktopManagedComponentGarbageCollectorTests: XCTestCase {
         })
     }
 
+    func testCapabilityReferenceRetainsOnDemandContentWithItsBaseRelease() throws {
+        let fixture = try GarbageCollectionFixture()
+        defer { fixture.remove() }
+        let python = try fixture.addComponent(kind: .pythonRuntime, contents: "python")
+        let browser = try fixture.addComponent(
+            kind: .browserAutomation, contents: "browser"
+        )
+        let orphan = try fixture.addComponent(kind: .nodeRuntime, contents: "node")
+        try fixture.addReference(version: "1.2.3", identities: [python])
+        try fixture.addCapabilityReference(version: "1.2.3", identity: browser)
+
+        let plan = try fixture.planner().plan(protectedReleaseVersions: ["1.2.3"])
+
+        XCTAssertEqual(Set(plan.retained), Set([python, browser]))
+        XCTAssertEqual(plan.candidates.map(\.identity), [orphan])
+    }
+
+    func testCapabilityReferenceWithoutBaseReleaseFailsClosed() throws {
+        let fixture = try GarbageCollectionFixture()
+        defer { fixture.remove() }
+        let browser = try fixture.addComponent(
+            kind: .browserAutomation, contents: "browser"
+        )
+        try fixture.addCapabilityReference(version: "1.2.3", identity: browser)
+
+        XCTAssertThrowsError(try fixture.planner().plan(protectedReleaseVersions: [])) {
+            XCTAssertEqual(
+                $0 as? DesktopManagedComponentGarbageCollectionError,
+                .invalidReference
+            )
+        }
+    }
+
+    func testCapabilityContentMayBeSharedAcrossBaseReleases() throws {
+        let fixture = try GarbageCollectionFixture()
+        defer { fixture.remove() }
+        let python = try fixture.addComponent(kind: .pythonRuntime, contents: "python")
+        let browser = try fixture.addComponent(
+            kind: .browserAutomation, contents: "browser"
+        )
+        try fixture.addReference(version: "1.2.3", identities: [python])
+        try fixture.addReference(version: "1.2.4", identities: [python])
+        try fixture.addCapabilityReference(version: "1.2.3", identity: browser)
+        try fixture.addCapabilityReference(version: "1.2.4", identity: browser)
+
+        let plan = try fixture.planner().plan(protectedReleaseVersions: ["1.2.4"])
+
+        XCTAssertEqual(Set(plan.retained), Set([python, browser]))
+        XCTAssertTrue(plan.candidates.isEmpty)
+    }
+
     func testPlanIsReadOnlyAndEmptyStoreNeedsNoDirectories() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("hermes-gc-empty-\(UUID().uuidString)", isDirectory: true)
@@ -240,6 +291,41 @@ private final class GarbageCollectionFixture {
             }
         )
         let destination = directory.appendingPathComponent("\(version).json")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(reference).write(to: destination)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: destination.path
+        )
+        return destination
+    }
+
+    @discardableResult
+    func addCapabilityReference(
+        version: String,
+        identity: DesktopManagedComponentIdentity
+    ) throws -> URL {
+        let directory = root.appendingPathComponent(
+            "capability-references/\(version)", isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let ancestors = [directory.deletingLastPathComponent(), directory]
+        for ancestor in ancestors {
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700], ofItemAtPath: ancestor.path
+            )
+        }
+        let reference = DesktopManagedCapabilityReference(
+            releaseVersion: version,
+            component: DesktopManagedComponentReference(
+                kind: identity.kind,
+                contentSHA256: identity.contentSHA256
+            )
+        )
+        let destination = directory.appendingPathComponent("\(identity.kind.rawValue).json")
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         try encoder.encode(reference).write(to: destination)

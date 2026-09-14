@@ -35,6 +35,8 @@ Homebrew、pyenv 和用户虚拟环境均可在 Desktop 之外被修改。`Pytho
 ├── releases/
 │   └── <release>/
 ├── references/
+├── capability-references/
+│   └── <release>/<optional-component>.json
 ├── state/
 ├── secrets/
 └── current
@@ -165,6 +167,12 @@ C4 第三批把上述原语串成默认关闭的本地安装事务。安装入�
 工作区；只有网络传输中断保留 partial 和 owner-only `install.json`，同一 UUID 只有在规范化签名清单
 身份完全相同时才能续传。完成后仍只返回激活计划，不写凭据、不切 `current`、不操作 launchd。
 取消重试可通过同一安装器的受限清理入口删除带有效 marker 的精确 UUID 工作区。
+
+C4 第四批为首次使用下载补上不可变引用合同。可选组件只有在所属基础版本引用已经存在、受管内容
+重新核验通过后，才能写入 `capability-references/<release>/<kind>.json`；每个版本与组件种类只能
+绑定一个内容身份，重复写入必须完全相同。垃圾回收把基础引用和按需引用一并纳入只读快照，允许
+多个版本共享同一内容，并对孤立版本目录、未知组件种类、非 owner 安全文件、损坏 JSON 或缺失内容
+整体 fail closed。该批只建立后续按需安装器所需的持久化与回收边界，不触发下载或激活。
 
 ### C5：界面与真实机器门禁
 

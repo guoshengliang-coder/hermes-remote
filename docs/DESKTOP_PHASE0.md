@@ -280,6 +280,13 @@ reuse, compatible system reuse, install-time download, and first-use download, a
 Homebrew/service boundary visible. The bilingual presentation model and production SwiftUI build are
 covered locally; the card remains unwired until a real v2 capability and signing configuration exist.
 
+The managed store now records each installed optional component in an immutable,
+release-scoped capability reference only after that release's bootstrap reference exists. Garbage
+collection validates these references with the same owner, permissions, schema, content, and snapshot
+rules as bootstrap references; it retains shared optional content across releases and fails closed on
+orphaned or malformed capability references. This storage primitive remains default-inert and does
+not yet initiate a first-use download.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 
