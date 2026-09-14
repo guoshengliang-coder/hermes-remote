@@ -456,6 +456,33 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Fetch the files behind whatever images the transcript currently references (HG-44).
+     *
+     * Always hydrates the COMMITTED messages — the ones on screen — rather than a list some caller
+     * happens to be holding. Every route into the transcript needs this: history parsed out of REST
+     * carries a remote path and no local file, and the bubble draws that as a waiting mark. Two of
+     * the four routes never called it at all, so a cold open showed waiting marks that only the
+     * network could clear, and the network's own attempt was being discarded on the way back in.
+     *
+     * Never blocks the text. The transcript is authoritative as soon as it lands; the pictures
+     * catch up, and `acceptHydratedImages` merges them by image id without disturbing live rows.
+     */
+    private fun hydrateImages(key: SessionRuntimeKey) {
+        viewModelScope.launch {
+            val committed = runtimeStore.messagesFor(key)
+            if (committed.none { message -> message.images.any { it.localPath.isNullOrBlank() } }) return@launch
+            runCatching { mediaRepository.hydrateMessages(committed, key.profile) }
+                .onSuccess { runtimeStore.acceptHydratedImages(key, it) }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    com.hermes.client.data.diagnostics.DebugLog.log(
+                        "media", "hydrate s=${key.sessionId} failed: ${error.message}",
+                    )
+                }
+        }
+    }
+
     fun saveImageToGallery(
         image: com.hermes.client.domain.ChatImage,
         onResult: (Result<com.hermes.client.data.repository.SavedChatImage>) -> Unit,
@@ -689,6 +716,12 @@ class ChatViewModel @Inject constructor(
         sessionReclaimed = false
         sessionKnownEmpty = isNewSession && cachedHistory.isNullOrEmpty()
         runtimeStore.markHistoryLoading(key, cachedHistory)
+        // Cached transcripts carry image REFERENCES, not files: a row parsed out of history has a
+        // remote path and no local one, which the bubble draws as a waiting mark. Neither cache
+        // path used to hydrate, so a cold open showed waiting marks until the network answered —
+        // and until HG-44 the network path's own hydration was being discarded, so they stayed
+        // (docs/IMAGE_ATTACHMENT_REQUIREMENTS.md §5: waiting is a state, not a resting place).
+        if (!cachedHistory.isNullOrEmpty()) hydrateImages(key)
         // The memory cache holds ten transcripts and dies with the process, so with ~200 sessions
         // a cold open is the normal case, not the exception. Ask the disk in parallel with the
         // network: whichever answers first ends the skeleton, and acceptCachedHistory stands down
@@ -703,6 +736,7 @@ class ChatViewModel @Inject constructor(
                 if (storedSessionId == id) {
                     if (organized.isNotEmpty()) sessionKnownEmpty = false
                     runtimeStore.acceptCachedHistory(key, organized)
+                    hydrateImages(key)
                 }
             }
         }
@@ -770,11 +804,14 @@ class ChatViewModel @Inject constructor(
                     appendSystem(approvalLostNotice(appLanguage))
                 }
                 // Do not hold the transcript behind image downloads. Show text and placeholders
-                // immediately, then merge cached/downloaded thumbnails by stable history id.
-                launch {
-                    val hydrated = mediaRepository.hydrateMessages(organizedHistory, profile)
-                    runtimeStore.acceptHydratedImages(key, hydrated)
-                }
+                // immediately, then merge the thumbnails in as they land.
+                //
+                // Hydrate what the store COMMITTED, not `organizedHistory` (HG-44). `acceptHistory`
+                // runs `alignMessageIds` over these rows, so the list fetched here and the list on
+                // screen no longer share message ids. `acceptHydratedImages` now matches on image
+                // ids, which survive the rewrite — but hydrating the committed list keeps the two
+                // sides describing the same transcript, and costs nothing.
+                hydrateImages(key)
             } catch (e: HermesApiException) {
                 // A session with no persisted turn yet has no REST row either: upstream answers 404
                 // {"detail":"Session not found"} until the first message lands, then 200. That is
@@ -1015,11 +1052,8 @@ class ChatViewModel @Inject constructor(
                     }
                 }
                 // Text is authoritative immediately; media hydration may finish just after the
-                // success affordance and merges by stable message identity without blanking rows.
-                launch {
-                    val hydrated = mediaRepository.hydrateMessages(organizedHistory, profile)
-                    if (runtimeKey == key) runtimeStore.acceptHydratedImages(key, hydrated)
-                }
+                // success affordance and merges by stable image identity without blanking rows.
+                if (runtimeKey == key) hydrateImages(key)
                 com.hermes.client.data.diagnostics.DebugLog.log(
                     "session", "manual-refresh($id) → ${organizedHistory.size} messages",
                 )

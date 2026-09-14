@@ -21,6 +21,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -48,6 +51,8 @@ class CardPageViewModel @Inject constructor(
     private val configRepo: ConfigRepository,
     private val settingsStore: SettingsStore,
     private val rest: HermesRestApi,
+    /** Watched, not just read: the selected Mac changes without the profile changing (HG-48). */
+    accountSessions: com.hermes.client.data.auth.AccountSessionManager,
     healthMonitor: com.hermes.client.data.network.GatewayHealthMonitor,
     runtimeStore: SessionRuntimeStore,
     private val updateBadge: com.hermes.client.update.UpdateBadge,
@@ -126,9 +131,33 @@ class CardPageViewModel @Inject constructor(
     init {
         // Tiles follow the active profile like everything else.
         viewModelScope.launch { profileManager.active.collect { refresh() } }
+        // ...and the selected Mac, which is a different axis entirely (HG-48, 2026-09-14).
+        //
+        // Switching Macs does not change the active profile, so before this the tiles had exactly
+        // one trigger and it was the wrong one: the device name was a snapshot taken at process
+        // start and never touched again. `drop(1)` skips the value that is already in hand when
+        // this collector starts — that one is what the profile collector above is fetching.
+        //
+        // This ViewModel is scoped to the Activity (the card page is the drawer's content, so it
+        // lives outside the NavHost), which is why going to the device page and back does not
+        // rebuild it and hide the staleness.
+        viewModelScope.launch {
+            accountSessions.session
+                .map { it?.selectedDeviceId }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { refresh() }
+        }
     }
 
-    /** Refresh the tiles (also called when the drawer opens). Each part is independent. */
+    /**
+     * Refresh the tiles. Each part is independent.
+     *
+     * Called on profile change, on Mac change, and when the drawer opens. That last one was
+     * promised by this comment for months without a single caller — see [CardPage]. A subscription
+     * covers the change we know about; opening the drawer covers the ones we do not, and the cost
+     * is three requests the user is already waiting on the drawer to answer.
+     */
     fun refresh() {
         val p = profileManager.active.value
         viewModelScope.launch {

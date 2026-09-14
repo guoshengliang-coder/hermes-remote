@@ -61,6 +61,8 @@ renames disappears silently — deserialization yields null, never an error.
 /api/profiles          /api/profiles/active
 /api/files             /api/files/upload
 /api/cron/jobs         /api/cron/jobs/{id}    /api/cron/jobs/{id}/runs
+/api/cron/jobs/{id}/pause    /api/cron/jobs/{id}/resume    /api/cron/jobs/{id}/trigger
+/api/cron/delivery-targets
 /api/mobile/events     /api/mobile/events/ack /api/mobile/events/read
 /api/model/options     /api/model/set         /api/tools/toolsets
 /api/skills            /api/skills/toggle     /api/analytics/usage
@@ -69,6 +71,14 @@ renames disappears silently — deserialization yields null, never an error.
 
 Authentication is the `X-Hermes-Session-Token` header. The Mac's Hermes credential never leaves the
 Mac; the phone holds only its own app token (see `docs/ARCHITECTURE.md`).
+
+**The three cron action paths and `/api/cron/delivery-targets` were added to this list on
+2026-09-14 (HG-51). They were not new** — the app has been calling
+`POST /api/cron/jobs/{id}/{pause|resume|trigger}` all along, and §7 already discussed
+`delivery-targets` in prose. They were simply never written into the inventory, which is the exact
+failure mode this document exists to prevent: an upstream rename of `trigger` would have surfaced
+as 「操作失败」 and nothing else. Nothing here is pinned by `HermesContractTest` (it covers names in
+text grammars, not routes), so this list is the only record.
 
 ### 3. WebSocket RPC methods
 

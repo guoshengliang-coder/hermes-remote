@@ -112,6 +112,14 @@ fun CardPage(
     val themeMode by vm.themeMode.collectAsStateWithLifecycle()
     val updateState by vm.updateState.collectAsState()
     LaunchedEffect(Unit) { vm.refreshUpdateBadge() }
+    // Refresh the tiles whenever the drawer is opened (HG-48, 2026-09-14). `refresh`'s own KDoc
+    // claimed this happened for months and nothing called it: the ViewModel is Activity-scoped, so
+    // the drawer's state survived every navigation and the tiles kept whatever they were told at
+    // process start. That is how a switched Mac — and a stale 「0 个任务」 beside it — stayed on
+    // screen. Keyed on `isOpen` so it fires on the open, not on every recomposition while open.
+    drawerState?.let { drawer ->
+        LaunchedEffect(drawer.isOpen) { if (drawer.isOpen) vm.refresh() }
+    }
     var themeSheet by remember { mutableStateOf(false) }
     val launchFeedback = com.hermes.client.ui.feedback.rememberFeedbackLauncher(vm.feedbackReporter)
 

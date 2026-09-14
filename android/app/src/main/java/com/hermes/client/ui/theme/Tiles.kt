@@ -176,7 +176,7 @@ internal val SublineFaintDark = Color(0xFF64615B)
 fun sublineFaintColor(): Color = if (isDarkSurface()) SublineFaintDark else SublineFaintLight
 
 /**
- * The group-header pillars (docs/DESIGN.md §5.2). Four colours, one per group, straight from the
+ * The group-header pillars (docs/DESIGN.md §5.2). One colour per group, straight from the
  * design source — the 2026-09-10 "only 需要你处理 carries a hue" rule was reversed on 2026-09-11
  * because an all-neutral list of headers reads flat.
  *
@@ -186,11 +186,27 @@ fun sublineFaintColor(): Color = if (isDarkSurface()) SublineFaintDark else Subl
  * `StatusTone.GOOD` a 「已完成」 dot draws. The design source has this collision too — it paints
  * both with its mint. Recorded here rather than quietly resolved, because the rule since
  * 2026-09-11 is that the mock wins.
+ *
+ * **昨天 and the slate swap** (HG-52, 2026-09-14). 前 7 天 and 更早 used to share one pair, which
+ * is what HG-52 asked to end. The rule the four time buckets now follow is *the nearer the past,
+ * the more solid the mark*, and it has to hold in both themes:
+ *
+ * - 昨天 is teal, the neighbouring grade of 今天's emerald — the three read as one cooling ramp
+ *   emerald → teal → slate rather than as three unrelated hues. There is no Stitch draft for this
+ *   bucket; the value is derived, and `design-conformance.json` says so.
+ * - 前 7 天 and 更早 are the two slates that already existed, swapped per theme. In light, 前 7 天
+ *   takes the darker `#64748B` and 更早 the lighter `#94A3B8`; in dark it is the other way round,
+ *   because on a dark ground the lighter slate is the more present one. Two new hex values in
+ *   total, and the ordering reads the same way in both themes.
  */
 internal val PillarPinnedLight = Color(0xFF2563EB)
 internal val PillarPinnedDark = Color(0xFF3B82F6)
 internal val PillarTodayLight = Color(0xFF059669)
 internal val PillarTodayDark = Color(0xFF34D399)
+internal val PillarYesterdayLight = Color(0xFF0D9488)
+internal val PillarYesterdayDark = Color(0xFF2DD4BF)
+internal val PillarRecentLight = Color(0xFF64748B)
+internal val PillarRecentDark = Color(0xFF94A3B8)
 internal val PillarOlderLight = Color(0xFF94A3B8)
 internal val PillarOlderDark = Color(0xFF64748B)
 
@@ -199,6 +215,12 @@ fun pillarPinnedColor(): Color = if (isDarkSurface()) PillarPinnedDark else Pill
 
 @Composable
 fun pillarTodayColor(): Color = if (isDarkSurface()) PillarTodayDark else PillarTodayLight
+
+@Composable
+fun pillarYesterdayColor(): Color = if (isDarkSurface()) PillarYesterdayDark else PillarYesterdayLight
+
+@Composable
+fun pillarRecentColor(): Color = if (isDarkSurface()) PillarRecentDark else PillarRecentLight
 
 @Composable
 fun pillarOlderColor(): Color = if (isDarkSurface()) PillarOlderDark else PillarOlderLight
@@ -219,11 +241,23 @@ fun pillarOlderColor(): Color = if (isDarkSurface()) PillarOlderDark else Pillar
  *
  * 需要你处理 is not here: its label has always been `statusColor(StatusTone.WARN)`, the deep text
  * amber, which is already the readable grade of the graphic amber its pillar uses.
+ *
+ * **昨天 gets a label pair; 前 7 天 and 更早 keep sharing one** (HG-52, 2026-09-14). HG-52 asked for
+ * three distinct PILLARS, and that is what it got. The labels do not follow, because three readable
+ * greys set as text are not three colours a reader can tell apart — they are three shades of "grey
+ * text", and splitting them would cost legibility to express a distinction nobody can see. The
+ * precedent is right above: a label already refuses to follow its own pillar when following would
+ * make it unreadable, and 定时任务's two tones take `onSurfaceVariant` outright.
+ *
+ * Light 昨天 is teal-700 `#0F766E` rather than the pillar's teal-600, by the same rule that derives
+ * light 更早: text takes the readable grade of its hue, the mark takes the drawn one.
  */
 internal val GroupLabelPinnedLight = Color(0xFF2563EB)
 internal val GroupLabelPinnedDark = Color(0xFF60A5FA)
 internal val GroupLabelTodayLight = Color(0xFF059669)
 internal val GroupLabelTodayDark = Color(0xFF34D399)
+internal val GroupLabelYesterdayLight = Color(0xFF0F766E)
+internal val GroupLabelYesterdayDark = Color(0xFF2DD4BF)
 internal val GroupLabelOlderLight = Color(0xFF64748B)
 internal val GroupLabelOlderDark = Color(0xFFCBD5E1)
 
@@ -232,6 +266,10 @@ fun groupLabelPinnedColor(): Color = if (isDarkSurface()) GroupLabelPinnedDark e
 
 @Composable
 fun groupLabelTodayColor(): Color = if (isDarkSurface()) GroupLabelTodayDark else GroupLabelTodayLight
+
+@Composable
+fun groupLabelYesterdayColor(): Color =
+    if (isDarkSurface()) GroupLabelYesterdayDark else GroupLabelYesterdayLight
 
 @Composable
 fun groupLabelOlderColor(): Color = if (isDarkSurface()) GroupLabelOlderDark else GroupLabelOlderLight

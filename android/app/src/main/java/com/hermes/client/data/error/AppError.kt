@@ -84,6 +84,11 @@ enum class AppErrorCode(val value: String) {
     // succeeded and only its delivery did not. The detail screen used to label this case
     // HR-RPC-001, a transport code that says nothing about a schedule.
     CRON_RUN_FAILED("HR-CRON-002"),
+    // The tap the user just made, as opposed to CRON_RUN_FAILED's run that already happened. Only
+    // reached when the server sent no stable code of its own — when it did, that code is shown.
+    // This replaces the blanket HR-RPC-001 the cron screens used to print for every throwable
+    // (HG-51): a transport code claimed to know a cause that had never been read off the wire.
+    CRON_ACTION_FAILED("HR-CRON-003"),
     MESSAGING_LIST_FAILED("HR-MSG-001"),
     MESSAGING_SAVE_FAILED("HR-MSG-002"),
     MESSAGING_PROFILE_CONFLICT("HR-MSG-003"),
@@ -100,6 +105,20 @@ enum class AppErrorCode(val value: String) {
      * other surface — toasts, pages, diagnostics, docs — keeps the full [value].
      */
     val compact: String get() = value.removePrefix("HR-")
+
+    companion object {
+        /**
+         * The registered code with this [value], or null.
+         *
+         * For stable codes arriving from the server: when it names something this build knows, the
+         * user gets that meaning and its explanation; when it does not — a newer Gateway, a code
+         * added after this APK shipped — the caller falls back to its own, rather than inventing a
+         * meaning for a string it cannot read. Never guess by prefix: `HR-CRON-*` is a family, not
+         * a synonym.
+         */
+        fun fromValue(value: String?): AppErrorCode? =
+            value?.let { code -> entries.firstOrNull { it.value == code } }
+    }
 }
 
 /** Language-independent error data passed from a boundary to UI/notification renderers. */

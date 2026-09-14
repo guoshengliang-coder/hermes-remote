@@ -566,15 +566,62 @@ class HermesRestApi(
     suspend fun cronRuns(jobId: String, profile: String? = null): List<CronRunDto> =
         get<CronRunsDto>("/api/cron/jobs/$jobId/runs${profileParam(profile, first = true)}").runs
 
-    /** POST a cron action (pause | resume | trigger); empty body. */
-    private suspend fun cronAction(jobId: String, action: String, profile: String?) =
+    /**
+     * Run a write (POST / PUT / DELETE) and treat its failure the way [getRaw] treats a read's.
+     *
+     * **The writes used to leave no trace of their own failures** (HG-51). Each threw a hand-built
+     * `HermesApiException(code, "<verb> failed")` — no stable code, sometimes no body — and none of
+     * them logged anything. `getRaw` is the only thing in this file that writes a `rest` line, and
+     * it only covers GET. So a user reporting that 「立即运行」 fails arrived with two diagnostic
+     * bundles totalling 562 KB in which the tap did not appear at all: 1097 REST lines, every one
+     * of them a GET.
+     *
+     * One executor rather than the same block copied into each caller — the copies are how they
+     * came to differ in the first place, `createCron` reading the body while `cronAction` did not.
+     *
+     * This makes the failure legible. It does not explain it: what the server was answering could
+     * not be learned from evidence nobody ever wrote down.
+     */
+    private suspend fun writeCall(method: String, path: String, request: Request): Unit =
         withContext(Dispatchers.IO) {
-            val body = "{}".toRequestBody("application/json".toMediaType())
-            val path = "/api/cron/jobs/$jobId/$action${profileParam(profile, first = true)}"
-            restCall(builder(path).post(body).build()).execute().use { resp ->
-                if (!resp.isSuccessful) throw HermesApiException(resp.code, "$action failed")
+            val startedAt = System.currentTimeMillis()
+            val response = try {
+                restCall(request).execute()
+            } catch (error: Throwable) {
+                val elapsed = System.currentTimeMillis() - startedAt
+                com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                    "$method $path ✗ ${error.javaClass.simpleName}: ${error.message} (${elapsed}ms)"
+                }
+                throw error
+            }
+            response.use { resp ->
+                val elapsed = System.currentTimeMillis() - startedAt
+                val body = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) {
+                    com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                        "$method $path ← ${resp.code} (${elapsed}ms) ${body.take(200)}"
+                    }
+                    val stableCode = runCatching {
+                        json.decodeFromString<AccountErrorEnvelopeDto>(body).error.code
+                    }.getOrNull()
+                    throw HermesApiException(
+                        code = resp.code,
+                        message = stableCode ?: body.ifBlank { "HTTP ${resp.code}" },
+                        errorCode = stableCode,
+                    )
+                }
+                com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                    "$method $path ← ${resp.code} (${elapsed}ms)"
+                }
             }
         }
+
+    /** POST a cron action (pause | resume | trigger); empty body. */
+    private suspend fun cronAction(jobId: String, action: String, profile: String?) {
+        val body = "{}".toRequestBody("application/json".toMediaType())
+        val path = "/api/cron/jobs/$jobId/$action${profileParam(profile, first = true)}"
+        writeCall("POST", path, builder(path).post(body).build())
+    }
 
     suspend fun pauseCron(jobId: String, profile: String? = null) = cronAction(jobId, "pause", profile)
     suspend fun resumeCron(jobId: String, profile: String? = null) = cronAction(jobId, "resume", profile)
@@ -601,13 +648,8 @@ class HermesRestApi(
             }
             val payload = json.encodeToString(JsonObject.serializer(), obj)
                 .toRequestBody("application/json".toMediaType())
-            restCall(builder("/api/cron/jobs${profileParam(profile, first = true)}").post(payload).build())
-                .execute().use { resp ->
-                    if (!resp.isSuccessful) {
-                        val body = resp.body?.string().orEmpty().take(160)
-                        throw HermesApiException(resp.code, "create cron failed: $body")
-                    }
-                }
+            val path = "/api/cron/jobs${profileParam(profile, first = true)}"
+            writeCall("POST", path, builder(path).post(payload).build())
         }
 
     suspend fun updateCron(
@@ -625,20 +667,13 @@ class HermesRestApi(
             }
             val payload = json.encodeToString(JsonObject.serializer(), obj)
                 .toRequestBody("application/json".toMediaType())
-            restCall(builder("/api/cron/jobs/$jobId${profileParam(profile, first = true)}").put(payload).build())
-                .execute().use { resp ->
-                    if (!resp.isSuccessful) {
-                        val body = resp.body?.string().orEmpty().take(160)
-                        throw HermesApiException(resp.code, "update cron failed: $body")
-                    }
-                }
+            val path = "/api/cron/jobs/$jobId${profileParam(profile, first = true)}"
+            writeCall("PUT", path, builder(path).put(payload).build())
         }
 
-    suspend fun deleteCron(jobId: String, profile: String? = null) = withContext(Dispatchers.IO) {
-        restCall(builder("/api/cron/jobs/$jobId${profileParam(profile, first = true)}").delete().build())
-            .execute().use { resp ->
-                if (!resp.isSuccessful) throw HermesApiException(resp.code, "delete cron failed")
-            }
+    suspend fun deleteCron(jobId: String, profile: String? = null) {
+        val path = "/api/cron/jobs/$jobId${profileParam(profile, first = true)}"
+        writeCall("DELETE", path, builder(path).delete().build())
     }
 
     /** [days] is clamped upstream to 1-365; the UI only ever offers 7 / 30 / 90. */

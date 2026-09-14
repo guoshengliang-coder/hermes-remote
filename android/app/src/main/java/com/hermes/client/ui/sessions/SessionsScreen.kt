@@ -96,6 +96,8 @@ fun SessionsScreen(
     onOpenProjects: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
     onOpenCron: () -> Unit = {},
+    /** One scheduled job by id — the alert strip's destination when exactly one job is failing. */
+    onOpenCronJob: (String) -> Unit = {},
     onOpenMessaging: () -> Unit = {},
     onUnauthorized: () -> Unit = {},
 ) {
@@ -276,11 +278,22 @@ fun SessionsScreen(
                     }
                     // One shared definition (ui/components/IncidentStrip.kt): the cron list used
                     // to draw its own full-bleed strip, which is exactly how the two drifted apart.
+                    val soleJob = health.soleStandaloneJob
                     com.hermes.client.ui.components.IncidentStrip(
                         label = label,
                         // Root cause first: when a channel is down that is where the fix is.
                         icon = if (health.hasChannelCause) Icons.Rounded.Forum else Icons.Rounded.Schedule,
-                        onClick = { if (health.hasChannelCause) onOpenMessaging() else onOpenCron() },
+                        // Where the tap lands, in order of how specific the answer can be
+                        // (HG-50, 2026-09-14): a channel outage goes to the channel, because that
+                        // is where the fix is and the jobs behind it are symptoms. Otherwise, one
+                        // failing job goes straight to that job — the list would show a single row
+                        // and ask the user to tap it again. Several go to the list, which is the
+                        // only place they can be seen together.
+                        onClick = when {
+                            health.hasChannelCause -> onOpenMessaging
+                            soleJob != null -> ({ onOpenCronJob(soleJob.jobId) })
+                            else -> onOpenCron
+                        },
                     )
                 }
                 // Reveal newly promoted 需要你处理 sessions: LazyColumn's scroll anchoring
@@ -456,10 +469,35 @@ fun SessionsScreen(
                                         }
                                     }
                                 }
+                                if (groups.yesterday.isNotEmpty()) {
+                                    item(key = "h-yesterday") {
+                                        SectionHeader(
+                                            localized(language, "昨天", "Yesterday"), groups.yesterday.size, SectionTone.YESTERDAY,
+                                            collapsed = "yesterday" in collapsed, onToggle = { toggle("yesterday") },
+                                        )
+                                    }
+                                    if ("yesterday" !in collapsed) {
+                                        items(groups.yesterday, key = { "yesterday-${it.profile.orEmpty()}:${it.id}" }) { s ->
+                                            SessionRow(
+                                                session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
+                                                runtime = vm.runtimeFor(s, runtimes),
+                                                unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
+                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
+                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
+                                                onOpen = { openExisting(s) },
+                                                onTogglePin = { vm.togglePin(s) },
+                                                onRename = { vm.rename(s, it) },
+                                                onArchive = { vm.archive(s) },
+                                                onDelete = { vm.delete(s) },
+                                                modifier = Modifier.animateItem(),
+                                            )
+                                        }
+                                    }
+                                }
                                 if (groups.week.isNotEmpty()) {
                                     item(key = "h-week") {
                                         SectionHeader(
-                                            localized(language, "前 7 天", "Previous 7 days"), groups.week.size, SectionTone.OLDER,
+                                            localized(language, "前 7 天", "Previous 7 days"), groups.week.size, SectionTone.RECENT,
                                             collapsed = "week" in collapsed, onToggle = { toggle("week") },
                                         )
                                     }

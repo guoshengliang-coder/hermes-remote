@@ -109,4 +109,94 @@ class ImageGridLayoutTest {
         assertEquals(30f, box.height.value, 0.5f)
         assertTrue(box.width.value > 0f)
     }
+
+    // ---- Multi-image grid (HG-43) -------------------------------------------------------------
+    // The grid had no test at all while it was cropping; these arrived with the shared-ratio grid
+    // that replaced it. The cell width below is the bubble split in two with the 6dp gap removed.
+
+    private val cellW = (bubbleW - 6.dp) / 2
+
+    @Test
+    fun theGridTakesTheMedianRatioOfItsImages() {
+        // 1.0 / 1.5 / 2.0 → the middle one.
+        val aspect = gridCellAspect(listOf(1000 to 1000, 1500 to 1000, 2000 to 1000))
+        assertEquals(1.5f, aspect, 0.001f)
+    }
+
+    /** Even count takes the LOWER middle: a slightly tall cell mats, a short one cannot. */
+    @Test
+    fun anEvenCountTakesTheLowerOfTheTwoMiddleRatios() {
+        val aspect = gridCellAspect(listOf(1000 to 1000, 1200 to 1000, 1600 to 1000, 1800 to 1000))
+        assertEquals(1.2f, aspect, 0.001f)
+    }
+
+    /** One outlier must not set the shape of the group — that is the whole point of a median. */
+    @Test
+    fun oneOutlierDoesNotDragTheGrid() {
+        val withoutIt = gridCellAspect(listOf(750 to 1000, 800 to 1000, 820 to 1000))
+        val withIt = gridCellAspect(listOf(750 to 1000, 800 to 1000, 820 to 1000, 4000 to 400))
+        assertEquals(0.8f, withoutIt, 0.001f)
+        assertEquals(0.8f, withIt, 0.001f)
+    }
+
+    @Test
+    fun imagesWhoseSizeIsNotKnownYetDoNotVote() {
+        val aspect = gridCellAspect(listOf(0 to 0, 1800 to 1000, 0 to 0))
+        assertEquals(1.8f, aspect, 0.001f)
+    }
+
+    /** All unknown is the square the grid used to be — the right shape to hold while they arrive. */
+    @Test
+    fun aGridOfUnknownSizesIsSquare() {
+        assertEquals(1f, gridCellAspect(listOf(0 to 0, 0 to 0)), 0.001f)
+        assertEquals(1f, gridCellAspect(emptyList()), 0.001f)
+    }
+
+    @Test
+    fun theSharedRatioIsClampedAtBothEnds() {
+        // A group of panoramas, and a group of very tall screenshots.
+        assertEquals(1.9f, gridCellAspect(listOf(4000 to 400, 5000 to 400)), 0.001f)
+        assertEquals(0.6f, gridCellAspect(listOf(400 to 4000, 400 to 5000)), 0.001f)
+    }
+
+    /**
+     * The reported case: photographed cards, around 1.6 wide. Here the shared ratio is what
+     * actually sets the height, and the cell is the shape of the pictures in it.
+     */
+    @Test
+    fun aLandscapeGroupGetsACellShapedLikeItsImages() {
+        val height = gridCellHeight(cellW, 1.6f)
+        assertEquals(cellW.value / 1.6f, height.value, 0.5f)
+        assertTrue(height.value < 108f)
+    }
+
+    /**
+     * **The ceiling bites before the ratio does for anything squarer than ~1.4**, because a cell is
+     * about 149dp wide on a 411dp screen. So a square or portrait group gets a 149×108 cell and its
+     * images are matted left and right rather than being made taller.
+     *
+     * That is the cost of this design, stated rather than discovered: a uniform grid of complete
+     * images has to mat whatever does not match the cell, and the product asked for smaller cells
+     * in the same breath as complete ones. The alternative — letting a portrait group grow to
+     * ~249dp per row — is the screen real estate HG-43 explicitly wanted back.
+     */
+    @Test
+    fun aSquareOrPortraitGroupIsCappedByTheCeilingNotItsRatio() {
+        assertEquals(108f, gridCellHeight(cellW, 1f).value, 0.5f)
+        assertEquals(108f, gridCellHeight(cellW, 0.6f).value, 0.5f)
+    }
+
+    /** Wide ones hit the touch-target floor rather than becoming an unaimable strip. */
+    @Test
+    fun aWideGridCellStopsAtTheTouchFloor() {
+        assertEquals(44f, gridCellHeight(cellW, 12f).value, 0.5f)
+    }
+
+    /** The cell is smaller than the 132dp it replaced whatever the group's shape (HG-43). */
+    @Test
+    fun noGridCellIsTallerThanTheOldFixedHeight() {
+        listOf(0.5f, 0.8f, 1f, 1.5f, 2f, 3f).forEach { aspect ->
+            assertTrue("aspect $aspect", gridCellHeight(cellW, aspect).value <= 108f)
+        }
+    }
 }

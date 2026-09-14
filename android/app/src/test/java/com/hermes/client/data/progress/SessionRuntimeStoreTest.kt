@@ -722,4 +722,85 @@ class SessionRuntimeStoreTest {
         store.setAppInForeground(true)
         assertEquals(SessionRunPhase.IDLE, store.runtimes.value.getValue(key).phase)
     }
+
+    // ---- Image hydration (HG-44) --------------------------------------------------------------
+    // A message parsed out of REST history carries a remote path and no local file, which the
+    // bubble draws as a waiting mark. Hydration downloads the file and merges it back in. None of
+    // this had a test, which is how the merge came to be keyed on something that does not survive
+    // the trip.
+
+    private fun withImage(id: String, vararg images: com.hermes.client.domain.ChatImage) =
+        ChatMessage(id = id, role = Role.USER, text = "图", images = images.toList())
+
+    private fun remoteImage(id: String) = com.hermes.client.domain.ChatImage(
+        id = id,
+        mimeType = "image/jpeg",
+        remotePath = "/Users/someone/$id.jpg",
+    )
+
+    /**
+     * The HG-44 regression, stated exactly.
+     *
+     * `acceptHistory` runs `alignMessageIds`, which rewrites a REST row's `h-*` id to the local
+     * `u-*` it corresponds to. The network path hydrated the list it had FETCHED — the pre-rewrite
+     * one — so the hydrated messages still said `h-*`. Matching on message id therefore missed
+     * every time and the downloaded file was dropped in silence: images visible while the message
+     * was live, three waiting marks forever after the first reconcile replaced it.
+     */
+    @Test fun hydratedImagesLandEvenAfterTheMessageIdWasRewritten() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("s-img", "personal")
+        // Something local on screen first — that is what makes alignMessageIds rewrite the id.
+        fixture.store.acceptCachedHistory(key, listOf(withImage("u-1", remoteImage("img-1"))))
+        fixture.store.acceptHistory(
+            key,
+            listOf(withImage("h-0-1", remoteImage("img-1"))),
+            System.currentTimeMillis(),
+        )
+        val onScreenId = fixture.store.messagesFor(key).single().id
+
+        // Hydration of the PRE-alignment list: still `h-0-1`, which is no longer on screen.
+        fixture.store.acceptHydratedImages(
+            key,
+            listOf(withImage("h-0-1", remoteImage("img-1").copy(localPath = "/cache/shot.jpg"))),
+        )
+
+        assertEquals("u-1", onScreenId)
+        assertEquals(
+            "/cache/shot.jpg",
+            fixture.store.messagesFor(key).single().images.single().localPath,
+        )
+    }
+
+    /** A hydrate that failed comes back with no file and must not erase one already in hand. */
+    @Test fun aFailedHydrateDoesNotBlankAnImageThatAlreadyHasItsFile() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("s-img", "personal")
+        val ready = remoteImage("img-1").copy(localPath = "/cache/shot.jpg")
+        fixture.store.acceptHistory(key, listOf(withImage("u-1", ready)), System.currentTimeMillis())
+
+        fixture.store.acceptHydratedImages(key, listOf(withImage("u-1", remoteImage("img-1"))))
+
+        assertEquals(
+            "/cache/shot.jpg",
+            fixture.store.messagesFor(key).single().images.single().localPath,
+        )
+    }
+
+    /** Only the image that resolved changes; its neighbours in the same message are untouched. */
+    @Test fun hydrationTouchesOnlyTheImagesItResolved() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("s-img", "personal")
+        val message = withImage("u-1", remoteImage("img-1"), remoteImage("img-2"), remoteImage("img-3"))
+        fixture.store.acceptHistory(key, listOf(message), System.currentTimeMillis())
+
+        fixture.store.acceptHydratedImages(
+            key,
+            listOf(withImage("u-1", remoteImage("img-2").copy(localPath = "/cache/two.jpg"))),
+        )
+
+        val images = fixture.store.messagesFor(key).single().images
+        assertEquals(listOf(null, "/cache/two.jpg", null), images.map { it.localPath })
+        assertEquals(listOf("img-1", "img-2", "img-3"), images.map { it.id })
+    }
 }

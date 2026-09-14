@@ -120,7 +120,11 @@ class ChatImageLayoutTest {
             assertEquals("cell $i width", firstWidth, width, 0.5f)
             assertEquals("cell $i height", firstHeight, height, 0.5f)
         }
-        assertEquals(132f, firstHeight, 0.5f)
+        // Identical cells is the part of this contract that survived HG-43; the 132dp it used to
+        // assert did not. Cells now take the group's median ratio, capped at 108dp — and this
+        // mixed group is portrait-leaning, so the cap is what sets the height.
+        // `ImageGridLayoutTest` pins the arithmetic; this pins that it reaches the screen.
+        assertEquals(108f, firstHeight, 0.5f)
     }
 
     @Test

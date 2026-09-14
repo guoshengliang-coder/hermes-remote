@@ -118,7 +118,13 @@ class CronEditViewModel @Inject constructor(
                         loading = false,
                     )
                 }
-                .onFailure { _state.value = _state.value.copy(loading = false, message = localizedText("加载失败（HR-RPC-001）", "Load failed (HR-RPC-001)")) }
+                // The code comes from the failure, not from a literal typed into the string (HG-51).
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        loading = false,
+                        message = cronFailureText("加载失败", "Load failed", error),
+                    )
+                }
         }
     }
 
@@ -141,7 +147,7 @@ class CronEditViewModel @Inject constructor(
             if (s.isNew) tools.createCron(s.prompt, cron, s.name, s.deliver, profile)
             else tools.updateCron(jobId, s.prompt, cron, s.name, s.deliver, profile)
         }.onSuccess { _state.value = s.copy(saved = true) }
-            .onFailure { _state.value = s.copy(message = localizedText("保存失败（HR-RPC-001）", "Save failed (HR-RPC-001)")) }
+            .onFailure { error -> _state.value = s.copy(message = cronFailureText("保存失败", "Save failed", error)) }
     }
 
     fun clearMessage() { _state.value = _state.value.copy(message = null) }
