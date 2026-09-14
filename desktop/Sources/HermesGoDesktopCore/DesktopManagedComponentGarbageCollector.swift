@@ -97,7 +97,11 @@ public struct DesktopManagedComponentGarbageCollectionPlanner: @unchecked Sendab
         guard protectedReleaseVersions.isSubset(of: Set(references.keys)) else {
             throw DesktopManagedComponentGarbageCollectionError.missingProtectedReference
         }
-        let referenced = Set(references.values.flatMap { $0 })
+        let capabilityReferences = try readCapabilityReferences(
+            baseReleaseVersions: Set(references.keys),
+            snapshot: &snapshot
+        )
+        let referenced = Set(references.values.flatMap { $0 }).union(capabilityReferences)
         let inventory = try readComponents(snapshot: &snapshot)
         guard referenced.isSubset(of: Set(inventory.keys)) else {
             throw DesktopManagedComponentGarbageCollectionError.missingReferencedComponent
@@ -166,6 +170,72 @@ public struct DesktopManagedComponentGarbageCollectionPlanner: @unchecked Sendab
             snapshot.update(data: Data("R\0\(filename)\0".utf8))
             snapshot.update(data: data)
             snapshot.update(data: Data([0]))
+        }
+        return result
+    }
+
+    private func readCapabilityReferences(
+        baseReleaseVersions: Set<String>,
+        snapshot: inout SHA256
+    ) throws -> Set<DesktopManagedComponentIdentity> {
+        let directory = root.appendingPathComponent(
+            "capability-references", isDirectory: true
+        )
+        guard fileManager.fileExists(atPath: directory.path) else {
+            if try isSymbolicLink(directory) {
+                throw DesktopManagedComponentGarbageCollectionError.unsafeStore
+            }
+            return []
+        }
+        try requireOwnedObject(directory, kind: .privateDirectory)
+        let releaseDirectories = try contents(of: directory)
+        guard releaseDirectories.count <= Self.maximumReferences else {
+            throw DesktopManagedComponentGarbageCollectionError.storeTooLarge
+        }
+        let capabilityKinds: Set<DesktopManagedComponentKind> = [
+            .browserAutomation, .speechRuntime, .documentTools,
+        ]
+        var result: Set<DesktopManagedComponentIdentity> = []
+        for releaseDirectory in releaseDirectories.sorted(by: {
+            $0.lastPathComponent < $1.lastPathComponent
+        }) {
+            let releaseVersion = releaseDirectory.lastPathComponent
+            guard Self.validVersion(releaseVersion),
+                  baseReleaseVersions.contains(releaseVersion)
+            else { throw DesktopManagedComponentGarbageCollectionError.invalidReference }
+            try requireOwnedObject(releaseDirectory, kind: .privateDirectory)
+            let entries = try contents(of: releaseDirectory)
+            guard !entries.isEmpty, entries.count <= capabilityKinds.count else {
+                throw DesktopManagedComponentGarbageCollectionError.invalidReference
+            }
+            for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                try requireOwnedObject(entry, kind: .privateFile)
+                let filename = entry.lastPathComponent
+                guard filename.hasSuffix(".json"),
+                      let kind = DesktopManagedComponentKind(
+                        rawValue: String(filename.dropLast(5))
+                      ),
+                      capabilityKinds.contains(kind)
+                else { throw DesktopManagedComponentGarbageCollectionError.invalidReference }
+                let data = try Data(contentsOf: entry, options: [.mappedIfSafe])
+                guard data.count <= Self.maximumReferenceBytes,
+                      let reference = try? decodeCapabilityReference(
+                        data,
+                        releaseVersion: releaseVersion,
+                        kind: kind
+                      )
+                else { throw DesktopManagedComponentGarbageCollectionError.invalidReference }
+                let identity = DesktopManagedComponentIdentity(
+                    kind: reference.component.kind,
+                    contentSHA256: reference.component.contentSHA256
+                )
+                result.insert(identity)
+                snapshot.update(data: Data(
+                    "O\0\(releaseVersion)\0\(filename)\0".utf8
+                ))
+                snapshot.update(data: data)
+                snapshot.update(data: Data([0]))
+            }
         }
         return result
     }
@@ -266,6 +336,27 @@ public struct DesktopManagedComponentGarbageCollectionPlanner: @unchecked Sendab
               reference.schemaVersion == 1,
               reference.releaseVersion == filenameVersion,
               reference.components.allSatisfy({ Self.validSHA256($0.contentSHA256) })
+        else { throw DesktopManagedComponentGarbageCollectionError.invalidReference }
+        return reference
+    }
+
+    private func decodeCapabilityReference(
+        _ data: Data,
+        releaseVersion: String,
+        kind: DesktopManagedComponentKind
+    ) throws -> DesktopManagedCapabilityReference {
+        guard let object = try? JSONSerialization.jsonObject(with: data),
+              let dictionary = object as? [String: Any],
+              Set(dictionary.keys) == ["schemaVersion", "releaseVersion", "component"],
+              let rawComponent = dictionary["component"] as? [String: Any],
+              Set(rawComponent.keys) == ["kind", "contentSHA256"],
+              let reference = try? JSONDecoder().decode(
+                DesktopManagedCapabilityReference.self, from: data
+              ),
+              reference.schemaVersion == 1,
+              reference.releaseVersion == releaseVersion,
+              reference.component.kind == kind,
+              Self.validSHA256(reference.component.contentSHA256)
         else { throw DesktopManagedComponentGarbageCollectionError.invalidReference }
         return reference
     }

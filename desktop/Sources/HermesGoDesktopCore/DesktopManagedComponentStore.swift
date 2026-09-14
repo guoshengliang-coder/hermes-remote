@@ -18,6 +18,7 @@ public enum DesktopManagedComponentStoreError: Error, Equatable, Sendable {
     case workspaceAlreadyExists
     case componentConflict
     case referenceConflict
+    case missingReleaseReference
     case cleanupFailed
 }
 
@@ -276,6 +277,22 @@ public struct DesktopManagedComponentReferenceSet: Codable, Equatable, Sendable 
     }
 }
 
+public struct DesktopManagedCapabilityReference: Codable, Equatable, Sendable {
+    public let schemaVersion: Int
+    public let releaseVersion: String
+    public let component: DesktopManagedComponentReference
+
+    public init(
+        schemaVersion: Int = 1,
+        releaseVersion: String,
+        component: DesktopManagedComponentReference
+    ) {
+        self.schemaVersion = schemaVersion
+        self.releaseVersion = releaseVersion
+        self.component = component
+    }
+}
+
 /// Atomically commits one already verified component container. The final move carries content and
 /// receipt together, so a power loss cannot expose one without the other. Release references are
 /// written separately and idempotently; later garbage collection may retain every referenced hash.
@@ -448,6 +465,75 @@ public final class DesktopManagedComponentStoreWriter: @unchecked Sendable {
         }
     }
 
+    public func recordCapabilityReference(
+        releaseVersion: String,
+        receipt: DesktopManagedComponentReceipt,
+        runID: String
+    ) throws -> URL {
+        let capabilityKinds: Set<DesktopManagedComponentKind> = [
+            .browserAutomation, .speechRuntime, .documentTools,
+        ]
+        guard UUID(uuidString: runID) != nil,
+              releaseVersion.range(
+                of: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+                options: .regularExpression
+              ) != nil,
+              receipt.schemaVersion == 1,
+              capabilityKinds.contains(receipt.kind)
+        else { throw DesktopManagedComponentStoreError.invalidReceipt }
+        let requirement = DesktopManagedComponentRequirement(
+            kind: receipt.kind,
+            version: receipt.version,
+            architecture: receipt.architecture,
+            downloadBytes: 1,
+            installPhase: .onDemand,
+            reusePolicy: .exactContent(sha256: receipt.contentSHA256)
+        )
+        _ = try requireExisting(requirement) { _ in true }
+        let reference = DesktopManagedCapabilityReference(
+            releaseVersion: releaseVersion,
+            component: DesktopManagedComponentReference(
+                kind: receipt.kind,
+                contentSHA256: receipt.contentSHA256
+            )
+        )
+        try requireReleaseReference(releaseVersion)
+        let referencesRoot = root.appendingPathComponent(
+            "capability-references", isDirectory: true
+        )
+        let releaseRoot = referencesRoot.appendingPathComponent(
+            releaseVersion, isDirectory: true
+        )
+        try preparePrivateDirectory(referencesRoot)
+        try preparePrivateDirectory(releaseRoot)
+        let destination = releaseRoot.appendingPathComponent("\(receipt.kind.rawValue).json")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(reference)
+        if fileManager.fileExists(atPath: destination.path) {
+            try requireOwnedSafeFile(destination)
+            guard let existing = try? Data(contentsOf: destination), existing == data else {
+                throw DesktopManagedComponentStoreError.referenceConflict
+            }
+            return destination
+        }
+        let temporary = releaseRoot.appendingPathComponent(
+            ".\(runID.lowercased())-\(receipt.kind.rawValue).tmp"
+        )
+        guard !fileManager.fileExists(atPath: temporary.path) else {
+            throw DesktopManagedComponentStoreError.workspaceAlreadyExists
+        }
+        do {
+            try data.write(to: temporary, options: [.withoutOverwriting])
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+            try fileManager.moveItem(at: temporary, to: destination)
+            return destination
+        } catch {
+            try? fileManager.removeItem(at: temporary)
+            throw error
+        }
+    }
+
     private func requireExisting(
         _ requirement: DesktopManagedComponentRequirement,
         healthProbe: HealthProbe
@@ -468,6 +554,38 @@ public final class DesktopManagedComponentStoreWriter: @unchecked Sendable {
         return root.appendingPathComponent(
             "components/\(requirement.kind.rawValue)/\(identity)/content", isDirectory: true
         )
+    }
+
+    private func requireReleaseReference(_ releaseVersion: String) throws {
+        let referenceURL = root.appendingPathComponent(
+            "references/\(releaseVersion).json"
+        )
+        guard fileManager.fileExists(atPath: referenceURL.path) else {
+            throw DesktopManagedComponentStoreError.missingReleaseReference
+        }
+        try requireOwnedSafeFile(referenceURL)
+        let data = try Data(contentsOf: referenceURL, options: [.mappedIfSafe])
+        guard data.count <= 64 * 1_024,
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let dictionary = object as? [String: Any],
+              Set(dictionary.keys) == ["schemaVersion", "releaseVersion", "components"],
+              let components = dictionary["components"] as? [[String: Any]],
+              !components.isEmpty,
+              components.allSatisfy({
+                  Set($0.keys) == ["kind", "contentSHA256"]
+              }),
+              let reference = try? JSONDecoder().decode(
+                DesktopManagedComponentReferenceSet.self, from: data
+              ),
+              reference.schemaVersion == 1,
+              reference.releaseVersion == releaseVersion,
+              Set(reference.components.map(\.kind)).count == reference.components.count,
+              reference.components.allSatisfy({
+                  $0.contentSHA256.range(
+                    of: "^[0-9a-f]{64}$", options: .regularExpression
+                  ) != nil
+              })
+        else { throw DesktopManagedComponentStoreError.referenceConflict }
     }
 
     private func preparePrivateDirectory(_ value: URL) throws {
