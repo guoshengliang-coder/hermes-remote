@@ -129,6 +129,10 @@ The current automated suite covers:
   restarts and proves the new Hermes runtime, restores the exact previous plist and re-proves the old
   runtime on failure, and invokes the capability retry exactly once without rolling back a healthy
   activation when that retry itself fails;
+- active optional-component resolution preserves previously referenced managed capabilities across a
+  later independent trigger, revalidates each identity, receipt, content tree, entrypoint, and health
+  probe against the signed release, and retains a current external browser only when its exact
+  owner-only LaunchAgent path passes a fresh signed-compatibility scan;
 - fixed-path external-environment scanning reports Python/Node without trusting version-only reuse,
   resolves Homebrew-style runtime symlinks for reporting only, admits a safe architecture-matched
   system browser only after an explicit compatibility probe, and rejects browser symlinks,

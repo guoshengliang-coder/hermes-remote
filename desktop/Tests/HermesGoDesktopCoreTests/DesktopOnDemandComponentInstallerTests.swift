@@ -417,6 +417,141 @@ final class DesktopOnDemandComponentInstallerTests: XCTestCase {
         XCTAssertEqual(requested, [])
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.workspace.path))
     }
+
+    func testActiveResolverKeepsReferencedDocumentWhenBrowserIsInstalledLater() async throws {
+        let fixture = try OnDemandFixture(browserDependsOnDocument: false)
+        defer { fixture.remove() }
+        try await fixture.installBase()
+        let installer = try fixture.installer(
+            downloader: OnDemandDownloader(), scanner: OnDemandScanner()
+        )
+        _ = try await installer.install(
+            verifiedManifest: fixture.verifiedManifest,
+            trigger: "document.use",
+            workspaceRoot: fixture.workspace,
+            runID: "19000000-0000-4000-8000-000000000019",
+            healthProbe: fixture.executableProbe
+        )
+        let browser = try await installer.install(
+            verifiedManifest: fixture.verifiedManifest,
+            trigger: "browser.use",
+            workspaceRoot: fixture.workspace,
+            runID: "19100000-0000-4000-8000-000000000019",
+            healthProbe: fixture.executableProbe
+        )
+        let resolver = try DesktopActiveOnDemandComponentResolver(
+            verifiedManifest: fixture.verifiedManifest,
+            storeRoot: fixture.store,
+            currentUserID: Darwin.getuid(),
+            externalScanner: OnDemandScanner()
+        )
+
+        let resolved = try resolver.resolve(
+            installed: browser,
+            hermesLaunchAgentURL: fixture.base.appendingPathComponent("unused.plist"),
+            healthProbe: fixture.executableProbe
+        )
+
+        XCTAssertEqual(resolved.map(\.kind), [.browserAutomation, .documentTools])
+    }
+
+    func testActiveResolverRetainsOnlyFreshlyRevalidatedExternalBrowser() async throws {
+        let fixture = try OnDemandFixture(browserDependsOnDocument: false)
+        defer { fixture.remove() }
+        try await fixture.installBase()
+        let browser = fixture.base.appendingPathComponent("system-chromium")
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: browser)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700], ofItemAtPath: browser.path
+        )
+        let candidate = DesktopManagedComponentCandidate(
+            kind: .browserAutomation,
+            version: "126.0.6478",
+            architecture: "arm64",
+            source: .external,
+            compatibilityIdentifier: "playwright-system-chromium-v1",
+            healthProbePassed: true
+        )
+        let scan = DesktopExternalEnvironmentScan(observations: [
+            DesktopExternalEnvironmentObservation(
+                kind: .browserAutomation,
+                executableURL: browser,
+                version: candidate.version,
+                architecture: candidate.architecture,
+                status: .reusable,
+                candidate: candidate
+            ),
+        ])
+        let installer = try fixture.installer(
+            downloader: OnDemandDownloader(), scanner: OnDemandScanner(result: scan)
+        )
+        _ = try await installer.install(
+            verifiedManifest: fixture.verifiedManifest,
+            trigger: "browser.use",
+            workspaceRoot: fixture.workspace,
+            runID: "19200000-0000-4000-8000-000000000019",
+            healthProbe: fixture.executableProbe
+        )
+        let document = try await installer.install(
+            verifiedManifest: fixture.verifiedManifest,
+            trigger: "document.use",
+            workspaceRoot: fixture.workspace,
+            runID: "19300000-0000-4000-8000-000000000019",
+            healthProbe: fixture.executableProbe
+        )
+        let launchAgent = fixture.base.appendingPathComponent("hermes.plist")
+        let plist = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "Label": "com.hermes.test",
+                "EnvironmentVariables": [
+                    "AGENT_BROWSER_EXECUTABLE_PATH": browser.path,
+                ],
+            ],
+            format: .xml,
+            options: 0
+        )
+        try plist.write(to: launchAgent)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: launchAgent.path
+        )
+        let resolver = try DesktopActiveOnDemandComponentResolver(
+            verifiedManifest: fixture.verifiedManifest,
+            storeRoot: fixture.store,
+            currentUserID: Darwin.getuid(),
+            externalScanner: OnDemandScanner(result: scan)
+        )
+
+        let resolved = try resolver.resolve(
+            installed: document,
+            hermesLaunchAgentURL: launchAgent,
+            healthProbe: fixture.executableProbe
+        )
+
+        XCTAssertEqual(resolved, [
+            DesktopResolvedOnDemandComponent(
+                kind: .browserAutomation,
+                location: .external(executable: browser)
+            ),
+            document.components[0],
+        ])
+
+        let staleResolver = try DesktopActiveOnDemandComponentResolver(
+            verifiedManifest: fixture.verifiedManifest,
+            storeRoot: fixture.store,
+            currentUserID: Darwin.getuid(),
+            externalScanner: OnDemandScanner()
+        )
+        XCTAssertThrowsError(try staleResolver.resolve(
+            installed: document,
+            hermesLaunchAgentURL: launchAgent,
+            healthProbe: fixture.executableProbe
+        )) {
+            XCTAssertEqual(
+                $0 as? DesktopActiveOnDemandComponentResolutionError,
+                .invalidExternalCandidate
+            )
+        }
+    }
 }
 
 private func assertAsyncError<T>(

@@ -364,9 +364,18 @@ operation lease and only for the exact `account_active` base release with both m
 loaded. It atomically replaces the Hermes LaunchAgent, restarts Hermes alone, and requires a fresh
 readiness marker plus healthy loopback status. A failed activation restores the exact prior plist and
 re-proves the old Hermes service after any stop; a successful activation permits one caller-supplied
-capability retry. The caller must supply the complete active optional-component set so a later trigger
-does not remove an earlier capability. Production trigger wiring and that durable aggregation remain
-outside this local primitive.
+capability retry. Its original interface required the complete active optional-component set so a
+later trigger could not remove an earlier capability; the resolver below now owns that aggregation.
+
+The default-inert active-component resolver supplies that aggregation boundary. It accepts the
+verifier-only manifest token and the exact component closure returned for the current trigger, then
+revalidates all managed capability references for that base release against signed identities,
+owner-only receipts, full content hashes, executable entrypoints, and bounded health probes. A
+currently configured external browser is retained only when its exact LaunchAgent path passes the
+signed compatibility rule and a fresh allowlisted scan. The activation transaction owns the resolver
+and calls it under the migration operation lease before preparing a replacement LaunchAgent; an
+external caller can no longer supply an arbitrary active-component array. Production signal-to-trigger
+wiring and the enclosing install/activate coordinator remain separate.
 
 Before that transaction, the local component preflight coordinator accepts the same verifier-only
 token and combines rehashed managed-store candidates with allowlisted external observations. It emits
