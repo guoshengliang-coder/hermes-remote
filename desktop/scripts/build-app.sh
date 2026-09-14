@@ -41,6 +41,15 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 install -m 755 "$bin_dir/HermesGoDesktop" "$app/Contents/MacOS/HermesGoDesktop"
 install -m 644 "$desktop_dir/Packaging/Info.plist" "$app/Contents/Info.plist"
 
+if [ "$(plutil -extract CFBundleIconFile raw "$app/Contents/Info.plist")" != "AppIcon" ]; then
+  echo "Packaged Desktop app must declare AppIcon as its bundle icon." >&2
+  exit 1
+fi
+if [ "$(plutil -extract LSUIElement raw "$app/Contents/Info.plist")" != "false" ]; then
+  echo "Packaged Desktop app must remain visible in the Dock." >&2
+  exit 1
+fi
+
 if [ -n "${HERMES_GO_ACCOUNT_GATEWAY_URL:-}" ]; then
   plutil -replace HermesGoAccountGatewayURL -string "$HERMES_GO_ACCOUNT_GATEWAY_URL" "$app/Contents/Info.plist"
 fi
@@ -90,6 +99,11 @@ sips -z 512 512 "$icon_source" --out "$iconset/icon_256x256@2x.png" >/dev/null
 sips -z 512 512 "$icon_source" --out "$iconset/icon_512x512.png" >/dev/null
 sips -z 1024 1024 "$icon_source" --out "$iconset/icon_512x512@2x.png" >/dev/null
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
+
+if [ ! -s "$app/Contents/Resources/AppIcon.icns" ]; then
+  echo "Packaged Desktop app is missing its AppIcon.icns resource." >&2
+  exit 1
+fi
 
 signing_identity="${SIGNING_IDENTITY:--}"
 if [ "$signing_identity" = "-" ]; then

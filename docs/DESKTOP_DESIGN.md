@@ -6,8 +6,11 @@ conventions.
 
 ## Product form
 
-- A menu-bar utility with a reopenable main window.
+- A standard macOS app with its canonical icon visible in the Dock while it runs, plus a menu-bar
+  utility with a reopenable main window.
 - Closing the main window does not stop the Connector.
+- Users can choose Dock's native “Keep in Dock” option if they want the app to remain there after it
+  quits; the app does not change personal Dock preferences automatically.
 - The main window uses a fixed desktop sidebar: Overview, Diagnostics, Logs, Account & Devices,
   Settings. Legacy pairing is nested inside Account & Devices.
 - Phase 0 is visibly labeled **compatibility observation mode** so it cannot be mistaken for Agent
@@ -111,7 +114,8 @@ The only app-icon source of truth is
 `android/app/src/main/ic_launcher-playstore.png`. The macOS app, DMG, sidebar identity, menu-bar
 identity, About page, and QR center mark use that artwork without redrawing or recoloring it.
 `desktop/Packaging/AppIcon.png` is a synchronized packaging copy, and the packaging gate fails if it
-drifts from the canonical source.
+drifts from the canonical source. The packaged app declares `CFBundleIconFile=AppIcon` and is not an
+`LSUIElement` agent, so the running app is represented by this icon in the Dock.
 
 ### Menu-bar status glyph
 
