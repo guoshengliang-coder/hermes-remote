@@ -145,7 +145,11 @@ public final class DesktopOptionalComponentRuntimeWriter: @unchecked Sendable {
             }
             try fileManager.setAttributes([.posixPermissions: 0o500], ofItemAtPath: staging.path)
             if Darwin.rename(staging.path, destination.path) != 0 {
+                let renameError = errno
                 guard fileManager.fileExists(atPath: destination.path) else {
+                    #if DEBUG
+                    fputs("DesktopOptionalComponentRuntime rename errno=\(renameError)\n", stderr)
+                    #endif
                     throw DesktopOptionalComponentRuntimeError.persistenceFailed
                 }
                 try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staging.path)
