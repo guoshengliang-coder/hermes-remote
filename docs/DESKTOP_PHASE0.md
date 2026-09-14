@@ -407,6 +407,16 @@ a schema-2 file missing it, an unknown value, or an unknown schema is rejected. 
 behavior remains unchanged, and no install action, service, production configuration, or release is
 changed by this slice.
 
+C5's tenth default-unwired slice supplies the concrete v2 migration adapter. Before binding or local
+persistence it binds the schema-v2 manifest to the exact content-addressed activation plan, then reuses
+the existing operation lock, account binding, Hermes-first startup, local and cloud health proofs,
+remote confirmation, and rollback transaction. Component migration writes LaunchAgents only after
+rehashing their exact component roots and validates the token-file completion marker against those
+same entrypoints. It never stages a bundled release, creates a version directory, or switches `current`.
+Rollback and interrupted recovery consult the durable layout field, so component runs preserve any
+unrelated bundled `current` while historical bundled runs retain their existing deactivation behavior.
+No install button, production configuration, running service, or release is changed by this slice.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 

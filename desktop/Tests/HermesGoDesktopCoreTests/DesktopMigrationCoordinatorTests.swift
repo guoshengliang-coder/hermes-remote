@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import XCTest
 @testable import HermesGoDesktopCore
@@ -86,6 +87,157 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         )
         let confirmCount = await fixture.account.confirmCount()
         XCTAssertEqual(confirmCount, 1)
+    }
+
+    func testComponentCandidateCommitsWithoutBundledReleaseActivation() async throws {
+        let fixture = try Fixture(legacyRunning: true)
+        defer { fixture.cleanup() }
+        let component = try fixture.componentRelease()
+
+        let outcome = try await fixture.coordinator.migrateComponentRelease(
+            manifest: component.manifest,
+            activationPlan: component.plan,
+            hermesLaunchAgentConfiguration: component.agents.hermes,
+            launchAgentConfiguration: component.agents.connector,
+            legacy: fixture.legacy,
+            runID: fixture.runID,
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>.confirmationText(
+                releaseVersion: component.manifest.releaseVersion
+            )
+        )
+
+        XCTAssertEqual(outcome.releaseVersion, component.manifest.releaseVersion)
+        XCTAssertEqual(try fixture.journal.load()?.state, .accountActive)
+        XCTAssertEqual(try fixture.journal.load()?.releaseLayout, .componentStore)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.currentRelease.path))
+        let bundledRelease = try fixture.layout.release(component.manifest.releaseVersion)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: bundledRelease.path
+        ))
+        XCTAssertEqual(fixture.runner.loadedLabels(), [
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
+        XCTAssertEqual(
+            try fixture.environment(at: fixture.layout.hermesLaunchAgent)[
+                "HERMES_PYTHON_RUNTIME_ROOT"
+            ],
+            component.plan.component(.pythonRuntime)?.root.path
+        )
+        XCTAssertEqual(
+            try fixture.environment(at: fixture.layout.connectorLaunchAgent)[
+                "HERMES_NODE_RUNTIME_ROOT"
+            ],
+            component.plan.component(.nodeRuntime)?.root.path
+        )
+        XCTAssertEqual(
+            fixture.serviceMutations().filter { $0.hasPrefix("bootstrap:") },
+            [
+                "bootstrap:\(DesktopManagedInstallLayout.hermesLabel)",
+                "bootstrap:\(DesktopManagedInstallLayout.connectorLabel)",
+            ]
+        )
+    }
+
+    func testComponentCandidateFailureRestoresLegacyWithoutChangingCurrentRelease() async throws {
+        let fixture = try Fixture(legacyRunning: true, failAccountStart: true)
+        defer { fixture.cleanup() }
+        let component = try fixture.componentRelease()
+        let bundledVersion = fixture.manifest.releaseVersion
+        let bundledRelease = try fixture.layout.release(bundledVersion)
+        try FileManager.default.createDirectory(at: bundledRelease, withIntermediateDirectories: true)
+        _ = try fixture.installer.activate(releaseVersion: bundledVersion, runID: fixture.runID)
+
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.migrateComponentRelease(
+            manifest: component.manifest,
+            activationPlan: component.plan,
+            hermesLaunchAgentConfiguration: component.agents.hermes,
+            launchAgentConfiguration: component.agents.connector,
+            legacy: fixture.legacy,
+            runID: fixture.runID,
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>.confirmationText(
+                releaseVersion: component.manifest.releaseVersion
+            )
+        )) { error in
+            XCTAssertEqual(error as? DesktopLaunchAgentControllerError, .accountStartFailed)
+        }
+
+        XCTAssertEqual(try fixture.journal.load()?.state, .legacyActive)
+        XCTAssertEqual(try fixture.journal.load()?.releaseLayout, .componentStore)
+        XCTAssertEqual(fixture.runner.loadedLabels(), ["com.hermesremote.connector"])
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(
+                atPath: fixture.layout.currentRelease.path
+            ),
+            "releases/\(bundledVersion)"
+        )
+    }
+
+    func testInterruptedComponentRecoveryDoesNotDeactivateBundledCurrentRelease() async throws {
+        let fixture = try Fixture(legacyRunning: true)
+        defer { fixture.cleanup() }
+        let bundledVersion = fixture.manifest.releaseVersion
+        let bundledRelease = try fixture.layout.release(bundledVersion)
+        try FileManager.default.createDirectory(at: bundledRelease, withIntermediateDirectories: true)
+        _ = try fixture.installer.activate(releaseVersion: bundledVersion, runID: fixture.runID)
+        _ = try fixture.journal.begin(
+            runID: fixture.runID,
+            lastKnownGoodMode: .legacy,
+            releaseVersion: bundledVersion,
+            releaseLayout: .componentStore,
+            bindingID: fixture.bindingID,
+            bindingGeneration: 1
+        )
+        _ = try fixture.journal.transition(runID: fixture.runID, to: .accountStaged)
+        _ = try fixture.journal.transition(runID: fixture.runID, to: .candidateStarting)
+        fixture.runner.replaceLoaded(with: [
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
+
+        let recovered = try await fixture.coordinator.recoverInterrupted(
+            legacy: fixture.legacy,
+            runID: fixture.runID
+        )
+
+        XCTAssertEqual(recovered, .legacyActive)
+        XCTAssertEqual(fixture.runner.loadedLabels(), ["com.hermesremote.connector"])
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(
+                atPath: fixture.layout.currentRelease.path
+            ),
+            "releases/\(bundledVersion)"
+        )
+    }
+
+    func testComponentManifestAndActivationPlanMismatchFailsBeforeMutation() async throws {
+        let fixture = try Fixture(legacyRunning: false)
+        defer { fixture.cleanup() }
+        let manifestComponent = try fixture.componentRelease(releaseVersion: "2.0.0")
+        let planComponent = try fixture.componentRelease(releaseVersion: "2.0.1")
+
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.migrateComponentRelease(
+            manifest: manifestComponent.manifest,
+            activationPlan: planComponent.plan,
+            hermesLaunchAgentConfiguration: planComponent.agents.hermes,
+            launchAgentConfiguration: planComponent.agents.connector,
+            legacy: fixture.legacy,
+            runID: fixture.runID,
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>.confirmationText(
+                releaseVersion: manifestComponent.manifest.releaseVersion
+            )
+        )) { error in
+            XCTAssertEqual(error as? DesktopComponentReleaseActivationError, .invalidManifest)
+        }
+
+        let beginCount = await fixture.account.beginCount()
+        XCTAssertEqual(beginCount, 0)
+        XCTAssertNil(try fixture.journal.load())
+        XCTAssertTrue(fixture.runner.events().isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.connectorCredential.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.hermesLaunchAgent.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.connectorLaunchAgent.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.currentRelease.path))
     }
 
     func testCandidateStartFailureAutomaticallyRestoresLegacyAndCurrentPointer() async throws {
@@ -704,6 +856,120 @@ private final class Fixture {
         ])
     }
 
+    func componentRelease(
+        releaseVersion: String = "2.0.0"
+    ) throws -> (
+        manifest: DesktopComponentReleaseManifestV2,
+        plan: DesktopComponentReleaseActivationPlan,
+        agents: (
+            hermes: DesktopHermesServerLaunchAgent,
+            connector: DesktopAccountConnectorLaunchAgent
+        )
+    ) {
+        let writer = try DesktopManagedComponentStoreWriter(
+            root: layout.root,
+            currentUserID: Darwin.getuid()
+        )
+        let entrypoints: [DesktopManagedComponentKind: String] = [
+            .pythonRuntime: "bin/python3",
+            .hermesCore: "bin/hermes",
+            .nodeRuntime: "bin/node",
+            .connector: "bin/hermes-connector",
+        ]
+        var hashes: [DesktopManagedComponentKind: String] = [:]
+        for kind in [
+            DesktopManagedComponentKind.pythonRuntime, .hermesCore, .nodeRuntime, .connector,
+        ] {
+            let source = root.appendingPathComponent(
+                "component-source-\(kind.rawValue)", isDirectory: true
+            )
+            let entrypoint = source.appendingPathComponent(entrypoints[kind]!)
+            try FileManager.default.createDirectory(
+                at: entrypoint.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data("#!/bin/sh\nexit 0\n".utf8).write(to: entrypoint)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: entrypoint.path
+            )
+            let hash = try DesktopManagedComponentContentHasher()
+                .identify(directory: source).sha256
+            hashes[kind] = hash
+            _ = try writer.commit(
+                sourceDirectory: source,
+                receipt: DesktopManagedComponentReceipt(
+                    kind: kind,
+                    version: "1.2.3",
+                    architecture: "arm64",
+                    contentSHA256: hash
+                ),
+                runID: UUID().uuidString,
+                healthProbe: { _ in true }
+            )
+        }
+        let python = Self.componentArtifact(
+            kind: .pythonRuntime,
+            entrypoint: entrypoints[.pythonRuntime]!,
+            contentSHA256: hashes[.pythonRuntime]!,
+            dependencies: []
+        )
+        let hermes = Self.componentArtifact(
+            kind: .hermesCore,
+            entrypoint: entrypoints[.hermesCore]!,
+            contentSHA256: hashes[.hermesCore]!,
+            dependencies: [
+                .init(kind: .pythonRuntime, contentSHA256: hashes[.pythonRuntime]!),
+            ]
+        )
+        let node = Self.componentArtifact(
+            kind: .nodeRuntime,
+            entrypoint: entrypoints[.nodeRuntime]!,
+            contentSHA256: hashes[.nodeRuntime]!,
+            dependencies: []
+        )
+        let connector = Self.componentArtifact(
+            kind: .connector,
+            entrypoint: entrypoints[.connector]!,
+            contentSHA256: hashes[.connector]!,
+            dependencies: [
+                .init(kind: .hermesCore, contentSHA256: hashes[.hermesCore]!),
+                .init(kind: .nodeRuntime, contentSHA256: hashes[.nodeRuntime]!),
+            ]
+        )
+        let manifest = DesktopComponentReleaseManifestV2(
+            releaseVersion: releaseVersion,
+            channel: "internal",
+            architecture: "arm64",
+            minimumMacOS: "14.0",
+            createdAt: "2026-09-01T00:00:00Z",
+            expiresAt: "2026-09-20T00:00:00Z",
+            components: [python, hermes, node, connector]
+        )
+        let plan = try DesktopComponentReleaseActivationPlanner(
+            storeRoot: layout.root,
+            currentUserID: Darwin.getuid()
+        ).plan(manifest: manifest) { _, _, _ in true }
+        let configuration = try DesktopManagedBootstrapCommitConfiguration(
+            layout: layout,
+            hermesHome: root.appendingPathComponent("hermes-home"),
+            accountGatewayURL: URL(string: "https://gateway.example")!,
+            runtimeContract: .serveV1
+        )
+        return (manifest, plan, try configuration.componentLaunchAgents(for: plan))
+    }
+
+    func environment(at url: URL) throws -> [String: String] {
+        let object = try XCTUnwrap(
+            PropertyListSerialization.propertyList(
+                from: Data(contentsOf: url),
+                options: [],
+                format: nil
+            ) as? [String: Any]
+        )
+        return try XCTUnwrap(object["EnvironmentVariables"] as? [String: String])
+    }
+
     func tokenEnvironment(at url: URL) throws -> [String: String] {
         let object = try XCTUnwrap(
             PropertyListSerialization.propertyList(
@@ -764,6 +1030,30 @@ private final class Fixture {
             result.append(.init(component: component, directory: directory))
         }
         return result
+    }
+
+    private static func componentArtifact(
+        kind: DesktopManagedComponentKind,
+        entrypoint: String,
+        contentSHA256: String,
+        dependencies: [DesktopComponentReleaseDependency]
+    ) -> DesktopComponentReleaseArtifactV2 {
+        let fileName = "Hermes-Component-\(kind.rawValue)-1.2.3-arm64.tar.gz"
+        return DesktopComponentReleaseArtifactV2(
+            kind: kind,
+            version: "1.2.3",
+            architecture: "arm64",
+            installPhase: .bootstrap,
+            requiredForBootstrap: true,
+            reuseContract: .exactContent,
+            fileName: fileName,
+            entrypoint: entrypoint,
+            downloadURL: "https://downloads.example/desktop/components/\(fileName)",
+            sizeBytes: 1,
+            sha256: String(repeating: "a", count: 64),
+            contentSHA256: contentSHA256,
+            dependencies: dependencies
+        )
     }
 
     private static func manifest(releaseVersion: String) -> DesktopReleaseManifest {

@@ -156,6 +156,12 @@ The current automated suite covers:
   state transition, rejects a same-run layout change and malformed/unknown schema-layout combinations,
   reads historical schema 1 strictly as bundled-release, and atomically upgrades that legacy record on
   its next valid transition;
+- the concrete component migration adapter rejects manifest/activation-plan mismatch before binding or
+  filesystem mutation, starts the content-addressed Hermes entrypoint before Connector, commits only
+  after local and cloud health, persists `component_store`, injects the exact Python/Node roots, and
+  neither creates a bundled version directory nor changes `current`; failure and interrupted recovery
+  restore legacy service state while preserving an unrelated bundled `current`, and the existing bundled
+  recovery test still proves that a v1 candidate deactivates its expected link;
 - the component-preflight package gate is false with an empty v2 URL by default, loads only a complete
   HTTPS URL plus canonical pinned release trust inputs, keeps the schema-v1 URL separate, and rejects
   partial, malformed, credential-bearing, or ambiguous configuration;
