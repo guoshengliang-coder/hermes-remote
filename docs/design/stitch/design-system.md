@@ -121,34 +121,34 @@ typography:
     letterSpacing: 0.22px
   session-row-title:
     fontFamily: Roboto Flex
-    fontSize: 14.5px
-    fontWeight: '600'
-    lineHeight: 19.575px
-    letterSpacing: -0.145px
+    fontSize: 15.5px
+    fontWeight: '500'
+    lineHeight: 21.7px
+    letterSpacing: -0.155px
   session-row-subline:
     fontFamily: JetBrains Mono
-    fontSize: 11.5px
+    fontSize: 12px
     fontWeight: '400'
-    lineHeight: 15.525px
+    lineHeight: 16.8px
     letterSpacing: 0px
   session-row-status:
     fontFamily: Roboto Flex
-    fontSize: 11.5px
+    fontSize: 12px
     fontWeight: '500'
-    lineHeight: 15.525px
+    lineHeight: 16.8px
     letterSpacing: -0.2875px
   session-row-title-read:
     fontFamily: Roboto Flex
-    fontSize: 14.5px
-    fontWeight: '500'
-    lineHeight: 19.575px
-    letterSpacing: -0.145px
+    fontSize: 15.5px
+    fontWeight: '450'
+    lineHeight: 21.7px
+    letterSpacing: -0.155px
   session-group-header:
     fontFamily: Roboto Flex
-    fontSize: 12px
+    fontSize: 11px
     fontWeight: '600'
-    lineHeight: 16px
-    letterSpacing: -0.3px
+    lineHeight: 14.666px
+    letterSpacing: 0.55px
   session-group-count:
     fontFamily: JetBrains Mono
     fontSize: 10.5px

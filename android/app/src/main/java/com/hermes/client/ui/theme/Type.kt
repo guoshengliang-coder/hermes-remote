@@ -187,7 +187,7 @@ val HermesTypography = Typography(
  * updates two of them. Every step below is `size × this`, carried exactly and never rounded to a
  * whole sp, so the conformance fixture needs no "we rounded it" clause.
  */
-const val SessionRowLeading = 1.35f
+const val SessionRowLeading = 1.4f
 
 /**
  * `size × leading`, rounded to three decimals.
@@ -229,14 +229,14 @@ internal val ExactLineBox = TextStyle(
 
 val SessionRowTitle = TextStyle(
     fontFamily = Default,
-    fontWeight = FontWeight.SemiBold,
-    fontSize = 14.5.sp,
-    lineHeight = rowLeading(14.5f),
-    letterSpacing = (-0.145).sp,
+    fontWeight = FontWeight(500),
+    fontSize = 15.5.sp,
+    lineHeight = rowLeading(15.5f),
+    letterSpacing = (-0.155).sp,
 ).merge(ExactLineBox)
 
 /** Read rows: same step, one weight down. See [SessionRowTitle]. */
-val SessionRowTitleRead = SessionRowTitle.copy(fontWeight = FontWeight.Medium)
+val SessionRowTitleRead = SessionRowTitle.copy(fontWeight = FontWeight(450))
 
 /**
  * `project · model`. Monospaced in the mock, and this is where bundling [HermesMono] actually shows:
@@ -257,8 +257,8 @@ val SessionRowTitleRead = SessionRowTitle.copy(fontWeight = FontWeight.Medium)
 val SessionRowSubline = TextStyle(
     fontFamily = HermesMono,
     fontWeight = FontWeight.Normal,
-    fontSize = 11.5.sp,
-    lineHeight = rowLeading(11.5f),
+    fontSize = 12.sp,
+    lineHeight = rowLeading(12f),
     letterSpacing = 0.sp,
 ).merge(ExactLineBox)
 
@@ -272,8 +272,8 @@ val SessionRowSubline = TextStyle(
 val SessionRowStatus = TextStyle(
     fontFamily = Default,
     fontWeight = FontWeight.Medium,
-    fontSize = 11.5.sp,
-    lineHeight = rowLeading(11.5f),
+    fontSize = 12.sp,
+    lineHeight = rowLeading(12f),
     // `tracking-tight` is −0.025em, which happened to be exactly −0.3 at the old 12px. At 11.5 it
     // is −0.2875; carrying the rounded −0.3 would silently make this the one step that is not the
     // mock's own arithmetic.
@@ -315,9 +315,9 @@ val SessionsTopBarTitle = TextStyle(
 val SessionGroupHeader = TextStyle(
     fontFamily = Default,
     fontWeight = FontWeight.SemiBold,
-    fontSize = 12.sp,
-    lineHeight = 16.sp,
-    letterSpacing = (-0.3).sp,
+    fontSize = 11.sp,
+    lineHeight = 14.666.sp,
+    letterSpacing = 0.55.sp,
 )
 
 /** The group header's count chip: `font-mono text-[10.5px]`, 600 on the hot group, 500 elsewhere. */

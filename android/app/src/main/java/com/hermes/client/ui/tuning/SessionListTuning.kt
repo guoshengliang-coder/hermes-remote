@@ -46,19 +46,19 @@ data class SessionListTuning(
     // No per-step line height any more: the mock drives all three from ONE `leading-[…]` on the row
     // container, and it moved as one lever between pulls (1.45 → 1.35). Three separate knobs invite
     // a half-applied change, so line height is derived as `size × lineHeightMultiplier`.
-    val titleSizeSp: Float = 14.5f,
-    val titleWeightUnread: Int = 600,
-    val titleWeightRead: Int = 500,
-    val titleTrackingSp: Float = -0.145f,
-    val sublineSizeSp: Float = 11.5f,
-    val statusSizeSp: Float = 11.5f,
+    val titleSizeSp: Float = 15.5f,
+    val titleWeightUnread: Int = 500,
+    val titleWeightRead: Int = 450,
+    val titleTrackingSp: Float = -0.155f,
+    val sublineSizeSp: Float = 12f,
+    val statusSizeSp: Float = 12f,
     val statusWeight: Int = 500,
     val statusTrackingSp: Float = -0.2875f,
-    val lineHeightMultiplier: Float = 1.35f,
+    val lineHeightMultiplier: Float = 1.4f,
     // Type — the group header.
-    val headerSizeSp: Float = 12f,
+    val headerSizeSp: Float = 11f,
     val headerWeight: Int = 600,
-    val headerTrackingSp: Float = -0.3f,
+    val headerTrackingSp: Float = 0.55f,
     val headerLineHeightMultiplier: Float = 1.3333f,
     // Spacing — what makes rows feel tight or loose.
     //
@@ -67,14 +67,14 @@ data class SessionListTuning(
     // font scaling. It was briefly deleted as un-settable, and that was true only while the row was
     // a Material `ListItem`, which owns its internal padding and refuses to go below 56/72/88dp.
     // The row is drawn by hand now, so this is the real lever.
-    val rowPaddingVDp: Float = 6f,
+    val rowPaddingVDp: Float = 10f,
     val sublineGapDp: Float = 2f,
-    val statusGapDp: Float = 2f,
+    val statusGapDp: Float = 4f,
     val sublineGlyphDp: Float = 13f,
     // The group header's capsule (decision 2026-09-13). headerPaddingVDp changed meaning here: it
     // used to be the header row's own padding, and is now the capsule's OUTER margin — which is
     // what sets how far apart the groups sit.
-    val headerPaddingVDp: Float = 4f,
+    val headerPaddingVDp: Float = 8f,
     val headerCapsuleHeightDp: Float = 32f,
     val headerCapsuleRadiusDp: Float = 8f,
     // The top bar. It is part of the same density pass, so it needs knobs too, or that half cannot
@@ -83,8 +83,8 @@ data class SessionListTuning(
     val avatarSizeDp: Float = 32f,
     val topBarGlyphDp: Float = 20f,
     // The pillars.
-    val pillarWidthDp: Float = 4f,
-    val pillarHeightDp: Float = 14f,
+    val pillarWidthDp: Float = 3f,
+    val pillarHeightDp: Float = 12f,
     val pillarRadiusDp: Float = 2f,
     val pillarNeedsYouLight: String = "#D97706",
     val pillarPinnedLight: String = "#2563EB",
