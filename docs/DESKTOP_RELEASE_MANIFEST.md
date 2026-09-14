@@ -277,13 +277,19 @@ npm run desktop:components-v2:package -- \
   --output /absolute/empty/component-output
 ```
 
-It produces independent `python_runtime`, `hermes_core`, `node_runtime`, and `connector` archives.
-Success prints each archive's size, byte SHA-256, normalized extracted-content SHA-256, entrypoint, and
-dependency kinds plus the total bootstrap download. `hermes_core` requires `python_runtime`; Connector
+It produces independent `python_runtime`, `hermes_core`, `node_runtime`, and `connector` archives and
+can include prepared `browser_automation`, `speech_runtime`, and `document_tools` roots. Optional roots
+must already be normalized, secret-free component trees with an executable health entrypoint; the
+builder copies them through the same bounded, no-link filter and runs the type-specific validation
+before creating any archive. Success prints each archive's size, byte SHA-256, normalized
+extracted-content SHA-256, entrypoint, install phase, and dependency kinds plus separate bootstrap and
+deferred download totals. `hermes_core` requires `python_runtime`; Connector
 requires both `hermes_core` and `node_runtime`. During activation Desktop supplies
 `HERMES_PYTHON_RUNTIME_ROOT` to Hermes and `HERMES_NODE_RUNTIME_ROOT` to Connector. These values point
 to already verified content-store roots and are never baked into or written back to a shared component.
-The output identities can be copied directly into the schema-v2 publisher input.
+Speech and document components require `python_runtime`; browser automation has no archive dependency
+and is the only component allowed to declare compatible system reuse. The output identities can be
+copied directly into the schema-v2 publisher input.
 
 Schema v2 uses separate commands and cannot enter the schema-v1 acquisition/install types. Start
 from `desktop/Packaging/component-release-v2.example.json`. Each component input supplies the content

@@ -296,6 +296,15 @@ references. Transport interruption preserves only a manifest-and-trigger-bound U
 other failures remove it. The result is still an unwired local primitive and does not mutate
 credentials, the active release, LaunchAgents, or processes.
 
+C4's sixth offline slice lets the schema-v2 archive builder consume prepared browser, speech, and
+document component roots alongside the four bootstrap inputs. It validates the optional kind,
+trigger, reuse rule, fixed Python dependency edges, bounded link-free content, and executable health
+entrypoint before producing any archive. The output now separates bootstrap and deferred bytes, and
+each optional archive carries the same normalized content identity used by the signed manifest and
+Desktop store. This makes the real dependency trees publishable without mixing them back into the
+bootstrap Python archive; runtime projection and first-use process restart remain separate local
+integration gates before the path can be enabled.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 
