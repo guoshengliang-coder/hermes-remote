@@ -344,6 +344,13 @@ adapted Hermes 0.21.0 source has no structured missing-capability event; tool de
 ordinary error text or silent feature fallback. Shipping request wiring therefore remains blocked on
 an explicit upstream wire contract and must never infer a capability by parsing prose.
 
+C5's third default-inert slice now supplies the trusted input path for the component preflight card.
+It fetches one bounded HTTPS manifest, requires the strict schema-v2 Ed25519 verifier to produce the
+non-forgeable manifest token, and only then starts the read-only managed-store and external-environment
+scan. Download or signature failure cannot reach the scanner, and one runtime rejects overlapping
+refreshes. No production manifest URL, trust configuration, feature flag, install button, workspace,
+credential, LaunchAgent, or service behavior is changed by this slice.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 

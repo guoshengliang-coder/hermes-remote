@@ -385,6 +385,13 @@ capabilities, failed installs, and duplicate concurrent requests stop before Lau
 mutation. Hermes 0.21.0 exposes no structured producer for this input, so no shipping request path is
 wired and no error text is treated as a capability signal.
 
+The component preflight presentation now has a default-inert trusted loading boundary. A fixed HTTPS
+manifest URL is fetched with the existing bounded, no-redirect downloader; the exact envelope must
+pass the schema-v2 Ed25519 verifier before the managed-store or external-environment scanner receives
+anything. Failed downloads and signatures are inert, and overlapping refreshes are rejected. The
+result remains a read-only preflight value: production configuration and install-flow wiring are
+separate release work.
+
 Before that transaction, the local component preflight coordinator accepts the same verifier-only
 token and combines rehashed managed-store candidates with allowlisted external observations. It emits
 the per-component reuse/download/defer decisions and exact bootstrap/deferred byte totals. A matching
