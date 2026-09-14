@@ -895,6 +895,7 @@ public struct DesktopHermesServerLaunchAgent: Sendable {
     public let standardOutput: URL
     public let standardError: URL
     public let pythonRuntimeRoot: URL?
+    public let optionalRuntime: DesktopOptionalComponentRuntimeEnvironment?
 
     public init(
         hermesExecutable: URL,
@@ -903,7 +904,8 @@ public struct DesktopHermesServerLaunchAgent: Sendable {
         sessionTokenFile: URL,
         standardOutput: URL,
         standardError: URL,
-        pythonRuntimeRoot: URL? = nil
+        pythonRuntimeRoot: URL? = nil,
+        optionalRuntime: DesktopOptionalComponentRuntimeEnvironment? = nil
     ) {
         self.hermesExecutable = hermesExecutable
         self.hermesHome = hermesHome
@@ -912,12 +914,16 @@ public struct DesktopHermesServerLaunchAgent: Sendable {
         self.standardOutput = standardOutput
         self.standardError = standardError
         self.pythonRuntimeRoot = pythonRuntimeRoot
+        self.optionalRuntime = optionalRuntime
     }
 
     public func encodedPropertyList() throws -> Data {
         guard [hermesExecutable, standardOutput, standardError].allSatisfy({
             $0.isFileURL && $0.path.hasPrefix("/") && $0.path != "/"
-        }), Self.validOptionalRoot(pythonRuntimeRoot) else {
+        }), Self.validOptionalRoot(pythonRuntimeRoot),
+            Self.validOptionalRoot(optionalRuntime?.lazyInstallTarget),
+            Self.validOptionalRoot(optionalRuntime?.browserExecutable)
+        else {
             throw DesktopLaunchAgentError.invalidConfiguration
         }
         var environment = try runtimeContract.environmentVariables(
@@ -926,6 +932,12 @@ public struct DesktopHermesServerLaunchAgent: Sendable {
         )
         if let pythonRuntimeRoot {
             environment["HERMES_PYTHON_RUNTIME_ROOT"] = pythonRuntimeRoot.standardizedFileURL.path
+        }
+        if let lazyInstallTarget = optionalRuntime?.lazyInstallTarget {
+            environment["HERMES_LAZY_INSTALL_TARGET"] = lazyInstallTarget.standardizedFileURL.path
+        }
+        if let browserExecutable = optionalRuntime?.browserExecutable {
+            environment["AGENT_BROWSER_EXECUTABLE_PATH"] = browserExecutable.standardizedFileURL.path
         }
         let object: [String: Any] = [
             "Label": DesktopManagedInstallLayout.hermesLabel,

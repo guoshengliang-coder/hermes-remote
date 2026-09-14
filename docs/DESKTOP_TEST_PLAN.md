@@ -119,6 +119,11 @@ The current automated suite covers:
   optional dependencies in topological order, reuses managed content or a revalidated system browser,
   publishes capability references only for managed content, resumes only a manifest/trigger-bound
   transport interruption, and safely cleans extraction failures or explicitly discarded workspaces;
+- optional runtime projection probes the exact managed Python ABI, sorts multiple signed Python
+  component roots into one content-addressed read-only `.pth` target, is idempotent for identical
+  input, injects the target and browser executable through the upstream Hermes environment contract,
+  and rejects external Python roots, duplicates, symlinks, unsafe permissions, failed probes, or a
+  mutated existing projection;
 - fixed-path external-environment scanning reports Python/Node without trusting version-only reuse,
   resolves Homebrew-style runtime symlinks for reporting only, admits a safe architecture-matched
   system browser only after an explicit compatibility probe, and rejects browser symlinks,

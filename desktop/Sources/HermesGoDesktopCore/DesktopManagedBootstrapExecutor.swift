@@ -119,7 +119,8 @@ public struct DesktopManagedBootstrapCommitConfiguration: Equatable, Sendable {
     }
 
     public func componentLaunchAgents(
-        for plan: DesktopComponentReleaseActivationPlan
+        for plan: DesktopComponentReleaseActivationPlan,
+        optionalRuntime: DesktopOptionalComponentRuntimeEnvironment? = nil
     ) throws -> (
         hermes: DesktopHermesServerLaunchAgent,
         connector: DesktopAccountConnectorLaunchAgent
@@ -137,7 +138,8 @@ public struct DesktopManagedBootstrapCommitConfiguration: Equatable, Sendable {
                 sessionTokenFile: layout.hermesSessionToken,
                 standardOutput: layout.logsRoot.appendingPathComponent("hermes-server.log"),
                 standardError: layout.logsRoot.appendingPathComponent("hermes-server.error.log"),
-                pythonRuntimeRoot: python.root
+                pythonRuntimeRoot: python.root,
+                optionalRuntime: optionalRuntime
             ),
             DesktopAccountConnectorLaunchAgent(
                 connectorExecutable: connector.entrypoint,
