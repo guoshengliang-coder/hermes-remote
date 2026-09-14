@@ -359,6 +359,15 @@ that projection through `HERMES_LAZY_INSTALL_TARGET` and exposes a revalidated b
 projections are accepted only when their ownership, permissions, file set, ABI, and paths match
 exactly. This primitive remains default-inert: it does not persist the LaunchAgent or restart Hermes.
 
+The default-inert activation coordinator applies that environment only while holding the migration
+operation lease and only for the exact `account_active` base release with both managed services
+loaded. It atomically replaces the Hermes LaunchAgent, restarts Hermes alone, and requires a fresh
+readiness marker plus healthy loopback status. A failed activation restores the exact prior plist and
+re-proves the old Hermes service after any stop; a successful activation permits one caller-supplied
+capability retry. The caller must supply the complete active optional-component set so a later trigger
+does not remove an earlier capability. Production trigger wiring and that durable aggregation remain
+outside this local primitive.
+
 Before that transaction, the local component preflight coordinator accepts the same verifier-only
 token and combines rehashed managed-store candidates with allowlisted external observations. It emits
 the per-component reuse/download/defer decisions and exact bootstrap/deferred byte totals. A matching

@@ -124,6 +124,11 @@ The current automated suite covers:
   input, injects the target and browser executable through the upstream Hermes environment contract,
   and rejects external Python roots, duplicates, symlinks, unsafe permissions, failed probes, or a
   mutated existing projection;
+- first-use runtime activation shares the migration operation lock, requires the exact committed
+  account release and healthy managed service topology, replaces only the Hermes LaunchAgent,
+  restarts and proves the new Hermes runtime, restores the exact previous plist and re-proves the old
+  runtime on failure, and invokes the capability retry exactly once without rolling back a healthy
+  activation when that retry itself fails;
 - fixed-path external-environment scanning reports Python/Node without trusting version-only reuse,
   resolves Homebrew-style runtime symlinks for reporting only, admits a safe architecture-matched
   system browser only after an explicit compatibility probe, and rejects browser symlinks,
