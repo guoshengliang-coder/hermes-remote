@@ -145,6 +145,13 @@ The current automated suite covers:
   download/signature failures from reaching the scanner, and rejects overlapping refreshes;
 - the trusted preflight session retains the exact verifier-only schema-v2 token beside the matching
   scanned presentation result, while the compatibility load path exposes only the ordinary result;
+- the component bootstrap state machine rejects mismatched trusted input before cache/network work,
+  writes only the private preparation before exact release confirmation, rejects foreign preparation
+  handles, and then passes the committed content-addressed activation plan with exact Python/Node roots
+  to one migration boundary; cancellation and migration failure remove the UUID workspace, inactive
+  immutable references remain reusable/collectable, and post-success cleanup failure returns a bounded
+  retry handle without reclassifying the committed migration; a transport interruption before handle
+  issuance is removable only by the UUID-and-private-marker checked cleanup path;
 - the component-preflight package gate is false with an empty v2 URL by default, loads only a complete
   HTTPS URL plus canonical pinned release trust inputs, keeps the schema-v1 URL separate, and rejects
   partial, malformed, credential-bearing, or ambiguous configuration;

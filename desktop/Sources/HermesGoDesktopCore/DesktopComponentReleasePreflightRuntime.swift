@@ -27,7 +27,7 @@ public struct DesktopTrustedComponentPreflight: Equatable, Sendable {
     public let result: DesktopComponentReleasePreflightResult
     public let verifiedManifest: VerifiedDesktopComponentReleaseManifestV2
 
-    fileprivate init(
+    init(
         result: DesktopComponentReleasePreflightResult,
         verifiedManifest: VerifiedDesktopComponentReleaseManifestV2
     ) {

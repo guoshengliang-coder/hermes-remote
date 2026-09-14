@@ -384,6 +384,301 @@ final class DesktopComponentReleaseInstallerTests: XCTestCase {
     }
 }
 
+extension DesktopComponentReleaseInstallerTests {
+    func testBootstrapExecutorRejectsMismatchedTrustedPreflightBeforeWorkspaceOrDownload()
+        async throws
+    {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let downloader = FixtureComponentDownloader()
+        let executor = DesktopComponentBootstrapExecutor(
+            installer: try fixture.installer(downloader: downloader),
+            migration: RecordingComponentBootstrapMigration()
+        )
+        let trusted = try fixture.trustedPreflight()
+        let mismatchedManifest = fixture.manifest(
+            releaseVersion: "0.4.2",
+            components: fixture.manifest.components
+        )
+        let mismatched = DesktopTrustedComponentPreflight(
+            result: DesktopComponentReleasePreflightResult(
+                manifest: mismatchedManifest,
+                plan: trusted.result.plan,
+                externalEnvironment: trusted.result.externalEnvironment
+            ),
+            verifiedManifest: trusted.verifiedManifest
+        )
+
+        await XCTAssertThrowsErrorAsync(try await executor.prepare(
+            trustedPreflight: mismatched,
+            workspaceRoot: fixture.workspace,
+            runID: "a0000000-0000-4000-8000-000000000000",
+            healthProbe: executableProbe
+        )) { error in
+            XCTAssertEqual(
+                error as? DesktopComponentBootstrapExecutorError,
+                .invalidPreflight
+            )
+        }
+
+        let requests = await downloader.requestedKinds()
+        XCTAssertEqual(requests, [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.workspace.path))
+    }
+
+    func testBootstrapExecutorKeepsStoreUntouchedUntilExactConfirmationThenMigratesPinnedPlan()
+        async throws
+    {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let migration = RecordingComponentBootstrapMigration()
+        let executor = DesktopComponentBootstrapExecutor(
+            installer: try fixture.installer(downloader: FixtureComponentDownloader()),
+            migration: migration
+        )
+        let runID = "a0000000-0000-4000-8000-000000000001"
+        let preparation = try await executor.prepare(
+            trustedPreflight: try fixture.trustedPreflight(),
+            workspaceRoot: fixture.workspace,
+            runID: runID,
+            healthProbe: executableProbe
+        )
+
+        XCTAssertEqual(preparation.preflight.manifest, fixture.manifest)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: fixture.workspace.appendingPathComponent(runID).path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.referenceURL.path))
+        for artifact in fixture.manifest.components {
+            XCTAssertFalse(FileManager.default.fileExists(
+                atPath: fixture.managedContent(artifact).path
+            ))
+        }
+
+        await XCTAssertThrowsErrorAsync(try await executor.commit(
+            preparation,
+            configuration: try fixture.commitConfiguration(),
+            legacy: fixture.legacySnapshot,
+            confirmation: "升级"
+        )) { error in
+            XCTAssertEqual(
+                error as? DesktopComponentBootstrapExecutorError,
+                .confirmationRequired
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.referenceURL.path))
+        let callsBeforeConfirmation = await migration.recordedCalls()
+        XCTAssertEqual(callsBeforeConfirmation.count, 0)
+
+        let outcome = try await executor.commit(
+            preparation,
+            configuration: try fixture.commitConfiguration(),
+            legacy: fixture.legacySnapshot,
+            confirmation: preparation.confirmationText
+        )
+
+        XCTAssertTrue(outcome.temporaryWorkspaceRemoved)
+        XCTAssertNil(outcome.cleanupRetry)
+        XCTAssertEqual(outcome.manifest, fixture.manifest)
+        XCTAssertEqual(outcome.referenceURL, fixture.referenceURL)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.workspace.appendingPathComponent(runID).path
+        ))
+        let calls = await migration.recordedCalls()
+        let call = try XCTUnwrap(calls.first)
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(call.manifest, fixture.manifest)
+        XCTAssertEqual(call.activationPlan, outcome.activationPlan)
+        XCTAssertEqual(call.runID, runID)
+        XCTAssertEqual(call.confirmation, preparation.confirmationText)
+        XCTAssertEqual(
+            call.hermes.pythonRuntimeRoot,
+            outcome.activationPlan.component(.pythonRuntime)?.root
+        )
+        XCTAssertEqual(
+            call.connector.nodeRuntimeRoot,
+            outcome.activationPlan.component(.nodeRuntime)?.root
+        )
+    }
+
+    func testBootstrapExecutorRejectsPreparationIssuedByAnotherSession() async throws {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let first = DesktopComponentBootstrapExecutor(
+            installer: try fixture.installer(downloader: FixtureComponentDownloader()),
+            migration: RecordingComponentBootstrapMigration()
+        )
+        let second = DesktopComponentBootstrapExecutor(
+            installer: try fixture.installer(downloader: FixtureComponentDownloader()),
+            migration: RecordingComponentBootstrapMigration()
+        )
+        let firstPreparation = try await first.prepare(
+            trustedPreflight: try fixture.trustedPreflight(),
+            workspaceRoot: fixture.workspace,
+            runID: "b0000000-0000-4000-8000-000000000001",
+            healthProbe: executableProbe
+        )
+        let secondPreparation = try await second.prepare(
+            trustedPreflight: try fixture.trustedPreflight(),
+            workspaceRoot: fixture.workspace,
+            runID: "b0000000-0000-4000-8000-000000000002",
+            healthProbe: executableProbe
+        )
+
+        await XCTAssertThrowsErrorAsync(try await first.commit(
+            secondPreparation,
+            configuration: try fixture.commitConfiguration(),
+            legacy: fixture.legacySnapshot,
+            confirmation: secondPreparation.confirmationText
+        )) { error in
+            XCTAssertEqual(
+                error as? DesktopComponentBootstrapExecutorError,
+                .preparationMismatch
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.referenceURL.path))
+        try await first.cancel(firstPreparation)
+        try await second.cancel(secondPreparation)
+    }
+
+    func testBootstrapExecutorCancelRemovesPrivatePreparationWithoutMigration() async throws {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let migration = RecordingComponentBootstrapMigration()
+        let executor = DesktopComponentBootstrapExecutor(
+            installer: try fixture.installer(downloader: FixtureComponentDownloader()),
+            migration: migration
+        )
+        let runID = "c0000000-0000-4000-8000-000000000001"
+        let preparation = try await executor.prepare(
+            trustedPreflight: try fixture.trustedPreflight(),
+            workspaceRoot: fixture.workspace,
+            runID: runID,
+            healthProbe: executableProbe
+        )
+
+        try await executor.cancel(preparation)
+
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.workspace.appendingPathComponent(runID).path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.referenceURL.path))
+        let calls = await migration.recordedCalls()
+        XCTAssertEqual(calls.count, 0)
+    }
+
+    func testBootstrapExecutorCanDiscardTransportInterruptionBeforePreparationReturns()
+        async throws
+    {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let runID = "c0000000-0000-4000-8000-000000000002"
+        let executor = DesktopComponentBootstrapExecutor(
+            installer: try fixture.installer(
+                downloader: FixtureComponentDownloader(failOnceFor: .pythonRuntime)
+            ),
+            migration: RecordingComponentBootstrapMigration()
+        )
+
+        await XCTAssertThrowsErrorAsync(try await executor.prepare(
+            trustedPreflight: try fixture.trustedPreflight(),
+            workspaceRoot: fixture.workspace,
+            runID: runID,
+            healthProbe: executableProbe
+        )) { error in
+            XCTAssertEqual(error as? DesktopComponentDownloadError, .transportFailed)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: fixture.workspace.appendingPathComponent(runID).path
+        ))
+
+        try await executor.discardInterruptedPreparation(
+            workspaceRoot: fixture.workspace,
+            runID: runID
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.workspace.appendingPathComponent(runID).path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.referenceURL.path))
+    }
+
+    func testBootstrapExecutorMigrationFailureCleansWorkspaceButLeavesInactiveReference()
+        async throws
+    {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let migration = RecordingComponentBootstrapMigration(failure: .failed)
+        let executor = DesktopComponentBootstrapExecutor(
+            installer: try fixture.installer(downloader: FixtureComponentDownloader()),
+            migration: migration
+        )
+        let runID = "d0000000-0000-4000-8000-000000000001"
+        let preparation = try await executor.prepare(
+            trustedPreflight: try fixture.trustedPreflight(),
+            workspaceRoot: fixture.workspace,
+            runID: runID,
+            healthProbe: executableProbe
+        )
+
+        await XCTAssertThrowsErrorAsync(try await executor.commit(
+            preparation,
+            configuration: try fixture.commitConfiguration(),
+            legacy: fixture.legacySnapshot,
+            confirmation: preparation.confirmationText
+        )) { error in
+            XCTAssertEqual(error as? ComponentBootstrapMigrationFixtureError, .failed)
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.referenceURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.workspace.appendingPathComponent(runID).path
+        ))
+        for artifact in fixture.manifest.components {
+            XCTAssertTrue(FileManager.default.fileExists(
+                atPath: fixture.managedContent(artifact).path
+            ))
+        }
+        let calls = await migration.recordedCalls()
+        XCTAssertEqual(calls.count, 1)
+    }
+
+    func testBootstrapExecutorReportsCommittedMigrationWhenCleanupNeedsRetry() async throws {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let underlying = try fixture.installer(downloader: FixtureComponentDownloader())
+        let installer = FailOnceInstalledDiscardComponentInstaller(underlying: underlying)
+        let executor = DesktopComponentBootstrapExecutor(
+            installer: installer,
+            migration: RecordingComponentBootstrapMigration()
+        )
+        let runID = "e0000000-0000-4000-8000-000000000001"
+        let preparation = try await executor.prepare(
+            trustedPreflight: try fixture.trustedPreflight(),
+            workspaceRoot: fixture.workspace,
+            runID: runID,
+            healthProbe: executableProbe
+        )
+
+        let outcome = try await executor.commit(
+            preparation,
+            configuration: try fixture.commitConfiguration(),
+            legacy: fixture.legacySnapshot,
+            confirmation: preparation.confirmationText
+        )
+
+        XCTAssertFalse(outcome.temporaryWorkspaceRemoved)
+        XCTAssertEqual(outcome.cleanupRetry, preparation)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: fixture.workspace.appendingPathComponent(runID).path
+        ))
+        try await executor.retryCleanup(preparation)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.workspace.appendingPathComponent(runID).path
+        ))
+    }
+}
+
 private func XCTAssertThrowsErrorAsync<T>(
     _ expression: @autoclosure () async throws -> T,
     _ errorHandler: (Error) -> Void
@@ -567,6 +862,47 @@ private final class ComponentInstallFixture {
         )
     }
 
+    func trustedPreflight() throws -> DesktopTrustedComponentPreflight {
+        let requirements = try manifest.preflightRequirements
+        let plan = try DesktopManagedComponentPreflightPlanner.plan(
+            requirements: requirements,
+            candidates: []
+        )
+        let result = DesktopComponentReleasePreflightResult(
+            manifest: manifest,
+            plan: plan,
+            externalEnvironment: DesktopExternalEnvironmentScan(observations: [])
+        )
+        return DesktopTrustedComponentPreflight(
+            result: result,
+            verifiedManifest: verifiedManifest
+        )
+    }
+
+    func commitConfiguration() throws -> DesktopManagedBootstrapCommitConfiguration {
+        let layout = try DesktopManagedInstallLayout(
+            root: store,
+            launchAgentsRoot: base.appendingPathComponent("agents", isDirectory: true)
+        )
+        return try DesktopManagedBootstrapCommitConfiguration(
+            layout: layout,
+            hermesHome: base.appendingPathComponent("hermes-home", isDirectory: true),
+            accountGatewayURL: URL(string: "https://gateway.example")!,
+            runtimeContract: .serveV1
+        )
+    }
+
+    var legacySnapshot: LegacyConnectorSnapshot {
+        LegacyConnectorSnapshot(
+            isInstalled: false,
+            isRunning: false,
+            config: LegacyConnectorConfig(gatewayURL: nil),
+            recentLogs: [],
+            installDirectory: base.appendingPathComponent("legacy", isDirectory: true),
+            launchAgentURL: base.appendingPathComponent("legacy.plist")
+        )
+    }
+
     func makeArtifact(
         kind: DesktopManagedComponentKind,
         contentSHA256: String,
@@ -673,5 +1009,108 @@ private final class ComponentInstallFixture {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
+    }
+}
+
+private enum ComponentBootstrapMigrationFixtureError: Error, Equatable {
+    case failed
+}
+
+private struct RecordedComponentBootstrapMigration: Sendable {
+    let manifest: DesktopComponentReleaseManifestV2
+    let activationPlan: DesktopComponentReleaseActivationPlan
+    let hermes: DesktopHermesServerLaunchAgent
+    let connector: DesktopAccountConnectorLaunchAgent
+    let legacy: LegacyConnectorSnapshot
+    let runID: String
+    let confirmation: String
+}
+
+private actor RecordingComponentBootstrapMigration: DesktopComponentBootstrapMigrating {
+    private let failure: ComponentBootstrapMigrationFixtureError?
+    private var calls: [RecordedComponentBootstrapMigration] = []
+
+    init(failure: ComponentBootstrapMigrationFixtureError? = nil) {
+        self.failure = failure
+    }
+
+    func migrateComponentRelease(
+        manifest: DesktopComponentReleaseManifestV2,
+        activationPlan: DesktopComponentReleaseActivationPlan,
+        hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
+        launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
+        legacy: LegacyConnectorSnapshot,
+        runID: String,
+        confirmation: String
+    ) async throws -> DesktopMigrationOutcome {
+        calls.append(RecordedComponentBootstrapMigration(
+            manifest: manifest,
+            activationPlan: activationPlan,
+            hermes: hermesLaunchAgentConfiguration,
+            connector: launchAgentConfiguration,
+            legacy: legacy,
+            runID: runID,
+            confirmation: confirmation
+        ))
+        if let failure { throw failure }
+        return DesktopMigrationOutcome(
+            runID: runID,
+            releaseVersion: manifest.releaseVersion,
+            bindingID: "binding-1",
+            bindingGeneration: 1
+        )
+    }
+
+    func recordedCalls() -> [RecordedComponentBootstrapMigration] { calls }
+}
+
+private final class FailOnceInstalledDiscardComponentInstaller:
+    DesktopComponentReleaseInstalling, @unchecked Sendable
+{
+    private let underlying: DesktopComponentReleaseInstaller
+    private let lock = NSLock()
+    private var shouldFailInstalledDiscard = true
+
+    init(underlying: DesktopComponentReleaseInstaller) {
+        self.underlying = underlying
+    }
+
+    func prepare(
+        verifiedManifest: VerifiedDesktopComponentReleaseManifestV2,
+        workspaceRoot: URL,
+        runID: String,
+        healthProbe: DesktopComponentReleaseInstaller.HealthProbe
+    ) async throws -> DesktopPreparedComponentRelease {
+        try await underlying.prepare(
+            verifiedManifest: verifiedManifest,
+            workspaceRoot: workspaceRoot,
+            runID: runID,
+            healthProbe: healthProbe
+        )
+    }
+
+    func commit(
+        _ preparation: DesktopPreparedComponentRelease,
+        healthProbe: DesktopComponentReleaseInstaller.HealthProbe
+    ) throws -> DesktopInstalledComponentRelease {
+        try underlying.commit(preparation, healthProbe: healthProbe)
+    }
+
+    func discard(_ preparation: DesktopPreparedComponentRelease) throws {
+        try underlying.discard(preparation)
+    }
+
+    func discard(_ release: DesktopInstalledComponentRelease) throws {
+        let fail: Bool = lock.withLock {
+            guard shouldFailInstalledDiscard else { return false }
+            shouldFailInstalledDiscard = false
+            return true
+        }
+        if fail { throw DesktopComponentReleaseInstallError.cleanupFailed }
+        try underlying.discard(release)
+    }
+
+    func discardInterruptedInstall(workspaceRoot: URL, runID: String) throws {
+        try underlying.discardInterruptedInstall(workspaceRoot: workspaceRoot, runID: runID)
     }
 }
