@@ -13,6 +13,15 @@ enum DesktopManagedBootstrapOperation: Equatable {
     case failed
 }
 
+enum DesktopComponentBootstrapOperation: Equatable {
+    case idle
+    case preparing
+    case awaitingConfirmation
+    case committing
+    case completed(releaseVersion: String, cleanupPending: Bool)
+    case failed
+}
+
 @MainActor
 final class DesktopViewModel: ObservableObject {
     @Published private(set) var health: DesktopHealthSnapshot = .checking
@@ -36,6 +45,10 @@ final class DesktopViewModel: ObservableObject {
     @Published private(set) var componentPreflightPresentation:
         DesktopComponentPreflightPresentation?
     @Published private(set) var isComponentPreflightRefreshing = false
+    @Published private(set) var componentBootstrapCanBegin = false
+    @Published private(set) var componentBootstrapOperation: DesktopComponentBootstrapOperation = .idle
+    @Published private(set) var componentBootstrapPreparation: DesktopComponentBootstrapPreparation?
+    @Published private(set) var componentBootstrapIssue: DesktopIssue?
 
     private let inspector = LegacyConnectorInspector(runner: SystemCommandRunner())
     private let prober = HTTPHealthProber()
@@ -48,6 +61,7 @@ final class DesktopViewModel: ObservableObject {
     private let componentBootstrapRuntime: DesktopComponentBootstrapRuntime?
     private let componentEntrypointProbe: DesktopManagedComponentEntrypointProbe
     private var trustedComponentPreflight: DesktopTrustedComponentPreflight?
+    private var componentInterruptedRunID: String?
     private var monitorTask: Task<Void, Never>?
 
     init(profileStore: any ConnectionProfileStoring = KeychainConnectionProfileStore()) {
@@ -173,12 +187,16 @@ final class DesktopViewModel: ObservableObject {
     }
 
     func refreshComponentPreflight() async {
-        guard !isComponentPreflightRefreshing else { return }
+        guard !isManagedBootstrapAccountLocked,
+              !isComponentPreflightRefreshing
+        else { return }
         guard componentBootstrapAvailability == .ready,
               let runtime = componentBootstrapRuntime
         else {
-            trustedComponentPreflight = nil
-            componentPreflightPresentation = nil
+            clearComponentPreflight()
+            if componentBootstrapOperation == .idle {
+                componentBootstrapIssue = nil
+            }
             return
         }
         isComponentPreflightRefreshing = true
@@ -189,19 +207,23 @@ final class DesktopViewModel: ObservableObject {
                 try probe(kind, root: root, entrypoint: entrypoint)
             }
             guard componentBootstrapAvailability == .ready else {
-                trustedComponentPreflight = nil
-                componentPreflightPresentation = nil
+                clearComponentPreflight()
                 return
             }
             trustedComponentPreflight = trusted
             componentPreflightPresentation = DesktopComponentPreflightPresentation(
                 result: trusted.result
             )
+            componentBootstrapCanBegin = await componentMachinePreflight().plan.canBegin
+            if componentBootstrapOperation == .idle {
+                componentBootstrapIssue = nil
+            }
         } catch {
-            // The candidate feature stays fail-closed and non-actionable. A user-visible rollout
-            // error is added only with the production capability and its registered HR code.
-            trustedComponentPreflight = nil
-            componentPreflightPresentation = nil
+            clearComponentPreflight()
+            componentBootstrapIssue = DesktopIssue(
+                code: .migrationPreflightFailed,
+                technicalCause: String(describing: error)
+            )
         }
     }
 
@@ -506,8 +528,7 @@ final class DesktopViewModel: ObservableObject {
             }
         }
         if componentBootstrapAvailability != .ready {
-            trustedComponentPreflight = nil
-            componentPreflightPresentation = nil
+            clearComponentPreflight()
         }
     }
 
@@ -637,7 +658,7 @@ final class DesktopViewModel: ObservableObject {
     }
 
     func prepareManagedBootstrap() async {
-        guard !isManagedBootstrapBusy else { return }
+        guard !isManagedBootstrapAccountLocked else { return }
         managedBootstrapIssue = nil
         managedBootstrapOperation = .preparing
         guard let runtime = managedBootstrapRuntime else {
@@ -740,6 +761,173 @@ final class DesktopViewModel: ObservableObject {
         }
     }
 
+    func prepareComponentBootstrap() async {
+        guard !isManagedBootstrapAccountLocked,
+              componentBootstrapOperation == .idle || componentBootstrapOperation == .failed,
+              let runtime = componentBootstrapRuntime,
+              let trustedPreflight = trustedComponentPreflight
+        else { return }
+
+        componentBootstrapIssue = nil
+        componentBootstrapOperation = .preparing
+        do {
+            applyAccountState(try await accountController.refresh())
+            guard componentBootstrapAvailability == .ready else {
+                throw DesktopComponentBootstrapExecutorError.invalidPreflight
+            }
+            let machine = await componentMachinePreflight()
+            componentBootstrapCanBegin = machine.plan.canBegin
+            guard machine.plan.canBegin else {
+                throw DesktopMigrationCoordinatorError.invalidStartingState
+            }
+            let probe = componentEntrypointProbe
+            let runID = UUID().uuidString.lowercased()
+            do {
+                let preparation = try await runtime.executor.prepare(
+                    trustedPreflight: trustedPreflight,
+                    workspaceRoot: runtime.workspaceRoot,
+                    runID: runID
+                ) { kind, root, entrypoint in
+                    try probe(kind, root: root, entrypoint: entrypoint)
+                }
+                componentBootstrapOperation = .awaitingConfirmation
+                componentBootstrapPreparation = preparation
+            } catch {
+                if componentPreparationMayNeedCleanup(error) {
+                    do {
+                        try await runtime.executor.discardInterruptedPreparation(
+                            workspaceRoot: runtime.workspaceRoot,
+                            runID: runID
+                        )
+                    } catch {
+                        componentInterruptedRunID = runID
+                        throw DesktopComponentBootstrapExecutorError.cleanupFailed
+                    }
+                }
+                throw error
+            }
+            componentInterruptedRunID = nil
+        } catch {
+            failComponentBootstrap(error)
+        }
+    }
+
+    func cancelComponentBootstrapConfirmation() async {
+        guard componentBootstrapOperation == .awaitingConfirmation,
+              let preparation = componentBootstrapPreparation,
+              let runtime = componentBootstrapRuntime
+        else { return }
+        do {
+            try await runtime.executor.cancel(preparation)
+            componentBootstrapPreparation = nil
+            componentBootstrapIssue = nil
+            componentBootstrapOperation = .idle
+        } catch {
+            componentBootstrapOperation = .failed
+            componentBootstrapIssue = DesktopIssue.migration(error, terminalState: nil)
+        }
+    }
+
+    func confirmComponentBootstrap() async {
+        guard componentBootstrapOperation == .awaitingConfirmation,
+              let preparation = componentBootstrapPreparation,
+              let runtime = componentBootstrapRuntime
+        else { return }
+
+        let machine: (legacy: LegacyConnectorSnapshot, plan: DesktopBootstrapPlan)
+        do {
+            applyAccountState(try await accountController.refresh())
+            guard componentBootstrapAvailability == .ready else {
+                throw DesktopComponentBootstrapExecutorError.invalidPreflight
+            }
+            machine = await componentMachinePreflight()
+            componentBootstrapCanBegin = machine.plan.canBegin
+            guard machine.plan.canBegin else {
+                throw DesktopMigrationCoordinatorError.invalidStartingState
+            }
+        } catch {
+            do {
+                try await runtime.executor.cancel(preparation)
+                componentBootstrapPreparation = nil
+                failComponentBootstrap(error)
+            } catch {
+                componentBootstrapOperation = .failed
+                componentBootstrapIssue = DesktopIssue.migration(
+                    DesktopComponentBootstrapExecutorError.cleanupFailed,
+                    terminalState: nil
+                )
+            }
+            return
+        }
+
+        do {
+            componentBootstrapIssue = nil
+            componentBootstrapOperation = .committing
+            let outcome = try await runtime.executor.commit(
+                preparation,
+                configuration: runtime.commitConfiguration,
+                legacy: machine.legacy,
+                confirmation: preparation.confirmationText
+            )
+            componentBootstrapPreparation = outcome.cleanupRetry
+            componentBootstrapOperation = .completed(
+                releaseVersion: outcome.migration.releaseVersion,
+                cleanupPending: !outcome.temporaryWorkspaceRemoved
+            )
+            if !outcome.temporaryWorkspaceRemoved {
+                componentBootstrapIssue = DesktopIssue(code: .migrationCleanupPending)
+            }
+            await refreshAccount()
+            await refresh()
+            await refreshComponentPreflight()
+        } catch {
+            let terminalState = try? runtime.journal.load()?.state
+            if error as? DesktopComponentBootstrapExecutorError != .cleanupFailed {
+                componentBootstrapPreparation = nil
+            }
+            componentBootstrapOperation = .failed
+            componentBootstrapIssue = DesktopIssue.migration(error, terminalState: terminalState)
+        }
+    }
+
+    func retryComponentBootstrapCleanup() async {
+        guard let runtime = componentBootstrapRuntime else { return }
+        if let runID = componentInterruptedRunID {
+            do {
+                try await runtime.executor.discardInterruptedPreparation(
+                    workspaceRoot: runtime.workspaceRoot,
+                    runID: runID
+                )
+                componentInterruptedRunID = nil
+                componentBootstrapIssue = nil
+                componentBootstrapOperation = .idle
+            } catch {
+                componentBootstrapIssue = DesktopIssue.migration(error, terminalState: nil)
+            }
+            return
+        }
+        guard let preparation = componentBootstrapPreparation else { return }
+        let completedRelease: String?
+        switch componentBootstrapOperation {
+        case .completed(let releaseVersion, cleanupPending: true):
+            completedRelease = releaseVersion
+        case .failed:
+            completedRelease = nil
+        default:
+            return
+        }
+        do {
+            try await runtime.executor.retryCleanup(preparation)
+            componentBootstrapPreparation = nil
+            componentBootstrapIssue = nil
+            componentBootstrapOperation = completedRelease.map {
+                .completed(releaseVersion: $0, cleanupPending: false)
+            } ?? .idle
+        } catch {
+            componentBootstrapIssue = DesktopIssue.migration(error, terminalState: nil)
+        }
+    }
+
     var isManagedBootstrapBusy: Bool {
         switch managedBootstrapOperation {
         case .preparing, .committing, .recovering: true
@@ -748,11 +936,34 @@ final class DesktopViewModel: ObservableObject {
     }
 
     var isManagedBootstrapAccountLocked: Bool {
-        switch managedBootstrapOperation {
+        let managedLocked = switch managedBootstrapOperation {
         case .preparing, .awaitingConfirmation, .committing, .recovering: true
         case .completed(_, cleanupPending: true): true
         default: false
         }
+        return managedLocked || isComponentBootstrapAccountLocked
+    }
+
+    private var isComponentBootstrapAccountLocked: Bool {
+        switch componentBootstrapOperation {
+        case .preparing, .awaitingConfirmation, .committing: true
+        case .completed(_, cleanupPending: true): true
+        case .failed: componentCleanupRetryAvailable
+        case .idle, .completed: false
+        }
+    }
+
+    var componentCleanupRetryAvailable: Bool {
+        componentBootstrapPreparation != nil || componentInterruptedRunID != nil
+    }
+
+    var isComponentBootstrapPathSelected: Bool {
+        guard case .configured = componentPreflightConfiguration,
+              case .signedIn(let dashboard) = accountState
+        else { return false }
+        return dashboard.desktopComponentManifestSchemaVersion == 2
+            && dashboard.desktopBootstrapRuntimeContract
+                == DesktopHermesRuntimeContract.serveV1.rawValue
     }
 
     private var effectiveManagedBootstrapConfiguration: DesktopManagedBootstrapConfigurationState {
@@ -812,6 +1023,47 @@ final class DesktopViewModel: ObservableObject {
             serverManifestSchemaVersion: dashboard?.desktopComponentManifestSchemaVersion,
             serverRuntimeContract: dashboard?.desktopBootstrapRuntimeContract
         )
+    }
+
+    private func componentMachinePreflight() async -> (
+        legacy: LegacyConnectorSnapshot,
+        plan: DesktopBootstrapPlan
+    ) {
+        let inspector = self.inspector
+        let observation = await Task.detached(priority: .userInitiated) {
+            inspector.inspect()
+        }.value
+        let statusURL = DesktopBootstrapPlanner.hermesStatusURL(for: observation)
+        let hermes = await prober.probeHermes(statusURL)
+        let installation = await inspectScopedManagedBootstrapInstallation()
+        let plan = DesktopBootstrapPlanner.plan(
+            legacy: observation,
+            hermesReachable: hermes.level == .healthy || hermes.level == .degraded,
+            managedInstallAvailability: .ready,
+            managedInstallation: installation
+        )
+        return (observation, plan)
+    }
+
+    private func clearComponentPreflight() {
+        trustedComponentPreflight = nil
+        componentPreflightPresentation = nil
+        componentBootstrapCanBegin = false
+    }
+
+    private func failComponentBootstrap(_ error: Error) {
+        componentBootstrapOperation = .failed
+        componentBootstrapIssue = DesktopIssue.migration(error, terminalState: nil)
+    }
+
+    private func componentPreparationMayNeedCleanup(_ error: Error) -> Bool {
+        if error as? DesktopComponentDownloadError == .transportFailed {
+            return true
+        }
+        if error as? DesktopComponentReleaseInstallError == .cleanupFailed {
+            return true
+        }
+        return error as? DesktopComponentBootstrapExecutorError == .cleanupFailed
     }
 
     private func inspectRawManagedBootstrapInstallation() async

@@ -49,6 +49,16 @@ performs no component-manifest request, and does not expose a machine-changing f
 A successful refresh keeps the verifier-issued installation token only in model memory beside that
 exact displayed result; the card itself still receives presentation data only and cannot manufacture
 an installation request.
+When the schema-v2 rollout gates are enabled and the existing-service preflight is also safe, the card
+adds “下载缺失组件”. Its progress copy states that services are unchanged during preparation. A second
+native sheet names the signed version, describes the managed component directory, two user LaunchAgents,
+account binding, and brief service switch, and requires “安装并连接”. While either schema-v1 or v2
+operation is preparing, awaiting confirmation, committing, recovering, or awaiting required cleanup,
+the other installer, account mutations, and manual refresh remain disabled. A failed cleanup offers
+only “重试清理”; successful migration with cleanup pending must not offer installation again.
+Once Gateway selects schema 2 for a locally configured Desktop, a v2 trust/download/scan failure shows
+the structured migration error and Refresh recovery; the schema-v1 download button must not silently
+reappear as a fallback.
 
 For the email-first release, the signed-out Desktop surface must use email plus a six-digit one-time
 code as its only login action. It must not show or attempt Google when the Gateway advertises only

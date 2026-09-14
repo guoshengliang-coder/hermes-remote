@@ -603,6 +603,43 @@ extension DesktopComponentReleaseInstallerTests {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.referenceURL.path))
     }
 
+    func testBootstrapExecutorCanDiscardPendingCleanupByRunID() async throws {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let underlying = try fixture.installer(downloader: FixtureComponentDownloader())
+        let installer = FailOncePreparedDiscardComponentInstaller(underlying: underlying)
+        let executor = DesktopComponentBootstrapExecutor(
+            installer: installer,
+            migration: RecordingComponentBootstrapMigration()
+        )
+        let runID = "c0000000-0000-4000-8000-000000000003"
+        let preparation = try await executor.prepare(
+            trustedPreflight: try fixture.trustedPreflight(),
+            workspaceRoot: fixture.workspace,
+            runID: runID,
+            healthProbe: executableProbe
+        )
+
+        await XCTAssertThrowsErrorAsync(try await executor.cancel(preparation)) { error in
+            XCTAssertEqual(
+                error as? DesktopComponentBootstrapExecutorError,
+                .cleanupFailed
+            )
+        }
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: fixture.workspace.appendingPathComponent(runID).path
+        ))
+
+        try await executor.discardInterruptedPreparation(
+            workspaceRoot: fixture.workspace,
+            runID: runID
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.workspace.appendingPathComponent(runID).path
+        ))
+    }
+
     func testBootstrapExecutorMigrationFailureCleansWorkspaceButLeavesInactiveReference()
         async throws
     {
@@ -1107,6 +1144,57 @@ private final class FailOnceInstalledDiscardComponentInstaller:
             return true
         }
         if fail { throw DesktopComponentReleaseInstallError.cleanupFailed }
+        try underlying.discard(release)
+    }
+
+    func discardInterruptedInstall(workspaceRoot: URL, runID: String) throws {
+        try underlying.discardInterruptedInstall(workspaceRoot: workspaceRoot, runID: runID)
+    }
+}
+
+private final class FailOncePreparedDiscardComponentInstaller:
+    DesktopComponentReleaseInstalling, @unchecked Sendable
+{
+    private let underlying: DesktopComponentReleaseInstaller
+    private let lock = NSLock()
+    private var shouldFailPreparedDiscard = true
+
+    init(underlying: DesktopComponentReleaseInstaller) {
+        self.underlying = underlying
+    }
+
+    func prepare(
+        verifiedManifest: VerifiedDesktopComponentReleaseManifestV2,
+        workspaceRoot: URL,
+        runID: String,
+        healthProbe: DesktopComponentReleaseInstaller.HealthProbe
+    ) async throws -> DesktopPreparedComponentRelease {
+        try await underlying.prepare(
+            verifiedManifest: verifiedManifest,
+            workspaceRoot: workspaceRoot,
+            runID: runID,
+            healthProbe: healthProbe
+        )
+    }
+
+    func commit(
+        _ preparation: DesktopPreparedComponentRelease,
+        healthProbe: DesktopComponentReleaseInstaller.HealthProbe
+    ) throws -> DesktopInstalledComponentRelease {
+        try underlying.commit(preparation, healthProbe: healthProbe)
+    }
+
+    func discard(_ preparation: DesktopPreparedComponentRelease) throws {
+        let fail: Bool = lock.withLock {
+            guard shouldFailPreparedDiscard else { return false }
+            shouldFailPreparedDiscard = false
+            return true
+        }
+        if fail { throw DesktopComponentReleaseInstallError.cleanupFailed }
+        try underlying.discard(preparation)
+    }
+
+    func discard(_ release: DesktopInstalledComponentRelease) throws {
         try underlying.discard(release)
     }
 

@@ -3,6 +3,11 @@ import SwiftUI
 
 struct ComponentPreflightCard: View {
     let presentation: DesktopComponentPreflightPresentation
+    let canBegin: Bool
+    let operation: DesktopComponentBootstrapOperation
+    let cleanupRetryAvailable: Bool
+    let prepare: () -> Void
+    let retryCleanup: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -47,9 +52,75 @@ struct ComponentPreflightCard: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            componentAction
         }
         .padding(20)
         .hermesCard()
+    }
+
+    @ViewBuilder
+    private var componentAction: some View {
+        switch operation {
+        case .preparing:
+            Divider()
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("正在下载并验证缺失组件；尚未修改安装或服务")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        case .awaitingConfirmation:
+            Divider()
+            Label("所需组件已验证，等待你的明确确认", systemImage: "checkmark.shield")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.hermesBlue)
+        case .committing:
+            Divider()
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("正在提交组件、启动并验证服务；请保持 Desktop 打开")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        case .completed(let releaseVersion, let cleanupPending):
+            Divider()
+            HStack {
+                Label("Hermes Go \(releaseVersion) 已连接", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.hermesBlue)
+                Spacer()
+                if cleanupPending {
+                    Button("重试清理", action: retryCleanup)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+            }
+        case .idle, .failed:
+            if cleanupRetryAvailable {
+                Divider()
+                HStack {
+                    Text("安装未继续，私有临时文件仍待清理。")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("重试清理", action: retryCleanup)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+            } else if canBegin {
+                Divider()
+                HStack {
+                    Text("只下载缺失的基础组件；提交安装前还会再次确认。")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("下载缺失组件", action: prepare)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                }
+            }
+        }
     }
 
     private func summaryPill(

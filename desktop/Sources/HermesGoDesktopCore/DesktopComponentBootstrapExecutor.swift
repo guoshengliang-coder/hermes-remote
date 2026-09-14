@@ -316,6 +316,23 @@ public actor DesktopComponentBootstrapExecutor {
     /// Removes a resumable transport-interruption workspace before `prepare` returned a public
     /// handle. The installer accepts only the exact UUID directory with its valid private marker.
     public func discardInterruptedPreparation(workspaceRoot: URL, runID: String) throws {
+        guard let normalizedRunID = UUID(uuidString: runID)?.uuidString.lowercased() else {
+            throw DesktopComponentBootstrapExecutorError.invalidPreflight
+        }
+        if case .cleanupPending(let pending) = state {
+            guard pending.publicValue.runID == normalizedRunID else {
+                throw DesktopComponentBootstrapExecutorError.preparationMismatch
+            }
+            state = .committing
+            do {
+                try discard(pending.componentValue)
+                state = .idle
+            } catch {
+                state = .cleanupPending(pending)
+                throw DesktopComponentBootstrapExecutorError.cleanupFailed
+            }
+            return
+        }
         guard case .idle = state else {
             throw DesktopComponentBootstrapExecutorError.operationInProgress
         }
@@ -323,7 +340,10 @@ public actor DesktopComponentBootstrapExecutor {
         defer {
             if case .committing = state { state = .idle }
         }
-        try installer.discardInterruptedInstall(workspaceRoot: workspaceRoot, runID: runID)
+        try installer.discardInterruptedInstall(
+            workspaceRoot: workspaceRoot,
+            runID: normalizedRunID
+        )
     }
 
     private func makePublicPreparation(
