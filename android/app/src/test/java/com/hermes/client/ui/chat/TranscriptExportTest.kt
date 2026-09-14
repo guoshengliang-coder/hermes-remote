@@ -24,6 +24,64 @@ class TranscriptExportTest {
 
     // ---- Markdown document ----
 
+    // ---- Markdown sized for an attachment (HG-38) ----
+
+    @Test fun attachment_name_leads_with_the_conversation_title() {
+        // The chip shows roughly ten characters; leading with "HermesGO-" made every attachment
+        // look identical on a device. The title has to come first.
+        assertEquals("读书笔记整理.md", transcriptAttachmentName("读书笔记整理", stamp))
+        assertTrue(transcriptAttachmentName("a/b:c", stamp).startsWith("a b c"))
+    }
+
+    @Test fun attachment_name_falls_back_when_the_title_sanitizes_to_nothing() {
+        val name = transcriptAttachmentName("///", stamp)
+        assertTrue(name.startsWith("HermesGO-"))
+        assertTrue(name.endsWith(".md"))
+    }
+
+    private fun turns(n: Int) = (1..n).map { msg(if (it % 2 == 1) Role.USER else Role.ASSISTANT, "第 $it 轮 " + "字".repeat(200)) }
+
+    @Test fun attachment_markdown_is_the_whole_document_when_it_fits() {
+        val messages = turns(4)
+        val whole = transcriptMarkdown("读书笔记", messages, AppLanguage.ZH, stamp)
+        val fitted = transcriptMarkdownForAttachment("读书笔记", messages, AppLanguage.ZH, stamp, maxBytes = 1 shl 20)
+        assertEquals(whole, fitted)
+        assertFalse("an untrimmed document must not claim it was trimmed", fitted.contains("已省略"))
+    }
+
+    @Test fun attachment_markdown_drops_earliest_turns_and_says_so() {
+        val messages = turns(20)
+        val fitted = transcriptMarkdownForAttachment("读书笔记", messages, AppLanguage.ZH, stamp, maxBytes = 2_000)
+        assertTrue("must fit the budget", fitted.toByteArray(Charsets.UTF_8).size <= 2_000)
+        assertTrue("must admit the loss", fitted.contains("已省略最早"))
+        assertTrue("must name the original size", fitted.contains("原对话共 20 轮"))
+        // The tail is what the user was just looking at, so it is what survives.
+        assertTrue(fitted.contains("第 20 轮"))
+        assertFalse(fitted.contains("第 1 轮 "))
+    }
+
+    @Test fun attachment_note_sits_under_the_meta_line_not_above_the_title() {
+        val fitted = transcriptMarkdownForAttachment("读书笔记", turns(20), AppLanguage.ZH, stamp, maxBytes = 2_000)
+        assertTrue(fitted.startsWith("# 读书笔记"))
+        val meta = fitted.indexOf("Hermes GO")
+        val note = fitted.indexOf("已省略最早")
+        assertTrue("note must follow the provenance line", meta in 0 until note)
+    }
+
+    @Test fun attachment_markdown_is_empty_when_not_even_one_turn_fits() {
+        assertEquals("", transcriptMarkdownForAttachment("读书笔记", turns(5), AppLanguage.ZH, stamp, maxBytes = 50))
+    }
+
+    @Test fun attachment_markdown_is_empty_for_an_empty_conversation() {
+        assertEquals("", transcriptMarkdownForAttachment("空会话", emptyList(), AppLanguage.ZH, stamp, maxBytes = 1 shl 20))
+    }
+
+    @Test fun attachment_markdown_note_is_localized() {
+        val en = transcriptMarkdownForAttachment("Notes", turns(20), AppLanguage.EN, stamp, maxBytes = 2_000)
+        assertTrue(en.contains("Earliest"))
+        assertFalse(en.contains("已省略"))
+    }
+
     @Test fun markdown_carries_title_meta_and_role_sections() {
         val md = transcriptMarkdown(
             title = "读书笔记整理",

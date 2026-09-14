@@ -6,12 +6,10 @@ import com.hermes.client.data.feedback.FeedbackReporter
 import com.hermes.client.data.network.GatewayHealth
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.network.ProfileDto
-import com.hermes.client.data.repository.AnalyticsRepository
 import com.hermes.client.data.repository.ConfigRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SettingsStore
 import com.hermes.client.data.repository.ThemeMode
-import com.hermes.client.ui.usage.weekWindow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import com.hermes.client.data.repository.ToolsRepository
@@ -23,44 +21,46 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/** Supporting data for the card page's info tiles and entry badges. */
+/** Supporting data for the card page's cards and entry rows. */
 data class CardPageUiState(
-    /** Cron jobs currently failed or overdue for the active profile (the entry-row badge). */
+    /** Cron jobs currently failed or overdue for the active profile (the row's amber dot). */
     val cronAlerts: Int = 0,
+    /** Enabled, unpaused cron jobs for the active profile (the row's value); null until loaded. */
+    val cronJobCount: Int? = null,
     /** The connected Mac connector's DEVICE_ID, or null while unknown/offline. */
     val deviceId: String? = null,
-    /** Last-7-CALENDAR-days token total for the active profile; null until loaded. */
-    val weekTokens: Long? = null,
-    /** Sessions started in the same seven days; the stat cell's subline. */
-    val weekSessions: Int? = null,
     /** The active profile's configured default model (config "model"); null while unknown. */
     val defaultModel: String? = null,
 )
 
 /**
  * State for the card page (the app's ONLY profile-switch point). Profile identity comes from
- * [ProfileManager]; the tiles are best-effort extras — each fetch fails independently and the
+ * [ProfileManager]; the cards are best-effort extras — each fetch fails independently and the
  * card renders without it rather than blocking.
  */
 @HiltViewModel
 class CardPageViewModel @Inject constructor(
     private val profileManager: ProfileManager,
     private val tools: ToolsRepository,
-    private val analytics: AnalyticsRepository,
     private val configRepo: ConfigRepository,
     private val settingsStore: SettingsStore,
     private val rest: HermesRestApi,
+    /** Watched, not just read: the selected Mac changes without the profile changing (HG-48). */
+    accountSessions: com.hermes.client.data.auth.AccountSessionManager,
     healthMonitor: com.hermes.client.data.network.GatewayHealthMonitor,
     runtimeStore: SessionRuntimeStore,
     private val updateBadge: com.hermes.client.update.UpdateBadge,
     /** Exposed so the card page can hide its feedback row when this build was not configured. */
     val feedbackReporter: FeedbackReporter,
 ) : ViewModel() {
-    /** Newer release's version name for the update entry row (throttled index precheck). */
-    val updateAvailable: StateFlow<String?> = updateBadge.available
+    /** Release state for the update entry row: unknown / up to date / newer available. */
+    val updateState: StateFlow<com.hermes.client.update.UpdateBadgeState> = updateBadge.state
 
     fun refreshUpdateBadge() = viewModelScope.launch { updateBadge.refreshIfStale() }
 
@@ -131,15 +131,40 @@ class CardPageViewModel @Inject constructor(
     init {
         // Tiles follow the active profile like everything else.
         viewModelScope.launch { profileManager.active.collect { refresh() } }
+        // ...and the selected Mac, which is a different axis entirely (HG-48, 2026-09-14).
+        //
+        // Switching Macs does not change the active profile, so before this the tiles had exactly
+        // one trigger and it was the wrong one: the device name was a snapshot taken at process
+        // start and never touched again. `drop(1)` skips the value that is already in hand when
+        // this collector starts — that one is what the profile collector above is fetching.
+        //
+        // This ViewModel is scoped to the Activity (the card page is the drawer's content, so it
+        // lives outside the NavHost), which is why going to the device page and back does not
+        // rebuild it and hide the staleness.
+        viewModelScope.launch {
+            accountSessions.session
+                .map { it?.selectedDeviceId }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { refresh() }
+        }
     }
 
-    /** Refresh the tiles (also called when the drawer opens). Each part is independent. */
+    /**
+     * Refresh the tiles. Each part is independent.
+     *
+     * Called on profile change, on Mac change, and when the drawer opens. That last one was
+     * promised by this comment for months without a single caller — see [CardPage]. A subscription
+     * covers the change we know about; opening the drawer covers the ones we do not, and the cost
+     * is three requests the user is already waiting on the drawer to answer.
+     */
     fun refresh() {
         val p = profileManager.active.value
         viewModelScope.launch {
             runCatching { tools.cronJobs(p) }.onSuccess { jobs ->
                 _state.value = _state.value.copy(
                     cronAlerts = needsAttention(jobs, System.currentTimeMillis()).size,
+                    cronJobCount = activeCronCount(jobs),
                 )
             }
         }
@@ -154,18 +179,6 @@ class CardPageViewModel @Inject constructor(
             runCatching { configRepo.get(p) }.onSuccess { cfg ->
                 val model = (cfg["model"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.ifBlank { null }
                 _state.value = _state.value.copy(defaultModel = model)
-            }
-        }
-        viewModelScope.launch {
-            runCatching { analytics.usage(p) }.onSuccess { usage ->
-                // Hermes emits a row only for days that had sessions, so `takeLast(7)` used to mean
-                // "the last seven ACTIVE days" — a label reading 本周 over a window that can span
-                // months when usage is sparse. Fill the calendar first, then take the week.
-                val week = weekWindow(usage.daily)
-                _state.value = _state.value.copy(
-                    weekTokens = week.sumOf { it.inputTokens + it.outputTokens + it.cacheReadTokens },
-                    weekSessions = week.sumOf { it.sessions },
-                )
             }
         }
     }

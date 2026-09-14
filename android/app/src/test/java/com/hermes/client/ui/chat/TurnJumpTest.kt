@@ -157,6 +157,36 @@ class TurnJumpTest {
         assertNull(turnPillFor(groups, topVisibleMessageIndex = -1, visibleMessageRange = IntRange.EMPTY, atBottom = false))
     }
 
+    // HG-45: while searching, both floating controls stand down — they overlay the same transcript
+    // the reader is stepping through, and the search bar's own ↑↓ already owns "where next".
+    @Test fun an_open_search_hides_the_pill_even_with_a_target() {
+        val shown = turnPillFor(groups, topVisibleMessageIndex = 7, visibleMessageRange = 7..8, atBottom = false)
+        assertEquals(TurnPillTarget(groupIndex = 2, showList = true), shown)
+        assertNull(
+            turnPillFor(
+                groups,
+                topVisibleMessageIndex = 7,
+                visibleMessageRange = 7..8,
+                atBottom = false,
+                searchOpen = true,
+            ),
+        )
+    }
+
+    // ---- back-to-latest button ----------------------------------------------------------
+
+    @Test fun back_to_latest_shows_only_when_parked_away_from_the_tail() {
+        assertTrue(scrollToBottomShown(presentationReady = true, atBottom = false, scrolling = false, searchOpen = false))
+        assertFalse(scrollToBottomShown(presentationReady = false, atBottom = false, scrolling = false, searchOpen = false))
+        assertFalse(scrollToBottomShown(presentationReady = true, atBottom = true, scrolling = false, searchOpen = false))
+        // Hidden mid-scroll so the tap that arrests a fling cannot be swallowed as a click.
+        assertFalse(scrollToBottomShown(presentationReady = true, atBottom = false, scrolling = true, searchOpen = false))
+    }
+
+    @Test fun an_open_search_hides_back_to_latest() {
+        assertFalse(scrollToBottomShown(presentationReady = true, atBottom = false, scrolling = false, searchOpen = true))
+    }
+
     // ---- list index mapping -------------------------------------------------------------
 
     @Test fun list_index_mapping_skips_the_bottom_edge_slot_and_reverses() {

@@ -21,6 +21,7 @@ import org.junit.Assert.assertTrue
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
+import com.hermes.client.ui.localization.localizedMessage
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -207,5 +208,18 @@ class ModelsViewModelTest {
         assertNull(vm.state.value.pendingKey)
         val message = vm.state.value.message
         assertTrue(message != null && message.zh.contains("HR-RPC-005") && message.en.contains("HR-RPC-005"))
+        // Through the shared error model, not a hand-written string with the code glued on: the
+        // wording must be the one registered in docs/ERROR_HANDLING.md.
+        val registered = com.hermes.client.data.error.AppError(
+            com.hermes.client.data.error.AppErrorCode.MODEL_DEFAULT_FAILED, retryable = true,
+        )
+        assertEquals(
+            registered.localizedMessage(com.hermes.client.ui.localization.AppLanguage.ZH),
+            message!!.zh,
+        )
+        assertEquals(
+            registered.localizedMessage(com.hermes.client.ui.localization.AppLanguage.EN),
+            message.en,
+        )
     }
 }

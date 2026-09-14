@@ -284,6 +284,20 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.128 会话列表按真机定稿整体回松一档
+- Version 0.1.127 会话列表新增「昨天」分组与三档时间色柱，多图缩略图完整显示并变小，修复已发图片事后消失、切换 Mac 后抽屉不更新，定时任务告警条跳转与操作失败错误码
+- Version 0.1.126 会话列表分组标题改为着色胶囊，并修复账号异常时的修复入口
+- Version 0.1.125 Version 0.1.125 登录独立成页并说明被动退出原因，搜索态收起输入区、命中不再套蓝框
+- Version 0.1.124 Version 0.1.124 聊天内搜索三处调整、表格内联图标、代码块示例不再变附件、连接卡死修复，并补记 0.1.98/0.1.120/0.1.121
+  漏掉的四条
+- Version 0.1.123 新增添加会话与分享到会话，草稿跨重启保留，新会话顶栏收敛，聊天内搜索与定时任务改版
+- Version 0.1.122 会话列表整体收紧、状态跨重启保留，设置页与聊天更多菜单精简
+- Version 0.1.121 恢复「反馈与建议」入口，补充会话回收修复说明，并统一模型等待动画
+- Version 0.1.120 重做模型选择器（设计基线），并修复会话列表调参面板的行距一档无效
+- Version 0.1.119 修复开发 Relay 停止后消息无法发送，并让冷启动连接错误进入账号登录
+- Version 0.1.118 修复本地开发连接残留导致消息 SESS-007、且邮箱账号登录无法回到公网 Relay 的问题。
+- Version 0.1.117 会话列表按 Stitch 设计稿重做尺寸与配色（标题字重区分未读、等宽副行、四色分组竖杠、56dp
+  顶栏），修掉顶栏被状态栏压扁的真机缺陷，并临时加入一个会话列表调参页用于定参数。
 - Version 0.1.116 会话列表按设计稿对齐：修掉空状态行造成的异常空白，正在运行/等待处理/加载圈/分组头/提示条五处配色，以及行内三档字的行高字重；新增设计一致性测试（17 色 + 5
   字体档）。
 - Version 0.1.115 finishes the job 0.1.114 started. That release repainted the app but left two
@@ -833,7 +847,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.116-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.128-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

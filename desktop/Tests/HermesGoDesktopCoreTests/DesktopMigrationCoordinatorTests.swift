@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import XCTest
 @testable import HermesGoDesktopCore
@@ -86,6 +87,157 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         )
         let confirmCount = await fixture.account.confirmCount()
         XCTAssertEqual(confirmCount, 1)
+    }
+
+    func testComponentCandidateCommitsWithoutBundledReleaseActivation() async throws {
+        let fixture = try Fixture(legacyRunning: true)
+        defer { fixture.cleanup() }
+        let component = try fixture.componentRelease()
+
+        let outcome = try await fixture.coordinator.migrateComponentRelease(
+            manifest: component.manifest,
+            activationPlan: component.plan,
+            hermesLaunchAgentConfiguration: component.agents.hermes,
+            launchAgentConfiguration: component.agents.connector,
+            legacy: fixture.legacy,
+            runID: fixture.runID,
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>.confirmationText(
+                releaseVersion: component.manifest.releaseVersion
+            )
+        )
+
+        XCTAssertEqual(outcome.releaseVersion, component.manifest.releaseVersion)
+        XCTAssertEqual(try fixture.journal.load()?.state, .accountActive)
+        XCTAssertEqual(try fixture.journal.load()?.releaseLayout, .componentStore)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.currentRelease.path))
+        let bundledRelease = try fixture.layout.release(component.manifest.releaseVersion)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: bundledRelease.path
+        ))
+        XCTAssertEqual(fixture.runner.loadedLabels(), [
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
+        XCTAssertEqual(
+            try fixture.environment(at: fixture.layout.hermesLaunchAgent)[
+                "HERMES_PYTHON_RUNTIME_ROOT"
+            ],
+            component.plan.component(.pythonRuntime)?.root.path
+        )
+        XCTAssertEqual(
+            try fixture.environment(at: fixture.layout.connectorLaunchAgent)[
+                "HERMES_NODE_RUNTIME_ROOT"
+            ],
+            component.plan.component(.nodeRuntime)?.root.path
+        )
+        XCTAssertEqual(
+            fixture.serviceMutations().filter { $0.hasPrefix("bootstrap:") },
+            [
+                "bootstrap:\(DesktopManagedInstallLayout.hermesLabel)",
+                "bootstrap:\(DesktopManagedInstallLayout.connectorLabel)",
+            ]
+        )
+    }
+
+    func testComponentCandidateFailureRestoresLegacyWithoutChangingCurrentRelease() async throws {
+        let fixture = try Fixture(legacyRunning: true, failAccountStart: true)
+        defer { fixture.cleanup() }
+        let component = try fixture.componentRelease()
+        let bundledVersion = fixture.manifest.releaseVersion
+        let bundledRelease = try fixture.layout.release(bundledVersion)
+        try FileManager.default.createDirectory(at: bundledRelease, withIntermediateDirectories: true)
+        _ = try fixture.installer.activate(releaseVersion: bundledVersion, runID: fixture.runID)
+
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.migrateComponentRelease(
+            manifest: component.manifest,
+            activationPlan: component.plan,
+            hermesLaunchAgentConfiguration: component.agents.hermes,
+            launchAgentConfiguration: component.agents.connector,
+            legacy: fixture.legacy,
+            runID: fixture.runID,
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>.confirmationText(
+                releaseVersion: component.manifest.releaseVersion
+            )
+        )) { error in
+            XCTAssertEqual(error as? DesktopLaunchAgentControllerError, .accountStartFailed)
+        }
+
+        XCTAssertEqual(try fixture.journal.load()?.state, .legacyActive)
+        XCTAssertEqual(try fixture.journal.load()?.releaseLayout, .componentStore)
+        XCTAssertEqual(fixture.runner.loadedLabels(), ["com.hermesremote.connector"])
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(
+                atPath: fixture.layout.currentRelease.path
+            ),
+            "releases/\(bundledVersion)"
+        )
+    }
+
+    func testInterruptedComponentRecoveryDoesNotDeactivateBundledCurrentRelease() async throws {
+        let fixture = try Fixture(legacyRunning: true)
+        defer { fixture.cleanup() }
+        let bundledVersion = fixture.manifest.releaseVersion
+        let bundledRelease = try fixture.layout.release(bundledVersion)
+        try FileManager.default.createDirectory(at: bundledRelease, withIntermediateDirectories: true)
+        _ = try fixture.installer.activate(releaseVersion: bundledVersion, runID: fixture.runID)
+        _ = try fixture.journal.begin(
+            runID: fixture.runID,
+            lastKnownGoodMode: .legacy,
+            releaseVersion: bundledVersion,
+            releaseLayout: .componentStore,
+            bindingID: fixture.bindingID,
+            bindingGeneration: 1
+        )
+        _ = try fixture.journal.transition(runID: fixture.runID, to: .accountStaged)
+        _ = try fixture.journal.transition(runID: fixture.runID, to: .candidateStarting)
+        fixture.runner.replaceLoaded(with: [
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
+
+        let recovered = try await fixture.coordinator.recoverInterrupted(
+            legacy: fixture.legacy,
+            runID: fixture.runID
+        )
+
+        XCTAssertEqual(recovered, .legacyActive)
+        XCTAssertEqual(fixture.runner.loadedLabels(), ["com.hermesremote.connector"])
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(
+                atPath: fixture.layout.currentRelease.path
+            ),
+            "releases/\(bundledVersion)"
+        )
+    }
+
+    func testComponentManifestAndActivationPlanMismatchFailsBeforeMutation() async throws {
+        let fixture = try Fixture(legacyRunning: false)
+        defer { fixture.cleanup() }
+        let manifestComponent = try fixture.componentRelease(releaseVersion: "2.0.0")
+        let planComponent = try fixture.componentRelease(releaseVersion: "2.0.1")
+
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.migrateComponentRelease(
+            manifest: manifestComponent.manifest,
+            activationPlan: planComponent.plan,
+            hermesLaunchAgentConfiguration: planComponent.agents.hermes,
+            launchAgentConfiguration: planComponent.agents.connector,
+            legacy: fixture.legacy,
+            runID: fixture.runID,
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>.confirmationText(
+                releaseVersion: manifestComponent.manifest.releaseVersion
+            )
+        )) { error in
+            XCTAssertEqual(error as? DesktopComponentReleaseActivationError, .invalidManifest)
+        }
+
+        let beginCount = await fixture.account.beginCount()
+        XCTAssertEqual(beginCount, 0)
+        XCTAssertNil(try fixture.journal.load())
+        XCTAssertTrue(fixture.runner.events().isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.connectorCredential.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.hermesLaunchAgent.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.connectorLaunchAgent.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.currentRelease.path))
     }
 
     func testCandidateStartFailureAutomaticallyRestoresLegacyAndCurrentPointer() async throws {
@@ -426,6 +578,33 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         ])
     }
 
+    func testCommittedInlineTokenMigrationSkipsReleaseBeforeTokenFileContract() async throws {
+        let fixture = try Fixture(
+            legacyRunning: false,
+            resumeBoundBinding: true,
+            manifestVersion: "0.3.0"
+        )
+        defer { fixture.cleanup() }
+        let token = String(repeating: "d", count: 64)
+        try fixture.installCommittedManagedServices(inlineToken: token)
+        let originalHermes = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+        let originalConnector = try Data(contentsOf: fixture.layout.connectorLaunchAgent)
+
+        let migrated = try await fixture.coordinator.reconcileCommittedHermesSessionTokenStorage()
+
+        XCTAssertFalse(migrated)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), originalHermes)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.connectorLaunchAgent), originalConnector)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.hermesSessionToken.path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.layout.hermesSessionTokenContractMarker.path
+        ))
+        XCTAssertTrue(fixture.serviceMutations().isEmpty)
+        XCTAssertEqual(fixture.readiness.waitCount(), 0)
+        let accountRefreshes = await fixture.account.refreshCount()
+        XCTAssertEqual(accountRefreshes, 0)
+    }
+
     func testCommittedTokenMigrationHealthFailureRestoresInlineFilesAndRunningServices() async throws {
         let fixture = try Fixture(
             legacyRunning: false,
@@ -455,6 +634,48 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
             DesktopManagedInstallLayout.hermesLabel,
         ])
         XCTAssertEqual(fixture.readiness.waitCount(), 2)
+    }
+
+    func testCommittedTokenMigrationRejectsStaleCloudHealthAndRestoresInlineFiles() async throws {
+        let stale = "2026-09-07T00:00:00.000Z"
+        let fresh = "2026-09-07T00:00:01.000Z"
+        let fixture = try Fixture(
+            legacyRunning: false,
+            resumeBoundBinding: true,
+            healthCheckedAtSequence: [stale, stale, stale, stale, stale, fresh]
+        )
+        defer { fixture.cleanup() }
+        let token = String(repeating: "e", count: 64)
+        try fixture.installCommittedManagedServices(inlineToken: token)
+        let originalHermes = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+        let originalConnector = try Data(contentsOf: fixture.layout.connectorLaunchAgent)
+
+        await XCTAssertThrowsErrorAsync(
+            try await fixture.coordinator.reconcileCommittedHermesSessionTokenStorage()
+        ) { error in
+            XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .healthTimedOut)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), originalHermes)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.connectorLaunchAgent), originalConnector)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.hermesSessionToken.path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: fixture.layout.hermesSessionTokenContractMarker.path
+        ))
+        XCTAssertEqual(fixture.runner.loadedLabels(), [
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
+        XCTAssertEqual(fixture.serviceMutations(), [
+            "bootout:\(DesktopManagedInstallLayout.connectorLabel)",
+            "bootout:\(DesktopManagedInstallLayout.hermesLabel)",
+            "bootstrap:\(DesktopManagedInstallLayout.hermesLabel)",
+            "bootstrap:\(DesktopManagedInstallLayout.connectorLabel)",
+            "bootout:\(DesktopManagedInstallLayout.connectorLabel)",
+            "bootout:\(DesktopManagedInstallLayout.hermesLabel)",
+            "bootstrap:\(DesktopManagedInstallLayout.hermesLabel)",
+            "bootstrap:\(DesktopManagedInstallLayout.connectorLabel)",
+        ])
     }
 
     func testCommittedCurrentTokenContractIsIdempotentWithoutServiceMutation() async throws {
@@ -516,7 +737,9 @@ private final class Fixture {
         ambiguousCommit: Bool = false,
         hermesHealthy: Bool = true,
         resumeBoundBinding: Bool = false,
-        hermesReadinessResponses: [Bool]? = nil
+        hermesReadinessResponses: [Bool]? = nil,
+        healthCheckedAtSequence: [String?]? = nil,
+        manifestVersion: String = "1.2.3"
     ) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("hermes-migration-coordinator-\(UUID().uuidString)", isDirectory: true)
@@ -536,7 +759,8 @@ private final class Fixture {
         account = MigrationAccountFake(
             bindingID: bindingID,
             ambiguousCommit: ambiguousCommit,
-            resumeBoundBinding: resumeBoundBinding
+            resumeBoundBinding: resumeBoundBinding,
+            healthCheckedAtSequence: healthCheckedAtSequence
         )
         readiness = MigrationHermesReadiness(
             responses: hermesReadinessResponses ?? [hermesHealthy]
@@ -550,7 +774,7 @@ private final class Fixture {
             maximumHealthPolls: 2,
             healthPollDelayNanoseconds: 0
         )
-        manifest = Self.manifest()
+        manifest = Self.manifest(releaseVersion: manifestVersion)
         sources = try Self.sources(root: root)
         try FileManager.default.createDirectory(at: layout.launchAgentsRoot, withIntermediateDirectories: true)
         let connectorExecutable = root.appendingPathComponent(
@@ -632,6 +856,120 @@ private final class Fixture {
         ])
     }
 
+    func componentRelease(
+        releaseVersion: String = "2.0.0"
+    ) throws -> (
+        manifest: DesktopComponentReleaseManifestV2,
+        plan: DesktopComponentReleaseActivationPlan,
+        agents: (
+            hermes: DesktopHermesServerLaunchAgent,
+            connector: DesktopAccountConnectorLaunchAgent
+        )
+    ) {
+        let writer = try DesktopManagedComponentStoreWriter(
+            root: layout.root,
+            currentUserID: Darwin.getuid()
+        )
+        let entrypoints: [DesktopManagedComponentKind: String] = [
+            .pythonRuntime: "bin/python3",
+            .hermesCore: "bin/hermes",
+            .nodeRuntime: "bin/node",
+            .connector: "bin/hermes-connector",
+        ]
+        var hashes: [DesktopManagedComponentKind: String] = [:]
+        for kind in [
+            DesktopManagedComponentKind.pythonRuntime, .hermesCore, .nodeRuntime, .connector,
+        ] {
+            let source = root.appendingPathComponent(
+                "component-source-\(kind.rawValue)", isDirectory: true
+            )
+            let entrypoint = source.appendingPathComponent(entrypoints[kind]!)
+            try FileManager.default.createDirectory(
+                at: entrypoint.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data("#!/bin/sh\nexit 0\n".utf8).write(to: entrypoint)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: entrypoint.path
+            )
+            let hash = try DesktopManagedComponentContentHasher()
+                .identify(directory: source).sha256
+            hashes[kind] = hash
+            _ = try writer.commit(
+                sourceDirectory: source,
+                receipt: DesktopManagedComponentReceipt(
+                    kind: kind,
+                    version: "1.2.3",
+                    architecture: "arm64",
+                    contentSHA256: hash
+                ),
+                runID: UUID().uuidString,
+                healthProbe: { _ in true }
+            )
+        }
+        let python = Self.componentArtifact(
+            kind: .pythonRuntime,
+            entrypoint: entrypoints[.pythonRuntime]!,
+            contentSHA256: hashes[.pythonRuntime]!,
+            dependencies: []
+        )
+        let hermes = Self.componentArtifact(
+            kind: .hermesCore,
+            entrypoint: entrypoints[.hermesCore]!,
+            contentSHA256: hashes[.hermesCore]!,
+            dependencies: [
+                .init(kind: .pythonRuntime, contentSHA256: hashes[.pythonRuntime]!),
+            ]
+        )
+        let node = Self.componentArtifact(
+            kind: .nodeRuntime,
+            entrypoint: entrypoints[.nodeRuntime]!,
+            contentSHA256: hashes[.nodeRuntime]!,
+            dependencies: []
+        )
+        let connector = Self.componentArtifact(
+            kind: .connector,
+            entrypoint: entrypoints[.connector]!,
+            contentSHA256: hashes[.connector]!,
+            dependencies: [
+                .init(kind: .hermesCore, contentSHA256: hashes[.hermesCore]!),
+                .init(kind: .nodeRuntime, contentSHA256: hashes[.nodeRuntime]!),
+            ]
+        )
+        let manifest = DesktopComponentReleaseManifestV2(
+            releaseVersion: releaseVersion,
+            channel: "internal",
+            architecture: "arm64",
+            minimumMacOS: "14.0",
+            createdAt: "2026-09-01T00:00:00Z",
+            expiresAt: "2026-09-20T00:00:00Z",
+            components: [python, hermes, node, connector]
+        )
+        let plan = try DesktopComponentReleaseActivationPlanner(
+            storeRoot: layout.root,
+            currentUserID: Darwin.getuid()
+        ).plan(manifest: manifest) { _, _, _ in true }
+        let configuration = try DesktopManagedBootstrapCommitConfiguration(
+            layout: layout,
+            hermesHome: root.appendingPathComponent("hermes-home"),
+            accountGatewayURL: URL(string: "https://gateway.example")!,
+            runtimeContract: .serveV1
+        )
+        return (manifest, plan, try configuration.componentLaunchAgents(for: plan))
+    }
+
+    func environment(at url: URL) throws -> [String: String] {
+        let object = try XCTUnwrap(
+            PropertyListSerialization.propertyList(
+                from: Data(contentsOf: url),
+                options: [],
+                format: nil
+            ) as? [String: Any]
+        )
+        return try XCTUnwrap(object["EnvironmentVariables"] as? [String: String])
+    }
+
     func tokenEnvironment(at url: URL) throws -> [String: String] {
         let object = try XCTUnwrap(
             PropertyListSerialization.propertyList(
@@ -694,9 +1032,33 @@ private final class Fixture {
         return result
     }
 
-    private static func manifest() -> DesktopReleaseManifest {
+    private static func componentArtifact(
+        kind: DesktopManagedComponentKind,
+        entrypoint: String,
+        contentSHA256: String,
+        dependencies: [DesktopComponentReleaseDependency]
+    ) -> DesktopComponentReleaseArtifactV2 {
+        let fileName = "Hermes-Component-\(kind.rawValue)-1.2.3-arm64.tar.gz"
+        return DesktopComponentReleaseArtifactV2(
+            kind: kind,
+            version: "1.2.3",
+            architecture: "arm64",
+            installPhase: .bootstrap,
+            requiredForBootstrap: true,
+            reuseContract: .exactContent,
+            fileName: fileName,
+            entrypoint: entrypoint,
+            downloadURL: "https://downloads.example/desktop/components/\(fileName)",
+            sizeBytes: 1,
+            sha256: String(repeating: "a", count: 64),
+            contentSHA256: contentSHA256,
+            dependencies: dependencies
+        )
+    }
+
+    private static func manifest(releaseVersion: String) -> DesktopReleaseManifest {
         DesktopReleaseManifest(
-            releaseVersion: "1.2.3",
+            releaseVersion: releaseVersion,
             channel: "internal",
             architecture: "arm64",
             minimumMacOS: "14.0",
@@ -719,17 +1081,25 @@ private final class Fixture {
 private actor MigrationAccountFake: DesktopBindingCoordinating {
     private let bindingID: String
     private var began = 0
+    private var refreshes = 0
     private var confirmations = 0
     private var committed = false
     private let ambiguousCommit: Bool
     private let resumeBoundBinding: Bool
+    private let healthCheckedAtSequence: [String?]?
     private var confirmationAttempted = false
     private var recordedRetryReferences: [(id: String?, generation: Int?)] = []
 
-    init(bindingID: String, ambiguousCommit: Bool, resumeBoundBinding: Bool = false) {
+    init(
+        bindingID: String,
+        ambiguousCommit: Bool,
+        resumeBoundBinding: Bool = false,
+        healthCheckedAtSequence: [String?]? = nil
+    ) {
         self.bindingID = bindingID
         self.ambiguousCommit = ambiguousCommit
         self.resumeBoundBinding = resumeBoundBinding
+        self.healthCheckedAtSequence = healthCheckedAtSequence
     }
 
     func beginBinding(
@@ -740,16 +1110,17 @@ private actor MigrationAccountFake: DesktopBindingCoordinating {
         recordedRetryReferences.append((retryingTerminalBindingID, retryingTerminalGeneration))
         return DesktopBindingPreparation(
             state: resumeBoundBinding
-                ? committedState()
+                ? committedState(checkedAt: "2026-09-07T00:00:00.000Z")
                 : pendingState(keyProved: false, healthy: false),
             credential: AccountConnectorCredentialPayload(data: Data("{\"test\":true}".utf8))
         )
     }
 
     func refresh() async throws -> DesktopAccountState {
+        refreshes += 1
         if ambiguousCommit, confirmationAttempted { return .signedOut }
         return committed || resumeBoundBinding
-            ? committedState()
+            ? committedState(checkedAt: healthCheckedAtForCurrentRefresh())
             : pendingState(keyProved: true, healthy: true)
     }
 
@@ -758,10 +1129,11 @@ private actor MigrationAccountFake: DesktopBindingCoordinating {
         confirmationAttempted = true
         if ambiguousCommit { throw AccountClientError.transport }
         committed = true
-        return committedState()
+        return committedState(checkedAt: healthCheckedAtForCurrentRefresh())
     }
 
     func beginCount() -> Int { began }
+    func refreshCount() -> Int { refreshes }
     func confirmCount() -> Int { confirmations }
     func retryReferences() -> [(id: String?, generation: Int?)] { recordedRetryReferences }
 
@@ -775,19 +1147,26 @@ private actor MigrationAccountFake: DesktopBindingCoordinating {
         )))
     }
 
-    private func committedState() -> DesktopAccountState {
+    private func committedState(checkedAt: String?) -> DesktopAccountState {
         .signedIn(dashboard(binding: AccountBindingSnapshot(
             state: "bound", id: nil, generation: nil, deviceId: nil, displayName: nil,
             publicKeyFingerprint: nil, expiresAt: nil, keyProved: nil, healthVerified: nil,
             binding: ActiveAccountBinding(
                 id: bindingID, generation: 1, deviceId: "hermes-pending",
                 desktopDisplayName: "Mac mini", publicKeyFingerprint: String(repeating: "a", count: 64),
-                connector: .init(online: true, lastSeenAt: nil),
+                connector: .init(online: true, lastSeenAt: checkedAt),
                 hermes: .init(reachable: true, version: "1.0.0"),
                 gateway: .init(latencyMs: 10),
-                endToEnd: .init(healthy: true, checkedAt: "2026-09-07T00:00:00Z")
+                endToEnd: .init(healthy: true, checkedAt: checkedAt)
             ), previousBinding: nil
         )))
+    }
+
+    private func healthCheckedAtForCurrentRefresh() -> String? {
+        if let healthCheckedAtSequence, !healthCheckedAtSequence.isEmpty {
+            return healthCheckedAtSequence[min(refreshes - 1, healthCheckedAtSequence.count - 1)]
+        }
+        return String(format: "2026-09-07T00:00:%02d.000Z", refreshes)
     }
 
     private func dashboard(binding: AccountBindingSnapshot) -> AccountDashboard {

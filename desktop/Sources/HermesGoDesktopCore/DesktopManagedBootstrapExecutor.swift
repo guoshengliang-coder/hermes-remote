@@ -118,6 +118,42 @@ public struct DesktopManagedBootstrapCommitConfiguration: Equatable, Sendable {
         )
     }
 
+    public func componentLaunchAgents(
+        for plan: DesktopComponentReleaseActivationPlan,
+        optionalRuntime: DesktopOptionalComponentRuntimeEnvironment? = nil
+    ) throws -> (
+        hermes: DesktopHermesServerLaunchAgent,
+        connector: DesktopAccountConnectorLaunchAgent
+    ) {
+        guard let python = plan.component(.pythonRuntime),
+              let hermes = plan.component(.hermesCore),
+              let node = plan.component(.nodeRuntime),
+              let connector = plan.component(.connector)
+        else { throw DesktopManagedBootstrapCommitConfigurationError.invalidManifest }
+        return (
+            DesktopHermesServerLaunchAgent(
+                hermesExecutable: hermes.entrypoint,
+                hermesHome: hermesHome,
+                runtimeContract: runtimeContract,
+                sessionTokenFile: layout.hermesSessionToken,
+                standardOutput: layout.logsRoot.appendingPathComponent("hermes-server.log"),
+                standardError: layout.logsRoot.appendingPathComponent("hermes-server.error.log"),
+                pythonRuntimeRoot: python.root,
+                optionalRuntime: optionalRuntime
+            ),
+            DesktopAccountConnectorLaunchAgent(
+                connectorExecutable: connector.entrypoint,
+                credentialFile: layout.connectorCredential,
+                gatewayURL: gatewayWebSocketURL,
+                hermesBaseURL: runtimeContract.baseURL,
+                sessionTokenFile: layout.hermesSessionToken,
+                standardOutput: layout.logsRoot.appendingPathComponent("connector.log"),
+                standardError: layout.logsRoot.appendingPathComponent("connector.error.log"),
+                nodeRuntimeRoot: node.root
+            )
+        )
+    }
+
     private static func connectorURL(_ value: URL) throws -> URL {
         guard var components = URLComponents(url: value, resolvingAgainstBaseURL: false),
               components.user == nil,

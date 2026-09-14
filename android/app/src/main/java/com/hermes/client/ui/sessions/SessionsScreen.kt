@@ -15,11 +15,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.draw.alpha
 import com.hermes.client.ui.localization.localizedMessage
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,13 +36,11 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,9 +48,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -84,6 +81,8 @@ import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.theme.StatusTone
 import com.hermes.client.ui.theme.statusColor
+import com.hermes.client.ui.components.SectionHeader
+import com.hermes.client.ui.components.SectionTone
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -96,6 +95,8 @@ fun SessionsScreen(
     onOpenProjects: () -> Unit = {},
     onOpenArchived: () -> Unit = {},
     onOpenCron: () -> Unit = {},
+    /** One scheduled job by id — the alert strip's destination when exactly one job is failing. */
+    onOpenCronJob: (String) -> Unit = {},
     onOpenMessaging: () -> Unit = {},
     onUnauthorized: () -> Unit = {},
 ) {
@@ -118,6 +119,8 @@ fun SessionsScreen(
     }
     val runtimes by vm.runtimes.collectAsStateWithLifecycle()
     val unreadTokens by vm.unreadTokens.collectAsStateWithLifecycle()
+    val draftTokens by vm.draftTokens.collectAsStateWithLifecycle()
+    val unsentTokens by vm.unsentTokens.collectAsStateWithLifecycle()
     val defaultProjectPath by vm.defaultProjectPath.collectAsStateWithLifecycle()
     // Session whose「移动到项目…」picker is open (from the long-press menu).
     var moveTarget by remember { mutableStateOf<Session?>(null) }
@@ -208,29 +211,65 @@ fun SessionsScreen(
                                     "Once someone talks to Hermes on DingTalk, Slack or another app, the record shows up here.",
                                 ),
                             )
-                        else -> LazyColumn(Modifier.fillMaxSize()) {
-                            sections.forEach { section ->
-                                item(key = "bot-hdr-${section.source}") {
-                                    Text(
-                                        botSourceLabel(section.source),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(
-                                            start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp,
-                                        ),
-                                    )
-                                }
-                                items(section.sessions, key = { "bot-${it.id}" }) { s ->
-                                    ListItem(
-                                        headlineContent = { Text(s.title, style = com.hermes.client.ui.theme.SessionRowTitle) },
-                                        supportingContent = {
-                                            Text(
-                                                localized(language, "${s.messageCount} 条", "${s.messageCount} messages"),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                            )
-                                        },
-                                        modifier = Modifier.clickable { onOpen(ChatLaunch.existing(s)) },
-                                    )
+                        else -> {
+                            // One clock for the whole list, taken when the list is built rather than
+                            // per row, so every 「12 分钟前」 on screen is measured from the same
+                            // instant. It re-reads whenever the sessions reload — which ON_RESUME
+                            // and the segment switch already do.
+                            val nowMs = remember(state.botSessions) { System.currentTimeMillis() }
+                            // Unlike the Chats segment this does NOT hold the first frame back on
+                            // `pinnedTokens == null`. That gate exists because a 已置顶 section
+                            // arriving late is INSERTED above the reader's anchor row and carries
+                            // the pinned rows off screen with it (HG-11). This segment groups by
+                            // channel and has no such section, so a pin resolving a frame later
+                            // only adds a glyph to a row that is already where it belongs.
+                            val isPinned = { s: Session ->
+                                com.hermes.client.data.repository.PinStore.token(s.profile, s.id, s.deviceId) in
+                                    (pinnedTokens ?: emptySet())
+                            }
+                            // Collapsible, keyed by channel — the same `rememberSaveable` list the
+                            // Chats segment uses, not a second mechanism.
+                            var collapsed by androidx.compose.runtime.saveable.rememberSaveable {
+                                androidx.compose.runtime.mutableStateOf(emptyList<String>())
+                            }
+                            val toggle: (String) -> Unit = { k ->
+                                collapsed = if (k in collapsed) collapsed - k else collapsed + k
+                            }
+                            LazyColumn(Modifier.fillMaxSize()) {
+                                sections.forEach { section ->
+                                    val key = "bot-${section.source}"
+                                    item(key = "bot-hdr-${section.source}") {
+                                        SectionHeader(
+                                            botSourceLabel(section.source),
+                                            section.sessions.size,
+                                            SectionTone.CHANNEL,
+                                            collapsed = key in collapsed,
+                                            onToggle = { toggle(key) },
+                                        )
+                                    }
+                                    if (key in collapsed) return@forEach
+                                    items(section.sessions, key = { "bot-${it.id}" }) { s ->
+                                        // The SAME row as the Chats segment (HG-54): hand-drawn
+                                        // layout, long-press sheet, 28dp trailing slot. `unread` /
+                                        // `hasDraft` / `hasUnsent` stay false — this list carries no
+                                        // read state, and the heavier title tier is what unread
+                                        // MEANS (docs/DESIGN.md §5.2).
+                                        SessionRow(
+                                            session = s,
+                                            isPinned = isPinned(s),
+                                            defaultProjectPath = defaultProjectPath,
+                                            onMoveToProject = { moveTarget = s },
+                                            runtime = vm.runtimeFor(s, runtimes),
+                                            isBot = true,
+                                            nowMs = nowMs,
+                                            onOpen = { onOpen(ChatLaunch.existing(s)) },
+                                            onTogglePin = { vm.togglePin(s) },
+                                            onRename = { vm.rename(s, it) },
+                                            onArchive = { vm.archive(s) },
+                                            onDelete = { vm.delete(s) },
+                                            modifier = Modifier.animateItem(),
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -270,43 +309,25 @@ fun SessionsScreen(
                             "${health.total} things need attention",
                         )
                     }
-                    // An inset rounded card, not a full-bleed strip: on warm paper a bleeding
-                    // band reads as a second app bar, while an inset card reads as one incident
-                    // sitting on the page (docs/DESIGN.md §5.2, decision 2026-09-10).
-                    Surface(
-                        color = com.hermes.client.ui.theme.incidentContainerColor(),
-                        contentColor = com.hermes.client.ui.theme.onIncidentColor(),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                    ) {
-                    Row(
-                        Modifier.fillMaxWidth()
-                            // Root cause first: when a channel is down that is where the fix is.
-                            .clickable { if (health.hasChannelCause) onOpenMessaging() else onOpenCron() }
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            if (health.hasChannelCause) Icons.Rounded.Forum else Icons.Rounded.Schedule,
-                            contentDescription = null,
-                            tint = com.hermes.client.ui.theme.onIncidentColor(),
-                            modifier = Modifier.padding(end = 8.dp),
-                        )
-                        Text(
-                            label,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = com.hermes.client.ui.theme.onIncidentColor(),
-                            modifier = Modifier.weight(1f),
-                        )
-                        Icon(
-                            Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = com.hermes.client.ui.theme.onIncidentColor(),
-                        )
-                    }
-                    }
+                    // One shared definition (ui/components/IncidentStrip.kt): the cron list used
+                    // to draw its own full-bleed strip, which is exactly how the two drifted apart.
+                    val soleJob = health.soleStandaloneJob
+                    com.hermes.client.ui.components.IncidentStrip(
+                        label = label,
+                        // Root cause first: when a channel is down that is where the fix is.
+                        icon = if (health.hasChannelCause) Icons.Rounded.Forum else Icons.Rounded.Schedule,
+                        // Where the tap lands, in order of how specific the answer can be
+                        // (HG-50, 2026-09-14): a channel outage goes to the channel, because that
+                        // is where the fix is and the jobs behind it are symptoms. Otherwise, one
+                        // failing job goes straight to that job — the list would show a single row
+                        // and ask the user to tap it again. Several go to the list, which is the
+                        // only place they can be seen together.
+                        onClick = when {
+                            health.hasChannelCause -> onOpenMessaging
+                            soleJob != null -> ({ onOpenCronJob(soleJob.jobId) })
+                            else -> onOpenCron
+                        },
+                    )
                 }
                 // Reveal newly promoted 需要你处理 sessions: LazyColumn's scroll anchoring
                 // otherwise leaves them hidden above the viewport (see NeedsYouReveal.kt).
@@ -357,12 +378,18 @@ fun SessionsScreen(
                 }
                 Box(Modifier.fillMaxSize()) {
                     // Delegated properties do not smart-cast; the local also makes the
-                    // "pins are known from here down" boundary explicit.
+                    // "pins, drafts and unsent sends are known from here down" boundary explicit.
                     val pins = pinnedTokens
+                    val drafts = draftTokens
+                    val unsent = unsentTokens
                     when {
                         // Pins unread: rendering now would draw a list with no 已置顶 section and
-                        // then insert one above the viewport a beat later (HG-11).
-                        pins == null || (state.loading && state.sessions.isEmpty()) ->
+                        // then insert one above the viewport a beat later (HG-11). Drafts join the
+                        // same gate rather than opening a second one — a 「草稿」 marker appearing a
+                        // frame after its row is the same defect, one size smaller. So does 未发送
+                        // (HG-49), which is read off disk by the same kind of store.
+                        pins == null || drafts == null || unsent == null ||
+                            (state.loading && state.sessions.isEmpty()) ->
                             com.hermes.client.ui.components.ListLoadingState()
                         state.error != null && state.sessions.isEmpty() -> com.hermes.client.ui.components.ErrorState(
                             error = state.error!!,
@@ -412,6 +439,8 @@ fun SessionsScreen(
                                                 session = s, isPinned = isPinned(s), defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
+                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
+                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -436,6 +465,8 @@ fun SessionsScreen(
                                                 session = s, isPinned = true, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
+                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
+                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -449,7 +480,7 @@ fun SessionsScreen(
                                 if (groups.today.isNotEmpty()) {
                                     item(key = "h-today") {
                                         SectionHeader(
-                                            localized(language, "今天", "Today"), groups.today.size, SectionTone.TIME,
+                                            localized(language, "今天", "Today"), groups.today.size, SectionTone.TODAY,
                                             collapsed = "today" in collapsed, onToggle = { toggle("today") },
                                         )
                                     }
@@ -459,6 +490,33 @@ fun SessionsScreen(
                                                 session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
+                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
+                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
+                                                onOpen = { openExisting(s) },
+                                                onTogglePin = { vm.togglePin(s) },
+                                                onRename = { vm.rename(s, it) },
+                                                onArchive = { vm.archive(s) },
+                                                onDelete = { vm.delete(s) },
+                                                modifier = Modifier.animateItem(),
+                                            )
+                                        }
+                                    }
+                                }
+                                if (groups.yesterday.isNotEmpty()) {
+                                    item(key = "h-yesterday") {
+                                        SectionHeader(
+                                            localized(language, "昨天", "Yesterday"), groups.yesterday.size, SectionTone.YESTERDAY,
+                                            collapsed = "yesterday" in collapsed, onToggle = { toggle("yesterday") },
+                                        )
+                                    }
+                                    if ("yesterday" !in collapsed) {
+                                        items(groups.yesterday, key = { "yesterday-${it.profile.orEmpty()}:${it.id}" }) { s ->
+                                            SessionRow(
+                                                session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
+                                                runtime = vm.runtimeFor(s, runtimes),
+                                                unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
+                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
+                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -472,7 +530,7 @@ fun SessionsScreen(
                                 if (groups.week.isNotEmpty()) {
                                     item(key = "h-week") {
                                         SectionHeader(
-                                            localized(language, "前 7 天", "Previous 7 days"), groups.week.size, SectionTone.TIME,
+                                            localized(language, "前 7 天", "Previous 7 days"), groups.week.size, SectionTone.RECENT,
                                             collapsed = "week" in collapsed, onToggle = { toggle("week") },
                                         )
                                     }
@@ -482,6 +540,8 @@ fun SessionsScreen(
                                                 session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
+                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
+                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -495,7 +555,7 @@ fun SessionsScreen(
                                 if (groups.earlier.isNotEmpty()) {
                                     item(key = "h-earlier") {
                                         SectionHeader(
-                                            localized(language, "更早", "Earlier"), groups.earlier.size, SectionTone.TIME,
+                                            localized(language, "更早", "Earlier"), groups.earlier.size, SectionTone.OLDER,
                                             collapsed = "earlier" in collapsed, onToggle = { toggle("earlier") },
                                         )
                                     }
@@ -505,6 +565,8 @@ fun SessionsScreen(
                                                 session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
+                                                hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
+                                                hasUnsent = SessionReadStore.token(s.profile, s.id, s.deviceId) in unsent,
                                                 onOpen = { openExisting(s) },
                                                 onTogglePin = { vm.togglePin(s) },
                                                 onRename = { vm.rename(s, it) },
@@ -582,105 +644,31 @@ fun SessionsScreen(
     }
 }
 
-/**
- * What a group's leading pillar says about it (docs/DESIGN.md §5.2, decision 2026-09-10).
- * Only one group ever carries colour: the one that needs the reader to act.
- */
-internal enum class SectionTone { NEEDS_YOU, PINNED, TIME }
-
-@Composable
-private fun SectionHeader(
-    label: String,
-    count: Int,
-    tone: SectionTone,
-    note: String? = null,
-    collapsed: Boolean = false,
-    onToggle: (() -> Unit)? = null,
-) {
-    val language = LocalAppLanguage.current
-    // The pillar carries the group's weight so the four headers stop reading as one texture.
-    // Time buckets get a neutral bar on purpose — a time range is not a state, and colouring it
-    // would spend the reader's attention on "when" instead of "what needs me".
-    // Header text and pillar share one colour per group, so the two never disagree about how
-    // urgent the group is. Only the group that needs action carries a hue (DESIGN.md §1 原则3,
-    // amended 2026-09-10: the group header is no longer unconditionally the brand colour).
-    val accent = when (tone) {
-        SectionTone.NEEDS_YOU -> statusColor(StatusTone.WARN)
-        SectionTone.PINNED -> MaterialTheme.colorScheme.onSurfaceVariant
-        SectionTone.TIME -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    val pillar = when (tone) {
-        SectionTone.NEEDS_YOU -> statusColor(StatusTone.WARN)
-        SectionTone.PINNED -> MaterialTheme.colorScheme.outline
-        SectionTone.TIME -> MaterialTheme.colorScheme.outlineVariant
-    }
-    androidx.compose.foundation.layout.Row(
-        Modifier.fillMaxWidth()
-            .then(if (onToggle != null) Modifier.clickable(onClick = onToggle) else Modifier)
-            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .size(width = 3.dp, height = 14.dp)
-                .background(pillar, RoundedCornerShape(2.dp)),
-        )
-        androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
-        Text(
-            label.uppercase(),
-            style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
-            color = accent,
-        )
-        note?.let {
-            Text(
-                "  ·  $it",
-                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-        // The count is a chip, and the one group that needs action wears a tinted one. A bare
-        // number gave all four groups the same visual weight.
-        val hot = tone == SectionTone.NEEDS_YOU
-        Surface(
-            shape = RoundedCornerShape(6.dp),
-            color = if (hot) statusColor(StatusTone.WARN).copy(alpha = 0.12f)
-            else MaterialTheme.colorScheme.surfaceContainerHigh,
-        ) {
-            Text(
-                count.toString(),
-                style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
-                color = if (hot) statusColor(StatusTone.WARN)
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp),
-            )
-        }
-        if (onToggle != null) {
-            Icon(
-                if (collapsed) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess,
-                contentDescription = if (collapsed) localized(language, "展开 $label", "Expand $label")
-                else localized(language, "收起 $label", "Collapse $label"),
-                tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 8.dp),
-            )
-        }
-    }
-}
-
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun SessionRow(
+internal fun SessionRow(
     session: Session,
     isPinned: Boolean,
     defaultProjectPath: String?,
     onMoveToProject: () -> Unit,
     runtime: SessionRuntime? = null,
     unread: Boolean = false,
+    hasDraft: Boolean = false,
+    hasUnsent: Boolean = false,
     onOpen: () -> Unit,
     onTogglePin: () -> Unit,
     onRename: (String) -> Unit,
     onArchive: () -> Unit,
     onDelete: () -> Unit,
+    /**
+     * Renders this row for the Bots segment (HG-54): no project in the subline, 模型未知 instead of
+     * a silently missing model, and a status line of `<relative time> · <N messages>` instead of
+     * the runtime phase. Everything else — the hand-drawn layout, the long-press sheet, the 28dp
+     * trailing slot — is deliberately the SAME component, which is what the item asked for.
+     */
+    isBot: Boolean = false,
+    /** Only read when [isBot]; passed in rather than read from a clock so the row stays testable. */
+    nowMs: Long = 0L,
     modifier: Modifier = Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -698,87 +686,127 @@ private fun SessionRow(
     // letting the tap fail.
     val moveEnabled = runtime?.hasActiveWork != true && runtime?.phase?.isActive != true
 
-    ListItem(
-            headlineContent = { Text(session.title, style = com.hermes.client.ui.theme.SessionRowTitle) },
-            // No leading slot: the pinned marker rides in the subline so every title shares one
-            // left edge (docs/DESIGN.md §5.2). Project · model, then the live status line. No
-            // profile text: the list is scoped to one profile and identity lives only in the
-            // avatar (docs/DESIGN.md §1).
-            supportingContent = {
-                Column {
-                    SessionSubline(session, defaultProjectPath = defaultProjectPath, pinned = isPinned)
-                    // Gate on the TEXT, not on the phase. The phase-based guard let a blank label
-                    // through, and a blank Text still costs a full line: the row grew to Material's
-                    // three-line height (88dp) while showing two lines, and three-line rows are
-                    // top-aligned, so 40dp of dead space opened up under the subline. On a device
-                    // that reads as a random extra gap every few rows (docs/DESIGN.md §5.2).
-                    sessionStatusLine(runtime, language)?.let { label ->
-                        Text(
-                            label,
-                            style = com.hermes.client.ui.theme.SessionRowStatus,
-                            color = runtimeColor(runtime!!.phase),
-                        )
-                    }
-                }
-            },
-            trailingContent = trailing,
-            // Tap opens the session; long-press opens the management menu.
-            modifier = Modifier.combinedClickable(
+    // Drawn by hand rather than with Material's `ListItem` — `px-4 py-1.5 flex items-center gap-3`,
+    // straight off the mock (docs/DESIGN.md §5.2).
+    //
+    // `ListItem` cannot express this layout. It enforces a line-count floor of 56 / 72 / 88dp and
+    // the mock's two-line row is 49.1dp, below even the one-line floor; forcing an exact height
+    // from outside does beat the floor but leaves only 33dp inside its own fixed 8+8 padding for
+    // 37.1dp of content, so the text clips. Three long-standing defects were all that one floor:
+    // a CJK subline that wrapped tipped the row into the three-line tier (88dp, ANDROID_SMOKE
+    // A-05); three-line rows are TOP-aligned, so a hole opened under the subline; and the running
+    // spinner sat at the top of the row instead of centred. `verticalAlignment = CenterVertically`
+    // with no floor at all settles all three.
+    //
+    // The height is never set. It is padding plus content, exactly as the mock computes it, which
+    // is what keeps font scaling and CJK wrapping working instead of clipping.
+    //
+    // No container colour is needed: `ListItem` defaulted to `surface`, and this theme has
+    // `background == surface` in both schemes (ui/theme/Color.kt), so the row was always the same
+    // paper as the page behind it.
+    Row(
+        // The padding sits INSIDE the click, so the ripple covers the whole row rather than only
+        // the text.
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
                 onClick = onOpen,
                 onLongClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     menuOpen = true
                 },
+            )
+            .padding(
+                horizontal = 16.dp,
+                vertical = com.hermes.client.ui.tuning.tunedRowPaddingV(), // TUNING-TEMP
             ),
-    )
-
-    if (menuOpen) {
-        ModalBottomSheet(onDismissRequest = { menuOpen = false }, sheetState = com.hermes.client.ui.components.hermesSheetState()) {
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        // No leading slot: the pinned marker rides in the subline so every title shares one left
+        // edge (docs/DESIGN.md §5.2). Title, project · model, then the live status line. No profile
+        // text: the list is scoped to one profile and identity lives only in the avatar (§1).
+        Column(Modifier.weight(1f)) {
             Text(
                 session.title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 2,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                // Unread carries the heavier tier (docs/DESIGN.md §5.2, decision 2026-09-11). The
+                // dot stays: weight is a second signal, and a row can be unread with the dot
+                // scrolled past.
+                style = com.hermes.client.ui.tuning.tunedRowTitle(unread), // TUNING-TEMP
+                // `truncate` in the mock. Wrapping to a second line was what made row height vary
+                // with title length; one line keeps every two-line row the same height.
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
-            ListItem(
-                headlineContent = { Text(if (isPinned) localized(language, "取消置顶", "Unpin") else localized(language, "置顶", "Pin")) },
-                leadingContent = { Icon(Icons.Rounded.PushPin, contentDescription = null) },
-                modifier = Modifier.clickable { menuOpen = false; onTogglePin() },
+            androidx.compose.foundation.layout.Spacer(Modifier.size(com.hermes.client.ui.tuning.tunedSublineGap())) // TUNING-TEMP
+            SessionSubline(
+                session,
+                defaultProjectPath = defaultProjectPath,
+                pinned = isPinned,
+                hasDraft = hasDraft,
+                isBot = isBot,
             )
-            ListItem(
-                headlineContent = { Text(localized(language, "重命名", "Rename")) },
-                leadingContent = { Icon(Icons.Rounded.Edit, contentDescription = null) },
-                modifier = Modifier.clickable { menuOpen = false; renaming = true },
+            // Gate on the TEXT, not on the phase. The phase-based guard let a blank label through,
+            // and a blank Text still costs a full line — under `ListItem` that used to tip the row
+            // into the 88dp tier; now it would just add an empty line. Either way it is wrong.
+            //
+            // The bot line answers a different question — when, and how much — so it takes the
+            // prose face and a neutral colour rather than borrowing a runtime phase's hue, which
+            // would claim a run state that no one here is in.
+            val unsentLine = !isBot && sessionStatusIsUnsent(runtime, hasUnsent)
+            val statusText =
+                if (isBot) botStatusLine(session, nowMs, language)
+                else sessionStatusLine(runtime, language, hasUnsent)
+            statusText?.let { label ->
+                androidx.compose.foundation.layout.Spacer(Modifier.size(com.hermes.client.ui.tuning.tunedStatusGap())) // TUNING-TEMP
+                Text(
+                    label,
+                    // Only the running line is monospaced in the mock; the verdicts
+                    // (已完成 / 运行失败 / 已中断 / 未发送) stay on the prose face.
+                    style = com.hermes.client.ui.tuning.tunedStatus(!isBot && !unsentLine && runtime?.phase?.isActive == true), // TUNING-TEMP
+                    // 未发送 borrows the same red as 运行失败 rather than inventing a tone: both are
+                    // "this did not work", and a second red would have to justify itself in
+                    // design-conformance.json (docs/DESIGN.md §7).
+                    color = when {
+                        isBot -> MaterialTheme.colorScheme.outline
+                        unsentLine -> statusColor(StatusTone.BAD)
+                        else -> runtimeColor(runtime!!.phase)
+                    },
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
+        }
+        // `w-7`, and the mock keeps the column even when it is empty (`<div class="w-7 shrink-0">`).
+        // Always reserving it is the point: the spinner, the status dot and the unread dot land on
+        // one vertical line, and every title truncates at the same x whether or not its row has an
+        // indicator.
+        Box(Modifier.width(28.dp), contentAlignment = Alignment.Center) { trailing?.invoke() }
+    }
+
+    if (menuOpen) {
+        val currentLabel = projectLabelOf(session, defaultProjectPath)
+            ?: localized(language, "默认项目", "Default project")
+        com.hermes.client.ui.components.RowActionSheet(
+            typeLabel = localized(language, "会话", "Chat"),
+            title = session.title,
+            onDismiss = { menuOpen = false },
+        ) {
+            SessionActionItems(
+                isPinned = isPinned,
+                currentProjectLabel = currentLabel,
+                moveEnabled = moveEnabled,
+                onTogglePin = { menuOpen = false; onTogglePin() },
+                onRename = { menuOpen = false; renaming = true },
+                onMoveToProject = { menuOpen = false; onMoveToProject() },
+                // Archiving ALWAYS asks (docs/DESIGN.md §5.2, HG-5). This used to call onArchive()
+                // straight from the menu while `confirmingArchive` sat here unreachable, so the
+                // list archived on one tap and the chat page's same action asked — the two were
+                // documented as identical and had not been for months. The mock's trailing
+                // 「可在归档箱恢复」 is extra reassurance, not a replacement for the dialog.
+                onArchive = { menuOpen = false; confirmingArchive = true },
+                onDelete = { menuOpen = false; confirmingDelete = true },
             )
-            val currentLabel = projectLabelOf(session, defaultProjectPath)
-                ?: localized(language, "默认项目", "Default project")
-            ListItem(
-                headlineContent = { Text(localized(language, "移动到项目…", "Move to project…")) },
-                supportingContent = { Text(localized(language, "当前：$currentLabel", "Current: $currentLabel")) },
-                leadingContent = {
-                    Icon(com.hermes.client.ui.components.FolderStrokeIcon, contentDescription = null, modifier = Modifier.size(24.dp))
-                },
-                modifier = Modifier
-                    .alpha(if (moveEnabled) 1f else 0.38f)
-                    .clickable(enabled = moveEnabled) { menuOpen = false; onMoveToProject() },
-            )
-            ListItem(
-                headlineContent = { Text(localized(language, "归档", "Archive")) },
-                leadingContent = { Icon(Icons.Rounded.Archive, contentDescription = null) },
-                modifier = Modifier.clickable { menuOpen = false; onArchive() },
-            )
-            ListItem(
-                headlineContent = { Text(localized(language, "删除", "Delete"), color = MaterialTheme.colorScheme.error) },
-                leadingContent = {
-                    Icon(
-                        Icons.Rounded.Delete,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                },
-                modifier = Modifier.clickable { menuOpen = false; confirmingDelete = true },
-            )
-            androidx.compose.foundation.layout.Spacer(Modifier.size(20.dp))
         }
     }
 
@@ -839,6 +867,69 @@ private fun SessionRow(
 }
 
 /**
+ * The five actions a live session row offers, in the mock's order.
+ *
+ * Its own composable so the Roborazzi goldens can draw them without a live `ModalBottomSheet`
+ * (`sessions.chats.default.row-menu.*` in `ScreenshotTest`), and so the archived list's shorter set sits beside it as an
+ * obvious sibling rather than a copy.
+ *
+ * Copy is the mock's: 「移动到项目」 without the ellipsis (the chevron already says a picker
+ * follows), and 归档会话 / 删除会话 spelled out because a sheet titled with the session name reads
+ * better with the noun repeated than with a bare verb.
+ */
+@Composable
+internal fun SessionActionItems(
+    isPinned: Boolean,
+    currentProjectLabel: String,
+    moveEnabled: Boolean,
+    onTogglePin: () -> Unit,
+    onRename: () -> Unit,
+    onMoveToProject: () -> Unit,
+    onArchive: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val language = LocalAppLanguage.current
+    com.hermes.client.ui.components.RowActionItem(
+        icon = Icons.Rounded.PushPin,
+        label = if (isPinned) localized(language, "取消置顶", "Unpin") else localized(language, "置顶", "Pin"),
+        onClick = onTogglePin,
+    )
+    com.hermes.client.ui.components.RowActionItem(
+        icon = Icons.Rounded.Edit,
+        label = localized(language, "重命名", "Rename"),
+        onClick = onRename,
+    )
+    com.hermes.client.ui.components.RowActionItem(
+        icon = com.hermes.client.ui.components.FolderStrokeIcon,
+        label = localized(language, "移动到项目", "Move to project"),
+        // The project moved from a subline 「当前：X」 to the row's trailing edge, per the mock. It
+        // is the row's current VALUE, and a value belongs where the chevron that changes it is.
+        value = currentProjectLabel,
+        onClick = onMoveToProject,
+        // The gateway refuses to move a running session (4009); grey it out rather than let the
+        // tap fail.
+        enabled = moveEnabled,
+    )
+    com.hermes.client.ui.components.RowActionItem(
+        // The house stroke box, not Material's filled `Icons.Rounded.Archive`. The mock draws a
+        // stroke box, and the same action already uses this glyph in the top bar and on the
+        // archived list — one screen had been showing two archive icons.
+        icon = com.hermes.client.ui.components.ArchiveBoxIcon,
+        label = localized(language, "归档会话", "Archive"),
+        hint = localized(language, "可在归档箱恢复", "Restorable"),
+        onClick = onArchive,
+    )
+    com.hermes.client.ui.components.RowActionDivider()
+    com.hermes.client.ui.components.RowActionItem(
+        icon = Icons.Rounded.Delete,
+        label = localized(language, "删除会话", "Delete"),
+        hint = localized(language, "不可撤销", "Permanent"),
+        destructive = true,
+        onClick = onDelete,
+    )
+}
+
+/**
  * The status line's text, or null when there is nothing to say.
  *
  * Never returns a blank string, and that is the whole point: a composed text node still occupies a
@@ -850,11 +941,27 @@ private fun SessionRow(
 internal fun sessionStatusLine(
     runtime: SessionRuntime?,
     language: com.hermes.client.ui.localization.AppLanguage,
+    hasUnsent: Boolean = false,
 ): String? {
+    if (sessionStatusIsUnsent(runtime, hasUnsent)) return localized(language, "未发送", "Not sent")
     val value = runtime ?: return null
     if (value.phase == SessionRunPhase.IDLE && !value.hasRunningProcesses) return null
     return runtimeLabel(value, language).takeIf { it.isNotBlank() }
 }
+
+/**
+ * Whether the status line is reporting a refused send rather than a run (HG-49).
+ *
+ * A message that was submitted and refused outranks every SETTLED state — idle, 已完成, 运行失败,
+ * 已中断 — because it is the one thing on the row that is waiting on the user, and unlike a run it
+ * will not resolve itself. It does NOT outrank a run still in flight: what is happening now is more
+ * informative, and the unsent message is still there when the run ends.
+ *
+ * Pure so that precedence is unit-testable without a Compose runtime, exactly like
+ * [sessionRowTrailing] and [sessionStatusPaint].
+ */
+internal fun sessionStatusIsUnsent(runtime: SessionRuntime?, hasUnsent: Boolean): Boolean =
+    hasUnsent && runtime?.phase?.isActive != true
 
 private fun runtimeLabel(runtime: SessionRuntime, language: com.hermes.client.ui.localization.AppLanguage): String {
     if (!runtime.phase.isActive && runtime.hasRunningProcesses) {
@@ -943,20 +1050,22 @@ private fun RuntimeIndicator(runtime: SessionRuntime) {
     ) {
         // Blue with a faint track under it, per the design source — not the cyan the status TEXT
         // uses, and not Material's bare trackless arc. The words carry what is happening; the
-        // spinner only says that something is (docs/DESIGN.md §5.2).
-        val spinner = com.hermes.client.ui.theme.spinnerColor()
-        CircularProgressIndicator(
-            modifier = Modifier.size(18.dp),
-            color = spinner,
-            strokeWidth = 1.9.dp,
-            trackColor = spinner.copy(alpha = com.hermes.client.ui.theme.SpinnerTrackAlpha),
-            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
-        )
+        // spinner only says that something is (docs/DESIGN.md §5.2). These four literals now live
+        // in RunSpinner, which the model sheet shares.
+        com.hermes.client.ui.components.RunSpinner(size = 18.dp)
     } else {
+        // The DOT is a mark, so waiting draws it in the bright graphic amber while the sentence
+        // beside it stays on the deep text amber (StatusColors.kt). Every other tone uses one
+        // colour for both.
+        val dot = if (sessionStatusPaint(phase) == SessionStatusPaint.WAITING) {
+            com.hermes.client.ui.theme.warnGraphicColor()
+        } else {
+            color
+        }
         Box(
             Modifier
                 .size(10.dp)
-                .background(color, androidx.compose.foundation.shape.CircleShape),
+                .background(dot, androidx.compose.foundation.shape.CircleShape),
         )
     }
 }
@@ -1002,17 +1111,33 @@ internal fun ChatsTopBar(
             // The active profile's avatar IS the identity signal — and the door to
             // the card page, the app's only profile-switch point.
             IconButton(onClick = onOpenCard) {
-                com.hermes.client.ui.components.ProfileAvatar(activeProfile, size = 36.dp)
+                com.hermes.client.ui.components.ProfileAvatar(
+                    activeProfile,
+                    size = com.hermes.client.ui.tuning.tunedAvatarSize(), // TUNING-TEMP
+                )
             }
         },
         centered = true,
+        centeredHeight = com.hermes.client.ui.tuning.tunedTopBarHeight(), // TUNING-TEMP
         actions = {
+            // A 20dp glyph in a full 48dp touch target. The mock's `w-8 h-8` button is NOT a size
+            // to copy: it only ever paints on `hover:bg-stone-200/50`, so at rest those 32px are
+            // invisible and the glyph is the whole of what is drawn. Sizing the button to 32dp
+            // would import nothing visible and cost the touch target — Android has no hover.
             IconButton(onClick = onOpenSearch) {
-                Icon(Icons.Rounded.Search, contentDescription = localized(language, "搜索", "Search"))
+                Icon(
+                    Icons.Rounded.Search,
+                    contentDescription = localized(language, "搜索", "Search"),
+                    modifier = Modifier.size(com.hermes.client.ui.tuning.tunedTopBarGlyph()), // TUNING-TEMP
+                )
             }
             Box {
                 IconButton(onClick = { menuOpen = true }) {
-                    Icon(Icons.Rounded.MoreVert, contentDescription = localized(language, "更多", "More"))
+                    Icon(
+                        Icons.Rounded.MoreVert,
+                        contentDescription = localized(language, "更多", "More"),
+                        modifier = Modifier.size(com.hermes.client.ui.tuning.tunedTopBarGlyph()), // TUNING-TEMP
+                    )
                 }
                 // Same menu shape as the chat screen's (docs/DESIGN.md §5.4): navigation first,
                 // 20dp leading glyphs, 16dp corners on `surface`.
@@ -1069,6 +1194,7 @@ internal fun ChatsSegmentedRow(
                 ViewMode.BOTS -> com.hermes.client.ui.components.BotStrokeIcon
             }
         },
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+        // `px-4 pt-1 pb-1.5` in the mock.
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 6.dp),
     )
 }

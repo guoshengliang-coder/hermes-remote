@@ -7,9 +7,33 @@ import com.hermes.client.domain.Role
 import com.hermes.client.domain.ToolCall
 import com.hermes.client.domain.ToolStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatChromeTest {
+    // HG-37. The greeting overlay and the top bar's ＋/⋮ are two views of one state, so they are
+    // asserted together here — a test that let them drift apart would be testing the wrong thing.
+    @Test fun emptyNewSession_hidesTopBarActions() {
+        assertTrue(newChatGreetingVisible(isNewSession = true, messageCount = 0, isGenerating = false))
+        assertFalse(chatTopBarActionsVisible(isNewSession = true, messageCount = 0, isGenerating = false))
+    }
+
+    @Test fun firstMessageBringsTopBarActionsBack() {
+        assertTrue(chatTopBarActionsVisible(isNewSession = true, messageCount = 1, isGenerating = false))
+        // Generating with nothing rendered yet is the send that has left but not landed.
+        assertTrue(chatTopBarActionsVisible(isNewSession = true, messageCount = 0, isGenerating = true))
+    }
+
+    @Test fun existingSessionAlwaysKeepsTopBarActions() {
+        // Including one that is unexpectedly empty: refresh, share and archive are exactly what
+        // someone staring at an old conversation with nothing in it reaches for.
+        assertTrue(chatTopBarActionsVisible(isNewSession = false, messageCount = 0, isGenerating = false))
+        assertTrue(chatTopBarActionsVisible(isNewSession = false, messageCount = 3, isGenerating = false))
+        assertFalse(newChatGreetingVisible(isNewSession = false, messageCount = 0, isGenerating = false))
+    }
+
     @Test fun blankOrUntitledSession_usesNewChatLabel() {
         assertEquals("新会话", displaySessionTitle(null))
         assertEquals("新会话", displaySessionTitle("  "))
@@ -166,4 +190,21 @@ class ChatChromeTest {
         val second = ChatMessage("a-2-y", Role.ASSISTANT, "part two")
         assertEquals("a-1-x", mergeAssistantTurns(first, second).id)
     }
+
+    // ── HG-40 with HG-41: what the composer opens with.
+    @Test fun a_delivered_share_is_appended_after_the_users_own_draft() {
+        assertEquals("我自己写的\n\n分享进来的", composerSeed("我自己写的", "分享进来的"))
+    }
+
+    @Test fun either_one_alone_is_used_as_is() {
+        assertEquals("只有草稿", composerSeed("只有草稿", null))
+        assertEquals("只有分享", composerSeed(null, "只有分享"))
+        assertEquals("只有分享", composerSeed("   ", "只有分享"))
+    }
+
+    @Test fun nothing_to_seed_is_null_not_empty() {
+        assertNull(composerSeed(null, null))
+        assertNull(composerSeed("  ", "\n"))
+    }
+
 }

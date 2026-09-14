@@ -69,12 +69,17 @@ struct AccountDevicesView: View {
                     subtitle: "一个账号可管理多台 Mac；当前选择只影响接下来打开的新内容。"
                 ) {
                     Button {
-                        Task { await model.refreshAccount() }
+                        Task {
+                            await model.refreshAccount()
+                            await model.refreshComponentPreflight()
+                        }
                     } label: {
                         Label("刷新", systemImage: "arrow.clockwise")
                     }
                     .buttonStyle(.bordered)
-                    .disabled(model.isAccountOperationInProgress)
+                    .disabled(
+                        model.isAccountOperationInProgress || model.isManagedBootstrapAccountLocked
+                    )
                 }
 
                 accountContent
@@ -127,6 +132,23 @@ struct AccountDevicesView: View {
             }
         )) { preparation in
             managedBootstrapConfirmationSheet(preparation)
+        }
+        .sheet(item: Binding(
+            get: {
+                switch model.componentBootstrapOperation {
+                case .awaitingConfirmation, .committing:
+                    model.componentBootstrapPreparation
+                default:
+                    nil
+                }
+            },
+            set: { value in
+                if value == nil, model.componentBootstrapOperation == .awaitingConfirmation {
+                    Task { await model.cancelComponentBootstrapConfirmation() }
+                }
+            }
+        )) { preparation in
+            componentBootstrapConfirmationSheet(preparation)
         }
         .confirmationDialog(
             "撤销整台设备的共享权限？",
@@ -304,6 +326,22 @@ struct AccountDevicesView: View {
             accountCard(dashboard)
             bindingCard(dashboard.binding)
         }
+        if let presentation = model.componentPreflightPresentation {
+            ComponentPreflightCard(
+                presentation: presentation,
+                canBegin: model.componentBootstrapCanBegin,
+                operation: model.componentBootstrapOperation,
+                cleanupRetryAvailable: model.componentCleanupRetryAvailable,
+                prepare: { Task { await model.prepareComponentBootstrap() } },
+                retryCleanup: { Task { await model.retryComponentBootstrapCleanup() } }
+            )
+        } else if model.componentCleanupRetryAvailable,
+                  model.componentBootstrapOperation == .failed {
+            componentCleanupRecoveryCard
+        }
+        if let issue = model.componentBootstrapIssue {
+            accountIssueCard(issue)
+        }
         bootstrapPlanCard(model.bootstrapPlan)
         if let issue = model.managedBootstrapIssue {
             accountIssueCard(issue)
@@ -405,7 +443,7 @@ struct AccountDevicesView: View {
                 }
             }
         case .idle, .failed:
-            if plan.canBegin {
+            if plan.canBegin, !model.isComponentBootstrapPathSelected {
                 Divider()
                 HStack {
                     Text("第一步只写入私有临时缓存，不会停止或启动任何服务。")
@@ -417,7 +455,7 @@ struct AccountDevicesView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .disabled(model.isManagedBootstrapBusy)
+                    .disabled(model.isManagedBootstrapAccountLocked)
                 }
             }
         }
@@ -467,6 +505,66 @@ struct AccountDevicesView: View {
         .padding(26)
         .frame(width: 540)
         .interactiveDismissDisabled(model.managedBootstrapOperation == .committing)
+    }
+
+    private func componentBootstrapConfirmationSheet(
+        _ preparation: DesktopComponentBootstrapPreparation
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Label("组件签名与内容已验证", systemImage: "checkmark.shield.fill")
+                .font(.system(size: 19, weight: .bold))
+                .foregroundStyle(Color.hermesBlue)
+            Text("Hermes Go \(preparation.releaseVersion)")
+                .font(.system(size: 15, weight: .semibold))
+            Text("继续后会把已验证的基础组件提交到受管目录，写入两个用户级自动启动项、绑定当前账号，并短暂启动或切换 Hermes Server 与 Connector。不会修改 Homebrew；模型服务凭据和 Hermes 数据仍只保存在这台 Mac。")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(preparation.confirmationText)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+
+            if model.componentBootstrapOperation == .committing {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("正在提交并验证，失败时会按迁移日志自动恢复。")
+                        .font(.system(size: 12))
+                }
+            } else {
+                HStack {
+                    Button("取消") {
+                        Task { await model.cancelComponentBootstrapConfirmation() }
+                    }
+                    .keyboardShortcut(.cancelAction)
+                    Spacer()
+                    Button("安装并连接") {
+                        Task { await model.confirmComponentBootstrap() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+        .padding(26)
+        .frame(width: 540)
+        .interactiveDismissDisabled(model.componentBootstrapOperation == .committing)
+    }
+
+    private var componentCleanupRecoveryCard: some View {
+        HStack(spacing: 14) {
+            Label("组件临时文件待清理", systemImage: "exclamationmark.arrow.triangle.2.circlepath")
+                .font(.system(size: 13, weight: .semibold))
+            Spacer()
+            Button("重试清理") {
+                Task { await model.retryComponentBootstrapCleanup() }
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(18)
+        .hermesCard()
     }
 
     private func bootstrapSymbol(_ readiness: DesktopBootstrapReadiness) -> String {

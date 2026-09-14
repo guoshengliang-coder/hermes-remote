@@ -38,8 +38,8 @@ export function gatewayRuntimePolicy(runtimeMode = "disabled") {
       desktopBootstrapRuntimeContract: null,
     };
   }
-  if (runtimeMode === "email_otp" || runtimeMode === "email_binding") {
-    const bindingEnabled = runtimeMode === "email_binding";
+  if (new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components"]).has(runtimeMode)) {
+    const bindingEnabled = runtimeMode !== "email_otp";
     return {
       runtimeMode,
       readiness: {
@@ -55,6 +55,7 @@ export function gatewayRuntimePolicy(runtimeMode = "disabled") {
       accountProviders: ["email_otp"],
       bindingEnabled,
       desktopBootstrapRuntimeContract: bindingEnabled ? "hermes-serve-v1" : null,
+      desktopComponentManifestSchemaVersion: runtimeMode === "email_sharing_components" ? 2 : null,
     };
   }
   throw new GatewayCandidateSmokeError("configuration");
@@ -63,17 +64,37 @@ export function gatewayRuntimePolicy(runtimeMode = "disabled") {
 export function verifyGatewayCapabilities(capabilities, runtimePolicy, expectedVersion) {
   const binding = capabilities?.binding;
   const desktopBootstrap = capabilities?.desktopBootstrap;
+  const multiDeviceEnabled = new Set(["email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components"]).has(runtimePolicy.runtimeMode);
+  const identityWebEnabled = new Set(["email_identity_web", "email_sharing", "email_sharing_components"]).has(runtimePolicy.runtimeMode);
+  const sharingEnabled = new Set(["email_sharing", "email_sharing_components"]).has(runtimePolicy.runtimeMode);
   const valid = capabilities?.accountAuth?.enabled === runtimePolicy.accountAuthEnabled
     && (runtimePolicy.accountProviders === null
       || JSON.stringify(capabilities.accountAuth?.providers) === JSON.stringify(runtimePolicy.accountProviders))
+    && capabilities?.accountAuth?.identityManagement === identityWebEnabled
+    && capabilities?.accountAuth?.webAccountCenter === identityWebEnabled
+    && (identityWebEnabled
+      ? capabilities?.accountAuth?.webSessions === true
+      : capabilities?.accountAuth?.webSessions !== true)
+    && capabilities?.accountAuth?.accountDeletion !== true
     && binding?.enabled === runtimePolicy.bindingEnabled
     && binding?.replacement === runtimePolicy.bindingEnabled
-    && binding?.maxActiveConnectorsPerAccount === 1
-    && !Object.hasOwn(binding ?? {}, "supportsDeviceSelection")
-    && !Object.hasOwn(binding ?? {}, "supportsDeviceSharing")
+    && binding?.maxActiveConnectorsPerAccount === (multiDeviceEnabled ? 3 : 1)
+    && (multiDeviceEnabled
+      ? binding?.supportsDeviceSelection === true
+      : !Object.hasOwn(binding ?? {}, "supportsDeviceSelection"))
+    && (sharingEnabled
+      ? (binding?.supportsDeviceSharing === true
+        && binding?.maxSharedDevices === 10
+        && binding?.maxGranteesPerDevice === 5)
+      : (!Object.hasOwn(binding ?? {}, "supportsDeviceSharing")
+        && !Object.hasOwn(binding ?? {}, "maxSharedDevices")
+        && !Object.hasOwn(binding ?? {}, "maxGranteesPerDevice")))
     && (runtimePolicy.desktopBootstrapRuntimeContract === null
       ? desktopBootstrap === undefined
-      : desktopBootstrap?.runtimeContract === runtimePolicy.desktopBootstrapRuntimeContract)
+      : (desktopBootstrap?.runtimeContract === runtimePolicy.desktopBootstrapRuntimeContract
+        && (runtimePolicy.desktopComponentManifestSchemaVersion === 2
+          ? desktopBootstrap.componentManifestSchemaVersion === 2
+          : !Object.hasOwn(desktopBootstrap, "componentManifestSchemaVersion"))))
     && capabilities?.legacy?.appTokenAccepted === true
     && capabilities?.legacy?.connectorTokenAccepted === true
     && capabilities?.server?.version === expectedVersion;

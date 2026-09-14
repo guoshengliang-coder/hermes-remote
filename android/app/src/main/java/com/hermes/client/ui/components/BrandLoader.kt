@@ -14,6 +14,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +32,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.testTag
@@ -41,15 +43,19 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.hermes.client.ui.theme.Motion
+import com.hermes.client.ui.theme.SpinnerTrackAlpha
+import com.hermes.client.ui.theme.spinnerColor
 import kotlinx.coroutines.delay
 
 // Brand loading motion, derived from the launcher icon (design: docs/design/loading-motion.html,
-// contract: docs/DESIGN.md §5.6). Three shapes cover every indeterminate wait in the app:
+// contract: docs/DESIGN.md §5.6). Four shapes cover every indeterminate wait in the app:
 //   HermesMark    — the icon's H with a light sweeping around the crossbar centre. 14/20/32dp.
 //   SkeletonRows  — first load of a list whose row shape is known and stable.
 //   TopProgressLine — refresh that must not cover content the user is already reading.
-// All three run on one 1200ms period and one 250ms reveal gate, and all three are single-colour:
-// the multicolour icon belongs to the startup gate only (§2.1 keeps status colours out of chrome).
+//   RunSpinner    — a small ring beside a thing that is working. See its own doc for when.
+// The first three run on one 1200ms period and one 250ms reveal gate, and all four are
+// single-colour: the multicolour icon belongs to the startup gate only (§2.1 keeps status
+// colours out of chrome).
 
 /** The H on the icon's 24-unit grid: bar = 28.6% of the width, crossbar = 36.7%–63.3% of it. */
 private const val BAR = 0.286f
@@ -151,6 +157,60 @@ fun HermesMark(
         }
     }
 }
+
+/**
+ * The working ring: a lit arc over a faint full circle, beside something that is running.
+ *
+ * The design source draws this — Material Symbols' `progress_activity` spinning — everywhere a
+ * SPECIFIC OBJECT is busy: the session row that is running, the model row being switched to, the
+ * refresh button while it fetches. [HermesMark] answers a different question — "the app is
+ * fetching the thing you are waiting for, and there is nothing else on screen yet" — which is why
+ * it is the page-load mark and this is not. Putting the brand mark on a row-level wait said
+ * "loading" where the design says "this one is working", and read as a stray logo besides.
+ *
+ * Lifted out of SessionsScreen, which drew these four literals inline (docs/DESIGN.md §5.2):
+ * blue rather than the cyan the status TEXT uses, a track at [SpinnerTrackAlpha] under the arc
+ * rather than Material's bare trackless default, round caps, and a stroke that scales with the
+ * ring so a 10dp one is not a blob.
+ *
+ * Reduce-motion parks it: a determinate quarter-arc, still a ring with a lit segment, not spinning.
+ */
+@Composable
+fun RunSpinner(
+    size: Dp = 18.dp,
+    modifier: Modifier = Modifier,
+    color: Color = spinnerColor(),
+    contentDescription: String? = null,
+) {
+    // 1.9dp at the original 18dp, held as a ratio so every other size keeps the proportion.
+    val stroke = size * (1.9f / 18f)
+    val track = color.copy(alpha = SpinnerTrackAlpha)
+    val semantics = Modifier.semantics {
+        if (contentDescription != null) this.contentDescription = contentDescription
+    }
+    if (reduceMotion()) {
+        CircularProgressIndicator(
+            progress = { STILL_SPINNER_FRACTION },
+            modifier = modifier.size(size).then(semantics).testTag("run-spinner"),
+            color = color,
+            strokeWidth = stroke,
+            trackColor = track,
+            strokeCap = StrokeCap.Round,
+            gapSize = 0.dp,
+        )
+    } else {
+        CircularProgressIndicator(
+            modifier = modifier.size(size).then(semantics).testTag("run-spinner"),
+            color = color,
+            strokeWidth = stroke,
+            trackColor = track,
+            strokeCap = StrokeCap.Round,
+        )
+    }
+}
+
+/** Parked arc length when animations are off — a quarter turn reads as "working", not as 25% done. */
+private const val STILL_SPINNER_FRACTION = 0.25f
 
 /**
  * Nothing appears for the first [delayMs]: a wait that resolves inside the gate must look like

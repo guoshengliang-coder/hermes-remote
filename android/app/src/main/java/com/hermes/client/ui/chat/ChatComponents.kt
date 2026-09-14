@@ -140,9 +140,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.asImageBitmap
 import android.widget.Toast
-import android.graphics.BitmapFactory
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import com.hermes.client.domain.ToolCall
@@ -151,7 +149,6 @@ import com.hermes.client.domain.ChatImage
 import com.hermes.client.domain.ImageTransferState
 import com.hermes.client.domain.ChatFile
 import com.hermes.client.domain.FileTransferState
-import com.hermes.client.ui.theme.LocalToolCallTechnical
 import com.hermes.client.ui.components.ExternalLinkIcon
 import com.hermes.client.ui.components.rememberSafeUriHandler
 import com.hermes.client.ui.localization.LocalAppLanguage
@@ -455,16 +452,14 @@ fun ChatMessageList(
     onEditResend: (String) -> Unit = {},
     onRetrySend: (String) -> Unit = {},
     sendDiagnosticFor: (String) -> String? = { null },
+    sendErrorCodeFor: (String) -> com.hermes.client.data.error.AppErrorCode? = { null },
     onRegenerate: () -> Unit = {},
     onRetryWithModel: () -> Unit = {},
     onOpenTableFullscreen: (String) -> Unit = {},
     isSpeaking: Boolean = false,
     onReadAloud: (String) -> Unit = {},
     onStopReading: () -> Unit = {},
-    onImageSave: (ChatImage) -> Unit = {},
-    onImageSaveAs: (ChatImage) -> Unit = {},
-    onImageShare: (ChatImage) -> Unit = {},
-    savingImageId: String? = null,
+    onOpenImage: (String, ChatImage) -> Unit = { _, _ -> },
     onFileOpen: (ChatFile) -> Unit = {},
     onFileShare: (ChatFile) -> Unit = {},
     highlightIndex: Int? = null,
@@ -472,8 +467,13 @@ fun ChatMessageList(
     viewportController: ChatViewportController? = null,
     onBlankAreaTap: () -> Unit = {},
     openPromptListTick: Long = 0L,
-    /** Active in-chat search (query + current hit) for text marks and card auto-expand. */
+    /** Active in-chat search (query + which mark the counter points at) for the text marks. */
     searchContext: ChatSearchContext? = null,
+    /**
+     * The search bar is up. Not the same thing as `searchContext != null`, which goes null again
+     * on a blank query — the floating controls stand down for the whole session of searching.
+     */
+    searchOpen: Boolean = false,
 ) {
     val language = LocalAppLanguage.current
     val semanticViewport = viewportController ?: remember(sessionId) { ChatViewportController() }
@@ -628,7 +628,13 @@ fun ChatMessageList(
         }
     }
     val pillTarget = visibleSpan?.let { span ->
-        turnPillFor(turnGroups, topVisibleMessageIndex = span.first, visibleMessageRange = span, atBottom = atBottom)
+        turnPillFor(
+            turnGroups,
+            topVisibleMessageIndex = span.first,
+            visibleMessageRange = span,
+            atBottom = atBottom,
+            searchOpen = searchOpen,
+        )
     }
     val currentGroupIndex = visibleSpan?.let { groupIndexOf(turnGroups, it.first) } ?: turnGroups.lastIndex
     val turnTopInsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { (2.dp - TURN_SPACING).roundToPx() }
@@ -728,7 +734,8 @@ fun ChatMessageList(
             }
     }
 
-    val openTableFullscreen: (String) -> Unit = { raw ->
+    // Both fullscreen overlays have to freeze the same scroll position, so they share one capture.
+    val captureViewportForOverlay: () -> Unit = {
         val firstIndex = listState.firstVisibleItemIndex
         val firstKey = listState.layoutInfo.visibleItemsInfo
             .firstOrNull { it.index == firstIndex }
@@ -739,6 +746,15 @@ fun ChatMessageList(
             listState.firstVisibleItemScrollOffset,
         )
         semanticViewport.lockForOverlay()
+    }
+
+    val openImageViewer: (String, ChatImage) -> Unit = { messageId, image ->
+        captureViewportForOverlay()
+        onOpenImage(messageId, image)
+    }
+
+    val openTableFullscreen: (String) -> Unit = { raw ->
+        captureViewportForOverlay()
         onOpenTableFullscreen(raw)
     }
 
@@ -1093,20 +1109,17 @@ fun ChatMessageList(
                         onEditResend,
                         onRetrySend,
                         sendDiagnosticFor,
+                        sendErrorCodeFor,
                         onRegenerate,
                         onRetryWithModel,
                         openTableFullscreen,
                         isSpeaking,
                         onReadAloud,
                         onStopReading,
-                        onImageSave,
-                        onImageSaveAs,
-                        onImageShare,
-                        savingImageId,
+                        openImageViewer,
                         onFileOpen,
                         onFileShare,
                         smoothLiveResize = smoothLiveResize,
-                        highlighted = index == highlightIndex,
                         landingAlpha = if (index == jumpFlashIndex) jumpFlash.value else 0f,
                         searchContext = searchContext,
                     )
@@ -1143,12 +1156,14 @@ fun ChatMessageList(
                 }
         }
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
-            val pillMaxWidth = maxWidth * 0.7f
+            // 92% per Stitch 基线-聊天页/滑动引导胶囊 (was 70%). This is only a backstop: the
+            // label's own 190dp cap (TURN_PILL_LABEL_MAX_WIDTH) is what actually decides the width.
+            val pillMaxWidth = maxWidth * 0.92f
             androidx.compose.animation.AnimatedVisibility(
                 visible = initialPresentationReady && pillContent != null && !pillIdleHidden,
                 enter = androidx.compose.animation.fadeIn(animationSpec = tween(com.hermes.client.ui.theme.Motion.DurationShort)),
                 exit = androidx.compose.animation.fadeOut(animationSpec = tween(com.hermes.client.ui.theme.Motion.DurationShort)),
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 10.dp),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 4.dp),
             ) {
                 val content = pillContent ?: heldPillContent
                 if (content != null) {
@@ -1169,7 +1184,7 @@ fun ChatMessageList(
         // -> the "sudden snap to bottom". While scrolling the node simply does not exist, so the
         // arresting tap cannot hit it. Avoid an exit animation here: AnimatedVisibility keeps its
         // exiting subtree interactive until the fade completes, recreating the same ghost target.
-        if (initialPresentationReady && !atBottom && !listState.isScrollInProgress) {
+        if (scrollToBottomShown(initialPresentationReady, atBottom, listState.isScrollInProgress, searchOpen)) {
             Surface(
                 onClick = { bottomRequests.trySend(Unit) },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
@@ -1296,20 +1311,17 @@ private fun MessageBubble(
     onEditResend: (String) -> Unit,
     onRetrySend: (String) -> Unit,
     sendDiagnosticFor: (String) -> String?,
+    sendErrorCodeFor: (String) -> com.hermes.client.data.error.AppErrorCode?,
     onRegenerate: () -> Unit,
     onRetryWithModel: () -> Unit,
     onOpenTableFullscreen: (String) -> Unit,
     isSpeaking: Boolean,
     onReadAloud: (String) -> Unit,
     onStopReading: () -> Unit,
-    onImageSave: (ChatImage) -> Unit,
-    onImageSaveAs: (ChatImage) -> Unit,
-    onImageShare: (ChatImage) -> Unit,
-    savingImageId: String?,
+    onOpenImage: (String, ChatImage) -> Unit,
     onFileOpen: (ChatFile) -> Unit,
     onFileShare: (ChatFile) -> Unit,
     smoothLiveResize: Boolean = false,
-    highlighted: Boolean = false,
     landingAlpha: Float = 0f,
     searchContext: ChatSearchContext? = null,
 ) {
@@ -1324,8 +1336,8 @@ private fun MessageBubble(
         LocalTurnIsCurrentHit provides (searchContext != null && searchContext.currentMessageId == msg.id),
     ) {
         when (msg.role) {
-            Role.USER -> UserBubble(msg, onEditResend, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, highlighted = highlighted, landingAlpha = landingAlpha, onRetrySend = onRetrySend, sendDiagnostic = sendDiagnosticFor(msg.id))
-            else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onImageSave, onImageSaveAs, onImageShare, savingImageId, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, highlighted = highlighted, landingAlpha = landingAlpha)
+            Role.USER -> UserBubble(msg, onEditResend, onOpenImage, onFileOpen, onFileShare, landingAlpha = landingAlpha, onRetrySend = onRetrySend, sendDiagnostic = sendDiagnosticFor(msg.id), sendErrorCode = sendErrorCodeFor(msg.id))
+            else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onOpenImage, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, landingAlpha = landingAlpha)
     }
     }
 }
@@ -1335,16 +1347,13 @@ private fun MessageBubble(
 internal fun UserBubble(
     msg: ChatMessage,
     onEditResend: (String) -> Unit,
-    onImageSave: (ChatImage) -> Unit,
-    onImageSaveAs: (ChatImage) -> Unit,
-    onImageShare: (ChatImage) -> Unit,
-    savingImageId: String?,
+    onOpenImage: (String, ChatImage) -> Unit,
     onFileOpen: (ChatFile) -> Unit,
     onFileShare: (ChatFile) -> Unit,
-    highlighted: Boolean = false,
     landingAlpha: Float = 0f,
     onRetrySend: (String) -> Unit = {},
     sendDiagnostic: String? = null,
+    sendErrorCode: com.hermes.client.data.error.AppErrorCode? = null,
 ) {
     val language = LocalAppLanguage.current
     val clipboard = LocalClipboardManager.current
@@ -1355,7 +1364,11 @@ internal fun UserBubble(
     // Delivery three-state (docs/DESIGN.md §5.4): the "sending" look is revealed only after
     // 250ms without an ack, so the common sub-300ms send never flickers; "failed" shows at once.
     val sending = msg.delivery == com.hermes.client.domain.DeliveryState.SENDING
-    val failed = msg.delivery == com.hermes.client.domain.DeliveryState.FAILED
+    // Undeliverable looks like failed (dimmed bubble, error marker) but says something different
+    // and offers no tap: the conversation is gone upstream, so retrying is not on the table.
+    val undeliverable = msg.delivery == com.hermes.client.domain.DeliveryState.UNDELIVERABLE
+    val failed = msg.delivery == com.hermes.client.domain.DeliveryState.FAILED || undeliverable
+    val retryable = failed && !undeliverable
     var revealSending by remember(msg.id) { mutableStateOf(false) }
     LaunchedEffect(msg.id, sending) {
         if (sending) { delay(SENDING_REVEAL_DELAY_MS); revealSending = true } else revealSending = false
@@ -1378,8 +1391,23 @@ internal fun UserBubble(
     // leaves user bubbles oddly narrow on tablets/landscape. ~82% tracks the Claude app.
     val bubbleMaxWidth = (LocalConfiguration.current.screenWidthDp * 0.82f).dp
     val sendingLabel = localized(language, "发送中", "Sending")
-    val failedLabel = localized(language, "未发送 · 点按重试", "Not sent · Tap to retry")
-    val failedCode = com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED.compact
+    // The status line is driven by the code the send actually failed with, not by the delivery
+    // state: FAILED covers several causes and they must not share one sentence. "点按重试" alone
+    // is only honest when nothing more specific is known — a refusal the user can act on (the
+    // conversation is open on another client) has to say so, or the tap just repeats it.
+    val failedErrorCode = sendErrorCode
+        ?: if (undeliverable) com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND
+        else com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED
+    val failedLabel = when (failedErrorCode) {
+        com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND ->
+            localized(language, "会话不存在或已被删除", "This conversation no longer exists")
+        com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE ->
+            // No "未发送 ·" prefix, same as SESS-001: the dimmed bubble and the error mark already
+            // say it did not send, and the prefix pushed the code onto a second line at 360dp/1.3.
+            localized(language, "会话正在另一个客户端运行", "Running on another client")
+        else -> localized(language, "未发送 · 点按重试", "Not sent · Tap to retry")
+    }
+    val failedCode = failedErrorCode.compact
     // In a channel conversation the right-hand column carries two different speakers: the person
     // on the other app, and anything typed here. Naming them apart is not decoration — a blanket
     // peer label would sign the reader's own words with somebody else's name.
@@ -1401,13 +1429,12 @@ internal fun UserBubble(
                     // Asymmetric corners (a small "tail" corner) mark this as the sender's bubble.
                     .clip(userShape)
                     .background(bg)
+                    // Landing outline: border only, fading. A search hit draws NOTHING here
+                    // (HG-46) — the marked words already say which turn you are on, and a tinted,
+                    // outlined bubble on top of them was the loudest thing on the screen.
                     .then(
-                        when {
-                            highlighted -> Modifier.background(accent.copy(alpha = 0.18f)).border(1.5.dp, accent, userShape)
-                            // Landing outline: border only, fading — never the search fill.
-                            landingAlpha > 0f -> Modifier.border(1.5.dp, accent.copy(alpha = landingAlpha), userShape)
-                            else -> Modifier
-                        },
+                        if (landingAlpha > 0f) Modifier.border(1.5.dp, accent.copy(alpha = landingAlpha), userShape)
+                        else Modifier,
                     )
                     .padding(horizontal = 16.dp, vertical = 11.dp)
                     .semantics {
@@ -1415,13 +1442,13 @@ internal fun UserBubble(
                         if (failed) stateDescription = "$failedLabel $failedCode"
                     }
                     .combinedClickable(
-                        onClick = { if (failed) onRetrySend(msg.id) },
+                        onClick = { if (retryable) onRetrySend(msg.id) },
                         onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); menuOpen = true },
                     ),
             ) {
               CompositionLocalProvider(LocalContentColor provides textColor) {
                 if (msg.images.isNotEmpty()) {
-                    ChatImageGrid(msg.images, onImageSave, onImageSaveAs, onImageShare, savingImageId)
+                    ChatImageGrid(msg.images) { onOpenImage(msg.id, it) }
                     if (msg.text.isNotBlank() || msg.files.isNotEmpty()) Spacer(Modifier.height(8.dp))
                 }
                 if (msg.files.isNotEmpty()) {
@@ -1451,8 +1478,8 @@ internal fun UserBubble(
                         add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制", "Copy")) {
                             copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied"))
                         })
-                        add(MessageAction(Icons.Rounded.Edit, localized(language, "编辑并重新发送", "Edit & resend")) { onEditResend(msg.text) })
                         add(MessageAction(Icons.Rounded.SelectAll, localized(language, "选择文本", "Select text")) { selectingText = true })
+                        add(MessageAction(Icons.Rounded.Edit, localized(language, "编辑并重新发送", "Edit & resend")) { onEditResend(msg.text) })
                         if (failed && sendDiagnostic != null) {
                             add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制诊断信息", "Copy diagnostics")) {
                                 copyToClipboard(sendDiagnostic, clipboard, context, localized(language, "诊断信息已复制", "Diagnostics copied"))
@@ -1473,11 +1500,30 @@ internal fun UserBubble(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .padding(top = 4.dp, end = 4.dp)
-                    .clickable(role = androidx.compose.ui.semantics.Role.Button) { onRetrySend(msg.id) },
+                    .then(
+                        if (retryable) {
+                            Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button) {
+                                onRetrySend(msg.id)
+                            }
+                        } else Modifier,
+                    ),
             ) {
-                Text(failedLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                // The code is the identity the user reads back to us, so it never breaks: the
+                // sentence is what gives way on a narrow screen at a large font scale.
+                Text(
+                    failedLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
                 Spacer(Modifier.width(6.dp))
-                Text(failedCode, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    failedCode,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false,
+                )
             }
         }
       }
@@ -1521,183 +1567,6 @@ private fun DeliveryTailMarker(failed: Boolean, modifier: Modifier = Modifier) {
             drawCircle(color = errorColor, radius = 0.9.dp.toPx(), center = androidx.compose.ui.geometry.Offset(cx, center.y + r * 0.5f))
         } else {
             drawCircle(color = ringColor.copy(alpha = alpha), radius = r, style = stroke)
-        }
-    }
-}
-
-@Composable
-private fun ChatImageGrid(
-    images: List<ChatImage>,
-    onSave: (ChatImage) -> Unit,
-    onSaveAs: (ChatImage) -> Unit,
-    onShare: (ChatImage) -> Unit,
-    savingImageId: String?,
-) {
-    var selected by remember { mutableStateOf<ChatImage?>(null) }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        images.chunked(2).forEach { rowImages ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                rowImages.forEach { image ->
-                    ChatImageThumbnail(
-                        image = image,
-                        modifier = Modifier.weight(1f).height(if (images.size == 1) 190.dp else 132.dp),
-                        onClick = { if (image.localPath != null) selected = image },
-                    )
-                }
-                if (rowImages.size == 1 && images.size > 1) Spacer(Modifier.weight(1f))
-            }
-        }
-    }
-    selected?.let { image ->
-        FullScreenImage(
-            image = image,
-            saving = savingImageId == image.id,
-            onSave = { onSave(image) },
-            onSaveAs = { onSaveAs(image) },
-            onShare = { onShare(image) },
-            onDismiss = { selected = null },
-        )
-    }
-}
-
-@Composable
-private fun ChatImageThumbnail(image: ChatImage, modifier: Modifier, onClick: () -> Unit) {
-    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, image.localPath) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            image.localPath?.let { decodeImageFile(it, 900) }
-        }
-    }
-    val shape = RoundedCornerShape(14.dp)
-    Box(
-        modifier.clip(shape).background(MaterialTheme.colorScheme.surface).clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap!!,
-                contentDescription = localized(LocalAppLanguage.current, "聊天图片", "Chat image"),
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-        } else if (image.state == ImageTransferState.UPLOADING ||
-            ((image.remotePath != null || image.sourceUrl != null) && image.state != ImageTransferState.FAILED)
-        ) {
-            com.hermes.client.ui.components.HermesMark(size = 24.dp)
-        } else {
-            Icon(
-                Icons.Rounded.BrokenImage,
-                contentDescription = localized(LocalAppLanguage.current, "图片加载失败", "Image unavailable"),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun FullScreenImage(
-    image: ChatImage,
-    saving: Boolean,
-    onSave: () -> Unit,
-    onSaveAs: () -> Unit,
-    onShare: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var scale by remember(image.id) { mutableStateOf(1f) }
-    var offset by remember(image.id) { mutableStateOf(Offset.Zero) }
-    var menuOpen by remember(image.id) { mutableStateOf(false) }
-    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, image.localPath) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            image.localPath?.let { decodeImageFile(it, 4096) }
-        }
-    }
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
-        Box(
-            Modifier.fillMaxSize().background(Color.Black).pointerInput(image.id) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    scale = (scale * zoom).coerceIn(1f, 5f)
-                    offset = if (scale == 1f) Offset.Zero else offset + pan
-                }
-            },
-            contentAlignment = Alignment.Center,
-        ) {
-            bitmap?.let {
-                Image(
-                    bitmap = it,
-                    contentDescription = localized(LocalAppLanguage.current, "查看原图", "View full image"),
-                    modifier = Modifier.fillMaxSize().graphicsLayer(
-                        scaleX = scale,
-                        scaleY = scale,
-                        translationX = offset.x,
-                        translationY = offset.y,
-                    ),
-                    contentScale = ContentScale.Fit,
-                )
-            }
-            FullScreenImageAction(
-                contentDescription = localized(LocalAppLanguage.current, "关闭", "Close"),
-                modifier = Modifier.align(Alignment.TopStart).padding(top = 30.dp, start = 18.dp),
-                onClick = onDismiss,
-            ) { Icon(Icons.Rounded.Close, null, tint = Color.White) }
-            Row(
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 30.dp, end = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                FullScreenImageAction(
-                    contentDescription = localized(LocalAppLanguage.current, "保存图片", "Save image"),
-                    enabled = !saving,
-                    onClick = onSave,
-                ) {
-                    // Stays an M3 spinner: white-on-photo, where a single-colour brand mark
-                    // has no guaranteed contrast (docs/DESIGN.md §5.6).
-                    if (saving) CircularProgressIndicator(Modifier.size(21.dp), strokeWidth = 2.dp, color = Color.White)
-                    else Icon(Icons.Rounded.Download, null, tint = Color.White)
-                }
-                FullScreenImageAction(
-                    contentDescription = localized(LocalAppLanguage.current, "分享图片", "Share image"),
-                    enabled = !saving,
-                    onClick = onShare,
-                ) { Icon(Icons.Rounded.Share, null, tint = Color.White) }
-                Box {
-                    FullScreenImageAction(
-                        contentDescription = localized(LocalAppLanguage.current, "更多图片操作", "More image actions"),
-                        enabled = !saving,
-                        onClick = { menuOpen = true },
-                    ) { Icon(Icons.Rounded.MoreVert, null, tint = Color.White) }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text(localized(LocalAppLanguage.current, "另存为…", "Save as…")) },
-                            onClick = { menuOpen = false; onSaveAs() },
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FullScreenImageAction(
-    contentDescription: String,
-    enabled: Boolean = true,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-    icon: @Composable () -> Unit,
-) {
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier.semantics { this.contentDescription = contentDescription },
-        shape = CircleShape,
-        color = Color.Black.copy(alpha = 0.58f),
-    ) {
-        Box(Modifier.size(46.dp), contentAlignment = Alignment.Center) {
-            Box(Modifier.size(24.dp)) { icon() }
         }
     }
 }
@@ -1765,18 +1634,6 @@ private fun ChatFileList(
     }
 }
 
-private fun decodeImageFile(path: String, requestedPx: Int): androidx.compose.ui.graphics.ImageBitmap? {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeFile(path, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-    var sample = 1
-    while (bounds.outWidth / sample > requestedPx * 2 || bounds.outHeight / sample > requestedPx * 2) {
-        sample *= 2
-    }
-    return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
-        ?.asImageBitmap()
-}
-
 @Composable
 private fun BackgroundProcessesCard(processes: List<com.hermes.client.data.repository.BackgroundProcess>) {
     val language = LocalAppLanguage.current
@@ -1837,14 +1694,10 @@ internal fun AssistantTurn(
     isSpeaking: Boolean,
     onReadAloud: (String) -> Unit,
     onStopReading: () -> Unit,
-    onImageSave: (ChatImage) -> Unit,
-    onImageSaveAs: (ChatImage) -> Unit,
-    onImageShare: (ChatImage) -> Unit,
-    savingImageId: String?,
+    onOpenImage: (String, ChatImage) -> Unit,
     onFileOpen: (ChatFile) -> Unit,
     onFileShare: (ChatFile) -> Unit,
     smoothLiveResize: Boolean = false,
-    highlighted: Boolean = false,
     landingAlpha: Float = 0f,
 ) {
     val language = LocalAppLanguage.current
@@ -1881,14 +1734,12 @@ internal fun AssistantTurn(
                         )
                     } else Modifier
                 )
-                // No conditional padding here: background/border draw within existing bounds, so
-                // toggling the highlight causes no layout shift (a conditional .padding would).
+                // No conditional padding here: the border draws within existing bounds, so
+                // toggling it causes no layout shift (a conditional .padding would). A search hit
+                // draws nothing at all now (HG-46); only the turn-jump landing still outlines.
                 .then(
-                    when {
-                        highlighted -> Modifier.clip(hlShape).background(accent.copy(alpha = 0.12f)).border(1.5.dp, accent, hlShape)
-                        landingAlpha > 0f -> Modifier.clip(hlShape).border(1.5.dp, accent.copy(alpha = landingAlpha), hlShape)
-                        else -> Modifier
-                    },
+                    if (landingAlpha > 0f) Modifier.clip(hlShape).border(1.5.dp, accent.copy(alpha = landingAlpha), hlShape)
+                    else Modifier,
                 )
                 .padding(vertical = 2.dp)
                 .combinedClickable(onClick = {}, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); menuOpen = true }),
@@ -1905,7 +1756,7 @@ internal fun AssistantTurn(
                 }
             }
             if (msg.images.isNotEmpty()) {
-                ChatImageGrid(msg.images, onImageSave, onImageSaveAs, onImageShare, savingImageId)
+                ChatImageGrid(msg.images) { onOpenImage(msg.id, it) }
                 if (renderedText.isNotBlank() || msg.files.isNotEmpty()) Spacer(Modifier.height(8.dp))
             }
             if (renderedText.isNotBlank()) {
@@ -1916,7 +1767,7 @@ internal fun AssistantTurn(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
-                            renderedText,
+                            searchHighlighted(renderedText),
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(12.dp),
@@ -1924,6 +1775,21 @@ internal fun AssistantTurn(
                     }
                 } else {
                     val blocks = remember(renderedText) { markdownRenderBlocks(renderedText) }
+                    // Which mark is "the one" is answered by ordinal, not by position: prefix sums
+                    // of the marks per block let each block name its own marks in turn coordinates.
+                    val searchQuery = LocalChatSearch.current?.query
+                    val markPrefix = remember(blocks, searchQuery) {
+                        val terms = searchQuery?.let { searchHighlightTerms(it) }.orEmpty()
+                        if (terms.isEmpty()) IntArray(blocks.size) else {
+                            val prefix = IntArray(blocks.size)
+                            var running = 0
+                            blocks.forEachIndexed { i, block ->
+                                prefix[i] = running
+                                running += searchHighlightRangesFor(withCjkEmphasisRepaired(block), terms).size
+                            }
+                            prefix
+                        }
+                    }
                     Column {
                         blocks.forEachIndexed { blockIndex, block ->
                             key(blockIndex) {
@@ -1932,6 +1798,7 @@ internal fun AssistantTurn(
                                     anchorKey = "${msg.id}:markdown:$blockIndex",
                                     onOpenTableFullscreen = onOpenTableFullscreen,
                                     modifier = Modifier.testTag("chat-block-${msg.id}-$blockIndex"),
+                                    searchRangeOffset = markPrefix.getOrElse(blockIndex) { 0 },
                                 )
                             }
                         }
@@ -2011,6 +1878,9 @@ internal fun AssistantTurn(
                     add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制", "Copy")) {
                         copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied"))
                     })
+                    // Second, right after 复制: it is the same intent at a smaller grain, and the
+                    // only way to reach a selection at all. Behind 朗读 it was effectively hidden.
+                    add(MessageAction(Icons.Rounded.SelectAll, localized(language, "选择文本", "Select text")) { selectingText = true })
                     if (canRegenerate) {
                         add(MessageAction(Icons.Rounded.Refresh, localized(language, "重新生成", "Regenerate")) { onRegenerate() })
                         add(MessageAction(Icons.Rounded.SwapHoriz, localized(language, "换个模型重试", "Retry with another model")) { onRetryWithModel() })
@@ -2023,7 +1893,6 @@ internal fun AssistantTurn(
                             ) { if (isSpeaking) onStopReading() else onReadAloud(msg.text) },
                         )
                     }
-                    add(MessageAction(Icons.Rounded.SelectAll, localized(language, "选择文本", "Select text")) { selectingText = true })
                 },
                 onDismiss = { menuOpen = false },
             )
@@ -2045,6 +1914,7 @@ internal fun AssistantMarkdownBlock(
     anchorKey: String,
     onOpenTableFullscreen: (String) -> Unit,
     modifier: Modifier = Modifier,
+    searchRangeOffset: Int = 0,
 ) {
     val viewport = LocalChatViewportController.current
     val components = remember(onOpenTableFullscreen, anchorKey) {
@@ -2058,66 +1928,17 @@ internal fun AssistantMarkdownBlock(
         lineHeight = 29.sp,
         letterSpacing = 0.sp,
     )
-    val linkColor = MaterialTheme.colorScheme.primary
-    // Colour AND underline AND a leading glyph: in CJK body text an underlined run is nearly
-    // indistinguishable from **bold**, and colour alone is not an accessible-enough signal.
-    val linkStyles = remember(linkColor) {
-        TextLinkStyles(
-            style = SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline),
-            pressedStyle = SpanStyle(color = linkColor.copy(alpha = 0.7f), textDecoration = TextDecoration.Underline),
-        )
-    }
-    // Held across recompositions on purpose: InlineTextContent has no equals(), so rebuilding
-    // this map on every streaming tick would hand Markdown a "changed" argument each frame.
-    // The placeholder is 17sp square while the glyph is 13sp, which is where the gap between
-    // icon and link text comes from; both are sp so the pair tracks the system font scale.
-    val linkIcon = remember(linkColor) {
-        DefaultMarkdownInlineContent(
-            mapOf(
-                MARKDOWN_LINK_ICON_TAG to InlineTextContent(
-                    Placeholder(17.sp, 17.sp, PlaceholderVerticalAlign.TextCenter),
-                ) {
-                    Icon(
-                        ExternalLinkIcon,
-                        contentDescription = null,
-                        modifier = Modifier.size(with(LocalDensity.current) { 13.sp.toDp() }),
-                        tint = linkColor,
-                    )
-                },
-            ),
-        )
-    }
-    // Two annotators share this one slot. They are disjoint — search highlighting only claims
-    // TEXT tokens, the glyph only reacts to link nodes — so the link pass runs first and always
-    // defers, then search decides whether it handled the node.
-    val searchAnnotator = rememberSearchAnnotator()
-    val annotator = remember(searchAnnotator) {
-        markdownAnnotator(config = searchAnnotator.config) { content, child ->
-            if (shouldPrefixLinkIcon(child)) {
-                appendInlineContent(MARKDOWN_LINK_ICON_TAG, "\uFFFC")
-                // WORD JOINER: without it the line breaker treats the glyph as its own word and
-                // happily leaves it stranded at the end of the previous line.
-                append('\u2060')
-            }
-            searchAnnotator.annotate?.invoke(this, content, child) ?: false
-        }
-    }
+    val linkStyles = hermesLinkStyles()
     // Chinese sentences keep their punctuation inside the emphasis and start the next word right
     // after it — exactly the shape CommonMark refuses to close — so `**关键问题：…？**有的话` reached
     // the reader as four literal asterisks. Repaired for display only; copy, share, export and
     // read-aloud all read the original message text. See CjkEmphasis.kt (HG-24).
     val renderable = remember(content) { withCjkEmphasisRepaired(content) }
-    // The renderer captures LocalUriHandler when it builds the link annotations, so the guarded
-    // handler has to be in scope around Markdown() rather than at the tap site.
-    CompositionLocalProvider(LocalUriHandler provides rememberSafeUriHandler()) {
-    Markdown(
+    HermesMarkdown(
+        surface = MarkdownSurface.CHAT,
         content = renderable,
-        annotator = annotator,
+        searchRangeOffset = searchRangeOffset,
         modifier = modifier.onGloballyPositioned { viewport?.updateBlock(anchorKey, it.boundsInWindow()) },
-        colors = markdownColor(
-            inlineCodeBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-            codeBackground = MaterialTheme.colorScheme.surfaceVariant,
-        ),
         typography = markdownTypography(
             h1 = MaterialTheme.typography.headlineSmall.copy(lineHeight = 34.sp),
             h2 = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp, lineHeight = 32.sp),
@@ -2135,10 +1956,9 @@ internal fun AssistantMarkdownBlock(
             list = body,
             quote = body.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
             textLink = linkStyles,
-            table = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 23.sp),
+            table = hermesTableTextStyle(),
         ),
         components = components,
-        inlineContent = linkIcon,
         padding = markdownPadding(
             block = MD_BLOCK,
             list = MD_LIST,
@@ -2146,9 +1966,8 @@ internal fun AssistantMarkdownBlock(
             listItemBottom = MD_LIST_ITEM,
             listIndent = MD_LIST_INDENT,
         ),
-        dimens = markdownDimens(tableCellWidth = 110.dp, tableCellPadding = 8.dp),
+        dimens = markdownDimens(tableCellWidth = CHAT_TABLE_CELL_WIDTH, tableCellPadding = CHAT_TABLE_CELL_PADDING),
     )
-    }
 }
 
 private const val STREAM_RENDER_INTERVAL_MS = 64L
@@ -2193,7 +2012,6 @@ private val MARKDOWN_LINK_TYPES = setOf(
     MarkdownElementTypes.SHORT_REFERENCE_LINK,
     GFMTokenTypes.GFM_AUTOLINK,
 )
-private const val MARKDOWN_LINK_ICON_TAG = "hermes-link-icon"
 
 /**
  * Whether this AST node is a link that should get the external-link glyph in front of it.
@@ -2465,17 +2283,15 @@ private fun SemanticAnchorBox(
 /** Gallery/sample entry: renders a raw markdown table with the chat table styling. */
 @Composable
 internal fun StyledMarkdownTableSample(raw: String) {
-    Markdown(
+    HermesMarkdown(
+        surface = MarkdownSurface.CHAT,
         content = raw,
         modifier = Modifier.fillMaxWidth(),
-        colors = markdownColor(),
-        typography = markdownTypography(
-            table = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 23.sp),
-        ),
+        typography = markdownTypography(textLink = hermesLinkStyles(), table = hermesTableTextStyle()),
         components = markdownComponents(
             table = { m -> StyledMarkdownTable(m.content, m.node, m.typography.table) },
         ),
-        dimens = markdownDimens(tableCellWidth = 110.dp, tableCellPadding = 8.dp),
+        dimens = markdownDimens(tableCellWidth = CHAT_TABLE_CELL_WIDTH, tableCellPadding = CHAT_TABLE_CELL_PADDING),
     )
 }
 
@@ -2507,17 +2323,20 @@ internal fun OffscreenTableExporter(raw: String, action: TableExportAction, onDo
                 // record only — no drawLayer, so nothing appears on screen.
                 .drawWithContent { layer.record { this@drawWithContent.drawContent() } },
         ) {
-            Markdown(
-                markdownState = mdState,
+            HermesMarkdown(
+                // EXPORT: renders from cache and never starts a download (DESIGN.md §5.13), and
+                // leaves the search highlight out of a saved image.
+                surface = MarkdownSurface.EXPORT,
+                state = mdState,
                 modifier = Modifier.fillMaxWidth(),
-                colors = markdownColor(),
                 typography = markdownTypography(
-                    table = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 24.sp),
+                    textLink = hermesLinkStyles(),
+                    table = hermesTableTextStyle(exportScale = true),
                 ),
                 components = markdownComponents(
                     table = { m -> StyledMarkdownTable(m.content, m.node, m.typography.table) },
                 ),
-                dimens = markdownDimens(tableCellWidth = 170.dp, tableCellPadding = 10.dp),
+                dimens = markdownDimens(tableCellWidth = 170.dp, tableCellPadding = EXPORT_TABLE_CELL_PADDING),
             )
         }
     }
@@ -2766,17 +2585,21 @@ internal fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
                             .width(tableWidth)
                             .background(MaterialTheme.colorScheme.background),
                     ) {
-                        Markdown(
-                            markdownState = mdState,
+                        HermesMarkdown(
+                            surface = MarkdownSurface.FULLSCREEN,
+                            state = mdState,
                             modifier = Modifier.fillMaxWidth(),
-                            colors = markdownColor(),
                             typography = markdownTypography(
-                                table = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 24.sp),
+                                textLink = hermesLinkStyles(),
+                                table = hermesTableTextStyle(exportScale = true),
                             ),
                             components = markdownComponents(
                                 table = { m -> StyledMarkdownTable(m.content, m.node, m.typography.table) },
                             ),
-                            dimens = markdownDimens(tableCellWidth = exportCellWidth.dp, tableCellPadding = 10.dp),
+                            dimens = markdownDimens(
+                                tableCellWidth = exportCellWidth.dp,
+                                tableCellPadding = EXPORT_TABLE_CELL_PADDING,
+                            ),
                         )
                     }
                     }
@@ -2852,11 +2675,18 @@ internal fun CodeWithCopy(code: String, language: String?, style: TextStyle) {
 /**
  * Full-screen plain-text selection view. The markdown body is not selectable (SelectionContainer
  * and the markdown renderer's block structure do not compose well), so partial quoting runs
- * through this dialog: the raw text, selectable, scrollable, nothing else.
+ * through this dialog: selectable, scrollable, nothing else.
+ *
+ * It opens on the prose ([readableText]) rather than the markdown source, because the usual reason
+ * to come here is to quote a sentence somewhere else and `**bold**` is not what the reader saw.
+ * The source is one tap away for the times you do want it verbatim.
  */
 @Composable
 private fun TextSelectionDialog(text: String, onDismiss: () -> Unit) {
     val language = LocalAppLanguage.current
+    // Saveable: a rotation mid-selection must not silently swap what you were reading.
+    var showSource by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    val prose = remember(text) { readableText(text) }
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -2882,6 +2712,13 @@ private fun TextSelectionDialog(text: String, onDismiss: () -> Unit) {
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(start = 4.dp),
                     )
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { showSource = !showSource }) {
+                        Text(
+                            if (showSource) localized(language, "显示正文", "Show text")
+                            else localized(language, "显示原文", "Show source"),
+                        )
+                    }
                 }
                 SelectionContainer(
                     Modifier
@@ -2890,7 +2727,7 @@ private fun TextSelectionDialog(text: String, onDismiss: () -> Unit) {
                         .padding(horizontal = 20.dp),
                 ) {
                     Text(
-                        text,
+                        if (showSource) text else prose,
                         style = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, lineHeight = 26.sp),
                         modifier = Modifier.padding(bottom = 24.dp),
                     )
@@ -3061,10 +2898,6 @@ private fun ThinkingCard(messageId: String, text: String) {
     // rememberSaveable keyed by the message id: plain remember lost the expanded state whenever
     // the item scrolled out of the Lazy viewport and was recycled.
     var expanded by androidx.compose.runtime.saveable.rememberSaveable(messageId) { mutableStateOf(false) }
-    // The search counter landed on a hit inside this reasoning: open it so the hit is visible.
-    // Closing the search does not fold it back; the reader may be mid-read.
-    val autoExpand = shouldAutoExpand(LocalChatSearch.current, LocalTurnIsCurrentHit.current, SearchSource.THINKING, text)
-    LaunchedEffect(autoExpand) { if (autoExpand) expanded = true }
     // Quiet in BOTH states: unlike the tool timeline this toggle never shows progress (a live run's
     // reasoning is voiced by RunningStatusLine), so restyling it at completion would only flash.
     QuietFoldSummary(
@@ -3076,18 +2909,14 @@ private fun ThinkingCard(messageId: String, text: String) {
     )
     if (expanded) {
         SelectionContainer {
+            // Not search-marked: reasoning is out of the search scope (HG-45), and marking text
+            // the counter does not count is a worse mismatch than not marking it.
             Text(
-                searchHighlighted(text),
+                text,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
             )
         }
     }
-}
-
-internal fun formatPayloadSize(bytes: Int): String = when {
-    bytes < 1024 -> "$bytes B"
-    bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-    else -> "${"%.1f".format(bytes / (1024f * 1024f))} MB"
 }

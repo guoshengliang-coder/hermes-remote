@@ -11,16 +11,31 @@ data class ChannelAlert(val id: String, val name: String, val affectedJobs: Int)
 /**
  * What the home screen's single alert slot should say.
  *
- * [channels] are root causes; [standaloneCronJobs] are the scheduled jobs whose trouble is their
- * own. [total] is what the strip counts — deliberately NOT channels + every failing job, because
- * one broken channel plus the three reports it swallowed is one problem, not four.
+ * [channels] are root causes; [standaloneJobs] are the scheduled jobs whose trouble is their own.
+ * [total] is what the strip counts — deliberately NOT channels + every failing job, because one
+ * broken channel plus the three reports it swallowed is one problem, not four.
+ *
+ * [standaloneJobs] holds the alerts rather than a count (HG-50, 2026-09-14). It used to be an
+ * `Int`, which is why the strip could only ever open the list: by the time the screen saw it, the
+ * one job it was counting had been thrown away. The alerts already carry `jobId` and a
+ * `cron_detail/…` route, so keeping them costs nothing and lets a single failure go straight to
+ * the job it is about.
  */
 data class MergedHealth(
     val channels: List<ChannelAlert> = emptyList(),
-    val standaloneCronJobs: Int = 0,
+    val standaloneJobs: List<CronAlert> = emptyList(),
 ) {
-    val total: Int get() = channels.size + standaloneCronJobs
+    val standaloneCronJobs: Int get() = standaloneJobs.size
+    val total: Int get() = channels.size + standaloneJobs.size
     val hasChannelCause: Boolean get() = channels.isNotEmpty()
+
+    /**
+     * The one scheduled job this strip is about, or null when it is about several or about a
+     * channel. A channel cause outranks it: the fix is on the channel, so that is where the tap
+     * goes, however few jobs are behind it (docs/DESIGN.md §5.16).
+     */
+    val soleStandaloneJob: CronAlert? get() =
+        standaloneJobs.singleOrNull()?.takeIf { channels.isEmpty() }
 }
 
 private fun MessagingPlatformDto.isDown(): Boolean =
@@ -47,18 +62,18 @@ fun mergeHealth(
     val byJobId = crons.associateBy { it.id }
 
     val absorbed = mutableMapOf<String, Int>()
-    var standalone = 0
+    val standalone = mutableListOf<CronAlert>()
     for (alert in alerts) {
         val job = byJobId[alert.jobId]
         val target = job?.deliver?.trim()?.lowercase()
         if (alert.reason == CronAlertReason.UNDELIVERED && target != null && target in down) {
             absorbed[target] = (absorbed[target] ?: 0) + 1
         } else {
-            standalone++
+            standalone.add(alert)
         }
     }
     val channels = down.values
         .map { ChannelAlert(it.id, it.name ?: it.id, absorbed[it.id] ?: 0) }
         .sortedByDescending { it.affectedJobs }
-    return MergedHealth(channels = channels, standaloneCronJobs = standalone)
+    return MergedHealth(channels = channels, standaloneJobs = standalone)
 }

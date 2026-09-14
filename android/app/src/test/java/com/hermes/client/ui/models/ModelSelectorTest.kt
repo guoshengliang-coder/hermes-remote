@@ -14,110 +14,82 @@ class ModelSelectorTest {
             models = listOf("stepfun/step-3.7-flash:free")),
     )
 
-    private fun rows(items: List<ModelListItem>) =
-        items.filterIsInstance<ModelListItem.Row>().map { it.row }
-    private fun headers(items: List<ModelListItem>) =
-        items.filterIsInstance<ModelListItem.Header>().map { it.title }
+    private fun rows(groups: List<ModelGroup>) = groups.flatMap { it.rows }
+    private fun titles(groups: List<ModelGroup>) = groups.map { it.slug ?: "*favorites*" }
 
-    @Test fun groups_by_provider_with_headers_in_input_order() {
-        val items = modelSelectorRows(providers, emptySet(), "", null, null)
-        assertEquals(listOf("openai-codex", "OpenRouter"), headers(items))
-        assertEquals(3, rows(items).size)
+    @Test fun one_card_per_provider_in_input_order() {
+        val groups = modelSelectorGroups(providers, emptySet(), null, null)
+        assertEquals(listOf("openai-codex", "OpenRouter"), titles(groups))
+        assertEquals(3, rows(groups).size)
+    }
+
+    @Test fun a_provider_card_carries_its_display_name_and_total() {
+        val groups = modelSelectorGroups(providers, emptySet(), null, null)
+        val or = groups.single { it.slug == "OpenRouter" }
+        assertEquals("OpenRouter", or.title)
+        assertEquals(1, or.count)
+        // A provider with no display name falls back to its slug.
+        assertEquals("openai-codex", groups.single { it.slug == "openai-codex" }.title)
     }
 
     @Test fun favorites_pinned_first_and_also_shown_in_group() {
         val favs = setOf(favKey("openai-codex", "gpt-5.5"))
-        val items = modelSelectorRows(providers, favs, "", null, null)
-        assertEquals("Favorites", (items.first() as ModelListItem.Header).title)
-        // appears in the Favorites section AND its provider group, both flagged
-        assertEquals(2, rows(items).count { it.model == "gpt-5.5" && it.isFavorite })
+        val groups = modelSelectorGroups(providers, favs, null, null)
+        assertTrue(groups.first().isFavorites)
+        assertEquals(null, groups.first().slug)
+        // appears in the Favorites card AND its provider card, both flagged
+        assertEquals(2, rows(groups).count { it.model == "gpt-5.5" && it.isFavorite })
     }
 
-    @Test fun no_favorites_header_when_none_present() {
-        val items = modelSelectorRows(providers, emptySet(), "", null, null)
-        assertTrue(headers(items).none { it == "Favorites" })
+    @Test fun no_favorites_card_when_none_present() {
+        assertTrue(modelSelectorGroups(providers, emptySet(), null, null).none { it.isFavorites })
     }
 
-    @Test fun query_filters_model_and_provider_case_insensitively() {
-        assertEquals(
-            listOf("stepfun/step-3.7-flash:free"),
-            rows(modelSelectorRows(providers, emptySet(), "STEP", null, null)).map { it.model },
-        )
-        assertEquals(2, rows(modelSelectorRows(providers, emptySet(), "codex", null, null)).size)
-        assertTrue(modelSelectorRows(providers, emptySet(), "zzz", null, null).isEmpty())
+    @Test fun a_provider_with_no_models_gets_no_card() {
+        val empty = providers + ModelProviderDto(slug = "silent", name = null, isCurrent = false, models = emptyList())
+        assertTrue(modelSelectorGroups(empty, emptySet(), null, null).none { it.slug == "silent" })
     }
 
     @Test fun marks_exactly_the_current_row() {
-        val items = modelSelectorRows(providers, emptySet(), "", "openai-codex", "gpt-5.5")
-        val current = rows(items).filter { it.isCurrent }
+        val groups = modelSelectorGroups(providers, emptySet(), "openai-codex", "gpt-5.5")
+        val current = rows(groups).filter { it.isCurrent }
         assertEquals(1, current.size)
         assertEquals("gpt-5.5", current[0].model)
         assertEquals("openai-codex", current[0].provider)
     }
 
-    @Test fun provider_header_marks_the_current_provider() {
-        val items = modelSelectorRows(providers, emptySet(), "", null, null)
-        val codex = items.filterIsInstance<ModelListItem.Header>().first { it.title == "openai-codex" }
-        assertTrue(codex.isCurrent)
-    }
-
-    @Test fun non_current_provider_header_is_not_current() {
-        val items = modelSelectorRows(providers, emptySet(), "", null, null)
-        val openRouter = items.filterIsInstance<ModelListItem.Header>().first { it.title == "OpenRouter" }
-        assertTrue(!openRouter.isCurrent)
-    }
-
-    @Test fun favorite_filtered_out_by_query_produces_no_favorites_header() {
-        val favs = setOf(favKey("openai-codex", "gpt-5.5"))
-        // "step" matches only the OpenRouter model, not the favorited gpt-5.5 — so the favorite
-        // is filtered out and no "Favorites" header should appear.
-        val items = modelSelectorRows(providers, favs, "step", null, null)
-        assertTrue(headers(items).none { it == "Favorites" })
+    @Test fun provider_card_marks_the_current_provider() {
+        val groups = modelSelectorGroups(providers, emptySet(), null, null)
+        assertTrue(groups.single { it.slug == "openai-codex" }.isCurrent)
+        assertTrue(!groups.single { it.slug == "OpenRouter" }.isCurrent)
     }
 
     // ---- collapsible groups ----
 
     @Test fun null_expanded_set_keeps_every_group_expanded() {
-        val items = modelSelectorRows(providers, emptySet(), "", null, null, expandedGroups = null)
-        assertEquals(3, rows(items).size)
-        assertTrue(items.filterIsInstance<ModelListItem.Header>().all { it.expanded })
+        val groups = modelSelectorGroups(providers, emptySet(), null, null, expandedGroups = null)
+        assertEquals(3, rows(groups).size)
+        assertTrue(groups.all { it.expanded })
     }
 
-    @Test fun collapsed_group_contributes_header_only_with_total_count() {
-        val items = modelSelectorRows(providers, emptySet(), "", null, null, expandedGroups = setOf("OpenRouter"))
-        // openai-codex is collapsed: header present, its 2 rows gone; OpenRouter's row remains.
-        assertEquals(listOf("stepfun/step-3.7-flash:free"), rows(items).map { it.model })
-        val codex = items.filterIsInstance<ModelListItem.Header>().first { it.slug == "openai-codex" }
+    @Test fun collapsed_group_keeps_its_card_and_total_but_drops_its_rows() {
+        val groups = modelSelectorGroups(providers, emptySet(), null, null, expandedGroups = setOf("OpenRouter"))
+        // openai-codex is collapsed: card present, its 2 rows gone; OpenRouter's row remains.
+        assertEquals(listOf("stepfun/step-3.7-flash:free"), rows(groups).map { it.model })
+        val codex = groups.single { it.slug == "openai-codex" }
         assertTrue(!codex.expanded)
         assertEquals(2, codex.count)
-        val openRouter = items.filterIsInstance<ModelListItem.Header>().first { it.slug == "OpenRouter" }
-        assertTrue(openRouter.expanded)
+        assertTrue(codex.rows.isEmpty())
+        assertTrue(groups.single { it.slug == "OpenRouter" }.expanded)
     }
 
     @Test fun favorites_stay_pinned_even_when_their_group_is_collapsed() {
         val favs = setOf(favKey("openai-codex", "gpt-5.5"))
-        val items = modelSelectorRows(providers, favs, "", null, null, expandedGroups = emptySet())
-        // All groups collapsed: only the pinned favorites row survives as a row.
-        assertEquals(listOf("gpt-5.5"), rows(items).map { it.model })
-        assertTrue((items.first() as ModelListItem.Header).isFavorites)
-    }
-
-    @Test fun query_suspends_collapse_and_reports_hit_counts() {
-        val items = modelSelectorRows(providers, emptySet(), "gpt", null, null, expandedGroups = emptySet())
-        // Collapsed set is ignored during search; only matching groups appear, auto-expanded.
-        val headers = items.filterIsInstance<ModelListItem.Header>()
-        assertEquals(listOf("openai-codex"), headers.map { it.slug })
-        assertTrue(headers.single().searchHits)
-        assertTrue(headers.single().expanded)
-        assertEquals(2, headers.single().count)
-        assertEquals(2, rows(items).size)
-    }
-
-    @Test fun query_matches_provider_display_name() {
-        val named = listOf(
-            ModelProviderDto(slug = "or", name = "Open Router Inc", isCurrent = false, models = listOf("m1")),
-        )
-        assertEquals(1, rows(modelSelectorRows(named, emptySet(), "router", null, null)).size)
+        val groups = modelSelectorGroups(providers, favs, null, null, expandedGroups = emptySet())
+        // All groups collapsed: only the pinned favorites card still carries rows.
+        assertEquals(listOf("gpt-5.5"), rows(groups).map { it.model })
+        assertTrue(groups.first().isFavorites)
+        assertTrue(groups.first().expanded)
     }
 
     // ---- provider resolution for the current model ----
@@ -146,7 +118,7 @@ class ModelSelectorTest {
 
     @Test fun rows_carry_their_remembered_reasoning_preset() {
         val presets = mapOf(favKey("openai-codex", "gpt-5.5") to "high")
-        val rows = rows(modelSelectorRows(providers, emptySet(), "", null, null, presets = presets))
+        val rows = rows(modelSelectorGroups(providers, emptySet(), null, null, presets = presets))
         assertEquals("high", rows.first { it.model == "gpt-5.5" }.presetEffort)
         assertEquals(null, rows.first { it.model == "gpt-5.5-mini" }.presetEffort)
     }

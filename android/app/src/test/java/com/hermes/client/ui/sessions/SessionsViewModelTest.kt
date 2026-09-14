@@ -68,9 +68,29 @@ class SessionsViewModelTest {
         messageCount = 1, profile = profile, workspace = "No workspace", source = "hermes-dispatch",
     )
 
+    /** A conversation that happened on another app — what the Bots segment renders. */
+    private fun bot(id: String, title: String = id, profile: String = "personal") = Session(
+        id = id, title = title, model = null, provider = null,
+        messageCount = 3, profile = profile, source = "dingtalk", lastActive = 1L,
+    )
+
+    private val drafts = com.hermes.client.data.repository.FakeDraftSnapshot(
+        listOf(com.hermes.client.data.repository.DraftRecord(token = "personal/s1", text = "半句话", updatedAt = 1L)),
+    )
+
+    // HG-49: one conversation holds a message that was submitted and refused.
+    private val unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(
+        listOf(
+            com.hermes.client.data.repository.UnsentRecord(
+                token = "personal/s2", messageId = "u-1", text = "巨浪事业群呢",
+                code = "HR-SESS-013", updatedAt = 1L,
+            ),
+        ),
+    )
+
     private fun buildVm(accountSessions: com.hermes.client.data.auth.AccountSessionManager? = null) = SessionsViewModel(
         sessionRepo, chatRepo, profileManager, pinStore, viewModeStore, runtimeStore, toolsRepo, projectPrefs,
-        projectsRepo, projectCatalog, accountSessions,
+        projectsRepo, projectCatalog, drafts, unsent, accountSessions,
     )
 
     private fun repoSession(id: String, repo: String?, profile: String = "personal") = Session(
@@ -89,6 +109,45 @@ class SessionsViewModelTest {
     // Scope rule: the derived project tree must only contain the ACTIVE profile's sessions.
     // Before the fix it derived from listAllProfiles() unfiltered, so switching tenants still
     // showed every other tenant's projects.
+    // HG-41. null is the first-frame gate, exactly as pinnedTokens is: the list must not render
+    // before the markers are known, or rows visibly change under the user.
+    @Test fun draftTokens_start_unknown_and_then_resolve() = runTest {
+        val vm = buildVm()
+        assertNull(vm.draftTokens.value)
+        val collect = launch { vm.draftTokens.collect {} }
+        advanceUntilIdle()
+        assertEquals(setOf("personal/s1"), vm.draftTokens.value)
+        assertTrue(vm.hasDraft(session("s1", "有草稿")))
+        assertFalse(vm.hasDraft(session("s2", "没有")))
+        collect.cancel()
+    }
+
+    // HG-49. Same gate, same reason, and deliberately a SEPARATE set from draftTokens: a draft was
+    // never sent and is the user's own business; this one was sent and refused, and the row has to
+    // say so. s2 is the conversation holding the refusal — note it is not the one holding a draft.
+    @Test fun unsentTokens_start_unknown_and_then_resolve() = runTest {
+        val vm = buildVm()
+        assertNull(vm.unsentTokens.value)
+        val collect = launch { vm.unsentTokens.collect {} }
+        advanceUntilIdle()
+        assertEquals(setOf("personal/s2"), vm.unsentTokens.value)
+        assertTrue(vm.hasUnsent(session("s2", "发送失败了")))
+        assertFalse(vm.hasUnsent(session("s1", "只有草稿")))
+        // The two markers are independent; neither implies the other.
+        assertFalse(vm.hasDraft(session("s2", "发送失败了")))
+        collect.cancel()
+    }
+
+    /** The token carries the profile, so another tenant's conversation with the same id is not it. */
+    @Test fun unsent_is_scoped_to_the_conversations_own_profile() = runTest {
+        val vm = buildVm()
+        val collect = launch { vm.unsentTokens.collect {} }
+        advanceUntilIdle()
+        assertTrue(vm.hasUnsent(session("s2", "发送失败了", profile = "personal")))
+        assertFalse(vm.hasUnsent(session("s2", "同名但别的身份", profile = "work")))
+        collect.cancel()
+    }
+
     @Test fun projectTree_is_filtered_to_the_active_profile() = runTest {
         coEvery { sessionRepo.listAllProfiles() } returns listOf(
             repoSession("a", "/repo/one", profile = "personal"),
@@ -396,6 +455,72 @@ class SessionsViewModelTest {
         activeProfileFlow.value = "work"
         advanceUntilIdle()
         assertEquals(listOf(DEFAULT_PROJECT_ID, "/u/andrew/work/acme"), vm.projectsState.value.tree.map { it.id })
+    }
+
+    /**
+     * HG-54: the row actions are now shared with the Bots segment, so their refresh has to be too.
+     *
+     * `refresh()` only refills `sessions`, which the Bots segment does not render — it reads the
+     * same endpoint separately. Archiving a bot row therefore succeeded upstream while the row sat
+     * on screen until the next resume.
+     *
+     * Note what this is keyed on: the SESSION being a bot session, not the view mode. `viewMode` is
+     * `WhileSubscribed`, so its `.value` reads SESSIONS whenever nothing is collecting it — this
+     * test passes with no collector precisely because the rule does not consult it.
+     */
+    @Test fun rowActionsOnABotSessionReloadTheBotsList() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        coEvery { sessionRepo.botSessions() } returns listOf(bot("b1"), bot("b2"))
+        val vm = buildVm()
+        vm.loadBots()
+        advanceUntilIdle()
+        assertEquals(listOf("b1", "b2"), vm.state.value.botSessions.map { it.id })
+
+        coEvery { sessionRepo.archive("b1", true, "personal", null) } returns Unit
+        coEvery { sessionRepo.botSessions() } returns listOf(bot("b2"))
+        vm.archive(bot("b1"))
+        advanceUntilIdle()
+
+        assertEquals(listOf("b2"), vm.state.value.botSessions.map { it.id })
+    }
+
+    /** The same reload, for the other two mutations that share the sheet. */
+    @Test fun deleteAndRenameOnABotSessionReloadTheBotsList() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        coEvery { sessionRepo.botSessions() } returns listOf(bot("b1"), bot("b2"))
+        val vm = buildVm()
+        vm.loadBots()
+        advanceUntilIdle()
+
+        coEvery { sessionRepo.delete("b1", "personal", null) } returns Unit
+        coEvery { sessionRepo.botSessions() } returns listOf(bot("b2"))
+        vm.delete(bot("b1"))
+        advanceUntilIdle()
+        assertEquals(listOf("b2"), vm.state.value.botSessions.map { it.id })
+
+        coEvery { sessionRepo.rename("b2", "新名字", "personal", null) } returns Unit
+        coEvery { sessionRepo.botSessions() } returns listOf(bot("b2", title = "新名字"))
+        vm.rename(bot("b2"), "新名字")
+        advanceUntilIdle()
+        assertEquals(listOf("新名字"), vm.state.value.botSessions.map { it.title })
+    }
+
+    /**
+     * An ordinary session must NOT re-read the bots list — that is a second network call, and the
+     * row the user touched cannot be in it.
+     */
+    @Test fun rowActionsOnAnOrdinarySessionLeaveTheBotsListAlone() = runTest {
+        modeFlow.value = ViewMode.BOTS // even here: what matters is the session, not the segment
+        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        coEvery { sessionRepo.botSessions() } returns listOf(bot("b1"))
+        val vm = buildVm()
+        advanceUntilIdle()
+
+        coEvery { sessionRepo.archive("s1", true, "personal", null) } returns Unit
+        vm.archive(session("s1", "Hi"))
+        advanceUntilIdle()
+
+        io.mockk.coVerify(exactly = 0) { sessionRepo.botSessions() }
     }
 
     // The Chats list recovers the same way in either segment — Bots reads the same

@@ -149,6 +149,7 @@ test("candidate smoke uses the exact readiness contract for the preserved runtim
     accountProviders: ["email_otp"],
     bindingEnabled: false,
     desktopBootstrapRuntimeContract: null,
+    desktopComponentManifestSchemaVersion: null,
   });
   assert.deepEqual(gatewayRuntimePolicy("email_binding"), {
     runtimeMode: "email_binding",
@@ -165,6 +166,24 @@ test("candidate smoke uses the exact readiness contract for the preserved runtim
     accountProviders: ["email_otp"],
     bindingEnabled: true,
     desktopBootstrapRuntimeContract: "hermes-serve-v1",
+    desktopComponentManifestSchemaVersion: null,
+  });
+  assert.deepEqual(gatewayRuntimePolicy("email_multi_device"), {
+    runtimeMode: "email_multi_device",
+    readiness: {
+      status: "ready",
+      checks: {
+        config: "ok",
+        database: "ok",
+        migrations: "ok",
+        postgresql: "supported",
+      },
+    },
+    accountAuthEnabled: true,
+    accountProviders: ["email_otp"],
+    bindingEnabled: true,
+    desktopBootstrapRuntimeContract: "hermes-serve-v1",
+    desktopComponentManifestSchemaVersion: null,
   });
   assert.throws(
     () => gatewayRuntimePolicy("binding"),
@@ -176,7 +195,12 @@ test("candidate smoke uses the exact readiness contract for the preserved runtim
 test("candidate smoke accepts only the exact email-binding capability surface", () => {
   const policy = gatewayRuntimePolicy("email_binding");
   const capabilities = {
-    accountAuth: { enabled: true, providers: ["email_otp"] },
+    accountAuth: {
+      enabled: true,
+      providers: ["email_otp"],
+      identityManagement: false,
+      webAccountCenter: false,
+    },
     binding: { enabled: true, replacement: true, maxActiveConnectorsPerAccount: 1 },
     desktopBootstrap: { runtimeContract: "hermes-serve-v1" },
     legacy: { appTokenAccepted: true, connectorTokenAccepted: true },
@@ -197,6 +221,140 @@ test("candidate smoke accepts only the exact email-binding capability surface", 
         && error.message === "smoke_check=capabilities",
     );
   }
+});
+
+test("candidate smoke accepts only the exact multi-device capability surface", () => {
+  const policy = gatewayRuntimePolicy("email_multi_device");
+  const capabilities = {
+    accountAuth: {
+      enabled: true,
+      providers: ["email_otp"],
+      identityManagement: false,
+      webAccountCenter: false,
+    },
+    binding: {
+      enabled: true,
+      replacement: true,
+      maxActiveConnectorsPerAccount: 3,
+      supportsDeviceSelection: true,
+    },
+    desktopBootstrap: { runtimeContract: "hermes-serve-v1" },
+    legacy: { appTokenAccepted: true, connectorTokenAccepted: true },
+    server: { version: "0.4.15" },
+  };
+  assert.doesNotThrow(() => verifyGatewayCapabilities(capabilities, policy, "0.4.15"));
+  for (const mutation of [
+    (value) => { value.binding.maxActiveConnectorsPerAccount = 1; },
+    (value) => { delete value.binding.supportsDeviceSelection; },
+    (value) => { value.binding.supportsDeviceSharing = true; },
+  ]) {
+    const changed = structuredClone(capabilities);
+    mutation(changed);
+    assert.throws(() => verifyGatewayCapabilities(changed, policy, "0.4.15"));
+  }
+});
+
+test("candidate smoke accepts the identity-Web runtime without sharing, deletion, or Google", () => {
+  const policy = gatewayRuntimePolicy("email_identity_web");
+  const capabilities = {
+    accountAuth: {
+      enabled: true,
+      providers: ["email_otp"],
+      identityManagement: true,
+      webAccountCenter: true,
+      webSessions: true,
+    },
+    binding: {
+      enabled: true,
+      replacement: true,
+      maxActiveConnectorsPerAccount: 3,
+      supportsDeviceSelection: true,
+    },
+    desktopBootstrap: { runtimeContract: "hermes-serve-v1" },
+    legacy: { appTokenAccepted: true, connectorTokenAccepted: true },
+    server: { version: "0.4.15" },
+  };
+  assert.doesNotThrow(() => verifyGatewayCapabilities(capabilities, policy, "0.4.15"));
+  for (const mutation of [
+    (value) => { value.accountAuth.webSessions = false; },
+    (value) => { value.accountAuth.providers.push("google"); },
+    (value) => { value.accountAuth.accountDeletion = true; },
+    (value) => { value.binding.supportsDeviceSharing = true; },
+  ]) {
+    const changed = structuredClone(capabilities);
+    mutation(changed);
+    assert.throws(() => verifyGatewayCapabilities(changed, policy, "0.4.15"));
+  }
+});
+
+test("candidate smoke accepts the exact sharing runtime and fixed capacity contract", () => {
+  const policy = gatewayRuntimePolicy("email_sharing");
+  const capabilities = {
+    accountAuth: {
+      enabled: true,
+      providers: ["email_otp"],
+      identityManagement: true,
+      webAccountCenter: true,
+      webSessions: true,
+    },
+    binding: {
+      enabled: true,
+      replacement: true,
+      maxActiveConnectorsPerAccount: 3,
+      supportsDeviceSelection: true,
+      supportsDeviceSharing: true,
+      maxSharedDevices: 10,
+      maxGranteesPerDevice: 5,
+    },
+    desktopBootstrap: { runtimeContract: "hermes-serve-v1" },
+    legacy: { appTokenAccepted: true, connectorTokenAccepted: true },
+    server: { version: "0.4.15" },
+  };
+  assert.doesNotThrow(() => verifyGatewayCapabilities(capabilities, policy, "0.4.15"));
+  for (const mutation of [
+    (value) => { value.binding.supportsDeviceSharing = false; },
+    (value) => { value.binding.maxSharedDevices = 11; },
+    (value) => { value.binding.maxGranteesPerDevice = 6; },
+    (value) => { value.accountAuth.providers.push("google"); },
+  ]) {
+    const changed = structuredClone(capabilities);
+    mutation(changed);
+    assert.throws(() => verifyGatewayCapabilities(changed, policy, "0.4.15"));
+  }
+});
+
+test("candidate smoke distinguishes the signed component-manifest capability", () => {
+  const policy = gatewayRuntimePolicy("email_sharing_components");
+  const capabilities = {
+    accountAuth: {
+      enabled: true,
+      providers: ["email_otp"],
+      identityManagement: true,
+      webAccountCenter: true,
+      webSessions: true,
+    },
+    binding: {
+      enabled: true,
+      replacement: true,
+      maxActiveConnectorsPerAccount: 3,
+      supportsDeviceSelection: true,
+      supportsDeviceSharing: true,
+      maxSharedDevices: 10,
+      maxGranteesPerDevice: 5,
+    },
+    desktopBootstrap: {
+      runtimeContract: "hermes-serve-v1",
+      componentManifestSchemaVersion: 2,
+    },
+    legacy: { appTokenAccepted: true, connectorTokenAccepted: true },
+    server: { version: "0.4.16" },
+  };
+  assert.doesNotThrow(() => verifyGatewayCapabilities(capabilities, policy, "0.4.16"));
+  const missing = structuredClone(capabilities);
+  delete missing.desktopBootstrap.componentManifestSchemaVersion;
+  assert.throws(() => verifyGatewayCapabilities(missing, policy, "0.4.16"));
+  const unexpected = structuredClone(capabilities);
+  assert.throws(() => verifyGatewayCapabilities(unexpected, gatewayRuntimePolicy("email_sharing"), "0.4.16"));
 });
 
 test("candidate forwarding readiness has a bounded stable timeout", async () => {
@@ -280,6 +438,83 @@ test("deployment smoke surfaces only allowlisted structured verifier diagnostics
   assert.deepEqual(stdio, ["ignore", "ignore", "pipe"]);
   assert.equal(verifierEnvironment.HERMES_STATUS_MODE, "live");
   assert.equal(verifierEnvironment.GATEWAY_SMOKE_ROUTE, "public");
+});
+
+test("public deployment smoke supplies a temporary Connector when managed Desktop left Legacy offline", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "gateway-public-smoke-offline-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const inputs = path.join(root, "inputs");
+  await mkdir(inputs);
+  const secrets = {
+    appTokenSource: path.join(inputs, "app-token"),
+    connectorTokenSource: path.join(inputs, "connector-token"),
+    internalStatusTokenSource: path.join(inputs, "internal-status-token"),
+  };
+  await Promise.all(Object.values(secrets).map((filePath, index) => (
+    writeFile(filePath, String.fromCharCode(97 + index).repeat(64), { mode: 0o600 })
+  )));
+  const connectorEntry = path.join(inputs, "connector.mjs");
+  await writeFile(connectorEntry, "export {};\n", { mode: 0o600 });
+  const spawns = [];
+  let healthCalls = 0;
+  const smoke = await createStagingSmokeCallbacks({
+    secrets,
+    gateway: { defaultDeviceId: "test-device" },
+    legacySource: { gatewayPort: 8444 },
+    slots: { blue: { gatewayPort: 18787 }, green: { gatewayPort: 18788 } },
+  }, {
+    env: {
+      HERMES_SMOKE_CONNECTOR_ENTRY: connectorEntry,
+      HERMES_BASE_URL: "http://127.0.0.1:19001",
+      HERMES_BASIC_AUTH_USERNAME: "demo",
+      HERMES_BASIC_AUTH_PASSWORD: "secret",
+      FILES_ROOT: root,
+      UPLOAD_ROOT: inputs,
+    },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ connectors: healthCalls++ === 0 ? 0 : 1 }),
+    }),
+    sleep: async () => {},
+    spawnImpl: (command, arguments_, options) => {
+      spawns.push({ command, arguments: arguments_, options });
+      const child = new EventEmitter();
+      child.exitCode = null;
+      child.signalCode = null;
+      child.kill = (signal) => {
+        child.signalCode = signal;
+        child.exitCode = 0;
+      };
+      if (arguments_[0] !== connectorEntry) {
+        child.stderr = new PassThrough();
+        queueMicrotask(() => {
+          child.stderr.end();
+          child.exitCode = 0;
+          child.emit("exit", 0, null);
+          child.emit("close", 0, null);
+        });
+      }
+      return child;
+    },
+  });
+
+  await smoke.publicSmoke({
+    gatewayUrl: "https://gateway.example.invalid",
+    candidateSlot: "green",
+    publicRoute: true,
+    expectedDeviceId: "test-device",
+    expectedSourceCommit: "a".repeat(40),
+    expectedServerVersion: "0.4.16",
+  });
+
+  assert.equal(spawns.length, 2);
+  assert.equal(spawns[0].arguments[0], connectorEntry);
+  assert.equal(spawns[0].options.env.GATEWAY_URL, "wss://gateway.example.invalid/v1/connect");
+  assert.equal(spawns[0].options.env.DEVICE_ID, "test-device");
+  assert.equal(spawns[0].options.env.SESSION_OBSERVER_ENABLED, "0");
+  assert.equal(spawns[0].options.stdio, "ignore");
+  assert.deepEqual(spawns[1].options.stdio, ["ignore", "ignore", "pipe"]);
+  assert.equal(healthCalls, 2);
 });
 
 test("unstructured verifier output is never copied into deployment diagnostics", () => {

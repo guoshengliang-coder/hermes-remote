@@ -8,7 +8,7 @@ import {
 import { isAbsolute } from "node:path";
 
 const MAX_TOKEN_BYTES = 256;
-const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const TOKEN_PATTERN = /^(?:[A-Za-z0-9_-]{43}|[0-9a-f]{64})$/;
 
 export function loadHermesSessionToken(config: {
   inline?: string;

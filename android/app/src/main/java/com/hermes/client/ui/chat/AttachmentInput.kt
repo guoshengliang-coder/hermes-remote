@@ -78,15 +78,25 @@ private fun compressStillImage(bytes: ByteArray, originalName: String): Prepared
         bytes.size,
         BitmapFactory.Options().apply { inSampleSize = sample },
     ) ?: error("Unable to decode image")
-    val scale = minOf(1f, MAX_IMAGE_EDGE.toFloat() / maxOf(decoded.width, decoded.height))
+    return encodeUnderCap(decoded, originalName, recycle = true)
+}
+
+/**
+ * Clamp [bitmap] to [MAX_IMAGE_EDGE] and encode it as JPEG under the 6 MB direct-upload cap.
+ *
+ * The single home of that policy. The image editor hands back an already-composited Bitmap, and
+ * routing it through [compressStillImage] instead would encode the same pixels twice.
+ */
+internal fun encodeUnderCap(bitmap: Bitmap, originalName: String, recycle: Boolean): PreparedAttachment {
+    val scale = minOf(1f, MAX_IMAGE_EDGE.toFloat() / maxOf(bitmap.width, bitmap.height))
     val normalized = if (scale < 1f) {
         Bitmap.createScaledBitmap(
-            decoded,
-            (decoded.width * scale).toInt().coerceAtLeast(1),
-            (decoded.height * scale).toInt().coerceAtLeast(1),
+            bitmap,
+            (bitmap.width * scale).toInt().coerceAtLeast(1),
+            (bitmap.height * scale).toInt().coerceAtLeast(1),
             true,
-        ).also { if (it !== decoded) decoded.recycle() }
-    } else decoded
+        ).also { if (it !== bitmap && recycle) bitmap.recycle() }
+    } else bitmap
     try {
         for (quality in listOf(88, 80, 72, 64)) {
             val output = ByteArrayOutputStream()
@@ -99,11 +109,25 @@ private fun compressStillImage(bytes: ByteArray, originalName: String): Prepared
         }
         error("Image remains larger than 6 MB after compression")
     } finally {
-        normalized.recycle()
+        if (recycle || normalized !== bitmap) normalized.recycle()
     }
 }
 
-private fun sanitizeAttachmentName(value: String): String = value
+/**
+ * Name for an edited image: `photo.png` becomes `photo-edited.jpg`.
+ *
+ * Idempotent, so re-editing does not produce `photo-edited-edited.jpg`, and deliberately ASCII —
+ * the name travels to the Mac, so it is not localised.
+ */
+internal fun editedAttachmentName(originalName: String): String {
+    val safe = sanitizeAttachmentName(originalName)
+    // substringBeforeLast(".", default) would discard the whole name when there is no extension,
+    // turning "capture" into "image".
+    val stem = (if (safe.contains('.')) safe.substringBeforeLast('.') else safe).ifBlank { "image" }
+    return stem.removeSuffix("-edited") + "-edited.jpg"
+}
+
+internal fun sanitizeAttachmentName(value: String): String = value
     .substringAfterLast('/')
     .substringAfterLast('\\')
     .replace(Regex("[\\u0000-\\u001f\\u007f]"), "_")

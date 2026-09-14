@@ -36,4 +36,17 @@ class SessionRowTrailingTest {
         assertEquals(SessionRowTrailing.NONE, sessionRowTrailing(runtime(SessionRunPhase.IDLE), unread = false))
         assertEquals(SessionRowTrailing.NONE, sessionRowTrailing(null, unread = false))
     }
+
+    /**
+     * HG-49 gave the row a red 未发送 status LINE and deliberately no dot, for the same reason
+     * 已中断 and 运行失败 have none: the terminal dot sits 1dp from the unread dot and reads as
+     * unread (docs/DESIGN.md §5.2, decision 2026-09-02). The trailing slot takes no argument for it
+     * at all — this test pins that the signature stayed that way on purpose.
+     */
+    @Test fun an_unsent_message_adds_no_dot() {
+        assertEquals(SessionRowTrailing.NONE, sessionRowTrailing(runtime(SessionRunPhase.IDLE), unread = false))
+        assertEquals(SessionRowTrailing.NONE, sessionRowTrailing(null, unread = false))
+        // …and it does not steal the unread dot either, when the row is also unread.
+        assertEquals(SessionRowTrailing.UNREAD, sessionRowTrailing(runtime(SessionRunPhase.IDLE), unread = true))
+    }
 }

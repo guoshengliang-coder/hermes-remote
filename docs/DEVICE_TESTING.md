@@ -22,6 +22,16 @@
 它列出连着的每台真机（品牌、型号、SDK）、没授权或离线的设备、以及真机最高 SDK 是否达到
 `targetSdk`。多台时默认目标是按 serial 排序的第一台，用 `ANDROID_SERIAL=<serial>` 改。
 
+**在受限 PATH 下（某些 AI 会话的沙箱 shell）这个脚本会直接报错退出**：它调用的 `sysctl` 在
+`/usr/sbin`，不在最小 PATH 里，于是先 `command not found`、再 `HR_HOST_RAM_GB: unbound variable`。
+后果不是报错这么简单 —— `device-install.py` 拿它探设备，会因此断定"没有可用手机"，明明两台都插着。
+前面加 `PATH="/usr/sbin:/sbin:$PATH"` 即可（2026-09-12 实测）。同理，沙箱里 `adb` 也可能不在 PATH，
+用 `~/Library/Android/sdk/platform-tools/adb` 的绝对路径。
+
+`device-install.py` 的 `--apk <path>` 可以直接装一个未走发版闸门的 `app-debug.apk`。只做真机
+验证、不打算把包交给任何人时用它，不必为此 bump 版本、跑 `package-debug-apk.sh`——那条闸门管的是
+**交付**（见 `AGENTS.md`），不是本机验证。
+
 **所有 adb 命令都带 `-s <serial>`。** 真机和模拟器、或两台真机同时在线时，不带 `-s` 的 adb 会
 直接拒绝执行，或者作用到你没打算操作的那台上。
 
@@ -145,11 +155,85 @@ adb -s <serial> exec-out screencap -p > screen.png
 `http://127.0.0.1:8787`，token 填 `dev-app-token`。端口被别的项目占用时用
 `HERMES_DEV_GATEWAY_PORT=<port>`，`emulator.sh` 会跟随同一个变量。
 
+这项连接配置会保存在 App 中；停止开发栈不会自动恢复原来的 Relay。测试结束后，应通过账号登录
+重新选择远程设备，或重新扫描 Desktop 配对二维码。未保存过账号会话时，账号登录入口会忽略残留
+的 loopback 开发地址并使用默认公网 Relay；冷启动若先显示连接失败，点「检查连接设置」也会进入
+账号登录，避免开发栈停止后被困在旧版连接配置里。
+
+- **新建的 worktree 里也没有 `node_modules`**（和 §1 的 `local.properties` 是同一类坑）。这时
+  `dev-stack.sh start` 只会说 `gateway/dist missing — run npm run build`，而 `npm run build` 又会
+  先报一堆 `Cannot find module 'pg' / 'svix'`。顺序是 **`npm install` → `npm run build` →
+  `dev-stack.sh start`**，三步都在 worktree 根目录跑。
 - 在 Claude Code 里用后台方式启动，否则它会随命令超时一起被杀掉。日志在
   `$TMPDIR/hermes-dev-stack/`，不在 `/tmp`。
 - mock 把每一条回复都流进同一个固定会话「Mock 会话」，不管你从哪个会话发出；其它会话会一直
   停在"生成中"。多轮对话要在「Mock 会话」里造。
 - mock 会弹出审批和澄清弹层，挡住滑动手势 —— 先点「拒绝」或「跳过，让 agent 自行判断」关掉。
+- **mock 的 `/api/sessions/<id>/messages` 是按「本次 mock 运行里发过几条 prompt」现编的**，不是每个
+  会话各自的历史。所以刚起完开发栈、一条消息都没发时，任何会话的历史都是空的 —— 这时去验
+  「添加会话」（HG-38）会看到零个 chip 加一条 `HR-SESS-014`，那是 mock 没内容，不是 App 的 bug。
+  **先随便发一条消息**，之后每个会话的 `/messages` 才有东西可返回。
+- **`file.attach` / `image.attach` / `pdf.attach` 2026-09-12 才补进 mock。** 在那之前它们落到
+  兜底分支、只回 `{ok:true}`，而客户端读不到 `ref_text` 就抛错 —— 于是**本地发任何带附件的消息
+  都会失败**，气泡停在「未发送 · SESS-007」，看上去完全像 App 的 bug。要验附件相关的东西，先确认
+  你手上的 mock 有这三个 case。
+
+## 3a. 用 adb 驱动 App 时的两个坑（2026-09-12 实测）
+
+- **坐标会过期。** 截图是 1080×2408 的真实帧，模型看到的是缩放版；按缩放图估坐标会偏。更要命的是
+  **上一步的界面假设**：一个全屏 Dialog（看图器、编辑器）开着时，后续所有「点输入区」的 tap 都落在
+  它身上，而脚本照跑不误，产出一串看似成功、实则全错的证据。**每一步之后截图确认当前在哪一屏**，
+  不要把多步 tap 串成一个脚本盲跑。
+- **沉浸式转场期间 `exec-out screencap` 会留残影。** 画面顶部会出现一排很淡的、本该在底部的控件。
+  `uiautomator dump` 里没有对应节点，改变界面后残影也不跟随——是截屏时序产物，别为它改布局。
+
+## 3b. 卡片页的「反馈与建议」行需要本机配置
+
+这一行只在构建携带 MissionGo 的 endpoint 与 SDK token 时存在（`android/app/build.gradle.kts` 配置期读取，
+两者任一为空 = 功能不存在，不报错）。新克隆、他人机器与普通 CI 都没有，所以**本机打的调试包默认看不到这一行**，
+这是设计，不是 bug。要在真机上验它，在 `android/missiongo.properties` 写：
+
+```properties
+missiongoEndpoint=https://missiongo.mrlgs.net
+missiongoSdkToken=<从 MissionGo 控制台取>
+```
+
+该文件已被仓库根 `.gitignore` 忽略（第 12 行），**不要提交、不要把 token 贴进聊天或日志**。
+发布包的这两个值由 `.github/workflows/android-release.yml` 从仓库 secrets 注入，与本文件同一对。
+改完要重新构建：Gradle 在配置期读它并写进 `BuildConfig`。
+
+**0.1.120 就是这么把这个功能弄丢的。** 它是从一棵没有 `missiongo.properties` 的工作树本机构建并手动
+发布的，两个值编译成空串，`UnavailableFeedbackReporter` 生效，卡片页那一行整条不渲染。包名、版本、
+签名、哈希全对，所以当时所有门禁都是绿的 —— 直到有人去找这个入口才发现。
+
+因此发布门禁现在会证明**产物里真的带着这份配置**：`scripts/package-debug-apk.sh` 读取本次编译生成的
+`BuildConfig.java`，再用 `scripts/lib/apk_feedback.py` 在 APK 的 dex 里同时查 endpoint 和 token，
+缺任何一半都拒绝放行
+（它拦下过真实的 0.1.120，放行了真实的 0.1.119）。查的是**产物不是构建输入**：配置期读取会被 Gradle
+的 configuration cache 复用，输入对而编进去的 `BuildConfig` 是旧的，这种情况只查输入发现不了。
+
+实践后果：**本机没有这个文件就发不了版**。正常路径是让 `android-release.yml` 从 secrets 构建发布，
+而不是把密钥文件复制进发布工作树。
+
+**已知行为（2026-09-11 vivo V2166BA 实测）**：编辑器是 MissionGo SDK 自己的 Activity；在编辑器里按返回会把
+整个应用任务退到桌面，而不是回到卡片页。应用进程仍在，重新点图标即恢复原状态。与本仓的调起代码无关
+（`ui/feedback/FeedbackEntry.kt` 只把宿主 Activity 交给 SDK），要修得在 SDK 侧。
+
+## 3c. 验"杀掉 App 再冷启动"这一类
+
+有一类状态只有真的经历一次进程死亡才验得到（跨进程持久化、通知栏在进程死后剩下什么）。要点：
+
+- **"划掉 App" ≠ `force-stop`，两者结果不同，别混用。**
+  - 从最近任务划掉：杀进程，**通知栏的卡还在**。这是用户日常做的事，也是绝大多数 bug 报告的场景。
+  - `adb shell am force-stop <pkg>`：杀进程**并清掉该应用的全部通知**。它比用户的操作更狠，用它去验
+    "冷启动后通知还在不在"会得到假阴性。
+  - 脚本化地模拟"划掉"：`adb -s <serial> shell input keyevent KEYCODE_APP_SWITCH` 再滑掉卡片；
+    要确定性更高就用 `am force-stop`，但**只在不关心通知的用例里**用。
+- **`adb install -r` 保留应用数据**（`device-install.py` 走的就是它），这是验持久化的前提。
+  一旦用了 `pm clear` 或卸载重装，本地快照就没了，用例直接失效。
+- 冷启动后先看诊断日志里那一行 `[phase] restored N runtime(s) from disk` —— 它直接告诉你恢复了几条，
+  比在界面上猜快得多（见 `docs/DIAGNOSTICS.md`）。
+- 每一台单独记结果。"划掉 App"的语义和通知栏的清理策略正是各家 ROM 分歧最大的地方。
 
 ## 4. 驱动与取证
 
@@ -233,3 +317,11 @@ adb -s <serial> shell rm /sdcard/Pictures/<测试图片>
   2048m 确实偏紧：Kotlin 编译守护进程**继承**这个值，峰值用到 1703 MB（83%），放开后用到 2339 MB。
   但时间花在 KSP、Hilt、Kotlin 编译的 CPU 上，不在 GC 上。调大只算防 OOM 的保险；项目里那份保持
   `-Xmx2048m`，因为 CI runner 也读它。想提速先测量，别从 heap 下手。
+
+- **`-Proborazzi.test.record=true` 不是逐字节稳定的，别整类重录。** 在 `markdown-entry` 分支上
+  只想重录一张新 golden，跑了整个 `ScreenshotTest` 的 record，结果 `card.*` / `startup-*` /
+  `update-*` 共 16 张与本次改动**毫无关系**的 golden 全被改写（2026-09-13，M4 / 24 GB）。把它们
+  `git checkout --` 还原后，`--rerun-tasks` 跑校验模式**全部通过**——也就是说那些差异是重录噪声，
+  不是回归。所以：**重录时用 `--tests` 精确到你要的那个测试类**，重录完一定看 `git status`，
+  出现无关 golden 就还原它们、再用校验模式确认还原后仍然通过。把这类噪声提交进去，下一个人就
+  再也分不清哪张 golden 是被真正改动过的。

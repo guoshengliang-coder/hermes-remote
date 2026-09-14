@@ -473,6 +473,13 @@ health command with the same `/readyz` probe derived from the slot's runtime `PO
 adopting or rolling forward an immutable older image whose embedded healthcheck used fixed port `8787`; the
 operator does not alter the image and does not weaken the Docker health gate.
 
+The public smoke accepts the two legitimate Legacy states. When a Legacy Connector is already online it is used
+unchanged. When an account-mode Desktop has intentionally retired that Connector and `/relay-health` reports zero,
+the operator starts a short-lived Connector with the existing production smoke token, verifies the full public
+route, and stops it again. A failed post-switch smoke may leave the old slot fully restored while its journal still
+records `route_switched` or `draining`; `--operation recover` may restore the archived committed journal only after
+the old slot, candidate shutdown, release links, Nginx checkpoint and reverse lifecycle-handoff marker all match.
+
 `--operation rollback` is the same machine pointed at the release behind `previous`; the configuration's
 `targetArtifactManifest` must name that exact bundle (keep the previous bundle on the host) and a `previous`
 that is still the legacy descriptor is refused — that case is an R5-B recovery, not a slot rollback.
@@ -634,7 +641,7 @@ multi-device selection, sharing, identity management, Web sessions, deletion, an
 and Connector tokens stay accepted throughout the test window.
 
 Prepare a root-only `0600` configuration from `ops/production.binding-rollout.example.json`, validate it against
-`ops/hermes-go-production-binding-rollout-config.schema.json`, and run only from the matching immutable schema-5
+`ops/hermes-go-production-binding-rollout-config.schema.json`, and run only from a matching immutable schema-5-or-newer
 operator bundle:
 
 ```bash
@@ -660,6 +667,248 @@ component manifest is hosted at its exact HTTPS paths, and the target Mac has a 
 operator commits, perform one explicit target-Mac migration while the legacy Connector rollback point is healthy.
 Record artifact identities, the binding run ID, target-Mac journal, account binding generation, and rollback evidence
 in this section. Source merge or artifact upload alone does not authorize capability enablement.
+
+## Production multi-device gray rollout (R5-F4; enabled 2026-09-13, physical canary pending)
+
+R5-F4 starts only from the exact committed R5-F3 single-Mac state. It does not migrate the database, create or
+remove a binding, enable identity management, or enable sharing. It replaces the existing binding route include
+with the reviewed plural-device routes, changes only `ACCOUNT_MULTI_DEVICE_ENABLED=1`, restarts the active Gateway,
+and verifies the result twice while preserving email-only authentication, Desktop bootstrap, Legacy traffic and
+the exact release identity.
+
+Prepare a root-only `0600` configuration from `ops/production.multi-device-rollout.example.json`, validate it
+against `ops/hermes-go-production-multi-device-rollout-config.schema.json`, and run only from the matching immutable
+schema-6 operator bundle:
+
+```bash
+node scripts/production-multi-device-rollout.mjs \
+  --config /secure-input/hermes-go/production-multi-device-rollout.json \
+  --confirm production:<configured-hostname>
+```
+
+Admission requires the committed binding journal, schema 15/PostgreSQL 18 release identity, exact single-device
+environment, exact original binding routes, one matching Nginx include, active service, healthy public/loopback
+email and binding surfaces, the captured preflight Legacy state, and the production deployment lock. The Legacy
+state is either an authenticated healthy response or the exact `503 {"error":"device_offline"}` response left
+after a successful Desktop managed takeover intentionally retires the Legacy Connector. The installed route set exposes the existing
+binding endpoints plus `GET /v2/devices`, device detail/default/unbind, explicit device REST, and explicit device
+WebSocket traffic. Sharing, installation management and Web routes stay absent at Nginx. Smoke requires
+`maxActiveConnectorsPerAccount=3`, `supportsDeviceSelection=true`, no sharing fields, unauthenticated device REST
+and WebSocket guards, the existing Connector WebSocket, the unchanged preflight Legacy state, and unchanged release identity.
+
+Any failure during this transition restores the environment and binding route file byte-for-byte, reloads Nginx,
+restarts the active Gateway, and re-verifies single-device mode. This automatic rollback is valid only before a
+second binding is created. Once an owner completes a second binding, do not disable multi-device mode: forward-fix,
+or first remove the canary through the normal owner-authorized unbind flow. `HR-OPS-022` names all operator failures;
+inspect `/var/lib/hermes-go/ops/multi-device-rollout.json` before retrying. Source merge and bundle generation do not
+authorize production execution.
+
+The first authorized production attempt on 2026-09-13 used schema-8 operator bundle
+`Hermes-R5D-Ops-e50c7d070695` and stopped before mutation with `HR-OPS-022`: the active account-mode Desktop had
+correctly retired its Legacy Connector, so authenticated `/api/status` returned the exact `device_offline` state,
+while the original operator admitted only a healthy Legacy Connector. No multi-device journal was created, the
+active blue service stayed running, and the environment and Nginx routes remained unchanged. The corrected gate
+captures either legitimate preflight state and requires that exact state after restart and after the observation
+window; authentication failures, other 5xx responses and malformed bodies still fail closed.
+
+The authorized retry used the merged `main` operator bundle `Hermes-R5D-Ops-568d4896668d` (schema 8,
+archive SHA-256 `f6739f1429d79a31f84f274fb0574cc98eb2d52656a45d972b4a86557064159f`). The bundle was generated
+from clean commit `568d4896668de311da3fb4944881ab18e6a4c38f`, verified locally, re-hashed after transfer, verified
+again from `/opt/hermes-go-ops/568d4896668d`, and executed only after the merge commit's CI, Gateway OCI and
+SAST workflows passed. Run `3b863a6f-b1f2-4901-9eae-a1ff88ec51ae` committed on the blue slot at
+2026-09-13T10:50:16Z. The active Gateway identity remained `0.4.15-6b7d60fa6bbf`, its container stayed healthy
+with zero restarts after the operator restart, and schema 15/PostgreSQL 18 readiness remained green.
+
+The final environment changed only `ACCOUNT_MULTI_DEVICE_ENABLED=1`; email OTP, binding and Desktop managed
+installation remained enabled, while sharing, identity management, Web account center/session, deletion and Google
+remained disabled. The plural binding route file matched SHA-256
+`56d7ea3c24eee59176b279a939dd77ce0e908771a8171596a8812fae00158494`, `nginx -t` passed, unauthenticated
+`/v2/devices` and device WebSocket returned 401, and the account shell and sharing routes remained 404. The exact
+preflight Legacy response remained `503 {"error":"device_offline"}`. PostgreSQL contained one active, online
+binding and six historical revoked bindings; the operator created no binding. The second-Mac binding, selection,
+session-affinity, capacity and recovery exercise therefore remains a physical canary gate for E11 when that Mac is
+available. No F5-A identity/Web or F5-B sharing capability was enabled by this run.
+
+## Production identity and Web account-center gray rollout (R5-F5-A; production complete)
+
+F5-A starts only from the exact committed R5-F4 multi-device state and matching release identity. It does not
+change database schema, create an identity, send an email, enable Google, delete an account, or enable sharing.
+It installs a separate exact-path Nginx allowlist and changes only
+`ACCOUNT_IDENTITY_MANAGEMENT_ENABLED=1`, `ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED=1`, and
+`ACCOUNT_WEB_SESSION_ENABLED=1` before restarting the active Gateway.
+
+Prepare a root-only `0600` configuration from `ops/production.identity-web-rollout.example.json`, validate it
+against `ops/hermes-go-production-identity-web-rollout-config.schema.json`, and run only from the matching
+immutable schema-7 operator bundle:
+
+```bash
+node scripts/production-identity-web-rollout.mjs \
+  --config /secure-input/hermes-go/production-identity-web-rollout.json \
+  --confirm production:<configured-hostname>
+```
+
+Admission requires the committed multi-device journal, independently pins the active server version and source
+commit, requires the exact R5-F4 environment and binding routes, proves the new identity-Web route file and include are absent, checks
+schema 15/PostgreSQL 18, the captured preflight Legacy state, both device WebSocket guards, and takes the shared deployment lock. The
+allowlist exposes only the account shell/assets, Web session and email flows, identity management, installation
+management, audit events and default-device selection. It deliberately omits Google, account deletion and every
+sharing route.
+
+Post-restart smoke checks the account shell's CSP/no-store boundary, secure SameSite cookies, CSRF/Origin rejection,
+unauthenticated identity and installation guards, edge-rejected Google/deletion/sharing routes, preserved multi-device and
+Desktop capabilities, the unchanged preflight Legacy state and exact release identity. Any failure restores the previous environment and
+site file byte-for-byte, removes the new include file, reloads Nginx, restarts the active Gateway and re-verifies
+R5-F4. `HR-OPS-023` names all failures; inspect
+`/var/lib/hermes-go/ops/identity-web-rollout.json` before retrying. Source merge and bundle generation do not
+authorize production execution.
+
+The first authorized F5-A attempt on 2026-09-13 stopped before mutation with `HR-OPS-023`. The production edge
+returned its established 405 method rejection for unconfigured Google exchange, account deletion and sharing
+acceptance mutations, while the original operator admitted only a 404 response. No identity-Web journal or route
+file was created, all three identity/Web flags remained disabled, and the blue service stayed active. The corrected
+gate accepts only 404 absence or 405 method rejection for these forbidden probes; authentication guards, successful
+responses, redirects and server failures remain disallowed.
+
+The second authorized attempt admitted the corrected edge contract and entered the live transition, but the enabled
+Gateway rejected its generated environment because `ACCOUNT_WEB_ORIGIN` was absent. The operator observed invalid
+readiness, restored the exact F4 environment and site, removed the identity-Web route file, restarted blue, and
+recorded run `9d9493b7-3544-401b-992f-8a001f83714b` as `rolled_back`. Blue returned healthy on schema 15/PostgreSQL
+18 and the account Connector reconnected. The corrected canonical environment carries both
+`ACCOUNT_WEB_ORIGIN` and the later-sharing `ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN`, each pinned to the configured
+production HTTPS origin. It still accepts the exact older pre-F5 environment only while identity-Web and sharing
+remain disabled, then writes both origins before either feature can start.
+
+The authorized retry used schema-8 operator bundle `Hermes-R5D-Ops-8a4f17a1fb80` from merged `main`
+`8a4f17a1fb806ef0ee71ae6ed9e4d904dc1d682b` (archive SHA-256
+`f14a1f54d07e74717a4e6f50e4b9566ef14331f0c5c3601d6ac6c4a0eb74f0a0`). Its CI, Gateway OCI and SAST workflows
+were green; the bundle verified before and after transfer and again from root-only
+`/opt/hermes-go-ops/8a4f17a1fb80`. After confirming the earlier journal was `rolled_back`, it was preserved as
+`identity-web-rollout.rolled-back-9d9493b7-3544-401b-992f-8a001f83714b.json`. Run
+`925f7085-5f48-4d42-b895-fe1e2f1610de` then committed on blue.
+
+The active release remained Gateway `0.4.15-6b7d60fa6bbf`, schema 15/PostgreSQL 18 readiness stayed green, and the
+healthy container reported zero restarts after its operator restart. Identity management, Web account center and
+Web session are enabled; email OTP, binding, multi-device and Desktop managed installation remain enabled; sharing,
+Google and deletion remain disabled. Both Web origins are pinned to `https://mrlgs.net`. The exact identity-Web route
+file matched SHA-256 `b7ad31a21b8a7933ef82f196be72989af627a5aac48ebaabbed36b37a5ae6229`, both route includes appeared once,
+and `nginx -t` passed. Public verification returned the secured account shell/assets and anonymous session bootstrap,
+401 for unauthenticated identity/installation/device access, and 404/405 for every disabled Google/deletion/sharing
+probe; Connector WebSocket upgrade remained available and the unauthenticated device WebSocket remained 401. The
+operator also preserved the exact preflight Legacy `device_offline` state. PostgreSQL still contained one account,
+one external identity, two installations, one active/online binding and six revoked bindings; every newest business
+record predated this rollout, so F5-A created no account, identity, installation or binding.
+
+## Production whole-device sharing gray rollout (R5-F5-B; production switch complete, canary pending)
+
+F5-B starts only from the exact committed F5-A identity-Web state, the committed R5-F4 multi-device
+journal, and the same active release identity. It changes only
+`ACCOUNT_DEVICE_SHARING_ENABLED=1` and adds a separate sharing-route include. It does not create an
+invitation or grant, send mail, enable Google, enable account deletion, change the three-owned-device
+limit, or touch a Mac.
+
+Prepare a root-only `0600` configuration from `ops/production.sharing-rollout.example.json`, validate
+it against `ops/hermes-go-production-sharing-rollout-config.schema.json`, and run only from the
+matching immutable schema-8 operator bundle:
+
+```bash
+node scripts/production-sharing-rollout.mjs \
+  --config /secure-input/hermes-go/production-sharing-rollout.json \
+  --confirm production:<configured-hostname>
+```
+
+Admission requires both committed prerequisite journals, exact identity-Web environment and route
+bytes, one matching identity-Web include, active schema-15/PostgreSQL-18 service, the captured preflight Legacy state and device
+guards, matching release identity, and the shared deployment lock. The new allowlist contains only
+native and Web list/invite/accept/cancel/revoke/leave sharing paths. Post-restart smoke requires the
+fixed capability limits of five grantees per terminal and ten accepted shared terminals per account,
+unauthenticated native/Web guards, Web CSRF rejection, the existing identity-Web security boundary,
+multi-device routing, the unchanged preflight Legacy state, and unchanged release identity.
+
+An immediate rollout failure restores the identity-Web environment and site file byte-for-byte,
+removes the sharing include, restarts the active Gateway, and re-verifies F5-A. This operator must run
+before canary invitations are created. After it commits, canary cleanup follows the normal API: cancel
+a pending invitation before disabling sharing, or revoke an accepted grant and prove its active socket
+closes within five seconds before disabling the flag. Never hide an active grant behind the disabled
+capability. `HR-OPS-024` names operator failures; inspect
+`/var/lib/hermes-go/ops/sharing-rollout.json` before retrying. Source merge and bundle generation do
+not authorize production execution.
+
+The separately authorized production execution reused the verified schema-8
+`Hermes-R5D-Ops-8a4f17a1fb80` bundle. The F5-B configuration was validated locally, transferred with exact
+SHA-256 `5b9ea7ba41528700a57ca598dd52893422a4c0ad1c75e96c26ee6a8f6f824102`, installed `0600 root:root`, and
+revalidated against the exact committed F4/F5-A state before mutation. Run
+`eed13c62-ab0d-44ea-b1da-adcb8f117afa` committed on blue with the active Gateway still
+`0.4.15-6b7d60fa6bbf` and schema 15/PostgreSQL 18.
+
+The sharing route file matched the locally rendered 4,289 bytes and SHA-256
+`12a4a6be42265fdcabd3e41ea75d1eed6781f6780f9474f468b7745eecf8ec07`; binding, identity-Web and sharing
+includes each appeared exactly once and `nginx -t` passed. The blue container stayed healthy with zero restarts.
+Public checks preserved the secured account shell/session, returned 401 for unauthenticated native and Web sharing
+lists, rejected a Web write without CSRF with 403, kept identity/installation/device guards at 401, kept Google and
+deletion at 405/404, preserved Connector upgrade and device-WebSocket rejection, and preserved the exact Legacy
+preflight state. The environment changed only `ACCOUNT_DEVICE_SHARING_ENABLED=1`; all earlier account flags and both
+Web origins stayed exact. PostgreSQL still held one account, one identity, two installations, one active/online
+binding and six revoked bindings, with zero share invitations and zero access grants. The remaining F5-B work is
+the explicitly user-driven B-to-A invitation/use/revoke/leave canary; do not call that matrix complete from the flag
+rollout alone.
+
+## Production Desktop component gray rollout (R5-F6; production complete)
+
+R5-F6 starts only from the exact production sharing state on a Gateway release that includes the schema-v2
+capability. It changes only `ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED=1`; it does not edit Nginx, the database,
+bindings, identities, sharing state, or Desktop services on any Mac.
+
+Publish the immutable signed component manifest and every declared archive first. Prepare a root-only `0600`
+configuration from `ops/production.component-rollout.example.json`, pinning the exact manifest URL, SHA-256,
+key ID and Ed25519 public key. Validate it against
+`ops/hermes-go-production-component-rollout-config.schema.json`, then run from the matching schema-9 operator
+bundle:
+
+```bash
+node scripts/production-component-rollout.mjs \
+  --config /secure-input/hermes-go/production-component-rollout.json \
+  --confirm production:<configured-hostname>
+```
+
+Admission verifies the active release identity, schema 15/PostgreSQL 18 readiness, sharing environment, public
+manifest headers and hash, manifest signature, and every component's public bytes. The operator takes the shared
+deployment lock, snapshots the exact environment, enables only the component flag, restarts the active Gateway,
+and verifies the full account/sharing/Legacy/WebSocket surface plus
+`desktopBootstrap.componentManifestSchemaVersion: 2` twice across the observation window. Any failure restores
+the previous environment and verifies that the component capability disappeared again. `HR-OPS-025` names all
+failures; inspect `/var/lib/hermes-go/ops/component-rollout.json` before retrying. Source merge and bundle
+generation do not authorize production execution.
+
+The authorized Gateway 0.4.16 deployment on 2026-09-14 first used merge `29abbc9294bd` and schema-9 operator
+bundle `Hermes-R5D-Ops-29abbc9294bd` (archive SHA-256 `2234ab054e88c1987cfdd2a5b39a1009787a0eb1a4836f568d38e94a13bea136`).
+Run `597ad2fe-ba76-448f-b314-40fc120cb612` reached `route_switched`, then failed with `HR-OPS-016`: account-mode
+Desktop had intentionally retired the Legacy Connector, while the routine public smoke still waited for
+`connectors: 1`. The same obsolete assumption made the recovery smoke report failure after it had already restored
+the blue service, Nginx upstream, release links and lifecycle state. Independent checks found blue 0.4.15 active,
+green inactive, upstream `127.0.0.1:18787`, zero restarts and a healthy public route; no failed state was declared
+committed.
+
+PR #299 corrected the smoke and recovery boundaries. Its merge `0adccd7b834f1ab3366caf6091c2a3426b5b28f1`
+passed the PR and resulting `main` CI, Gateway OCI, off-host recovery and SAST workflows. The paired production
+artifacts were Gateway archive SHA-256 `73c3b7de382937ee4745cc19f011cbb517c8e45013ac79647b984dd7dcda9555`
+(containerd image `sha256:ccd744d56b6aed32645683a378429eaa13634d3ae3d2e1507cb71405db47b879`)
+and schema-9 operator archive SHA-256 `dac61f6e0d5f43b62f07f2f7716461778513d770998422915df78f2f223958e4`.
+Both matched locally and after transfer, and the extracted operator verified itself on the production host.
+The corrected `production-recover` accepted the failed `route_switched` journal only after every restored-state
+gate passed, then restored the archived 0.4.15 committed journal. Retry run
+`a1ee338f-3651-4e81-bbc9-25a75d6a7406` committed Gateway `0.4.16-0adccd7b834f` on green with blue inactive,
+upstream `127.0.0.1:18788`, a healthy container, zero restarts and rollback point
+`releases/0.4.15-6b7d60fa6bbf`.
+
+The separately authorized component run `a310a75c-ada9-4e0a-b64a-010a3fdf0434` then committed release 0.4.0.
+It pinned schema 2 manifest SHA-256 `31e85f64d3347cb0302450f400b1357acd440c7dff041e8a896d67ee13dfa47f`,
+verified its Ed25519 signature and every declared public archive, changed only
+`ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED=1`, restarted green and repeated the complete account/sharing/Legacy/
+WebSocket and component-capability checks across the 30-second observation window. Independent verification found
+the same healthy image with zero restarts, all preceding account flags still enabled, `/relay-health` healthy with
+the expected retired-Legacy `connectors: 0`, and public capabilities advertising
+`desktopBootstrap.runtimeContract: hermes-serve-v1` plus `componentManifestSchemaVersion: 2`. Physical Desktop
+download, confirmation, installation and managed-service acceptance remain a user-driven Mac gate.
 
 ## Edge JSON compression (2026-09-07, authorized)
 

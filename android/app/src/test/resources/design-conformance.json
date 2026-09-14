@@ -3,54 +3,107 @@
     "设计源每个带颜色角色的取值，与实现的对应取值。DesignConformanceTest 读这份文件。",
     "design = Stitch 原稿的实测值；impl = 本仓当前应有的值；ref = 实现侧从哪里取。",
     "两者不同的行必须写 reason —— 测试会强制这一点，不写就红。",
-    "设计源：projects/8017882098155799612 screens/446ebc32（浅）与 971314ea（暗夜），2026-09-10 抽取。",
+    "设计源：projects/8017882098155799612 screens/446ebc32（浅）与 971314ea（暗夜），2026-09-10 抽取；",
+    "2026-09-11 第二次拉取（标签改为 基线- 格式后稿子有改动）更新了 status.waiting / status.completed / fab.container 的 design 列",
+    "和 type 的 row.title 两档。原件与哈希见 docs/design/stitch/stitch.lock.json，裁决见其 specChanges。",
     "",
     "type 段是排版档位，与 roles 段同一套规则：四元组 [字号, 字重, 行高, 字距]，单位 px/sp，",
     "不同必须写 reason。行高取设计稿行容器的 leading-[1.45]（稿里三档都不自带 leading）。",
-    "note 不参与断言，用来记设计稿与设计系统本身打架的地方。2026-09-11 抽取。"
+    "note 不参与断言，用来记设计稿与设计系统本身打架的地方。2026-09-11 抽取。",
+    "",
+    "card.* 段来自 基线-卡片页（screens/e5db8e03 浅 / 72cf9986 暗夜）；2026-09-11 第四次拉取（设计师重出同两张稿）后重取，裁决见锁文件 specChanges。",
+    "稿里没有单一 token 可对的项记在锁文件 notes 里而不在这里：头像色与字母比例（按身份算 / §2.4 全局组件）、遮罩模糊（平台不支持）、图标（§4 为准）、身份卡副行文案（无数据源）。",
+    "",
+    "chat.* 段来自 基线-聊天页/滑动引导胶囊（screens/6edba5b1 浅 / 739c148b 暗夜）与 基线-聊天页/我的提问（screens/07b68677 浅 / 5dc3f52a 暗夜），2026-09-12 第六次拉取。",
+    "这两张稿是本项目第一批「去蓝化」界面：胶囊与当前行不再用 primaryContainer。暗档独有的 1dp 描边表达不成颜色行，记在锁文件 pairs。",
+    "",
+    "chatsearch.* 段来自 基线-聊天页/搜索（screens/c569c1cf 浅 / 6bfce9d7 暗夜 / ccd58e9d 未输入），2026-09-12 第十次拉取。",
+    "暗夜那张的 HTML 在 Stitch 的 stitch_files 存储区、不可匿名下载，暗档取值是在 780×1768 全尺寸截图上采样得到的 —— 哪几档是实测、哪几档是换算，逐行写在 note 里。",
+
+    "rowmenu.* 段来自 基线-会话列表页/长按下拉菜单（screens/26444bf7 浅 / 58f8a506 暗夜），2026-09-12 第八次拉取抽取。",
+
+
+    "cron.* 段来自 基线-定时任务列表（screens/2bac8b67 浅 / 13d2943f 暗夜）与 基线-定时任务/任务详情（screens/da21dbac 浅 / 3e59f117 暗夜），2026-09-12 第九次拉取（原记第七次，与聊天页那次撞号，按锁文件 pullHistory 重编）。",
+    "列表的行、分组头与计数 chip 复用 row.* / group.* 档，不在这里重复记；两张稿在那几档上与会话列表冲突，裁决见锁文件 specChanges。"
   ],
   "roles": [
     { "role": "status.running", "ref": "status:RUNNING",
       "design": ["#0369A1", "#67E8F9"], "impl": ["#0369A1", "#67E8F9"], "reason": "" },
 
     { "role": "status.waiting", "ref": "status:WARN",
-      "design": ["#C2410C", "#FBBF24"], "impl": ["#C2410C", "#FBBF24"], "reason": "" },
+      "design": ["#B45309", "#FBBF24"], "impl": ["#B45309", "#FBBF24"],
+      "reason": "" },
 
     { "role": "status.completed", "ref": "status:GOOD",
-      "design": ["#047857", "#34D399"], "impl": ["#2E7D32", "#7CDC80"],
-      "reason": "稿子的绿色相 163，超出 StatusColorsTest 钉死的 90–150「绿」判定带；且同族的 #16A34A 作 12sp 文字只有 3.13。" },
+      "design": ["#2E7D32", "#34D399"], "impl": ["#2E7D32", "#34D399"],
+      "reason": "浅色一致。深色采用稿子的 #34D399（色相 163，2026-09-11 起不再受 StatusColorsTest 的 90–150 绿判定带约束）。" },
 
     { "role": "status.failed", "ref": "status:BAD",
-      "design": ["#B91C1C", "#F87171"], "impl": ["#C62828", "#FFB4AB"],
-      "reason": "视觉等同，沿用 M3 error 家族值以与对话框、删除确认保持同源。" },
+      "design": ["#B91C1C", "#F87171"], "impl": ["#B91C1C", "#F87171"],
+      "reason": "" },
 
     { "role": "header.needsYou", "ref": "status:WARN",
-      "design": ["#B45309", "#FBBF24"], "impl": ["#C2410C", "#FBBF24"],
-      "reason": "设计源用三个相近的琥珀（圆点/立柱、组头、状态行各一），这里收敛成一个：最深的那个同时满足图形下限，三个琥珀读者无法据此区分。" },
+      "design": ["#B45309", "#FBBF24"], "impl": ["#B45309", "#FBBF24"],
+      "reason": "" },
 
     { "role": "header.neutral", "ref": "scheme:onSurfaceVariant",
       "design": ["#44403C", "#8C8882"], "impl": ["#494641", "#A8A49C"],
       "reason": "走 token 而非字面量（§2.1）；与设计值同为中性次要文字层级，浅色 8.92 / 深色 7.55。" },
 
-    { "role": "pillar.needsYou", "ref": "status:WARN",
-      "design": ["#D97706", "#F59E0B"], "impl": ["#C2410C", "#FBBF24"],
-      "reason": "与 header.needsYou 同源。设计源的 #D97706 在纸底上只有 3.02，正压图形下限。" },
+    { "role": "pillar.needsYou", "ref": "warnGraphic:WARN",
+      "design": ["#D97706", "#F59E0B"], "impl": ["#D97706", "#F59E0B"],
+      "reason": "图形档：稿子给标记与文字两个不同的琥珀，这里照做（StatusColors.warnGraphicArgb）。浅色 3.02:1，低于旧的 3:1 图形下限，该下限已于 2026-09-11 废除。" },
 
-    { "role": "pillar.pinned", "ref": "scheme:outline",
-      "design": ["#2563EB", "#3B82F6"], "impl": ["#777268", "#8D897E"],
-      "reason": "定案：只让「需要你处理」带颜色，其余中性两档（§2.7 第 2 条）。" },
+    { "role": "pillar.pinned", "ref": "tiles:pillarPinned",
+      "design": ["#2563EB", "#3B82F6"], "impl": ["#2563EB", "#3B82F6"],
+      "reason": "" },
 
-    { "role": "pillar.time", "ref": "scheme:outlineVariant",
-      "design": ["#059669", "#64748B"], "impl": ["#C9C7C2", "#423F3A"],
-      "reason": "设计源给时间桶用绿，会与同屏「已完成」的绿撞车，深色下 #34D399 完全同色。" },
+    { "role": "pillar.today", "ref": "tiles:pillarToday",
+      "design": ["#059669", "#34D399"], "impl": ["#059669", "#34D399"],
+      "reason": "",
+      "note": "深色 #34D399 与 status-good 深色档完全同色 —— 稿子自己就是这样画的（今天立柱与「已完成」圆点同一支薄荷绿）。2026-09-11 产品负责人要求恢复彩色立柱时接受了这一点。" },
+
+    { "role": "pillar.yesterday", "ref": "tiles:pillarYesterday",
+      "design": ["#0D9488", "#2DD4BF"], "impl": ["#0D9488", "#2DD4BF"],
+      "reason": "稿子里没有这一档 —— 昨天分组是 HG-52（2026-09-14）新加的，Stitch 稿只画到四组。取值是推导：teal-600/400 是今天那支 emerald 的邻档，让今天→昨天→前 7 天读成一条 绿→青→灰 的降温坡，而不是三个互不相干的色相。",
+      "note": "design 列写的就是 impl —— 没有稿子可对，这一行钉的是「实现与本文件记的决策一致」，不是「实现与稿子一致」。" },
+
+    { "role": "pillar.recent", "ref": "tiles:pillarRecent",
+      "design": ["#64748B", "#94A3B8"], "impl": ["#64748B", "#94A3B8"],
+      "reason": "稿子里前 7 天与更早共用一支石板灰，HG-52 要求两者分开。不引入新色相，改用既有的两个灰按主题互换：浅色前 7 天取较深的 #64748B、更早取较浅的 #94A3B8，深色反过来。规则是「越近的一档越实」，两个主题下同向成立。",
+      "note": "与 pillar.older 互为对方的值，这是有意的，不是抄错。" },
+
+    { "role": "pillar.older", "ref": "tiles:pillarOlder",
+      "design": ["#94A3B8", "#64748B"], "impl": ["#94A3B8", "#64748B"],
+      "reason": "" },
+
+    { "role": "group.label.pinned", "ref": "tiles:groupLabelPinned",
+      "design": ["#2563EB", "#60A5FA"], "impl": ["#2563EB", "#60A5FA"],
+      "reason": "",
+      "note": "第八次拉取（2026-09-13）起四个组名全部着色。浅色等于色柱；深色 #60A5FA 取自暗色稿。" },
+
+    { "role": "group.label.today", "ref": "tiles:groupLabelToday",
+      "design": ["#059669", "#34D399"], "impl": ["#059669", "#34D399"],
+      "reason": "",
+      "note": "浅色等于色柱；深色 #34D399 取自暗色稿。" },
+
+    { "role": "group.label.yesterday", "ref": "tiles:groupLabelYesterday",
+      "design": ["#0F766E", "#2DD4BF"], "impl": ["#0F766E", "#2DD4BF"],
+      "reason": "同 pillar.yesterday，稿子里没有这一档。浅色取 teal-700 而不是色柱的 teal-600，沿用 group.label.older 那条规则：色标取画出来的那一档，文字取同色相的可读档。",
+      "note": "前 7 天与更早的组名仍共用 group.label.older —— HG-52 要的是三个色柱分开，不是三个组名分开。三档可读灰做文字读者分不出来，拆了只会牺牲可读性去表达一个看不见的区分。" },
+
+    { "role": "group.label.older", "ref": "tiles:groupLabelOlder",
+      "design": ["#94A3B8", "#CBD5E1"], "impl": ["#64748B", "#CBD5E1"],
+      "reason": "浅色不用色柱的 #94A3B8：那是给 4×14dp 色标定的，当文字放在暖纸上只有约 2.1:1，读不动 —— 浅色稿本身也把这一档的组名写成中性色而不是色柱色。改用暗色档的 #64748B（约 4.3:1）。深色 #CBD5E1 取自暗色稿。",
+      "note": "" },
 
     { "role": "subline.text", "ref": "scheme:outline",
       "design": ["#78716C", "#8C8882"], "impl": ["#777268", "#8D897E"],
       "reason": "走 token；浅色档为达文字 4.5 下限压深了一步（#7A766C 只有 4.30）。" },
 
-    { "role": "subline.faint", "ref": "scheme:outline",
-      "design": ["#A8A29E", "#64615B"], "impl": ["#777268", "#8D897E"],
-      "reason": "设计源的第三档在纸底上只有 2.39，低于图形元素 3:1 的下限；图标与注记合用 subline.text 那一档。" },
+    { "role": "subline.faint", "ref": "tiles:sublineFaint",
+      "design": ["#A8A29E", "#64615B"], "impl": ["#A8A29E", "#64615B"],
+      "reason": "采用稿子的第三档（纸底 2.39:1）。文字与图形对比度下限已于 2026-09-11 废除。" },
 
     { "role": "row.title", "ref": "scheme:onSurface",
       "design": ["#1C1917", "#E2E0DB"], "impl": ["#1B1C1A", "#E2E0DB"],
@@ -65,38 +118,676 @@
       "reason": "" },
 
     { "role": "fab.container", "ref": "tiles:fab",
-      "design": ["#181C24", "#1E232B"], "impl": ["#181C24", "#1E232B"], "reason": "" },
+      "design": ["#181C24", "#181C24"], "impl": ["#181C24", "#181C24"],
+      "reason": "" },
 
     { "role": "incident.container", "ref": "tiles:incidentBg",
       "design": ["#FFF1F2", "#2A1B1D"], "impl": ["#FFF1F2", "#2A1B1D"], "reason": "" },
 
     { "role": "incident.ink", "ref": "tiles:incidentInk",
-      "design": ["#9F1239", "#FCA5A5"], "impl": ["#9F1239", "#FCA5A5"], "reason": "" }
+      "design": ["#9F1239", "#FCA5A5"], "impl": ["#9F1239", "#FCA5A5"], "reason": "" },
+
+    { "role": "card.drawer", "ref": "tiles:cardDrawer",
+      "design": ["#FAF9F5", "#161A22"], "impl": ["#FAF9F5", "#161A22"],
+      "reason": "",
+      "note": "卡片页（screens/e5db8e03 浅 / 72cf9986 暗夜）。2026-09-11 第二次拉取重取；暗夜的抽屉是 surface-container-low，不是 surface。" },
+
+    { "role": "card.tile", "ref": "tiles:cardTile",
+      "design": ["#F4F3EE", "#1E232B"], "impl": ["#F4F3EE", "#1E232B"],
+      "reason": "",
+      "note": "第二次拉取把浅色卡由纯白 #FFFFFF 降为纸色 paper-subtle。" },
+
+    { "role": "card.tile.border", "ref": "tiles:cardTileBorder",
+      "design": ["#ECEBE8", "#262C35"], "impl": ["#ECEBE8", "#262C35"],
+      "reason": "",
+      "note": "稿是 #E3E2DF@60% 压在纸底上，折成不透明值（与第一次拉取折 rgba 同法）。" },
+
+    { "role": "card.divider", "ref": "tiles:cardDivider",
+      "design": ["#EFEEEA", "#21252D"], "impl": ["#EFEEEA", "#21252D"],
+      "reason": "",
+      "note": "快捷行之间的发丝线；行已不在卡内。暗夜是 white/5 压在 #161A22 上的折算值。" },
+
+    { "role": "card.chip", "ref": "tiles:cardChip",
+      "design": ["#EFEEEA", "#1E232B"], "impl": ["#EFEEEA", "#1E232B"],
+      "reason": "",
+      "note": "构建徽标底色。齿轮自第二次拉取起无底色，不再共用此角色。" },
+
+    { "role": "card.ink.muted", "ref": "tiles:cardInkMuted",
+      "design": ["#605C54", "#A8A49C"], "impl": ["#605C54", "#A8A49C"],
+      "reason": "",
+      "note": "行图标、右值、齿轮、徽标文字。浅色 = secondary，暗夜 = onSurfaceVariant，两档不同 token，故单列。" },
+
+    { "role": "card.ink.subtle", "ref": "scheme:outline",
+      "design": ["#777268", "#8D897E"], "impl": ["#777268", "#8D897E"],
+      "reason": "",
+      "note": "副行与箭头。暗夜稿的箭头写的仍是浅色值 #777268，视为笔误，取暗档。" },
+
+    { "role": "card.title.ink", "ref": "scheme:onSurface",
+      "design": ["#181C24", "#E2E0DB"], "impl": ["#1B1C1A", "#E2E0DB"],
+      "reason": "走 token（§2.1）；稿的 ink-dark 是冷一度的近黑，与本仓 onSurface 只差一个灰阶，视觉等同。" },
+
+    { "role": "card.icon-tile", "ref": "tiles:cardIconTile",
+      "design": ["#FAF9F5", "#262C35"], "impl": ["#FAF9F5", "#262C35"],
+      "reason": "",
+      "note": "远程节点行左侧 40dp 圆角底块。浅色与抽屉同色，靠描边成形。" },
+
+    { "role": "card.icon-tile.border", "ref": "tiles:cardIconTileBorder",
+      "design": ["#ECEBE8", "#31373F"], "impl": ["#ECEBE8", "#31373F"],
+      "reason": "",
+      "note": "暗夜是 white/5 压在 #262C35 上的折算值。" },
+
+    { "role": "card.dot.good", "ref": "tiles:cardDotGood",
+      "design": ["#16A34A", "#16A34A"], "impl": ["#16A34A", "#16A34A"],
+      "reason": "",
+      "note": "检查更新行「已是最新」的绿点。第一次拉取时这个值在状态胶囊里，胶囊已随第二次拉取删除。" },
+
+    { "role": "card.dot.warn", "ref": "warnGraphic:WARN",
+      "design": ["#D97706", "#F59E0B"], "impl": ["#D97706", "#F59E0B"],
+      "reason": "",
+      "note": "同一枚点的另一含义：有新版本，或定时任务有失败/逾期。稿只画了绿点。" },
+
+    { "role": "card.footer.rule", "ref": "tiles:cardFooterRule",
+      "design": ["#777268", "#8A90A0"], "impl": ["#777268", "#8D897E"],
+      "reason": "暗夜稿给页脚细线与标语用了冷灰 #8A90A0 / #717684；§2.1 禁止暖纸体系里出现冷灰，改用 outline 的暖档。",
+      "note": "浅色一致。" },
+
+    { "role": "card.theme.sheet", "ref": "tiles:cardThemeSheet",
+      "design": ["#FFFFFF", "#1E232B"], "impl": ["#FFFFFF", "#1E232B"],
+      "reason": "",
+      "note": "主题弹层（screens/ab85a7b6 浅 / 79554447 暗夜）。弹层容器本身。暗档与 card.tile 同值，浅档不同 —— 第二次拉取把抽屉里的卡降为纸色 #F4F3EE，弹层稿仍是纯白。" },
+
+    { "role": "card.theme.option", "ref": "tiles:cardThemeOption",
+      "design": ["#FFFFFF", "#161A22"], "impl": ["#FFFFFF", "#161A22"],
+      "reason": "",
+      "note": "一张选项卡。浅色与弹层同色、靠发丝线划界；暗色比弹层低一阶。规则「选项卡永不高于弹层」在两档都成立。" },
+
+    { "role": "card.theme.border", "ref": "tiles:cardThemeBorder",
+      "design": ["#E9E8E4", "#2E343D"], "impl": ["#E9E8E4", "#2E343D"],
+      "reason": "",
+      "note": "选项卡、图标章、「当前使用」徽标共用同一条发丝线。" },
+
+    { "role": "card.theme.icon-tile", "ref": "tiles:cardThemeIconTile",
+      "design": ["#F4F4F0", "#0F1217"], "impl": ["#F4F4F0", "#0F1217"],
+      "reason": "",
+      "note": "每张选项卡左侧 40dp 图标章。与卡片页的 card.icon-tile 不同值，各自取各自的稿。" },
+
+    { "role": "card.theme.accent", "ref": "tiles:cardThemeAccent",
+      "design": ["#181C24", "#E2E0DB"], "impl": ["#181C24", "#E2E0DB"],
+      "reason": "",
+      "note": "选中单选点与保存按钮底。§1 原则3「chrome 一律品牌色」的第二个例外（第一个是 FAB），理由同 FAB：主题选择不是运行态。浅档与 FabContainerLight 同值，仍单列 —— 两者语义无关，动一个不该拖着另一个。" },
+
+    { "role": "card.theme.accent.ink", "ref": "tiles:cardThemeAccentInk",
+      "design": ["#FFFFFF", "#0F1217"], "impl": ["#FFFFFF", "#0F1217"],
+      "reason": "",
+      "note": "保存按钮的字。压在 card.theme.accent 上 17.07:1（浅）/ 15.71:1（暗）。" },
+
+    { "role": "card.theme.badge", "ref": "tiles:cardThemeBadge",
+      "design": ["#EFEEEA", "#262C35"], "impl": ["#EFEEEA", "#262C35"],
+      "reason": "",
+      "note": "「当前使用」徽标底。浅色稿没画这枚徽标（标题右侧留成空 span，判为漏画），浅档由同页的 card.chip 推得；暗档 #262C35 是稿上的值。徽标的字取 onSurface、描边取 card.theme.border。" },
+
+    { "role": "card.theme.radio.off", "ref": "scheme:outlineVariant",
+      "design": ["#C9C7C2", "#423F3A"], "impl": ["#C9C7C2", "#423F3A"],
+      "reason": "",
+      "note": "未选中单选点的 2dp 环，两档都正好落在 outlineVariant 上。" }
+,
+
+    { "role": "model.sheet", "ref": "scheme:surface",
+      "design": ["#FAF9F5", "#0F1217"], "impl": ["#FAF9F5", "#0F1217"],
+      "reason": "",
+      "note": "弹层的地。稿把弹层画满整屏、地就是纸，两档都正好落在 surface 上 —— 不走 M3 给 ModalBottomSheet 的 surfaceContainerLow 默认值。" },
+
+    { "role": "model.card", "ref": "tiles:modelCard",
+      "design": ["#FFFFFF", "#161A22"], "impl": ["#FFFFFF", "#161A22"],
+      "reason": "",
+      "note": "状态卡与每张提供商卡。本稿的卡填充是 #161A22，卡片页稿是 #1E232B —— 两张稿对「一张卡」的答案不同，各自成族，不互相借用。" },
+
+    { "role": "model.card.border", "ref": "tiles:modelCardBorder",
+      "design": ["#E5E5E5", "#262C35"], "impl": ["#ECEBE8", "#262C35"],
+      "reason": "浅色稿的中性色取自 Tailwind 冷灰 neutral-200 #E5E5E5；§2.1 禁止暖纸上用冷中性，换成等明度的暖阶 #ECEBE8（与卡片页 card.tile.border 同值）。暗色稿本就落在本仓暖阶上，逐字照抄。" },
+
+    { "role": "model.divider", "ref": "tiles:modelDivider",
+      "design": ["#F5F5F5", "#262C35"], "impl": ["#EFEEEA", "#262C35"],
+      "reason": "同 model.card.border：冷灰 neutral-100 #F5F5F5 换成等明度暖阶 #EFEEEA。",
+      "note": "卡头下缘、行与行之间、推理强度行上方，稿子都用这一档。" },
+
+    { "role": "model.bar", "ref": "tiles:modelBar",
+      "design": ["#FAFAFA", "#1A1F27"], "impl": ["#F4F4F0", "#1A1F27"],
+      "reason": "同 model.card.border：冷灰 neutral-50 #FAFAFA 换成等明度暖阶 #F4F4F0。",
+      "note": "提供商卡的标题条 —— 相对卡面下一档，不是相对地。" },
+
+    { "role": "model.inset", "ref": "tiles:modelInset",
+      "design": ["#F5F5F5", "#1E232B"], "impl": ["#EFEEEA", "#1E232B"],
+      "reason": "同 model.card.border：冷灰 neutral-100 #F5F5F5 换成等明度暖阶 #EFEEEA。",
+      "note": "卡面上的凹槽：推理强度行、中性小徽标、✕ 按钮底。" },
+
+    { "role": "model.ink.muted", "ref": "tiles:modelInkMuted",
+      "design": ["#737373", "#A8A49C"], "impl": ["#605C54", "#A8A49C"],
+      "reason": "同 model.card.border：冷灰 neutral-500 #737373 换成等明度暖阶 #605C54（与卡片页 card.ink.muted 同值）。" },
+
+    { "role": "model.ink.faint", "ref": "tiles:modelInkFaint",
+      "design": ["#A3A3A3", "#8D897E"], "impl": ["#A8A29E", "#8D897E"],
+      "reason": "同 model.card.border：冷灰 neutral-400 #A3A3A3 换成等明度暖阶 #A8A29E（与 subline.faint 同值）。",
+      "note": "最淡一档：所有提供商副行、「N 项」计数、「固定顶部」注。浅档 2.39:1，与 subline.faint 同样在 2026-09-11 废除下限后接受。" },
+
+    { "role": "model.accent", "ref": "tiles:modelAccent",
+      "design": ["#2563EB", "#3B82F6"], "impl": ["#2563EB", "#3B82F6"],
+      "reason": "",
+      "note": "与 run.spinner、pillar.pinned 数值相同：三张稿各自落到同一支钴蓝。仍记为独立的一对 —— 模型弹层的强调色没有理由跟着会话列表的立柱动。" },
+
+    { "role": "model.accent.ink", "ref": "tiles:modelAccentInk",
+      "design": ["#1D4ED8", "#60A5FA"], "impl": ["#1D4ED8", "#60A5FA"],
+      "reason": "",
+      "note": "蓝底上的字：当前行的模型名、「正在切换至 X」、「恢复默认」。" },
+
+    { "role": "model.current.fill", "ref": "tiles:modelCurrentFill",
+      "design": ["#EFF6FF", "#0C1A30"], "impl": ["#EFF6FF", "#0C1A30"],
+      "reason": "",
+      "note": "浅色稿把当前行画成 cobalt-50/60、快捷 chip 画成 cobalt-50 全值 —— 同一角色两个透明度，按卡片页解 rgba 的老办法统一收敛到不透明全值。蓝色调不参与暖化：§2.1 禁的是冷中性，品牌蓝就是品牌色。" },
+
+    { "role": "model.current.border", "ref": "tiles:modelCurrentBorder",
+      "design": ["#BFDBFE", "#3B82F6"], "impl": ["#BFDBFE", "#3B82F6"],
+      "reason": "",
+      "note": "浅色稿是 cobalt-200/80，解成不透明值以便被固定。" },
+
+    { "role": "model.switch.chip", "ref": "tiles:modelSwitchChip",
+      "design": ["#DBEAFE", "#142A4D"], "impl": ["#DBEAFE", "#142A4D"],
+      "reason": "",
+      "note": "「切换中…」徽标底 —— 比它所在的行底再深一档。" },
+
+    { "role": "model.star", "ref": "tiles:modelStar",
+      "design": ["#F59E0B", "#FBBF24"], "impl": ["#F59E0B", "#FBBF24"],
+      "reason": "",
+      "note": "收藏星标自本稿起是琥珀，此前一直是品牌蓝 —— 弹层的选中态也是蓝，蓝星让「已收藏」和「正在使用」同色。暗档与 status.waiting 的暗色文字档同为 #FBBF24：两张稿撞色，不是共用令牌，星标不是告警。" },
+
+    { "role": "model.star.off", "ref": "tiles:modelStarOff",
+      "design": ["#D4D4D4", "#423F3A"], "impl": ["#C9C7C2", "#423F3A"],
+      "reason": "同 model.card.border：冷灰 neutral-300 #D4D4D4 换成等明度暖阶 #C9C7C2（= outlineVariant 浅档）。" },
+
+    { "role": "chat.pill.fill", "ref": "tiles:chatPillFill",
+      "design": ["#FFFFFF", "#1E232B"], "impl": ["#FFFFFF", "#1E232B"],
+      "reason": "" },
+
+    { "role": "chat.pill.border", "ref": "tiles:chatPillBorder",
+      "design": ["#E5E3DC", "#2E343D"], "impl": ["#E5E3DC", "#2E343D"],
+      "reason": "" },
+
+    { "role": "chat.pill.iconChip", "ref": "tiles:chatPillIconChip",
+      "design": ["#F4F2EA", "#2E343D"], "impl": ["#F4F2EA", "#2E343D"],
+      "reason": "",
+      "note": "比 surfaceContainerLow 浅档 #F4F4F0 暖半步，稿子自己就是这个值；已经在暖侧，§2.1 不要求换算，故逐字转写而非并进既有阶。" },
+
+    { "role": "chat.pill.divider", "ref": "tiles:chatPillDivider",
+      "design": ["#EBE9E2", "#2E343D"], "impl": ["#EBE9E2", "#2E343D"],
+      "reason": "" },
+
+    { "role": "chat.sheet.fill", "ref": "tiles:chatSheet",
+      "design": ["#FAF9F5", "#161A22"], "impl": ["#FAF9F5", "#161A22"],
+      "reason": "",
+      "note": "浅档 = surface，暗档 = surfaceContainerLow —— 两档不在同一个 scheme 角色上，所以是自己的令牌而不是 ModalBottomSheet 的默认 containerColor。" },
+
+    { "role": "chat.sheet.hairline", "ref": "tiles:chatSheetHairline",
+      "design": ["#EFEEEA", "#262C35"], "impl": ["#EFEEEA", "#262C35"],
+      "reason": "" },
+
+    { "role": "chat.chip", "ref": "tiles:chatChip",
+      "design": ["#EFEEEA", "#1E232B"], "impl": ["#EFEEEA", "#1E232B"],
+      "reason": "",
+      "note": "「N 条」计数 chip、头部两个 32dp 圆钮、普通行序号圆，稿子三处同色，故一个令牌。暗档另有 1dp #262C35 描边而浅档没有 —— 颜色行表达不了「没有」，记在锁文件 pairs。" },
+
+    { "role": "chat.chip.ink", "ref": "tiles:chatChipInk",
+      "design": ["#777268", "#A8A49C"], "impl": ["#777268", "#A8A49C"],
+      "reason": "",
+      "note": "「N 条」的字。稿子两档不走同一个 scheme 角色：浅色是 outline 档，暗色是 onSurfaceVariant 档（比暗色 outline 亮一级）。两档都绑 outline 会让暗色的 chip 暗一档。" },
+
+    { "role": "chat.row.chevron", "ref": "tiles:chatRowChevron",
+      "design": ["#A8A49C", "#777268"], "impl": ["#A8A29E", "#777268"],
+      "reason": "浅档稿值 #A8A49C 是本仓暗档 onSurfaceVariant 的数值，坐在暖纸上偏冷半步；换成等明度的暖阶 #A8A29E（= sublineFaint 浅档）。暗档逐字转写。" },
+
+    { "role": "chat.current.fill", "ref": "tiles:chatCurrentFill",
+      "design": ["#EFEEEA", "#1E232B"], "impl": ["#EFEEEA", "#1E232B"],
+      "reason": "",
+      "note": "与 chat.chip 同值：稿子用同一中性底，靠描边与反色序号圆表达「当前」，不再用 primaryContainer。两者分列是因为改动理由不同。" },
+
+    { "role": "chat.current.border", "ref": "tiles:chatCurrentBorder",
+      "design": ["#E9E8E4", "#262C35"], "impl": ["#E9E8E4", "#262C35"],
+      "reason": "" },
+
+    { "role": "chat.current.disc", "ref": "tiles:chatCurrentDisc",
+      "design": ["#1B1C1A", "#FFFFFF"], "impl": ["#1B1C1A", "#FFFFFF"],
+      "reason": "",
+      "note": "去蓝化后接替 primary 底序号圆的那一块。两档都是本页最强对比（浅 16.24、暗 15.93），这正是它的作用。" },
+
+    { "role": "chat.current.disc.ink", "ref": "tiles:chatCurrentDiscInk",
+      "design": ["#FFFFFF", "#0F1217"], "impl": ["#FFFFFF", "#0F1217"],
+      "reason": "" },
+
+    { "role": "chat.current.time", "ref": "tiles:chatCurrentTime",
+      "design": ["#777268", "#C8C5BD"], "impl": ["#777268", "#C8C5BD"],
+      "reason": "",
+      "note": "只有暗档比普通行的时间亮一档；浅档与普通行同色。此前当前行的时间用 primary，去蓝化后不再。" },
+
+    { "role": "chatsearch.field", "ref": "tiles:chatSearchField",
+      "design": ["#F5F3ED", "#1E232B"], "impl": ["#F5F3ED", "#1E232B"],
+      "reason": "",
+      "note": "搜索胶囊的填充。浅档 #F5F3ED 比 chat.chip 的 #EFEEEA 高一级、比纸低一级 —— 稿子把「要输入的框」和「读的 chip」画成两级；暗档与 chat.chip 同值，靠 chatChipBorder() 那条 1dp #262C35 撑开，故描边不另立令牌。" },
+
+    { "role": "chatsearch.divider", "ref": "tiles:chatSearchDivider",
+      "design": ["#E7E4DB", "#3A4049"], "impl": ["#E7E4DB", "#423F3A"],
+      "reason": "暗档 #3A4049 是冷灰，§2.1 不收；换成暖阶 outlineVariant #423F3A —— 与行长按操作单的抓手同一处理（rowmenu.handle）。浅档稿里是 border-paper-border/80，按老办法压成落在胶囊填充上的不透明合成值。" },
+
+    { "role": "chatsearch.hairline", "ref": "tiles:chatSearchHairline",
+      "design": ["#ECEAE2", "#262C35"], "impl": ["#ECEAE2", "#262C35"],
+      "reason": "",
+      "note": "搜索条底边。普通聊天顶栏没有这条线，这条是稿子的：搜索开着时顶部是另一种模式，而身后的消息列表按规定不位移，这条线是唯一说明这件事的东西。浅档是 rgba(227,224,214,0.6) 压在暖纸上的合成值。" },
+
+    { "role": "chatsearch.arrow", "ref": "tiles:chatSearchArrow",
+      "design": ["#004AC6", "#E2E0DB"], "impl": ["#004AC6", "#E2E0DB"],
+      "reason": "",
+      "note": "上一个 / 下一个。两张稿在这一处不一致：浅色画品牌蓝、暗夜画中性 onSurface，按 §7 第 8 条「暗色稿只取颜色」各自转写，不强行统一。禁用态落 chatsearch.ink.faint。" },
+
+    { "role": "chatsearch.ink.faint", "ref": "tiles:chatSearchInkFaint",
+      "design": ["#9E9B93", "#8D897E"], "impl": ["#A8A29E", "#8D897E"],
+      "reason": "浅档稿值 #9E9B93 偏冷，换成暖阶 #A8A29E（= sublineFaint 浅档，与 chat.row.chevron 同一处理）。",
+      "note": "「/N」与框内清除叉。暗档拿不到字面值 —— 暗夜稿的 HTML 不可下载（见锁文件），只能在 780×1768 截图上采样，笔画太细只采到 #75–#8D 的抗锯齿边缘，故取仓库暗档 outline #8D897E。" },
+
+    { "role": "chatsearch.clear.disc", "ref": "tiles:chatSearchClearDisc",
+      "design": ["#E4E2DC", "#343940"], "impl": ["#E4E2DC", "#343940"],
+      "reason": "",
+      "note": "框内清除键那颗圆点。浅档是 rgba(29,28,25,0.08) 压在胶囊填充上的合成值；暗档 #343940 是截图实测的实色，不做暖换 —— 它与本仓已逐字转写的暗档中性梯（#1E232B / #262C35 / #2E343D）同一族。" },
+
+    { "role": "chatsearch.hit.focus", "ref": "scheme:primary",
+      "design": ["#A6C8FF", "#A6C8FF"], "impl": ["#004AC6", "#A9C7FF"],
+      "reason": "不采纳稿子的当前档（HG-45，2026-09-13）。稿子给当前命中 #A6C8FF、其余 #D6E4FF，两者只差半档；一旦同屏出现，用户按上下切换时根本认不出「现在是哪一处」——这正是 HG-45 报的问题。改成实心品牌色，走 scheme 角色不落字面量（§2.1）。",
+      "note": "计数器指着的那一处。这是全 App 唯一用实心 primary 铺在正文底下的地方，理由与 §5.4「常驻中性、反馈用品牌色」一致：它是一次性反馈，不是常驻控件。" },
+
+    { "role": "chatsearch.hit.focus.ink", "ref": "scheme:onPrimary",
+      "design": ["#002B7A", "#002B7A"], "impl": ["#FFFFFF", "#00306A"],
+      "reason": "随上一行一起走 scheme：底色换成 primary 之后，字色必须是配对的 onPrimary，稿子的 #002B7A 压在 #004AC6 上只有 1.9:1。",
+      "note": "浅档 7.51:1，暗档 #00306A on #A9C7FF 8.4:1。" },
+
+    { "role": "chatsearch.hit.other", "ref": "tiles:chatSearchHitOther",
+      "design": ["#D6E4FF", "#D6E4FF"], "impl": ["#D6E4FF", "#D6E4FF"],
+      "reason": "",
+      "note": "其余命中（含当前回合内的其它处），浅暗同值 —— 两张稿画的是同一块浅蓝贴纸，命中要读成盖在文字上的一层而不是主题的一部分。HG-45 之后这一档承担的是「其余全部」，分档口径由「按回合」改成「按出现位置」。" },
+
+    { "role": "chatsearch.hit.other.ink", "ref": "tiles:chatSearchHitOtherInk",
+      "design": ["#173B8A", "#173B8A"], "impl": ["#173B8A", "#173B8A"],
+      "reason": "" },
+
+    { "role": "rowmenu.sheet", "ref": "tiles:rowMenuSheet",
+      "design": ["#FAF9F5", "#161A22"], "impl": ["#FAF9F5", "#161A22"],
+      "reason": "",
+      "note": "行长按操作单（screens/26444bf7 浅 / 58f8a506 暗夜）。浅档就是页面自己的纸 —— 弹层与它身后的列表同色，靠顶边发丝与投影分层，不走 M3 给 ModalBottomSheet 的 surfaceContainerLow 默认值；暗档才是 surfaceContainerLow。两张稿对「一个弹层填什么」的答案不同，与主题弹层稿（纯白）也不同，各自成族。" },
+
+    { "role": "rowmenu.sheet.border", "ref": "tiles:rowMenuSheetBorder",
+      "design": ["#F0EFEB", "#292C34"], "impl": ["#F0EFEB", "#292C34"],
+      "reason": "",
+      "note": "稿里是 rgba(0,0,0,0.04) / rgba(255,255,255,0.08)，按卡片页解 rgba 的老办法压成不透明合成值（底色见 rowmenu.sheet）—— fixture 能钉颜色，钉不了混合。浅档它是唯一把弹层与纸分开的东西。" },
+
+    { "role": "rowmenu.handle", "ref": "tiles:rowMenuHandle",
+      "design": ["#C9C7C2", "#3A4049"], "impl": ["#C9C7C2", "#423F3A"],
+      "reason": "暗色稿的 #3A4049 是冷灰，§2.1 禁止在这套暖中性里用冷阶，换成等明度暖阶 #423F3A（= outlineVariant 暗档）。浅档 #C9C7C2 本就是 outlineVariant 浅档，逐字照抄。" },
+
+    { "role": "rowmenu.chip", "ref": "tiles:rowMenuChip",
+      "design": ["#EFEEEA", "#262C35"], "impl": ["#EFEEEA", "#262C35"],
+      "reason": "",
+      "note": "类型标的底，也是 ✕ 钮的底。浅档 = surfaceContainer、暗档 = surfaceContainerHighest —— 与分段胶囊「浮起片相对轨道取」同一套：相对各自的地抬一档，而不是两档取同一个名字。稿里 ✕ 钮浅档写 #EFEFEA，与 #EFEEEA 差 1 —— 视为同一档，未记偏离。" },
+
+    { "role": "rowmenu.chip.border", "ref": "tiles:rowMenuChipBorder",
+      "design": ["#E0DEDA", "#373D45"], "impl": ["#E0DEDA", "#373D45"],
+      "reason": "",
+      "note": "类型标的 1dp 描边。稿里是 rgba(201,199,194,0.4) / rgba(255,255,255,0.08)，同 rowmenu.divider 解成不透明合成值（底色是 rowmenu.chip）。它不是装饰：#EFEEEA 的标坐在 #FAF9F5 纸上只差 1.05:1，描边是让它成为一枚标的东西。" },
+
+    { "role": "rowmenu.chip.ink", "ref": "tiles:rowMenuChipInk",
+      "design": ["#494641", "#E2E0DB"], "impl": ["#494641", "#E2E0DB"],
+      "reason": "",
+      "note": "类型标的字。稿子两档不同层：浅色用 onSurfaceVariant、暗色用 onSurface。照稿，不收敛成一档。" },
+
+    { "role": "rowmenu.divider", "ref": "tiles:rowMenuDivider",
+      "design": ["#EAE9E4", "#24282F"], "impl": ["#EAE9E4", "#24282F"],
+      "reason": "",
+      "note": "标题行下缘与删除行上方那两条。稿里是 rgba(119,114,104,0.12) / rgba(255,255,255,0.06)，同 rowmenu.sheet.border 解成不透明合成值。" },
+
+    { "role": "rowmenu.ink.faint", "ref": "tiles:rowMenuInkFaint",
+      "design": ["#777268", "#777268"], "impl": ["#777268", "#8D897E"],
+      "reason": "暗色稿的行尾值与 chevron 用了 #777268 —— 那是浅色档的 outline，落在暗底上只有 2.7:1。换成暗档 outline #8D897E。浅档 #777268 本就是 outline 浅档，逐字照抄。" },
+
+    { "role": "rowmenu.close.ink", "ref": "tiles:rowMenuCloseInk",
+      "design": ["#777268", "#A8A49C"], "impl": ["#777268", "#A8A49C"],
+      "reason": "",
+      "note": "✕ 字形。与 rowmenu.ink.faint 浅档同值、暗档不同：稿子把暗色的 ✕ 提到 onSurfaceVariant，而行尾说明留在更淡的一档。照稿分开记。" },
+
+    { "role": "rowmenu.ink", "ref": "scheme:onSurface",
+      "design": ["#1B1C1A", "#E2E0DB"], "impl": ["#1B1C1A", "#E2E0DB"],
+      "reason": "",
+      "note": "标题与操作项文字共用一档。" },
+
+    { "role": "rowmenu.icon", "ref": "scheme:onSurfaceVariant",
+      "design": ["#494641", "#A8A49C"], "impl": ["#494641", "#A8A49C"],
+      "reason": "",
+      "note": "四个非破坏性操作的 20dp 字形。" },
+
+    { "role": "rowmenu.destructive", "ref": "scheme:error",
+      "design": ["#BA1A1A", "#FFB4AB"], "impl": ["#BA1A1A", "#FFB4AB"],
+      "reason": "",
+      "note": "「删除会话」的图标、文字与行尾「不可撤销」同色。稿子暗档把行尾写成 #FFB4AB/80，落地用全值：一行里两个透明度的同色只会让它看起来像没渲染完。归档行不涂红 —— §5.2，可逆动作不算破坏性。" },
+
+    { "role": "cron.pillar.needsYou", "ref": "warnGraphic:",
+      "design": ["#B91C1C", "#FBBF24"], "impl": ["#D97706", "#F59E0B"],
+      "reason": "浅暗两张稿在这一处互相矛盾：浅色稿把「需要你处理」的立柱与计数 chip 画成红，暗色稿画成琥珀。取仓库既有的琥珀两档（= 会话列表的同名分组）—— 红在本仓已是「运行失败」，而同一行右侧就有一枚红状态点，两个红会互相解释不清。",
+      "note": "立柱与圆点用图形档琥珀，标签与计数 chip 用 status:WARN 的文字档，与 §5.2 同规则。" },
+
+    { "role": "cron.pillar.active", "ref": "scheme:outline",
+      "design": ["#605C54", "#8D897E"], "impl": ["#777268", "#8D897E"],
+      "reason": "走 token 而非字面量（§2.1）。稿子的浅档 #605C54 是 secondary 的值；同为中性描边层级，深色完全一致。" },
+
+    { "role": "cron.pillar.paused", "ref": "scheme:outlineVariant",
+      "design": ["#8D897E", "#777268"], "impl": ["#C9C7C2", "#423F3A"],
+      "reason": "已暂停是三组里最弱的一档，走 outlineVariant。稿子把它画得比「已启用」更深（浅色 #8D897E 深于 #605C54 的反面），本仓按层级由强到弱排：outline → outlineVariant。" },
+
+    { "role": "cron.action.container", "ref": "tiles:cronAction",
+      "design": ["#181C24", "#1E232B"], "impl": ["#181C24", "#1E232B"],
+      "reason": "",
+      "note": "「立即运行」。浅档与 fab.container 同值但单列成 token（§2.7 第 1 条的同一条理由）：两者语义无关，动一个不该拖着另一个 —— 暗档就是它们分岔的地方。" },
+
+    { "role": "cron.card", "ref": "tiles:cronCard",
+      "design": ["#FFFFFF", "#161A22"], "impl": ["#FFFFFF", "#161A22"],
+      "reason": "" },
+
+    { "role": "cron.card.border", "ref": "tiles:cronCardBorder",
+      "design": ["#E9E8E4", "#262C35"], "impl": ["#E9E8E4", "#262C35"],
+      "reason": "",
+      "note": "稿子的暗档是 rgba(255,255,255,0.05)。§2.1 要求成对的不透明字面量才能被钉住，这是那个 alpha 压在卡色上的结果，也正是卡片页 card.tile.border 的暗档值。" },
+
+    { "role": "cron.card.header", "ref": "tiles:cronCardHeader",
+      "design": ["#FCFBF8", "#13171E"], "impl": ["#FCFBF8", "#13171E"],
+      "reason": "" },
+
+    { "role": "cron.inset", "ref": "tiles:cronInset",
+      "design": ["#FAF9F5", "#0A0D11"], "impl": ["#FAF9F5", "#0A0D11"],
+      "reason": "",
+      "note": "提示词块与展开后的诊断块。浅档等于纸面本身，暗档等于 surfaceContainerLowest —— 稿子两边都是「比卡再退一步」。" },
+
+    { "role": "cron.field.label.ink", "ref": "scheme:onSurfaceVariant",
+      "design": ["#9A9C98", "#A8A49C"], "impl": ["#494641", "#A8A49C"],
+      "reason": "走 token（§2.1）。深色与稿完全一致；浅色稿的第三档灰 #9A9C98 在卡上只有 2.8:1，本仓已有的次级文字角色就是 onSurfaceVariant，不为一页新增第三档中性灰。" }
   ],
 
   "type": [
     { "role": "row.title", "ref": "type:SessionRowTitle",
-      "design": ["15", "600", "21.75", "-0.15"], "impl": ["15", "600", "21.75", "-0.15"],
-      "reason": "",
-      "note": "稿与设计系统冲突：系统 title-md 写 15px/500/20px/0em，稿子的 <h2> 是 15px/600/-0.01em。按 2026-09-11 决策以稿为准。" },
+      "design": ["15.5", "500", "21.7", "-0.155"], "impl": ["15.5", "500", "21.7", "-0.155"],
+      "reason": "产品负责人 2026-09-14 在真机上定稿的一套数值，整体比稿子松一档：稿子的密度在设备上偏紧。稿子的值保留在 docs/design/stitch/ 的快照里，这里记的是实际发布的值。",
+      "note": "稿与设计系统冲突：系统 title-md 写 15px/500/20px/0em，稿子的 <h2> 第一次拉取是 15px/600/-0.01em。按 2026-09-11 决策以稿为准。 第五次拉取（2026-09-12）整屏密度收紧：15.5 → 14.5，行高倍数 1.45 → 1.35。" },
+
+    { "role": "row.title.read", "ref": "type:SessionRowTitleRead",
+      "design": ["15.5", "450", "21.7", "-0.155"], "impl": ["15.5", "450", "21.7", "-0.155"],
+      "reason": "产品负责人 2026-09-14 在真机上定稿的一套数值，整体比稿子松一档：稿子的密度在设备上偏紧。稿子的值保留在 docs/design/stitch/ 的快照里，这里记的是实际发布的值。",
+      "note": "字重按未读态区分：未读 600 / 已读 500，对应设计师系统的 session-title-unread / session-title-normal。 第五次拉取（2026-09-12）：15.5 → 14.5，行高倍数 1.45 → 1.35。" },
 
     { "role": "row.subline", "ref": "type:SessionRowSubline",
-      "design": ["12", "400", "17.4", "0"], "impl": ["12", "400", "17.4", "0"],
-      "reason": "", "note": "" },
+      "design": ["12", "400", "16.8", "0"], "impl": ["12", "400", "16.8", "0"],
+      "reason": "产品负责人 2026-09-14 在真机上定稿的一套数值，整体比稿子松一档：稿子的密度在设备上偏紧。稿子的值保留在 docs/design/stitch/ 的快照里，这里记的是实际发布的值。",
+      "note": "第五次拉取（2026-09-12）：12 → 11.5。这一档由会话列表、搜索结果、项目钻入、已归档四处共用，§5.2 要求四处必须同一档，所以它是本轮唯一越出会话列表的改动。" },
 
     { "role": "row.status", "ref": "type:SessionRowStatus",
-      "design": ["12", "500", "17.4", "-0.3"], "impl": ["12", "500", "17.4", "-0.3"],
-      "reason": "",
-      "note": "0.1.115 之前借 labelMedium（12/600/+0.48），字重与字距方向都相反。labelMedium 同时供分组头用，那里的稿是宽字距大写，故拆出专用样式而不是改 token。" },
+      "design": ["12", "500", "16.8", "-0.2875"], "impl": ["12", "500", "16.8", "-0.2875"],
+      "reason": "产品负责人 2026-09-14 在真机上定稿的一套数值，整体比稿子松一档：稿子的密度在设备上偏紧。稿子的值保留在 docs/design/stitch/ 的快照里，这里记的是实际发布的值。",
+      "note": "0.1.115 之前借 labelMedium（12/600/+0.48），字重与字距方向都相反。labelMedium 同时供分组头用，那里的稿是宽字距大写，故拆出专用样式而不是改 token。 第五次拉取（2026-09-12）：12 → 11.5。字距是稿子 tracking-tight（-0.025em）按 11.5px 折算 = -0.2875；旧的 -0.3 是同一公式在 12px 下的精确值，不是取整。" },
 
-    { "role": "group.header", "ref": "type:labelMedium",
-      "design": ["11", "600", "14", "0.22"], "impl": ["12", "600", "16", "0.48"],
-      "reason": "稿子的分组头是 11px 等宽大写；本仓不打包等宽字族，11sp 非大写中文在真机上偏小，保留 12sp。字距按稿的 tracking-wider 方向（同为正）但按 12sp 折算。",
-      "note": "" },
+    { "role": "group.header", "ref": "type:SessionGroupHeader",
+      "design": ["11", "600", "14.666", "0.55"], "impl": ["11", "600", "14.666", "0.55"],
+      "reason": "产品负责人 2026-09-14 在真机上定稿的一套数值，整体比稿子松一档：稿子的密度在设备上偏紧。稿子的值保留在 docs/design/stitch/ 的快照里，这里记的是实际发布的值。",
+      "note": "第八次拉取（2026-09-13）组头进胶囊，这一档从等宽 11px 大写改为 sans 12px、tracking-tight（-0.025em → -0.3），不再大写；浅暗两版稿子在这一档一致。以下为旧记录：字距是稿子的 tracking-wider（0.05em）按 11px 折算。2026-09-11 之前是 12sp/labelMedium 并附「不打包等宽」的偏离说明；两条都随下限废除一起改掉了，JetBrains Mono 现已打包。" },
+
+    { "role": "group.count", "ref": "type:SessionGroupCount",
+      "design": ["10.5", "500", "14", "0"], "impl": ["10.5", "500", "14", "0"],
+      "reason": "",
+      "note": "「需要你处理」那一组把字重提到 600，在 SectionHeader 里用 copy() 就地改，不单列一档。" },
+
+    { "role": "group.note", "ref": "type:SessionGroupNote",
+      "design": ["10", "400", "13", "-0.1"], "impl": ["10", "400", "13", "-0.1"],
+      "reason": "",
+      "note": "「仅此设备」。稿子没给行高，13 是按这一档自身比例取的。" },
+
+    { "role": "segment.label", "ref": "type:SegmentLabel",
+      "design": ["13", "500", "18.85", "-0.325"], "impl": ["13", "500", "18.85", "-0.325"],
+      "reason": "",
+      "note": "2026-09-11 之前借 titleSmall（13/600/+0.26）—— 字号、字重、字距三样都与稿子不同向。 第五次拉取（2026-09-12）：13.5 → 13。字距一并纠错：稿子一直写 tracking-tight（-0.025em），此前误记为按 -0.01em 折算的 -0.135。" },
 
     { "role": "chat.body", "ref": "type:bodyLarge",
       "design": ["15", "400", "22", "0"], "impl": ["16", "400", "24", "0"],
       "reason": "bodyLarge 是聊天正文，全 App 主要阅读面；缩到 15sp 是可读性决策而非换肤细节（DESIGN.md §3.1）。",
-      "note": "" }
+      "note": "" },
+
+    { "role": "card.wordmark", "ref": "type:CardWordmark",
+      "design": ["20", "700", "30", "-0.5"], "impl": ["20", "700", "30", "-0.5"],
+      "reason": "",
+      "note": "卡片页各档（2026-09-11 第二次拉取重取）：稿的 text-[Npx] 不带 leading 时行高按浏览器继承的 1.5 记；leading-tight = 1.25、leading-none = 1；tracking-tight = −0.025em、tracking-wide = +0.025em，按字号折算。" },
+
+    { "role": "card.chip", "ref": "type:CardChip",
+      "design": ["11", "500", "16.5", "0.275"], "impl": ["11", "500", "16.5", "0.275"],
+      "reason": "",
+      "note": "第二次拉取由 10.5/600 大写 + 0.05em 改为 11/500 + tracking-wide，圆角 4 → 6、内距 6×2.5 → 8×2。" },
+
+    { "role": "card.identity.name", "ref": "type:CardIdentityName",
+      "design": ["15.5", "600", "23.25", "-0.3875"], "impl": ["15.5", "600", "23.25", "-0.3875"],
+      "reason": "", "note": "" },
+
+    { "role": "card.identity.sub", "ref": "type:CardIdentitySub",
+      "design": ["12", "400", "18", "0"], "impl": ["12", "400", "18", "0"],
+      "reason": "",
+      "note": "身份卡副行与远程节点副行共用。稿的身份卡副行写「网关启动目录 · 本机」，无数据源，实现保留「当前身份」（裁决 2026-09-11）。" },
+
+    { "role": "card.node.title", "ref": "type:CardNodeTitle",
+      "design": ["14.5", "600", "21.75", "-0.3625"], "impl": ["14.5", "600", "21.75", "-0.3625"],
+      "reason": "", "note": "第二次拉取由 14 改为 14.5。" },
+
+    { "role": "card.row.title", "ref": "type:CardRowTitle",
+      "design": ["14.5", "500", "21.75", "0"], "impl": ["14.5", "500", "21.75", "0"],
+      "reason": "", "note": "" },
+
+    { "role": "card.row.value", "ref": "type:CardRowValue",
+      "design": ["13", "400", "19.5", "0"], "impl": ["13", "400", "19.5", "0"],
+      "reason": "",
+      "note": "行右值与远程节点的毫秒数共用。暗夜稿给毫秒数加了 font-medium，几何以浅色为准（锁文件 pairs）。" },
+
+    { "role": "card.footer", "ref": "type:CardFooter",
+      "design": ["12", "400", "18", "0.3"], "impl": ["12", "400", "18", "0.3"],
+      "reason": "",
+      "note": "斜体衬线（FontFamily.Serif + FontStyle.Italic，系统字体不打包）；字族与字形不进四元组。暗夜稿写 12.5px Georgia，几何以浅色为准。" },
+
+    { "role": "card.theme.title", "ref": "type:CardThemeTitle",
+      "design": ["18", "600", "27", "-0.45"], "impl": ["18", "600", "27", "-0.45"],
+      "reason": "",
+      "note": "主题弹层「外观与主题」。text-lg font-semibold tracking-tight。" },
+
+    { "role": "card.theme.option.title", "ref": "type:CardThemeOptionTitle",
+      "design": ["14", "600", "21", "0"], "impl": ["14", "600", "21", "0"],
+      "reason": "",
+      "note": "选项名。text-sm font-semibold，没有 tracking 类 —— 所以不是 card.node.title（那档带 tracking-tight）。说明副行复用 card.identity.sub（12/400/18/0），稿上正好同值。" },
+
+    { "role": "card.theme.badge", "ref": "type:CardThemeBadge",
+      "design": ["10", "600", "15", "0"], "impl": ["10", "600", "15", "0"],
+      "reason": "",
+      "note": "「当前使用」。构建徽标自第二次拉取起是 11/500，两者已不再同档。" },
+
+    { "role": "card.theme.cta", "ref": "type:CardThemeCta",
+      "design": ["14", "500", "21", "0"], "impl": ["14", "500", "21", "0"],
+      "reason": "",
+      "note": "保存按钮的字。几何取浅色稿；暗夜稿同一按钮是 600 + tracking-wide（锁文件 pairs）。" }
+,
+
+    { "role": "model.sheet.title", "ref": "type:ModelSheetTitle",
+      "design": ["19", "700", "28.5", "-0.475"], "impl": ["19", "700", "28.5", "-0.475"],
+      "reason": "",
+      "note": "「选择模型」。text-[19px] font-bold tracking-tight，行高是 Preflight 继承的 1.5。" },
+
+    { "role": "model.card.name", "ref": "type:ModelCardName",
+      "design": ["16", "700", "24", "-0.4"], "impl": ["16", "700", "24", "-0.4"],
+      "reason": "",
+      "note": "状态卡的模型名。" },
+
+    { "role": "model.card.provider", "ref": "type:ModelCardProvider",
+      "design": ["12", "400", "18", "0"], "impl": ["12", "400", "18", "0"],
+      "reason": "",
+      "note": "Tailwind 的 text-xs 是成对步（12px/16px），text-[12px] 是任意值、继承 Preflight 的 1.5（18px）。本稿两种都用：松的 18px 给卡内副行，紧的 16px 给不许撑高容器的 chip 与按钮。" },
+
+    { "role": "model.card.action", "ref": "type:ModelCardAction",
+      "design": ["12", "500", "16", "0"], "impl": ["12", "500", "16", "0"],
+      "reason": "",
+      "note": "「恢复默认」与快捷 chip 的模型名。text-xs 的紧配对，见 model.card.provider。" },
+
+    { "role": "model.effort.value", "ref": "type:ModelEffortValue",
+      "design": ["12", "600", "16", "0"], "impl": ["12", "600", "16", "0"],
+      "reason": "",
+      "note": "下拉钮里的当前档位，比 model.card.action 重一级。" },
+
+    { "role": "model.effort.label", "ref": "type:ModelEffortLabel",
+      "design": ["13", "500", "19.5", "0"], "impl": ["13", "500", "19.5", "0"],
+      "reason": "",
+      "note": "「推理强度」。" },
+
+    { "role": "model.badge", "ref": "type:ModelBadge",
+      "design": ["11", "500", "16.5", "0"], "impl": ["11", "500", "16.5", "0"],
+      "reason": "",
+      "note": "「当前使用」「固定顶部」「快捷切换」。与卡片页的 card.theme.badge（10/600）不同档，不要合并。" },
+
+    { "role": "model.row.badge", "ref": "type:ModelRowBadge",
+      "design": ["10", "500", "15", "0"], "impl": ["10", "500", "15", "0"],
+      "reason": "",
+      "note": "行内徽标「前次生效」（500，中性底）与「切换中…」（600，蓝底）—— 同一步，蓝底那枚在调用处 copy 成 600。" },
+
+    { "role": "model.group.title", "ref": "type:ModelGroupTitle",
+      "design": ["12", "700", "16", "-0.3"], "impl": ["12", "700", "16", "-0.3"],
+      "reason": "",
+      "note": "提供商卡的标题。12sp 上带 −0.025em：§3.1 说负字距只在 ≥16sp 出现，本稿在 12px 上就用了，按 2026-09-11「以稿为准」落地。" },
+
+    { "role": "model.group.count", "ref": "type:ModelGroupCount",
+      "design": ["11", "500", "16.5", "0"], "impl": ["11", "500", "16.5", "0"],
+      "reason": "",
+      "note": "「N 项」。本屏唯一的 font-mono 步；中文无对应字形会落回系统字面，真正等宽的是数字与拉丁字母。与会话列表的 group.count（10.5/500）不同档。" },
+
+    { "role": "model.row.name", "ref": "type:ModelRowName",
+      "design": ["13.5", "500", "20.25", "0"], "impl": ["13.5", "500", "20.25", "0"],
+      "reason": "",
+      "note": "模型行名，选中行在调用处 copy 成 600。与 segment.label 同为 13.5px，但行高按本稿的 1.5（20.25）而不是会话列表的 1.45。" },
+
+    { "role": "model.row.provider", "ref": "type:ModelRowProvider",
+      "design": ["11", "400", "16.5", "0"], "impl": ["11", "400", "16.5", "0"],
+      "reason": "" },
+
+    { "role": "model.quick.chip.provider", "ref": "type:ModelQuickChipProvider",
+      "design": ["10", "400", "15", "0"], "impl": ["10", "400", "15", "0"],
+      "reason": "",
+      "note": "chip 里跟在模型名后的提供商小字，也用于「正在切换至 X」那一行。" },
+
+    { "role": "rowmenu.title", "ref": "type:RowMenuTitle",
+      "design": ["16", "600", "20", "-0.4"], "impl": ["16", "600", "20", "-0.4"],
+      "reason": "",
+      "note": "行长按操作单的标题。本段四档全是 text-[…] 任意值步，都不自带行高，一律继承 body 的 text-body-md 配对 20px —— 20 出现在 11sp 的类型标上也是稿子自己的数，正是它让类型标 24dp 高（20+py-0.5）、操作行 44dp 高（20+py-3）。" },
+
+    { "role": "rowmenu.action", "ref": "type:RowMenuAction",
+      "design": ["16", "500", "20", "-0.4"], "impl": ["16", "500", "20", "-0.4"],
+      "reason": "",
+      "note": "操作项文字。浅暗两稿在这一档上打架：浅 15px、暗 16px，例外地取暗色档（同时落在 M3 标准步上，15sp 在本仓任何主操作文字上都没有先例）。裁决记在锁文件 pairs。" },
+
+    { "role": "rowmenu.hint", "ref": "type:RowMenuHint",
+      "design": ["13", "400", "20", "0"], "impl": ["13", "400", "20", "0"],
+      "reason": "",
+      "note": "行尾说明与行尾项目名。同 rowmenu.action，浅 12px / 暗 13px，取暗色档。删除行的行尾是这一档的 500，在调用处 copy —— 稿子只把那一个换成 font-medium。" },
+
+    { "role": "rowmenu.chip", "ref": "type:RowMenuChipLabel",
+      "design": ["11", "500", "20", "0.275"], "impl": ["11", "500", "20", "0.275"],
+      "reason": "",
+      "note": "类型标「会话」/「已归档」。tracking-wide = 0.025em，在 11px 上是 0.275。与卡片页 card.theme.badge（10/600）、模型选择 model.badge（11/500/16.5）都不同档，不要合并。" },
+
+    { "role": "cron.topbar.title", "ref": "type:CronTopBarTitle",
+      "design": ["19", "600", "27.55", "-0.19"], "impl": ["19", "600", "27.55", "-0.19"],
+      "reason": "",
+      "note": "定时任务列表的顶栏标题。自己的一档而不是 titleLarge（20sp）—— 稿子只为这一屏说话，同 §5.2 的 SessionsTopBarTitle。行高倍数是页面的 1.45，不是行文本列的 1.35。" },
+
+    { "role": "cron.topbar.subtitle", "ref": "type:CronTopBarSubtitle",
+      "design": ["11", "500", "15.95", "0"], "impl": ["11", "500", "15.95", "0"],
+      "reason": "",
+      "note": "「当前身份 · default」。改这一档前它借 labelMedium 并且是品牌蓝 —— 一个 chrome 强调色在做说明文字的活。" },
+
+    { "role": "cron.detail.topbar.title", "ref": "type:CronDetailTopBarTitle",
+      "design": ["15", "600", "21.75", "-0.15"], "impl": ["15", "600", "21.75", "-0.15"],
+      "reason": "",
+      "note": "详情页的居中标题，比列表的 19 小一档：稿子给被推入的那一屏一条更安静的栏。" },
+
+    { "role": "cron.field.label", "ref": "type:CronFieldLabel",
+      "design": ["12", "400", "17.4", "0"], "impl": ["12", "400", "17.4", "0"],
+      "reason": "" },
+
+    { "role": "cron.field.value", "ref": "type:CronFieldValue",
+      "design": ["13", "500", "18.85", "-0.13"], "impl": ["13", "500", "18.85", "-0.13"],
+      "reason": "" },
+
+    { "role": "cron.schedule.value", "ref": "type:CronScheduleValue",
+      "design": ["14", "500", "20.3", "0"], "impl": ["14", "500", "20.3", "0"],
+      "reason": "",
+      "note": "「每天 18:15」，状态卡的主值。同一档也用在「立即运行」的按钮文字上（稿子两处都是 text-sm font-medium）。" },
+
+    { "role": "cron.pill", "ref": "type:CronPill",
+      "design": ["12", "500", "17.4", "0"], "impl": ["12", "500", "17.4", "0"],
+      "reason": "",
+      "note": "状态药丸与结果药丸；次级按钮文字与运行时间也共用这一档。" },
+
+    { "role": "cron.section.title", "ref": "type:CronSectionTitle",
+      "design": ["14", "600", "20.3", "0"], "impl": ["14", "600", "20.3", "0"],
+      "reason": "",
+      "note": "「运行历史」与提示词卡的头。与会话列表的 group.header（11sp 等宽大写）不是一档 —— 那是可折叠分组头，这是页内小标题。" },
+
+    { "role": "cron.prompt.body", "ref": "type:CronPromptBody",
+      "design": ["13", "400", "21.125", "0"], "impl": ["13", "400", "21.125", "0"],
+      "reason": "",
+      "note": "行高倍数是稿子的 leading-relaxed（1.625），不是页面的 1.45 —— 提示词是整块文字，稿子单独把它放松了。等宽走已打包的 JetBrains Mono（§3.1）。" },
+
+    { "role": "cron.run.meta", "ref": "type:CronRunMeta",
+      "design": ["11", "400", "15.95", "0"], "impl": ["11", "400", "15.95", "0"],
+      "reason": "",
+      "note": "一次运行的结果行。稿子在这里印的是等宽的原始 cron_complete，本仓印本地化结果 + 耗时，所以这一档不是等宽（裁决见锁文件）。" },
+
+    { "role": "chat.pill.label", "ref": "type:ChatPillLabel",
+      "design": ["13", "500", "19.5", "-0.325"], "impl": ["13", "500", "19.5", "-0.325"],
+      "reason": "",
+      "note": "此前借 labelLarge（14/500/20/+0.1）。稿子 text-[13px] 不带 leading，行高按继承的 1.5 记；字距 tracking-tight（-0.025em）按 13px 折算。" },
+
+    { "role": "chat.sheet.title", "ref": "type:ChatSheetTitle",
+      "design": ["18", "600", "22.5", "-0.45"], "impl": ["18", "600", "22.5", "-0.45"],
+      "reason": "",
+      "note": "此前借 titleMedium 并居中。稿子 leading-tight = 1.25、tracking-tight 按 18px 折算。" },
+
+    { "role": "chat.sheet.count", "ref": "type:ChatSheetCount",
+      "design": ["11", "500", "11", "0"], "impl": ["11", "500", "11", "0"],
+      "reason": "",
+      "note": "leading-none = 1。稿子没给它 font-mono —— 会话列表的计数 chip 是等宽的，这一处不是，按 §7 第 8 条逐张稿判。" },
+
+    { "role": "chat.prompt.label", "ref": "type:ChatPromptLabel",
+      "design": ["15", "500", "20.625", "0"], "impl": ["15", "500", "20.625", "0"],
+      "reason": "",
+      "note": "此前借 bodyLarge（16/400/24）。leading-snug = 1.375。" },
+
+    { "role": "chat.prompt.label.current", "ref": "type:ChatPromptLabelCurrent",
+      "design": ["15", "600", "20.625", "0"], "impl": ["15", "600", "20.625", "0"],
+      "reason": "",
+      "note": "同一档的 font-semibold 变体，仅当前行用；与 row.title / row.title.read 拆两档同一个道理。" },
+
+    { "role": "chat.prompt.time", "ref": "type:ChatPromptTime",
+      "design": ["12", "400", "18", "0"], "impl": ["12", "400", "18", "0"],
+      "reason": "",
+      "note": "此前借 labelMedium（12/600/+0.48）—— 字重与字距都与稿子反向。稿子不带 leading，行高按 1.5 记。" },
+
+    { "role": "chatsearch.query", "ref": "type:ChatSearchQuery",
+      "design": ["14.5", "500", "14.5", "0"], "impl": ["14.5", "500", "14.5", "0"],
+      "reason": "",
+      "note": "输入框里的字。此前借 bodyLarge（16/400/24）—— 与搜索页共用一个 SearchField 的后果；稿子 leading-none = 1。" },
+
+    { "role": "chatsearch.count", "ref": "type:ChatSearchCount",
+      "design": ["12", "600", "16", "-0.3"], "impl": ["12", "600", "16", "-0.3"],
+      "reason": "",
+      "note": "「4/12」。此前借 labelLarge。这一处稿子确实标了 font-mono（与 chat.sheet.count 相反），数字在翻页时会一位一位变，等宽让这一行不抖 —— 按 §7 第 8 条逐张稿判。text-xs 的自带行高 1rem = 16。" }
   ]
 }

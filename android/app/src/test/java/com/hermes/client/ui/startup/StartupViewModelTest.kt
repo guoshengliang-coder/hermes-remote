@@ -168,6 +168,27 @@ class StartupViewModelTest {
         verify(exactly = 0) { chat.connect() }
     }
 
+    @Test fun unknownAccountEndpointNeverOpensTheLegacyRelayEditor() = runTest {
+        every { credentials.load() } returns config
+        val accountSessions = mockk<AccountSessionManager>(relaxed = true)
+        every { accountSessions.session } returns MutableStateFlow(accountSession())
+        every { accountSessions.transportMode() } returns AccountTransportMode.ACCOUNT
+        coEvery { rest.gatewayStatus() } throws com.hermes.client.data.network.HermesApiException(
+            code = 404,
+            message = "not found",
+        )
+        val vm = vm(accountSessions)
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+
+        val repair = vm.state.value as StartupUiState.RepairRequired
+        assertEquals(StartupFailure.ACCOUNT_SERVICE_UNAVAILABLE, repair.failure)
+        verify(exactly = 0) { accountSessions.clearDeviceSelection() }
+        coVerify(exactly = 0) { rest.probeStatusFor(any(), any()) }
+        verify(exactly = 0) { chat.connect() }
+    }
+
     @Test fun accountRefreshRateLimitRemainsRetryableInsteadOfForcingSignIn() = runTest {
         every { credentials.load() } returns null
         val accountSessions = mockk<AccountSessionManager>(relaxed = true)
@@ -542,6 +563,36 @@ class StartupViewModelTest {
             StartupFailure.CONNECTION_FAILED,
             (vm.state.value as StartupUiState.Failed).failure,
         )
+    }
+
+    @Test fun failedLoopbackRelayRepairOpensAccountSetupInsteadOfLegacySettings() = runTest {
+        val loopback = GatewayConfig("http://127.0.0.1:8787", "dev-app-token")
+        every { credentials.load() } returns loopback
+        coEvery { rest.probeStatusFor(loopback.baseUrl, loopback.token) } returns
+            GatewayProbeResult.Unreachable("connection refused")
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        vm.requestConfigurationRepair()
+
+        val repair = vm.state.value as StartupUiState.RepairRequired
+        assertEquals(StartupFailure.CONNECTION_FAILED, repair.failure)
+        assertTrue(repair.accountSetup)
+    }
+
+    @Test fun failedPublicRelayRepairStillOpensLegacyConnectionSettings() = runTest {
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
+            GatewayProbeResult.Unreachable("connection refused")
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        vm.requestConfigurationRepair()
+
+        val repair = vm.state.value as StartupUiState.RepairRequired
+        assertEquals(StartupFailure.CONNECTION_FAILED, repair.failure)
+        assertTrue(!repair.accountSetup)
     }
 
     @Test fun gatewayReadyTimeoutOffersRecoveryInsteadOfBlockingForever() = runTest {

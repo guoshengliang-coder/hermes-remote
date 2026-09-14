@@ -65,17 +65,31 @@ fun cronSublineText(
     deliver: String?,
     status: CronRowStatus,
     language: AppLanguage,
-): String {
-    val outcome = when (status) {
-        CronRowStatus.FAILED -> localized(language, "上次失败", "last run failed")
-        CronRowStatus.UNDELIVERED -> localized(language, "未送达", "not delivered")
-        CronRowStatus.OVERDUE -> localized(language, "已逾期", "overdue")
-        CronRowStatus.PAUSED -> localized(language, "已暂停", "paused")
-        CronRowStatus.OK -> null
-    }
-    return listOfNotNull(
+): String = listOfNotNull(
+    cronSublineBase(scheduleText, deliver, language),
+    cronSublineOutcome(status, language),
+).joinToString(CRON_SUBLINE_SEPARATOR)
+
+/** The separator between every part of the subline. */
+const val CRON_SUBLINE_SEPARATOR = "  ·  "
+
+/**
+ * The neutral half of the subline: rhythm and where the result goes. Split out from
+ * [cronSublineText] so the row can paint only the OUTCOME in a status colour — a failed job's
+ * rhythm and target are not themselves failures, and colouring the whole line said they were.
+ * `CronSectionsTest` pins the two halves back together so they cannot drift apart.
+ */
+fun cronSublineBase(scheduleText: String, deliver: String?, language: AppLanguage): String =
+    listOfNotNull(
         cronScheduleText(scheduleText, language).takeIf { it.isNotBlank() && it != "—" },
         cronDeliveryText(deliver).resolve(language),
-        outcome,
-    ).joinToString("  ·  ")
+    ).joinToString(CRON_SUBLINE_SEPARATOR)
+
+/** How the last run went, or null for a healthy job — see [cronSublineText]. */
+fun cronSublineOutcome(status: CronRowStatus, language: AppLanguage): String? = when (status) {
+    CronRowStatus.FAILED -> localized(language, "上次失败", "last run failed")
+    CronRowStatus.UNDELIVERED -> localized(language, "未送达", "not delivered")
+    CronRowStatus.OVERDUE -> localized(language, "已逾期", "overdue")
+    CronRowStatus.PAUSED -> localized(language, "已暂停", "paused")
+    CronRowStatus.OK -> null
 }

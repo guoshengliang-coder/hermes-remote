@@ -195,29 +195,47 @@ private fun smallStrokeIcon(name: String, block: PathBuilder.() -> Unit): ImageV
         )
     }.build()
 
-/** Arrow pressed against a top line: "back to the start of this turn" (turn-jump pill, prompt list). */
+/**
+ * Plain up arrow: "back to the start of this turn" (turn-jump pill).
+ *
+ * It used to carry a line across the top — an "arrow to top" glyph. Stitch 基线-聊天页/滑动引导胶囊
+ * draws a bare arrow, and the pill is this icon's only consumer, so the line came off here rather
+ * than a second glyph being added beside it (docs/DESIGN.md §4.2, 2026-09-12).
+ */
 val ArrowToTopIcon: ImageVector by lazy {
-    smallStrokeIcon("StrokeArrowToTop") {
-        moveTo(5f, 5f)
-        lineTo(19f, 5f)
-        moveTo(12f, 20f)
-        lineTo(12f, 9f)
-        moveTo(7.5f, 13.5f)
-        lineTo(12f, 9f)
-        lineTo(16.5f, 13.5f)
+    smallStrokeIcon("StrokeArrowUp") {
+        moveTo(12f, 19.5f)
+        lineTo(12f, 4.5f)
+        moveTo(6.75f, 9.75f)
+        lineTo(12f, 4.5f)
+        lineTo(17.25f, 9.75f)
     }
 }
 
-/** Three lines with leading dots: the prompt list (pill segment and top-bar menu). */
+/**
+ * Three plain bars: the prompt list (pill segment and top-bar menu).
+ *
+ * The leading dots came off with the same 2026-09-12 pull. Two entry points to one feature, one
+ * glyph — changing it here changes both, which is the point.
+ */
 val PromptListIcon: ImageVector by lazy {
     smallStrokeIcon("StrokePromptList") {
         for (y in listOf(6f, 12f, 18f)) {
-            moveTo(9f, y)
-            lineTo(20f, y)
-            // A zero-length round-capped stroke renders as a dot.
-            moveTo(4f, y)
-            lineTo(4.01f, y)
+            moveTo(4.5f, y)
+            lineTo(19.5f, y)
         }
+    }
+}
+
+/** Two stacked chevrons: "back to the latest turn" (prompt sheet header). */
+val ChevronsDownIcon: ImageVector by lazy {
+    smallStrokeIcon("StrokeChevronsDown") {
+        moveTo(5f, 8f)
+        lineTo(12f, 15f)
+        lineTo(19f, 8f)
+        moveTo(5f, 14f)
+        lineTo(12f, 21f)
+        lineTo(19f, 14f)
     }
 }
 
@@ -248,16 +266,6 @@ val CameraStrokeIcon: ImageVector by lazy {
         moveTo(15.2f, 13f)
         arcTo(3.2f, 3.2f, 0f, true, true, 8.8f, 13f)
         arcTo(3.2f, 3.2f, 0f, true, true, 15.2f, 13f)
-    }
-}
-
-/** Push pin — the pinned-session prefix in the list subline (docs/DESIGN.md §5.2). */
-val PinStrokeIcon: ImageVector by lazy {
-    smallStrokeIcon("StrokePin") {
-        moveTo(9f, 3f); lineTo(15f, 3f)
-        moveTo(10f, 3f); lineTo(10f, 8.5f); lineTo(7f, 12f); lineTo(7f, 14f)
-        lineTo(17f, 14f); lineTo(17f, 12f); lineTo(14f, 8.5f); lineTo(14f, 3f)
-        moveTo(12f, 14f); lineTo(12f, 21f)
     }
 }
 
@@ -385,4 +393,303 @@ val ApiChannelIcon: ImageVector by lazy {
         lineTo(19f, 12f)
         lineTo(15f, 16f)
     }
+}
+
+// ── Theme options (docs/DESIGN.md §5.1 主题弹层) ────────────────────────────────────────────────
+//
+// The theme sheet's mock draws these as 2px feather glyphs; §4 keeps the repo's 1.7dp brush, the
+// same ruling the card page took. They live here rather than in CardPage.kt because two screens
+// need them now — the sheet and 设置→外观 — which is exactly §4.2's "new icons go in the shared
+// file first".
+
+/**
+ * A desktop monitor on a stand — the card page's remote-node tile, and 「跟随系统」 in the theme
+ * sheet.
+ *
+ * Moved here from CardPage.kt unchanged when the theme sheet needed the same glyph. Writing a
+ * second monitor for the sheet is exactly the duplication §4.2 asks new icons to avoid: two
+ * hand-drawn monitors one screen apart would have drifted the first time either was touched.
+ */
+val DesktopStrokeIcon: ImageVector by lazy {
+    strokeIcon("ThinDesktop") {
+        moveTo(5f, 4f)
+        lineTo(19f, 4f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 21f, y1 = 6f)
+        lineTo(21f, 14f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 19f, y1 = 16f)
+        lineTo(5f, 16f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 3f, y1 = 14f)
+        lineTo(3f, 6f)
+        arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 5f, y1 = 4f)
+        close()
+        moveTo(12f, 16f); lineTo(12f, 20f)
+        moveTo(8f, 20f); lineTo(16f, 20f)
+    }
+}
+
+/** A rayed sun — 「温润浅色」. */
+val SunStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeSun") {
+        moveTo(16.6f, 12f)
+        arcTo(4.6f, 4.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 7.4f, y1 = 12f)
+        arcTo(4.6f, 4.6f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 16.6f, y1 = 12f)
+        close()
+        // Eight rays, radius 7.4 → 10.0, so the round caps stay inside the 24 viewport.
+        moveTo(12f, 4.6f); lineTo(12f, 2f)
+        moveTo(12f, 19.4f); lineTo(12f, 22f)
+        moveTo(4.6f, 12f); lineTo(2f, 12f)
+        moveTo(19.4f, 12f); lineTo(22f, 12f)
+        moveTo(6.77f, 6.77f); lineTo(4.93f, 4.93f)
+        moveTo(17.23f, 6.77f); lineTo(19.07f, 4.93f)
+        moveTo(6.77f, 17.23f); lineTo(4.93f, 19.07f)
+        moveTo(17.23f, 17.23f); lineTo(19.07f, 19.07f)
+    }
+}
+
+/**
+ * A crescent — 「黑曜石深色」, and the card page's 主题 row.
+ *
+ * Moved here from CardPage.kt unchanged when the theme sheet became its second consumer.
+ */
+val MoonStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeMoon") {
+        moveTo(20f, 14.5f)
+        arcTo(8.5f, 8.5f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 9.5f, y1 = 4f)
+        arcToRelative(7f, 7f, 0f, isMoreThanHalf = false, isPositiveArc = false, dx1 = 10.5f, dy1 = 10.5f)
+        close()
+    }
+}
+
+// --- Image editor (DESIGN.md §4.2, §5.4b) ---------------------------------------------------
+// Hand-drawn rather than Material, even though the editor is hosted in a Dialog: §4.1's popup
+// exemption covers transient sheets and menus, not a full working surface with its own toolbar
+// that the user stares at while annotating.
+
+/** Pen nib angled down-left — the doodle tool. */
+val DoodleStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeDoodle") {
+        // Barrel.
+        moveTo(16.8f, 3.9f)
+        lineTo(20.1f, 7.2f)
+        lineTo(9.4f, 17.9f)
+        lineTo(5f, 19f)
+        lineTo(6.1f, 14.6f)
+        close()
+        // Ferrule, so the nib reads as a pen rather than a plain arrow.
+        moveTo(14.4f, 6.3f)
+        lineTo(17.7f, 9.6f)
+    }
+}
+
+/** A grid of blocks — the mosaic tool. Blocks, not a blur, because that is what it draws. */
+val MosaicStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeMosaic") {
+        moveTo(4f, 4f); lineTo(20f, 4f); lineTo(20f, 20f); lineTo(4f, 20f); close()
+        moveTo(4f, 9.33f); lineTo(20f, 9.33f)
+        moveTo(4f, 14.67f); lineTo(20f, 14.67f)
+        moveTo(9.33f, 4f); lineTo(9.33f, 20f)
+        moveTo(14.67f, 4f); lineTo(14.67f, 20f)
+    }
+}
+
+/** Two overlapping right angles — the crop tool. */
+val CropStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeCrop") {
+        moveTo(6.5f, 2.5f); lineTo(6.5f, 17.5f); lineTo(21.5f, 17.5f)
+        moveTo(2.5f, 6.5f); lineTo(17.5f, 6.5f); lineTo(17.5f, 21.5f)
+    }
+}
+
+/** A frame with a turning arrow — rotate 90 degrees. */
+val RotateStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeRotate") {
+        moveTo(4.5f, 10f)
+        lineTo(4.5f, 19f)
+        lineTo(13.5f, 19f)
+        lineTo(13.5f, 10f)
+        close()
+        // Quarter arc above the frame, with a head so the direction is legible.
+        moveTo(10f, 6.5f)
+        arcTo(6f, 6f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 19.5f, y1 = 11f)
+        moveTo(19.5f, 11f); lineTo(17f, 9.2f)
+        moveTo(19.5f, 11f); lineTo(21.4f, 8.6f)
+    }
+}
+
+/** Arrow curving back to the left — undo. Mirrored by [RedoStrokeIcon]. */
+val UndoStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeUndo") {
+        moveTo(4.5f, 9.5f)
+        lineTo(13f, 9.5f)
+        arcTo(5.5f, 5.5f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 13f, y1 = 20.5f)
+        lineTo(8f, 20.5f)
+        moveTo(4.5f, 9.5f); lineTo(8.3f, 5.8f)
+        moveTo(4.5f, 9.5f); lineTo(8.3f, 13.2f)
+    }
+}
+
+/** Arrow curving back to the right — redo. Drawn as the exact mirror of [UndoStrokeIcon]. */
+val RedoStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeRedo") {
+        moveTo(19.5f, 9.5f)
+        lineTo(11f, 9.5f)
+        arcTo(5.5f, 5.5f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 11f, y1 = 20.5f)
+        lineTo(16f, 20.5f)
+        moveTo(19.5f, 9.5f); lineTo(15.7f, 5.8f)
+        moveTo(19.5f, 9.5f); lineTo(15.7f, 13.2f)
+    }
+}
+
+/** A closed loop back to its own start — reset. Distinct from undo: it goes all the way, not one step. */
+val ResetStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeReset") {
+        moveTo(20f, 12f)
+        arcTo(8f, 8f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 17.2f, y1 = 5.9f)
+        moveTo(17.2f, 5.9f); lineTo(17.6f, 2.2f)
+        moveTo(17.2f, 5.9f); lineTo(13.5f, 5.6f)
+    }
+}
+// ── Cron glyphs (docs/DESIGN.md §5.18) ────────────────────────────────────────────────────────
+//
+// The cron screens were the last place in the app still drawing Material's filled set — a clock
+// on the empty state, a vertical ellipsis on every row, play/pause/pencil/trash on the detail
+// page. All of them are §4.1 violations, and the mocks draw thin outlines anyway.
+
+/** Clock face — 计划节奏, and the empty state. */
+val ClockStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeClock") {
+        moveTo(21f, 12f)
+        arcTo(9f, 9f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 20.99f, y1 = 11.9f)
+        close()
+        moveTo(12f, 7f)
+        lineTo(12f, 12f)
+        lineTo(15f, 14f)
+    }
+}
+
+/** Solid triangle — 「立即运行」. The one filled glyph here, because a hollow play reads as "stop". */
+val PlayGlyphIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "CronPlay",
+        defaultWidth = 24.dp, defaultHeight = 24.dp,
+        viewportWidth = 24f, viewportHeight = 24f,
+    ).apply {
+        path(fill = SolidColor(Color.Black)) {
+            moveTo(8f, 5f)
+            lineTo(8f, 19f)
+            lineTo(19f, 12f)
+            close()
+        }
+    }.build()
+}
+
+/** Two bars in a ring — 「暂停任务」. */
+val PauseStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokePause") {
+        moveTo(21f, 12f)
+        arcTo(9f, 9f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 20.99f, y1 = 11.9f)
+        close()
+        moveTo(10f, 9f); lineTo(10f, 15f)
+        moveTo(14f, 9f); lineTo(14f, 15f)
+    }
+}
+
+/** Play in a ring — 「恢复」, the mirror of [PauseStrokeIcon] so the two swap in place. */
+val ResumeStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeResume") {
+        moveTo(21f, 12f)
+        arcTo(9f, 9f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = 20.99f, y1 = 11.9f)
+        close()
+        moveTo(10.3f, 8.8f); lineTo(15.2f, 12f); lineTo(10.3f, 15.2f); close()
+    }
+}
+
+/** Two arcs with arrowheads — the detail bar's refresh. */
+val RefreshStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeRefresh") {
+        moveTo(4f, 12f)
+        arcTo(8f, 8f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 17.66f, y1 = 6.34f)
+        moveTo(20f, 12f)
+        arcTo(8f, 8f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 6.34f, y1 = 17.66f)
+        moveTo(20f, 4f); lineTo(20f, 8.5f); lineTo(15.5f, 8.5f)
+        moveTo(4f, 20f); lineTo(4f, 15.5f); lineTo(8.5f, 15.5f)
+    }
+}
+
+/** Dog-eared page with rules — the prompt card's header. */
+val DocumentStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeDocument") {
+        moveTo(13f, 3.5f)
+        lineTo(6.5f, 3.5f)
+        arcTo(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 4.7f, y1 = 5.3f)
+        lineTo(4.7f, 18.7f)
+        arcTo(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 6.5f, y1 = 20.5f)
+        lineTo(17.5f, 20.5f)
+        arcTo(1.8f, 1.8f, 0f, isMoreThanHalf = false, isPositiveArc = false, x1 = 19.3f, y1 = 18.7f)
+        lineTo(19.3f, 9.8f)
+        close()
+        moveTo(13f, 3.5f); lineTo(13f, 9.8f); lineTo(19.3f, 9.8f)
+        moveTo(8.2f, 13.5f); lineTo(15.8f, 13.5f)
+        moveTo(8.2f, 16.8f); lineTo(13.5f, 16.8f)
+    }
+}
+
+/** Two offset rectangles — 「复制」 on the prompt card. */
+val CopyStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeCopy") {
+        moveTo(9f, 9f)
+        lineTo(19f, 9f); lineTo(19f, 20f); lineTo(9f, 20f); close()
+        moveTo(15f, 5.5f)
+        lineTo(5.5f, 5.5f)
+        lineTo(5.5f, 15f)
+    }
+}
+
+/** Lidded bin — the detail page's delete. Red comes from the tint, never from the path. */
+val TrashStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeTrash") {
+        moveTo(4.5f, 6.5f); lineTo(19.5f, 6.5f)
+        moveTo(9.5f, 6.5f); lineTo(9.5f, 4.5f); lineTo(14.5f, 4.5f); lineTo(14.5f, 6.5f)
+        moveTo(6.5f, 6.5f); lineTo(7.4f, 20f); lineTo(16.6f, 20f); lineTo(17.5f, 6.5f)
+        moveTo(10.3f, 10f); lineTo(10.6f, 16.8f)
+        moveTo(13.7f, 10f); lineTo(13.4f, 16.8f)
+    }
+}
+
+/** Triangle around a bang — the cron list's alert strip. */
+val AlertTriangleIcon: ImageVector by lazy {
+    strokeIcon("StrokeAlertTriangle") {
+        moveTo(12f, 4.2f)
+        lineTo(21.2f, 19.4f)
+        lineTo(2.8f, 19.4f)
+        close()
+        moveTo(12f, 9.8f); lineTo(12f, 13.6f)
+        moveTo(12f, 16.4f); lineTo(12.01f, 16.4f)
+    }
+}
+
+/**
+ * A vertical ellipsis, drawn as three zero-length round-capped strokes so the row's overflow is
+ * not the one Material filled glyph left in this icon system. 3.5 wide renders the mock's r=1.75
+ * dots.
+ */
+val MoreDotsIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "StrokeMoreDots",
+        defaultWidth = 24.dp, defaultHeight = 24.dp,
+        viewportWidth = 24f, viewportHeight = 24f,
+    ).apply {
+        path(
+            fill = null,
+            stroke = SolidColor(Color.Black),
+            strokeLineWidth = 3.5f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+        ) {
+            for (y in listOf(5f, 12f, 19f)) {
+                moveTo(12f, y)
+                lineTo(12.01f, y)
+            }
+        }
+    }.build()
 }

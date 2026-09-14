@@ -1,5 +1,6 @@
 package com.hermes.client.ui.screenshot
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -140,18 +141,81 @@ class ScreenshotTest {
         }
     }
 
-    @Test fun promptListRows() = snap("prompt-list-rows") {
-        val rows = listOf(
-            com.hermes.client.ui.chat.PromptRow(0, ordinal = null, "会话开始", time = null, isCurrent = false, isLeading = true),
-            com.hermes.client.ui.chat.PromptRow(1, ordinal = 1, longPrompt, time = "09:12", isCurrent = false, isLeading = false),
-            com.hermes.client.ui.chat.PromptRow(2, ordinal = 2, "限流阈值放到配置里。", time = null, isCurrent = true, isLeading = false),
-            com.hermes.client.ui.chat.PromptRow(3, ordinal = 3, "跑一遍完整测试，把失败的贴给我。", time = "昨天 10:05", isCurrent = false, isLeading = false),
-            com.hermes.client.ui.chat.PromptRow(4, ordinal = 4, "把 chrome 关掉", time = null, isCurrent = false, isLeading = false),
-        )
-        androidx.compose.foundation.layout.Column {
-            com.hermes.client.ui.chat.PromptListHeader(count = 4, onLatest = {})
-            com.hermes.client.ui.chat.PromptListContent(rows, onPick = {}, modifier = androidx.compose.ui.Modifier.height(360.dp))
+    /**
+     * Row 1 wraps to two lines ON PURPOSE: the mock truncates to one, this app keeps ≤2, and this
+     * golden is the only layer that can hold that line — plain Robolectric measures text with a
+     * stub font that never wraps.
+     */
+    private val promptRows = listOf(
+        com.hermes.client.ui.chat.PromptRow(0, ordinal = null, "会话开始", time = null, isCurrent = false, isLeading = true),
+        com.hermes.client.ui.chat.PromptRow(1, ordinal = 1, longPrompt, time = "09:12", isCurrent = false, isLeading = false),
+        com.hermes.client.ui.chat.PromptRow(2, ordinal = 2, "限流阈值放到配置里。", time = null, isCurrent = true, isLeading = false),
+        com.hermes.client.ui.chat.PromptRow(3, ordinal = 3, "跑一遍完整测试，把失败的贴给我。", time = "昨天 10:05", isCurrent = false, isLeading = false),
+        com.hermes.client.ui.chat.PromptRow(4, ordinal = 4, "把 chrome 关掉", time = null, isCurrent = false, isLeading = false),
+    )
+
+    @Test fun promptListRows() = snap("prompt-list-rows") { PromptSheetBody() }
+
+    /**
+     * The dark tier of the same rows.
+     *
+     * Added with the 2026-09-12 de-blueing, which is where it is easiest to get dark wrong: the
+     * current row's ordinal disc INVERTS between tiers (ink-on-paper in light, paper-on-ink in
+     * dark) and the chips gain a hairline ring that light does not draw at all.
+     */
+    @Test fun promptListRowsDark() = snap("prompt-list-rows-dark", darkTheme = true) { PromptSheetBody() }
+
+    /**
+     * On the sheet's own fill, not the page's — the sheet recesses to `chat.sheet.fill`, and in
+     * dark that is a smaller step away from the current row than `surface` would be. Capturing on
+     * the wrong ground would flatter exactly the contrast this golden exists to watch.
+     */
+    @androidx.compose.runtime.Composable
+    private fun PromptSheetBody() {
+        androidx.compose.material3.Surface(color = com.hermes.client.ui.theme.chatSheetColor()) {
+            androidx.compose.foundation.layout.Column {
+                com.hermes.client.ui.chat.PromptListHeader(count = 4, onLatest = {})
+                com.hermes.client.ui.chat.PromptListContent(promptRows, onPick = {}, modifier = androidx.compose.ui.Modifier.height(360.dp))
+            }
         }
+    }
+
+    /**
+     * The header alone, at fontScale 1.3.
+     *
+     * Nothing covered the header's structure before, and it is now the busiest row on the sheet:
+     * a title, a count chip and two icon buttons competing for one line. Large text is where that
+     * line breaks first.
+     */
+    @Test fun promptListHeaderLargeFont() = snap("prompt-list-header-large-font", fontScale = 1.3f) {
+        com.hermes.client.ui.chat.PromptListHeader(count = 12, onLatest = {})
+    }
+
+    // The composer's saved-prompt sheet. Settings no longer has a 常用提示 row (HG-33), so the
+    // 「管理」 button in this header is the only door into the prompt library — these two goldens
+    // are what keeps it from being dropped by a later layout edit.
+    private val savedPrompts = listOf(
+        com.hermes.client.data.repository.SavedPrompt("1", "Code review", "Review this diff for correctness bugs."),
+        com.hermes.client.data.repository.SavedPrompt("2", "翻译成中文", "把下面的内容翻译成简体中文，保留代码块。"),
+        com.hermes.client.data.repository.SavedPrompt("3", "写提交信息", "根据暂存区的改动写一条提交信息。"),
+    )
+
+    @Test fun savedPromptSheet() = snap("saved-prompt-sheet-zh") {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+            com.hermes.client.ui.chat.SavedPromptSheetContent(
+                prompts = savedPrompts, onPick = {}, onManage = {},
+            )
+        }
+    }
+
+    // Empty state in English: the copy has to name the button that replaced the Settings row, and
+    // "tap Manage" is the longer of the two languages.
+    @Test fun savedPromptSheetEmptyDark() = snap("saved-prompt-sheet-empty-dark", darkTheme = true) {
+        com.hermes.client.ui.chat.SavedPromptSheetContent(
+            prompts = emptyList(), onPick = {}, onManage = {},
+        )
     }
 
     @Test fun toolCardFailure() = snap("tool-card-failure") {
@@ -202,6 +266,18 @@ class ScreenshotTest {
             ),
             completed = true,
         )
+    }
+
+    /**
+     * A table cell carrying a link. The glyph beside it is the evidence that this surface shares
+     * the conversation's annotator and inline content: before HermesMarkdown it did not, and the
+     * gallery, the fullscreen dialog and both exports all drew links bare.
+     */
+    @Test fun tableCardLinks() = snap("table-card-links") {
+        val raw = "| \u63d0\u6848 | \u94fe\u63a5 |\n| --- | --- |\n| PR | [#30332](https://example.com/pull/30332) |\n"
+        com.hermes.client.ui.chat.ChatTableCard(raw, onOpenFullscreen = {}) {
+            com.hermes.client.ui.chat.StyledMarkdownTableSample(raw)
+        }
     }
 
     @Test fun tableCardNarrow() = snap("table-card-narrow") {
@@ -466,34 +542,48 @@ class ScreenshotTest {
     private fun userTurn(id: String, text: String, delivery: com.hermes.client.domain.DeliveryState) =
         com.hermes.client.domain.ChatMessage(id = id, role = com.hermes.client.domain.Role.USER, text = text, delivery = delivery)
 
-    // Delivery three-state: sent (solid), sending (dimmed + tail ring, revealed after 250ms) and
-    // not-sent (dimmed + error mark + tap-to-retry line). Bubbles are laid out in a plain Column:
+    // Delivery states: sent (solid), sending (dimmed + tail ring, revealed after 250ms), not-sent
+    // (dimmed + error mark + tap-to-retry line) and undeliverable — which must be visibly NOT the
+    // same offer as not-sent: same dimming and error mark, different copy, no retry (HG-29).
+    // Bubbles are laid out in a plain Column:
     // capturing the reverse-layout LazyColumn under Robolectric paints a stray copy of the last
     // row at the top of the image (a capture artifact, not visible on device). The ring's
     // breathing is switched off through LocalDeliveryMotionEnabled so the clock can settle.
-    private fun snapDelivery(name: String, darkTheme: Boolean) = snap(name, darkTheme = darkTheme, advanceMs = 600L) {
+    private fun snapDelivery(
+        name: String,
+        darkTheme: Boolean,
+        fontScale: Float? = null,
+        language: com.hermes.client.ui.localization.AppLanguage =
+            com.hermes.client.ui.localization.AppLanguage.EN,
+    ) = snap(name, darkTheme = darkTheme, fontScale = fontScale, advanceMs = 600L) {
         androidx.compose.runtime.CompositionLocalProvider(
             com.hermes.client.ui.chat.LocalDeliveryMotionEnabled provides false,
+            com.hermes.client.ui.localization.LocalAppLanguage provides language,
         ) {
             androidx.compose.foundation.layout.Column(
                 modifier = androidx.compose.ui.Modifier.padding(horizontal = 22.dp, vertical = 16.dp),
                 verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(18.dp),
             ) {
+                // The two FAILED rows differ only by error code — that is the point of the
+                // golden: same retryable state, different sentence (HG-30).
                 listOf(
-                    userTurn("h-1", "已发送的消息", com.hermes.client.domain.DeliveryState.SENT),
-                    userTurn("u-2", "发送中的消息", com.hermes.client.domain.DeliveryState.SENDING),
-                    userTurn("u-3", "未发送的消息", com.hermes.client.domain.DeliveryState.FAILED),
-                ).forEach { msg ->
+                    userTurn("h-1", "已发送的消息", com.hermes.client.domain.DeliveryState.SENT) to null,
+                    userTurn("u-2", "发送中的消息", com.hermes.client.domain.DeliveryState.SENDING) to null,
+                    userTurn("u-3", "未发送的消息", com.hermes.client.domain.DeliveryState.FAILED) to
+                        com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED,
+                    userTurn("u-5", "会话被别处占用的消息", com.hermes.client.domain.DeliveryState.FAILED) to
+                        com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE,
+                    userTurn("u-4", "会话已消失的消息", com.hermes.client.domain.DeliveryState.UNDELIVERABLE) to
+                        com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND,
+                ).forEach { (msg, code) ->
                     com.hermes.client.ui.chat.UserBubble(
                         msg = msg,
                         onEditResend = {},
-                        onImageSave = {},
-                        onImageSaveAs = {},
-                        onImageShare = {},
-                        savingImageId = null,
+                        onOpenImage = { _, _ -> },
                         onFileOpen = {},
                         onFileShare = {},
-                        sendDiagnostic = if (msg.delivery == com.hermes.client.domain.DeliveryState.FAILED) "code=HR-SESS-007" else null,
+                        sendDiagnostic = code?.let { "code=${it.value}" },
+                        sendErrorCode = code,
                     )
                 }
             }
@@ -507,50 +597,532 @@ class ScreenshotTest {
         profile = "personal", cwd = repo, gitRepoRoot = repo, gitBranch = null,
     )
 
-    // Diagnostic: the REAL row shape (SessionRowTitle + SessionSubline inside a ListItem) across
-    // the content variants a live list actually contains, each on its own tint so the row
-    // rectangles can be measured off the PNG instead of inferred from ListItem's internals.
+    private fun probeRuntime(id: String, phase: com.hermes.client.data.progress.SessionRunPhase) =
+        com.hermes.client.data.progress.SessionRuntime(
+            key = com.hermes.client.data.progress.SessionRuntimeKey("personal", id),
+            phase = phase,
+            toolName = "top-monitor",
+        )
+
+    /**
+     * The REAL production row, one tint each so the rectangles can be measured off the PNG.
+     *
+     * It used to assemble its own `ListItem` with the same styles, which stopped being the real
+     * thing the moment the row was drawn by hand — a probe that mirrors production by copying it
+     * only mirrors production until someone changes one of the two.
+     */
     @androidx.compose.runtime.Composable
     private fun ProbeRow(
         tint: androidx.compose.ui.graphics.Color,
         title: String,
         repo: String?,
-        status: String? = null,
+        runtime: com.hermes.client.data.progress.SessionRuntime? = null,
+        pinned: Boolean = false,
+        unread: Boolean = false,
+        hasDraft: Boolean = false,
+        hasUnsent: Boolean = false,
     ) {
-        androidx.compose.material3.ListItem(
-            headlineContent = {
-                androidx.compose.material3.Text(title, style = com.hermes.client.ui.theme.SessionRowTitle)
-            },
-            supportingContent = {
-                androidx.compose.foundation.layout.Column {
-                    SessionSubline(listSession(title, repo), defaultProjectPath = "/Users/me")
-                    // Same gate production uses: blank means no line at all, not an empty one.
-                    status?.takeIf { it.isNotBlank() }?.let {
-                        androidx.compose.material3.Text(
-                            it,
-                            style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
-                        )
-                    }
-                }
-            },
-            colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = tint),
-        )
+        androidx.compose.foundation.layout.Box(
+            androidx.compose.ui.Modifier.background(tint),
+        ) {
+            com.hermes.client.ui.sessions.SessionRow(
+                session = listSession(title, repo),
+                isPinned = pinned,
+                defaultProjectPath = "/Users/me",
+                onMoveToProject = {},
+                runtime = runtime,
+                unread = unread,
+                hasDraft = hasDraft,
+                hasUnsent = hasUnsent,
+                onOpen = {}, onTogglePin = {}, onRename = {}, onArchive = {}, onDelete = {},
+            )
+        }
     }
+
+    /**
+     * The 「草稿」 marker (HG-41). It rides in the subline, ahead of 项目 · 模型 and after the pin —
+     * NOT in the row's trailing 28dp column, where a neutral mark reads as unread (DESIGN.md §5.2).
+     * The rows below pair it with everything it has to coexist with, and the last one is the case
+     * with no subline content at all, where the marker is the only thing on the line.
+     */
+    @androidx.compose.runtime.Composable
+    private fun DraftRows() {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides
+                com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+            ProbeRow(androidx.compose.ui.graphics.Color(0x00000000), "起风工作室数据", "/u/xiaomai", hasDraft = true)
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0x00000000), "重构网关心跳", "/u/hermes-remote",
+                pinned = true, hasDraft = true,
+            )
+            // Draft AND unread: one on the left, one on the right, deliberately never the same mark.
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0x00000000), "查看机器性能负荷", "/u/xiaomai",
+                unread = true, hasDraft = true,
+            )
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0x00000000), "等待你的确认", "/u/xiaomai",
+                runtime = probeRuntime("draft-run", com.hermes.client.data.progress.SessionRunPhase.WAITING_APPROVAL),
+                hasDraft = true,
+            )
+            ProbeRow(androidx.compose.ui.graphics.Color(0x00000000), "默认项目里的会话", null, hasDraft = true)
+            // The control: the same row without a draft.
+            ProbeRow(androidx.compose.ui.graphics.Color(0x00000000), "没有草稿", "/u/xiaomai")
+        }
+        }
+    }
+
+    @Test fun sessionRowsDraft() = snap("session-rows-draft") { DraftRows() }
+
+    /**
+     * The 未发送 status line (HG-49). A message that was submitted and REFUSED, which is a different
+     * thing from the 草稿 above: a draft was never sent, this one was and upstream said no.
+     *
+     * It rides the third line in the same red as 运行失败, and takes **no** trailing dot — the same
+     * ruling 已中断 / 运行失败 got, because a mark there sits 1dp from the unread dot (DESIGN.md
+     * §5.2). The rows below are everything it has to coexist with, and the last two are the
+     * precedence pair: a run in flight outranks it, a settled verdict does not.
+     */
+    @androidx.compose.runtime.Composable
+    private fun UnsentRows() {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides
+                com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+            // The reported case: the conversation is idle and the row said nothing at all before.
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0x00000000), "汇总昨天 XDream 事业群工作室数据",
+                "/u/xiaomai", hasUnsent = true,
+            )
+            // Unsent AND unread: the line on the left, the dot on the right, never the same mark.
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0x00000000), "解决 Claude Code 完成未通知",
+                "/u/hermes-remote", unread = true, hasUnsent = true,
+            )
+            // Unsent AND a draft: both are true at once — one word in the subline, one line below.
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0x00000000), "又写了半句", "/u/xiaomai",
+                hasDraft = true, hasUnsent = true,
+            )
+            // A settled verdict yields to it.
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0x00000000), "上一轮跑失败了", "/u/xiaomai",
+                runtime = probeRuntime("unsent-failed", com.hermes.client.data.progress.SessionRunPhase.FAILED),
+                hasUnsent = true,
+            )
+            // A run in flight does not: 正在输出… is the more useful sentence right now.
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0x00000000), "正在跑的会话", "/u/hermes-remote",
+                runtime = probeRuntime("unsent-run", com.hermes.client.data.progress.SessionRunPhase.STREAMING),
+                hasUnsent = true,
+            )
+            // The control: the same row with nothing unsent.
+            ProbeRow(androidx.compose.ui.graphics.Color(0x00000000), "一切正常", "/u/xiaomai")
+        }
+        }
+    }
+
+    @Test fun sessionRowsUnsent() = snap("session-rows-unsent") { UnsentRows() }
+
+    @Test fun sessionRowsUnsentDark() = snap("session-rows-unsent-dark", darkTheme = true) { UnsentRows() }
+
+    /**
+     * The session picker's rows (HG-38). The four states that can appear at once: selected,
+     * selectable, an archived hit from search, and a row disabled because the six-attachment
+     * budget is already spoken for — the last one is the whole point of deciding the cap up front
+     * rather than reporting it afterwards.
+     */
+    @androidx.compose.runtime.Composable
+    private fun PickerRows() {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides
+                com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+            androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+                com.hermes.client.ui.sessions.SessionPickerRow(
+                    session = listSession("重构 gateway 路由中间件", "/u/hermes-remote"),
+                    checked = true, enabled = true, archived = false, onToggle = {},
+                )
+                com.hermes.client.ui.sessions.SessionPickerRow(
+                    session = listSession("翻译 Android 文案", "/u/xiaomai"),
+                    checked = false, enabled = true, archived = false, onToggle = {},
+                )
+                com.hermes.client.ui.sessions.SessionPickerRow(
+                    session = listSession("去年的排查记录", "/u/hk"),
+                    checked = false, enabled = true, archived = true, onToggle = {},
+                )
+                com.hermes.client.ui.sessions.SessionPickerRow(
+                    session = listSession("名额用完了选不动", "/u/xiaomai"),
+                    checked = false, enabled = false, archived = false, onToggle = {},
+                )
+            }
+        }
+    }
+
+    @Test fun sessionPickerRows() = snap("session-picker-rows") { PickerRows() }
+
+    /**
+     * The delivery picker's rows (HG-40): no checkboxes, because one tap is the whole decision,
+     * and no archived hits, because delivering into an archived conversation would revive it
+     * somewhere the list does not show.
+     */
+    @androidx.compose.runtime.Composable
+    private fun DeliverRows() {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides
+                com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+            androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+                com.hermes.client.ui.sessions.SessionPickerRow(
+                    session = listSession("重构 gateway 路由中间件", "/u/hermes-remote"),
+                    checked = false, enabled = true, archived = false, onToggle = {}, showCheckbox = false,
+                )
+                com.hermes.client.ui.sessions.SessionPickerRow(
+                    session = listSession("翻译 Android 文案", "/u/xiaomai"),
+                    checked = false, enabled = true, archived = false, onToggle = {}, showCheckbox = false,
+                )
+            }
+        }
+    }
+
+    @Test fun sessionDeliverRows() = snap("session-deliver-rows") { DeliverRows() }
+
+    @Test fun sessionPickerRowsDark() = snap("session-picker-rows-dark", darkTheme = true) { PickerRows() }
+
+    @Test fun sessionRowsDraftDark() = snap("session-rows-draft-dark", darkTheme = true) { DraftRows() }
 
     @Test fun rowHeightProbe() = snap("row-height-probe") {
         androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
             ProbeRow(androidx.compose.ui.graphics.Color(0xFFFFE0E0), "确认是否正常", null)
             ProbeRow(androidx.compose.ui.graphics.Color(0xFFE0FFE0), "起风工作室数据", "/u/xiaomai")
+            // A title far past the width. It wraps no longer — `truncate` in the mock — so this row
+            // must measure the same as the two above it.
             ProbeRow(
                 androidx.compose.ui.graphics.Color(0xFFE0E0FF),
                 "哎，现在 DeepSeek 说它发了一个最新的 Flash 4.1，我在这个 Hermes 里",
                 "/u/xiaomai",
             )
-            ProbeRow(androidx.compose.ui.graphics.Color(0xFFFFF0D0), "查看机器性能负荷", null, status = "已完成")
-            // The question this probe was written to settle: does an EMPTY status Text still cost
-            // a line? If it does, a row can be 88dp tall while showing only two lines of content.
-            ProbeRow(androidx.compose.ui.graphics.Color(0xFFD0F0FF), "空状态串", "/u/xiaomai", status = "")
-            ProbeRow(androidx.compose.ui.graphics.Color(0xFFF0D0FF), "无状态槽", "/u/xiaomai", status = null)
+            // ANDROID_SMOKE A-05: a Chinese project name used to wrap the subline and tip the row
+            // into `ListItem`'s 88dp three-line tier while the ASCII rows sat at 72dp. Every
+            // fixture here used ASCII, which is exactly why nothing caught it for a week.
+            ProbeRow(androidx.compose.ui.graphics.Color(0xFFD0F0FF), "中文项目名", "/u/赫尔墨斯远程")
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0xFFFFF0D0), "查看机器性能负荷", null,
+                runtime = probeRuntime("probe-done", com.hermes.client.data.progress.SessionRunPhase.COMPLETED_UNREAD),
+            )
+            ProbeRow(androidx.compose.ui.graphics.Color(0xFFF0D0FF), "无状态槽", "/u/xiaomai")
+        }
+    }
+
+    /**
+     * The running row, which nothing used to cover.
+     *
+     * The spinner rides in the row's fixed 28dp trailing column and must sit on the row's vertical
+     * centre. Under `ListItem` it did not: a row with a status line is three lines, three-line
+     * items are TOP-aligned, and the spinner sat high with a hole beneath it. The product owner
+     * found that on a device on 2026-09-12 because no screenshot here had ever rendered a running
+     * row at all.
+     */
+    @Test fun sessionRowRunningStates() = snap("session-rows-running") {
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0xFFE0FFE0), "查看机器性能负荷", "/u/xiaomai",
+                runtime = probeRuntime("run-1", com.hermes.client.data.progress.SessionRunPhase.USING_TOOL),
+            )
+            // Pinned AND running: the two-tone pin on the left, the spinner on the right, both
+            // centred on the same line.
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0xFFE0E0FF), "重构网关心跳", "/u/hermes-remote",
+                runtime = probeRuntime("run-2", com.hermes.client.data.progress.SessionRunPhase.STREAMING),
+                pinned = true,
+            )
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0xFFFFE0E0), "等待你的确认", "/u/xiaomai",
+                runtime = probeRuntime("run-3", com.hermes.client.data.progress.SessionRunPhase.WAITING_APPROVAL),
+            )
+        }
+    }
+
+    // All six session-list group headers in one picture. The amber one is only ever on screen when
+    // a session is actually waiting on you — which the local mock can hold for about six seconds,
+    // so it has never been caught on a device (docs/ANDROID_SMOKE.md A-01). This is the one place
+    // its colour can be looked at.
+    //
+    // The last three are the reason this picture matters after HG-52 (2026-09-14): 昨天, 前 7 天 and
+    // 更早 have to be three pillars a reader can tell apart, and 前 7 天 / 更早 are the same two
+    // slates swapped per theme — so the light and dark snapshots have to be compared to each other,
+    // not just to themselves.
+    @androidx.compose.runtime.Composable
+    private fun SectionHeaders() {
+        androidx.compose.foundation.layout.Column {
+            com.hermes.client.ui.components.SectionHeader(
+                "需要你处理", 2, com.hermes.client.ui.components.SectionTone.NEEDS_YOU, onToggle = {},
+            )
+            com.hermes.client.ui.components.SectionHeader(
+                "已置顶", 1, com.hermes.client.ui.components.SectionTone.PINNED, note = "仅此设备", onToggle = {},
+            )
+            com.hermes.client.ui.components.SectionHeader(
+                "今天", 4, com.hermes.client.ui.components.SectionTone.TODAY, onToggle = {},
+            )
+            com.hermes.client.ui.components.SectionHeader(
+                "昨天", 3, com.hermes.client.ui.components.SectionTone.YESTERDAY, onToggle = {},
+            )
+            com.hermes.client.ui.components.SectionHeader(
+                "前 7 天", 19, com.hermes.client.ui.components.SectionTone.RECENT, collapsed = true, onToggle = {},
+            )
+            com.hermes.client.ui.components.SectionHeader(
+                "更早", 55, com.hermes.client.ui.components.SectionTone.OLDER, collapsed = true, onToggle = {},
+            )
+        }
+    }
+
+    @Test fun sectionHeaderTones() = snap("section-header-tones") { SectionHeaders() }
+
+    @Test fun sectionHeaderTonesDark() = snap("section-header-tones-dark", darkTheme = true) { SectionHeaders() }
+
+    // ── Bots segment (docs/DESIGN.md §5.16, HG-54) ───────────────────────────────────────────
+    // The list had no golden at all while it was a bare `ListItem`, which is part of how it drifted
+    // a whole design system away from the Chats list. What this picture has to hold: the channel
+    // header is the tinted capsule with a count, not a bare label; the row is the SAME hand-drawn
+    // row as Chats (28dp trailing column reserved, one-line title); the subline says the model and
+    // says 模型未知 rather than going blank; and the status line reads `<when> · <how many>`.
+
+    /** Fixed instant so 「12 分钟前」/「昨天」 are stable across runs. */
+    private val botNow = 1_700_000_000_000L
+
+    private fun botSession(
+        id: String,
+        title: String,
+        model: String?,
+        minutesAgo: Long,
+        messages: Int,
+    ) = com.hermes.client.domain.Session(
+        id = id, title = title, model = model, provider = null, messageCount = messages,
+        profile = "personal", source = "dingtalk", lastActive = botNow - minutesAgo * 60_000L,
+    )
+
+    @androidx.compose.runtime.Composable
+    private fun BotsList() {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+            androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+                com.hermes.client.ui.components.SectionHeader(
+                    "钉钉", 2, com.hermes.client.ui.components.SectionTone.CHANNEL, onToggle = {},
+                )
+                for (s in listOf(
+                    botSession("b1", "产品发布排期讨论", "gpt-5.6-terra", minutesAgo = 12, messages = 26),
+                    // The third model state: upstream did not tell us what answered on DingTalk.
+                    botSession("b2", "周报汇总怎么写才不像周报", null, minutesAgo = 26 * 60, messages = 8),
+                )) {
+                    com.hermes.client.ui.sessions.SessionRow(
+                        session = s,
+                        isPinned = false,
+                        defaultProjectPath = null,
+                        onMoveToProject = {},
+                        isBot = true,
+                        nowMs = botNow,
+                        onOpen = {},
+                        onTogglePin = {},
+                        onRename = {},
+                        onArchive = {},
+                        onDelete = {},
+                    )
+                }
+                com.hermes.client.ui.components.SectionHeader(
+                    "飞书", 1, com.hermes.client.ui.components.SectionTone.CHANNEL, onToggle = {},
+                )
+                com.hermes.client.ui.sessions.SessionRow(
+                    session = botSession("b3", "帮我查下这个季度的报销规则", "claude-sonnet-5", minutesAgo = 0, messages = 1),
+                    isPinned = false,
+                    defaultProjectPath = null,
+                    onMoveToProject = {},
+                    isBot = true,
+                    nowMs = botNow,
+                    onOpen = {},
+                    onTogglePin = {},
+                    onRename = {},
+                    onArchive = {},
+                    onDelete = {},
+                )
+            }
+        }
+    }
+
+    @Test fun botsList() = snap("sessions.bots.default") { BotsList() }
+
+    @Test fun botsListDark() = snap("sessions.bots.default-dark", darkTheme = true) { BotsList() }
+
+    // 1.3 is where the CJK subline used to wrap and tip the old `ListItem` into its 88dp tier
+    // (ANDROID_SMOKE A-05). The hand-drawn row has no floor, so the rows should simply grow.
+    @Test fun botsListLargeFont() = snap("sessions.bots.default-fs13", fontScale = 1.3f) { BotsList() }
+
+    // The two title tiers side by side, same string, so the ONLY difference in the picture is the
+    // weight (docs/DESIGN.md §5.2: unread 600, read 500). Worth a golden of its own because the
+    // difference is easy to doubt on a screen — CJK at Medium already reads fairly heavy — and
+    // because nothing else pins that the read tier is the one a list of read rows gets.
+    // ── Card page (docs/DESIGN.md §5.1; Stitch 基线-卡片页 / 暗夜, keys card.default.*) ──────
+    // The drawer's content at the sheet's width, in the state the mock shows plus the ones it does
+    // not: a job count with an alert dot, all three update states, a long device name, offline.
+    private fun cardPage(
+        name: String,
+        darkTheme: Boolean = false,
+        fontScale: Float? = null,
+        deviceId: String? = "mac-mini",
+        latencyMs: Long = 29L,
+        updateState: com.hermes.client.update.UpdateBadgeState = com.hermes.client.update.UpdateBadgeState.UpToDate,
+    ) = snap(name, darkTheme = darkTheme, fontScale = fontScale) {
+        // Chinese, like the mock, so the reference render and the golden carry the same strings.
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+        androidx.compose.foundation.layout.Box(
+            androidx.compose.ui.Modifier
+                .widthIn(max = 340.dp)
+                .height(844.dp)
+                .background(com.hermes.client.ui.theme.cardDrawerColor()),
+        ) {
+            com.hermes.client.ui.nav.CardPageContent(
+                activeProfile = "default",
+                state = com.hermes.client.ui.nav.CardPageUiState(
+                    cronAlerts = 1,
+                    cronJobCount = 7,
+                    deviceId = deviceId,
+                    defaultModel = "claude-opus-5",
+                ),
+                health = com.hermes.client.data.network.GatewayHealth.Healthy(version = null, running = true, latencyMs = latencyMs),
+                themeMode = com.hermes.client.data.repository.ThemeMode.SYSTEM,
+                updateState = updateState,
+                buildBadge = "DEV",
+                onNavigate = {},
+                onTheme = {},
+                onFeedback = {},
+            )
+        }
+        }
+    }
+
+    @Test fun cardPageLight() = cardPage("card.default.light")
+
+    @Test fun cardPageDark() = cardPage("card.default.dark", darkTheme = true)
+
+    /** Large font + a long Mac name + an update waiting: the design-scale lock and the amber dot. */
+    @Test fun cardPageLightLargeFont() = cardPage(
+        "card.default.light-fs13",
+        fontScale = 1.3f,
+        deviceId = "guoshengliang-macbook-pro",
+        latencyMs = 231L,
+        updateState = com.hermes.client.update.UpdateBadgeState.Available("0.1.117"),
+    )
+
+    /** Connector offline, and an update check that has never succeeded: no dot on either row. */
+    @Test fun cardPageLightOffline() = cardPage(
+        "card.default.light-offline",
+        deviceId = null,
+        updateState = com.hermes.client.update.UpdateBadgeState.Unknown,
+    )
+
+    // ── Card page · theme sheet (§5.1 主题弹层; keys card.default.theme-sheet.*) ──────────────
+    // The sheet's body, not the ModalBottomSheet around it: a sheet renders in its own window and
+    // onRoot() cannot reach it. The grab bar above this is the shared SheetCloseHandle, unchanged.
+    private fun themeSheet(
+        name: String,
+        darkTheme: Boolean = false,
+        fontScale: Float? = null,
+        language: com.hermes.client.ui.localization.AppLanguage =
+            com.hermes.client.ui.localization.AppLanguage.ZH,
+        inUse: com.hermes.client.data.repository.ThemeMode = com.hermes.client.data.repository.ThemeMode.SYSTEM,
+        pending: com.hermes.client.data.repository.ThemeMode = inUse,
+    ) = snap(name, darkTheme = darkTheme, fontScale = fontScale) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides language,
+        ) {
+            androidx.compose.foundation.layout.Box(
+                androidx.compose.ui.Modifier
+                    .widthIn(max = 390.dp)
+                    .background(com.hermes.client.ui.theme.cardThemeSheetColor()),
+            ) {
+                com.hermes.client.ui.settings.ThemeSheetContent(
+                    inUse = inUse,
+                    pending = pending,
+                    onPendingChange = {},
+                    onSave = {},
+                    onClose = {},
+                )
+            }
+        }
+    }
+
+    @Test fun themeSheetLight() = themeSheet("card.default.theme-sheet.light")
+
+    @Test fun themeSheetDark() = themeSheet("card.default.theme-sheet.dark", darkTheme = true)
+
+    /**
+     * The state the whole redesign turns on: the radio has been moved to 黑曜石深色 but nothing has
+     * been written yet, so 「当前使用」 stays on 跟随系统. Selection and effect are two different
+     * things here, and this is the only picture that can prove it.
+     */
+    @Test fun themeSheetPending() = themeSheet(
+        "card.default.theme-sheet.pending",
+        pending = com.hermes.client.data.repository.ThemeMode.DARK,
+    )
+
+    /** English at fontScale 1.3: the longest names and the descriptions wrapping under them. */
+    @Test fun themeSheetEnglishLargeFont() = themeSheet(
+        "card.default.theme-sheet.en-fs13",
+        fontScale = 1.3f,
+        language = com.hermes.client.ui.localization.AppLanguage.EN,
+        pending = com.hermes.client.data.repository.ThemeMode.DARK,
+    )
+
+    // ── Settings → 外观 (the other home of the same option list) ──────────────────────────────
+    private fun appearanceOptions(name: String, darkTheme: Boolean = false) =
+        snap(name, darkTheme = darkTheme) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.hermes.client.ui.localization.LocalAppLanguage provides
+                    com.hermes.client.ui.localization.AppLanguage.ZH,
+            ) {
+                androidx.compose.foundation.layout.Box(
+                    androidx.compose.ui.Modifier.widthIn(max = 390.dp).padding(16.dp),
+                ) {
+                    com.hermes.client.ui.settings.ThemeOptionList(
+                        selected = com.hermes.client.data.repository.ThemeMode.LIGHT,
+                        onSelect = {},
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 8.dp),
+                    )
+                }
+            }
+        }
+
+    /** No 「当前使用」 badge here: on a page the tap IS the effect, so the badge would only echo the radio. */
+    @Test fun appearanceColorModeLight() = appearanceOptions("settings.appearance.color-mode")
+
+    @Test fun appearanceColorModeDark() =
+        appearanceOptions("settings.appearance.color-mode-dark", darkTheme = true)
+
+    @Test fun sessionRowTitleTiers() = snap("session-row-title-tiers") {
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+            for ((label, style) in listOf(
+                "未读 600" to com.hermes.client.ui.theme.SessionRowTitle,
+                "已读 500" to com.hermes.client.ui.theme.SessionRowTitleRead,
+            )) {
+                androidx.compose.material3.Text(
+                    label,
+                    style = com.hermes.client.ui.theme.SessionGroupHeader,
+                    modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                androidx.compose.material3.ListItem(
+                    headlineContent = {
+                        androidx.compose.material3.Text("重构 gateway 路由中间件 Refactor", style = style)
+                    },
+                    supportingContent = {
+                        SessionSubline(listSession("t-$label", "/u/hermes-remote"), defaultProjectPath = "/Users/me")
+                    },
+                )
+            }
         }
     }
 
@@ -610,20 +1182,117 @@ class ScreenshotTest {
 
     // Turn-jump landing feedback vs search highlight (DESIGN.md §5.4): the landed bubble gets an
     // outline only (shown at full alpha, i.e. the first frame); the search hit keeps fill + outline.
+    // ── 会话行长按操作单 (docs/DESIGN.md §5.5, Stitch 基线-会话列表页/长按下拉菜单) ─────────────
+    //
+    // The body below the grab bar, for the reason themeSheet() does the same: a ModalBottomSheet
+    // renders in its own window and onRoot() cannot reach it. Everything the mock draws from the
+    // title row down is here; the hairline top edge and the 36×4dp bar live in the sheet's
+    // dragHandle slot and are pinned by the overlay check against the rendered mock instead.
+    //
+    // Named after the lock file's keys so the golden, the snapshot and the overlay all say the
+    // same thing.
+    private fun rowMenu(
+        name: String,
+        darkTheme: Boolean = false,
+        fontScale: Float? = null,
+        language: com.hermes.client.ui.localization.AppLanguage =
+            com.hermes.client.ui.localization.AppLanguage.ZH,
+        // The running case: the gateway refuses to move a running session, so the row is greyed.
+        // Drawn in the default golden rather than in one of its own — a disabled row costs nothing
+        // to include and an extra picture would have to be kept in step with this one.
+        moveEnabled: Boolean = true,
+        content: (@androidx.compose.runtime.Composable () -> Unit)? = null,
+    ) = snap(name, darkTheme = darkTheme, fontScale = fontScale) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides language,
+        ) {
+            androidx.compose.foundation.layout.Box(
+                androidx.compose.ui.Modifier
+                    .widthIn(max = 390.dp)
+                    .background(com.hermes.client.ui.theme.rowMenuSheetColor()),
+            ) {
+                com.hermes.client.ui.components.RowActionSheetContent(
+                    typeLabel = if (language == com.hermes.client.ui.localization.AppLanguage.ZH) "会话" else "Chat",
+                    title = "生成三个审核测试选项",
+                    onClose = {},
+                ) {
+                    if (content != null) {
+                        content()
+                    } else {
+                        com.hermes.client.ui.sessions.SessionActionItems(
+                            isPinned = false,
+                            currentProjectLabel = if (language == com.hermes.client.ui.localization.AppLanguage.ZH) "默认项目" else "Default project",
+                            moveEnabled = moveEnabled,
+                            onTogglePin = {}, onRename = {}, onMoveToProject = {},
+                            onArchive = {}, onDelete = {},
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun rowMenuLight() = rowMenu("sessions.chats.default.row-menu.light")
+
+    @Test fun rowMenuDark() = rowMenu("sessions.chats.default.row-menu.dark", darkTheme = true)
+
+    /**
+     * The row that has to survive: English is longer than Chinese in every label here, fontScale
+     * 1.3 grows the label and the trailing hint together, and the trailing hint is right-aligned
+     * against a label that is left-aligned. If anything in this sheet collides, it collides here.
+     */
+    @Test fun rowMenuEnLargeFont() = rowMenu(
+        "sessions.chats.default.row-menu.en-fs13",
+        fontScale = 1.3f,
+        language = com.hermes.client.ui.localization.AppLanguage.EN,
+    )
+
+    /** A session that is running: 「移动到项目」 is the one row the gateway will refuse (4009). */
+    @Test fun rowMenuMoveDisabled() = rowMenu(
+        "sessions.chats.default.row-menu.move-disabled",
+        moveEnabled = false,
+    )
+
+    /**
+     * The archived list's two-action version of the same sheet — the reason it is a shared
+     * component. The type chip is what tells them apart, which is the whole argument for making it
+     * carry the source instead of the mock's constant 「会话」.
+     */
+    @Test fun rowMenuArchived() = snap("sessions.chats.default.row-menu.archived") {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides
+                com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+            androidx.compose.foundation.layout.Box(
+                androidx.compose.ui.Modifier
+                    .widthIn(max = 390.dp)
+                    .background(com.hermes.client.ui.theme.rowMenuSheetColor()),
+            ) {
+                com.hermes.client.ui.components.RowActionSheetContent(
+                    typeLabel = "已归档",
+                    title = "自动化巡检报告导出",
+                    onClose = {},
+                ) {
+                    com.hermes.client.ui.sessions.ArchivedActionItems(onUnarchive = {}, onDelete = {})
+                }
+            }
+        }
+    }
+
     private fun snapLanding(name: String, darkTheme: Boolean) = snap(name, darkTheme = darkTheme) {
         androidx.compose.foundation.layout.Column(
             modifier = androidx.compose.ui.Modifier.padding(horizontal = 22.dp, vertical = 16.dp),
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(18.dp),
         ) {
-            listOf(
-                Triple("plain", 0f, false),
-                Triple("landing", 1f, false),
-                Triple("search", 0f, true),
-            ).forEach { (id, landing, search) ->
+            // The third variant used to be "search", contrasting the landing outline against the
+            // search fill+outline. HG-46 removed the search decoration entirely, so that variant
+            // would now be a second copy of "plain" — what is left to pin is that the landing
+            // outline, which is a different feature, still draws.
+            listOf("plain" to 0f, "landing" to 1f).forEach { (id, landing) ->
                 com.hermes.client.ui.chat.UserBubble(
                     msg = userTurn(id, "可以进一步加大虚拟内存什么的吗", com.hermes.client.domain.DeliveryState.SENT),
-                    onEditResend = {}, onImageSave = {}, onImageSaveAs = {}, onImageShare = {}, savingImageId = null,
-                    onFileOpen = {}, onFileShare = {}, highlighted = search, landingAlpha = landing,
+                    onEditResend = {}, onOpenImage = { _, _ -> },
+                    onFileOpen = {}, onFileShare = {}, landingAlpha = landing,
                 )
             }
         }
@@ -634,6 +1303,20 @@ class ScreenshotTest {
 
     @Test fun userBubbleDeliveryStates() = snapDelivery("user-bubble-delivery", darkTheme = false)
     @Test fun userBubbleDeliveryStatesDark() = snapDelivery("user-bubble-delivery-dark", darkTheme = true)
+
+    /**
+     * The worst case for the status line: Chinese copy (longer than the English), fontScale 1.3,
+     * and the narrowest phone we support. The two failure sentences plus their compact code share
+     * one un-wrapping Row, so this is where a new sentence would push the code off the edge.
+     */
+    @Test
+    @Config(sdk = [34], qualifiers = "w360dp-h740dp-420dpi")
+    fun userBubbleDeliveryStatesZhNarrowLargeFont() = snapDelivery(
+        "user-bubble-delivery-zh-360-fs13",
+        darkTheme = false,
+        fontScale = 1.3f,
+        language = com.hermes.client.ui.localization.AppLanguage.ZH,
+    )
 
     @Test fun smoke() {
         compose.setContent {
@@ -659,10 +1342,15 @@ class ScreenshotTest {
         )
     }
 
-    // The capsule's stated ceiling is three options (docs/DESIGN.md §5.2). This pins the worst
-    // case that ceiling has to survive: the Appearance screen's colour-mode switch, whose Chinese
-    // labels are the longest in the app, at fontScale 1.3. If it ever clips here, the rule is
-    // wrong and the cron editor is not the only screen that has to stay on Material's row.
+    // The capsule's stated ceiling is three options (docs/DESIGN.md §5.2), and this pins the worst
+    // case that ceiling has to survive at fontScale 1.3.
+    //
+    // SYNTHETIC since 主题弹层 landed: these used to be the Appearance screen's colour-mode switch,
+    // the longest three-option capsule that actually shipped. That screen now draws the theme
+    // option list instead, and the longest capsule left in the app is the usage range (7/30/90 天),
+    // which proves nothing. Kept rather than deleted, with made-up labels, because the ceiling it
+    // guards is a rule about the component and not about any one screen — the next three-option
+    // capsule someone adds needs this to already be failing if the rule is wrong.
     @Test fun segmentsThreeZhLargeFont() = snap("segments-3-zh-fs13", fontScale = 1.3f) {
         val options = listOf("跟随系统", "浅色", "深色")
         com.hermes.client.ui.components.SegmentedCapsule(
@@ -694,6 +1382,43 @@ class ScreenshotTest {
             }
         }
 
+    /**
+     * The chat top bar, which had no golden at all until HG-37 gave it a visibility rule to hold.
+     * `new` is an empty new session: 返回 and the title block, nothing else — no ＋ pointing at the
+     * conversation you are already in, no ⋮ whose five items all act on a transcript that does not
+     * exist yet.
+     */
+    @androidx.compose.runtime.Composable
+    private fun ChatBar(title: String, actionsVisible: Boolean) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides
+                com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+            com.hermes.client.ui.chat.ChatTopBar(
+                title = title,
+                actionsVisible = actionsVisible,
+                creatingNewChat = false,
+                refreshingConversation = false,
+                promptsLabel = "我的提问",
+                onBack = {},
+                onNewChat = {},
+                onSearch = {},
+                onPrompts = {},
+                onRefresh = {},
+                onShare = {},
+                onArchive = {},
+            )
+        }
+    }
+
+    @Test fun chatTopBarNewSession() = snap("chat-topbar-new") { ChatBar("新会话", actionsVisible = false) }
+
+    @Test fun chatTopBarExistingSession() =
+        snap("chat-topbar-existing") { ChatBar("查看机器性能负荷", actionsVisible = true) }
+
+    @Test fun chatTopBarExistingSessionDark() =
+        snap("chat-topbar-existing-dark", darkTheme = true) { ChatBar("查看机器性能负荷", actionsVisible = true) }
+
     @Test fun chatsTopBarZh() =
         snap("chats-topbar-zh") { topBar(com.hermes.client.ui.localization.AppLanguage.ZH)() }
 
@@ -721,8 +1446,7 @@ class ScreenshotTest {
                         role = com.hermes.client.domain.Role.USER,
                         text = "帮我看下这个报错",
                     ),
-                    onEditResend = {}, onImageSave = {}, onImageSaveAs = {}, onImageShare = {},
-                    savingImageId = null, onFileOpen = {}, onFileShare = {},
+                    onEditResend = {}, onOpenImage = { _, _ -> }, onFileOpen = {}, onFileShare = {},
                 )
                 com.hermes.client.ui.chat.UserBubble(
                     msg = com.hermes.client.domain.ChatMessage(
@@ -730,8 +1454,7 @@ class ScreenshotTest {
                         role = com.hermes.client.domain.Role.USER,
                         text = "我从手机补一句",
                     ),
-                    onEditResend = {}, onImageSave = {}, onImageSaveAs = {}, onImageShare = {},
-                    savingImageId = null, onFileOpen = {}, onFileShare = {},
+                    onEditResend = {}, onOpenImage = { _, _ -> }, onFileOpen = {}, onFileShare = {},
                 )
             }
         }

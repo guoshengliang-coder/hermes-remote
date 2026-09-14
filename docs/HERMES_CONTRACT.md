@@ -61,6 +61,8 @@ renames disappears silently — deserialization yields null, never an error.
 /api/profiles          /api/profiles/active
 /api/files             /api/files/upload
 /api/cron/jobs         /api/cron/jobs/{id}    /api/cron/jobs/{id}/runs
+/api/cron/jobs/{id}/pause    /api/cron/jobs/{id}/resume    /api/cron/jobs/{id}/trigger
+/api/cron/delivery-targets
 /api/mobile/events     /api/mobile/events/ack /api/mobile/events/read
 /api/model/options     /api/model/set         /api/tools/toolsets
 /api/skills            /api/skills/toggle     /api/analytics/usage
@@ -69,6 +71,14 @@ renames disappears silently — deserialization yields null, never an error.
 
 Authentication is the `X-Hermes-Session-Token` header. The Mac's Hermes credential never leaves the
 Mac; the phone holds only its own app token (see `docs/ARCHITECTURE.md`).
+
+**The three cron action paths and `/api/cron/delivery-targets` were added to this list on
+2026-09-14 (HG-51). They were not new** — the app has been calling
+`POST /api/cron/jobs/{id}/{pause|resume|trigger}` all along, and §7 already discussed
+`delivery-targets` in prose. They were simply never written into the inventory, which is the exact
+failure mode this document exists to prevent: an upstream rename of `trigger` would have surfaced
+as 「操作失败」 and nothing else. Nothing here is pinned by `HermesContractTest` (it covers names in
+text grammars, not routes), so this list is the only record.
 
 ### 3. WebSocket RPC methods
 
@@ -91,7 +101,66 @@ process.list     projects.tree    projects.project_sessions
 
 Server events consumed: `message.start` / `message.delta` / `message.complete`,
 `tool.start` / `tool.complete`, `session.info` / `session.lifecycle`,
-`approval.request`, `clarify.request`.
+`approval.request`, `clarify.request`, `session.reclaimed`.
+
+**`session.reclaimed` is the only warning that a conversation died while nobody was looking.**
+Upstream broadcasts it (`tui_gateway/session_lifecycle.py`, `_announce_session_reclaimed`) whenever
+its own housekeeping ends a session the client never asked to close —
+`_RECLAIM_END_REASONS = {idle_timeout, lru_evict, ws_orphan_reap}`. The reason it exists is stated
+in its own source comment: "else its next prompt fails". `ws_orphan_reap` fires 120 s after the
+socket carrying a session drops, and `docs/DIAGNOSTICS.md` records it as the *dominant* way mobile
+sessions end — so this is routine, not an edge case. It is a **global** broadcast carrying the
+durable session id, not the short live handle; match it against the stored id.
+
+Ignoring it costs more than a wasted round trip. Afterwards `prompt.submit` answers **4001** and the
+`session.resume` the client retries with answers **4007**, and those two look identical on the wire
+("session not found") while meaning different things: 4001 is a stale live handle that resuming
+fixes, 4007 is the durable lookup missing from the profile's `state.db` — terminal. HG-29 was
+exactly this, surfaced to the user as a tap-to-retry that could never succeed.
+
+**Upstream enforces one live owner per session, and says so with 4090.** While another surface is
+running a conversation, `prompt.submit` is refused — its stated reason being that a second surface
+would reason from a transcript missing the first one's work. Unlike 4001/4007 this is neither stale
+nor terminal: the same send succeeds once the other side lets go, which is why the phone keeps its
+retry and only names the cause (`HR-SESS-013`, HG-30). Note it is *not* 4009 "busy" — that is the
+session running a turn of its own.
+
+These are the `prompt.submit` numbers we depend on — **4001**, **4007**, **4090** — and the
+dependency is on the numbers only. The message upstream attaches to 4090 names the owning surface
+and its pid; we deliberately do not parse it. There is no version negotiation here (see the end of
+this document), so that prose can change under us at any time, and a user-facing sentence must not
+be hostage to it. If a future Hermes renumbers these, the symptom is a send failure falling back to
+the generic `HR-SESS-007` — check `ChatViewModel`'s constants first.
+
+**Hermes 0.21.0 has no wire-level missing-capability event.** Optional dependency failures are not a
+JSON-RPC error code that Desktop can safely intercept. `tools.lazy_deps.FeatureUnavailable` formats
+English prose, `agent/tool_executor.py` wraps thrown tool failures as `Error executing tool ...`, and
+some capability paths deliberately catch installation/import errors and fall back or return no
+optional result (for example document extraction). Consequently Hermes GO must not map error strings
+to browser, speech, or document downloads, and it cannot safely retry a turn from such text. The
+Desktop coordinator accepts a closed capability kind in preparation for a future versioned upstream
+event; adopting that event requires updating this inventory and the upgrade checklist before wiring
+the production request path.
+
+**Upstream strips its own repo root out of every child process's `PYTHONPATH`.**
+`tools/environments/local.py` builds the environment for anything Hermes spawns, and
+`_strip_hermes_owned_pythonpath` (`tools/environments/local_pythonpath.py`) removes the entries it
+recognises as Hermes-owned — the repo root and the runtime's site-packages — so a child Python of a
+different version cannot load the backend's C extensions. This is deliberate upstream behaviour, it
+applies to children started with `sys.executable` too (the slash worker: `tui_gateway/server.py`,
+`[sys.executable, "-m", "tui_gateway.slash_worker", …]`), and we cannot turn it off.
+
+The consequence for us is a hard constraint on packaging: **anything the managed bundle needs a
+child process to import must be importable without `PYTHONPATH`.** Hermes GO's bundle keeps the
+Hermes sources in `app/`, which IS the repo root, so `PYTHONPATH` was its only route — and the strip
+removed it. Every slash command died with `ModuleNotFoundError: No module named 'tui_gateway'`
+(HG-28, managed release 0.3.0). The bundle now also carries a `.pth` in the interpreter's own
+site-packages, a channel the strip does not reach; see `docs/DESKTOP_RELEASE_MANIFEST.md`.
+
+**A new session has no REST row until its first message persists.**
+`GET /api/sessions/<id>/messages` answers `404 {"detail":"Session not found"}` for a zero-message
+session and only turns into `200` once a turn lands. That 404 is not evidence the create failed and
+must not be reported as a history error; it is the normal opening seconds of every new conversation.
 
 **`session.create` and `session.resume` both accept a caller-supplied `source`.** Upstream's
 `_resolve_session_source` (`tui_gateway/server.py`) returns the explicit value unchanged and never
@@ -210,11 +279,12 @@ Surfaces this app started depending on after 0.1.102. None of them are version-n
 | cron `deliver` | `local` (server default) / `origin` / any connected channel id | An unknown value renders as its own target name |
 | cron `last_status = delivery_failed` + `last_delivery_error` | ran fine, never delivered; `last_error` is null here | A rename makes that failure silent again |
 | `GET /api/cron/delivery-targets` | `{id, name, home_target_set, home_env_var}`; upstream calls it the single source of truth for UIs | On failure the picker offers only 只存不发 |
-| `handoff.request` / `handoff.state` | refusals 4009 / 4025 / 4026 / 4027 | An unmodelled code degrades to `HR-RPC-001` |
+| ~~`handoff.request` / `handoff.state`~~ | refusals 4009 / 4025 / 4026 / 4027 | **No longer consumed** — HG-34 (2026-09-12) deleted 转到消息渠道, so this repo has no caller. Upstream may change it freely without affecting us |
 | session row `display_name` | the peer or group a platform session is with. **Measured on a live Hermes: filled for `group` rows, blank on every `dm` row** — it cannot carry a peer label alone | Absent means the transcript falls back to `chat_type` |
 | session row `chat_type` | `dm` or `group` on a platform session | Absent means the transcript names the channel and claims nothing about who |
 
-**A directional fact worth not re-deriving:** handoff moves a **local session out to a platform**,
+**A directional fact worth not re-deriving** (kept although we no longer call handoff, because it
+is the kind of thing that gets re-proposed): handoff moves a **local session out to a platform**,
 one way. `Platform` does contain `local`, but it is not a configured gateway platform (no home
 channel), so `platform=local` is refused with 4025. `handoff.request` also goes through
 `_with_session`, which requires a session live in the **dashboard** process — a channel session
@@ -263,6 +333,11 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
    `MEDIA_DELIVERY_EXTENSIONS`.
 3. Confirm the RPC method names in section 3 still exist, especially `prompt.submit`,
    `session.create`, `slash.exec`, `complete.path`.
+3b. Re-check how Hermes spawns its slash worker and how `tools/environments/local.py` builds that
+   child's environment. If the spawn switches away from `sys.executable`, or the `PYTHONPATH`
+   stripping changes shape, the managed bundle's import path assumption moves with it. Cheapest
+   proof, against an extracted release: with `PYTHONPATH` unset, `<root>/runtime/python/bin/
+   python3.11 -s -c "import tui_gateway.slash_worker"` must succeed.
 4. Confirm `PLATFORM_HINTS` (`agent/prompt_builder.py`) still describes the client surfaces the
    same way — it is what tells the model whether it can deliver attachments at all.
 5. Confirm the `platform_hints` config override still resolves: on the Mac, `_resolve_platform_hint`
@@ -275,6 +350,8 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
 7. Confirm the `messages` table still exposes `timestamp` (section 1b): `sqlite3 ~/.hermes/state.db
    ".schema messages"`. A rename silently empties every history timestamp again.
 8. Run the attachment and streaming smoke tests in `docs/SMOKE_TEST.md` against the upgraded Hermes.
+8b. Confirm whether Hermes exposes a versioned missing-capability event with a closed capability kind.
+    Never substitute parsing `FeatureUnavailable` or tool-error prose for that event.
 9. **Read the source, not the notes.** See below.
 
 ## Known hazards

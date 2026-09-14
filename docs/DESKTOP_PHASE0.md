@@ -194,10 +194,18 @@ signing into another account cannot claim or overwrite the first account's manag
 Committed installations that predate the private session-token file contract are also reconciled by
 that always-available recovery runtime. An exact `account_active` journal, both loaded managed labels,
 the signed-in journal binding ID/generation, owner-only exact managed plist paths, and one shared valid
-token are required before mutation. Desktop preserves the token value, atomically moves it out of both
+token are required before mutation. The active managed release must also be 0.3.1 or newer: 0.3.1 is
+the first immutable package whose Hermes wrapper and Connector both consume the file contract, while
+0.3.0's Connector accepts only the inline environment value. Older releases return without acquiring
+the migration lease, refreshing the account, rewriting a file, or restarting a service. Desktop
+preserves the token value, atomically moves it out of both
 LaunchAgent environments into the `0600` managed secret file, restarts Hermes before Connector, and
-records an owner-only completion marker only after local readiness and bound account health pass. A
-missing marker makes a same-token half migration resumable after power loss. Failure restores the
+records an owner-only completion marker only after local readiness and bound account health pass.
+For an already-bound Connector, Desktop checkpoints the server-provided `endToEnd.checkedAt`
+immediately before startup and requires the exact binding/generation to report a strictly newer
+healthy timestamp. The rollback restart uses the same freshness proof; a cached healthy snapshot is
+never enough. A missing marker makes a same-token half migration resumable after power loss. Failure
+restores the
 original plist/token bytes and proves the restored services healthy; a mismatch fails closed.
 
 Overview health now reduces the effective background mode rather than treating the stopped legacy
@@ -223,6 +231,230 @@ Hermes Server using an allowlisted upstream source tree plus bundled Python runt
 a Connector using production-only compiled JavaScript plus bundled Node and its runtime dependencies.
 Neither launcher relies on launchd `PATH`, and neither component archive carries `HERMES_HOME`, `.env`,
 account sessions, Connector credentials, or Git metadata.
+
+The componentized path in `DESKTOP_COMPONENTIZED_INSTALL_PLAN.md` remains local and default-inert. Its
+C1/C2 core distinguishes exact-content reuse from an explicitly signed compatibility contract,
+refuses version-only reuse of mutable Python environments, separates bootstrap bytes from optional
+on-demand bytes, and verifies shared-store content before reuse. C3 adds a separate schema-v2
+publisher, public-key-only verifier, Desktop verifier, and resumable component downloader. Both
+offline tools safely extract every archive and recompute the same normalized content identity used by
+the Desktop store before accepting it. The downloader exposes a component only after full signed size
+and SHA-256 verification. None of these paths changes the shipping schema-v1 manifest, current
+installation transaction, or production capability.
+
+C4's first offline slice adds a separate four-archive builder for `python_runtime`, `hermes_core`,
+`node_runtime`, and `connector`. Runtime versions and architectures are checked before staging; each
+result reports compressed size/hash, normalized extracted-content identity, entrypoint, and dependency
+edges for schema v2. The application launchers accept only absolute activation-time component roots,
+so the shared store stays immutable. The Python runtime's managed `.pth` reads the active Hermes core
+root from the launch environment, preserving slash-worker imports after upstream removes the repo root
+from `PYTHONPATH`. Optional Python dependency extraction remains a later tested C4 slice.
+
+C4's second local slice resolves those four archives only from their rehashed managed-store content
+identities, enforces the exact Python-to-Hermes and Node/Hermes-to-Connector bootstrap topology,
+reruns a bounded health probe, and rejects missing, unsafe, or non-executable entries before producing
+a launch plan. The corresponding LaunchAgents carry only the exact Python and Node content roots;
+schema-v1 writers reject those schema-v2 runtime fields, and schema-v2 writers reject roots outside
+the active managed layout or content changed after planning. This remains an unwired local primitive
+and does not start either service.
+
+C4's third local slice composes the signed v2 manifest token, resumable downloader, safe tar
+extractor, immutable component-store writer, release references, and activation planner into one
+ordered preparation transaction. Only the strict Ed25519 verifier can create the installation token.
+A transport interruption preserves an owner-only UUID workspace bound to the exact normalized
+manifest identity; the same run may resume it, while a different manifest cannot claim it. Other
+failures clean that workspace, and no reference becomes visible until all four components and the
+activation plan pass. An explicit cancel can remove only the exact UUID workspace carrying a valid
+installer marker. The result still does not mutate credentials, `current`, launchd, or processes.
+
+C5's first read-only slice composes that verified manifest with managed-store identity/health checks
+and the fixed-path external environment scanner. It produces one trusted decision list with exact
+bootstrap and deferred byte totals. Mutable Python and Node installations remain observations only;
+an external browser is reusable only through the signed compatibility contract and Desktop-owned
+probe. An unhealthy managed component fails before external scanning so the future UI cannot promise
+an overwrite that the immutable store would reject. This result is not yet wired to the shipping UI.
+
+The next local UI slice maps that trusted result into a native component card with release identity,
+reuse count, bootstrap/deferred byte totals, and one status row per component. It distinguishes managed
+reuse, compatible system reuse, install-time download, and first-use download, and keeps the read-only
+Homebrew/service boundary visible. The bilingual presentation model and production SwiftUI build are
+covered locally; the card remains unwired until a real v2 capability and signing configuration exist.
+
+The managed store now records each installed optional component in an immutable,
+release-scoped capability reference only after that release's bootstrap reference exists. Garbage
+collection validates these references with the same owner, permissions, schema, content, and snapshot
+rules as bootstrap references; it retains shared optional content across releases and fails closed on
+orphaned or malformed capability references. This storage primitive remains default-inert and does
+not yet initiate a first-use download.
+
+The following default-inert transaction now resolves one signed `onDemandTrigger` and its optional
+dependency closure. It validates the installed base release through both the garbage-collection
+snapshot and activation health probes before scanning the host or creating a download workspace.
+Managed content is rehashed, a compatible system browser is path-checked again, and missing content
+uses the existing resumable downloader, safe extractor, atomic store commit, and capability
+references. Transport interruption preserves only a manifest-and-trigger-bound UUID workspace;
+other failures remove it. The result is still an unwired local primitive and does not mutate
+credentials, the active release, LaunchAgents, or processes.
+
+C4's sixth offline slice lets the schema-v2 archive builder consume prepared browser, speech, and
+document component roots alongside the four bootstrap inputs. It validates the optional kind,
+trigger, reuse rule, fixed Python dependency edges, bounded link-free content, and executable health
+entrypoint before producing any archive. The output now separates bootstrap and deferred bytes, and
+each optional archive carries the same normalized content identity used by the signed manifest and
+Desktop store. This makes the real dependency trees publishable without mixing them back into the
+bootstrap Python archive.
+
+C4's seventh default-inert slice projects installed speech and document `site-packages` roots into a
+content-addressed, read-only `.pth` directory after probing the exact managed interpreter's Python
+X.Y and extension ABI. The Hermes LaunchAgent model can inject that directory through upstream's
+`HERMES_LAZY_INSTALL_TARGET` and can inject a revalidated managed or system browser through
+`AGENT_BROWSER_EXECUTABLE_PATH`. The writer rejects symlinks, unsafe ownership or permissions,
+duplicate component kinds, external Python content, ABI-probe failure, and any mutation of an
+existing projection. It does not persist a LaunchAgent or restart a process; first-use activation,
+controlled restart, and one-shot capability retry remain the next local integration gate.
+
+C4's eighth default-inert slice performs that controlled activation under the existing migration
+operation lease. It accepts only an `account_active` journal for the exact base release with the
+managed Connector and Hermes services loaded, projects the caller's complete active optional set,
+atomically replaces the Hermes LaunchAgent, restarts only Hermes, and requires both a fresh readiness
+line and healthy loopback status. Any activation failure restores the exact previous plist and, when
+Hermes was stopped, proves the restored service healthy before returning the original failure. After
+successful activation the original capability closure is invoked exactly once; a retry failure does
+not roll back an otherwise healthy installed runtime. That slice still accepted a caller-assembled
+active set; the following resolver closes that boundary before shipping request wiring is added.
+
+C4's ninth default-inert slice now derives that complete set without trusting caller-assembled paths.
+It fail-closes on an invalid shared-store snapshot, reads only the exact base release's managed
+capability references, matches every identity to the signed manifest, and rehashes, probes, and checks
+the executable entrypoint again. This preserves an earlier managed optional component when a later
+trigger installs another one. A system browser has no managed reference, so it is retained from the
+current owner-only Hermes LaunchAgent only after the exact executable passes the signed compatibility
+contract and a fresh fixed-path scan. The activation transaction now owns this resolver and runs it
+only after acquiring the migration operation lease and confirming the managed service topology, so
+callers cannot submit an assembled path set. The production missing-capability signal remains
+unwired; the next local slice composes installation with the activation transaction behind a fixed
+capability type while leaving upstream signal adoption separate.
+
+C4's tenth default-inert slice now composes that transaction behind a closed browser/speech/document
+capability enum. It selects the exact trigger from the verifier-backed manifest, performs the
+first-use install, regenerates the complete bootstrap activation plan, enters the locked resolver and
+Hermes activation path, and runs the original operation once. Unsupported capabilities and install
+failures stop before service mutation, while concurrent requests cannot start a second install. The
+adapted Hermes 0.21.0 source has no structured missing-capability event; tool dependency failures are
+ordinary error text or silent feature fallback. Shipping request wiring therefore remains blocked on
+an explicit upstream wire contract and must never infer a capability by parsing prose.
+
+C5's third default-inert slice now supplies the trusted input path for the component preflight card.
+It fetches one bounded HTTPS manifest, requires the strict schema-v2 Ed25519 verifier to produce the
+non-forgeable manifest token, and only then starts the read-only managed-store and external-environment
+scan. Download or signature failure cannot reach the scanner, and one runtime rejects overlapping
+refreshes. No production manifest URL, trust configuration, feature flag, install button, workspace,
+credential, LaunchAgent, or service behavior is changed by this slice.
+
+C5's fourth slice adds a separate packaged configuration gate for that runtime. The gate is false by
+default and has its own empty schema-v2 manifest URL; it reuses the existing pinned release origin,
+channel, architecture, key identifier, and Ed25519 public key only after all fields validate. Missing,
+ambiguous, non-HTTPS, credential-bearing, or non-canonical values fail closed. This slice still does
+not construct the runtime, fetch a manifest, scan the machine, or render the card.
+
+C5's fifth slice composes that default-off gate, trusted runtime, read-only managed-store scan, and
+native presentation. Only a complete enabled configuration constructs the runtime. After account
+bootstrap, and again when the user refreshes Account & Devices, Desktop downloads and verifies the
+schema-v2 manifest before inspecting the component store and showing the independent preflight card.
+Managed reuse requires the full content identity plus an owned, non-writable, non-symlink executable
+at the signed entrypoint. The probe deliberately does not launch Hermes or Connector during a read-only
+scan; process readiness remains part of installation and activation. Disabled, invalid, download,
+verification, and scan paths show no card and cannot reach installation or service mutation.
+
+C5's sixth slice establishes the component installer confirmation boundary before wiring any UI
+action. Preparation downloads, verifies, and extracts missing bootstrap components only inside the
+owner-private cache; it cannot write the managed component store or release reference. The returned
+capability token is bound to the issuing installer. Commit rehashes every staged tree and health-checks
+its signed entrypoint before writing immutable components, then publishes the release reference and
+activation plan only after all four components validate. Cancellation removes the exact workspace.
+A transport retry preserves only safe signed-name partials, discarding completed archives and extracted
+trees so they are revalidated. The existing one-call API composes prepare and commit for compatibility.
+No Desktop button, credential, LaunchAgent, process, binding, production configuration, or release is
+changed by this slice.
+
+C5's seventh slice preserves the verifier-issued schema-v2 token beside the result of that same
+trusted preflight. The UI can continue to consume only the ordinary presentation result, while later
+component preparation receives the non-forgeable token directly instead of reconstructing authority
+from a version, URL, or display row. The compatibility `load` API still returns only the result. This
+slice creates no workspace, download action, component-store write, reference, LaunchAgent, credential,
+process, binding, production configuration, or release.
+
+C5's eighth default-unwired slice adds the single state machine that consumes that trusted session.
+Preparation accepts only the matching scanned result and verifier token and may write only its private
+cache. The exact release confirmation is required before it revalidates and commits all four bootstrap
+components, derives LaunchAgents from the returned content-addressed Python/Node plan, and calls one
+persistent migration boundary. Foreign preparations and mismatched trusted input fail before component
+or service mutation; cancellation and terminal failures remove the private workspace. An interrupted
+download before handle issuance remains removable only through the installer's UUID-and-private-marker
+checked path. A migration failure may leave only the inactive immutable component/reference cache for
+safe retry or GC. Successful migration remains successful when temporary cleanup needs its bounded
+retry handle. The concrete v2
+migration adapter is still deliberately absent because interrupted recovery must first distinguish v2
+component activation from the v1 `current` symlink contract in the durable journal. No install action,
+production configuration, service behavior, or release changes in this slice.
+
+C5's ninth slice makes interrupted recovery layout-aware before adding the concrete component
+migration adapter. New migration journals use schema 2 and bind each run to either the historical
+`bundled_release` layout or the v2 `component_store`; every transition preserves that immutable field,
+and a same-run layout mismatch fails closed. Existing schema-1 journals decode strictly as bundled
+releases and atomically upgrade on their next valid transition. A schema-1 file carrying the new field,
+a schema-2 file missing it, an unknown value, or an unknown schema is rejected. Existing v1 recovery
+behavior remains unchanged, and no install action, service, production configuration, or release is
+changed by this slice.
+
+C5's tenth default-unwired slice supplies the concrete v2 migration adapter. Before binding or local
+persistence it binds the schema-v2 manifest to the exact content-addressed activation plan, then reuses
+the existing operation lock, account binding, Hermes-first startup, local and cloud health proofs,
+remote confirmation, and rollback transaction. Component migration writes LaunchAgents only after
+rehashing their exact component roots and validates the token-file completion marker against those
+same entrypoints. It never stages a bundled release, creates a version directory, or switches `current`.
+Rollback and interrupted recovery consult the durable layout field, so component runs preserve any
+unrelated bundled `current` while historical bundled runs retain their existing deactivation behavior.
+No install button, production configuration, running service, or release is changed by this slice.
+
+C5's eleventh default-unwired slice composes the trusted v2 preflight, component installer, concrete
+migration adapter, journal, exact-label LaunchAgent controller, and commit configuration into one
+runtime. Constructing it remains inert: no managed root, cache, LaunchAgent directory, or Hermes home
+is created, and the first network/read-only scan still begins only when preflight is called. The v2
+trust configuration and frozen Hermes runtime contract enter this boundary directly; callers cannot
+reconstruct installation authority from presentation rows or a schema-v1 manifest. A production v2
+capability signal and UI action remain separate later gates, so packaged behavior is unchanged.
+
+C5's twelfth slice adds the separate, default-off Cloud capability signal for that runtime. The
+existing schema-v1 `desktopBootstrap.runtimeContract` can no longer be mistaken for component-install
+authorization: Gateway adds `componentManifestSchemaVersion: 2` only when account binding, managed
+installation, and the new component-install flag are all enabled. Desktop requires valid local v2
+configuration, that exact schema value, and `hermes-serve-v1` before reporting the component runtime
+ready. Missing, future-schema, and runtime-mismatch responses fail closed. Production operations do
+not yet admit the new flag. An unavailable capability prevents even the component-manifest request and
+clears a previously displayed read-only result; no UI install action, running service, or release changes
+in this slice.
+
+C5's thirteenth slice replaces the UI's standalone read-only preflight dependency with the composed
+component bootstrap runtime after the local and Cloud gates pass. A successful refresh now retains the
+verifier-issued manifest token in memory beside its matching presentation result; refresh failure,
+capability withdrawal, and sign-out clear both. Availability is checked again after the asynchronous
+refresh so an in-flight result cannot republish after withdrawal. The UI still consumes presentation data only and has no
+installation action, so no workspace, component store, credential, LaunchAgent, binding, process,
+production configuration, or release is changed.
+
+C5's fourteenth slice connects that trusted session to a two-stage native component install action.
+The card offers “下载缺失组件” only when both the component plan and machine migration preflight are
+ready. Desktop refreshes the Cloud capability and machine state before private-cache preparation, then
+does both again before the exact signed-version confirmation can commit components, bind the account,
+start Hermes before Connector, and enter the existing health/rollback transaction. Schema-v1 and
+schema-v2 installation, account mutations, and manual refresh are mutually excluded. Preparation
+failures attempt exact UUID cleanup; retained cleanup state exposes only a cleanup retry, including
+after an otherwise successful migration. Existing structured `HR-MIGRATE-001` through
+`HR-MIGRATE-005` messages cover the visible failure paths. Once Cloud and local configuration select
+schema 2, a trust or scan failure cannot expose the schema-v1 download action as an implicit fallback.
+Production capability/configuration stays
+off, so this slice performs no deployment, installation, running-service change, or release.
 
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.

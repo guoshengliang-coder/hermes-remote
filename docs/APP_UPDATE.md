@@ -61,13 +61,17 @@ downgrade is not supported.”
    tag already carries. It validates the notes against `release-server/src/schema.mjs` at allocation
    time rather than at upload. It deliberately does not commit, tag, build, or publish.
 2. Commit the release, push it to `origin/main`, and confirm the worktree is clean. With the canonical
-   key provisioned, run `scripts/publish-android-apk.sh`. The publisher refuses a dirty worktree or a
+   key and a private `android/missiongo.properties` containing both feedback settings provisioned, run
+   `scripts/publish-android-apk.sh`. The publisher refuses a dirty worktree or a
    `HEAD` different from `origin/main`. Authentication comes only from ssh-agent/key or caller-injected
    SSH configuration. Supported variables are
    `RELEASE_SSH_HOST` (fixed `mrlgs.net`), safe `RELEASE_SSH_USER` (default `kkk`),
    `RELEASE_DATA_ROOT` (fixed `/srv/hermes-releases`), and `RELEASE_PUBLIC_BASE_URL`. Publish only from
    an isolated worktree with no concurrent writer.
-3. The script first runs `package-debug-apk.sh` and consumes its atomically written JSON gate output.
+3. The script first runs `package-debug-apk.sh` with the public-release MissionGo configuration check
+   enabled and consumes its atomically written JSON gate output. The exact Gradle values used by the
+   build must contain both the feedback endpoint and SDK token; the gate records only a boolean proof,
+   never either secret, and the publisher rejects a supplied gate without that proof.
    The gate reads `minSdk` from the built APK with `aapt` together with package/version/signature data;
    publication metadata must consume that measured value and must never hard-code it. The publisher
    uploads the APK, metadata, and the reviewed `deploy/publish-release.mjs` plus its schema from the
@@ -106,6 +110,8 @@ repository secrets once (never commit their values):
 
 - `HERMES_DEBUG_KEYSTORE_BASE64`: base64 of the shared `~/.android/debug.keystore` (password remains
   `android`).
+- `MISSIONGO_ENDPOINT`: the production feedback service origin compiled into the released APK.
+- `MISSIONGO_SDK_TOKEN`: the Android SDK token compiled into the released APK.
 - `RELEASE_SSH_PRIVATE_KEY`: the deployment key allowed to log in as `kkk@mrlgs.net`.
 - `RELEASE_SSH_KNOWN_HOSTS`: the pinned `mrlgs.net` SSH host key line(s).
 
@@ -113,6 +119,25 @@ After a release commit is pushed, create and push the matching tag, for example
 `git tag android-v0.1.23 && git push origin android-v0.1.23`; GitHub then handles the build, upload,
 index update, and public verification after the production approval. This automation publishes only
 the Android update artifact; Gateway/Connector service deployment remains an explicit server operation.
+
+## Incident: 0.1.121 published before its final notes merged (2026-09-12)
+
+A manual workflow run published 0.1.121 from `395ae11` while the release-note PR was still pending.
+The immutable public entry therefore contains only the feedback-restoration note. Its APK is valid
+(31,438,496 bytes, SHA-256 `470750b8dc3f9e34c5928d3325654836b8fb1dc843c817971314f903e3778eba`).
+L2 verification on vivo V2166BA and HONOR CLK-AN00 confirmed the restored row and version; vivo
+V2166BA also opened the full MissionGo editor. Only the metadata race was wrong. The repository's
+`android/releases/0.1.121.json` must mirror that public entry rather than claim that an immutable
+record was changed later.
+
+Two shipped changes still needed a public note: HG-29 reclaimed-session recovery (already present in
+0.1.120) and the model-selector waiting-indicator correction (present in 0.1.121). Do not rerun or
+tag 0.1.121 to repair prose: a same-version entry with a different source commit or release-note
+list is a conflict by design.
+
+**Discharged by 0.1.124** (2026-09-13). Both notes are in `android/releases/0.1.124.json`, each
+saying which version it actually shipped in. Nothing is outstanding here — a later release that
+repeats them would be telling users about a change they received weeks ago.
 
 `scripts/bootstrap-release-server.sh` creates `/opt/hermes-release-server`, `/srv/hermes-releases`, a
 legal empty index, TLS directory, environment, and systemd unit. Test locally with
@@ -162,8 +187,10 @@ Two obligations follow, and neither is optional:
 
 - **A superseded bump orphans its notes file.** When conflict resolution moves a release to a higher
   number, the notes of the number being dropped must be folded into the surviving release's notes.
-  `android/releases/0.1.97.json` is the outstanding case: its three entries describe work that shipped
-  undocumented, and the next release that carries a notes file must absorb them.
+  `android/releases/0.1.97.json` was the outstanding case: its three entries describe work that
+  shipped undocumented. **Discharged by 0.1.124** (2026-09-13), which carries the per-session
+  diagnostic-log filtering and sharing notes and says they took effect in 0.1.98. Do not absorb them
+  again.
 - **Nothing currently detects this.** The publisher verifies the entry it just wrote; it never asks
   whether some earlier `android/releases/*.json` never made it into the index. A pre-publish check
   comparing local notes files against the public index would have flagged 0.1.97 the moment 0.1.98
@@ -180,6 +207,39 @@ closed before mutating the data root when the next release would exceed the cap.
 removes a registered APK. Retention is an explicit operator decision: archive the metadata and artifact,
 remove only a reviewed non-current entry through a dedicated maintenance change, validate the resulting
 index, and preserve rollback data before publishing again.
+
+### Retiring old releases
+
+```bash
+scripts/retire-android-releases.sh --keep 10 --dry-run   # prints what would go
+scripts/retire-android-releases.sh --keep 10
+```
+
+Keeps the newest `--keep` entries and retires the rest. It runs under the same guards as the
+publisher — allow-listed host and data root, clean worktree, `HEAD == origin/main` — and executes
+`deploy/publish-release.mjs --retire` from that commit rather than the copy installed on the
+server, for the same reason publishing does.
+
+**Nothing is deleted.** A retired APK is renamed into `$RELEASE_DATA_ROOT/archive`, off the served
+path but still on disk; the prior index is left in `index.json.prev`; and the release notes for
+every version live in `android/releases/<version>.json` in this repository, permanently. To bring
+one back, move the file out of `archive/` and re-run the idempotent publisher — never hand-edit the
+index.
+
+The index is written before the files move, so a client reading mid-operation sees a valid index
+whose every entry still resolves. The reverse order would serve 404s. Afterwards the script checks
+from the public URL, not from the box, that the surviving count is right and that every surviving
+entry returns HTTP 200.
+
+**What retiring costs a device.** `classifyVersion` matches each index entry against the installed
+versionCode, so a phone whose version is no longer listed simply has no "current" row — higher
+versions are still offered and the update path is unaffected. What it loses is "Export APK" for
+those old rows, which only ever worked when the device had kept the file locally anyway (the client
+keeps the newest five). Rolling a channel back does not depend on old entries either: the runbook
+below re-publishes old code under a **new, higher** version.
+
+`--keep 10` matches what the update page already surfaces — the newest ten render under the
+recommended card and anything older sits behind a reveal.
 
 Publication validates everything before replacing the index, so failures leave the prior index usable.
 An APK rename followed by an index failure may leave an unreferenced file; it is not downloadable and

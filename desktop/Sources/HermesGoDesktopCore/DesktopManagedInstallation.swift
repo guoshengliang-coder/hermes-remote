@@ -44,7 +44,7 @@ public struct DesktopManagedInstallLayout: Equatable, Sendable {
         return canonical
     }
 
-    fileprivate static func validVersion(_ value: String) -> Bool {
+    static func validVersion(_ value: String) -> Bool {
         value.range(
             of: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
             options: .regularExpression
@@ -89,6 +89,14 @@ public struct DesktopHermesSessionTokenMigration: Sendable {
     fileprivate let originalHermesLaunchAgent: Data
     fileprivate let originalConnectorLaunchAgent: Data
     fileprivate let originalSessionToken: Data?
+}
+
+public struct DesktopHermesLaunchAgentReplacement: Sendable {
+    public let launchAgentURL: URL
+    public let logURL: URL
+
+    fileprivate let originalData: Data
+    fileprivate let replacementData: Data
 }
 
 private enum ManagedSessionTokenStorage: Equatable {
@@ -314,6 +322,41 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
               try sessionTokenStorage(in: connector.object) == .file
         else { throw DesktopManagedInstallError.unsafeFilesystemObject }
         _ = try validatedSessionTokenIfPresent(required: true)
+        try writeHermesSessionTokenContractMarker()
+    }
+
+    public func commitHermesSessionTokenFileMigration(
+        activationPlan: DesktopComponentReleaseActivationPlan
+    ) throws {
+        guard let hermesComponent = activationPlan.component(.hermesCore),
+              let connectorComponent = activationPlan.component(.connector),
+              validManagedComponent(hermesComponent),
+              validManagedComponent(connectorComponent)
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        let hermes = try loadManagedLaunchAgent(
+            layout.hermesLaunchAgent,
+            label: DesktopManagedInstallLayout.hermesLabel,
+            expectedExecutable: hermesComponent.entrypoint,
+            trailingArguments: ["serve", "--host", "127.0.0.1", "--port", "9119"],
+            expectedLog: layout.logsRoot.appendingPathComponent("hermes-server.log"),
+            expectedErrorLog: layout.logsRoot.appendingPathComponent("hermes-server.error.log")
+        )
+        let connector = try loadManagedLaunchAgent(
+            layout.connectorLaunchAgent,
+            label: DesktopManagedInstallLayout.connectorLabel,
+            expectedExecutable: connectorComponent.entrypoint,
+            trailingArguments: [],
+            expectedLog: layout.logsRoot.appendingPathComponent("connector.log"),
+            expectedErrorLog: layout.logsRoot.appendingPathComponent("connector.error.log")
+        )
+        guard try sessionTokenStorage(in: hermes.object) == .file,
+              try sessionTokenStorage(in: connector.object) == .file
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        _ = try validatedSessionTokenIfPresent(required: true)
+        try writeHermesSessionTokenContractMarker()
+    }
+
+    private func writeHermesSessionTokenContractMarker() throws {
         try atomicWrite(
             Data("1\n".utf8),
             to: layout.hermesSessionTokenContractMarker,
@@ -359,6 +402,7 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
             .appendingPathComponent(connector.entrypoint)
             .standardizedFileURL
         guard configuration.connectorExecutable.standardizedFileURL.path == expectedExecutable.path,
+              configuration.nodeRuntimeRoot == nil,
               configuration.credentialFile.standardizedFileURL.path == layout.connectorCredential.path,
               configuration.sessionTokenFile.standardizedFileURL.path == layout.hermesSessionToken.path,
               configuration.standardOutput.standardizedFileURL.path
@@ -388,6 +432,7 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
             .appendingPathComponent(hermes.entrypoint)
             .standardizedFileURL
         guard configuration.hermesExecutable.standardizedFileURL.path == expectedExecutable.path,
+              configuration.pythonRuntimeRoot == nil,
               configuration.sessionTokenFile.standardizedFileURL.path == layout.hermesSessionToken.path,
               configuration.standardOutput.standardizedFileURL.path
                 == layout.logsRoot.appendingPathComponent("hermes-server.log").path,
@@ -402,6 +447,179 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         try ensurePrivateDirectory(layout.logsRoot)
         try atomicWrite(data, to: layout.hermesLaunchAgent, permissions: 0o600)
         return layout.hermesLaunchAgent
+    }
+
+    public func writeLaunchAgent(
+        _ configuration: DesktopAccountConnectorLaunchAgent,
+        activationPlan: DesktopComponentReleaseActivationPlan
+    ) throws -> URL {
+        guard let connector = activationPlan.component(.connector),
+              let node = activationPlan.component(.nodeRuntime),
+              validManagedComponent(connector),
+              validManagedComponent(node),
+              configuration.connectorExecutable.standardizedFileURL.path
+                == connector.entrypoint.standardizedFileURL.path,
+              configuration.nodeRuntimeRoot?.standardizedFileURL.path
+                == node.root.standardizedFileURL.path,
+              configuration.credentialFile.standardizedFileURL.path == layout.connectorCredential.path,
+              configuration.sessionTokenFile.standardizedFileURL.path == layout.hermesSessionToken.path,
+              configuration.standardOutput.standardizedFileURL.path
+                == layout.logsRoot.appendingPathComponent("connector.log").path,
+              configuration.standardError.standardizedFileURL.path
+                == layout.logsRoot.appendingPathComponent("connector.error.log").path
+        else { throw DesktopManagedInstallError.invalidInput }
+        let data: Data
+        do { data = try configuration.encodedPropertyList() }
+        catch { throw DesktopManagedInstallError.invalidInput }
+        guard data.count <= 64 * 1024 else { throw DesktopManagedInstallError.invalidInput }
+        try ensureOwnedDirectory(layout.launchAgentsRoot)
+        try ensurePrivateDirectory(layout.logsRoot)
+        try atomicWrite(data, to: layout.connectorLaunchAgent, permissions: 0o600)
+        return layout.connectorLaunchAgent
+    }
+
+    public func writeHermesLaunchAgent(
+        _ configuration: DesktopHermesServerLaunchAgent,
+        activationPlan: DesktopComponentReleaseActivationPlan
+    ) throws -> URL {
+        guard let hermes = activationPlan.component(.hermesCore),
+              let python = activationPlan.component(.pythonRuntime),
+              validManagedComponent(hermes),
+              validManagedComponent(python),
+              configuration.hermesExecutable.standardizedFileURL.path
+                == hermes.entrypoint.standardizedFileURL.path,
+              configuration.pythonRuntimeRoot?.standardizedFileURL.path
+                == python.root.standardizedFileURL.path,
+              configuration.optionalRuntime == nil,
+              configuration.sessionTokenFile.standardizedFileURL.path == layout.hermesSessionToken.path,
+              configuration.standardOutput.standardizedFileURL.path
+                == layout.logsRoot.appendingPathComponent("hermes-server.log").path,
+              configuration.standardError.standardizedFileURL.path
+                == layout.logsRoot.appendingPathComponent("hermes-server.error.log").path
+        else { throw DesktopManagedInstallError.invalidInput }
+        let data: Data
+        do { data = try configuration.encodedPropertyList() }
+        catch { throw DesktopManagedInstallError.invalidInput }
+        guard data.count <= 64 * 1024 else { throw DesktopManagedInstallError.invalidInput }
+        try ensureOwnedDirectory(layout.launchAgentsRoot)
+        try ensurePrivateDirectory(layout.logsRoot)
+        try atomicWrite(data, to: layout.hermesLaunchAgent, permissions: 0o600)
+        return layout.hermesLaunchAgent
+    }
+
+    func replaceHermesLaunchAgent(
+        _ configuration: DesktopHermesServerLaunchAgent,
+        activationPlan: DesktopComponentReleaseActivationPlan
+    ) throws -> DesktopHermesLaunchAgentReplacement {
+        guard configuration.optionalRuntime != nil,
+              let hermes = activationPlan.component(.hermesCore),
+              let python = activationPlan.component(.pythonRuntime),
+              validManagedComponent(hermes),
+              validManagedComponent(python),
+              configuration.hermesExecutable.standardizedFileURL.path
+                == hermes.entrypoint.standardizedFileURL.path,
+              configuration.pythonRuntimeRoot?.standardizedFileURL.path
+                == python.root.standardizedFileURL.path,
+              configuration.sessionTokenFile.standardizedFileURL.path == layout.hermesSessionToken.path,
+              configuration.standardOutput.standardizedFileURL.path
+                == layout.logsRoot.appendingPathComponent("hermes-server.log").path,
+              configuration.standardError.standardizedFileURL.path
+                == layout.logsRoot.appendingPathComponent("hermes-server.error.log").path
+        else { throw DesktopManagedInstallError.invalidInput }
+        let replacementData: Data
+        do { replacementData = try configuration.encodedPropertyList() }
+        catch { throw DesktopManagedInstallError.invalidInput }
+        guard replacementData.count <= 64 * 1024 else {
+            throw DesktopManagedInstallError.invalidInput
+        }
+        let originalData = try readOwnedPrivateFile(layout.hermesLaunchAgent)
+        guard validHermesLaunchAgentBase(originalData, replacementData) else {
+            throw DesktopManagedInstallError.unsafeFilesystemObject
+        }
+        try atomicWrite(replacementData, to: layout.hermesLaunchAgent, permissions: 0o600)
+        return DesktopHermesLaunchAgentReplacement(
+            launchAgentURL: layout.hermesLaunchAgent,
+            logURL: configuration.standardOutput,
+            originalData: originalData,
+            replacementData: replacementData
+        )
+    }
+
+    func rollbackHermesLaunchAgentReplacement(
+        _ replacement: DesktopHermesLaunchAgentReplacement
+    ) throws {
+        guard replacement.launchAgentURL.standardizedFileURL.path
+                == layout.hermesLaunchAgent.standardizedFileURL.path,
+              try readOwnedPrivateFile(layout.hermesLaunchAgent) == replacement.replacementData
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        try atomicWrite(replacement.originalData, to: layout.hermesLaunchAgent, permissions: 0o600)
+    }
+
+    private func readOwnedPrivateFile(_ url: URL) throws -> Data {
+        var metadata = stat()
+        guard Darwin.lstat(url.path, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFREG,
+              metadata.st_uid == Darwin.getuid(),
+              metadata.st_mode & 0o077 == 0,
+              metadata.st_size >= 0,
+              metadata.st_size <= 64 * 1024
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        do { return try Data(contentsOf: url, options: [.mappedIfSafe]) }
+        catch { throw DesktopManagedInstallError.persistenceFailed }
+    }
+
+    private func validHermesLaunchAgentBase(_ existing: Data, _ replacement: Data) -> Bool {
+        let optionalKeys = Set(["HERMES_LAZY_INSTALL_TARGET", "AGENT_BROWSER_EXECUTABLE_PATH"])
+        func normalized(_ data: Data) -> [String: Any]? {
+            guard var object = try? PropertyListSerialization.propertyList(
+                from: data, options: [], format: nil
+            ) as? [String: Any],
+                  var environment = object["EnvironmentVariables"] as? [String: Any],
+                  environment.allSatisfy({ $0.value is String })
+            else { return nil }
+            for key in optionalKeys {
+                if let value = environment[key] as? String {
+                    guard value.hasPrefix("/"), value != "/",
+                          URL(fileURLWithPath: value).standardizedFileURL.path == value,
+                          !value.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+                    else { return nil }
+                }
+                environment.removeValue(forKey: key)
+            }
+            object["EnvironmentVariables"] = environment
+            return object
+        }
+        guard let existingObject = normalized(existing),
+              let replacementObject = normalized(replacement)
+        else { return false }
+        return NSDictionary(dictionary: existingObject).isEqual(to: replacementObject)
+    }
+
+    private func managedComponentRoot(_ component: DesktopResolvedManagedComponent) -> URL {
+        layout.root
+            .appendingPathComponent("components", isDirectory: true)
+            .appendingPathComponent(component.kind.rawValue, isDirectory: true)
+            .appendingPathComponent(component.contentSHA256, isDirectory: true)
+            .appendingPathComponent("content", isDirectory: true)
+            .standardizedFileURL
+    }
+
+    private func validManagedComponent(_ component: DesktopResolvedManagedComponent) -> Bool {
+        let expectedRoot = managedComponentRoot(component)
+        let entrypoint = component.entrypoint.standardizedFileURL
+        let prefix = expectedRoot.path.hasSuffix("/") ? expectedRoot.path : expectedRoot.path + "/"
+        guard component.root.standardizedFileURL.path == expectedRoot.path,
+              entrypoint.path.hasPrefix(prefix),
+              let identity = try? DesktopManagedComponentContentHasher(fileManager: fileManager)
+                .identify(directory: expectedRoot),
+              identity.sha256 == component.contentSHA256
+        else { return false }
+        var metadata = stat()
+        return Darwin.lstat(entrypoint.path, &metadata) == 0
+            && metadata.st_uid == Darwin.getuid()
+            && metadata.st_mode & S_IFMT == S_IFREG
+            && metadata.st_mode & 0o111 != 0
+            && metadata.st_mode & 0o022 == 0
     }
 
     public func activate(releaseVersion: String, runID: String) throws -> DesktopReleaseActivation {
@@ -504,7 +722,29 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         expectedLog: URL,
         expectedErrorLog: URL
     ) throws -> ManagedLaunchAgentPropertyList {
+        try loadManagedLaunchAgent(
+            url,
+            label: label,
+            expectedExecutable: layout.currentRelease
+                .appendingPathComponent(component.rawValue, isDirectory: true),
+            executableMustBeDescendant: true,
+            trailingArguments: trailingArguments,
+            expectedLog: expectedLog,
+            expectedErrorLog: expectedErrorLog
+        )
+    }
+
+    private func loadManagedLaunchAgent(
+        _ url: URL,
+        label: String,
+        expectedExecutable: URL,
+        executableMustBeDescendant: Bool = false,
+        trailingArguments: [String],
+        expectedLog: URL,
+        expectedErrorLog: URL
+    ) throws -> ManagedLaunchAgentPropertyList {
         var metadata = stat()
+        let expectedPath = expectedExecutable.standardizedFileURL.path
         guard Darwin.lstat(url.path, &metadata) == 0,
               (metadata.st_mode & S_IFMT) == S_IFREG,
               metadata.st_uid == Darwin.getuid(),
@@ -519,11 +759,9 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
               let executable = arguments.first,
               arguments == [executable] + trailingArguments,
               URL(fileURLWithPath: executable).standardizedFileURL.path == executable,
-              executable.hasPrefix(
-                layout.currentRelease
-                    .appendingPathComponent(component.rawValue, isDirectory: true)
-                    .standardizedFileURL.path + "/"
-              ),
+              executableMustBeDescendant
+                ? executable.hasPrefix(expectedPath + "/")
+                : executable == expectedPath,
               !executable.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
               let logPath = object["StandardOutPath"] as? String,
               logPath == expectedLog.standardizedFileURL.path,
@@ -808,6 +1046,8 @@ public struct DesktopHermesServerLaunchAgent: Sendable {
     public let sessionTokenFile: URL
     public let standardOutput: URL
     public let standardError: URL
+    public let pythonRuntimeRoot: URL?
+    public let optionalRuntime: DesktopOptionalComponentRuntimeEnvironment?
 
     public init(
         hermesExecutable: URL,
@@ -815,7 +1055,9 @@ public struct DesktopHermesServerLaunchAgent: Sendable {
         runtimeContract: DesktopHermesRuntimeContract,
         sessionTokenFile: URL,
         standardOutput: URL,
-        standardError: URL
+        standardError: URL,
+        pythonRuntimeRoot: URL? = nil,
+        optionalRuntime: DesktopOptionalComponentRuntimeEnvironment? = nil
     ) {
         self.hermesExecutable = hermesExecutable
         self.hermesHome = hermesHome
@@ -823,16 +1065,32 @@ public struct DesktopHermesServerLaunchAgent: Sendable {
         self.sessionTokenFile = sessionTokenFile
         self.standardOutput = standardOutput
         self.standardError = standardError
+        self.pythonRuntimeRoot = pythonRuntimeRoot
+        self.optionalRuntime = optionalRuntime
     }
 
     public func encodedPropertyList() throws -> Data {
         guard [hermesExecutable, standardOutput, standardError].allSatisfy({
             $0.isFileURL && $0.path.hasPrefix("/") && $0.path != "/"
-        }) else { throw DesktopLaunchAgentError.invalidConfiguration }
-        let environment = try runtimeContract.environmentVariables(
+        }), Self.validOptionalRoot(pythonRuntimeRoot),
+            Self.validOptionalRoot(optionalRuntime?.lazyInstallTarget),
+            Self.validOptionalRoot(optionalRuntime?.browserExecutable)
+        else {
+            throw DesktopLaunchAgentError.invalidConfiguration
+        }
+        var environment = try runtimeContract.environmentVariables(
             hermesHome: hermesHome,
             sessionTokenFile: sessionTokenFile
         )
+        if let pythonRuntimeRoot {
+            environment["HERMES_PYTHON_RUNTIME_ROOT"] = pythonRuntimeRoot.standardizedFileURL.path
+        }
+        if let lazyInstallTarget = optionalRuntime?.lazyInstallTarget {
+            environment["HERMES_LAZY_INSTALL_TARGET"] = lazyInstallTarget.standardizedFileURL.path
+        }
+        if let browserExecutable = optionalRuntime?.browserExecutable {
+            environment["AGENT_BROWSER_EXECUTABLE_PATH"] = browserExecutable.standardizedFileURL.path
+        }
         let object: [String: Any] = [
             "Label": DesktopManagedInstallLayout.hermesLabel,
             "ProgramArguments": [hermesExecutable.path] + runtimeContract.programArguments,
@@ -851,6 +1109,13 @@ public struct DesktopHermesServerLaunchAgent: Sendable {
             )
         } catch { throw DesktopLaunchAgentError.encodingFailed }
     }
+
+    private static func validOptionalRoot(_ value: URL?) -> Bool {
+        guard let value else { return true }
+        let normalized = value.standardizedFileURL
+        return normalized.isFileURL && normalized.path.hasPrefix("/") && normalized.path != "/"
+            && !normalized.path.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+    }
 }
 
 public struct DesktopAccountConnectorLaunchAgent: Sendable {
@@ -861,6 +1126,7 @@ public struct DesktopAccountConnectorLaunchAgent: Sendable {
     public let sessionTokenFile: URL
     public let standardOutput: URL
     public let standardError: URL
+    public let nodeRuntimeRoot: URL?
 
     public init(
         connectorExecutable: URL,
@@ -869,7 +1135,8 @@ public struct DesktopAccountConnectorLaunchAgent: Sendable {
         hermesBaseURL: URL,
         sessionTokenFile: URL,
         standardOutput: URL,
-        standardError: URL
+        standardError: URL,
+        nodeRuntimeRoot: URL? = nil
     ) {
         self.connectorExecutable = connectorExecutable
         self.credentialFile = credentialFile
@@ -878,13 +1145,25 @@ public struct DesktopAccountConnectorLaunchAgent: Sendable {
         self.sessionTokenFile = sessionTokenFile
         self.standardOutput = standardOutput
         self.standardError = standardError
+        self.nodeRuntimeRoot = nodeRuntimeRoot
     }
 
     public func encodedPropertyList() throws -> Data {
         guard [connectorExecutable, credentialFile, sessionTokenFile, standardOutput, standardError].allSatisfy({
             $0.isFileURL && $0.path.hasPrefix("/") && $0.path != "/"
-        }), Self.validGateway(gatewayURL), Self.validHermes(hermesBaseURL) else {
+        }), Self.validGateway(gatewayURL), Self.validHermes(hermesBaseURL),
+            Self.validOptionalRoot(nodeRuntimeRoot) else {
             throw DesktopLaunchAgentError.invalidConfiguration
+        }
+        var environment = [
+            "CONNECTOR_MODE": "account",
+            "ACCOUNT_CONNECTOR_CREDENTIAL_FILE": credentialFile.path,
+            "GATEWAY_URL": gatewayURL.absoluteString,
+            "HERMES_BASE_URL": hermesBaseURL.absoluteString,
+            "HERMES_SESSION_TOKEN_FILE": sessionTokenFile.path,
+        ]
+        if let nodeRuntimeRoot {
+            environment["HERMES_NODE_RUNTIME_ROOT"] = nodeRuntimeRoot.standardizedFileURL.path
         }
         let object: [String: Any] = [
             "Label": DesktopManagedInstallLayout.connectorLabel,
@@ -894,13 +1173,7 @@ public struct DesktopAccountConnectorLaunchAgent: Sendable {
             "ProcessType": "Background",
             "StandardOutPath": standardOutput.path,
             "StandardErrorPath": standardError.path,
-            "EnvironmentVariables": [
-                "CONNECTOR_MODE": "account",
-                "ACCOUNT_CONNECTOR_CREDENTIAL_FILE": credentialFile.path,
-                "GATEWAY_URL": gatewayURL.absoluteString,
-                "HERMES_BASE_URL": hermesBaseURL.absoluteString,
-                "HERMES_SESSION_TOKEN_FILE": sessionTokenFile.path,
-            ],
+            "EnvironmentVariables": environment,
         ]
         do {
             return try PropertyListSerialization.data(
@@ -917,6 +1190,13 @@ public struct DesktopAccountConnectorLaunchAgent: Sendable {
         else { return false }
         if url.scheme == "wss" { return true }
         return url.scheme == "ws" && ["127.0.0.1", "::1", "localhost"].contains(host)
+    }
+
+    private static func validOptionalRoot(_ value: URL?) -> Bool {
+        guard let value else { return true }
+        let normalized = value.standardizedFileURL
+        return normalized.isFileURL && normalized.path.hasPrefix("/") && normalized.path != "/"
+            && !normalized.path.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
     }
 
     private static func validHermes(_ url: URL) -> Bool {

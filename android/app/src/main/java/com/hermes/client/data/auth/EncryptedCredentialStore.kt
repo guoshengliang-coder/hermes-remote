@@ -142,6 +142,7 @@ class EncryptedCredentialStore(private val context: Context) :
             .putString(ACCOUNT_DEVICE_ROUTE_MODE, session.deviceRouteMode.name)
             .putString("account_pending_refresh_key", session.pendingRefreshIdempotencyKey)
             .putBoolean(ACCOUNT_REAUTHENTICATION_REQUIRED, false)
+            .remove(ACCOUNT_REAUTHENTICATION_REASON)
             .putBoolean(ACCOUNT_DELETION_COMMITTED, false)
             // Refresh idempotency must be durable before network I/O begins. Account mutations
             // are infrequent and security-sensitive, so synchronous commit is intentional here.
@@ -150,7 +151,7 @@ class EncryptedCredentialStore(private val context: Context) :
 
     override fun clearAccountSession() = clearAccountSession(requireReauthentication = false)
 
-    override fun clearAccountSession(requireReauthentication: Boolean) {
+    override fun clearAccountSession(requireReauthentication: Boolean, reason: String?) {
         prefs.edit()
             .remove("account_base_url")
             .remove("account_id")
@@ -183,6 +184,7 @@ class EncryptedCredentialStore(private val context: Context) :
             .remove(ACCOUNT_DELETION_GRANT)
             .remove(ACCOUNT_DELETION_MUTATION_KEY)
             .putBoolean(ACCOUNT_REAUTHENTICATION_REQUIRED, requireReauthentication)
+            .putString(ACCOUNT_REAUTHENTICATION_REASON, reason.takeIf { requireReauthentication })
             .putBoolean(ACCOUNT_EXPLICIT_LEGACY_CONNECTION, false)
             .putBoolean(ACCOUNT_DELETION_COMMITTED, false)
             .commit()
@@ -191,10 +193,16 @@ class EncryptedCredentialStore(private val context: Context) :
     override fun accountReauthenticationRequired(): Boolean =
         prefs.getBoolean(ACCOUNT_REAUTHENTICATION_REQUIRED, false)
 
+    override fun accountReauthenticationReason(): String? =
+        prefs.getString(ACCOUNT_REAUTHENTICATION_REASON, null)?.takeIf { it.isNotBlank() }
+
     override fun lastAccountBaseUrl(): String? = prefs.getString(ACCOUNT_LAST_BASE_URL, null)
 
-    override fun setAccountReauthenticationRequired(required: Boolean) {
-        prefs.edit().putBoolean(ACCOUNT_REAUTHENTICATION_REQUIRED, required).commit()
+    override fun setAccountReauthenticationRequired(required: Boolean, reason: String?) {
+        prefs.edit()
+            .putBoolean(ACCOUNT_REAUTHENTICATION_REQUIRED, required)
+            .putString(ACCOUNT_REAUTHENTICATION_REASON, reason.takeIf { required })
+            .commit()
     }
 
     override fun explicitLegacyConnectionSelected(): Boolean =
@@ -322,6 +330,7 @@ class EncryptedCredentialStore(private val context: Context) :
             .remove(ACCOUNT_DELETION_GRANT)
             .remove(ACCOUNT_DELETION_MUTATION_KEY)
             .putBoolean(ACCOUNT_REAUTHENTICATION_REQUIRED, false)
+            .remove(ACCOUNT_REAUTHENTICATION_REASON)
             .putBoolean(ACCOUNT_EXPLICIT_LEGACY_CONNECTION, false)
             .putBoolean(ACCOUNT_DELETION_COMMITTED, true)
             .commit()
@@ -356,6 +365,7 @@ class EncryptedCredentialStore(private val context: Context) :
         const val ACCOUNT_CLIENT_INSTALLATION_ID = "account_client_installation_id"
         const val ACCOUNT_LAST_BASE_URL = "account_last_base_url"
         const val ACCOUNT_REAUTHENTICATION_REQUIRED = "account_reauthentication_required"
+        const val ACCOUNT_REAUTHENTICATION_REASON = "account_reauthentication_reason"
         const val ACCOUNT_EXPLICIT_LEGACY_CONNECTION = "account_explicit_legacy_connection"
         const val ACCOUNT_ACTIVATION_PENDING = "account_activation_pending"
         const val ACCOUNT_DEVICE_ROUTE_MODE = "account_device_route_mode"

@@ -355,27 +355,4 @@ class ChatRepository(private val client: HermesGatewayClient) {
         })
         return (result as? JsonObject)?.get("status")?.let { (it as? JsonPrimitive)?.content }.orEmpty()
     }
-
-
-    /**
-     * Queues a move of this conversation to a messaging channel. The gateway only writes a pending
-     * row; its own watcher claims it, re-binds the channel's home chat to this session and has the
-     * agent introduce itself there. Refusals are typed — see [handoffErrorCode].
-     */
-    suspend fun requestHandoff(sessionId: String, platform: String) {
-        client.call(
-            "handoff.request",
-            buildJsonObject {
-                put("session_id", sessionId)
-                put("platform", platform)
-            },
-        )
-    }
-
-    /** Polls the queued move: pending | running | completed | failed. */
-    suspend fun handoffState(sessionId: String): Pair<String?, String?> {
-        val result = client.call("handoff.state", buildJsonObject { put("session_id", sessionId) })
-        val obj = result.jsonObject
-        return obj["state"]?.jsonPrimitive?.contentOrNull to obj["error"]?.jsonPrimitive?.contentOrNull
-    }
 }

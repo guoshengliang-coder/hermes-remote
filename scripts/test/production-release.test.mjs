@@ -14,7 +14,11 @@ import { renderEmailRolloutEnvironment } from "../../ops/lib/production-account-
 import {
   inspectProductionReleaseEnvironment,
   renderBindingRolloutEnvironment,
+  renderComponentRolloutEnvironment,
+  renderIdentityWebRolloutEnvironment,
+  renderMultiDeviceRolloutEnvironment,
   renderProductionReleaseEnvironment,
+  renderSharingRolloutEnvironment,
 } from "../../ops/lib/production-release-environment.mjs";
 import {
   executeProductionRelease,
@@ -117,6 +121,116 @@ test("R5-F1 recognizes and preserves the exact single-Mac binding runtime", asyn
   assert.match(candidate, /^ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED=1$/m);
   assert.match(candidate, /^ACCOUNT_MULTI_DEVICE_ENABLED=0$/m);
   assert.match(candidate, /^ACCOUNT_DEVICE_SHARING_ENABLED=0$/m);
+});
+
+test("R5-F1 recognizes and preserves the exact multi-device runtime", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  await writeEmailEnvironment(config, "blue");
+  const email = await inspectProductionReleaseEnvironment(config, "blue");
+  const bindingEnvironment = renderBindingRolloutEnvironment(config, "blue", email);
+  await writeFile(environmentPath(config, "blue"), bindingEnvironment, { mode: 0o600 });
+  const binding = await inspectProductionReleaseEnvironment(config, "blue");
+  const multiDeviceEnvironment = renderMultiDeviceRolloutEnvironment(config, "blue", binding);
+  await writeFile(environmentPath(config, "blue"), multiDeviceEnvironment, { mode: 0o600 });
+
+  const inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  assert.equal(inspected.mode, "email_multi_device");
+  const candidate = renderProductionReleaseEnvironment(config, "green", inspected);
+  assert.match(candidate, /^PORT=18788$/m);
+  assert.match(candidate, /^ACCOUNT_BINDING_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_MULTI_DEVICE_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_DEVICE_SHARING_ENABLED=0$/m);
+  assert.match(candidate, /^ACCOUNT_IDENTITY_MANAGEMENT_ENABLED=0$/m);
+});
+
+test("R5-F1 recognizes and preserves the exact identity-Web runtime", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  await writeEmailEnvironment(config, "blue");
+  const email = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderBindingRolloutEnvironment(config, "blue", email), { mode: 0o600 });
+  const binding = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderMultiDeviceRolloutEnvironment(config, "blue", binding), { mode: 0o600 });
+  const multiDevice = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderIdentityWebRolloutEnvironment(config, "blue", multiDevice), { mode: 0o600 });
+
+  const inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  assert.equal(inspected.mode, "email_identity_web");
+  const candidate = renderProductionReleaseEnvironment(config, "green", inspected);
+  assert.match(candidate, /^PORT=18788$/m);
+  assert.match(candidate, /^ACCOUNT_MULTI_DEVICE_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_IDENTITY_MANAGEMENT_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_WEB_SESSION_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_WEB_ORIGIN=https:\/\/gateway\.example\.com$/m);
+  assert.match(candidate, /^ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN=https:\/\/gateway\.example\.com$/m);
+  assert.match(candidate, /^ACCOUNT_DEVICE_SHARING_ENABLED=0$/m);
+  assert.match(candidate, /^ACCOUNT_GOOGLE_AUTH_ENABLED=0$/m);
+  assert.match(candidate, /^ACCOUNT_DELETION_ENABLED=0$/m);
+});
+
+test("R5-F1 upgrades the pre-F5 canonical environment with dormant Web origins", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  await writeEmailEnvironment(config, "blue");
+  const filePath = environmentPath(config, "blue");
+  const legacy = (await readFile(filePath, "utf8"))
+    .replace(/^ACCOUNT_WEB_ORIGIN=.*\n/m, "")
+    .replace(/^ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN=.*\n/m, "");
+  await writeFile(filePath, legacy, { mode: 0o600 });
+
+  const inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  assert.equal(inspected.mode, "email_otp");
+  const candidate = renderProductionReleaseEnvironment(config, "green", inspected);
+  assert.match(candidate, /^ACCOUNT_WEB_ORIGIN=https:\/\/gateway\.example\.com$/m);
+  assert.match(candidate, /^ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN=https:\/\/gateway\.example\.com$/m);
+});
+
+test("R5-F1 recognizes and preserves the exact sharing runtime", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  await writeEmailEnvironment(config, "blue");
+  const email = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderBindingRolloutEnvironment(config, "blue", email), { mode: 0o600 });
+  const binding = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderMultiDeviceRolloutEnvironment(config, "blue", binding), { mode: 0o600 });
+  const multiDevice = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderIdentityWebRolloutEnvironment(config, "blue", multiDevice), { mode: 0o600 });
+  const identityWeb = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderSharingRolloutEnvironment(config, "blue", identityWeb), { mode: 0o600 });
+
+  const inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  assert.equal(inspected.mode, "email_sharing");
+  const candidate = renderProductionReleaseEnvironment(config, "green", inspected);
+  assert.match(candidate, /^PORT=18788$/m);
+  assert.match(candidate, /^ACCOUNT_DEVICE_SHARING_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_IDENTITY_MANAGEMENT_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_GOOGLE_AUTH_ENABLED=0$/m);
+  assert.match(candidate, /^ACCOUNT_DELETION_ENABLED=0$/m);
+});
+
+test("R5-F1 recognizes and preserves the component-enabled sharing runtime", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  await writeEmailEnvironment(config, "blue");
+  let inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderBindingRolloutEnvironment(config, "blue", inspected), { mode: 0o600 });
+  inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderMultiDeviceRolloutEnvironment(config, "blue", inspected), { mode: 0o600 });
+  inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderIdentityWebRolloutEnvironment(config, "blue", inspected), { mode: 0o600 });
+  inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderSharingRolloutEnvironment(config, "blue", inspected), { mode: 0o600 });
+  inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderComponentRolloutEnvironment(config, "blue", inspected), { mode: 0o600 });
+
+  const enabled = await inspectProductionReleaseEnvironment(config, "blue");
+  assert.equal(enabled.mode, "email_sharing_components");
+  const candidate = renderProductionReleaseEnvironment(config, "green", enabled);
+  assert.match(candidate, /^PORT=18788$/m);
+  assert.match(candidate, /^ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_DEVICE_SHARING_ENABLED=1$/m);
 });
 
 test("R5-F1 rejects email-mode schema changes and post-admission environment drift", async (t) => {
@@ -224,6 +338,56 @@ test("R5-F1 binding smoke requires singular binding and the managed runtime cont
   );
 });
 
+test("R5-F1 identity-Web smoke requires the live shell, secure bootstrap, and auth guards", async () => {
+  const requests = [];
+  const fetchImpl = async (url) => {
+    const pathname = new URL(url).pathname;
+    requests.push(pathname);
+    if (pathname === "/v2/capabilities") {
+      const value = bindingCapabilities();
+      value.accountAuth.identityManagement = true;
+      value.accountAuth.webAccountCenter = true;
+      value.accountAuth.webSessions = true;
+      value.binding.maxActiveConnectorsPerAccount = 3;
+      value.binding.supportsDeviceSelection = true;
+      return jsonResponse(value);
+    }
+    if (["/v2/account", "/v2/connector-binding", "/v2/web/identities", "/v2/web/installations"].includes(pathname)) {
+      return new Response("{}", { status: 401 });
+    }
+    if (pathname === "/v2/web/devices/probe-device/shares") {
+      return new Response("not found", { status: 404 });
+    }
+    if (pathname === "/account") {
+      return new Response("<!doctype html>", { headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'none'; script-src 'self'; frame-ancestors 'none'",
+      } });
+    }
+    if (pathname === "/v2/web/session") {
+      return new Response(JSON.stringify({
+        session: { authenticated: false },
+        csrfToken: `hgc_${"A".repeat(43)}`,
+      }), { headers: {
+        "content-type": "application/json",
+        "set-cookie": "__Host-hermes_go_installation=id; Secure; HttpOnly; SameSite=Strict, __Host-hermes_go_csrf=token; Secure; SameSite=Strict",
+      } });
+    }
+    assert.fail(`unexpected URL ${url}`);
+  };
+  await verifyPreservedEmailSurface(
+    { gatewayUrl: "https://gateway.example.com", publicRoute: true },
+    fetchImpl,
+    { bindingEnabled: true, multiDeviceEnabled: true, identityWebEnabled: true },
+  );
+  assert.deepEqual(requests, [
+    "/v2/capabilities", "/v2/account", "/v2/connector-binding", "/account", "/v2/web/session",
+    "/v2/web/identities", "/v2/web/installations",
+    "/v2/web/devices/probe-device/shares",
+  ]);
+});
+
 test("R5-F1 tells both candidate and public smoke to expect the preserved email runtime", async (t) => {
   const fixture = await createFixture(t);
   const config = await loadManagedBaselineConfig(fixture.configPath);
@@ -324,6 +488,95 @@ test("R5-F1 recovery restores the archived committed journal only while the fail
       runId: "blocked-recovery",
     }),
     (error) => error?.technicalCause === "production_release_failed_candidate_still_active",
+  );
+});
+
+test("R5-F1 recovery restores the committed journal after a post-switch smoke failure was fully reversed", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  const opsRoot = path.join(config.paths.stateRoot, "ops");
+  const historyRoot = path.join(opsRoot, "history");
+  await mkdir(historyRoot, { mode: 0o700 });
+  const committed = await readDeploymentJournal(fixture.journalPath);
+  await writeDeploymentJournal(
+    path.join(historyRoot, `deploy-state.committed.${committed.runId}.json`),
+    committed,
+    currentOwnership().host,
+  );
+  const checkpoint = {
+    currentReleaseTarget: CURRENT_RELEASE,
+    previousReleaseTarget: LEGACY_RELEASE,
+    nginxConfigSha256: createHash("sha256").update(await readFile(config.nginx.configFile)).digest("hex"),
+    upstreamSha256: createHash("sha256").update(await readFile(config.nginx.upstreamConfigFile)).digest("hex"),
+  };
+  const failed = {
+    schemaVersion: 2,
+    operation: "deploy",
+    planDigest: "8".repeat(64),
+    runId: "failed-post-switch-smoke",
+    stage: "route_switched",
+    activeSlot: "blue",
+    candidateSlot: "green",
+    source: identity(fixture.currentManifest),
+    target: identity(fixture.nextManifest),
+    checkpoint,
+    startedAt: "2026-09-14T10:58:13.000Z",
+    updatedAt: "2026-09-14T10:58:39.000Z",
+  };
+  await writeDeploymentJournal(fixture.journalPath, failed, currentOwnership().host);
+  const handoffPath = path.join(opsRoot, `lifecycle-handoff.${failed.planDigest}.json`);
+  const handoff = {
+    schemaVersion: 1,
+    planDigest: failed.planDigest,
+    sourceStateDirectory: path.join(config.paths.stateRoot, "gateway-slots", "blue"),
+    candidateStateDirectory: path.join(config.paths.stateRoot, "gateway-slots", "green"),
+    phase: "forward",
+    updatedAt: "2026-09-14T10:59:00.000Z",
+  };
+  await writeJson(handoffPath, handoff);
+  await writeFile(path.join(opsRoot, "operations.jsonl"), `${JSON.stringify({
+    runId: failed.runId,
+    operation: "deploy",
+    stage: "failed",
+    result: "failed",
+    errorCode: "HR-OPS-016",
+    finishedAt: "2026-09-14T10:59:01.000Z",
+  })}\n`, { mode: 0o600 });
+
+  await assert.rejects(
+    () => recoverFailedProductionRelease(config, fixture.nextManifest, {
+      confirmation: "production:prod-host",
+      platform: "linux",
+      architecture: "x64",
+      hostname: "prod-host",
+      getUid: () => 0,
+      runner: recoveryRunner({ blue: true }),
+      owner: currentOwnership().host,
+      runId: "unsafe-post-switch-journal-recovery",
+    }),
+    (error) => error?.technicalCause === "recovery_handoff_not_restored",
+  );
+  await writeJson(handoffPath, { ...handoff, phase: "restored" });
+
+  const result = await recoverFailedProductionRelease(config, fixture.nextManifest, {
+    confirmation: "production:prod-host",
+    platform: "linux",
+    architecture: "x64",
+    hostname: "prod-host",
+    getUid: () => 0,
+    runner: recoveryRunner({ blue: true }),
+    owner: currentOwnership().host,
+    runId: "post-switch-journal-recovery",
+  });
+
+  assert.equal(result.command, "production-recover");
+  assert.equal(result.recoveredRunId, failed.runId);
+  assert.equal(result.recoveredStage, "route_switched");
+  assert.equal(result.recoveredAfterSwitch, true);
+  assert.deepEqual(await readDeploymentJournal(fixture.journalPath), committed);
+  assert.deepEqual(
+    await readDeploymentJournal(path.join(historyRoot, `deploy-state.failed.${failed.runId}.json`)),
+    failed,
   );
 });
 

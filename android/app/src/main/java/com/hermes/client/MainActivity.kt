@@ -35,7 +35,6 @@ import com.hermes.client.ui.nav.HermesNav
 import com.hermes.client.ui.nav.deepLinkRouteFor
 import com.hermes.client.ui.nav.isNewChatLink
 import com.hermes.client.ui.theme.HermesTheme
-import com.hermes.client.ui.theme.LocalToolCallTechnical
 import com.hermes.client.ui.theme.Motion
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -68,6 +67,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var languages: AppLanguageProvider
     @Inject lateinit var foregroundRecovery: ForegroundRecoveryCoordinator
     @Inject lateinit var feedbackReporter: com.hermes.client.data.feedback.FeedbackReporter
+    @Inject lateinit var chatMedia: com.hermes.client.data.repository.ChatMediaRepository
     private val startupViewModel: StartupViewModel by viewModels()
     private val processColdStart = PROCESS_UI_LAUNCH_CLAIMED.compareAndSet(false, true)
 
@@ -100,7 +100,6 @@ class MainActivity : ComponentActivity() {
         val crashReport = CrashReporter.read(this)
         setContent {
             val mode by settingsStore.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
-            val technical by settingsStore.toolCallTechnical.collectAsState(initial = true)
             val language by settingsStore.appLanguage.collectAsState(
                 initial = LanguagePreference.SYSTEM.resolve(),
             )
@@ -125,13 +124,32 @@ class MainActivity : ComponentActivity() {
             val startupState by startupViewModel.state.collectAsState()
             val repairCompletion by startupViewModel.repairCompletion.collectAsState()
             val accountSession by accountSessions.session.collectAsState()
+            // Provided here rather than per screen: assistant Markdown is rendered by the chat,
+            // by the bot transcript and by the share/export paths, and an icon that appears in a
+            // table cell in one of them has to appear in all of them.
+            val markdownImages = remember {
+                object : com.hermes.client.ui.chat.MarkdownImageLoader {
+                    override fun cached(url: String) = chatMedia.cachedInlineImage(url)
+                    override suspend fun load(url: String) = chatMedia.loadInlineImage(url)
+                }
+            }
             CompositionLocalProvider(
                 LocalAppLanguage provides language,
                 com.hermes.client.ui.components.LocalProfileIdentities provides identities,
                 com.hermes.client.ui.components.LocalAvatarDir provides profileIdentityStore.avatarDir,
+                com.hermes.client.ui.chat.LocalMarkdownImageLoader provides markdownImages,
             ) {
                 HermesTheme(darkTheme = dark) {
-                    CompositionLocalProvider(LocalToolCallTechnical provides technical) {
+                    // TUNING-TEMP: the session-list tuning panel's values, read live so the list
+                    // restyles while the panel is open. Its defaults equal what the theme ships,
+                    // so an untouched panel changes nothing. Remove with ui/tuning/.
+                    val tuningStore = remember { com.hermes.client.ui.tuning.SessionListTuningStore(this@MainActivity) }
+                    val tuning by tuningStore.tuning.collectAsState(
+                        initial = com.hermes.client.ui.tuning.SessionListTuning(),
+                    )
+                    CompositionLocalProvider(
+                        com.hermes.client.ui.tuning.LocalSessionListTuning provides tuning, // TUNING-TEMP
+                    ) {
                         Surface {
                             // If the previous run crashed, show the saved trace first so it can be
                             // shared, then continue into the app once dismissed.
@@ -235,12 +253,19 @@ class MainActivity : ComponentActivity() {
                                             onDeepLinkConsumed = { pendingRoute.value = null },
                                             configurationRepair = (startupState as? StartupUiState.RepairRequired)?.failure,
                                             accountSetupRepairRequired =
+                                                (startupState as? StartupUiState.RepairRequired)?.accountSetup == true ||
                                                 accountSessions.transportMode() ==
                                                     AccountTransportMode.REAUTHENTICATION_REQUIRED ||
                                                     accountSessions.transportMode() ==
                                                     AccountTransportMode.DEVICE_SELECTION_REQUIRED ||
                                                     accountSessions.transportMode() ==
                                                     AccountTransportMode.ACCOUNT_DELETION_COMMITTED,
+                                            // Null unless the SERVER ended the last session, so a
+                                            // user who tapped "sign out" is not told why they are
+                                            // signed out. Recomposed with the block above whenever
+                                            // the session flow emits.
+                                            signInReasonCode =
+                                                accountSessions.accountReauthenticationReason(),
                                             repairCompletion = repairCompletion,
                                             onConnectionConfigurationSaved = startupViewModel::onConfigurationSaved,
                                             onInitialConfigurationSaved = {

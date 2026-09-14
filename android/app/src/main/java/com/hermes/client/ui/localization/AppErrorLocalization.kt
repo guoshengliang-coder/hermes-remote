@@ -8,6 +8,8 @@ fun AppError.localizedMessage(language: AppLanguage): String {
     val summary = when (code) {
         AppErrorCode.CONNECTION_FAILED ->
             localized(language, "无法连接 Relay，请重试。", "Couldn't connect to the Relay. Retry.")
+        AppErrorCode.HANDSHAKE_TIMEOUT ->
+            localized(language, "Relay 已连接，但会话握手超时。", "The Relay connected, but the session handshake timed out.")
         AppErrorCode.CONNECTION_INTERRUPTED ->
             localized(language, "连接已中断，请重试。", "The connection was interrupted. Retry.")
         AppErrorCode.CONNECTOR_OFFLINE ->
@@ -24,6 +26,12 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "无法设置默认模型，请重试。", "Couldn't set the default model. Retry.")
         AppErrorCode.MODEL_REASONING_FAILED ->
             localized(language, "无法调整推理强度，请重试。", "Couldn't change the reasoning effort. Retry.")
+        AppErrorCode.SLASH_WORKER_UNAVAILABLE ->
+            localized(
+                language,
+                "Mac 上的 Hermes 无法执行命令，请查看详情。",
+                "The Hermes on your Mac can't run commands. See the details.",
+            )
         AppErrorCode.CONFIG_READ_FAILED ->
             localized(language, "无法加载配置，请重试。", "Couldn't load the configuration. Retry.")
         AppErrorCode.CONFIG_WRITE_FAILED ->
@@ -84,6 +92,20 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "无法生成对话长图，请重试或改用 Markdown 文件。", "Couldn't render the transcript image. Retry, or share it as a Markdown file.")
         AppErrorCode.AVATAR_PHOTO_FAILED ->
             localized(language, "无法读取所选照片，请换一张再试。", "Couldn't read the selected photo. Try a different one.")
+        AppErrorCode.IMAGE_DECODE_FAILED ->
+            localized(
+                language,
+                "无法打开这张图片，可能已损坏或过大。请换一张再试。",
+                "Couldn't open this image — it may be damaged or too large. Try a different one.",
+            )
+        // Kept separate from the decode failure on purpose: "your edits are still on screen" is the
+        // recovery, and collapsing the two codes would lose it.
+        AppErrorCode.IMAGE_EDIT_SAVE_FAILED ->
+            localized(
+                language,
+                "编辑结果保存失败，请重试；你的修改仍在屏幕上。",
+                "Couldn't save the edited image. Retry — your edits are still on screen.",
+            )
         AppErrorCode.PROFILE_IDENTITY_SAVE_FAILED ->
             localized(language, "无法保存身份设置，请重试。", "Couldn't save the profile settings. Retry.")
         AppErrorCode.SESSION_NOT_FOUND ->
@@ -98,6 +120,12 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "项目文件夹在 Mac 上不存在，会话已建在默认项目。", "The project folder no longer exists on the Mac, so the conversation was created in the default project.")
         AppErrorCode.MESSAGE_SEND_FAILED ->
             localized(language, "消息未发送，点按气泡重试。", "The message was not sent. Tap the bubble to retry.")
+        AppErrorCode.SESSION_OWNED_ELSEWHERE ->
+            localized(language, "该会话正在另一个客户端上运行，请在那边结束后重试。", "This conversation is running on another client. Finish it there, then retry.")
+        AppErrorCode.UNSENT_ATTACHMENTS_LOST ->
+            localized(language, "附件已丢失，请重新选择附件后发送。", "The attachments are gone. Pick them again and send.")
+        AppErrorCode.SESSION_TRANSCRIPT_UNAVAILABLE ->
+            localized(language, "无法读取所选会话的内容，请重试。", "Couldn't read the selected conversation. Retry.")
         AppErrorCode.SESSION_ARCHIVE_FAILED ->
             localized(language, "无法归档会话，请重试。", "Couldn't archive the conversation. Retry.")
         AppErrorCode.PROJECT_NOT_FOUND ->
@@ -132,6 +160,18 @@ fun AppError.localizedMessage(language: AppLanguage): String {
                 "任务运行成功，但结果没能送到目标渠道。",
                 "The task ran successfully, but its result could not be delivered to the target channel.",
             )
+        AppErrorCode.CRON_RUN_FAILED ->
+            localized(
+                language,
+                "任务上次运行失败，请查看详情。",
+                "The task's last run failed. Check the details.",
+            )
+        AppErrorCode.CRON_ACTION_FAILED ->
+            localized(
+                language,
+                "操作没有成功，请查看详情后重试。",
+                "The action didn't go through. Review the details and retry.",
+            )
         AppErrorCode.MESSAGING_LIST_FAILED ->
             localized(language, "无法加载消息渠道，请重试。", "Couldn't load messaging channels. Retry.")
         AppErrorCode.MESSAGING_SAVE_FAILED ->
@@ -146,18 +186,6 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "这个渠道没能连上，请检查设置。", "This channel didn't connect. Check its setup.")
         AppErrorCode.MESSAGING_RESTART_FAILED ->
             localized(language, "网关重启失败，请重试。", "The gateway restart failed. Retry.")
-        AppErrorCode.HANDOFF_SESSION_BUSY ->
-            localized(language, "会话正在运行，等这一轮结束再转。", "The conversation is mid-turn. Wait for it to finish, then move it.")
-        AppErrorCode.HANDOFF_CHANNEL_DISABLED ->
-            localized(language, "这个渠道没有启用，先在消息渠道里开启。", "That channel isn't enabled. Turn it on under Messaging first.")
-        AppErrorCode.HANDOFF_NO_TARGET ->
-            localized(
-                language,
-                "这个渠道还没设默认投递落点，要先在目标聊天里用 /sethome 设置。",
-                "That channel has no delivery target yet. Set one with /sethome in the destination chat.",
-            )
-        AppErrorCode.HANDOFF_IN_FLIGHT ->
-            localized(language, "已经有一次转移在进行，稍后再试。", "A move is already in flight. Try again shortly.")
         AppErrorCode.LINK_NO_HANDLER ->
             localized(language, "没有能打开链接的应用，链接已复制。", "No app can open this link. It was copied to the clipboard.")
         AppErrorCode.LINK_NOT_OPENABLE ->
@@ -167,3 +195,15 @@ fun AppError.localizedMessage(language: AppLanguage): String {
     }
     return "$summary (${code.value})"
 }
+
+/**
+ * The same copy as [localizedMessage], in the language-independent form a ViewModel can hold.
+ *
+ * Both languages come from the one catalogue above rather than being hand-written at the call site
+ * — which is how the cron screens ended up printing 「操作失败（HR-RPC-001）」 for every failure:
+ * once the string is typed inline, its code is a literal nobody rechecks.
+ */
+fun AppError.asLocalizedText(): LocalizedText = LocalizedText(
+    zh = localizedMessage(AppLanguage.ZH),
+    en = localizedMessage(AppLanguage.EN),
+)

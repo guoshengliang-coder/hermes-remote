@@ -12,6 +12,7 @@ import com.hermes.client.data.auth.AccountSessionStore
 import com.hermes.client.data.auth.AccountClock
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.DEFAULT_REMOTE_GATEWAY_URL
+import com.hermes.client.data.auth.isLoopbackGatewayBaseUrl
 import com.hermes.client.data.auth.PendingEmailChallenge
 import com.hermes.client.data.auth.PendingAccountDeletion
 import com.hermes.client.data.network.AccountApi
@@ -789,7 +790,9 @@ class AccountDevicesViewModel @Inject constructor(
     private fun accountBaseUrl(): String = sessions.session.value?.baseUrl
         ?: store.loadPendingEmailChallenge()?.baseUrl
         ?: store.lastAccountBaseUrl()
-        ?: runCatching { legacyCredentials.load()?.baseUrl }.getOrNull()
+        ?: runCatching { legacyCredentials.load()?.baseUrl }
+            .getOrNull()
+            ?.takeUnless(::isLoopbackGatewayBaseUrl)
         ?: DEFAULT_REMOTE_GATEWAY_URL
 
     /** Account-control errors use the same session/device recovery as Hermes REST responses. */

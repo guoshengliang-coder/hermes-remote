@@ -75,12 +75,26 @@ interface AccountSessionStore {
     /** Removes only Hermes GO account credentials; legacy Relay/App Token values stay intact. */
     fun clearAccountSession()
     /** Atomically records whether an unexpected invalidation must block silent legacy fallback. */
-    fun clearAccountSession(requireReauthentication: Boolean) {
+    fun clearAccountSession(requireReauthentication: Boolean): Unit =
+        clearAccountSession(requireReauthentication, reason = null)
+
+    /**
+     * [reason] is the `HR-*` code that ended the session, recorded only when the SERVER ended it.
+     * An explicit sign-out leaves it null, and that absence is the whole signal the sign-in page
+     * uses to decide whether to explain itself: nobody wants to be told why they were logged out
+     * when they are the one who tapped "sign out".
+     */
+    fun clearAccountSession(requireReauthentication: Boolean, reason: String?) {
         clearAccountSession()
-        setAccountReauthenticationRequired(requireReauthentication)
+        setAccountReauthenticationRequired(requireReauthentication, reason)
     }
     fun accountReauthenticationRequired(): Boolean = false
-    fun setAccountReauthenticationRequired(required: Boolean) = Unit
+
+    /** The `HR-*` code recorded by [clearAccountSession]; null after an explicit sign-out. */
+    fun accountReauthenticationReason(): String? = null
+    fun setAccountReauthenticationRequired(required: Boolean): Unit =
+        setAccountReauthenticationRequired(required, reason = null)
+    fun setAccountReauthenticationRequired(required: Boolean, reason: String?) = Unit
     /** True only after the user explicitly enters the compatibility connection flow. */
     fun explicitLegacyConnectionSelected(): Boolean = false
     fun setExplicitLegacyConnectionSelected(selected: Boolean) = Unit

@@ -188,19 +188,28 @@ and navigation regression that could pass JVM tests while making every pushed sc
 7. **Connection-test race.** Start a connection test, edit the URL or token before it completes, and
    confirm the obsolete result is discarded. While a test is active, Test and Save stay disabled.
 
-## Model selector smoke test (2026-08 collapsible groups + current-model visibility)
+## Model selector smoke test (2026-09-12 Stitch 基线-模型选择 重做)
 
-JVM unit tests cover the grouping/collapse logic, override tracking, and error codes; these flows
-still need a device or emulator against a running Gateway/Connector. All of them are pending device
-verification for the current iteration.
+JVM unit tests cover the grouping/collapse logic, the recents ordering, override tracking and error
+codes, and seven Roborazzi goldens cover the light/dark/switching/bare/failed/large-type looks
+(`app/screenshots/model-select*.png`). What is below still needs a device or an emulator against a
+running Gateway/Connector, and all of it is pending device verification for the current iteration —
+the 2026-09-11 attempt could not reach a Relay from either phone, so no model catalogue loaded.
 
-1. **Default open state.** In a chat, tap the model chip. The sheet must open with the current-model
-   summary strip on top, favorites pinned open, the current model's group expanded with the row
-   highlighted (check mark + scrolled into view), and every other group collapsed to a single
-   "name + count" line.
-2. **Collapse and search.** Toggle a few group headers, then type a query: every group with matches
-   must auto-expand and show its hit count; clearing the query (× button) must restore the previous
-   collapse state.
+1. **Default open state.** In a chat, tap the model chip. The sheet must open on: the status card
+   (6dp blue stripe, model name, 「当前使用」 pill, `提供商 · 跟随默认`/`此对话覆盖` subline,
+   推理强度 dropdown row), the 快捷切换 chip row, then the 收藏模型 card and one card per provider.
+   The current model's row is filled and ringed in blue with NO check mark — the highlight is the
+   check mark. The current model's provider card is expanded; the others are collapsed to a
+   「name + N 项 + chevron」 bar. There is **no search box** — it was removed on 2026-09-12.
+2. **Collapse.** Toggle a few provider cards: a collapsed card keeps its bar and its 「N 项」 count
+   and drops its rows. Favourites never collapse. Leave and re-enter the sheet: collapse state is
+   per-visit (`rememberSaveable`), not persisted across launches.
+2b. **快捷切换 (new 2026-09-12).** Switch models three or four times, then reopen the sheet: the chip
+   row lists the most recent five, newest first, with no duplicates. Tap one — while the switch is
+   in flight that chip rings blue and spins, every other chip dims and goes inert, the title says
+   「正在切换至 X」, the target row in the list shows 「切换中…」 and the row that was in force shows
+   「前次生效」. The chip for the model already in force is present but not tappable.
 3. **Session override loop.** Switch the model with scope 此对话. The chip stays in its plain
    style (name + caret — no tag, no tonal background); reopen the sheet and confirm the summary
    strip reads 此对话覆盖 with a 恢复默认 action. Tap 恢复默认: the session returns to the default
@@ -227,13 +236,19 @@ verification for the current iteration.
    automatically. After changing the default in Settings › Models, the chat sheet's 当前 markers
    must reflect it without a manual reload.
 9. **Manual refresh (2026-09).** Add/remove a model upstream, then tap the refresh icon in the
-   sheet's title row (or the 设置 › 模型 top bar): the list must update and the icon must show a
-   spinner while fetching. Offline, the tap is a silent no-op (no crash, no error toast).
-10. **Reasoning effort (2026-09).** In the sheet, expand 推理强度: the 思考 toggle and seven level
-   chips must reflect the session's effective level (`config.get key=reasoning`). Pick a level:
+   sheet's title row (or the 设置 › 模型 top bar): the list must update and the icon must be
+   replaced in place by the **working ring** (`RunSpinner` — a blue arc over a faint full circle),
+   NOT the brand H mark. Same ring on the row and chip being switched to. The brand mark is only
+   correct on the first-load 「正在加载模型列表…」 state, where the sheet is otherwise empty.
+   Offline, the tap is a silent no-op (no crash, no error toast).
+10. **Reasoning effort (dropdown since 2026-09-12).** In the status card, open the 推理强度
+   dropdown: it lists 关 plus the seven levels, with the session's effective level
+   (`config.get key=reasoning`) marked and the scope note 「仅当前对话；该模型的选择会被记住」
+   at the foot of the menu. 关 is the upstream `none` level — there is no separate 思考 toggle
+   any more. Pick a level:
    the chip suffix in the composer updates (e.g. `fable-5 · 高`), and the choice is remembered for
    that model — switch to another model and back, and the remembered level is re-applied to the
-   session (row suffixes in the list show each model's memory). Turning 思考 off maps to `none`;
+   session (each row shows its remembered level as a small badge beside the name). Turning 思考 off maps to `none`;
    a failed change must roll back and show HR-RPC-006 in the sheet. The upstream `config.get/set
    {key:"reasoning"}` RPC has NOT yet been verified against a live Hermes from this app.
 
@@ -386,9 +401,15 @@ need a phone with a working Relay connection.
    somewhere: the diagnostic contains the code and no token. Restore the network and tap 重试:
    results appear.
 4. Tap a message hit: the chat opens with the search bar in the top bar's place, the query filled,
-   the counter at 1/N, the first hit's turn outlined and the matching words marked inside the
-   text (Markdown body, user bubble). Tap ↓ repeatedly: the counter advances and the outlined turn
-   follows. When a hit is inside 查看思考过程 or a tool card, that card opens by itself.
+   the counter at 1/N, and the matching words marked inside the text (Markdown body, user bubble).
+   The turn itself carries NO outline, fill or shadow (HG-46) — the marks are the only marking.
+   Tap ↓ repeatedly: the counter advances, the transcript follows, and within a turn that has
+   several marks the solid brand-coloured one moves from mark to mark (HG-45). A hit is never
+   inside 查看思考过程 or a tool card: those are out of the search scope and draw no marks.
+4a. With the search bar open, the message composer at the bottom is gone (HG-46) and the transcript
+   still sits above the keyboard rather than under it; the 「内容由 AI 生成」 footer goes with it.
+   Type a draft first, then open search, then close it: the composer comes back with the draft
+   intact. Neither the turn-jump pill nor the 回到最新消息 button appears while search is open.
 5. In a chat, search for a word that does not occur: the bar reads 此会话中没有匹配 with
    在全部会话中搜索; tap it and confirm the search screen opens with the query filled and the
    message search running by itself.

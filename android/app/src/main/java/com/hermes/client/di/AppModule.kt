@@ -288,6 +288,7 @@ object AppModule {
         scope: CoroutineScope,
         profiles: com.hermes.client.data.repository.ProfileManager,
         readStore: com.hermes.client.data.repository.SessionReadStore,
+        phaseStore: com.hermes.client.data.repository.SessionPhaseStore,
         sessions: SessionRepository,
         media: com.hermes.client.data.repository.ChatMediaRepository,
         accountSessions: AccountSessionManager,
@@ -297,6 +298,7 @@ object AppModule {
             scope,
             profiles,
             readStore,
+            phaseStore,
             sessions,
             media,
             accountSessions = accountSessions,
@@ -305,10 +307,41 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideSessionPhaseStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.SessionPhaseStore =
+        com.hermes.client.data.repository.SessionPhaseStore(context)
+
+    @Provides
+    @Singleton
     fun provideSessionReadStore(
         @ApplicationContext context: Context,
     ): com.hermes.client.data.repository.SessionReadStore =
         com.hermes.client.data.repository.SessionReadStore(context)
+
+    @Provides
+    @Singleton
+    fun provideDraftStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.DraftStore =
+        com.hermes.client.data.repository.DraftStore(context)
+
+    @Provides
+    fun provideDraftSnapshot(
+        store: com.hermes.client.data.repository.DraftStore,
+    ): com.hermes.client.data.repository.DraftSnapshot = store
+
+    @Provides
+    @Singleton
+    fun provideUnsentStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.UnsentStore =
+        com.hermes.client.data.repository.UnsentStore(context)
+
+    @Provides
+    fun provideUnsentSnapshot(
+        store: com.hermes.client.data.repository.UnsentStore,
+    ): com.hermes.client.data.repository.UnsentSnapshot = store
 
     @Provides
     @Singleton
@@ -407,6 +440,13 @@ object AppModule {
         @ApplicationContext context: Context,
     ): com.hermes.client.data.repository.ModelFavoritesStore =
         com.hermes.client.data.repository.ModelFavoritesStore(context)
+
+    @Provides
+    @Singleton
+    fun provideModelRecentsStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.ModelRecentsStore =
+        com.hermes.client.data.repository.ModelRecentsStore(context)
 
     @Provides
     @Singleton

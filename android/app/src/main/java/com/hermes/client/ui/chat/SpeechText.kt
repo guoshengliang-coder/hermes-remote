@@ -27,11 +27,19 @@ fun speechText(raw: String): String {
     // Heading markers at line start.
     s = HEADING_REGEX.replace(s, "")
     // Emphasis markers ** * __ _ (leave apostrophes/words intact).
-    s = s.replace("**", "").replace("__", "")
-    s = EMPHASIS_LEADING_REGEX.replace(s, "")
-    s = EMPHASIS_TRAILING_REGEX.replace(s, "")
+    s = stripEmphasisMarkers(s)
     // Collapse whitespace runs and trim.
     s = SPACES_REGEX.replace(s, " ")
     s = BLANK_LINES_REGEX.replace(s, "\n").trim()
     return s
+}
+
+/**
+ * Strip `**`, `__` and the single `*`/`_` that bound a word, leaving `snake_case` and apostrophes
+ * alone. Shared with [readableText] so the two text transforms can't drift apart on emphasis.
+ */
+internal fun stripEmphasisMarkers(raw: String): String {
+    var s = raw.replace("**", "").replace("__", "")
+    s = EMPHASIS_LEADING_REGEX.replace(s, "")
+    return EMPHASIS_TRAILING_REGEX.replace(s, "")
 }

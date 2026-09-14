@@ -37,15 +37,14 @@ fun SettingsScreen(
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {
             Entry(localized(language, "Hermes GO 账号", "Hermes GO account"), localized(language, "邮箱登录与这台手机的会话", "Email sign-in and this phone's session")) { onNavigate("settings_account") }
             HorizontalDivider()
-            Entry(localized(language, "外观", "Appearance"), localized(language, "主题、明暗模式和工具调用显示", "Theme, light/dark, tool-call display")) { onNavigate("settings_appearance") }
-            HorizontalDivider()
             Entry(localized(language, "语言", "Language"), localized(language, "跟随系统、简体中文或 English", "Follow the system, Simplified Chinese or English")) { onNavigate("settings_language") }
             HorizontalDivider()
             Entry(localized(language, "通知", "Notifications"), localized(language, "审批、定时任务和消息提醒", "Approvals, cron, and messaging alerts")) { onNavigate("settings_notifications") }
             HorizontalDivider()
             Entry(localized(language, "记忆与预算", "Memory & budgets"), localized(language, "记忆、用户资料和默认模型", "Memory, user profile & default model")) { onNavigate("settings_memory") }
-            HorizontalDivider()
-            Entry(localized(language, "常用提示", "Saved prompts"), localized(language, "在输入框中复用的提示词", "Reusable prompts for the composer")) { onNavigate("settings_prompts") }
+            // Moved here from the card page on 2026-09-11: the drawer's stats card became the
+            // single 远程节点 card, so the usage page needed a home (docs/DESIGN.md §5.1, §5.14).
+            Entry(localized(language, "用量", "Usage"), localized(language, "本周 token、模型占比与定时任务", "Weekly tokens, model mix and scheduled jobs")) { onNavigate("usage") }
             HorizontalDivider()
             Entry(localized(language, "消息渠道", "Messaging"), localized(language, "Telegram 等渠道的接入与开关", "Connect and toggle messaging platforms")) { onNavigate("messaging") }
             HorizontalDivider()
@@ -57,6 +56,9 @@ fun SettingsScreen(
             HorizontalDivider()
             Entry(localized(language, "诊断", "Diagnostics"), localized(language, "生成可分享的调试日志以排查错误", "Capture a shareable debug log to troubleshoot errors")) { onNavigate("settings_diagnostics") }
             HorizontalDivider()
+            // TUNING-TEMP: the session-list tuning panel used to sit here, between 诊断 and 关于.
+            // It moved under 诊断 → 组件展廊 (HG-53): a spike panel is a diagnostic, not a setting,
+            // and the top level of this page should only carry things a user is meant to change.
             Entry(localized(language, "关于", "About"), localized(language, "应用与网关版本", "App and gateway version")) { onNavigate("settings_about") }
         }
     }

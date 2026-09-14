@@ -30,6 +30,31 @@ public struct DesktopMigrationOutcome: Equatable, Sendable {
 }
 
 public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @unchecked Sendable {
+    private enum ReleaseCandidate {
+        case bundled(
+            manifest: DesktopReleaseManifest,
+            sources: [DesktopManagedReleaseSource]
+        )
+        case components(
+            manifest: DesktopComponentReleaseManifestV2,
+            activationPlan: DesktopComponentReleaseActivationPlan
+        )
+
+        var releaseVersion: String {
+            switch self {
+            case .bundled(let manifest, _): manifest.releaseVersion
+            case .components(let manifest, _): manifest.releaseVersion
+            }
+        }
+
+        var releaseLayout: DesktopManagedReleaseLayoutKind {
+            switch self {
+            case .bundled: .bundledRelease
+            case .components: .componentStore
+            }
+        }
+    }
+
     private let account: any DesktopBindingCoordinating
     private let journal: DesktopMigrationJournalStore
     private let installer: DesktopManagedInstaller
@@ -73,7 +98,47 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         runID: String,
         confirmation: String
     ) async throws -> DesktopMigrationOutcome {
-        guard confirmation == Self.confirmationText(releaseVersion: manifest.releaseVersion) else {
+        try await migrate(
+            candidate: .bundled(manifest: manifest, sources: sources),
+            hermesLaunchAgentConfiguration: hermesLaunchAgentConfiguration,
+            launchAgentConfiguration: launchAgentConfiguration,
+            legacy: legacy,
+            runID: runID,
+            confirmation: confirmation
+        )
+    }
+
+    public func migrateComponentRelease(
+        manifest: DesktopComponentReleaseManifestV2,
+        activationPlan: DesktopComponentReleaseActivationPlan,
+        hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
+        launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
+        legacy: LegacyConnectorSnapshot,
+        runID: String,
+        confirmation: String
+    ) async throws -> DesktopMigrationOutcome {
+        guard Self.validComponentCandidate(manifest: manifest, activationPlan: activationPlan) else {
+            throw DesktopComponentReleaseActivationError.invalidManifest
+        }
+        return try await migrate(
+            candidate: .components(manifest: manifest, activationPlan: activationPlan),
+            hermesLaunchAgentConfiguration: hermesLaunchAgentConfiguration,
+            launchAgentConfiguration: launchAgentConfiguration,
+            legacy: legacy,
+            runID: runID,
+            confirmation: confirmation
+        )
+    }
+
+    private func migrate(
+        candidate: ReleaseCandidate,
+        hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
+        launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
+        legacy: LegacyConnectorSnapshot,
+        runID: String,
+        confirmation: String
+    ) async throws -> DesktopMigrationOutcome {
+        guard confirmation == Self.confirmationText(releaseVersion: candidate.releaseVersion) else {
             throw DesktopMigrationCoordinatorError.confirmationRequired
         }
         let operationLease = try journal.acquireOperationLease()
@@ -100,26 +165,51 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         _ = try journal.begin(
             runID: runID,
             lastKnownGoodMode: lastKnownGood,
-            releaseVersion: manifest.releaseVersion,
+            releaseVersion: candidate.releaseVersion,
+            releaseLayout: candidate.releaseLayout,
             bindingID: target.id,
             bindingGeneration: target.generation
         )
         var activation: DesktopReleaseActivation?
         do {
-            _ = try installer.stageRelease(manifest: manifest, runID: runID, sources: sources)
+            switch candidate {
+            case .bundled(let manifest, let sources):
+                _ = try installer.stageRelease(manifest: manifest, runID: runID, sources: sources)
+            case .components:
+                break
+            }
             _ = try installer.writeCredential(preparation.credential)
             _ = try installer.ensureHermesSessionToken()
-            let hermesLaunchAgentURL = try installer.writeHermesLaunchAgent(
-                hermesLaunchAgentConfiguration,
-                manifest: manifest
-            )
-            let accountLaunchAgentURL = try installer.writeLaunchAgent(
-                launchAgentConfiguration,
-                manifest: manifest
-            )
+            let hermesLaunchAgentURL: URL
+            let accountLaunchAgentURL: URL
+            switch candidate {
+            case .bundled(let manifest, _):
+                hermesLaunchAgentURL = try installer.writeHermesLaunchAgent(
+                    hermesLaunchAgentConfiguration,
+                    manifest: manifest
+                )
+                accountLaunchAgentURL = try installer.writeLaunchAgent(
+                    launchAgentConfiguration,
+                    manifest: manifest
+                )
+            case .components(_, let activationPlan):
+                hermesLaunchAgentURL = try installer.writeHermesLaunchAgent(
+                    hermesLaunchAgentConfiguration,
+                    activationPlan: activationPlan
+                )
+                accountLaunchAgentURL = try installer.writeLaunchAgent(
+                    launchAgentConfiguration,
+                    activationPlan: activationPlan
+                )
+            }
             _ = try journal.transition(runID: runID, to: .accountStaged)
             _ = try journal.transition(runID: runID, to: .candidateStarting)
-            activation = try installer.activate(releaseVersion: manifest.releaseVersion, runID: runID)
+            if case .bundled = candidate {
+                activation = try installer.activate(
+                    releaseVersion: candidate.releaseVersion,
+                    runID: runID
+                )
+            }
             let hermesCheckpoint = try hermesReadiness.checkpoint(
                 logURL: hermesLaunchAgentConfiguration.standardOutput
             )
@@ -131,13 +221,20 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 maximumAttempts: maximumHealthPolls,
                 delayNanoseconds: healthPollDelayNanoseconds
             ) else { throw DesktopMigrationCoordinatorError.hermesHealthTimedOut }
+            let committedHealthCheckpoint = target.isAlreadyBound
+                ? try await captureBoundHealthCheckpoint(
+                    bindingID: target.id,
+                    generation: target.generation
+                )
+                : nil
             try launchAgent.startAccount(plistURL: accountLaunchAgentURL)
 
             if target.isAlreadyBound {
                 try await waitForCommittedBinding(
                     bindingID: target.id,
                     generation: target.generation,
-                    runID: runID
+                    runID: runID,
+                    healthNewerThan: committedHealthCheckpoint
                 )
             } else {
                 try await waitForCandidate(
@@ -149,7 +246,14 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             _ = try journal.transition(runID: runID, to: .commitPending)
             if target.isAlreadyBound {
                 let reconciled = try await account.refresh()
-                guard isCommitted(reconciled, bindingID: target.id, generation: target.generation) else {
+                guard isCommitted(reconciled, bindingID: target.id, generation: target.generation),
+                      hasFreshCloudHealth(
+                          reconciled,
+                          bindingID: target.id,
+                          generation: target.generation,
+                          newerThan: committedHealthCheckpoint
+                      )
+                else {
                     throw DesktopMigrationCoordinatorError.commitAmbiguous
                 }
             } else {
@@ -169,10 +273,17 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 }
             }
             _ = try journal.transition(runID: runID, to: .accountActive)
-            try installer.commitHermesSessionTokenFileMigration()
+            switch candidate {
+            case .bundled:
+                try installer.commitHermesSessionTokenFileMigration()
+            case .components(_, let activationPlan):
+                try installer.commitHermesSessionTokenFileMigration(
+                    activationPlan: activationPlan
+                )
+            }
             return DesktopMigrationOutcome(
                 runID: UUID(uuidString: runID)!.uuidString.lowercased(),
-                releaseVersion: manifest.releaseVersion,
+                releaseVersion: candidate.releaseVersion,
                 bindingID: target.id,
                 bindingGeneration: target.generation
             )
@@ -241,7 +352,9 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 let services = try launchAgent.inspect()
                 if services.accountLoaded { try launchAgent.stopAccount() }
                 if services.hermesLoaded { try launchAgent.stopHermes() }
-                try installer.deactivateExpectedRelease(recorded.releaseVersion)
+                if recorded.releaseLayout == .bundledRelease {
+                    try installer.deactivateExpectedRelease(recorded.releaseVersion)
+                }
                 if recorded.lastKnownGoodMode == .legacy {
                     let current = try launchAgent.inspect()
                     if !current.legacyLoaded { try launchAgent.restoreLegacy(snapshot: legacy) }
@@ -290,6 +403,9 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
               let previewBindingID = preview.bindingID,
               let previewGeneration = preview.bindingGeneration
         else { return false }
+        guard Self.supportsSessionTokenFile(releaseVersion: preview.releaseVersion) else {
+            return false
+        }
         let operationLease = try journal.acquireOperationLease()
         defer { withExtendedLifetime(operationLease) {} }
         guard let recorded = try journal.load(),
@@ -327,10 +443,15 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 maximumAttempts: maximumHealthPolls,
                 delayNanoseconds: healthPollDelayNanoseconds
             ) else { throw DesktopMigrationCoordinatorError.hermesHealthTimedOut }
+            let cloudHealthCheckpoint = try await captureBoundHealthCheckpoint(
+                bindingID: previewBindingID,
+                generation: previewGeneration
+            )
             try launchAgent.startAccount(plistURL: migration.connectorLaunchAgentURL)
             try await waitForExistingCommittedBinding(
                 bindingID: previewBindingID,
-                generation: previewGeneration
+                generation: previewGeneration,
+                healthNewerThan: cloudHealthCheckpoint
             )
             try installer.commitHermesSessionTokenFileMigration()
             return true
@@ -375,7 +496,8 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
     private func waitForCommittedBinding(
         bindingID: String,
         generation: Int,
-        runID: String
+        runID: String,
+        healthNewerThan checkpoint: Date?
     ) async throws {
         for attempt in 0..<maximumHealthPolls {
             let state = try await account.refresh()
@@ -385,7 +507,13 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                   binding.id == bindingID,
                   binding.generation == generation
             else { throw DesktopMigrationCoordinatorError.invalidBindingState }
-            if isCommitted(state, bindingID: bindingID, generation: generation) {
+            if isCommitted(state, bindingID: bindingID, generation: generation),
+               hasFreshCloudHealth(
+                   state,
+                   bindingID: bindingID,
+                   generation: generation,
+                   newerThan: checkpoint
+               ) {
                 _ = try journal.transition(runID: runID, to: .candidateAuthenticated)
                 _ = try journal.transition(runID: runID, to: .candidateHealthy)
                 return
@@ -397,13 +525,23 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         throw DesktopMigrationCoordinatorError.healthTimedOut
     }
 
-    private func waitForExistingCommittedBinding(bindingID: String, generation: Int) async throws {
+    private func waitForExistingCommittedBinding(
+        bindingID: String,
+        generation: Int,
+        healthNewerThan checkpoint: Date?
+    ) async throws {
         for attempt in 0..<maximumHealthPolls {
             let state = try await account.refresh()
             guard hasExactBoundBinding(state, bindingID: bindingID, generation: generation) else {
                 throw DesktopMigrationCoordinatorError.invalidBindingState
             }
-            if isCommitted(state, bindingID: bindingID, generation: generation) { return }
+            if isCommitted(state, bindingID: bindingID, generation: generation),
+               hasFreshCloudHealth(
+                   state,
+                   bindingID: bindingID,
+                   generation: generation,
+                   newerThan: checkpoint
+               ) { return }
             if attempt + 1 < maximumHealthPolls, healthPollDelayNanoseconds > 0 {
                 try await Task.sleep(nanoseconds: healthPollDelayNanoseconds)
             }
@@ -433,8 +571,16 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             maximumAttempts: maximumHealthPolls,
             delayNanoseconds: healthPollDelayNanoseconds
         ) else { throw DesktopMigrationCoordinatorError.hermesHealthTimedOut }
+        let cloudHealthCheckpoint = try await captureBoundHealthCheckpoint(
+            bindingID: bindingID,
+            generation: generation
+        )
         try launchAgent.startAccount(plistURL: migration.connectorLaunchAgentURL)
-        try await waitForExistingCommittedBinding(bindingID: bindingID, generation: generation)
+        try await waitForExistingCommittedBinding(
+            bindingID: bindingID,
+            generation: generation,
+            healthNewerThan: cloudHealthCheckpoint
+        )
     }
 
     private func rollback(
@@ -527,6 +673,85 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             && binding.endToEnd.healthy == true
     }
 
+    private func captureBoundHealthCheckpoint(
+        bindingID: String,
+        generation: Int
+    ) async throws -> Date? {
+        let state = try await account.refresh()
+        guard case .signedIn(let dashboard) = state,
+              dashboard.binding.state == "bound",
+              let binding = dashboard.binding.binding,
+              binding.id == bindingID,
+              binding.generation == generation
+        else { throw DesktopMigrationCoordinatorError.invalidBindingState }
+        guard let checkedAt = binding.endToEnd.checkedAt else { return nil }
+        guard let parsed = Self.parseRFC3339(checkedAt) else {
+            throw DesktopMigrationCoordinatorError.invalidBindingState
+        }
+        return parsed
+    }
+
+    private func hasFreshCloudHealth(
+        _ state: DesktopAccountState,
+        bindingID: String,
+        generation: Int,
+        newerThan checkpoint: Date?
+    ) -> Bool {
+        guard case .signedIn(let dashboard) = state,
+              dashboard.binding.state == "bound",
+              let binding = dashboard.binding.binding,
+              binding.id == bindingID,
+              binding.generation == generation,
+              let checkedAt = binding.endToEnd.checkedAt,
+              let current = Self.parseRFC3339(checkedAt)
+        else { return false }
+        guard let checkpoint else { return true }
+        return current > checkpoint
+    }
+
+    private static func parseRFC3339(_ value: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: value) { return date }
+
+        let wholeSeconds = ISO8601DateFormatter()
+        wholeSeconds.formatOptions = [.withInternetDateTime]
+        return wholeSeconds.date(from: value)
+    }
+
+    private static func supportsSessionTokenFile(releaseVersion: String) -> Bool {
+        // Managed release 0.3.1 is the first immutable package whose Hermes wrapper and Connector
+        // both consume HERMES_SESSION_TOKEN_FILE. Release 0.3.0's Connector accepts only the inline
+        // token, so rewriting its LaunchAgent leaves its Gateway control socket online while every
+        // tunneled local WebSocket fails authentication.
+        let firstSessionTokenFileRelease = [0, 3, 1]
+        let components = releaseVersion.split(separator: ".", omittingEmptySubsequences: false)
+        guard components.count == 3 else { return false }
+        let parsed = components.compactMap { Int($0) }
+        guard parsed.count == 3 else { return false }
+        return parsed.lexicographicallyPrecedes(firstSessionTokenFileRelease) == false
+    }
+
+    private static func validComponentCandidate(
+        manifest: DesktopComponentReleaseManifestV2,
+        activationPlan: DesktopComponentReleaseActivationPlan
+    ) -> Bool {
+        guard DesktopComponentReleaseActivationPlanner.validBootstrapManifest(manifest),
+              activationPlan.releaseVersion == manifest.releaseVersion
+        else { return false }
+
+        let artifacts = manifest.components.filter { $0.installPhase == .bootstrap }
+        guard activationPlan.components.count == artifacts.count else { return false }
+        return artifacts.allSatisfy { artifact in
+            guard let component = activationPlan.component(artifact.kind) else { return false }
+            let expectedEntrypoint = component.root
+                .appendingPathComponent(artifact.entrypoint)
+                .standardizedFileURL
+            return component.contentSHA256 == artifact.contentSHA256
+                && component.entrypoint.standardizedFileURL.path == expectedEntrypoint.path
+        }
+    }
+
     private func hasExactBoundBinding(
         _ state: DesktopAccountState,
         bindingID: String,
@@ -547,3 +772,5 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
     }
 
 }
+
+extension DesktopMigrationCoordinator: DesktopComponentBootstrapMigrating {}

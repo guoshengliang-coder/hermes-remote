@@ -347,3 +347,376 @@ locally. The canonical asset comparison, complete 185-test Desktop suite, releas
 strict ad-hoc codesign verification, and `git diff --check` also passed. Packaged 0.2.5 evidence,
 target-Mac migration, reboot persistence, and post-migration Android traffic remain pending at this
 point; no target service or production setting was changed by this source iteration.
+
+## 2026-09-11 Desktop 0.2.5 physical compatibility failure and rollback
+
+PR #176 merged the pre-contract token migration and PR #178 released Desktop 0.2.5/build 8 after the
+185-test Desktop suite, asset gate, release build, codesign verification, DMG verification, PR checks,
+and post-merge CI/SAST passed. The configured arm64 DMG was independently hash- and image-verified on
+`LGS-MACMINI`, then installed with the prior 0.2.4/build 7 app retained for rollback.
+
+After Keychain access allowed startup recovery to run, Desktop moved the active managed 0.3.0
+installation to `HERMES_SESSION_TOKEN_FILE`, restarted Hermes and Connector, observed new PIDs,
+received authenticated loopback HTTP 200 from Hermes 0.21.0, retained a Connector control connection
+to the Gateway, and wrote the completion marker. Those signals were insufficient: managed release
+0.3.0 contains Connector 0.1.2, which does not consume the file environment variable. Each Android
+WebSocket tunnel therefore reached the Connector but failed its local Hermes upgrade with HTTP 403,
+surfacing `HR-CONN-002`. The Cloud binding health accepted by startup was not required to be newer than
+the Connector restart, so its previous healthy value did not catch the broken per-tunnel path.
+
+The operator stopped Desktop 0.2.5, preserved its app and migrated files in an owner-only recovery
+directory, restored the two inline-token LaunchAgents, restarted Hermes before Connector, and restored
+Desktop 0.2.4/build 7. Authenticated loopback HTTP returned 200, a direct `/api/ws?token=` upgrade
+returned 101, Connector re-established its upstream connection, and the Android client worked again.
+Desktop 0.2.5 is withdrawn and must not be reinstalled. The corrective source refuses token-file
+migration for managed releases older than 0.3.1 before account refresh, file mutation, or service
+restart, and adds 0.3.0 as an explicit regression fixture. A replacement Desktop release remains
+pending its own version gate and physical Android REST/WebSocket acceptance.
+
+## 2026-09-11 Desktop 0.2.6 corrective release and pre-reboot acceptance
+
+PR #180 merged the runtime-release gate as `21d69386feea515c84bfd9b4bd2df771baa396ce` after all
+applicable PR checks passed. PR #181 then released Desktop 0.2.6/build 9 as
+`d76b5af1f13687615c8b353b8ae33fdaa587959e`; its PR checks and resulting `main` CI/SAST workflows
+also completed successfully. From a fresh detached worktree at that exact `origin/main`, the
+canonical asset check, complete 186-test Desktop suite, configured release build, strict ad-hoc
+codesign verification, and `hdiutil verify` passed. The 2,072,466-byte DMG SHA-256 is
+`938a3d15f79db2074dee9c614c32f50b5ea2d4043455b6bff9d46db75a6cc879`.
+
+The verified DMG replaced Desktop 0.2.4 on `LGS-MACMINI`; the prior app remains in an owner-only
+Recovery directory. The installed app reported 0.2.6/build 9 and passed strict codesign verification.
+Before and after launch, the active managed release remained 0.3.0, both LaunchAgent files were
+byte-for-byte unchanged, both retained their historical inline token field, and neither acquired a
+token-file field. The private token file and completion marker remained absent. Managed Hermes PID
+84188 and Connector PID 84446 were unchanged, proving that the new release skipped the incompatible
+startup migration without restarting either service.
+
+An authenticated loopback `/api/status` request returned HTTP 200, a direct authenticated `/api/ws`
+upgrade returned 101, and Connector retained one established upstream TCP connection. After a fresh
+Connector log checkpoint, the operator refreshed Android status and exercised a real session. The
+new log segment contained 16 opened and closed `/api/ws` tunnels, 202 frames to the phone and 98 frames
+from it, with no `tunnel.local_error` or `tunnel.open_failed`. A final comparison again found the same
+LaunchAgent bytes, inline-token layout, absent token files, and unchanged managed PIDs.
+
+This closes the 0.2.6 installation and pre-reboot Android REST/WebSocket gate. The owner deliberately
+deferred the Mac reboot while the host is doing other work. Full acceptance still requires a fresh
+baseline, launchd recovery after that reboot, confirmation that the 0.3.0 inline-token layout remains
+unchanged, and another Android REST/WebSocket exchange with clean tunnel telemetry. This remains an
+internal ad-hoc build and is not approved for public distribution.
+
+## 2026-09-12 managed release 0.3.2 and Desktop 0.2.7 offline candidates
+
+PR #196 merged the HG28 packaging correction in `9c6f3b271f8b999b3192c93f69ac7b113039711d`.
+From a clean detached checkout of `origin/main` at
+`4224188449d63dc42fdaaaaf31284e52cdbbdfde`, the component packager rebuilt Hermes Server 0.21.0
+from upstream `f159e581c7afd22a5c94652c569e3859f1b994d2` and Connector 0.1.3. The signed internal 0.3.2
+candidate passed the independent public-key verifier. Its immutable offline artifacts are:
+
+- manifest: 1,306 bytes, SHA-256
+  `aec0180acac9f7d38744d5efcb901f6e850a201150ecabfe59aa5ce93cbba295`;
+- Hermes Server: 285,058,184 bytes, SHA-256
+  `86c411c17ac9e3fa3f4bdc26c51578a2fb92de959b0881fef258df67bbd88b58`;
+- Connector: 37,056,988 bytes, SHA-256
+  `f2f0faabb50ad21f3cfefb46d1b47fbd3c9dcce8786bb2c68906204fea874758`.
+
+The final Hermes archive was extracted to a new directory and started with an empty environment.
+Its bundled Python imported `tui_gateway.slash_worker` with `PYTHONPATH` absent, proving the exact
+child-process boundary that failed in managed releases 0.3.0 and 0.3.1. The focused packaging and
+relocation suite passed 7 tests, including the pre-fix failure proof and partial-extraction behavior.
+
+Desktop 0.2.7/build 10 is the coordinated app candidate because configured Desktop builds pin an
+immutable manifest URL. The canonical asset check and all 186 Desktop tests passed. Its configured
+app embeds the 0.3.2 manifest URL, `internal` channel, `arm64` architecture, approved key ID, and
+`hermes-serve-v1` contract; strict ad-hoc codesign verification passed. The 2,072,617-byte DMG passed
+`hdiutil verify` and has SHA-256
+`4c4f39462d3183e2137e363f0652a677138b01e40c7bc847be46f5988b4925a4`.
+
+Nothing in this candidate step was uploaded, installed, launched on the target Mac, or deployed.
+Coordinated physical acceptance still needs the managed upgrade plus `/model`, `/compact`, a normal
+prompt, Android REST/WebSocket traffic, rollback, and restart checks. Developer ID signing,
+notarization, stapling, and clean-Mac launch acceptance also remain required for public distribution.
+
+## 2026-09-12 managed release 0.3.2 publication
+
+After PR #197 merged Desktop 0.2.7/build 10 as
+`21f810f03c06f0fd80db2f08fcf5b3decdc15877` and both post-merge CI and SAST passed, the owner
+authorized publication of managed release 0.3.2. The three previously verified candidate files were
+uploaded to an owner-only staging directory on the HK host, re-hashed there, installed as root-owned
+mode-0644 files under a new mode-0755 `/srv/hermes-desktop-releases/0.3.2` directory, and exposed only
+through three exact GET/HEAD Nginx locations. The route file was replaced only after its previous hash
+matched the audited value; `nginx -t` passed, reload completed, and Nginx remained active.
+
+All three immutable HTTPS URLs returned HTTP 200 with the declared content lengths, JSON/gzip content
+types, one-year immutable cache policy, and `nosniff`. A full public re-download reproduced the exact
+candidate sizes and SHA-256 hashes recorded above, and the independent Ed25519 verifier accepted the
+downloaded manifest plus both downloaded archives. The 0.3.0 and 0.3.1 manifests remained available,
+and the 0.3.2 directory itself returned 404 instead of exposing a listing. The Relay health endpoint
+continued to respond successfully after the Nginx reload. Temporary upload and route-backup files were
+removed after verification.
+
+This publication did not install Desktop 0.2.7, switch the target Mac from managed release 0.3.0,
+restart either managed service, or perform the deferred physical acceptance. Those steps remain gated
+on the Mac becoming available.
+
+## 2026-09-12 managed release 0.3.2 historical-token failure
+
+Desktop 0.2.7/build 10 was installed on `LGS-MACMINI` after its DMG size, SHA-256, image, embedded
+0.3.2 configuration, and strict ad-hoc signature were rechecked. The previous 0.2.6 app was retained
+in an owner-only recovery directory. Starting 0.2.7 preserved the running 0.3.0 Hermes and Connector
+PIDs, and the account view again reported the existing managed connection as active after the two
+distinct Keychain items were authorized.
+
+The independently verified 0.3.2 components were staged and activated with an owner-only snapshot of
+the 0.3.0 journal, LaunchAgents, and current target. The new Hermes and Connector started successfully
+with the preserved inline token; authenticated loopback `/api/status` returned HTTP 200/version
+0.21.0/status `ok`, and Connector re-established its TLS connection. On the next Desktop launch, the
+intended token-file migration wrote the existing valid 64-character lowercase-hex token to a private
+regular file and updated both LaunchAgents. The packaged Hermes reader accepted only the 43-character
+base64url format, exited 78 with its fixed invalid-token diagnostic, and never reached readiness.
+Desktop then restored both exact inline LaunchAgents and restarted healthy 0.3.2 services. No mixed
+or dead service state was accepted.
+
+The component packager now generates a reader matching Desktop and Connector: 43-character base64url
+and historical 64-character lowercase hex are both accepted, while wrong formats and non-private
+files still exit 78. A corrected signed managed release, repeated token-file migration, slash-command
+checks, Android traffic, and restart recovery remain required before physical acceptance.
+
+## 2026-09-12 managed release 0.3.3 corrective offline candidate
+
+PR #208 merged the historical-token correction in
+`9f66ac43f8caeacd99b48020d47c43ce6f9a3ba9`; both post-merge CI and SAST passed. From a clean detached
+worktree at that exact `origin/main`, the component packager rebuilt Hermes Server 0.21.0 from upstream
+`f159e581c7afd22a5c94652c569e3859f1b994d2` and Connector 0.1.3. The signed internal 0.3.3 candidate
+passed the independent public-key verifier. Its immutable offline artifacts are:
+
+- manifest: SHA-256 `bdab78aa751808a100ccc7096abd8c1639e65c959cf04cc2988948fe629d3042`;
+- Hermes Server: 285,055,469 bytes, SHA-256
+  `caa4650dacae1c8d6c4d194cc9c114ca08cdb0aac903d7fd54ebde4157c2a63c`;
+- Connector: 37,056,989 bytes, SHA-256
+  `e4434a00c0ed19c4a07cffd7bc0e88fe01943183a627dc40f40ac803f89ce3c2`.
+
+The final Hermes archive was extracted to a new directory. Its actual bundled Python reader returned
+the exact 64-character lowercase-hex fixture from a mode-0600 token file, while an uppercase
+64-character value produced no stdout, the fixed safe diagnostic, and exit status 78. Desktop
+0.2.8/build 11 is the coordinated app candidate because the configured app must pin the immutable
+0.3.3 manifest URL. The canonical asset check and all 186 Desktop tests passed. The configured app
+inside the final DMG embeds version/build 0.2.8/11, enabled bootstrap, the 0.3.3 manifest URL,
+`internal` channel, `arm64` architecture, approved key ID and public key, and `hermes-serve-v1`.
+Strict ad-hoc codesign verification passed after mounting the final image. The final clean-main
+2,072,628-byte DMG passed `hdiutil verify` and has SHA-256
+`85446f008ab47ca5c74eb8061d94a8b35fcd3384f57383a844cc2a4d34ba4d65`.
+
+The three 0.3.3 files were published beneath the immutable public `/desktop/releases/0.3.3/` route.
+All public objects returned HTTP 200, exact lengths, expected content types, immutable cache headers,
+and `nosniff`; a full public re-download reproduced the hashes above and passed the independent
+Ed25519 verifier. The route directory returned 404, 0.3.2 remained available, and `/relay-health`
+remained healthy after the Nginx reload.
+
+Desktop 0.2.8/build 11 and the publicly downloaded 0.3.3 components were then installed on
+`LGS-MACMINI` with owner-only recovery snapshots. Both services first started successfully with the
+existing inline token. Desktop wrote that valid 64-character lowercase-hex token to the private file
+and restarted in file mode. The corrected packaged Hermes reader stayed healthy, but the packaged
+Connector's TypeScript reader still accepted only the 43-character base64url form, exited with
+`Hermes session token file is malformed`, and never established its control connection. Desktop did
+not commit the migration: it restored both exact inline LaunchAgents, removed the token file, and
+restarted healthy 0.3.3 Hermes and Connector services. The overview returned to `工作正常`; neither a
+mixed state nor a false success was retained.
+
+The Connector reader now has its own regression coverage for both canonical token formats and for
+rejecting an uppercase 64-character value. A new immutable managed component release and coordinated
+Desktop build are required before repeating physical token migration. Slash-command, Android traffic,
+and restart gates remain open; this ad-hoc app has not passed Developer ID signing, notarization,
+stapling, or clean-Mac launch.
+
+## 2026-09-12 managed release 0.3.4 and Desktop 0.2.9 corrective candidates
+
+PR #215 merged the Connector historical-token correction as
+`c4142804a95898a6de3f44f04455175ab8d66bc2`; every applicable PR check and the post-merge CI, SAST,
+and Gateway OCI workflows passed. From a clean detached worktree whose `HEAD` exactly matched that
+`origin/main`, component packaging rebuilt Hermes Server 0.21.0 and Connector 0.1.3 and executed the
+staged Connector reader against both accepted token formats plus an uppercase-hex rejection before
+creating the archives. The signed internal 0.3.4 candidate then passed the independent public-key
+verifier. Its immutable offline artifacts are:
+
+- manifest: SHA-256 `19c6365932032b8efde20c94c4bcef04b224199d88ca3cca48e8a6b96ebf9348`;
+- Hermes Server: 285,054,389 bytes, SHA-256
+  `8ae357d78a7836a0680125f7e241243af1555418d9d2e12e68433b5ff1f0ca44`;
+- Connector: 37,057,047 bytes, SHA-256
+  `29151d0359f2548baa58e15227320c49cf6ab8ae8dbcc0a823469987c64c4ca7`.
+
+The final Connector archive was separately extracted. Its actual JavaScript reader returned the exact
+43-character base64url and 64-character lowercase-hex fixtures from private files, rejected the
+uppercase 64-character fixture, and carried the exact 0.1.3/arm64/source-commit identity. Desktop
+0.2.9/build 12 is the coordinated app candidate because the configured app must pin the immutable
+0.3.4 manifest URL. The canonical asset check and all 186 Desktop tests passed. The configured app
+inside the candidate DMG embeds version/build 0.2.9/12, enabled bootstrap, the 0.3.4 manifest URL,
+`internal` channel, `arm64` architecture, approved key ID and public key, and `hermes-serve-v1`.
+Strict ad-hoc codesign and `hdiutil verify` passed. The 2,072,632-byte candidate DMG has SHA-256
+`c09fe717450bfe63b6d8407e8982cdd0130bf8f85e5b3c84318d9e927a123e2f`.
+
+Neither 0.3.4 nor 0.2.9 has been published, installed, or activated. A final DMG must be rebuilt from
+the clean merge commit before handoff. Production publication and the repeated physical token
+migration remain separate gates; slash-command, Android traffic, service restart, and deferred full
+Mac reboot checks remain open. This ad-hoc app has not passed Developer ID signing, notarization,
+stapling, or clean-Mac launch.
+
+## 2026-09-12 managed release 0.3.4 publication and Desktop 0.2.9 activation
+
+PR #216 merged the coordinated Desktop 0.2.9/build 12 version gate as
+`996df9cf184bff92888a963132bad64e32a8761b`; every PR check and the resulting main CI and SAST
+workflows passed. A fresh detached worktree at that exact `origin/main` rebuilt the configured DMG.
+The mounted app carried version/build 0.2.9/12 and the expected enabled 0.3.4 internal manifest,
+architecture, key, origin, channel, and Hermes launch-contract settings. Strict ad-hoc codesign and
+`hdiutil verify` passed. The final 2,072,633-byte DMG SHA-256 is
+`0f788e517633bf43d69bca57b5dccb5d526257ced9759218aa89d173c363aa8d`.
+
+The three signed 0.3.4 files were published beneath the immutable public
+`/desktop/releases/0.3.4/` route. The active Nginx route passed syntax checking and reload. Every
+public object returned HTTP 200 with its declared length, expected content type, immutable cache
+header, and `nosniff`; the route directory returned 404 and the 0.3.3 manifest remained available.
+Full public HTTPS downloads reproduced all three hashes recorded above and passed the independent
+Ed25519 verifier. `/relay-health` remained healthy after the reload.
+The temporary upload directory and pre-0.3.4 route backup were removed after these checks.
+
+Those public artifacts and the final DMG were installed on `LGS-MACMINI` with owner-only recovery
+snapshots. The managed release pointer moved atomically from 0.3.3 to 0.3.4. Desktop then completed
+the pre-contract migration: the existing 64-character lowercase-hex session token is held only in
+the owner-only regular token file, both owner-only LaunchAgents refer to that file and contain no
+inline session-token variable, and the owner-only completion marker contains version `1`. The
+migration journal remains `account_active`; both managed labels run, the legacy Connector label is
+unloaded, authenticated loopback `/api/status` returns HTTP 200 from Hermes 0.21.0, and Connector
+reports an active account-mode Gateway connection.
+
+A live Desktop inspection after Keychain authorization showed 0.2.9-dev, `账号已登录 工作正常`, and
+`托管版本 0.3.4 已接管后台连接`. An ordered service recovery check then restarted Hermes before
+Connector. Both PIDs changed, authenticated loopback health returned HTTP 200 before and after the
+restart, Connector re-established an upstream TLS socket, and the legacy label stayed unloaded. A
+full Mac reboot remains deliberately deferred; it is not implied by this service-restart result.
+
+The attached vivo V2166BA and HONOR CLK-AN00 both ran Android 0.1.121/build 122. Their first cold
+start correctly failed with `HR-CONN-002` because both had been left on the documented development
+loopback address after an earlier dev-stack run and neither retained an account session. This does
+not exercise the production account route. Account login, real `/model`, `/compact`, normal-prompt
+traffic, and the final Android REST/WebSocket evidence remain pending until the operator completes
+email verification on the phones.
+
+This is an internal ad-hoc Desktop build. It is not Developer ID signed, notarized, stapled, or
+approved for public distribution.
+
+## 2026-09-12 post-restart Cloud-health freshness correction
+
+The 0.2.5 incident showed that an established Connector control socket and a previously healthy
+Cloud binding could survive long enough to mask failure in a newly restarted Connector's local
+tunnel path. The coordinator now snapshots the exact binding's server-provided
+`endToEnd.checkedAt` immediately before every already-bound Connector start. Candidate acceptance
+requires the same binding ID and generation to remain healthy with a strictly newer timestamp.
+Rollback of a token-file migration follows the same rule before the restored configuration is
+declared healthy.
+
+The regression fixture holds all health booleans true while returning the old timestamp through the
+candidate polling window. The candidate times out, both original inline LaunchAgent files are
+restored byte-for-byte, Hermes and Connector restart in order, and rollback completes only when a
+new Cloud timestamp appears. The focused 19-test migration-coordinator suite passed. This source
+correction also passed the canonical asset check, all 187 Desktop tests, and the release app build.
+It does not allocate a Desktop version, publish an artifact, install an app, or deploy a service;
+those remain separate release gates.
+
+## 2026-09-13 Desktop 0.2.10 release candidate
+
+Desktop 0.2.10/build 13 allocates the internal app version for the post-restart Cloud-health
+freshness correction merged in PR #230. Managed release 0.3.4 remains unchanged and already
+published; this Desktop update changes no component archive, Gateway setting, account binding, or
+managed service configuration.
+
+The release branch passed the canonical asset comparison, all 187 Desktop tests, the focused
+19-test migration-coordinator coverage included in that suite, and a release-mode app build with
+strict ad-hoc codesign verification. The version-only change needs no additional regression test;
+the source correction already covers the stale-timestamp failure and the rollback path.
+
+Final configured-DMG packaging must run from the clean merged `origin/main` commit. Physical
+acceptance must first prove that replacing and launching the app preserves the existing managed
+Hermes and Connector processes. A separate Connector restart must then preserve the exact Cloud
+binding ID and generation while producing a strictly newer server-provided `endToEnd.checkedAt`.
+The target Mac mini was unreachable over its recorded Tailscale SSH address while this candidate was
+prepared, so this entry does not claim installation or live acceptance. This remains an internal
+ad-hoc release and is not Developer ID signed, notarized, stapled, or approved for public
+distribution.
+
+## 2026-09-13 Desktop 0.2.10 activation and Cloud-health freshness acceptance
+
+PR #240 merged the 0.2.10/build 13 release gate as
+`d868b7996e85b2fb8cf1630d3a0e9023d2d1fcd8`; every applicable PR check and the resulting `main` CI
+and SAST workflows completed successfully. A fresh detached worktree whose `HEAD` exactly matched
+that `origin/main` commit repeated the canonical asset comparison and all 187 Desktop tests, then
+built the configured internal DMG. The mounted app carried version/build 0.2.10/13, enabled managed
+bootstrap, the immutable 0.3.4 manifest, `internal`/`arm64`, the approved key ID and public key, and
+the `hermes-serve-v1` runtime contract. Strict ad-hoc codesign and `hdiutil verify` passed. The final
+2,078,505-byte DMG SHA-256 is
+`eba645ef54f95b0b69981209ba543d6689604cea1c9ea0742a42d0039926aded`.
+
+The execution host was the target `LGS-MACMINI` itself; only its obsolete self-referential Tailscale
+SSH route was unreachable. Desktop 0.2.10 replaced 0.2.9 in `/Applications`, with the prior app kept
+in an owner-only Recovery directory. Launching the new app preserved managed Hermes PID 22269 and
+managed Connector PID 22750. The current component pointer remained 0.3.4, the journal remained
+`account_active` at binding generation 7, and the legacy Connector remained unloaded.
+
+A separate Connector-only restart then changed its PID from 22750 to 60731 while Hermes retained PID
+22269. The Connector log recorded the old process shutdown and a new account-mode Gateway connection;
+one established TLS socket was present afterward. Authenticated loopback `/api/status` returned HTTP
+200 and Hermes version 0.21.0. A read-only server-side query against the exact journal binding showed
+generation 7, active state, online Connector, reachable Hermes, and healthy end-to-end status both
+before and after the restart. Its server-provided `endToEnd.checkedAt` advanced strictly from
+2026-09-12 15:22:05.18103 +08:00 to 2026-09-13 13:34:30.67518 +08:00. No account access token was
+exported to a diagnostic script.
+
+This closes the ordinary-upgrade process-preservation and Connector-restart Cloud-freshness gates.
+Physical Android account traffic and a full Mac reboot remain separate deferred checks. This is an
+internal ad-hoc Desktop build; it is not Developer ID signed, notarized, stapled, or approved for
+public distribution.
+
+## 2026-09-14 Desktop 0.2.11 component-install candidate
+
+Desktop 0.2.11/build 14 allocates the internal app version for the schema-v2 component preflight and
+two-stage installation path merged through PRs #292–#294. The path remains inert unless the packaged
+app contains a complete pinned v2 trust configuration and Gateway independently advertises component
+manifest schema 2 beside `hermes-serve-v1`. Preparation rechecks both gates and the machine state,
+writes only an owner-private UUID cache, and downloads only missing exact-content components. Commit
+requires the executor-issued release confirmation and repeats both checks before the existing account
+binding, Hermes-first startup, Cloud health, rollback, and cleanup transaction may run.
+
+The version branch must pass the canonical asset comparison, all Desktop tests, and a release-mode
+app build before review. Final configured-DMG packaging must run from the clean merged `origin/main`
+commit and pin the separately signed internal schema-v2 component release 0.4.0. Publication,
+production capability enablement, and clean/existing-Mac installation remain separate recorded gates.
+No Developer ID identity is installed on the build Mac, so this candidate remains ad-hoc signed and
+cannot claim notarization, stapling, clean-machine Gatekeeper acceptance, or public distribution.
+
+## 2026-09-14 Desktop 0.2.11 and component 0.4.0 production availability
+
+PR #295 merged Desktop 0.2.11/build 14 as `813b78300ef373d87b61e2890051f6524aeeb94e`. A fresh detached
+worktree at that exact `origin/main` built the production-configured internal DMG with managed bootstrap and
+preflight enabled, schema-v2 component manifest URL, the approved `desktop-internal-2026-a` trust identity,
+`internal`/`arm64`, and `hermes-serve-v1`. Strict ad-hoc codesign and `hdiutil verify` passed. The final
+2,662,459-byte DMG has SHA-256 `028049016ee3115fd50b97c97a8a60d4507ae6dbab5cdf1be7aaeac88e869a60`
+and is published at
+`https://mrlgs.net/desktop/apps/0.2.11/Hermes-Go-Desktop-0.2.11-dev.dmg` with immutable caching and `nosniff`.
+
+The signed component release 0.4.0 is published beneath `/desktop/components/0.4.0/`. Its exact schema-v2
+manifest is 3,816 bytes with SHA-256
+`31e85f64d3347cb0302450f400b1357acd440c7dff041e8a896d67ee13dfa47f`; independent public-key verification
+passed against all four public archives. The bootstrap download is 102,881,663 bytes (98.12 MiB): Python
+48,062,625 bytes, Hermes core 17,762,179 bytes, Node 36,999,070 bytes, and Connector 57,789 bytes. Their
+archive SHA-256 values are respectively
+`7af7938616e059de81e165b13ff13e02b61dcb4468211037709dadedabc774e4`,
+`09dc9bc70547c47053b8f1d7f8a2feaab5a33932cb0500a72d50fb0f1d8ba49c`,
+`3d5fd7a8da312dfc5ce8718fc278e56403df4aa2c17411e95b923edb0d647021`, and
+`65ccf7fc79b08c81d8f4d2867877cc24e0c62db07db2ddd3f605726ce92d21dc`.
+
+Gateway 0.4.16 merge `0adccd7b834f1ab3366caf6091c2a3426b5b28f1` is active in production and the
+authorized component rollout run `a310a75c-ada9-4e0a-b64a-010a3fdf0434` committed schema-v2 capability.
+Public `/v2/capabilities` now advertises `hermes-serve-v1` and `componentManifestSchemaVersion: 2`; the active
+green container is healthy with zero restarts and the manifest downloaded through the public route reproduces
+the exact signed hash. This closes publication and production capability enablement. Normal-user installation,
+the explicit two-stage confirmation flow, existing-Hermes reuse, managed-service activation and rollback still
+need physical acceptance on the user's MacBook. The DMG remains ad-hoc signed and has not passed Developer ID
+signing, notarization, stapling or clean-machine Gatekeeper acceptance.

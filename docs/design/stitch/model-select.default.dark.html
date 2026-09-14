@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN" style=""><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>Hermes 模型选择器 - 方案A强化版 (黑曜石深色版)</title>
+<!-- Tailwind CSS v3 -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            paper: '#0F1217',
+            'paper-card': '#161A22',
+            'paper-bar': '#1E232B',
+            cobalt: {
+              50: '#0C1A30',
+              100: '#142A4D',
+              200: '#1D3E73',
+              600: '#3B82F6',
+              700: '#60A5FA',
+            },
+            ink: {
+              900: '#E2E0DB',
+              800: '#D5D3CC',
+              600: '#A8A49C',
+              400: '#8D897E',
+              300: '#423F3A'
+            }
+          },
+          fontFamily: {
+            sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif']
+          },
+          boxShadow: {
+            'warm-sm': '0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3)',
+            'warm-md': '0 4px 12px rgba(0, 0, 0, 0.6), 0 1px 3px rgba(0, 0, 0, 0.4)'
+          }
+        }
+      }
+    }
+  </script>
+<!-- Material Symbols Icons -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<style data-purpose="custom-scrollbars">
+    /* Hide scrollbars for slick mobile app feel */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+<style data-purpose="icon-defaults">
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      line-height: 1;
+      display: inline-flex;
+      vertical-align: middle;
+    }
+    .material-symbols-outlined.fill-icon {
+      font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+  </style>
+</head>
+<body class="bg-black/80 flex justify-center items-end min-h-screen font-sans antialiased text-[#E2E0DB] selection:bg-[#142A4D] selection:text-[#60A5FA]">
+<!-- BEGIN: MobileDeviceFrame -->
+<main class="w-full max-w-[420px] h-[92vh] max-h-[900px] bg-[#0F1217] rounded-t-[32px] flex flex-col shadow-2xl border-t border-x border-[#262C35] overflow-hidden relative" data-purpose="bottom-sheet-container">
+<!-- BEGIN: AndroidStatusBar -->
+<header class="w-full pt-3 pb-1 px-7 flex justify-between items-center text-xs font-semibold text-[#E2E0DB] tracking-tight select-none z-10" data-purpose="system-status-bar">
+<span class="">8:14</span>
+<div class="flex items-center gap-1.5 text-[#A8A49C]">
+<!-- Signal / Network Indicators -->
+<span class="text-[10px] tracking-tight font-mono bg-[#1E232B] px-1 py-0.5 rounded text-[#A8A49C] border border-[#2E343D]">5G</span>
+<span class="material-symbols-outlined text-[15px]">signal_cellular_alt</span>
+<span class="material-symbols-outlined text-[15px]">wifi</span>
+<!-- Battery Level -->
+<div class="flex items-center gap-0.5">
+<span class="text-[11px] font-mono">74%</span>
+<span class="material-symbols-outlined text-[16px] -rotate-90">battery_5_bar</span>
+</div>
+</div>
+</header>
+<!-- END: AndroidStatusBar -->
+<!-- BEGIN: DraggableHandleArea -->
+<div class="w-full pt-1 pb-2 flex justify-center cursor-grab active:cursor-grabbing" data-purpose="drag-handle">
+<div class="w-10 h-1 rounded-full bg-[#423F3A]"></div>
+</div>
+<!-- END: DraggableHandleArea -->
+<!-- BEGIN: SheetHeader -->
+<section class="px-5 pb-3 flex items-center justify-between border-b border-[#262C35]" data-purpose="sheet-title-bar">
+<div class="flex items-baseline gap-2">
+<h1 class="text-[19px] font-bold tracking-tight text-[#E2E0DB]">选择模型</h1>
+</div>
+<!-- Actions buttons -->
+<div class="flex items-center gap-1.5">
+<button aria-label="刷新模型列表" class="w-8 h-8 rounded-full flex items-center justify-center text-[#A8A49C] hover:bg-[#1E232B] active:scale-95 transition-all" type="button"></button>
+<button aria-label="关闭选择器" class="w-8 h-8 rounded-full bg-[#1E232B] flex items-center justify-center text-[#A8A49C] hover:bg-[#262C35] active:scale-95 transition-all border border-[#2E343D]/50" type="button">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+</section>
+<!-- END: SheetHeader -->
+<!-- BEGIN: ScrollableContent -->
+<div class="flex-1 overflow-y-auto px-4 pb-8 space-y-4 no-scrollbar pt-3.5" data-purpose="sheet-body">
+<!-- BEGIN: ActiveModelSection -->
+<section data-purpose="active-model-card">
+<!-- Live Status Label -->
+<!-- Elevated Active Status Card -->
+<div class="bg-[#161A22] rounded-2xl p-3.5 border shadow-warm-sm relative overflow-hidden border-[#262C35] pl-4"><div class="absolute top-0 bottom-0 left-0 w-1.5 bg-[#3B82F6] rounded-l-2xl z-10"></div>
+<!-- Left accent indicator stripe -->
+<!-- Top Row: Name and reset button -->
+<div class="flex items-start justify-between gap-2 pl-1">
+<div>
+<div class="flex items-center gap-2">
+<span class="text-[16px] font-bold text-[#E2E0DB] tracking-tight">gpt-5.6-sol</span>
+<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#1E232B] text-[#A8A49C] border border-[#2E343D]">当前使用</span>
+</div>
+<p class="text-[12px] text-[#8D897E] mt-0.5">OpenAI</p>
+</div>
+<button class="text-xs font-medium text-[#3B82F6] hover:text-[#60A5FA] active:underline py-0.5 px-1 whitespace-nowrap" type="button">
+              恢复默认
+            </button>
+</div>
+<!-- Divider -->
+<div class="border-t border-[#262C35] my-2.5 ml-1"></div>
+<!-- Reasoning Effort Sub-setting (Dropdown item) -->
+<div class="flex items-center justify-between pl-1 text-[13px] bg-[#1E232B]/80 rounded-xl px-2.5 py-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[17px] text-[#8D897E]">psychology</span>
+<span class="text-[#E2E0DB] font-medium">推理强度</span>
+</div>
+<button class="flex items-center gap-1 text-xs text-[#E2E0DB] font-semibold bg-[#161A22] border border-[#2E343D] px-2 py-1 rounded-lg shadow-2xs hover:bg-[#1E232B]" type="button">
+<span class="w-1.5 h-1.5 rounded-full bg-[#3B82F6] mr-0.5"></span>
+<span class="">高 (High)</span>
+<span class="material-symbols-outlined text-[16px] text-[#8D897E] ml-0.5">keyboard_arrow_down</span>
+</button>
+</div>
+</div>
+</section>
+<!-- END: ActiveModelSection -->
+<!-- BEGIN: QuickSwitchRow -->
+<section data-purpose="quick-switch-chips"><div class="flex items-center justify-between mb-1.5 px-0.5"><div class="flex items-center gap-1.5"><span class="text-[11px] font-medium text-[#A8A49C]">快捷切换</span></div><span class="text-[10px] text-[#60A5FA] font-medium flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-[#3B82F6] animate-ping"></span>正在切换至 DeepSeek</span></div><div class="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar"><button class="bg-[#161A22] border border-[#262C35] text-[#A8A49C] text-xs font-medium px-3 py-1.5 rounded-full flex items-center gap-1.5 opacity-60 pointer-events-none transition-all shrink-0" type="button"><span class="font-medium">gpt-5.6-sol</span><span class="text-[10px] text-[#8D897E] font-normal">OpenAI</span></button><button class="bg-[#0C1A30] border border-[#3B82F6] text-[#60A5FA] text-xs font-medium px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-2xs transition-all shrink-0" type="button"><span class="font-semibold text-[#60A5FA]">deepseek-v4-pro</span><span class="text-[10px] text-[#3B82F6] font-normal">DeepSeek</span><span class="material-symbols-outlined text-[#3B82F6] text-[13px] animate-spin ml-0.5">progress_activity</span></button><button class="bg-[#161A22] border border-[#262C35] text-[#A8A49C] text-xs font-medium px-3 py-1.5 rounded-full flex items-center gap-1.5 opacity-60 pointer-events-none transition-all shrink-0" type="button"><span class="font-medium">gpt-5.6-terra</span><span class="text-[10px] text-[#8D897E] font-normal">默认</span></button></div></section>
+<!-- END: QuickSwitchRow -->
+<!-- BEGIN: SearchBar -->
+<!-- END: SearchBar -->
+<!-- BEGIN: DirectoryList -->
+<section class="space-y-4 pt-1" data-purpose="model-directory"><!-- 卡片块 1: 收藏模型 -->
+<div class="bg-[#161A22] rounded-2xl border border-[#262C35] shadow-warm-sm overflow-hidden"><div class="flex items-center justify-between px-3.5 py-2.5 bg-[#1A1F27] border-b border-[#262C35]"><div class="flex items-center gap-1.5 font-bold text-xs text-[#E2E0DB] tracking-tight"><span class="material-symbols-outlined fill-icon text-[#FBBF24] text-[16px]">star</span><span class="">收藏模型 (4)</span></div><span class="text-[11px] font-medium text-[#8D897E] bg-[#161A22] px-1.5 py-0.5 rounded border border-[#2E343D]">固定顶部</span></div>
+<div class="p-1.5 space-y-0.5">
+<!-- Item 1: gpt-5.6-sol (当前生效) -->
+<div class="flex items-center justify-between p-2.5 rounded-xl hover:bg-[#1E232B] transition-colors"><div class="space-y-0.5"><div class="flex items-center gap-1.5"><span class="font-medium text-[13.5px] text-[#E2E0DB]">gpt-5.6-sol</span><span class="bg-[#1E232B] text-[#A8A49C] text-[10px] font-medium px-1.5 py-0.2 rounded border border-[#2E343D]">前次生效</span></div><div class="text-[11px] text-[#8D897E]">OpenAI</div></div><div class="flex items-center gap-2"><button aria-label="收藏" class="p-0.5 text-[#FBBF24] hover:opacity-80" type="button"><span class="material-symbols-outlined fill-icon text-[19px]">star</span></button></div></div>
+<!-- Item 2: gpt-5.6-terra -->
+<div class="flex items-center justify-between p-2.5 rounded-xl hover:bg-[#1E232B] transition-colors border-t border-[#262C35]/60">
+<div class="space-y-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-medium text-[13.5px] text-[#E2E0DB]">gpt-5.6-terra</span>
+</div>
+<div class="text-[11px] text-[#8D897E]">OpenAI</div>
+</div>
+<div class="flex items-center gap-2">
+<button aria-label="收藏" class="p-0.5 text-[#FBBF24] hover:opacity-80" type="button">
+<span class="material-symbols-outlined fill-icon text-[19px]">star</span>
+</button>
+</div>
+</div>
+<!-- Item 3: deepseek-v4-pro -->
+<div class="flex items-center justify-between p-2.5 rounded-xl bg-[#0C1A30]/80 border border-[#3B82F6] transition-all"><div class="space-y-0.5"><div class="flex items-center gap-1.5"><span class="font-semibold text-[13.5px] text-[#60A5FA]">deepseek-v4-pro</span><span class="bg-[#142A4D] text-[#60A5FA] text-[10px] font-semibold px-1.5 py-0.2 rounded inline-flex items-center gap-1 border border-[#1D3E73]"><span class="material-symbols-outlined text-[10px] animate-spin text-[#3B82F6]">sync</span>切换中...</span></div><div class="text-[11px] text-[#3B82F6]">DeepSeek</div></div><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[#3B82F6] text-[17px] animate-spin">progress_activity</span><button aria-label="收藏" class="p-0.5 text-[#FBBF24] hover:opacity-80" type="button"><span class="material-symbols-outlined fill-icon text-[19px]">star</span></button></div></div>
+<!-- Item 4: deepseek-v4-flash -->
+<div class="flex items-center justify-between p-2.5 rounded-xl hover:bg-[#1E232B] transition-colors border-t border-[#262C35]/60">
+<div class="space-y-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-medium text-[13.5px] text-[#E2E0DB]">deepseek-v4-flash</span>
+</div>
+<div class="text-[11px] text-[#8D897E]">DeepSeek</div>
+</div>
+<div class="flex items-center gap-2">
+<button aria-label="收藏" class="p-0.5 text-[#FBBF24] hover:opacity-80" type="button">
+<span class="material-symbols-outlined fill-icon text-[19px]">star</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- 卡片块 2: OpenAI & Codex Subscription -->
+<div class="bg-[#161A22] rounded-2xl border border-[#262C35] shadow-warm-sm overflow-hidden">
+<div class="flex items-center justify-between px-3.5 py-2.5 bg-[#1A1F27] border-b border-[#262C35]">
+<div class="flex items-center gap-1.5 font-bold text-xs text-[#E2E0DB] tracking-tight">
+<span class="">OpenAI &amp; Codex Subscription</span>
+</div>
+<span class="text-[11px] font-mono text-[#8D897E] font-medium">3 项</span>
+</div>
+<div class="p-1.5 space-y-0.5">
+<!-- OpenAI sol -->
+<div class="flex items-center justify-between p-2.5 rounded-xl hover:bg-[#1E232B] transition-colors">
+<div class="space-y-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-medium text-[13.5px] text-[#E2E0DB]">gpt-5.6-sol</span>
+</div>
+<div class="text-[11px] text-[#8D897E]">OpenAI</div>
+</div>
+<div class="flex items-center gap-2">
+<button aria-label="收藏" class="p-0.5 text-[#FBBF24] hover:opacity-80" type="button">
+<span class="material-symbols-outlined fill-icon text-[19px]">star</span>
+</button>
+</div>
+</div>
+<!-- OpenAI terra -->
+<div class="flex items-center justify-between p-2.5 rounded-xl hover:bg-[#1E232B] transition-colors border-t border-[#262C35]/60">
+<div class="space-y-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-medium text-[13.5px] text-[#E2E0DB]">gpt-5.6-terra</span>
+</div>
+<div class="text-[11px] text-[#8D897E]">OpenAI</div>
+</div>
+<div class="flex items-center gap-2">
+<button aria-label="收藏" class="p-0.5 text-[#FBBF24] hover:opacity-80" type="button">
+<span class="material-symbols-outlined fill-icon text-[19px]">star</span>
+</button>
+</div>
+</div>
+<!-- OpenAI gpt-6-astra -->
+<div class="flex items-center justify-between p-2.5 rounded-xl hover:bg-[#1E232B] transition-colors border-t border-[#262C35]/60">
+<div class="space-y-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-medium text-[13.5px] text-[#E2E0DB]">gpt-6-astra</span>
+</div>
+<div class="text-[11px] text-[#8D897E]">OpenAI</div>
+</div>
+<div class="flex items-center gap-2">
+<button aria-label="收藏" class="p-0.5 text-[#423F3A] hover:text-[#FBBF24]" type="button">
+<span class="material-symbols-outlined text-[19px]">star</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- 卡片块 3: Anthropic -->
+<div class="bg-[#161A22] rounded-2xl border border-[#262C35] shadow-warm-sm overflow-hidden">
+<div class="flex items-center justify-between px-3.5 py-2.5 bg-[#1A1F27] border-b border-[#262C35]">
+<div class="flex items-center gap-1.5 font-bold text-xs text-[#E2E0DB] tracking-tight">
+<span class="">Anthropic</span>
+</div>
+<span class="text-[11px] font-mono text-[#8D897E] font-medium">2 项</span>
+</div>
+<div class="p-1.5 space-y-0.5">
+<!-- Claude 3.7 Sonnet -->
+<div class="flex items-center justify-between p-2.5 rounded-xl hover:bg-[#1E232B] transition-colors">
+<div class="space-y-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-medium text-[13.5px] text-[#E2E0DB]">claude-3.7-sonnet</span>
+</div>
+<div class="text-[11px] text-[#8D897E]">Anthropic</div>
+</div>
+<div class="flex items-center gap-2">
+<button aria-label="收藏" class="p-0.5 text-[#423F3A] hover:text-[#FBBF24]" type="button">
+<span class="material-symbols-outlined text-[19px]">star</span>
+</button>
+</div>
+</div>
+<!-- Claude 3.5 Haiku -->
+<div class="flex items-center justify-between p-2.5 rounded-xl hover:bg-[#1E232B] transition-colors border-t border-[#262C35]/60">
+<div class="space-y-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-medium text-[13.5px] text-[#E2E0DB]">claude-3.5-haiku</span>
+</div>
+<div class="text-[11px] text-[#8D897E]">Anthropic</div>
+</div>
+<div class="flex items-center gap-2">
+<button aria-label="收藏" class="p-0.5 text-[#423F3A] hover:text-[#FBBF24]" type="button">
+<span class="material-symbols-outlined text-[19px]">star</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- 卡片块 4: DeepSeek -->
+<div class="bg-[#161A22] rounded-2xl border border-[#262C35] shadow-warm-sm overflow-hidden">
+<div class="flex items-center justify-between px-3.5 py-2.5 bg-[#1A1F27] border-b border-[#262C35]">
+<div class="flex items-center gap-1.5 font-bold text-xs text-[#E2E0DB] tracking-tight">
+<span class="">DeepSeek</span>
+</div>
+<span class="text-[11px] font-mono text-[#8D897E] font-medium">2 项</span>
+</div>
+<div class="p-1.5 space-y-0.5">
+<!-- DeepSeek V4 Pro -->
+<div class="flex items-center justify-between p-2.5 rounded-xl hover:bg-[#1E232B] transition-colors">
+<div class="space-y-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-medium text-[13.5px] text-[#E2E0DB]">deepseek-v4-pro</span>
+</div>
+<div class="text-[11px] text-[#8D897E]">DeepSeek</div>
+</div>
+<div class="flex items-center gap-2">
+<button aria-label="收藏" class="p-0.5 text-[#FBBF24] hover:opacity-80" type="button">
+<span class="material-symbols-outlined fill-icon text-[19px]">star</span>
+</button>
+</div>
+</div>
+<!-- DeepSeek V4 Flash -->
+<div class="flex items-center justify-between p-2.5 rounded-xl hover:bg-[#1E232B] transition-colors border-t border-[#262C35]/60">
+<div class="space-y-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-medium text-[13.5px] text-[#E2E0DB]">deepseek-v4-flash</span>
+</div>
+<div class="text-[11px] text-[#8D897E]">DeepSeek</div>
+</div>
+<div class="flex items-center gap-2">
+<button aria-label="收藏" class="p-0.5 text-[#FBBF24] hover:opacity-80" type="button">
+<span class="material-symbols-outlined fill-icon text-[19px]">star</span>
+</button>
+</div>
+</div>
+</div>
+</div></section>
+<!-- END: DirectoryList -->
+</div>
+<!-- END: ScrollableContent -->
+<!-- BEGIN: BottomHomeIndicator -->
+<footer class="w-full py-2.5 flex justify-center bg-[#0F1217] border-t border-[#262C35]" data-purpose="home-indicator">
+<div class="w-32 h-1 rounded-full bg-[#423F3A]"></div>
+</footer>
+<!-- END: BottomHomeIndicator -->
+</main>
+<!-- END: MobileDeviceFrame -->
+</body></html>

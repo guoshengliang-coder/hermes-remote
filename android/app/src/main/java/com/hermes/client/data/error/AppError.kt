@@ -3,6 +3,11 @@ package com.hermes.client.data.error
 /** Stable product error identifiers. Meanings are registered in docs/ERROR_HANDLING.md. */
 enum class AppErrorCode(val value: String) {
     CONNECTION_FAILED("HR-CONN-002"),
+    // The Relay accepted the socket and then never said `gateway.ready`, so the RPC was never
+    // sent. Registered since the code existed; nothing produced it until HG-42, where every
+    // blocked call surfaced as a generic send failure and hid the fact that the connection, not
+    // the message, was the thing that had failed.
+    HANDSHAKE_TIMEOUT("HR-CONN-003"),
     CONNECTION_INTERRUPTED("HR-CONN-004"),
     CONNECTOR_OFFLINE("HR-CONN-005"),
     RPC_FAILED("HR-RPC-001"),
@@ -11,6 +16,9 @@ enum class AppErrorCode(val value: String) {
     MODEL_SWITCH_FAILED("HR-RPC-004"),
     MODEL_DEFAULT_FAILED("HR-RPC-005"),
     MODEL_REASONING_FAILED("HR-RPC-006"),
+    // Not a refused switch: the Mac's Hermes could not start its slash worker at all, so every
+    // slash command is dead, not just this one. Telling the user to retry would be false.
+    SLASH_WORKER_UNAVAILABLE("HR-RPC-007"),
     CONFIG_READ_FAILED("HR-CONFIG-001"),
     CONFIG_WRITE_FAILED("HR-CONFIG-002"),
     CONFIG_INVALID_URL("HR-CONFIG-003"),
@@ -36,6 +44,8 @@ enum class AppErrorCode(val value: String) {
     ATTACHMENT_NO_VIEWER("HR-FILE-007"),
     AVATAR_PHOTO_FAILED("HR-MEDIA-002"),
     TRANSCRIPT_IMAGE_FAILED("HR-MEDIA-003"),
+    IMAGE_DECODE_FAILED("HR-MEDIA-004"),
+    IMAGE_EDIT_SAVE_FAILED("HR-MEDIA-005"),
     PROFILE_IDENTITY_SAVE_FAILED("HR-STORE-001"),
     SESSION_NOT_FOUND("HR-SESS-001"),
     PROJECT_FOLDER_MISSING("HR-SESS-003"),
@@ -48,6 +58,18 @@ enum class AppErrorCode(val value: String) {
     PROJECT_NAME_INVALID("HR-SESS-010"),
     PROJECT_SAVE_FAILED("HR-SESS-011"),
     FOLDER_BROWSE_FAILED("HR-SESS-012"),
+    // Another client is running this conversation, so upstream refused the prompt. Retryable, but
+    // only once the other side lets go — so it must say that instead of the generic send failure.
+    SESSION_OWNED_ELSEWHERE("HR-SESS-013"),
+    // Fetching ANOTHER conversation's transcript failed while turning it into a Markdown
+    // attachment (HG-38). Not HR-SYNC-001: nothing is out of sync and the open conversation is
+    // untouched — one conversation the user asked to reference could not be read.
+    SESSION_TRANSCRIPT_UNAVAILABLE("HR-SESS-014"),
+    // A refused send restored after the app restarted, whose staged attachments did not survive:
+    // they are in-memory bytes and only the text is persisted (HG-49, data/repository/UnsentStore).
+    // The words are still on screen, but replaying the send would deliver less than the user meant,
+    // so the tap is withheld rather than quietly sending half of it.
+    UNSENT_ATTACHMENTS_LOST("HR-SESS-015"),
     INSTALL_PERMISSION_REQUIRED("HR-PERM-003"),
     HISTORY_INCOMPLETE("HR-SYNC-001"),
     RUN_UNCONFIRMED("HR-SYNC-002"),
@@ -58,15 +80,20 @@ enum class AppErrorCode(val value: String) {
     FEEDBACK_REJECTED("HR-FEEDBACK-003"),
     FEEDBACK_RATE_LIMITED("HR-FEEDBACK-004"),
     CRON_DELIVERY_FAILED("HR-CRON-001"),
+    // The job itself failed, so the fix is the job — as opposed to HR-CRON-001, where the run
+    // succeeded and only its delivery did not. The detail screen used to label this case
+    // HR-RPC-001, a transport code that says nothing about a schedule.
+    CRON_RUN_FAILED("HR-CRON-002"),
+    // The tap the user just made, as opposed to CRON_RUN_FAILED's run that already happened. Only
+    // reached when the server sent no stable code of its own — when it did, that code is shown.
+    // This replaces the blanket HR-RPC-001 the cron screens used to print for every throwable
+    // (HG-51): a transport code claimed to know a cause that had never been read off the wire.
+    CRON_ACTION_FAILED("HR-CRON-003"),
     MESSAGING_LIST_FAILED("HR-MSG-001"),
     MESSAGING_SAVE_FAILED("HR-MSG-002"),
     MESSAGING_PROFILE_CONFLICT("HR-MSG-003"),
     MESSAGING_PLATFORM_FAILED("HR-MSG-004"),
     MESSAGING_RESTART_FAILED("HR-MSG-005"),
-    HANDOFF_SESSION_BUSY("HR-MSG-006"),
-    HANDOFF_CHANNEL_DISABLED("HR-MSG-007"),
-    HANDOFF_NO_TARGET("HR-MSG-008"),
-    HANDOFF_IN_FLIGHT("HR-MSG-009"),
     LINK_NO_HANDLER("HR-LINK-001"),
     LINK_NOT_OPENABLE("HR-LINK-002"),
     UNKNOWN("HR-UNKNOWN-001"),
@@ -78,6 +105,20 @@ enum class AppErrorCode(val value: String) {
      * other surface — toasts, pages, diagnostics, docs — keeps the full [value].
      */
     val compact: String get() = value.removePrefix("HR-")
+
+    companion object {
+        /**
+         * The registered code with this [value], or null.
+         *
+         * For stable codes arriving from the server: when it names something this build knows, the
+         * user gets that meaning and its explanation; when it does not — a newer Gateway, a code
+         * added after this APK shipped — the caller falls back to its own, rather than inventing a
+         * meaning for a string it cannot read. Never guess by prefix: `HR-CRON-*` is a family, not
+         * a synonym.
+         */
+        fun fromValue(value: String?): AppErrorCode? =
+            value?.let { code -> entries.firstOrNull { it.value == code } }
+    }
 }
 
 /** Language-independent error data passed from a boundary to UI/notification renderers. */

@@ -14,12 +14,13 @@ import {
   renderProductionReleaseEnvironment,
   sameProductionReleaseEnvironment,
 } from "./production-release-environment.mjs";
-import { satisfiesProductionNginxContract } from "./deploy-switch.mjs";
+import { satisfiesProductionNginxContract, verifyRestoredSwitchHandoff } from "./deploy-switch.mjs";
 import { renderNginxUpstream } from "./deploy-system.mjs";
 import { OpsError } from "./errors.mjs";
 import { createCommandRunner } from "./system.mjs";
 
 const OPERATIONS = new Set(["deploy", "rollback"]);
+const RECOVERABLE_FAILED_STAGES = new Set(["candidate_started", "route_switched", "draining"]);
 const RELEASE_TARGET = /^releases\/(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-[0-9a-f]{12}$/;
 const FILE_LIMIT = 1024 * 1024;
 
@@ -197,13 +198,15 @@ export async function recoverFailedProductionRelease(config, targetManifest, opt
     const historyRoot = path.join(config.paths.stateRoot, "ops", "history");
     const auditPath = path.join(config.paths.stateRoot, "ops", "operations.jsonl");
     const journal = await readDeploymentJournal(journalPath);
-    if (journal.stage !== "candidate_started"
+    if (!RECOVERABLE_FAILED_STAGES.has(journal.stage)
         || journal.operation !== "deploy"
         || journal.activeSlot === null
         || JSON.stringify(journal.source) !== JSON.stringify(releaseIdentity(sourceManifest))) {
       fail("production_release_failed_candidate_not_recoverable");
     }
     await verifyFailedCandidateLiveState(config, journal, runner, sourceManifest);
+    const recoveredAfterSwitch = new Set(["route_switched", "draining"]).has(journal.stage);
+    if (recoveredAfterSwitch) await verifyRestoredSwitchHandoff(config, journal);
 
     const lockPath = path.join(config.paths.stateRoot, "ops", "deploy.lock");
     lock = await acquireDeploymentLock(lockPath, runId);
@@ -217,6 +220,7 @@ export async function recoverFailedProductionRelease(config, targetManifest, opt
       activeSlot: journal.activeSlot,
       currentCheckpoint,
       owner,
+      allowedStages: [...RECOVERABLE_FAILED_STAGES],
     });
     await verifyFailedCandidateLiveState(config, recovered.failed, runner, sourceManifest);
     return {
@@ -227,6 +231,8 @@ export async function recoverFailedProductionRelease(config, targetManifest, opt
       candidateSlot: recovered.failed.candidateSlot,
       sourceVersion: sourceManifest.serverVersion,
       targetVersion: targetManifest.serverVersion,
+      recoveredStage: recovered.failed.stage,
+      recoveredAfterSwitch,
     };
   } catch (error) {
     if (error instanceof OpsError) throw error;
@@ -264,6 +270,10 @@ export async function verifyReleaseInputs(config, activeSlot, runner, expectedEn
 
 export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
   bindingEnabled = false,
+  multiDeviceEnabled = false,
+  identityWebEnabled = false,
+  sharingEnabled = false,
+  componentInstallEnabled = false,
 } = {}) {
   const capabilitiesResponse = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/capabilities`);
   if (!capabilitiesResponse?.ok) fail("production_release_email_capabilities_unavailable");
@@ -281,17 +291,28 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
       || auth.providers[0] !== "email_otp"
       || auth.android !== true
       || auth.macos !== true
-      || auth.identityManagement !== false
-      || auth.webAccountCenter !== false
+      || auth.identityManagement !== identityWebEnabled
+      || auth.webAccountCenter !== identityWebEnabled
       || auth.accountDeletion === true
-      || auth.webSessions === true
+      || (identityWebEnabled ? auth.webSessions !== true : auth.webSessions === true)
       || binding?.enabled !== bindingEnabled
       || binding?.replacement !== bindingEnabled
-      || binding?.maxActiveConnectorsPerAccount !== 1
-      || Object.hasOwn(binding ?? {}, "supportsDeviceSelection")
-      || Object.hasOwn(binding ?? {}, "supportsDeviceSharing")
+      || binding?.maxActiveConnectorsPerAccount !== (multiDeviceEnabled ? 3 : 1)
+      || (multiDeviceEnabled
+        ? binding?.supportsDeviceSelection !== true
+        : Object.hasOwn(binding ?? {}, "supportsDeviceSelection"))
+      || (sharingEnabled
+        ? (binding?.supportsDeviceSharing !== true
+          || binding?.maxSharedDevices !== 10
+          || binding?.maxGranteesPerDevice !== 5)
+        : (Object.hasOwn(binding ?? {}, "supportsDeviceSharing")
+          || Object.hasOwn(binding ?? {}, "maxSharedDevices")
+          || Object.hasOwn(binding ?? {}, "maxGranteesPerDevice")))
       || (bindingEnabled
-        ? capabilities?.desktopBootstrap?.runtimeContract !== "hermes-serve-v1"
+        ? (capabilities?.desktopBootstrap?.runtimeContract !== "hermes-serve-v1"
+          || (componentInstallEnabled
+            ? capabilities.desktopBootstrap.componentManifestSchemaVersion !== 2
+            : Object.hasOwn(capabilities.desktopBootstrap, "componentManifestSchemaVersion")))
         : Object.hasOwn(capabilities ?? {}, "desktopBootstrap"))) {
     fail("production_release_email_capabilities_invalid");
   }
@@ -300,14 +321,52 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
   const bindingRoute = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/connector-binding`);
   const expectedBindingStatus = bindingEnabled ? 401 : (request.publicRoute === true ? 404 : 503);
   if (bindingRoute?.status !== expectedBindingStatus) fail("production_release_binding_route_must_stay_absent");
+  if (identityWebEnabled) await verifyPreservedIdentityWebSurface(request, fetchImpl, sharingEnabled);
+}
+
+async function verifyPreservedIdentityWebSurface(request, fetchImpl, sharingEnabled) {
+  const shell = await boundedFetch(fetchImpl, `${request.gatewayUrl}/account`);
+  const contentType = shell?.headers?.get?.("content-type") ?? "";
+  const csp = shell?.headers?.get?.("content-security-policy") ?? "";
+  if (shell?.status !== 200 || !contentType.startsWith("text/html")
+      || !csp.includes("default-src 'none'") || !csp.includes("script-src 'self'")
+      || !csp.includes("frame-ancestors 'none'") || shell.headers.get("cache-control") !== "no-store") {
+    fail("production_release_identity_web_shell_invalid");
+  }
+  const bootstrap = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/web/session`);
+  let body;
+  try {
+    body = await bootstrap?.json();
+  } catch {}
+  const setCookie = bootstrap?.headers?.get?.("set-cookie") ?? "";
+  if (bootstrap?.status !== 200 || body?.session?.authenticated !== false
+      || !/^hgc_[A-Za-z0-9_-]{43}$/.test(body?.csrfToken ?? "")
+      || !setCookie.includes("__Host-hermes_go_installation=")
+      || !setCookie.includes("__Host-hermes_go_csrf=")
+      || !setCookie.includes("Secure") || !setCookie.includes("HttpOnly")
+      || !setCookie.includes("SameSite=Strict")) {
+    fail("production_release_identity_web_session_invalid");
+  }
+  for (const route of ["/v2/web/identities", "/v2/web/installations"]) {
+    const response = await boundedFetch(fetchImpl, `${request.gatewayUrl}${route}`);
+    if (response?.status !== 401) fail("production_release_identity_web_guard_invalid");
+  }
+  const shares = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/web/devices/probe-device/shares`);
+  if (shares?.status !== (sharingEnabled ? 401 : (request.publicRoute === true ? 404 : 503))) {
+    fail("production_release_sharing_route_guard_invalid");
+  }
 }
 
 function preserveAccountSurface(smoke, runtimeEnvironment, fetchImpl) {
-  if (!new Set(["email_otp", "email_binding"]).has(runtimeEnvironment.mode)) return smoke;
+  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components"]).has(runtimeEnvironment.mode)) return smoke;
   return async (request) => {
     await smoke({ ...request, expectedRuntimeMode: runtimeEnvironment.mode });
     await verifyPreservedEmailSurface(request, fetchImpl, {
-      bindingEnabled: runtimeEnvironment.mode === "email_binding",
+      bindingEnabled: runtimeEnvironment.mode !== "email_otp",
+      multiDeviceEnabled: new Set(["email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components"]).has(runtimeEnvironment.mode),
+      identityWebEnabled: new Set(["email_identity_web", "email_sharing", "email_sharing_components"]).has(runtimeEnvironment.mode),
+      sharingEnabled: new Set(["email_sharing", "email_sharing_components"]).has(runtimeEnvironment.mode),
+      componentInstallEnabled: runtimeEnvironment.mode === "email_sharing_components",
     });
   };
 }

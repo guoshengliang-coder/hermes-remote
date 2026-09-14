@@ -72,6 +72,8 @@ class SessionsViewModel @Inject constructor(
     private val projectPrefs: ProjectPrefsStore,
     private val projectsRepo: ProjectsRepository,
     private val projectCatalog: com.hermes.client.data.repository.ProjectCatalog,
+    private val draftStore: com.hermes.client.data.repository.DraftSnapshot,
+    private val unsentStore: com.hermes.client.data.repository.UnsentSnapshot,
     private val accountSessions: AccountSessionManager? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(
@@ -135,6 +137,39 @@ class SessionsViewModel @Inject constructor(
     /** True if [session] is pinned, keyed by the session's own profile. Unread pins pin nothing. */
     fun isPinned(session: Session, tokens: Set<String>? = pinnedTokens.value): Boolean =
         PinStore.token(session.profile, session.id, session.deviceId) in tokens.orEmpty()
+
+    /**
+     * Conversations holding unsent composer text (HG-41). Same shape and the same `null` gate as
+     * [pinnedTokens], and for the same reason: a marker that arrives a frame after the rows do is
+     * a list that visibly changes under the user's eyes.
+     */
+    val draftTokens: StateFlow<Set<String>?> =
+        draftStore.tokens
+            .catch { emit(emptySet()) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** True if [session] has an unsent draft, keyed by the session's own profile. */
+    fun hasDraft(session: Session, tokens: Set<String>? = draftTokens.value): Boolean =
+        com.hermes.client.data.repository.SessionReadStore.token(
+            session.profile, session.id, session.deviceId,
+        ) in tokens.orEmpty()
+
+    /**
+     * Conversations holding a message that was submitted and REFUSED (HG-49). Same shape and the
+     * same `null` gate as [draftTokens], and it is deliberately a separate set: a draft was never
+     * sent and is the user's own business, a refused send is something that went wrong and has to
+     * be said out loud on the row.
+     */
+    val unsentTokens: StateFlow<Set<String>?> =
+        unsentStore.tokens
+            .catch { emit(emptySet()) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** True if [session] holds a message that was sent and refused. */
+    fun hasUnsent(session: Session, tokens: Set<String>? = unsentTokens.value): Boolean =
+        com.hermes.client.data.repository.SessionReadStore.token(
+            session.profile, session.id, session.deviceId,
+        ) in tokens.orEmpty()
 
     /**
      * Bumped when the user pins a session, so the list can bring the 已置顶 section into view.
@@ -645,8 +680,26 @@ class SessionsViewModel @Inject constructor(
             )
     }
 
+    /**
+     * Re-reads every list the changed session could be sitting in.
+     *
+     * [refresh] only refills `sessions`, which the Bots segment does not render — it reads the same
+     * endpoint separately (see [loadBots]). Archiving a bot row therefore used to succeed upstream
+     * while the row stayed on screen until the next resume. The row actions are shared with the
+     * Chats segment (HG-54), so their refresh has to be too.
+     *
+     * Gated on the SESSION, not on [viewMode]: that flow is `WhileSubscribed`, so its `.value`
+     * falls back to SESSIONS whenever nothing is collecting it — which is exactly the window a
+     * background write can land in. What the session IS does not have that problem.
+     */
+    private fun refreshListsHolding(session: Session) {
+        refresh()
+        if (isBotSession(session.source)) loadBots()
+    }
+
     fun rename(session: Session, title: String) = viewModelScope.launch {
-        runCatching { sessions.rename(session.id, title, session.profile, session.deviceId) }.onSuccess { refresh() }
+        runCatching { sessions.rename(session.id, title, session.profile, session.deviceId) }
+            .onSuccess { refreshListsHolding(session) }
     }
 
     fun archive(session: Session) = viewModelScope.launch {
@@ -654,11 +707,12 @@ class SessionsViewModel @Inject constructor(
         // gateway 404s (wrong per-profile DB) and the session never disappears.
         runCatching {
             sessions.archive(session.id, archived = true, session.profile, session.deviceId)
-        }.onSuccess { refresh() }
+        }.onSuccess { refreshListsHolding(session) }
     }
 
     fun delete(session: Session) = viewModelScope.launch {
-        runCatching { sessions.delete(session.id, session.profile, session.deviceId) }.onSuccess { refresh() }
+        runCatching { sessions.delete(session.id, session.profile, session.deviceId) }
+            .onSuccess { refreshListsHolding(session) }
     }
 
     /** Pin/unpin keyed by the session's OWN profile, so it works regardless of the active one. */

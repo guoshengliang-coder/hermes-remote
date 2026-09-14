@@ -1,0 +1,215 @@
+<!DOCTYPE html><html lang="zh-CN" style=""><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hermes 主题选择底部弹单 (温润浅色版)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            paper: '#FAF9F5',
+            'paper-dim': '#DBDAD6',
+            'paper-low': '#F4F4F0',
+            'paper-container': '#EFEEEA',
+            'paper-high': '#E9E8E4',
+            'paper-highest': '#E3E2DF',
+            ink: '#1B1C1A',
+            'ink-variant': '#494641',
+            'outline-subtle': '#C9C7C2',
+            'brand-blue': '#2563EB',
+            'brand-blue-deep': '#004AC6',
+            'status-good': '#2E7D32',
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #FAF9F5;
+      color: #1B1C1A;
+      -webkit-font-smoothing: antialiased;
+    }
+    .sheet-shadow {
+      box-shadow: 0 -8px 36px -4px rgba(27, 28, 26, 0.16), 0 -2px 12px 0 rgba(27, 28, 26, 0.08);
+    }
+    .radio-dot {
+      box-shadow: inset 0 0 0 4px #FFFFFF;
+    }
+  </style>
+</head>
+<body class="bg-paper flex items-center justify-center min-h-screen p-0 md:p-6 select-none">
+  <!-- Mobile Screen Container -->
+  <div class="relative w-full max-w-[390px] h-[844px] bg-paper overflow-hidden shadow-2xl md:rounded-[40px] border border-[#E9E8E4] flex flex-col justify-end">
+    
+    <!-- Background: Realistic Drawer / Card Page Underlay (dimmed) -->
+    <div class="absolute inset-0 z-0 pointer-events-none flex flex-col">
+      <!-- Status bar -->
+      <div class="h-11 px-6 flex justify-between items-center text-xs font-semibold text-ink-variant pt-2">
+        <span class="">09:41</span>
+        <div class="flex items-center space-x-1.5">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-4.97 0-9 4.03-9 9 0 2.12.74 4.07 1.97 5.61L4.35 18.25c-.39.39-.39 1.02 0 1.41.39.39 1.02.39 1.41 0l.64-.64C7.93 20.26 9.88 21 12 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm0 16c-3.86 0-7-3.14-7-7s3.14-7 7-7 7 3.14 7 7-3.14 7-7 7z"></path></svg>
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M2 17h20v2H2zm1.15-4.05L4 11.47l.85 1.48 1.3-.75-.85-1.48H7v-1.5H5.3l.85-1.48-1.3-.75L4 8.47l-.85-1.48-1.3.75.85 1.48H1v1.5h1.7l-.85 1.48zM9 13h13v2H9zm0-6h13v2H9z"></path></svg>
+          <div class="w-5 h-2.5 border border-ink-variant rounded-sm p-0.5 flex items-center">
+            <div class="w-3 h-full bg-ink-variant rounded-xs"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Simulated Drawer / Card Page Content beneath overlay -->
+      <div class="px-5 pt-3 pb-8 flex-1 space-y-4 filter blur-[1px]">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-2.5">
+            <div class="w-8 h-8 rounded-full bg-brand-blue flex items-center justify-center text-white font-semibold text-sm">H</div>
+            <span class="text-base font-semibold tracking-tight text-ink">控制台与状态</span>
+          </div>
+          <span class="text-xs text-ink-variant bg-paper-high px-2 py-0.5 rounded-full font-mono">v1.4.2</span>
+        </div>
+
+        <!-- Identity card -->
+        <div class="bg-white rounded-2xl p-4 border border-[#E9E8E4] flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <div class="w-11 h-11 rounded-full bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center text-brand-blue font-bold">GS</div>
+            <div>
+              <div class="text-sm font-semibold text-ink">default 主空间</div>
+              <div class="text-xs text-ink-variant flex items-center gap-1.5 mt-0.5">
+                <span class="w-2 h-2 rounded-full bg-status-good"></span>
+                <span class="">网关运行中 · mac-mini</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Settings group item -->
+        <div class="bg-white rounded-2xl p-4 border border-[#E9E8E4] space-y-3">
+          <div class="flex justify-between items-center text-sm">
+            <span class="text-ink font-medium">外观主题</span>
+            <span class="text-brand-blue text-xs font-semibold">跟随系统</span>
+          </div>
+          <div class="h-px bg-[#F4F4F0]"></div>
+          <div class="flex justify-between items-center text-sm">
+            <span class="text-ink font-medium">默认模型</span>
+            <span class="text-ink-variant text-xs">deepseek-v4-flash</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scrim / Backdrop Overlay (warm dimmed) -->
+    <div class="absolute inset-0 z-10 bg-ink/40 backdrop-blur-[2px] transition-opacity duration-200"></div>
+
+    <!-- Bottom Sheet Container -->
+    <div class="relative z-20 w-full bg-white rounded-t-[28px] border-t border-[#E9E8E4] sheet-shadow flex flex-col animate-slide-up">
+      <!-- Drag Handle -->
+      <div class="pt-3 pb-1.5 flex justify-center w-full cursor-grab">
+        <div class="w-9 h-1.5 bg-[#DBDAD6] rounded-full"></div>
+      </div>
+
+      <!-- Header Section -->
+      <div class="px-6 pt-2 flex items-center justify-between pb-2"><h2 class="text-lg font-semibold tracking-tight text-ink">外观与主题</h2><button class="w-8 h-8 rounded-full bg-paper flex items-center justify-center text-ink-variant hover:text-ink hover:bg-paper-high transition-colors focus:outline-none" aria-label="关闭"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button></div>
+
+      <!-- Theme Options List (M3 List pattern with 48dp touch targets) -->
+      <div class="px-5 py-3 space-y-2">
+        
+        <!-- Option 1: System Default (Currently Selected) -->
+        <div class="group relative flex items-center justify-between p-3.5 rounded-2xl bg-white transition-all cursor-pointer shadow-xs border border-[#E9E8E4] hover:bg-paper/70">
+          <div class="flex items-center space-x-3.5">
+            <!-- Icon preview badge -->
+            <div class="w-10 h-10 rounded-xl bg-[#F4F4F0] border border-[#E9E8E4] flex items-center justify-center text-[#181C24] shadow-xs">
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                <line x1="8" y1="21" x2="16" y2="21"></line>
+                <line x1="12" y1="17" x2="12" y2="21"></line>
+              </svg>
+            </div>
+            <div>
+              <div class="flex items-center space-x-2">
+                <span class="text-sm font-semibold text-ink">跟随系统</span>
+                
+              </div>
+              <p class="text-xs text-ink-variant mt-0.5">根据 Android 系统当前外观自动切换</p>
+            </div>
+          </div>
+          <!-- Custom Radio Indicator (Active - #181C24) -->
+          <div class="w-5 h-5 rounded-full bg-[#181C24] flex items-center justify-center radio-dot flex-shrink-0"></div>
+        </div>
+
+        <!-- Option 2: Warm Paper Light Mode -->
+        <div class="group relative flex items-center justify-between p-3.5 rounded-2xl bg-white hover:bg-paper/70 border border-[#E9E8E4] transition-all cursor-pointer">
+          <div class="flex items-center space-x-3.5">
+            <!-- Icon preview badge -->
+            <div class="w-10 h-10 rounded-xl bg-[#FAF9F5] border border-[#E9E8E4] flex items-center justify-center text-[#824500] shadow-xs">
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="5"></circle>
+                <line x1="12" y1="1" x2="12" y2="3"></line>
+                <line x1="12" y1="21" x2="12" y2="23"></line>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                <line x1="1" y1="12" x2="3" y2="12"></line>
+                <line x1="21" y1="12" x2="23" y2="12"></line>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+              </svg>
+            </div>
+            <div>
+              <div class="flex items-center space-x-1.5">
+                <span class="text-sm font-semibold text-ink">温润浅色</span>
+                
+              </div>
+              <p class="text-xs text-ink-variant mt-0.5">手工纸质柔光，长文案阅读无眩光</p>
+            </div>
+          </div>
+          <!-- Custom Radio Indicator (Inactive) -->
+          <div class="w-5 h-5 rounded-full border-2 border-outline-subtle group-hover:border-ink-variant transition-colors flex-shrink-0"></div>
+        </div>
+
+        <!-- Option 3: Obsidian Dark Mode -->
+        <div class="group relative flex items-center justify-between p-3.5 rounded-2xl bg-white hover:bg-paper/70 border border-[#E9E8E4] transition-all cursor-pointer">
+          <div class="flex items-center space-x-3.5">
+            <!-- Icon preview badge -->
+            <div class="w-10 h-10 rounded-xl bg-[#F4F4F0] border border-[#E9E8E4] flex items-center justify-center text-ink shadow-xs"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg></div>
+            <div>
+              <div class="flex items-center space-x-1.5">
+                <span class="text-sm font-semibold text-ink">黑曜石深色</span>
+                
+              </div>
+              <p class="text-xs text-ink-variant mt-0.5">暗夜极客质感，OLED 省电高对比</p>
+            </div>
+          </div>
+          <!-- Custom Radio Indicator (Inactive) -->
+          <div class="w-5 h-5 rounded-full border-2 border-outline-subtle group-hover:border-ink-variant transition-colors flex-shrink-0"></div>
+        </div>
+
+      </div>
+
+      <!-- Action & Tip Footer -->
+      <div class="px-6 pb-6 flex flex-col items-center pt-4">
+        
+        <!-- Native pill button to confirm / dismiss -->
+        <button class="w-full h-12 bg-[#181C24] hover:bg-[#262C35] text-white font-medium text-sm rounded-xl transition-all shadow-sm active:scale-[0.99] flex items-center justify-center space-x-2">
+          <span class="">完成</span>
+        </button>
+      </div>
+
+      <!-- Android Gesture Navigation Bar Area -->
+      <div class="h-6 w-full flex justify-center items-center pb-2">
+        <div class="w-32 h-1 bg-ink/20 rounded-full"></div>
+      </div>
+    </div>
+
+  </div>
+
+
+
+
+
+
+</body></html>

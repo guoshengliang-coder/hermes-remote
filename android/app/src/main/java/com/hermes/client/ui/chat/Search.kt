@@ -9,68 +9,41 @@ fun matchIndices(messages: List<ChatMessage>, query: String): List<Int> {
     return messages.indices.filter { messages[it].text.contains(q, ignoreCase = true) }
 }
 
-enum class SearchSource { TEXT, THINKING, TOOL }
-
-/** One occurrence of the query, with enough surrounding context to recognize the spot. */
+/** One occurrence of the query: which turn, and which mark within that turn (HG-45). */
 data class SearchHit(
     val turnIndex: Int,
-    val source: SearchSource,
-    val snippet: String,
+    /** 0-based position among this turn's hits — the same order the renderer draws its marks in. */
+    val occurrence: Int,
 )
 
-private const val SNIPPET_CONTEXT_CHARS = 28
-private const val MAX_HITS_PER_FIELD = 3
 private const val MAX_TOTAL_HITS = 200
 
 /**
- * Occurrence-level search across turn text, reasoning, and tool outputs. A turn-level index match
- * told the reader "somewhere in this five-thousand-character card"; a snippet tells them where.
+ * Occurrence-level search over what the reader can actually see: the user's own words and the
+ * assistant's body text (HG-45, 2026-09-13). Reasoning and tool output are deliberately out of
+ * scope — they used to be counted, which inflated `n/N` with hits inside collapsed cards and made
+ * the counter disagree with the marks on screen.
+ *
+ * Matching goes through the SAME [searchHighlightTerms] / [searchHighlightRangesFor] pair the
+ * renderer marks with, so "hit k" and "the k-th mark in this turn" are the same thing. They were
+ * not before: this searched for the whole query while the renderer also marked each word of it,
+ * so a two-word query produced more marks than hits.
+ *
+ * Timeline notes (`displayKind != null`) are skipped: `MessageBubble` renders them as plain
+ * `TimelineNoteRow`s that never carry a mark, so counting them would count the invisible.
  */
 fun searchHits(messages: List<ChatMessage>, query: String): List<SearchHit> {
-    val q = query.trim()
-    if (q.isEmpty()) return emptyList()
+    val terms = searchHighlightTerms(query)
+    if (terms.isEmpty()) return emptyList()
     val hits = mutableListOf<SearchHit>()
-    outer@ for (index in messages.indices) {
+    for (index in messages.indices) {
         val message = messages[index]
-        for ((source, body) in listOf(
-            SearchSource.TEXT to message.text,
-            SearchSource.THINKING to message.thinking,
-        )) {
-            collectHits(body, q, index, source, hits)
-            if (hits.size >= MAX_TOTAL_HITS) break@outer
-        }
-        for (tool in message.tools) {
-            collectHits(tool.output, q, index, SearchSource.TOOL, hits)
-            if (hits.size >= MAX_TOTAL_HITS) break@outer
+        if (message.displayKind != null || message.text.isBlank()) continue
+        val ranges = searchHighlightRangesFor(message.text, terms)
+        for (occurrence in ranges.indices) {
+            if (hits.size >= MAX_TOTAL_HITS) return hits
+            hits += SearchHit(index, occurrence)
         }
     }
     return hits
-}
-
-private fun collectHits(
-    body: String,
-    query: String,
-    turnIndex: Int,
-    source: SearchSource,
-    into: MutableList<SearchHit>,
-) {
-    if (body.isBlank()) return
-    var from = 0
-    var found = 0
-    while (found < MAX_HITS_PER_FIELD && into.size < MAX_TOTAL_HITS) {
-        val at = body.indexOf(query, from, ignoreCase = true)
-        if (at < 0) break
-        into += SearchHit(turnIndex, source, snippetAround(body, at, query.length))
-        found++
-        from = at + query.length
-    }
-}
-
-internal fun snippetAround(body: String, at: Int, matchLength: Int): String {
-    val start = (at - SNIPPET_CONTEXT_CHARS).coerceAtLeast(0)
-    val end = (at + matchLength + SNIPPET_CONTEXT_CHARS).coerceAtMost(body.length)
-    val core = body.substring(start, end).replace(Regex("\\s+"), " ").trim()
-    val prefix = if (start > 0) "…" else ""
-    val suffix = if (end < body.length) "…" else ""
-    return "$prefix$core$suffix"
 }

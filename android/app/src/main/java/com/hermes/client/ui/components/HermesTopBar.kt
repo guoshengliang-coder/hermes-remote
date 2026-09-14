@@ -9,6 +9,7 @@ import androidx.compose.material3.TopAppBarColors
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
 /**
  * App bar tinted by the active profile's accent (chrome-only per the design decision). The
@@ -24,6 +25,16 @@ fun HermesTopBar(
     subtitle: String? = null,
     // Centered = the session-list root (M3 center-aligned bar); pushed screens stay start-aligned.
     centered: Boolean = false,
+    // Content-row height of the centered bar. A parameter only so the session list can drive it
+    // from its temporary tuning panel; ignored when [centered] is false.
+    centeredHeight: androidx.compose.ui.unit.Dp = 48.dp,
+    // Per-screen title step. Null keeps each branch's own default — `titleLarge` on a pushed bar,
+    // [com.hermes.client.ui.theme.SessionsTopBarTitle] on the centred one — so existing callers are
+    // untouched. The cron mocks give that page its own two steps (docs/DESIGN.md §5.18).
+    titleStyle: androidx.compose.ui.text.TextStyle? = null,
+    // Replaces the plain [subtitle] line when a screen's mock draws something richer than a string
+    // (the cron list puts a status dot beside its profile name). Ignored when [centered].
+    subtitleContent: (@Composable () -> Unit)? = null,
     navigationIcon: @Composable () -> Unit = {},
     actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
 ) {
@@ -37,6 +48,17 @@ fun HermesTopBar(
     )
     if (centered) {
         androidx.compose.material3.CenterAlignedTopAppBar(
+            // 48dp, the mock's `h-12` (5th pull; `h-14` before it), against Material's 64dp
+            // default. Only the centred bar — that is the one the session-list mock specifies
+            // (docs/DESIGN.md §5.2). It still clears a 48dp touch target exactly, because this is
+            // the content row alone.
+            //
+            // `expandedHeight`, NOT `Modifier.height`. The bar draws its own status-bar inset
+            // inside its container, so constraining the whole composable spends most of the
+            // budget on the inset and squashes the content row: on a HONOR CLK-AN00 the title was
+            // vertically clipped and sat flush against the first group header. The mock has the
+            // same split — `h-12` is the content row, `pt-safe` is separate.
+            expandedHeight = centeredHeight,
             modifier = modifier,
             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                 containerColor = barBg,
@@ -44,7 +66,9 @@ fun HermesTopBar(
                 navigationIconContentColor = barOn,
                 actionIconContentColor = barOn,
             ),
-            title = { Text(title, style = MaterialTheme.typography.titleLarge, color = barOn) },
+            title = {
+                Text(title, style = titleStyle ?: com.hermes.client.ui.theme.SessionsTopBarTitle, color = barOn)
+            },
             navigationIcon = navigationIcon,
             actions = actions,
         )
@@ -55,8 +79,10 @@ fun HermesTopBar(
         colors = colors,
         title = {
             Column {
-                Text(title, style = MaterialTheme.typography.titleLarge, color = barOn)
-                if (subtitle != null) {
+                Text(title, style = titleStyle ?: MaterialTheme.typography.titleLarge, color = barOn)
+                if (subtitleContent != null) {
+                    subtitleContent()
+                } else if (subtitle != null) {
                     Text(
                         subtitle,
                         style = MaterialTheme.typography.labelMedium,

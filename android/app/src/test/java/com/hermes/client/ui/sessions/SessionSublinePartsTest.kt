@@ -2,6 +2,7 @@ package com.hermes.client.ui.sessions
 
 import com.hermes.client.domain.Session
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,6 +39,42 @@ class SessionSublinePartsTest {
         assertEquals("codex/router", parts.lead)
         assertEquals("claude-sonnet-5", parts.model)
         assertNull(sessionSublineParts(s("m", repo = "/u/proj"), lead = SublineLead.BRANCH).lead)
+    }
+
+    // ── The Bots list's reading of the same session (HG-54) ──────────────────────────────────
+
+    /**
+     * A bot conversation with a known model reads exactly like an ordinary one, minus the lead:
+     * the cwd of a conversation that happened on DingTalk belongs to Hermes, not to anything the
+     * reader chose, so showing it would be noise.
+     */
+    @Test fun a_bot_row_shows_the_model_and_no_project() {
+        val parts = sessionSublineParts(s("claude-sonnet-5", repo = "/u/proj"), isBot = true)
+        assertNull(parts.lead)
+        assertEquals("claude-sonnet-5", parts.model)
+        assertFalse(parts.modelUnknown)
+    }
+
+    /**
+     * The third state. A blank model on an ordinary session means "the profile default applies";
+     * on a bot session it means we do not know what answered on the other side. Dropping the
+     * segment silently (what the shared rule does) would hide the difference, and saying 默认模型
+     * would be a claim about someone else's turn (docs/DESIGN.md §5.16).
+     */
+    @Test fun a_bot_row_with_no_model_is_unknown_not_absent_and_not_default() {
+        for (model in listOf(null, "", "   ")) {
+            val parts = sessionSublineParts(s(model), isBot = true)
+            assertNull(parts.model)
+            assertTrue(parts.modelUnknown)
+            // Unknown is something to render, so the subline is NOT empty.
+            assertFalse(parts.isEmpty)
+        }
+    }
+
+    /** The flag is the bot list's alone — an ordinary blank-model row keeps dropping the segment. */
+    @Test fun an_ordinary_row_never_reports_an_unknown_model() {
+        assertFalse(sessionSublineParts(s(null)).modelUnknown)
+        assertFalse(sessionSublineParts(s("  ", cwd = "/u/proj")).modelUnknown)
     }
 
     @Test fun profile_never_appears_in_the_subline() {

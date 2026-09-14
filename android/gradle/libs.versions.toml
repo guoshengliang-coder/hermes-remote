@@ -44,6 +44,9 @@ lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.r
 activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
 compose-ui = { module = "androidx.compose.ui:ui" }
+# Pulled in transitively by material3, but HorizontalPager and the pointer-event
+# helpers are used directly, so the dependency is declared rather than borrowed.
+compose-foundation = { module = "androidx.compose.foundation:foundation" }
 compose-ui-graphics = { module = "androidx.compose.ui:ui-graphics" }
 compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }

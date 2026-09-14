@@ -22,6 +22,19 @@ When multiple agents work at the same time, prefer a dedicated branch and worktr
 reset, or delete another worktree. The integration agent owns the final merge, version bump, build,
 and release artifact so those operations happen exactly once.
 
+A worktree created for a task is removed by the agent that created it, once the task's pull request is
+merged and the resulting `main` checks pass. Confirm `git status --porcelain` is empty and run
+`git worktree remove <path>` (never `rm -rf`); if Git refuses, stop and report instead of forcing it.
+Then delete the branch: run `git fetch --prune origin`, and only if
+`git merge-base --is-ancestor <branch> origin/main` succeeds, run `git branch -D <branch>`; otherwise
+stop and report. Do not rely on `git branch -d`: once the remote branch is gone it compares against the
+current checkout's `HEAD`, not `main`, and refuses merged branches. A task that did not create its own
+worktree removes nothing. Never
+remove the integration worktree, a worktree locked with `git worktree lock`, or one holding
+uncommitted or untracked changes — report those. A release worktree is removed only after the
+publication's public size and hash verification has passed. Follow-up work after a merge starts a new
+branch from `main` rather than reviving the removed one.
+
 The integration worktree — the one holding `main` — belongs to the integration agent alone. No other
 agent may edit files in it; every other task works on its own branch and worktree. An integration
 agent that finds uncommitted changes there reports them and never commits or discards them. Merging
@@ -113,8 +126,15 @@ For every APK actually handed to a tester or user:
    ```
 
    This gate runs `git diff --check`, Android unit tests, the debug build, staged-artifact checks,
-   APK package/version validation, signature verification, and SHA-256 generation. A successful
-   `assembleDebug` by itself is not sufficient for distribution.
+   APK package/version validation, signature verification, feedback-configuration verification, and
+   SHA-256 generation. A successful `assembleDebug` by itself is not sufficient for distribution.
+
+   Feedback-configuration verification exists because 0.1.120 shipped without the in-app
+   "反馈与建议" entry and every other check stayed green: the entry is drawn only when the build
+   carried `MISSIONGO_ENDPOINT` and `MISSIONGO_SDK_TOKEN`, which reach a local build through the
+   gitignored `android/missiongo.properties`. A build host without that file therefore cannot
+   produce a distributable APK, and should not try to: let `android-release.yml` build and publish
+   from the repository secrets rather than copying credentials into a release worktree.
 4. Deliver only the exact `ARTIFACT=` path printed after `APK_RELEASE_OK`:
    `android/app/build/outputs/apk/distribution/debug/Hermes-Remote-<version>-debug.apk`.
 5. Never hand off, upload, or serve the canonical unversioned `app-debug.apk`.

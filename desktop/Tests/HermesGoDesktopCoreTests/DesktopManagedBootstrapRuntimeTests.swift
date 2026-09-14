@@ -63,6 +63,45 @@ final class DesktopManagedBootstrapRuntimeTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: paths.hermesHome.path))
     }
 
+    func testComponentRuntimeCompositionIsInertAndKeepsV2InputsSeparate() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = try DesktopManagedBootstrapPaths(homeDirectory: root)
+        let manifestURL = URL(
+            string: "https://downloads.example/desktop/components/manifest-v2.json"
+        )!
+        let configuration = try DesktopComponentPreflightConfiguration(
+            manifestURL: manifestURL,
+            artifactOrigin: URL(string: "https://downloads.example")!,
+            channel: "internal",
+            architecture: "arm64",
+            signingKeyID: "desktop-components-2026",
+            signingPublicKey: Data(repeating: 9, count: 32)
+        )
+
+        let runtime = try DesktopComponentBootstrapRuntime(
+            releaseConfiguration: configuration,
+            accountGatewayURL: URL(string: "https://gateway.example")!,
+            runtimeContract: .serveV1,
+            account: RuntimeAccountFake(),
+            paths: paths,
+            userID: 501
+        )
+
+        XCTAssertEqual(runtime.workspaceRoot, paths.workspaceRoot)
+        XCTAssertEqual(
+            runtime.commitConfiguration.gatewayWebSocketURL.absoluteString,
+            "wss://gateway.example/v2/connect"
+        )
+        XCTAssertEqual(runtime.commitConfiguration.runtimeContract, .serveV1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.managedRoot.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.workspaceRoot.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.launchAgentsRoot.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.hermesHome.path))
+    }
+
     func testInstallationStatusRequiresJournalAndBothExactManagedServices() {
         let active = journal(state: .accountActive)
         XCTAssertEqual(

@@ -1,7 +1,8 @@
 package com.hermes.client.ui.chat
 
+import com.hermes.client.domain.ChatMessage
+import com.hermes.client.domain.Role
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -26,13 +27,17 @@ class ChatSearchHighlightTest {
         assertTrue(searchHighlightRangesFor("abc", emptyList()).isEmpty())
     }
 
-    // Auto-expand only in the current turn, for the hit's own source, when the body has the query.
-    @Test fun auto_expand_rules() {
-        val ctx = ChatSearchContext(query = "gradle", currentMessageId = "m1", currentSource = SearchSource.THINKING)
-        assertTrue(shouldAutoExpand(ctx, isCurrentTurn = true, source = SearchSource.THINKING, body = "run Gradle now"))
-        assertFalse(shouldAutoExpand(ctx, isCurrentTurn = false, source = SearchSource.THINKING, body = "run gradle now"))
-        assertFalse(shouldAutoExpand(ctx, isCurrentTurn = true, source = SearchSource.TOOL, body = "run gradle now"))
-        assertFalse(shouldAutoExpand(ctx, isCurrentTurn = true, source = SearchSource.THINKING, body = "nothing here"))
-        assertFalse(shouldAutoExpand(null, isCurrentTurn = true, source = SearchSource.THINKING, body = "gradle"))
+    // The one invariant the focused mark rests on (HG-45): the counter and the renderer have to
+    // agree on what "the k-th occurrence" is. They did not before — this searched for the whole
+    // query while the renderer also marked each word of it, so a two-word query drew more marks
+    // than there were hits, and the k-th hit pointed at the wrong one.
+    @Test fun hit_count_equals_the_number_of_marks_the_renderer_draws() {
+        val text = "deploy script, then deploy the script again"
+        listOf("deploy script", "deploy", "错误 deploy").forEach { query ->
+            val marks = searchHighlightRangesFor(text, searchHighlightTerms(query)).size
+            val hits = searchHits(listOf(ChatMessage(id = "m", role = Role.ASSISTANT, text = text)), query)
+            assertEquals("query=$query", marks, hits.size)
+            assertEquals("query=$query", (0 until marks).toList(), hits.map { it.occurrence })
+        }
     }
 }

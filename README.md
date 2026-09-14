@@ -64,6 +64,8 @@ production features or changing Android until its later adoption gate. Google an
 providers; the existing Google implementation remains behind an independent default-off flag.
 The Desktop E4-B signed-release, atomic-install, LaunchAgent, and rollback contract is documented in
 `docs/DESKTOP_RELEASE_MANIFEST.md`; local automated evidence is in `docs/DESKTOP_E4_TEST_RECORD.md`.
+The follow-up plan for environment preflight, exact safe reuse, a shared component store, and
+on-demand browser/speech/document capabilities is in `docs/DESKTOP_COMPONENTIZED_INSTALL_PLAN.md`.
 The default-off E5 whole-device sharing implementation and its remaining live-provider, interactive
 Web, multi-node, and physical acceptance gates are recorded in `docs/ACCOUNT_MODE_E5_TEST_RECORD.md`.
 The default-off E6 secure Web-session foundation, first same-origin interactive account-center
@@ -102,6 +104,9 @@ capture, Mac off-host restore rehearsal, evidence-bound status activation, produ
 and deployment of the daily capture/hourly off-host recovery loop. R5-E7A repaired the minimal-PATH Mac
 LaunchAgent issue found by the first scheduled cycle; that generation's restore, activation, acknowledgement,
 and following production monitor passed. Account enablement remains disabled pending the separate R5-F go/no-go.
+The default-off R5-F4 source operator can now advance an already committed single-Mac account runtime to the
+multi-device route/flag contract with exact rollback before any second binding is created. Its merge does not
+authorize production execution or bind another Mac.
 
 Android now contains a capability-gated email-code account path beside the existing Relay URL +
 `APP_TOKEN` mode. Account mode stores its own encrypted phone session, selects owned/shared Macs by

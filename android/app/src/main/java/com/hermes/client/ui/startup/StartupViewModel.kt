@@ -6,6 +6,7 @@ import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.AccountTransportMode
 import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.auth.isLoopbackGatewayBaseUrl
 import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.network.ConnectionState
@@ -84,6 +85,7 @@ sealed interface StartupUiState {
     data class RepairRequired(
         val reason: StartupReason,
         val failure: StartupFailure,
+        val accountSetup: Boolean = false,
     ) : StartupUiState
 }
 
@@ -238,7 +240,11 @@ class StartupViewModel @Inject constructor(
         attemptJob?.cancel()
         attemptJob = null
         repairReason = reason
-        _state.value = StartupUiState.RepairRequired(reason, failure)
+        val accountSetup = failure == StartupFailure.CONNECTION_FAILED &&
+            runCatching { credentials.load()?.baseUrl }
+                .getOrNull()
+                ?.let(::isLoopbackGatewayBaseUrl) == true
+        _state.value = StartupUiState.RepairRequired(reason, failure, accountSetup)
     }
 
     /** Called after the repair screen has persisted edited values. */
@@ -322,7 +328,18 @@ class StartupViewModel @Inject constructor(
                     }
                     is GatewayProbeResult.InvalidEndpoint -> {
                         minimumDisplay?.cancel()
-                        requireConfigurationRepair(reason, StartupFailure.INVALID_URL)
+                        // An account-mode request is already pinned to the signed-in account's
+                        // Gateway URL. A 404 or another unexpected response therefore cannot be
+                        // repaired by editing the retained legacy Relay/App-Token configuration.
+                        // Keep both local stores intact and send the user to Account & Devices.
+                        requireConfigurationRepair(
+                            reason,
+                            if (accountMode) {
+                                StartupFailure.ACCOUNT_SERVICE_UNAVAILABLE
+                            } else {
+                                StartupFailure.INVALID_URL
+                            },
+                        )
                         return@coroutineScope
                     }
                     is GatewayProbeResult.ServerFailure -> {

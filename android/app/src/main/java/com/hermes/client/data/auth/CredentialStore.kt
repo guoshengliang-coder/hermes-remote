@@ -52,6 +52,11 @@ fun normalizeGatewayBaseUrl(raw: String): String = runCatching {
     ) DEFAULT_REMOTE_GATEWAY_URL else normalized
 }.getOrElse { throw IllegalArgumentException(it.message ?: "Invalid gateway URL") }
 
+internal fun isLoopbackGatewayBaseUrl(raw: String): Boolean = runCatching {
+    val host = URI(raw).host?.removePrefix("[")?.removeSuffix("]")?.lowercase()
+    host in setOf("127.0.0.1", "localhost", "::1")
+}.getOrDefault(false)
+
 private const val LEGACY_REMOTE_GATEWAY_PORT = 8444
 private val LEGACY_REMOTE_GATEWAY_HOSTS = setOf("mrlgs.net", "47.239.30.253.sslip.io")
 

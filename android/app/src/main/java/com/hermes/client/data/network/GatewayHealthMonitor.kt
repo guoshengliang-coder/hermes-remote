@@ -108,9 +108,18 @@ class GatewayHealthMonitor(
     init {
         // A dropped/errored socket is an early hint the backend may be gone — re-probe promptly.
         // probe()'s tryLock coalesces this with any in-flight probe.
+        //
+        // The socket coming BACK is the same kind of hint, and it used to be ignored. HG-42: the
+        // probe that ran while the network was stalling wrote GatewayUnreachable, the socket then
+        // reconnected a second later and every REST call went back to 200 — and the red
+        // 「Relay 暂时无法连接」 strip stayed up regardless, because nothing asked again until the
+        // 30-second loop came round. The strip is meant to describe the backend, not the last bad
+        // moment the app remembers. Only re-probe when something is actually being claimed: on a
+        // healthy client this collector then costs nothing.
         scope.launch {
             connectionState.collect { st ->
-                if (st is ConnectionState.Error || st is ConnectionState.Disconnected) probe()
+                val recovered = st is ConnectionState.Connected && _health.value.isUnhealthy()
+                if (st is ConnectionState.Error || st is ConnectionState.Disconnected || recovered) probe()
             }
         }
     }

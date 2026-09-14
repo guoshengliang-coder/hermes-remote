@@ -299,6 +299,65 @@ class AccountSessionManagerTest {
         assertEquals("mac-default", manager.session.value?.selectedDeviceId)
     }
 
+
+    @Test fun aRevokedSessionRecordsWhyItEndedSoTheSignInPageCanSayIt() = runTest {
+        store.account = session(accessExpiresAt = "2026-01-01T00:00:00Z", selectedDeviceId = "mac-1")
+        server.enqueue(MockResponse.Builder().code(401).addHeader("Content-Type", "application/json").body("""{
+          "error":{"code":"HR-AUTH-004","message":"revoked","retryable":false,"recoveryAction":"sign_in"}
+        }""").build())
+        val manager = manager()
+
+        runCatching { manager.accessToken() }
+
+        assertEquals("HR-AUTH-004", manager.accountReauthenticationReason())
+    }
+
+    @Test fun restAndHandshakeRejectionsKeepTheirOwnCodesApart() {
+        store.account = session(accessExpiresAt = "2099-01-01T00:00:00Z", selectedDeviceId = "mac-1")
+        val reused = manager()
+
+        reused.handleRestRejection(401, "HR-AUTH-005", rejectedDeviceId = null)
+
+        assertEquals("HR-AUTH-005", reused.accountReauthenticationReason())
+
+        store.account = session(accessExpiresAt = "2099-01-01T00:00:00Z", selectedDeviceId = "mac-1")
+        val handshake = manager()
+
+        // A WebSocket handshake carries a status and no error body, so it can only claim the floor.
+        handshake.handleTransportHandshakeRejection(401, "mac-1")
+
+        assertEquals("HR-AUTH-003", handshake.accountReauthenticationReason())
+    }
+
+    @Test fun anUnrecognisedCodeCollapsesToTheExpiryFloorRatherThanLeakingThrough() {
+        assertEquals("HR-AUTH-003", normalizeReauthenticationReason(null))
+        assertEquals("HR-AUTH-003", normalizeReauthenticationReason("HR-SOMETHING-NEW"))
+        assertEquals("HR-AUTH-003", normalizeReauthenticationReason("HR-AUTH-006"))
+        assertEquals("HR-AUTH-005", normalizeReauthenticationReason("HR-AUTH-005"))
+        assertEquals("HR-BIND-004", normalizeReauthenticationReason("HR-BIND-004"))
+    }
+
+    @Test fun anExplicitSignOutLeavesNoReasonToExplain() = runTest {
+        store.account = session(accessExpiresAt = "2099-01-01T00:00:00Z", selectedDeviceId = "mac-1")
+        server.enqueue(MockResponse.Builder().code(204).build())
+        val manager = manager()
+
+        manager.signOut()
+
+        assertEquals(false, manager.requiresAccountReauthentication())
+        assertNull(manager.accountReauthenticationReason())
+    }
+
+    @Test fun aReasonIsNeverReadableOnceTheGateItselfIsReleased() {
+        store.account = session(accessExpiresAt = "2099-01-01T00:00:00Z", selectedDeviceId = "mac-1")
+        val manager = manager()
+        manager.handleRestRejection(401, "HR-AUTH-004", rejectedDeviceId = null)
+
+        manager.allowExplicitLegacyFallback()
+
+        assertNull(manager.accountReauthenticationReason())
+    }
+
     private fun manager() = AccountSessionManager(
         store,
         AccountApi(OkHttpClient(), Json { ignoreUnknownKeys = true }),
@@ -328,27 +387,32 @@ class AccountSessionManagerTest {
         var explicitLegacy = false
         var pendingDeletion: PendingAccountDeletion? = null
         var deletionCommitted = false
+        var reauthenticationReason: String? = null
         override fun clientInstallationId() = "00000000-0000-0000-0000-000000000099"
         override fun loadAccountSession() = account
         override fun saveAccountSession(session: AccountSession) {
             account = session
             lastBaseUrl = session.baseUrl
             reauthenticationRequired = false
+            reauthenticationReason = null
             deletionCommitted = false
             if (session.pendingRefreshIdempotencyKey != null) lastSavedPendingKey = session.pendingRefreshIdempotencyKey
         }
         override fun clearAccountSession() { account = null }
-        override fun clearAccountSession(requireReauthentication: Boolean) {
+        override fun clearAccountSession(requireReauthentication: Boolean, reason: String?) {
             account = null
             reauthenticationRequired = requireReauthentication
+            reauthenticationReason = reason.takeIf { requireReauthentication }
             explicitLegacy = false
             pendingDeletion = null
             deletionCommitted = false
         }
         override fun accountReauthenticationRequired() = reauthenticationRequired
+        override fun accountReauthenticationReason() = reauthenticationReason
         override fun lastAccountBaseUrl() = lastBaseUrl
-        override fun setAccountReauthenticationRequired(required: Boolean) {
+        override fun setAccountReauthenticationRequired(required: Boolean, reason: String?) {
             reauthenticationRequired = required
+            reauthenticationReason = reason.takeIf { required }
         }
         override fun explicitLegacyConnectionSelected() = explicitLegacy
         override fun setExplicitLegacyConnectionSelected(selected: Boolean) {

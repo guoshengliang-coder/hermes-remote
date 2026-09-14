@@ -1,0 +1,1675 @@
+{
+  "_": [
+    "Stitch 基线索引。规则见 docs/DESIGN.md §7 第 8 条，机械步骤见本目录 README.md。",
+    "screenId 是唯一稳定的键；stitchLabel / stitchTitle 只是拉取时的原文，Stitch 里改了不影响追踪。",
+    "key = page.view.state[.overlay].theme，同时是本目录的文件名与截图用例名。",
+    "sha256 是 <key>.html 的哈希；拉取时重新下载并比对，变了才进入「规格变更」段。",
+    "implemented: implemented | partial | design-only。design-only 的界面不得凭空造 UI（§7 第 8 条）。",
+    "pairs 记同一屏幕浅暗两版的几何差异：几何以浅色稿为准，暗色稿只取颜色。"
+  ],
+  "project": {
+    "id": "8017882098155799612",
+    "title": "Hermes GO",
+    "updateTimeAtPull": "2026-09-12T07:09:29.016065Z"
+  },
+  "pulledAt": "2026-09-12",
+  "pullHistory": [
+    {
+      "at": "2026-09-12（第十次，聊天内搜索条首次入库）",
+      "projectUpdateTime": "2026-09-12T07:09:29.016065Z",
+      "result": "新增 3 张：基线-聊天页/搜索、/暗夜、/无内容状态（实为未输入态，标签待改名）。暗夜那张的 HTML 不可下载，用 =s2000 全尺寸截图入库，是本仓第一张没有 sha256 的基线。顺带把第七次的编号重复修掉：定时任务那次与聊天页那次都写了「第七次」，按 projectUpdateTime 排序定时任务在会话行长按操作单之后，改记为第九次。"
+    },
+    {
+      "at": "2026-09-12（第九次，定时任务首次入库）",
+      "projectUpdateTime": "2026-09-12T06:16:30.425317Z",
+      "result": "定时任务 4 张入库（新页面，词表新增「定时任务」）；另有 6 张新标签未拉取，见 notCovered"
+    },
+    {
+      "at": "2026-09-11 (第一次)",
+      "projectUpdateTime": "2026-09-10T14:49:48.040372Z",
+      "result": "6 张入库"
+    },
+    {
+      "at": "2026-09-11 (第二次，标签改为 基线- 格式后)",
+      "projectUpdateTime": "2026-09-11T02:37:17.623342Z",
+      "result": "标签 6/6 符合新格式；5 张 HTML 内容变化（见 specChanges），仅 sessions.chats.default.more-menu.light 未变"
+    },
+    {
+      "at": "2026-09-11 (第三次，卡片页首次入库)",
+      "projectUpdateTime": "2026-09-11T06:36:47.950335Z",
+      "result": "新增 2 张（基线-卡片页 / 暗夜）；已有 6 张未重拉；两张无标签的 844 高新稿与隐藏稿按规则忽略；设计系统无新漂移（仓库基线资产仍未设为项目当前）"
+    },
+    {
+      "at": "2026-09-11 (第四次，设计师重出卡片页两张稿)",
+      "projectUpdateTime": "2026-09-11T10:17:18.018506Z",
+      "result": "card.default.light / dark 两张内容变更（结构性重做，见 specChanges）；新增 2 张已打标的主题弹层基线待入库（见 candidates）；会话列表两张的画布高度也变了，本轮未重拉（归属会话列表分支）"
+    },
+    {
+      "at": "2026-09-13（第八次，会话列表分组色柱行）",
+      "projectUpdateTime": "2026-09-11T15:53:04.972204Z",
+      "result": "新增 2 张基线（基线-会话列表页/色柱行优化 + 暗夜），只改分组色柱行，页面其余部分不动。组头从「无底无边的一行」改为 32dp 高、8dp 圆角、两端 16dp 留白的着色胶囊；色柱 3×12 全圆 → 4×14 圆角 2dp；组名等宽 11sp 大写 → sans 12sp 不大写并四组全部着色；计数 chip 加描边改全圆；箭头 17 → 16dp。浅暗两稿在间距与组名着色上分歧较大，均按裁决取暗色稿，记在 specChanges。项目级 updateTime 仍是第五次那个值，这两张同样是按 screenId 直接拉的。"
+    },
+    {
+      "at": "2026-09-12（第六次，只重拉会话列表两张）",
+      "projectUpdateTime": "2026-09-11T15:53:04.972204Z",
+      "result": "按 screenId 重拉 sessions.chats.default.light / dark，落地第五次发现的密度收紧。注意 projectUpdateTime 与第五次相同 —— 项目级时间戳在第五次就已经更新过，拿它当闸门会判定「没变」，所以这两张必须按 screenId 直接重拉。浅色 sha bd68d115→3d7b777d，暗色 aea4d75e→82d1d52d，画布 1229→1223 css px。颜色 token 一个字未改，纯密度。暗色稿只跟进了一半（行收紧跟上了，顶栏与字号没有），记进 pairs；几何按既有规则以浅色稿为准。"
+    },
+    {
+      "at": "2026-09-12（第五次，模型选择首次入库）",
+      "projectUpdateTime": "2026-09-11T15:53:04.972204Z",
+      "result": "新增 2 张（基线-模型选择 / 暗夜）；重拉已有 10 张比对 sha256：card.default.dark 变化仅为 Stitch 导出包装（<html> 上多了内联尺寸、末尾多了 snapdom-sandbox 空 div），无设计变化，未更新快照；sessions.chats.default.light / dark 为真实的密度收紧（顶栏 h-14→h-12、头像 36→32、标题 17→16px、行 py-3→py-1.5、正文区 pt-88→76），归属会话列表分支，本轮未重拉、未落地，见 specChanges；其余 7 张未变。"
+    },
+    {
+      "at": "2026-09-12（第七次，聊天页首次入库）",
+      "projectUpdateTime": "2026-09-12T05:29:54.541817Z",
+      "result": "新增 4 张：基线-聊天页/我的提问 与 /暗夜、基线-聊天页/滑动引导胶囊 与 /暗夜。聊天页此前一张未入库，「聊天页」本就在 §7 第 8 条的页面词表里，故无需归属裁决，章节沿用 §5.4。四张都是「去蓝化」稿：胶囊与弹层当前行的 primaryContainer 全部换成纸白 / 墨黑中性色 + 发丝描边。两张胶囊稿是完整聊天页，顺带画了顶栏、输入 dock 与表格卡，与现状有出入但不属本轮范围，记进 specChanges 的 pending。已有 12 张本轮未重拉。"
+    },
+    {
+      "at": "2026-09-12（第八次，会话行长按操作单首次入库）",
+      "projectUpdateTime": "2026-09-12T05:55:58.876015Z",
+      "result": "新增 2 张（基线-会话列表页/长按下拉菜单 / 暗夜）—— 这是「会话列表行长按操作单」第一次进基线，它此前明确列在 §5.2「Stitch 不覆盖清单」里，本轮从那张清单上划掉。重拉了拉取时已在库的 12 张比对 sha256：只有 card.default.dark 变了，逐字 diff 后确认仍然只是 Stitch 导出包装（<html> 上多了 width/height/overflow 内联样式、末尾多了 snapdom-sandbox 空 div），无设计变化，快照未更新 —— 与第五次同一判定；其余 11 张一字未变。聊天页那 4 张是同一小时内由第七次落进 main 的，本轮没有重拉。本轮原先也自称「第七次」：两个分支在同一天并行拉取、各自编号，合并时按落地顺序改成第八次 —— 编号是流水号，不是拉取时刻的标签。"
+    }
+  ],
+  "specChanges": {
+    "_": "第二次拉取发现的规格变更及裁决。2026-09-11 晚些时候产品负责人把总规则改为「严格照稿，冲突用稿子的」，下面几条随之重裁，status 已更新为落地后的状态。status: landed | consistent | rejected。pending 段记已看到、但归属别的分支因而本轮不落地的差异。",
+    "resolved": [
+      {
+        "screens": [
+          "sessions.chats.default.light",
+          "sessions.chats.default.dark"
+        ],
+        "change": "行标题 15px → 15.5px（浅色用内联 style，暗色改类名）；字重改为按分组区分：「需要你处理」两行 600，其余行 500",
+        "decision": "采纳并已落地。SessionRowTitle 15.5/600（未读）与 SessionRowTitleRead 15.5/500（已读），行高 22.475、字距 −0.155。语义按未读态而非分组，与设计师系统的 session-title-unread / session-title-normal 一致。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.light"
+        ],
+        "change": "状态色改为内联覆盖：等待 = #B45309、已完成 = #2E7D32（与本仓 StatusColors 的 GOOD 相同）",
+        "decision": "已落地。等待文字改为稿子的 #B45309（纸底 4.53）；已完成浅色本就是 #2E7D32。同批还把 BAD 改成 #B91C1C/#F87171、GOOD 深色改成 #34D399，并按稿子拆出 WARN 的图形档 #D97706/#F59E0B 给立柱与等待圆点。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.dark",
+          "sessions.chats.default.more-menu.dark"
+        ],
+        "change": "FAB 改为 56dp（w-14）、底色 #181C24、1px 白 12% 描边、28dp 描边式 SVG 加号（stroke 2.2）替代 Material Symbol",
+        "decision": "已落地。深色 FAB 底由 #1E232B 改为稿子的 #181C24（描边 #3A4049 保留，近黑对暗底只有 1.19:1）。浅色稿仍画 52dp + 24px 加号，与暗色稿矛盾；产品负责人 2026-09-11 裁定取暗色稿的 56dp + 28px，也与 M3 标准尺寸一致。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "search.results.light"
+        ],
+        "change": "查询词高亮字重 semibold → medium；底部汇总文字色 → #64748B",
+        "decision": "与 §5.2 搜索页一致（primary + Medium），无需改代码。",
+        "status": "consistent"
+      },
+      {
+        "screens": [
+          "search.results.dark"
+        ],
+        "change": "搜索框加 0.5px 白 8% 描边；底部汇总文字色 → #94A3B8",
+        "decision": "不采纳。SearchField 是全 app 唯一形态（填充式、无描边），单改暗色会让全局搜索与聊天内搜索不一致。有意偏离。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "card.default.light",
+          "card.default.dark"
+        ],
+        "change": "统计卡由「本周用量｜远程设备」双格改为单一「远程节点」卡，本周用量格消失",
+        "decision": "产品裁决 2026-09-11：这是需求调整，照稿。「用量」入口移到设置页（记忆与预算之后），卡片页整块合成一张远程节点卡，整卡 → 远程设备页。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.light",
+          "card.default.dark"
+        ],
+        "change": "「N 台在线 / 共 N 台设备」计数胶囊",
+        "decision": "服务端按账号返回在线数/总数的接口待联调；接口到位前 deviceCounts 为 null、不渲染。锁文件 implemented = partial。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.light"
+        ],
+        "change": "延迟胶囊「29 ms · 极佳」",
+        "decision": "三档：优 <50 ms（绿，稿的 #15803D/#7CDC80 + #16A34A 点）、普通 50–150（中性）、延迟 >150（琥珀）；连接器离线 = 红 + 「连接器离线」。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.light"
+        ],
+        "change": "定时任务右值「无活动」",
+        "decision": "不用「无活动」；右值 = 启用且未暂停的任务数「N 个任务」，有失败/逾期告警时右值前加琥珀点（与检查更新行同一套信号），去掉原中性数字徽标。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.light"
+        ],
+        "change": "模型右值「Claude 3.7」",
+        "decision": "保持显示当前默认模型 ID。",
+        "status": "consistent"
+      },
+      {
+        "screens": [
+          "card.default.light",
+          "card.default.dark"
+        ],
+        "change": "图标：1.5 描边、模型用芯片、更新用循环箭头、箭头与设备图标用 Material Symbols",
+        "decision": "几何与颜色照稿，图标沿用本仓描边体系（§4）。有意偏离。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "card.default.light",
+          "card.default.dark"
+        ],
+        "change": "头像 #2563EB 品牌蓝",
+        "decision": "示意色；实现按 §2.4 身份色（数据驱动）。",
+        "status": "consistent"
+      },
+      {
+        "screens": [
+          "card.default.light",
+          "card.default.dark"
+        ],
+        "change": "淡卡改为 1px 描边 + 圆角 16（原 20 + 1dp 阴影）",
+        "decision": "只改卡片页（Tiles.kt 新增 card* 令牌）；用量页等自己的稿再统一。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.light",
+          "card.default.dark"
+        ],
+        "change": "第二版稿：卡片降为纸色、快捷行离开卡片、远程节点压成一行、齿轮去底、页脚加 ✦ 与斜体衬线",
+        "decision": "照稿全部采纳。第一版刚落地（提交 6852c46）即被这一版取代，代码按新稿重做。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.light"
+        ],
+        "change": "状态胶囊与延迟三档被删除，右侧只剩「29 ms」",
+        "decision": "照稿删除 LatencyTier / latencyTier() / StatusCapsule。离线时右侧显示「离线」BAD 色文字（稿未画）。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.light"
+        ],
+        "change": "身份卡副行「网关启动目录 · 本机」",
+        "decision": "不采纳文案：按身份的工作目录与本机/远程标识都没有数据源（ProfileDto 只有 name/isDefault；defaultProjectPath 是全局且要建过会话才有）。保留「当前身份」。这一处记 design-only。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "card.default.light"
+        ],
+        "change": "定时任务右值「0 运行中」",
+        "decision": "不采纳：服务端只有 last_status==running 这个近似，且崩溃的任务会永远停在 running。保留「N 个任务」（启用且未暂停）。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "card.default.light"
+        ],
+        "change": "检查更新绿点 + 「v0.1.116 (最新)」",
+        "decision": "采纳，并把 UpdateBadge 扩成三态（Unknown / UpToDate / Available），否则「没检查过」会被画成绿点。UpdateBadgeTest 钉死六条边界。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.light",
+          "card.default.dark"
+        ],
+        "change": "页脚 ✦ 装饰分隔 + 斜体衬线标语",
+        "decision": "照稿。用系统 FontFamily.Serif + FontStyle.Italic，不打包字体；这行是英文品牌语，不涉及中文回退。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.light"
+        ],
+        "change": "模型行标题「模型」→「默认模型」",
+        "decision": "照稿改文案（Default model）。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "主题弹层由「titleMedium 标题 + 三个 RadioButton ListItem」重做为「标题 + 关闭钮 + 三张带图标与说明的选项卡 + 底部实心按钮」",
+        "decision": "照稿。选项卡 16dp 圆角、14dp 内距、1px 发丝描边；40dp 图标章 12dp 圆角、内嵌 20dp 图标；标题 14/600、说明 12/400（复用 CardIdentitySub）、行尾 20dp 单选点；列表 px-5 py-3、卡间距 8；按钮通栏 48dp、12dp 圆角、页脚 px-6 pt-4 pb-6。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "稿同时新增关闭 ✕ 与底部通栏「完成」按钮，且选中项带「当前使用」徽标",
+        "decision": "产品裁决 2026-09-11：弹层里的选择是暂态，按底部按钮才写库并关闭；✕ / 下滑 / 遮罩 / 返回一律取消，什么都不写。这也让徽标有了独立语义（单选点 = 待提交，徽标 = 当前生效）。按钮文案改「保存 / Save」—— 按下才生效时「完成」是不诚实的标签。这是本轮唯一一处主动改稿上的字。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "选中单选点的画法两稿不一致（浅色实心点无外环 / 暗色环+点）",
+        "decision": "取暗色稿的环+点，M3 单选的常规形态；浅色稿那个 inset 白环在白卡上等于不可见，判为渲染副产物而非设计意图。墨色取 card.theme.accent。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "图标着色：浅色稿三条规则（跟随系统 #181C24、太阳 #824500 琥珀、月亮 #1B1C1A），暗色稿一条",
+        "decision": "取暗色稿那条：未选 onSurfaceVariant、选中 onSurface，浅暗同一条规则。浅色稿的琥珀太阳判为噪声 —— 它既不是选中态也不对应任何语义。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "「当前使用」徽标只在暗色稿里有",
+        "decision": "浅色稿把标题右侧留成了空 span，判为漏画。两版都加（产品裁决 2026-09-11）。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "主题改名「跟随系统 / 温润浅色 / 黑曜石深色」",
+        "decision": "全线采用（产品裁决 2026-09-11）：弹层、卡片页「主题」行右值、设置→外观。设置→外观的颜色模式随之由三段胶囊换成同一套选项卡列表 —— SegmentedCapsule 是 maxLines=1 省略号，英文 Obsidian dark 在 fontScale 1.3 下必截断，换掉正好消掉这个风险。卡片页原本说「随系统」、设置页说「跟随系统」，这次一并收敛。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "强调色（选中单选点、底部按钮底）是近黑 #181C24 / 近白 #E2E0DB，不是品牌蓝",
+        "decision": "照稿。§1 原则 3「chrome 一律品牌色」的第二个例外，理由与 FAB 同：主题选择不是运行态，一块品牌蓝在满是蓝色状态信号的应用里会被读成又一个状态。已写进 §5.1。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "抓手 36×6，浅 #DBDAD6 / 暗 #423F3A",
+        "decision": "不改。SheetCloseHandle 是全局共用组件，点击关闭与下拉关闭都挂在它上面（§5.8），不为单张稿分叉。有意偏离。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "图标是 2px feather 描边（显示器 / 太阳 / 月亮）",
+        "decision": "沿用本仓 1.7dp 描边体系（§4），与 card.default.* 的同一条裁决。月亮复用卡片页已有的 MoonIcon，三枚一并提升进公共 StrokeIcons.kt。有意偏离。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "弹层背后的底图把「主题」行改名「外观主题」，右值用品牌蓝",
+        "decision": "底图画的是与本项目无关的「控制台与状态」占位界面，且浅暗两稿自相矛盾（暗稿右值是次要色）。行名与右值颜色都不动。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "card.default.theme-sheet.light",
+          "card.default.theme-sheet.dark"
+        ],
+        "change": "稿底部画了 24dp 区 + 128×4 药丸的手势导航条",
+        "decision": "那是稿子模拟的系统导航条，不是应用 UI。实现用 navigationBarsPadding()。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.light",
+          "sessions.chats.default.dark"
+        ],
+        "change": "整屏密度收紧：顶栏 h-14→h-12、头像 36→32dp、在线点 12→10dp、标题 17→16px、顶栏图标 21→20px、正文区 pt-[88px]→pt-[76px]、分组头 py-2→py-1、会话行 py-3→py-1.5、浅色底部 pb-28→pb-20",
+        "decision": "2026-09-12 落地。行改为自绘：Material 的 ListItem 下限是 56/72/88dp，稿子的两行行 49.1dp 比一行下限还低；外层强设高度能越过下限，但 ListItem 固定的 8+8 内边距只剩 33dp 装 37.1dp 的内容，会裁字。自绘同时消掉了同一根因的另外两个症状 —— A-05（中文项目名撞三行档 +16dp）和运行中转圈不居中（三行项顶对齐）。实测纯拉丁行 49.52dp，命中稿子；中文行的残差见下面单列的一条。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "card.default.dark"
+        ],
+        "change": "HTML 有变化但不是设计变化：<html> 上多了内联的 width/height/overflow，文末多了一个空的 snapdom-sandbox div",
+        "decision": "Stitch 导出包装的噪声，剥掉后与仓库快照逐字相同。不更新快照、不改 sha256。",
+        "status": "consistent"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.light",
+          "sessions.chats.default.dark"
+        ],
+        "change": "置顶标记画成 emoji 📌",
+        "decision": "不采纳。产品负责人 2026-09-12 裁定改为自绘双色图钉（ui/components/PinIcon.kt）。emoji 的字形由系统 emoji 字体决定，华为/小米/三星各画一个样；无法着色、无法随暗色模式调整；TalkBack 会读 emoji 自己的名字。稿子的意图 —— 一个彩色小物件而不是一根线 —— 照做了，只是形由我们控制。头部没有取 emoji 的红：红在本仓已经是「运行失败」，同一行右侧就可能有红点；改用本仓既有的「置顶蓝」（与已置顶分组立柱同值），针尖取中性色。稿子给那个 span 写的 text-[#2563EB] 对彩色 emoji 字形本来就无效，所以稿子渲染出来是系统的红图钉。有意偏离。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.light"
+        ],
+        "change": "正文区底部留白 pb-20（80dp），给 FAB 让位",
+        "decision": "不采纳。产品负责人 2026-09-12 确认「不补，并把它确认为规范」。代价必须写明：滚到列表底部时 FAB 会盖住最后一条会话。本仓列表一直没有这段留白（LazyColumn 无 contentPadding），本次也不加。有意偏离。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.light"
+        ],
+        "change": "行内三档行高一律 leading-[1.35]",
+        "decision": "已落地，但中文行做不到严格相等。实测 411dp/420dpi：纯拉丁行 49.52dp，命中稿子的 49.10；每有一行中文 +1.52dp（中文标题 51.05、中文标题加中文项目名 52.57）。1.35 是按拉丁字形推的，中文回退字体在这个字号下需要的 ascent+descent 超过 字号×1.35，那一行的行框就长到字体要求的高度 —— 除非裁字形否则消不掉。对照：这条差 1.5dp，落地前 A-05 的同类问题是 16dp。由 SessionRowTuningTest 在 @GraphicsMode(NATIVE) 下钉住。有意偏离。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "每个分组的任务行装进一张白卡容器，行与行之间画发丝分隔线",
+        "decision": "不采纳。§2.1「列表行直接坐在 surface 上，不再有白卡」与 §5.2「无行间分隔线（搜索页除外）」为准。这是稿与稿的冲突 —— 会话列表的基线稿说不要白卡，这张说要，两张都是基线。裁决理由：四张列表必须只有一种行语言，用户在同一个 App 里读到两套列表语法比任何一套单独看更差。产品裁决 2026-09-12。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "行标题 15px/500、副行 12.5px；行内边距 px-4 py-3.5，行高约 72px",
+        "decision": "几何取仓库。行改为自绘 Row 并复用 SessionRowTitle(14.5/600) / SessionRowSubline(11.5 等宽)，竖向内边距随会话行的 6dp，两行行约 49dp。稿子的 15/12.5px 是第六次拉取密度收紧之前的刻度，跟它等于把会话列表刚做完的密度改动在这一页退回去。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "8dp 状态点画在任务名之前；副行与状态点左对齐，标题因此相对副行缩进",
+        "decision": "采纳并已落地。§5.16 的行文法图（2026-09-07 记的是「名称 状态点」）随之改成「状态点 名称」。浅暗两版在这一处一致。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "「需要你处理」的分组立柱、标签与计数 chip 在浅色稿里是红，在暗色稿里是琥珀",
+        "decision": "取琥珀（warnGraphicColor() 立柱 / statusColor(WARN) 标签与 chip，与会话列表同名分组一致）。浅色稿的红不采纳：红在本仓已经是「运行失败」，而同一行右边就有一枚红状态点，两个红互相解释不清。这也是浅暗两张稿自相矛盾的一处，不属于「几何以浅色为准」的范畴。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "分组头 13.5px 半粗深墨（暗色稿 12px）",
+        "decision": "取仓库的 SessionGroupHeader（11sp 等宽大写 + 3×12dp 立柱 + 计数 chip + 17dp 折叠箭头）。改之前 cron 的组头是 labelMedium 的品牌蓝裸文字，两边都不对；统一到 §5.2 的组头，SectionHeader 因此从 ui/sessions 移到 ui/components。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "告警条为左右内缩 16dp、圆角 12dp 的玫瑰色卡，带三角警示图标与「查看 ›」",
+        "decision": "采纳并已落地。稿子的取值（#FFF1F2/#9F1239，暗 #2A1B1D/#FCA5A5）与 Tiles.kt 的 incidentContainerColor()/onIncidentColor() 完全一致。此前 cron 画的是通栏直角 errorContainer 色带。首页与本页现在共用 ui/components/IncidentStrip.kt。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "告警条第二行「钉钉连接健康检测 · 错误代码 ECONNREFUSED」",
+        "decision": "不采纳。稿里的示意文案不是文案（§7 第 8 条）：用户可见字符串来自错误码目录与 i18n，原始传输 token 不能当主文案。告警条只说数量。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "顶栏右侧一个 ⋮ 溢出菜单",
+        "decision": "不采纳。菜单里放什么没有来源，照抄等于凭空造 UI（§7 第 8 条）。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "顶栏副行「当前身份 · default」，前置一枚中性圆点，11px/500",
+        "decision": "采纳并已落地（CronTopBarSubtitle + onSurfaceVariant）。此前是 labelMedium 的品牌蓝「身份：X」—— 一个 chrome 强调色在做说明文字的活。顶栏标题同时取稿子的 19px（CronTopBarTitle）。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "FAB 是 56dp 圆形近黑加号；暗色稿填充 #1E232B + #3A4049 描边",
+        "decision": "形态采纳（此前是品牌蓝 ExtendedFloatingActionButton）。暗档取值取仓库的 #181C24 —— 浅暗统一由 FabColorTest 钉死（§2.7 第 1 条，2026-09-11 已裁）。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "副行的「上次失败 13:22」是一枚红底小 chip",
+        "decision": "chip 底不采纳（副行由 cronSublineText 一个纯函数生成并由测试钉住，加底会把文法拆散），但采纳「只有结果那一段带色」：拆出 cronSublineBase / cronSublineOutcome 两个纯函数，测试钉住它们拼回原串。此前整行同色 —— 涂红整行等于说节奏与投递落点也是失败。稿子副行带的时间「13:22」没有跟：那是列表里的下次/上次精确时间，§5.16 把它留给详情页。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "已暂停的整组卡 opacity-80，标题降色",
+        "decision": "只把暂停行的标题降到 onSurfaceVariant。整组降透明度会把状态点和溢出菜单一起压暗，而那两个恰恰是暂停行上还需要能读、能点的东西。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark"
+        ],
+        "change": "列表底部留 pb-28 给 FAB",
+        "decision": "不补，与会话列表同例（产品裁决 2026-09-12 已把「不留空位」确认为规范）。代价照旧写明：滚到底时 FAB 会盖住最后一行。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "cron.detail.default.light",
+          "cron.detail.default.dark"
+        ],
+        "change": "顶栏居中两行：任务名 15px + 副行「钉钉 AI Card + HTML」，右侧刷新与 ⋮",
+        "decision": "居中标题与刷新采纳（CronDetailTopBarTitle，HermesTopBar 新增 titleStyle 参数）。副行不采纳 —— 那串字既不是 model 也不是 deliver，没有数据源。⋮ 不采纳：暂停/运行/编辑/删除四个动作都已在操作区里，菜单会开到空处。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.detail.default.light",
+          "cron.detail.default.dark"
+        ],
+        "change": "状态卡：白卡 + 图标胶囊「计划节奏」+ 状态药丸 + 两列网格（下次运行 / 投递落点）+ 虚线分隔 + 上次运行与结果药丸",
+        "decision": "采纳并已落地，取值进 Tiles.kt 的 Cron* 段。与列表那条「不要白卡」不矛盾：列表的行不要卡，详情的内容块本来就是 §2.3 的淡卡。同时去掉了旧实现里 96dp 的固定标签列 —— 英文文案与 fontScale 1.3 下它会裁字。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.detail.default.light",
+          "cron.detail.default.dark"
+        ],
+        "change": "操作区三层：全宽近黑「立即运行」/ 二等分描边「暂停任务」「编辑配置」/ 居中红字「删除此定时任务」",
+        "decision": "采纳并已落地。近黑按钮单列成 token cronActionColor()（浅 #181C24 / 暗 #1E232B + #3A4049 描边）而不是借 fabContainerColor()：§2.7 第 1 条要求语义无关的两处同值也各列各的，暗档正是它们分岔的地方。此前是一行四个按钮、两个填充 primary 互相抢、删除还不是错误色。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.detail.default.light",
+          "cron.detail.default.dark"
+        ],
+        "change": "提示词卡：头（文档图标 + 标题 + 复制）/ 等宽正文 line-clamp-6 / 「展开全部提示词」",
+        "decision": "采纳并已落地。等宽走已打包的 JetBrains Mono。行数照稿取 6（需求文档原写「最多 8 行」，已同步改）。头部图标改手绘描边并走 primary，不硬编码稿子的 #2563EB。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.detail.default.light",
+          "cron.detail.default.dark"
+        ],
+        "change": "运行历史每项：时间 + 运行编号 #9041 + 状态点 + 等宽 cron_complete + 耗时 + 「日志 ›」；段头右侧「自动保留最近 30 天」，列表底「查看更早记录」",
+        "decision": "只做数据支持得起的部分。耗时采纳 —— CronRunDto 有 started_at / ended_at 两个时间戳，cronRunDuration 是它们的算术（未结束或倒挂返回 null）。运行编号、日志入口、保留说明、「查看更早记录」四样在 DTO 里都没有字段，不做（§7 第 8 条：不得凭空造 UI）。原始 cron_complete 当主文案也不采纳：该 token 已进 cronStatusText 的映射表，显示「成功」。产品裁决 2026-09-12。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "cron.list.default.light",
+          "cron.list.default.dark",
+          "cron.detail.default.light",
+          "cron.detail.default.dark"
+        ],
+        "change": "时间写成「9月 12日 18:15」",
+        "decision": "采纳并已落地（ui/cron/CronTime.kt）。旧的 ui/util/Time.kt formatIso/formatEpoch 用 Locale.getDefault() 造格式，即手机语言而非 App 语言，于是中文界面装在英文手机上印「Sep 12, 18:15」。那两个函数的调用方只有定时任务三屏，已随本轮删除。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "cron.detail.default.light",
+          "cron.detail.default.dark"
+        ],
+        "change": "稿子画的是健康任务，没有「最近一次错误」块",
+        "decision": "保留项，不得为了和稿一样删掉（同 §5.2 不覆盖清单）。顺带把硬编码的 HR-RPC-001 换成新登记的 HR-CRON-002 —— 传输码对「任务自己跑挂了」什么也没说，而 HR-CRON-001 只覆盖「跑成功但没送达」。",
+        "status": "landed"
+      }
+    ],
+    "pending": [
+      {
+        "screens": [
+          "chat.session.turn-pill.light",
+          "chat.session.turn-pill.dark"
+        ],
+        "change": "两张胶囊稿是完整聊天页，顺带画了：顶栏标题 19px/700 + 文件夹副行（现状无文件夹行）、输入 dock 为 48dp 全圆白底 + 1dp 描边 +「发消息或按住说话」占位（现状不同）、底部「内容由 AI 生成」脚注（现状无）、助手表格卡为 1dp 描边 + 等宽数字。",
+        "decision": "本轮不落地。用户这次要的是「我的提问」相关模块（胶囊 + 弹层），这几项属于聊天页整页改版，改动面与回归面都另算。快照与哈希已入库，下一次做聊天页整页时从这里接着走。",
+        "status": "pending"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.group-header.light",
+          "sessions.chats.default.group-header.dark"
+        ],
+        "change": "组头进「微通透下沉胶囊底衬」：32dp 高、8dp 圆角、两端 16dp 留白，底色为该组色柱色的低透明度，配同色描边",
+        "decision": "已落地。底色与描边由色柱色 copy(alpha=) 推导而非新增令牌 —— 这样定时任务列表那两个走 scheme 角色的档（已启用/已暂停）不用有自己的稿也能按同一公式成立。浅 8% / 暗 10% 底、两版都 20% 描边。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.group-header.light"
+        ],
+        "change": "分组之间 pt-6（24dp）+ 胶囊 my-1.5（6dp）+ border-t 发丝分隔线",
+        "decision": "不采纳。实测这会把组头块从 21.3dp 撑到 72dp，四个组头 85 → 276dp，多 191dp —— 约等于一屏少 3.6 行，把 2026-09-12 密度收紧省下的约 230dp 还回去大半。改用同一轮暗色稿的紧凑版：胶囊上下各 4dp 外边距、无分隔线，四个组头 85 → 160dp。产品负责人 2026-09-13 裁定。有意偏离。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.group-header.light"
+        ],
+        "change": "只有「需要你处理」的组名着色，其余三组中性",
+        "decision": "不采纳，取暗色稿的「四组全部按各自色柱着色」，浅暗统一。产品负责人 2026-09-13 裁定，推翻了 2026-09-10「四个彩色组名会让四样东西互相竞争」那条。有意偏离。",
+        "status": "rejected"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.group-header.light",
+          "sessions.chats.default.group-header.dark"
+        ],
+        "change": "组名颜色直接取色柱色",
+        "decision": "部分推导。深色三档（#60A5FA / #34D399 / #CBD5E1）是暗色稿里真有的值；浅色「更早」不用色柱的 #94A3B8 —— 那是给 4×14dp 色标定的，当文字放在暖纸上只有约 2.1:1，读不动，浅色稿本身也把这一档写成中性色。改用暗色档的 #64748B（约 4.3:1）。记在 design-conformance.json 的 group.label.older，reason 写明。",
+        "status": "landed"
+      },
+      {
+        "screens": [
+          "sessions.chats.default.group-header.light",
+          "sessions.chats.default.group-header.dark"
+        ],
+        "change": "两稿各有一处 alpha 例外：浅色琥珀描边 22%（其余 20%）、暗色灰蓝底 8% 描边 15%（其余 10%/20%）",
+        "decision": "不采纳，统一用一套公式（浅 8% / 暗 10% 底，两版 20% 描边）。八个组合里两个例外、肉眼不可辨，多两个特例换不来什么，却让「胶囊色由色柱推导」这条规则不再成立。有意偏离。",
+        "status": "rejected"
+      }
+    ]
+  },
+  "canvas": {
+    "widthCssPx": 390,
+    "note": "1 CSS px = 1 dp（DESIGN.md §3.4）；Stitch 元数据里的 width 780 / height 是 2x 像素"
+  },
+  "designSystem": {
+    "_": "仓库 → Stitch 的反向同步记录（DESIGN.md §7 第 8 条）。漂移以 frontMatterSha256 为准而非整文件：实测这条通道只承载 token，改正文在 Stitch 那边什么都不会变（见 pushFidelity）。scripts/design/stitch-design-system.mjs --check 核对。",
+    "file": "design-system.md",
+    "sha256": "e42049d470965afdcad49d3e1327a9cfd5f81bcef6cb7d311e1b3ed4c0720232",
+    "frontMatterSha256": "5d9171722678009796d81a84b2b0ebc9f7aec20f5eb9fb147cfe141ccd4c7804",
+    "pinnedBy": "android/app/src/test/java/com/hermes/client/ui/theme/DesignSystemExportTest.kt",
+    "assetId": "8a7217d53f5e4f8399c25714f8833e79",
+    "pushedFrontMatterSha256": "7e0f37cc751c09a8bb0f1327c998da3c5cd7bc51b8f507a9744a5b0fd36421f9",
+    "pushedFileSha256": "7c41a1a56cdda3cd5eeb56d5f0b4887d3e4c6d78c79076f2b1b4b23441ec942d",
+    "pushedAt": "2026-09-11",
+    "rePushPending": true,
+    "rePushNote": "2026-09-11 严格照稿落地后 token 变了（状态色四档、WARN 图形档、subline-faint、FAB 深色档、六个排版档），Stitch 上那套是改动前的版本。未立即重推：update_design_system 被 API 拒绝，每次重推都会在设计师项目里再建一套资产，所以攒到一批再推，且推之前要先把 --summary 给产品负责人看。 2026-09-11 卡片页两次入库又改了 card-* 令牌与排版档（第二版删掉胶囊五色、加了 icon-tile / dot-good / footer-rule），同样攒着。 2026-09-12 第六次拉取的密度收紧又动了五档排版令牌（session-row-title / -read / -subline / -status、segment-label），一并攒进下一次重推。 2026-09-13 第八次拉取又动了 session-group-header（等宽 11 → sans 12），同样攒着。 2026-09-14 HG-52 新增 pillar-yesterday / pillar-recent 两个令牌（会话列表的「昨天」分组，以及把此前共用一支灰的前 7 天与更早拆开）。稿子里没有这两档，取值是推导，理由记在 DESIGN.md §5.2 与 design-conformance.json，一并攒进下一次重推。 2026-09-14 真机定稿又把会话行五档与组头一档整体回松，同样攒进下一次重推。",
+    "pushedVia": "upload_design_md → create_design_system_from_design_md（项目 8017882098155799612）",
+    "activeInStitch": false,
+    "activeNote": "MCP 没有「设为项目当前设计系统」的接口，需产品负责人在 Stitch 网页里手动选中。",
+    "pushFidelity": {
+      "_": "2026-09-11 推送后逐字回读的结果。结论：这条通道只承载 token，正文规则一行都没进去。",
+      "verbatim": [
+        "theme.typography：13 档全部逐值一致（含 session-row-* 三档）",
+        "designMd 的第二段 YAML 是我们的 front matter 逐字原文（40 色 / 13 档 / 6 圆角 / 20 间距）",
+        "headlineFont / bodyFont / labelFont = ROBOTO_FLEX，roundness = ROUND_EIGHT，customColor 与 overridePrimaryColor = #004ac6，overrideSecondaryColor = #605c54"
+      ],
+      "lost": [
+        "**正文 123 行 / 4611 字全部丢弃** —— 组件硬规则（含被否定项写成的正向规则）一条没留，回读文件里零条散文",
+        "theme.spacing 被换成通用七档（gutter / margin / space-xs…xl），我们的 20 个组件 token 只活在 designMd 文本里",
+        "displayName 被英译成「Warehouse Baseline」",
+        "overrideTertiaryColor 与 overrideNeutralColor 未保存（后者 #faf9f5 正是暖纸的来源）",
+        "designMd 被前置了一段 Stitch 自己按种子色重推的 M3 YAML：改了 7 个角色（primary #004ac6→#003594、surface-tint #ffffff→#1b55d0、secondary #605c54→#625e56、on-error-container #410002→#93000a、background #faf9f5→#faf8ff、on-background #1b1c1a→#191b23、surface-variant #e3e2df→#e2e2ec），丢了 spinner，另加了 15 个 fixed / inverse 角色"
+      ],
+      "cannotCorrect": "update_design_system 对试过的每一个载荷都返回「Request contains an invalid argument」，包括只带五个必填字段的最小载荷，因此无法通过 MCP 修正上面这些。未继续试探，以免对用户账号反复写入。",
+      "consequence": "规则不能走设计系统通道，只能随每次 edit_screens / generate 的 prompt 传入：`stitch-design-system.mjs --rules` 就是为此而加。"
+    },
+    "supersedes": {
+      "note": "Stitch 项目里原有 5 套设计系统，本次只新建、未覆盖任何一套；下面两套是设计师的现行版本，供对照。",
+      "designerSystems": [
+        "assets/6ad9f3cd05f44c5087b8b69f7bc3091b Hermes Mobile System（DESIGN.md §2.1 点名的设计源）",
+        "assets/d5a4e85e25b741c5876464ee688cb3e3 Warm Paper Agent（定义了 session-title-unread 600 / session-title-normal 500）"
+      ]
+    }
+  },
+  "screens": [
+    {
+      "key": "sessions.chats.default.group-header.light",
+      "screenId": "7c4e04d7444343ccae7c47d605d31e1e",
+      "stitchLabel": "基线-会话列表页/色柱行优化",
+      "stitchTitle": "Hermes 会话列表 - 方案1：微通透下沉胶囊底衬标准版",
+      "page": "sessions",
+      "view": "chats",
+      "state": "default",
+      "overlay": "group-header",
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.2（分组色柱行）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/components/SectionHeader.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（group.header 与 group.label.* 从本稿抽取）",
+      "html": "sessions.chats.default.group-header.light.html",
+      "sha256": "80ebb4e953f67a2301d52753d3fddb0e0943279ffbee374ea6673a9712760294",
+      "canvasHeightCssPx": 934,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "只为分组色柱行而画，页面其余部分与 sessions.chats.default.light 相同；整屏基线仍以那张为准，这张只管组头。",
+        "胶囊底色与描边在 class 上写的是 bg-[#F2F1EC] + border-stone-200/40，但每个组头都用内联 style 覆盖成各自色柱色的 8% 底 / 20% 描边 —— 以内联值为准，平底那版没有出现在任何一个组头上。",
+        "组间 pt-6（24dp）+ my-1.5 + border-t 分隔线未采纳，见 specChanges：四个组头会多占 191dp。"
+      ]
+    },
+    {
+      "key": "sessions.chats.default.group-header.dark",
+      "screenId": "56deaba00fbb4a348c5ff075b22e7850",
+      "stitchLabel": "基线-会话列表页/色柱行优化/暗夜",
+      "stitchTitle": "Hermes 会话列表 - 方案1：微通透下沉胶囊底衬 (黑曜石深色版)",
+      "page": "sessions",
+      "view": "chats",
+      "state": "default",
+      "overlay": "group-header",
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.2（分组色柱行）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/components/SectionHeader.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（group.label.* 的深色列）",
+      "html": "sessions.chats.default.group-header.dark.html",
+      "sha256": "bb36e6989769a56e35674e128bbca2beaef690bdd17d7851fc7d30af66d2ec58",
+      "canvasHeightCssPx": 885,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "这一版的「需要你处理」组根本没画组头胶囊（注释写「未显式带组名胶囊，顶层直出条目」）；实现按浅色稿给它胶囊。",
+        "分组间距用的是 space-y-1（4dp）、无分隔线 —— 与浅色稿差约 40dp/组，产品负责人 2026-09-13 裁定取这一版，见 specChanges。",
+        "四个组名全部用各自色柱的亮色调，浅色稿只给「需要你处理」着色；裁定取这一版。"
+      ]
+    },
+    {
+      "key": "sessions.chats.default.light",
+      "screenId": "446ebc3297a645909fc6551848c2d9c8",
+      "stitchLabel": "基线-会话列表",
+      "stitchTitle": "会话列表分组优化 - 方案A：语义垂直色彩立柱版",
+      "page": "sessions",
+      "view": "chats",
+      "state": "default",
+      "overlay": null,
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.2",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/sessions/SessionsScreen.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（roles / type 的 design 列从本稿抽取）",
+      "html": "sessions.chats.default.light.html",
+      "sha256": "3d7b777d2b1130fcf6d2b6f02f68611772ace3f101f4e43bd77d6a71aa4f2382",
+      "canvasHeightCssPx": 1223,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "waiting-confirm",
+        "waiting-answer",
+        "running-tool",
+        "completed",
+        "failed",
+        "idle"
+      ],
+      "notes": [
+        "本稿是浅色几何真源；暗色稿的几何差异见 pairs。",
+        "「Slack 未连接 · 3 个定时任务受影响」是示意文案，真实文案走错误码目录（§7 第 8 条）。",
+        "组头 11px 等宽大写 / 徽章 10.5px / 顶栏图标按钮 36dp / 副行最淡档 #A8A29E 全部低于旧的无障碍下限。2026-09-11 下限废除后按稿照做，四处都已落地（DESIGN.md §7 第 8 条）。"
+      ]
+    },
+    {
+      "key": "sessions.chats.default.dark",
+      "screenId": "971314ea6d794c49b45cce7adbaea110",
+      "stitchLabel": "基线-会话列表/暗夜",
+      "stitchTitle": "Hermes 会话页 - 温润极客暗夜阅读版 (深色模式)",
+      "page": "sessions",
+      "view": "chats",
+      "state": "default",
+      "overlay": null,
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.2、§2.1、§2.7",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/sessions/SessionsScreen.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Color.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/StatusColors.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（roles 的暗色列）",
+      "html": "sessions.chats.default.dark.html",
+      "sha256": "82d1d52df791ea1fa3d7b9bf1773621e1a341e249562f4efe0c69eda98c3535c",
+      "canvasHeightCssPx": 1223,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "waiting-confirm",
+        "waiting-answer",
+        "running-tool",
+        "completed",
+        "failed",
+        "idle"
+      ],
+      "notes": [
+        "只取颜色；几何以浅色稿为准。"
+      ]
+    },
+    {
+      "key": "sessions.chats.default.more-menu.light",
+      "screenId": "3800f060cc204be5bb90124fe12e5d0c",
+      "stitchLabel": "基线-会话列表/更多菜单",
+      "stitchTitle": "会话页 - 顶栏「更多」下拉菜单弹出态",
+      "page": "sessions",
+      "view": "chats",
+      "state": "default",
+      "overlay": "more-menu",
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.2（顶栏）、§5.16（「更多」承载项目与已归档）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/sessions/SessionsScreen.kt（ChatsTopBar）"
+      ],
+      "html": "sessions.chats.default.more-menu.light.html",
+      "sha256": "f32f5fab9090674ec04775fb39c5b07a72e10f8d9e0f06e922441b21b43c0d18",
+      "canvasHeightCssPx": 1223,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "菜单：锚定按钮下方 top-[68px] right-4，宽 172dp，圆角 16dp（rounded-2xl），两项各高 44dp（h-11），项间分隔线 mx-3；遮罩 rgba(28,25,23,0.12)。",
+        "本仓菜单用 DropdownMenu 圆角 16dp、20dp 图标（§5.4 同形），稿里图标 19px —— 视为同一档，未记偏离。"
+      ]
+    },
+    {
+      "key": "sessions.chats.default.more-menu.dark",
+      "screenId": "fb468bd5383541ac98a3eac1618d439f",
+      "stitchLabel": "基线-会话列表/更多菜单/暗夜",
+      "stitchTitle": "会话页 - 顶栏「更多」下拉菜单弹出态 (温润极客暗夜版)",
+      "page": "sessions",
+      "view": "chats",
+      "state": "default",
+      "overlay": "more-menu",
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.2、§5.16",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/sessions/SessionsScreen.kt（ChatsTopBar）"
+      ],
+      "html": "sessions.chats.default.more-menu.dark.html",
+      "sha256": "c3a9db46f5629b0712ae978b375e8c278f1930bb2d76d92d5661e20dd9bc304c",
+      "canvasHeightCssPx": 1223,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "只取颜色；几何以浅色稿为准（见 pairs：菜单宽 176 vs 172、FAB 56 vs 52 等都是暗色稿漂了）。"
+      ]
+    },
+    {
+      "key": "sessions.chats.default.row-menu.light",
+      "screenId": "26444bf726dc40029b311ea20453817a",
+      "stitchLabel": "基线-会话列表页/长按下拉菜单",
+      "stitchTitle": "会话列表 - 长按操作底部弹单 (温润浅色版)",
+      "page": "sessions",
+      "view": "chats",
+      "state": "default",
+      "overlay": "row-menu",
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.5（行长按操作单）、§5.2（长按菜单与「移动到项目」）、§5.3（已归档行共用）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/components/RowActionSheet.kt",
+        "android/app/src/main/java/com/hermes/client/ui/sessions/SessionsScreen.kt（SessionRow）",
+        "android/app/src/main/java/com/hermes/client/ui/sessions/ArchivedScreen.kt（ArchivedRow）",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（rowmenu.* 的 design 列从本稿抽取）",
+      "html": "sessions.chats.default.row-menu.light.html",
+      "sha256": "85c4ffb709786840f41c39d7cd905ee61fa52ac3d450f1ec315a12c2bd0e86bb",
+      "canvasHeightCssPx": 1768,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversStates": [
+        "未置顶（稿子只画这一态，取消置顶按同一规则推出）",
+        "可移动（运行中禁用态未画，沿用既有灰化）"
+      ],
+      "notes": [
+        "标签与形态不符，记录在案：标签写「长按下拉菜单」，稿子画的是底部弹层（action sheet）。真正的下拉菜单是 sessions.chats.default.more-menu.*（顶栏「更多」）。键按 §7 第 8 条的页面词表取 sessions（不是「会话列表页」）+ overlay row-menu；已请设计师把 Stitch 标签改成「基线-会话列表/长按菜单」。stitchLabel 照原样存拉取时的原文。",
+        "结构：抓手 36×4dp 全圆角 → 标题行 [类型标][标题 1 行省略][✕ 28dp] → 发丝分隔线 → 5 个操作行 → 删除行前再一条内缩 28dp 的发丝线 → 底部留白。",
+        "操作行照稿自绘，不再用 Material ListItem：左右内边距 28dp（弹层 px-2 + 行 px-5），图标 20dp，图标↔文字 14dp（gap-3.5）。ListItem 单行下限 56dp 装不进这个行高 —— 与会话列表行 2026-09-12 弃用 ListItem 同一个原因。",
+        "行高三个数都量过：44dp 是 py-3 + 20px 行框的算术值、也是拉丁标签实测；中文标签本仓 48.4dp（RowActionItemHeightTest）；而稿子自己的中文行是 46.25dp —— 叠图量得，两条分隔线间 195dp = 4（容器 py-1）+ 4×46.25 + 6（分隔线 my-1.5）。稿子也没落在 44 上，因为 Material Symbols 的字形盒按基线对齐后把 20px 行盒顶开了。真实偏差每行 2.15dp、整单约 10dp，属会话行那条「每行中文多几 dp」的同族，不从外面写死高度（那正是 §5.2 记下的错误）。标题行几何两边一致：抓手块下缘到分隔线，稿 41dp / 本仓 40.4dp。",
+        "两种行尾：说明文字（归档「可在归档箱恢复」、删除「不可撤销」）与值 + chevron（移动到项目「默认项目 ›」）。项目名因此从副行「当前：X」搬到行尾，副行取消。",
+        "文案照稿改动三处：「移动到项目…」去掉省略号、「归档」→「归档会话」、「删除」→「删除会话」。",
+        "标题行内边距 20dp 而操作行图标在 28dp —— 稿子本来就不共用左基线（标题前有类型标）。照稿实现，§5.5「共用 24dp 左基线」那条改为只约束裸标题的弹层。",
+        "类型标做成有信息量的类型标（产品裁决 2026-09-12）：稿子恒定写「会话」，落地按来源变（会话列表「会话」/ 已归档页「已归档」），弹层因此抽成共用组件 RowActionSheet，已归档页长按菜单一并换过来。",
+        "有意偏离一：稿子把身后列表画成 opacity-35 + blur-2px、遮罩再叠 3px 模糊。Android 的 ModalBottomSheet 只有平遮罩，背景模糊要 API 31+ 的 RenderEffect，代价高且低版本无法一致 —— 不实现。",
+        "有意偏离二：归档保留二次确认（产品裁决 2026-09-12，维持 §5.2 / HG-5）。稿子的行尾「可在归档箱恢复」是额外说明，不取代 AlertDialog。同轮修掉一个真 bug：confirmingArchive 是死变量、从没被置 true，所以此前列表里归档是一点就归档，与 HG-5 相反。",
+        "身后那一屏的顶栏、状态栏、FAB、筛选胶囊都是既有基线（sessions.chats.default.*），本轮不重拉、不改。"
+      ]
+    },
+    {
+      "key": "sessions.chats.default.row-menu.dark",
+      "screenId": "58f8a50644e24cdebcd670f6c7a935d4",
+      "stitchLabel": "基线-会话列表页/长按下拉菜单/暗夜",
+      "stitchTitle": "会话列表 - 长按操作底部弹单 (黑曜石深色版)",
+      "page": "sessions",
+      "view": "chats",
+      "state": "default",
+      "overlay": "row-menu",
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.5、§5.2、§5.3",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/components/RowActionSheet.kt",
+        "android/app/src/main/java/com/hermes/client/ui/sessions/SessionsScreen.kt（SessionRow）",
+        "android/app/src/main/java/com/hermes/client/ui/sessions/ArchivedScreen.kt（ArchivedRow）"
+      ],
+      "html": "sessions.chats.default.row-menu.dark.html",
+      "sha256": "4d5844f5cdfbacadd3bfac984089c3b8a1a58ed0d6a31fbdab4c7e05031e78a7",
+      "canvasHeightCssPx": 1768,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "只取颜色；几何以浅色稿为准，两处例外见 pairs（行文字与行尾说明的字号取暗色档）。",
+        "暗色稿的中性色有两处落在冷阶或错档：抓手 #3A4049 是冷灰、行尾值 #777268 是浅色档的 outline。按 §2.1 逐档换成暖阶 outlineVariant #423F3A / outline #8D897E，两条各记一行 reason。其余颜色本就落在本仓暖阶上（#161A22 surfaceContainerLow、#262C35 surfaceContainerHighest、#E2E0DB onSurface、#A8A49C onSurfaceVariant、#FFB4AB error），逐字照抄。",
+        "暗色稿底部多一条 72×4dp 横杠 —— 手势导航条的屏幕模拟，不实现。"
+      ]
+    },
+    {
+      "key": "search.results.light",
+      "screenId": "e64644f1ecd74ee7afa2fd1f5490406c",
+      "stitchLabel": "基线-全局搜索",
+      "stitchTitle": "Hermes 会话 - 全屏搜索页 (温润纸质浅色版)",
+      "page": "search",
+      "view": null,
+      "state": "results",
+      "overlay": null,
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.2 搜索页",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/sessions/SearchScreen.kt",
+        "android/app/src/main/java/com/hermes/client/ui/sessions/SearchResultRows.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/SearchField.kt"
+      ],
+      "html": "search.results.light.html",
+      "sha256": "17bc311a55deaf2c2001a20fa009a2aaa3c6fc8fa2bd5a65b5194368d35b3769",
+      "canvasHeightCssPx": 913,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversStates": [
+        "title-matches",
+        "message-matches-searching",
+        "archived-badge",
+        "code-snippet",
+        "footer-count"
+      ],
+      "notes": [
+        "稿子 bug：段头用了 Tailwind 不存在的 px-4.5，渲染时段头贴左边缘（见 search.results.light.png）。意图是 18dp；实现按 §5.2 的 16dp 页边距，不照抄。",
+        "搜索框 40dp 高、18dp 圆角、surfaceVariant 填充，与 §5.2 的 SearchField 一致。",
+        "消息匹配段头的 2dp 流光进度条与「服务端长轮询中...」对应 §5.2 的 Searching 态（本仓文案是「搜索中…」）。",
+        "结果行间有分隔线：是 §5.2「无分隔线」规则的例外，稿与文档一致。"
+      ]
+    },
+    {
+      "key": "search.results.dark",
+      "screenId": "b293dacfbca246f7ae3fc8792bf1da4b",
+      "stitchLabel": "基线-全局搜索/暗夜",
+      "stitchTitle": "Hermes 会话 - 全屏搜索页 (温润极客暗夜版)",
+      "page": "search",
+      "view": null,
+      "state": "results",
+      "overlay": null,
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.2 搜索页",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/sessions/SearchScreen.kt"
+      ],
+      "html": "search.results.dark.html",
+      "sha256": "4e90b43e046bcb0547b188bb91cac95392911dc9c160340559add07a801530a7",
+      "canvasHeightCssPx": 920,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "只取颜色；几何以浅色稿为准。暗色稿把段头右侧的计数徽章换成了「本地索引」文字，属内容差异，不采纳。"
+      ]
+    },
+    {
+      "key": "card.default.light",
+      "screenId": "e5db8e0385af481da2c9602637608630",
+      "stitchLabel": "基线-卡片页",
+      "stitchTitle": "Hermes 卡片页 - 上下顶满通透抽屉 (温润浅色版)",
+      "page": "card",
+      "view": null,
+      "state": "default",
+      "overlay": null,
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.1 卡片页",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/nav/CardPage.kt",
+        "android/app/src/main/java/com/hermes/client/ui/nav/CardPageViewModel.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（card.* 的 design 列从本稿抽取）",
+      "html": "card.default.light.html",
+      "sha256": "a2624da6389e7bdf1b15f57561f7b0c6beba4db62d84d427a38aae767c0f60ea",
+      "canvasHeightCssPx": 884,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "浅色几何真源；暗色稿只取颜色，配对差异见 pairs。2026-09-11 第二版稿：整体更轻。",
+        "第二版相对第一版的结构变更：卡片由纯白降为纸色 #F4F3EE；远程节点卡由「头行 + 分隔线 + 设备行 + 状态胶囊」压成一行；快捷行离开成组白卡，回到裸行 + 发丝线（行高 50 → 48、左右内距 14 → 4）；齿轮由 32dp 带底改为 36dp 无底；页脚新增 ✦ 装饰分隔与斜体衬线标语；模型行标题改「默认模型」。",
+        "状态胶囊与延迟三档（优/普通/延迟）随第二版删除，右侧只留「29 ms」纯文本（裁决 2026-09-11）。在线数/总数也一并消失，第一版的 design-only 问题随之解决，implemented 由 partial 改回 implemented。",
+        "仍是示意、实现不照抄的三处：身份卡副行「网关启动目录 · 本机」（按身份的工作目录与本机/远程标识都无数据源，保留「当前身份」）；定时任务右值「0 运行中」（服务端只有 last_status==running 这个近似，保留「N 个任务」）；模型右值「Claude 3.7」（显示真实默认模型 ID）。",
+        "检查更新行：稿画绿点 + 「v0.1.116 (最新)」。实现把 UpdateBadge 扩成三态——未检查/失败无点、已检查且最新绿点 +（最新）、有新版琥珀点 + 新版本号（裁决 2026-09-11）。",
+        "头像色与字母比例仍按 §2.4（数据驱动 / 0.47× 全局组件），不取稿的 #181C24 与 17px。图标沿用本仓描边体系（稿用 Material Symbols），§4 为准。遮罩 25% 照做、2px 模糊平台不支持。",
+        "离线态稿未画：副行「连接器离线」、右侧「离线」，均用 BAD 色，无点无胶囊。"
+      ]
+    },
+    {
+      "key": "card.default.dark",
+      "screenId": "72cf998634aa4dbb8aefb7103a4f65e2",
+      "stitchLabel": "基线-卡片页/暗夜",
+      "stitchTitle": "Hermes 卡片页 - 空间层级通透抽屉 (黑曜石深色版)",
+      "page": "card",
+      "view": null,
+      "state": "default",
+      "overlay": null,
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.1 卡片页",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/nav/CardPage.kt",
+        "android/app/src/main/java/com/hermes/client/ui/nav/CardPageViewModel.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（card.* 的 design 列从本稿抽取）",
+      "html": "card.default.dark.html",
+      "sha256": "72547b3675bedf7b0bcbbd471614dfaf4f3217a4a80adcf19e0556467238dd8d",
+      "canvasHeightCssPx": 884,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "只取颜色；几何以浅色稿为准。第二版的暗夜稿没跟上浅色稿（齿轮仍 32dp 带底、DEV 徽标仍旧式），几何一律照浅色（裁决 2026-09-11），差异见 pairs。",
+        "抽屉 #161A22、卡片 #1E232B + #262C35 描边、行分隔线 white/5、图标底块 #262C35 + white/5 描边，均已折成不透明值入 fixture。",
+        "页脚细线与标语暗夜稿给的是冷灰 #717684 / #8A90A0，§2.1 禁止冷灰，改用 outline 暖档 #8D897E（fixture 记为有理由偏离）。"
+      ]
+    },
+    {
+      "key": "card.default.theme-sheet.light",
+      "screenId": "ab85a7b6e32340999142498926362272",
+      "stitchLabel": "基线-卡片页/主题设置",
+      "stitchTitle": "Hermes 主题选择底部弹单 (温润浅色版)",
+      "page": "card",
+      "view": null,
+      "state": "default",
+      "overlay": "theme-sheet",
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.1 卡片页 · 主题弹层",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/nav/CardPage.kt",
+        "android/app/src/main/java/com/hermes/client/ui/settings/ThemeOptions.kt",
+        "android/app/src/main/java/com/hermes/client/ui/settings/AppearanceScreen.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（card.theme.* 的 design 列从本稿抽取）",
+      "html": "card.default.theme-sheet.light.html",
+      "sha256": "ddc5561623416bff5bd5bbc3c3e7495da5445ddacdc8791e89b2367ef1dca8e2",
+      "canvasHeightCssPx": 844,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "浅色几何真源；暗色稿只取颜色，配对差异见 pairs。2026-09-11 第四次拉取时打标为候选，同日裁决入库。",
+        "结构：抓手 → 标题「外观与主题」+ 32dp 关闭钮 → 三张选项卡（40dp 图标章 + 标题 + 说明副行 + 行尾单选点）→ 通栏 48dp 实心按钮。替换原来的「titleMedium 标题 + 三个 RadioButton ListItem」。",
+        "交互改为暂态提交（产品裁决 2026-09-11）：点选项只改弹层内的待提交选择，按底部按钮才写库并关闭；✕ / 下滑 / 遮罩 / 返回一律取消，不写任何东西。单选点 = 待提交的选择，「当前使用」徽标 = 当前真正生效的主题 —— 两者在未改动时重合、改动后分离，徽标因此不是单选点的复述。按钮文案随之写「保存」而非稿上的「完成」。",
+        "稿自身三处不一致，一律按暗色稿收敛（见 specChanges）：选中单选点、图标着色规则、「当前使用」徽标的有无。",
+        "主题名随本稿全线改为「跟随系统 / 温润浅色 / 黑曜石深色」；设置→外观的三段胶囊换成同一套选项卡列表，但那是一张页面、没有保存按钮，仍是选中即写库。同一套呈现、两套提交语义。",
+        "图标沿用本仓 1.7dp 描边体系（稿是 2px feather），与 card.default.* 同一裁决。抓手保持全局 SheetCloseHandle 的 32×4dp，不为单张稿分叉。",
+        "稿底部的手势导航条是屏幕模拟，不实现；弹层背后的「控制台与状态」底图与本项目无关，其中「主题行改名外观主题 + 右值品牌蓝」浅暗两稿自相矛盾，驳回。"
+      ]
+    },
+    {
+      "key": "card.default.theme-sheet.dark",
+      "screenId": "795544474e1f4d708277208e7d79ec16",
+      "stitchLabel": "基线-卡片页/主题设置/暗夜",
+      "stitchTitle": "Hermes 主题选择底部弹单 (黑曜石深色版)",
+      "page": "card",
+      "view": null,
+      "state": "default",
+      "overlay": "theme-sheet",
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.1 卡片页 · 主题弹层",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/nav/CardPage.kt",
+        "android/app/src/main/java/com/hermes/client/ui/settings/ThemeOptions.kt",
+        "android/app/src/main/java/com/hermes/client/ui/settings/AppearanceScreen.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（card.theme.* 的 design 列从本稿抽取）",
+      "html": "card.default.theme-sheet.dark.html",
+      "sha256": "e8aa5539ea8561bb56c98d9f90805b9a5bf183a045bccf072c8e4109784832ac",
+      "canvasHeightCssPx": 844,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "只取颜色；几何以浅色稿为准，差异见 pairs。",
+        "弹层 #1E232B、选项卡 #161A22 + #2E343D 描边、图标章 #0F1217、选中单选点与按钮底 #E2E0DB、按钮字 #0F1217、「当前使用」徽标 #262C35 —— 均已入 fixture 的 card.theme.* 段。浅色稿没画徽标底色，浅档由 #EFEEEA 推得。",
+        "层级：浅色弹层与选项卡同为纯白、靠 1px 发丝线划界；暗色选项卡比弹层低一阶。统一表述为「选项卡永不高于弹层，边界由发丝线承担」（§5.1）—— 与 §2.3「卡比底亮」不同，因为弹层本身已是抬起层。"
+      ]
+    },
+    {
+      "key": "model-select.default.light",
+      "screenId": "62950744f939452ba753b14356b2bcff",
+      "stitchLabel": "基线-模型选择",
+      "stitchTitle": "Hermes 模型选择器 - 快捷栏点击 Loading 联动态 (温润暖纸版)",
+      "page": "model-select",
+      "view": null,
+      "state": "default",
+      "overlay": null,
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.17 模型选择",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/models/ModelSelector.kt",
+        "android/app/src/main/java/com/hermes/client/ui/models/ModelsScreen.kt",
+        "android/app/src/main/java/com/hermes/client/data/repository/ModelRecentsStore.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/BrandLoader.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（model.* 的 design 列从本稿抽取）",
+      "html": "model-select.default.light.html",
+      "sha256": "4d147e566fa0c3d1937001fbab615bf0fda53283e108e50936efc6d18486c373",
+      "canvasHeightCssPx": 813,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "普通",
+        "当前生效",
+        "切换中（目标行）",
+        "切换中（原当前行 · 前次生效）",
+        "已收藏",
+        "未收藏"
+      ],
+      "notes": [
+        "浅色几何真源；暗色稿只取颜色。配对检查：174 个元素逐一比对，仅 3 处几何差异，全部是「暗色用 1px 描边替代阴影」（✕ 按钮、「切换中…」徽标、状态栏 5G 标）—— 与卡片页同一套暗色补偿，见 pairs。",
+        "结构：抓手 → 标题「选择模型」+ 刷新 + 32dp ✕ → 状态卡（6dp 品牌色竖条 + 模型名 +「当前使用」徽标 + 「恢复默认」+ 提供商副行 + 分隔线 + 推理强度下拉行）→「快捷切换」横向 chip 行 →「收藏模型 (N)」卡与每个提供商一张卡。替换原来的「surfaceVariant 状态卡 + 填充式搜索框 + 裸分组头 + 平铺行」。",
+        "稿只画了「切换进行中」一态：目标行高亮 +「切换中…」，原当前行退成中性 +「前次生效」。静态态（当前行高亮、无徽标、无勾选）是按同一套规则推出的，不是稿上画的。",
+        "有意偏离一：分组保留折叠。稿子全展开、无 chevron；搜索被删之后折叠是长目录里唯一的收敛手段（产品裁决 2026-09-12）。",
+        "有意偏离二：标题栏补回刷新图标。稿子的刷新按钮有 aria-label 却没有图标，渲染出来是空的，判为漏画。",
+        "有意偏离三：浅色中性色暖化。稿子的浅色中性取自 Tailwind 冷灰 neutral 阶（#FAFAFA/#F5F5F5/#E5E5E5/#D4D4D4/#A3A3A3/#737373），§2.1 禁止暖纸上用冷中性，逐档换成等明度暖阶；暗色稿本就落在本仓暖阶上，逐字照抄。映射表在 Tiles.kt 的 Model* 段，逐行记在 design-conformance.json。蓝色不暖化。",
+        "有意偏离四：搜索整块删除（产品裁决 2026-09-12），聊天弹层与设置→模型页都删。这是照稿，不是漏实现 —— 稿里 SearchBar 区块是空的。",
+        "星标改琥珀（稿子 text-amber-500 / #FBBF24），此前一直是品牌蓝；弹层的选中态也是蓝，蓝星让「已收藏」和「正在使用」同色。",
+        "「快捷切换」是新功能，需要本机记录最近使用的模型（ModelRecentsStore，与收藏同层的设备本地偏好，上限 5）。",
+        "弹层容器不照稿：稿把整屏画成一个 rounded-t-[32px] 容器，里面连状态栏一起画了 —— 那是模拟的手机边框，不是弹层。弹层照 §5.8 全局规则，16dp 圆角、32×4dp 抓手。",
+        "稿底部的手势导航条与顶部状态栏是屏幕模拟，不实现。",
+        "星标触达区实现为 32dp（视觉仍是稿上的 19dp）。稿只给了 p-0.5 ≈ 23dp，在一整行可点的行尾会误触；不改变任何像素。",
+        "加载 / 空 / HR-RPC-003 / 切换失败等态稿子没画，沿用既有实现重新着色，不凭空造 UI。",
+        "等待标（裁决 2026-09-12，§5.17）：刷新中、切换中的行与 chip、强度提交中一律用 RunSpinner （稿子的 progress_activity 转圈，= 会话列表的运行标，抽成 ui/components/BrandLoader.kt 的共用组件）；品牌 HermesMark 只留给「整页还没有内容」的首次加载。首版错用了 HermesMark，由产品负责人指出后改回。"
+      ]
+    },
+    {
+      "key": "model-select.default.dark",
+      "screenId": "307e03a576aa44e9895e1452a026b582",
+      "stitchLabel": "基线-模型选择/暗夜",
+      "stitchTitle": "Hermes 模型选择器 - 快捷栏点击 Loading 联动态 (黑曜石深色版)",
+      "page": "model-select",
+      "view": null,
+      "state": "default",
+      "overlay": null,
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.17 模型选择",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/models/ModelSelector.kt",
+        "android/app/src/main/java/com/hermes/client/ui/models/ModelsScreen.kt",
+        "android/app/src/main/java/com/hermes/client/data/repository/ModelRecentsStore.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（model.* 的 design 列从本稿抽取）",
+      "html": "model-select.default.dark.html",
+      "sha256": "f5f08ab183f268c531f52f7c552d881dd889a4d6fad52a16227620f327969bd3",
+      "canvasHeightCssPx": 813,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "普通",
+        "当前生效",
+        "切换中（目标行）",
+        "切换中（原当前行 · 前次生效）",
+        "已收藏",
+        "未收藏"
+      ],
+      "notes": [
+        "暗色只取颜色，几何以浅色稿为准，差异见 pairs 与浅色记录的 notes。"
+      ]
+    },
+    {
+      "key": "chat.session.default.my-prompts.light",
+      "screenId": "07b686779ca5419ea72733f50a9090d2",
+      "stitchLabel": "基线-聊天页/我的提问",
+      "stitchTitle": "Hermes 聊天页 -「我的提问」底部选择弹层 (温润浅色规范版)",
+      "page": "chat",
+      "view": "session",
+      "state": "default",
+      "overlay": "my-prompts",
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.4 聊天页（上一组对话胶囊 / 我的提问）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/chat/TurnJump.kt",
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatComponents.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/StrokeIcons.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（chat.* 的 design 列从本稿抽取）",
+      "html": "chat.session.default.my-prompts.light.html",
+      "sha256": "390a618d78c9887b9c3bd27770e529ad55a3763d04907a1bd23247735b58aff8",
+      "canvasHeightCssPx": 884,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "普通行（有时间）",
+        "当前行（有时间）",
+        "首行",
+        "末行"
+      ],
+      "notes": [
+        "本稿是浅色几何真源；暗色稿的几何差异见 pairs。",
+        "与稿子的有意偏离（同样写在 DESIGN.md §5.4）：① 提问摘要仍 ≤2 行，不采纳稿子的单行截断 —— 「超长摘要」是本功能必须覆盖的状态，长中文压成一行丢掉的正是区分两轮相似提问的字；② 抓手保持全局 SheetCloseHandle 32×4dp，不采纳稿子的 36×4dp 与它的专属颜色，理由同 §5.17「不为单张稿分叉」；③ 弹层高度仍按 §5.8 全展开，稿子的 max-h-82% 是它模拟手机边框的产物；④ 稿子没画「会话开始」行、0 组空态、跳转落地态，三处按既有规则保留，不凭空造 UI。",
+        "弹层上圆角 24dp 是 §5.8 全局 16dp 的唯一例外，只因稿子这么画，不外推。",
+        "头部的 ✕ 是第四条关闭通路，不替换抓手 / 遮罩 / 返回中的任何一条；§5.8 因此由「关闭只有三个入口」放宽为「至少三个入口，可以再加显式关闭钮」。",
+        "稿子没给计数 chip 标 font-mono —— 会话列表的计数 chip 是等宽的，这一处不是，按 §7 第 8 条逐张稿判。"
+      ]
+    },
+    {
+      "key": "chat.session.default.my-prompts.dark",
+      "screenId": "5dc3f52a470d4748bf85ddb95cce1aa0",
+      "stitchLabel": "基线-聊天页/我的提问/暗夜",
+      "stitchTitle": "Hermes 聊天页 -「我的提问」底部选择弹层 (黑曜石深色版)",
+      "page": "chat",
+      "view": "session",
+      "state": "default",
+      "overlay": "my-prompts",
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.4 聊天页（上一组对话胶囊 / 我的提问）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/chat/TurnJump.kt",
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatComponents.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/StrokeIcons.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（chat.* 的 design 列从本稿抽取）",
+      "html": "chat.session.default.my-prompts.dark.html",
+      "sha256": "afd8dc82d5d252281ae97f5d0eedc366491c68f0afdd6147d75f17b27de604a3",
+      "canvasHeightCssPx": 884,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "普通行（有时间）",
+        "当前行（有时间）",
+        "首行",
+        "末行"
+      ],
+      "notes": [
+        "暗色只取颜色，几何以浅色稿为准，差异见 pairs 与浅色记录的 notes。"
+      ]
+    },
+    {
+      "key": "chat.session.turn-pill.light",
+      "screenId": "6edba5b1ebb64052ad931808c66f7ede",
+      "stitchLabel": "基线-聊天页/滑动引导胶囊",
+      "stitchTitle": "Hermes 聊天页 - 段落定位胶囊方案B (去蓝化沉稳类黑版)",
+      "page": "chat",
+      "view": "session",
+      "state": "turn-pill",
+      "overlay": null,
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.4 聊天页（上一组对话胶囊 / 我的提问）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/chat/TurnJump.kt",
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatComponents.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/StrokeIcons.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（chat.* 的 design 列从本稿抽取）",
+      "html": "chat.session.turn-pill.light.html",
+      "sha256": "41babe859597694fdd232589f6b7a53de4583c6bc69775770c7fc76b4ff7e51e",
+      "canvasHeightCssPx": 884,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "分段胶囊（≥3 组）"
+      ],
+      "notes": [
+        "本稿是浅色几何真源；暗色稿的几何差异见 pairs。",
+        "胶囊就此与 §5.2 会话列表的「需要你处理」pill 分家，不再共用样式：那一枚是待办提示、品牌色是它的语义，这一枚是滚动位置指示器，实心品牌色让它看起来像个必须处理的按钮。",
+        "容器宽度上限 92% 只是兜底；真正决定宽度的是稿子给标签的 max-w-[190px]。",
+        "稿子把胶囊画成 sticky top-0 pt-1，据此把距顶由 10dp 改为 4dp。",
+        "图标两处改形：箭头去掉「抵线」那一横，列表图标去掉三条前导点（§4.2 已登记）。列表图标同时供顶栏更多菜单使用，两处一起变。",
+        "本稿是完整聊天页，顶栏、输入 dock、「内容由 AI 生成」脚注与表格卡不属本轮范围，见 specChanges.pending。"
+      ]
+    },
+    {
+      "key": "chat.session.turn-pill.dark",
+      "screenId": "739c148b3e1948a793f8f27e22be1869",
+      "stitchLabel": "基线-聊天页/滑动引导胶囊/暗夜",
+      "stitchTitle": "Hermes 聊天页 - 段落定位胶囊方案B (去蓝化黑曜石暗夜版)",
+      "page": "chat",
+      "view": "session",
+      "state": "turn-pill",
+      "overlay": null,
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.4 聊天页（上一组对话胶囊 / 我的提问）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/chat/TurnJump.kt",
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatComponents.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/StrokeIcons.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（chat.* 的 design 列从本稿抽取）",
+      "html": "chat.session.turn-pill.dark.html",
+      "sha256": "860d95c63e525fc09f0da1e18955b170ab917bf9d5c866890371ee8b47a46153",
+      "canvasHeightCssPx": 884,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "分段胶囊（≥3 组）"
+      ],
+      "notes": [
+        "暗色只取颜色，几何以浅色稿为准，差异见 pairs 与浅色记录的 notes。"
+      ]
+    },
+    {
+      "key": "cron.list.default.light",
+      "screenId": "2bac8b6716324645a832215b72182ae2",
+      "stitchLabel": "基线-定时任务列表",
+      "stitchTitle": "Hermes 定时任务列表 - 暖纸规范重构版",
+      "page": "cron",
+      "view": "list",
+      "state": "default",
+      "overlay": null,
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.18 定时任务（行文法见 §5.16）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronScreen.kt",
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronSections.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/SectionHeader.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/IncidentStrip.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（cron.* 的 design 列从本稿抽取）",
+      "html": "cron.list.default.light.html",
+      "sha256": "96ceb15d3e38986afe72f4f4697fdda97d444a9bf4cf01396c130504cdf6519a",
+      "canvasHeightCssPx": 985,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "失败（需要你处理）",
+        "正常（已启用）",
+        "已暂停",
+        "只存不发",
+        "投递到来源聊天"
+      ],
+      "notes": [
+        "几何基准稿：暗色版是另起 DOM 重画的，两版差异见 pairs。",
+        "稿子把每组任务装进白卡容器并在行间画分隔线 —— 不采纳，见 specChanges（与 §2.1 / §5.2 冲突）。",
+        "稿子把「需要你处理」的立柱与计数 chip 画成红 —— 不采纳，取琥珀，见 specChanges。",
+        "顶栏右侧的 ⋮ 与告警条第二行的 ECONNREFUSED 都没有数据源/文案来源，不实现（§7 第 8 条）。",
+        "空态 / 加载 / 错误三态稿子没画，是保留项（同 §5.2 不覆盖清单）。"
+      ]
+    },
+    {
+      "key": "cron.list.default.dark",
+      "screenId": "13d2943f3c78494797930f10dacbb306",
+      "stitchLabel": "基线-定时任务列表/暗夜",
+      "stitchTitle": "Hermes 定时任务列表 - 黑曜石暗夜版",
+      "page": "cron",
+      "view": "list",
+      "state": "default",
+      "overlay": null,
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.18、§2.1、§2.7",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronScreen.kt",
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronSections.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/SectionHeader.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/IncidentStrip.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（cron.* 的 design 列从本稿抽取）",
+      "html": "cron.list.default.dark.html",
+      "sha256": "819155996e2441e7f22fcc28c5c3c7b56b0cdf5a5c1842c2c019f358c21baf3f",
+      "canvasHeightCssPx": 1024,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "失败（需要你处理）",
+        "正常（已启用）",
+        "已暂停",
+        "只存不发",
+        "投递到来源聊天"
+      ],
+      "notes": [
+        "暗色只取颜色，几何以浅色稿为准（pairs 记了差异，这一对差得比以往任何一对都多）。",
+        "「需要你处理」在这一版是琥珀，与仓库一致；浅色版的红与它自相矛盾，裁决取本版的色。",
+        "状态点的 shadow-[0_0_8px] 辉光不实现：本仓的状态点从不发光，一处例外会变成第二套语言。",
+        "FAB 在这一版是 #1E232B；仓库浅暗两档统一 #181C24（FabColorTest 钉死），不跟。"
+      ]
+    },
+    {
+      "key": "cron.detail.default.light",
+      "screenId": "da21dbac24074313a0fb8306e2ae7850",
+      "stitchLabel": "基线-定时任务/任务详情",
+      "stitchTitle": "Hermes 定时任务详情 - 暖纸规范重构版",
+      "page": "cron",
+      "view": "detail",
+      "state": "default",
+      "overlay": null,
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.18 定时任务",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronDetailScreen.kt",
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronRuns.kt",
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronTime.kt",
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronStatusText.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（cron.* 的 design 列从本稿抽取）",
+      "html": "cron.detail.default.light.html",
+      "sha256": "aff12da32bed97459fb4aec4978c1ccf318e4e5cbf3bf5f194d05ec1ec41e195",
+      "canvasHeightCssPx": 1074,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "几何基准稿。与暗夜版同构，见 pairs。",
+        "顶栏副行「钉钉 AI Card + HTML」无数据源，不实现；顶栏 ⋮ 同理（四个动作都在操作区里）。",
+        "运行历史的 #9041 运行编号、每项「日志 ›」、「自动保留最近 30 天」、「查看更早记录」四样在 CronRunDto 里都没有字段，不实现；耗时可由 started_at / ended_at 算出，实现。",
+        "稿子把原始 cron_complete 当主文案印出来 —— 不采纳，走 cronStatusText 的本地化表。",
+        "「最近一次错误」块稿子没画（画的是健康任务），是保留项。"
+      ]
+    },
+    {
+      "key": "cron.detail.default.dark",
+      "screenId": "3e59f11799174046891e23853dfbaabb",
+      "stitchLabel": "线-定时任务/任务详情/暗夜",
+      "stitchTitle": "Hermes 定时任务详情 - 黑曜石暗夜版",
+      "page": "cron",
+      "view": "detail",
+      "state": "default",
+      "overlay": null,
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.18、§2.1、§2.3",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronDetailScreen.kt",
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronRuns.kt",
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronTime.kt",
+        "android/app/src/main/java/com/hermes/client/ui/cron/CronStatusText.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（cron.* 的 design 列从本稿抽取）",
+      "html": "cron.detail.default.dark.html",
+      "sha256": "57b1a96b983be4d1071916dac4d8413f0064632dd7766cf5bac9f99e83673a9d",
+      "canvasHeightCssPx": 1101,
+      "status": "baseline",
+      "implemented": "implemented",
+      "notes": [
+        "标签在 Stitch 里少了一个「基」字：写的是「线-定时任务/任务详情/暗夜」而不是「基线-定时任务/任务详情/暗夜」。按 §7 第 8 条严格解析它不是基线前缀，这里按明显笔误入库（其余三张同批、同风格、同版本）。改标签只能在 Stitch 网页里做，代理对 Stitch 只读 —— 请产品负责人补上那个字，下次拉取前改掉。",
+        "干净的颜色派生：105 个元素剥掉颜色后只有 2 处几何差，见 pairs。",
+        "「立即运行」在暗档是 #1E232B + #3A4049 描边（浅档 #181C24）—— 这是 cronActionColor() 与 fabContainerColor() 分岔的地方，也是它单列成 token 的理由（§2.7 第 1 条）。",
+        "卡的描边稿子写 rgba(255,255,255,0.05)；§2.1 要成对的不透明字面量，取压平后的 #262C35。"
+      ]
+    },
+    {
+      "key": "chat.session.search.light",
+      "screenId": "c569c1cf9f584380b875095ea4bf6672",
+      "stitchLabel": "基线-聊天页/搜索",
+      "stitchTitle": "Hermes 聊天页 - 会话内搜索规范重构版 (温润浅色版)",
+      "page": "chat",
+      "view": "session",
+      "state": "search",
+      "overlay": null,
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.4 聊天页（聊天内搜索）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatSearchBar.kt",
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatSearchHighlight.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/SearchField.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（chatsearch.* 的 design 列从本稿抽取）",
+      "html": "chat.session.search.light.html",
+      "sha256": "e70afc7fb9caa13db6e5009d654345516c815a479a24875505cc760a28d5413c",
+      "canvasHeightCssPx": 884,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "有命中（4/12）"
+      ],
+      "notes": [
+        "本稿是浅色几何真源。搜索条由两行收成一行：计数与上下箭头搬进搜索胶囊内部，关闭由尾部 ✕ 换成首部 ←。",
+        "命中态**没有第二行** —— 来源标签与片段在稿子里不存在。产品 2026-09-12 裁定照稿删除；稿子没画的两态（正在加载对话…、此会话中没有匹配 + 在全部会话中搜索）按「Stitch 不覆盖清单」保留，因为那两态恰恰是回合本身说不出话的时候。",
+        "稿子自相矛盾一处：article 的注释写「外层施加柔和暖蓝定位指示框与微晕」，但 class 里一条描边都没有。整回合描边是搜索之后的定位反馈，按产品要求维持会话页现有处理，不按注释也不按画面删。",
+        "高亮在同一回合里分成 hit-current / hit-other，即按**出现位置**分档。2026-09-12 首次实现时维持按回合，记为有意偏离；HG-45（2026-09-13）把它落地了 —— 分档确实改成按出现位置，但当前档**不用**稿子的 #A6C8FF：它与 #D6E4FF 只差半档，同屏时认不出哪一处是当前，换成实心 primary（走 scheme 角色）。逐行记在 design-conformance.json 的 chatsearch.hit.focus。",
+        "框内清除键稿子画 16dp，触达区实现给 28dp（与上下箭头同档）—— 稿子定的是画法。",
+        "本稿是完整聊天页，正文排版、底部输入 dock、回到底部圆钮与「内容由 AI 生成」脚注不属本轮范围。"
+      ]
+    },
+    {
+      "key": "chat.session.search.dark",
+      "screenId": "6bfce9d74a174bd399908b4cb23fda7a",
+      "stitchLabel": "基线-聊天页/搜索/暗夜",
+      "stitchTitle": "Hermes 聊天页 - 会话内搜索规范重构版 (黑曜石深色版)",
+      "page": "chat",
+      "view": "session",
+      "state": "search",
+      "overlay": null,
+      "theme": "dark",
+      "design": "docs/DESIGN.md §5.4 聊天页（聊天内搜索）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatSearchBar.kt",
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatSearchHighlight.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/SearchField.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（chatsearch.* 的 design 列从本稿抽取）",
+      "html": null,
+      "sha256": null,
+      "source": "screenshot",
+      "screenshot": "chat.session.search.dark.png",
+      "canvasHeightCssPx": 884,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "有命中（4/12）"
+      ],
+      "notes": [
+        "**本仓第一张没有 HTML 的基线。** 这张稿的 htmlCode.downloadUrl 落在 Stitch 的 stitch_files 存储区，匿名 curl 回来的是 Google 登录页；其余每一张稿（含同批两张浅色）都在 app_companion_generated_files 存储区、可以正常下载。重复 get_screen 拿到的是同一个地址，不是临时故障。",
+        "替代原件：screenshot.downloadUrl 后缀 =s2000 得到 780×1768 PNG，正好等于 390×884 CSS px @2x，与 stitch-render.sh --width 390 --height 884 --scale 2 的产物同尺寸，存为 chat.session.search.dark.png。因此本条没有 sha256（截图会随 Stitch 重出而变，钉它没有意义），也没有 .roborazzi.png（叠图尺寸要重排版，只有 HTML 能出）。",
+        "产品 2026-09-12 裁定：就用截图入库，不为此让设计师重导。要恢复成正常基线，在 Stitch 网页端把这张稿复制/另存一份即可。",
+        "暗档取值是在这张截图上逐点采样得到的：胶囊 #1E232B、胶囊描边 #262C35、条底发丝 #262C35、页底 #0F1217、清除键圆点 #343940、计数 #60A5FA、上下箭头 #E2E0DB、竖分隔 #3A4049、命中 #A6C8FF / #D6E4FF。哪几档逐字转写、哪几档换暖阶，逐行写在 design-conformance.json。",
+        "「/N」与清除叉的字色采不到实色（笔画细，只有抗锯齿边缘 #75–#8D），取仓库暗档 outline #8D897E。"
+      ]
+    },
+    {
+      "key": "chat.session.search.idle.light",
+      "screenId": "ccd58e9d1bfa4db8ba9170ac15904e71",
+      "stitchLabel": "基线-聊天页/搜索/无内容状态",
+      "stitchTitle": "Hermes 聊天页 - 会话内搜索初始态 (未输入·温润浅色版)",
+      "page": "chat",
+      "view": "session",
+      "state": "search",
+      "overlay": "idle",
+      "theme": "light",
+      "design": "docs/DESIGN.md §5.4 聊天页（聊天内搜索）",
+      "code": [
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatSearchBar.kt",
+        "android/app/src/main/java/com/hermes/client/ui/chat/ChatSearchHighlight.kt",
+        "android/app/src/main/java/com/hermes/client/ui/components/SearchField.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Tiles.kt",
+        "android/app/src/main/java/com/hermes/client/ui/theme/Type.kt"
+      ],
+      "conformance": "android/app/src/test/resources/design-conformance.json（chatsearch.* 的 design 列从本稿抽取）",
+      "html": "chat.session.search.idle.light.html",
+      "sha256": "430039b5185ba88ca442c8bec1187c97dfba48aee79a488b8d24b6bc410ea5b5",
+      "canvasHeightCssPx": 884,
+      "status": "baseline",
+      "implemented": "implemented",
+      "coversRowStates": [
+        "未输入（占位符 + 光标）"
+      ],
+      "notes": [
+        "**标签与画面对不上**：标签写「无内容状态」，画的却是**未输入初始态**（占位符「在对话中搜索…」+ 光标），不是「搜索了但没命中」。按 §7 第 8 条与行长按操作单的先例，画面赢：stitchLabel 存原文，键取 .idle.，请产品负责人在 Stitch 网页端改名为「基线-聊天页/搜索/未输入」（MCP 改不了标签）。稿子的 title 也这么写。",
+        "稿子自相矛盾一处：右侧控件组的注释写「禁用置灰状态的空匹配计数与翻页导航」，画面里这一组**整个不存在**。画面赢 —— 没输入时不渲染计数与上下箭头，胶囊让给输入。有输入但 0 命中时仍是 0/0 + 禁用箭头（这一态稿子没画，保留现状）。",
+        "暗色可省（§7 第 8 条：弹层与空态的暗色可省），本轮未出。"
+      ]
+    }
+  ],
+  "pairs": [
+    {
+      "light": "sessions.chats.default.light",
+      "dark": "sessions.chats.default.dark",
+      "geometryDiff": [
+        "（第二次拉取后）行标题两版一致：15.5px，「需要你处理」两行 600、其余 500 —— 浅色用内联 style、暗色用类名，表达不同但值相同；是否采纳见 specChanges",
+        "FAB：浅 52dp + Material 加号 24px / 暗 56dp + 描边 SVG 加号 28dp —— 暗色版与 §5.2 定案一致，浅色稿未同步改；实现以定案为准",
+        "（第一次拉取时）行标题曾是浅 600 / 暗 500 整列不一致，第二次已由稿子自行收敛",
+        "（第六次拉取）暗色稿只跟进了一半的密度收紧：行 py-1.5 与 leading-1.35 跟上了，但顶栏仍是 h-14、头像 w-9、图标 21px，标题 15px（浅色 14.5）、副行 12px（浅色 11.5）、底部 pb-28（浅色 pb-20）。几何以浅色稿为准，实现全部按浅色落地"
+      ]
+    },
+    {
+      "light": "sessions.chats.default.more-menu.light",
+      "dark": "sessions.chats.default.more-menu.dark",
+      "geometryDiff": [
+        "行标题字重：浅 600 整列 / 暗 600、500 混用 —— 浅色的更多菜单稿未随列表稿更新（它是唯一没变的一张）；以列表稿为准",
+        "菜单宽 w-[172px] / w-[176px]；菜单项图标 19px / 20px；暗色多一处 duration-150 淡入 —— 以浅色为准，图标按本仓 20dp",
+        "FAB：浅 52dp + Material 加号 24px / 暗 56dp + 描边 SVG 加号 28dp（第二次拉取起）—— 暗色版与 §5.2 定案一致；§5.2 未记录 FAB 直径，NewSessionFab 以代码为准，待下次 fixture 抽取时补 role"
+      ]
+    },
+    {
+      "light": "search.results.light",
+      "dark": "search.results.dark",
+      "geometryDiff": [
+        "结果标题字重 600 / 500 —— 以浅色为准",
+        "段头右侧：浅色计数徽章（px-1.5 py-0.5 rounded-full）/ 暗色「本地索引」文字 —— 内容差异，以浅色为准",
+        "片段容器 px-2 / px-2.5 —— 以浅色为准"
+      ]
+    },
+    {
+      "light": "card.default.light",
+      "dark": "card.default.dark",
+      "geometryDiff": [
+        "DEV 徽标：浅 11px/500 tracking-wide、内距 8×2、圆角 6；暗仍是旧式 10.5px/600 大写 0.05em、内距 6×2.5、圆角 4 + 描边 —— 以浅色为准",
+        "齿轮：浅 36dp 无底色无描边 + 21px 字形；暗仍是 32dp + #1E232B 底 + #262C35 描边 —— 以浅色为准，两个主题都无底",
+        "字标与徽标间距：浅 gap-2(8) / 暗 gap-2.5(10) —— 取 8",
+        "节点卡标题：浅 tracking-tight / 暗 leading-tight；右侧毫秒数暗色多 font-medium —— 以浅色为准",
+        "节点右侧毫秒数与箭头间距：浅 gap-1.5(6) / 暗 gap-1(4) —— 取 6",
+        "页脚：浅 40dp/0.5px 细线、不透明度 40、标语 12px；暗 48dp/1px、不透明度 60、标语 12.5px —— 以浅色为准"
+      ]
+    },
+    {
+      "light": "card.default.theme-sheet.light",
+      "dark": "card.default.theme-sheet.dark",
+      "geometryDiff": [
+        "选项卡间距：浅 space-y-2(8) / 暗 space-y-3(12) —— 取 8",
+        "页脚上内距：浅 pt-4(16) / 暗 pt-3(12) —— 取 16。选项列表上下内距两版同为 12",
+        "底部按钮字：浅 14px/500 / 暗 14px/600 + tracking-wide —— 取浅色 500、字距 0",
+        "选中单选点：浅色是 20dp 实心 #181C24 + inset 4px 白，渲染出来是一个无外环的 12dp 实心点；暗色是 2px 环 + 8dp 点 —— 这一处例外地取暗色画法（见 specChanges），是全库唯一一处几何不以浅色稿为准",
+        "「当前使用」徽标：只有暗色稿画了；浅色稿把标题右侧留成空 span —— 判为浅色稿漏画，两版都加"
+      ]
+    },
+    {
+      "screens": [
+        "model-select.default.light",
+        "model-select.default.dark"
+      ],
+      "geometry": "同构。174 个元素剥掉颜色类后逐一比对，只有 3 处差异，全是暗色额外加了一条 1px 描边：32dp ✕ 按钮、「切换中…」徽标、状态栏 5G 标（后者是屏幕模拟，不实现）。",
+      "decision": "几何取浅色稿；两处要实现的暗色描边照做 —— 与卡片页「暗色用描边替代阴影」同一裁决。"
+    },
+    {
+      "screens": [
+        "chat.session.default.my-prompts.light",
+        "chat.session.default.my-prompts.dark"
+      ],
+      "geometry": "同构。剥掉颜色类后逐一比对，实质差异只有一类：暗色给每个中性插片额外加了一条 1px 描边 —— 计数 chip、头部两个 32dp 圆钮、普通行的 26dp 序号圆、当前行的容器，浅色一个都没有。其余差异全在状态栏模拟（VPN 标、电量、5G），不实现。",
+      "decision": "几何取浅色稿；暗色那条描边照做 —— 与卡片页、模型选择「暗色用描边替代阴影 / 补足色阶」同一裁决，理由在这里尤其直白：暗色的 #1E232B 坐在 #161A22 上几乎不成一档，浅色的 #EFEEEA 坐在 #FAF9F5 上自己立得住。实现为 chatChipBorder()，浅色返回 null。颜色行表达不了「没有」，所以这条差异记在这里而不是 design-conformance.json。"
+    },
+    {
+      "screens": [
+        "chat.session.turn-pill.light",
+        "chat.session.turn-pill.dark"
+      ],
+      "geometry": "同构。胶囊本体（h-38、rounded-full、pl-3/pr-2.5、20dp 圆形底片、14dp 箭头、1×15dp 分隔线、右段 px-3、16dp 列表图标、max-w-92% 与标签 max-w-190px）两版逐值相同；差异全在状态栏与正文示意内容。",
+      "decision": "几何取浅色稿；暗色只取颜色（底 #1E232B、描边 #2E343D、底片 #2E343D、墨 #E2E0DB）。"
+    },
+    {
+      "screens": [
+        "sessions.chats.default.row-menu.light",
+        "sessions.chats.default.row-menu.dark"
+      ],
+      "geometry": "弹层结构同构（抓手 36×4、圆角 24、5 行 44dp、删除前分隔线、两种行尾都一致）。四处差异：① 行文字 15px 浅 / 16px 暗；② 行尾说明 12px 浅 / 13px 暗；③ ✕ 钮 28dp 圆底 + 18px 字形 浅 / 32dp + 16px 暗；④ 操作行按压底暗色有 rounded-xl、浅色只有 hover:bg-black/2%。另有暗色稿底部多一条 72×4dp 横杠（手势导航条的屏幕模拟）。",
+      "decision": "①② 例外地取暗色稿的 16sp / 13sp —— 与 FAB「56dp + 28px」同一裁决：冲突时取同时符合 M3 标准档的那个，15sp/12sp 在本仓任何主操作文字上都没有先例。③ 取浅色稿 28dp/18px。④ 两色一致做 12dp 圆角按压底（暗色稿的写法更完整，浅色稿的 hover 在 Android 上等价于涟漪）。横杠不实现。这是全库第二处几何不以浅色稿为准（第一处是主题设置的选中单选点）。"
+    },
+    {
+      "screens": [
+        "cron.list.default.light",
+        "cron.list.default.dark"
+      ],
+      "geometry": "不同构，差得比库里任何一对都多：111 / 108 个元素剥掉颜色类后几乎逐行不同 —— 暗色版是另起一份 DOM 重画的，不是浅色版改色。行标题 14.5px vs 浅色 15px；组头 12px vs 13.5px；行内边距 p-4 vs px-4 py-3.5；状态点顶对齐（mt-1.5）vs 垂直居中；页面容器 max-w-md + justify-center vs max-w-xl mx-auto；底部留白 pb-24 vs pb-28；状态点在暗色版带 8px 辉光。",
+      "decision": "几何一律按浅色稿（§7 第 8 条）。暗色只取颜色 —— 而颜色上恰恰是暗色稿对：「需要你处理」的琥珀取本版，浅色稿的红不采纳。辉光与 #1E232B 的 FAB 两处不跟，理由见各自 notes。"
+    },
+    {
+      "screens": [
+        "cron.detail.default.light",
+        "cron.detail.default.dark"
+      ],
+      "geometry": "同构。105 个元素剥掉颜色类后只有 2 处差异：「上次运行」那一行的上内边距 pt-1 → pt-2，「复制」按钮的左右内边距 px-2 → px-2.5。",
+      "decision": "几何取浅色稿；两处差异都在 1–2px 量级，不单独记为偏离。"
+    },
+    {
+      "screens": [
+        "chat.session.search.light",
+        "chat.session.search.dark"
+      ],
+      "geometry": "无法逐类比对 —— 暗夜稿没有 HTML（见该条 notes），只能在 780×1768 截图上量。量到的位置与浅色稿一致：← 36dp、胶囊 40dp 全圆角、竖分隔、计数、两枚 28dp 箭头，顺序与间距都对得上。",
+      "decision": "几何取浅色稿。暗档两处颜色不是浅档的变体，各自照稿：① 上下箭头浅色 primary、暗色 onSurface（记成 chatsearch.arrow 一对令牌，绑一个 scheme 角色会推翻其中一张稿）；② 胶囊在暗档多一条 1dp #262C35 描边而浅档没有 —— 与 chat.chip 同一情形，复用 chatChipBorder()，颜色行表达不了「没有」，记在这里。命中高亮浅暗同值，这是本仓唯一一对两档相同的颜色行。"
+    }
+  ],
+  "candidates": [],
+  "notCovered": "见 docs/DESIGN.md §5.2「Stitch 不覆盖清单」与 §5.18 第 12 条。第七次拉取（定时任务）当时另有 6 张已打标未入库的屏；第六与第八次拉取已把其中 4 张（聊天页的我的提问与滑动引导胶囊，各含暗夜）和会话行长按弹层入库，只剩被改名为「基线-卡片页/主题设置」的主题弹层 —— 锁文件里仍记作 theme-sheet，键不随标签改名而动（screenId 才是键的依据）。"
+}

@@ -315,6 +315,7 @@ export async function restoreCommittedJournalAfterFailedCandidate({
   activeSlot,
   currentCheckpoint,
   owner,
+  allowedStages = ["candidate_started"],
 }) {
   let failed;
   let originalInfo;
@@ -325,7 +326,12 @@ export async function restoreCommittedJournalAfterFailedCandidate({
     if (error instanceof OpsError) throw error;
     fail("failed_candidate_journal_unreadable", "deploy_journal_recover");
   }
-  if (failed.stage !== "candidate_started"
+  if (!Array.isArray(allowedStages)
+      || allowedStages.length < 1
+      || allowedStages.some((stage) => !DEPLOYMENT_STAGES.includes(stage))) {
+    fail("failed_candidate_recovery_stages_invalid", "deploy_journal_recover");
+  }
+  if (!new Set(allowedStages).has(failed.stage)
       || failed.operation !== "deploy"
       || failed.activeSlot !== activeSlot
       || JSON.stringify(failed.source) !== JSON.stringify(expectedSource)

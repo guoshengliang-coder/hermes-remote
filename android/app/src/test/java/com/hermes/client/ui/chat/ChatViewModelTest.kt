@@ -9,6 +9,7 @@ import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ChatMediaRepository
 import com.hermes.client.data.repository.ModelFavoritesStore
+import com.hermes.client.data.repository.ModelRecentsStore
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileRepository
 import com.hermes.client.data.repository.SessionRepository
@@ -54,11 +55,11 @@ class ChatViewModelTest {
     private val mediaRepo = mockk<ChatMediaRepository>(relaxed = true)
     private val fileRepo = mockk<com.hermes.client.data.repository.ChatFileRepository>(relaxed = true)
     private val sessionRepo = mockk<SessionRepository>(relaxed = true)
-    private val toolsRepo = mockk<com.hermes.client.data.repository.ToolsRepository>(relaxed = true)
     private val modelRepo = mockk<ModelRepository>(relaxed = true)
     private val profileRepo = mockk<ProfileRepository>(relaxed = true)
     private val profileManager = mockk<com.hermes.client.data.repository.ProfileManager>(relaxed = true)
     private val favoritesStore = mockk<ModelFavoritesStore>(relaxed = true)
+    private val recentsStore = mockk<ModelRecentsStore>(relaxed = true)
     private val pendingShareStore = com.hermes.client.share.PendingShareStore()
     private val tts = mockk<com.hermes.client.data.tts.TextToSpeechController>(relaxed = true)
     private val promptStore = mockk<com.hermes.client.data.repository.PromptStore>(relaxed = true)
@@ -106,6 +107,7 @@ class ChatViewModelTest {
         coEvery { modelRepo.providers() } returns emptyList()
         coEvery { profileRepo.list() } returns emptyList()
         every { favoritesStore.favorites } returns MutableStateFlow(emptySet())
+        every { recentsStore.recents } returns MutableStateFlow(emptyList())
         every { tts.speaking } returns MutableStateFlow(false)
         every { promptStore.prompts } returns MutableStateFlow(emptyList())
     }
@@ -118,17 +120,31 @@ class ChatViewModelTest {
     // Real store over the mocked ModelRepository so cache semantics are exercised for real.
     private var catalogStore: com.hermes.client.data.repository.ModelCatalogStore? = null
 
+    // The unsent-draft cache (HG-41); a fake rather than a mock so "blank clears it" is real.
+    private var drafts = com.hermes.client.data.repository.FakeDraftSnapshot()
+
+    // Messages that were submitted and refused (HG-49). Shared across the ViewModels a test builds,
+    // which is the whole point: in production this store outlives the chat destination.
+    private var unsent = com.hermes.client.data.repository.FakeUnsentSnapshot()
+
+    /**
+     * A runtime store that outlives one ViewModel, so a test can model leaving the chat screen and
+     * coming back. In production this store is an application singleton and the ViewModel is scoped
+     * to the nav entry; a test that builds a fresh store per ViewModel cannot see the difference.
+     */
+    private fun newRuntimeStore(): SessionRuntimeStore {
+        val runtimeJob = SupervisorJob()
+        runtimeJobs += runtimeJob
+        return SessionRuntimeStore(chatRepo, CoroutineScope(runtimeJob + Dispatchers.Main), profileManager)
+    }
+
     private fun buildVm(
         accountSessions: com.hermes.client.data.auth.AccountSessionManager? = null,
         conversationDevices: com.hermes.client.data.auth.ConversationDeviceStore? = null,
+        runtimeStore: SessionRuntimeStore = newRuntimeStore(),
     ): ChatViewModel {
         val runtimeJob = SupervisorJob()
         runtimeJobs += runtimeJob
-        val runtimeStore = SessionRuntimeStore(
-            chatRepo,
-            CoroutineScope(runtimeJob + Dispatchers.Main),
-            profileManager,
-        )
         val store = com.hermes.client.data.repository.ModelCatalogStore(
             modelRepo, profileManager, credentialStore, connectivityChecker, chatRepo,
             CoroutineScope(runtimeJob + Dispatchers.Main),
@@ -136,13 +152,229 @@ class ChatViewModelTest {
         catalogStore = store
         return ChatViewModel(
             chatRepo, sessionRepo, store, reasoningPresetStore, profileRepo, profileManager,
-            favoritesStore, pendingShareStore, tts, promptStore, configRepo, runtimeStore,
+            favoritesStore, recentsStore, pendingShareStore, tts, promptStore, configRepo, runtimeStore,
             mediaRepo, fileRepo, mainDispatcherRule.dispatcher, projectPrefs,
             com.hermes.client.data.repository.ProjectCatalog(
                 mockk(relaxed = true), sessionRepo, profileManager, projectPrefs,
             ),
-            toolsRepo, botSendNotice, accountSessions, conversationDevices,
+            botSendNotice, drafts, unsent, CoroutineScope(runtimeJob + Dispatchers.Main),
+            accountSessions, conversationDevices,
         )
+    }
+
+    // ── HG-41: the unsent draft. Token shape mirrors SessionReadStore.token(profile, id, device);
+    // profileManager.active is null in these tests, hence "default/…".
+    private val draftToken = com.hermes.client.data.repository.SessionReadStore.token(null, "s1")
+
+    @Test fun opening_a_session_with_a_saved_draft_seeds_the_composer() = runTest {
+        drafts = com.hermes.client.data.repository.FakeDraftSnapshot(
+            listOf(com.hermes.client.data.repository.DraftRecord(token = draftToken, text = "半句话", updatedAt = 1L)),
+        )
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        assertEquals("半句话", vm.initialDraft.value)
+    }
+
+    // HG-40 changed this: a share used to be dropped when a draft existed. Delivering a transcript
+    // into a conversation someone had already started typing in must not delete their half
+    // sentence — so the two are joined, the user's own words first.
+    @Test fun a_share_is_appended_to_the_draft_the_user_already_had() = runTest {
+        drafts = com.hermes.client.data.repository.FakeDraftSnapshot(
+            listOf(com.hermes.client.data.repository.DraftRecord(token = draftToken, text = "我自己写的", updatedAt = 1L)),
+        )
+        pendingShareStore.put("s1", com.hermes.client.share.PendingShare(text = "分享进来的"))
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        assertEquals("我自己写的\n\n分享进来的", vm.initialDraft.value)
+    }
+
+    @Test fun delivered_attachments_are_staged_as_chips_not_sent() = runTest {
+        pendingShareStore.put(
+            "s1",
+            com.hermes.client.share.PendingShare(
+                attachments = listOf(
+                    com.hermes.client.share.PendingShareAttachment("# 记录".toByteArray(), "text/markdown", "对话.md"),
+                ),
+            ),
+        )
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        val staged = vm.state.value.pendingAttachments
+        assertEquals(1, staged.size)
+        assertEquals("对话.md", staged[0].name)
+        assertEquals("text/markdown", staged[0].mimeType)
+        // Nothing may have gone out: the user says what it is for, then presses send.
+        assertTrue(vm.state.value.messages.none { it.role == com.hermes.client.domain.Role.USER })
+    }
+
+    @Test fun delivering_parks_the_payload_for_the_target_conversation_only() = runTest {
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        vm.deliverToSession("other", text = "转录正文")
+        // Opening the wrong conversation must not consume it.
+        assertNull(pendingShareStore.take("s1"))
+        assertEquals("转录正文", pendingShareStore.take("other")?.text)
+    }
+
+    @Test fun a_share_still_seeds_the_composer_when_there_is_no_draft() = runTest {
+        pendingShareStore.put("s1", com.hermes.client.share.PendingShare(text = "分享进来的"))
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        assertEquals("分享进来的", vm.initialDraft.value)
+    }
+
+    @Test fun typing_is_debounced_into_a_single_write() = runTest {
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        vm.rememberDraft("半")
+        vm.rememberDraft("半句")
+        vm.rememberDraft("半句话")
+        advanceUntilIdle()
+        assertEquals("半句话", drafts.peek(draftToken))
+        assertEquals(1, drafts.saves)
+    }
+
+    @Test fun the_empty_composer_at_open_does_not_wipe_the_stored_draft() = runTest {
+        // The screen's LaunchedEffect fires once with "" before the stored text has been read;
+        // writing that through would delete the draft this whole feature exists to restore.
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        drafts = com.hermes.client.data.repository.FakeDraftSnapshot(
+            listOf(com.hermes.client.data.repository.DraftRecord(token = draftToken, text = "半句话", updatedAt = 1L)),
+            readGate = gate,
+        )
+        val vm = buildVm()
+        vm.open("s1")
+        vm.rememberDraft("")
+        advanceUntilIdle()
+        assertEquals("半句话", drafts.peek(draftToken))
+        assertEquals(0, drafts.saves)
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals("半句话", vm.initialDraft.value)
+    }
+
+    @Test fun clearing_the_composer_by_hand_drops_the_draft() = runTest {
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        vm.rememberDraft("半句话")
+        advanceUntilIdle()
+        vm.rememberDraft("")
+        advanceUntilIdle()
+        assertNull(drafts.peek(draftToken))
+    }
+
+    @Test fun clearDraft_drops_it_without_waiting_for_the_debounce() = runTest {
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        vm.rememberDraft("半句话")
+        advanceUntilIdle()
+        vm.clearDraft()
+        advanceUntilIdle()
+        assertNull(drafts.peek(draftToken))
+    }
+
+    // ── HG-38: 添加会话 — each picked conversation becomes its own Markdown attachment.
+    private fun sourceSession(id: String, title: String) = com.hermes.client.domain.Session(
+        id = id, title = title, model = "claude-opus-5", provider = null,
+        messageCount = 2, profile = null,
+    )
+
+    private fun sourceHistory(text: String) = listOf(
+        com.hermes.client.domain.ChatMessage(id = "h1", role = com.hermes.client.domain.Role.USER, text = text),
+        com.hermes.client.domain.ChatMessage(id = "h2", role = com.hermes.client.domain.Role.ASSISTANT, text = "好的"),
+    )
+
+    @Test fun picked_conversations_become_one_markdown_attachment_each() = runTest {
+        coEvery { sessionRepo.history("a", any(), any()) } returns sourceHistory("甲会话的内容")
+        coEvery { sessionRepo.history("b", any(), any()) } returns sourceHistory("乙会话的内容")
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        vm.attachSessions(listOf(sourceSession("a", "重构网关"), sourceSession("b", "翻译文案")))
+        advanceUntilIdle()
+
+        val staged = vm.state.value.pendingAttachments
+        assertEquals("three picked, three files — never merged into one", 2, staged.size)
+        assertTrue(staged.all { it.mimeType == "text/markdown" })
+        assertTrue(staged.all { it.name.endsWith(".md") })
+        assertTrue(staged.all { it.kind == AttachmentKind.FILE })
+        val first = String(staged[0].bytes, Charsets.UTF_8)
+        assertTrue("the document must be that conversation's transcript", first.contains("甲会话的内容"))
+        assertTrue(first.startsWith("# 重构网关"))
+        assertEquals(0, vm.attachingSessions.value)
+    }
+
+    @Test fun a_conversation_that_cannot_be_read_does_not_take_the_others_with_it() = runTest {
+        coEvery { sessionRepo.history("a", any(), any()) } returns sourceHistory("甲会话的内容")
+        coEvery { sessionRepo.history("b", any(), any()) } throws IllegalStateException("boom")
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        val failures = mutableListOf<Int>()
+        // Subscribe BEFORE the work starts and let the collector actually attach: this is a
+        // one-shot event with no replay, exactly so a recomposition cannot re-show the toast.
+        val collect = launch { vm.sessionAttachFailures.collect { failures += it } }
+        advanceUntilIdle()
+
+        vm.attachSessions(listOf(sourceSession("a", "重构网关"), sourceSession("b", "坏掉的")))
+        advanceUntilIdle()
+
+        assertEquals(1, vm.state.value.pendingAttachments.size)
+        assertEquals(listOf(1), failures)
+        assertEquals(0, vm.attachingSessions.value)
+        collect.cancel()
+    }
+
+    @Test fun an_empty_conversation_produces_no_attachment_and_counts_as_a_failure() = runTest {
+        coEvery { sessionRepo.history("a", any(), any()) } returns emptyList()
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        val failures = mutableListOf<Int>()
+        // Subscribe BEFORE the work starts and let the collector actually attach: this is a
+        // one-shot event with no replay, exactly so a recomposition cannot re-show the toast.
+        val collect = launch { vm.sessionAttachFailures.collect { failures += it } }
+        advanceUntilIdle()
+
+        vm.attachSessions(listOf(sourceSession("a", "空的")))
+        advanceUntilIdle()
+
+        assertTrue("an empty transcript must not become a zero-byte file", vm.state.value.pendingAttachments.isEmpty())
+        assertEquals(listOf(1), failures)
+        collect.cancel()
+    }
+
+    @Test fun attaching_nothing_is_a_no_op() = runTest {
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        vm.attachSessions(emptyList())
+        advanceUntilIdle()
+        assertTrue(vm.state.value.pendingAttachments.isEmpty())
+        assertEquals(0, vm.attachingSessions.value)
+    }
+
+    @Test fun identical_titles_do_not_produce_identical_file_names() = runTest {
+        coEvery { sessionRepo.history(any(), any(), any()) } returns sourceHistory("内容")
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        vm.attachSessions(listOf(sourceSession("a", "周报"), sourceSession("b", "周报")))
+        advanceUntilIdle()
+
+        val names = vm.state.value.pendingAttachments.map { it.name }
+        assertEquals(2, names.toSet().size)
+        assertTrue(names.any { it.endsWith(" (2).md") })
     }
 
     @Test fun opening_account_conversation_routes_to_its_original_mac_without_changing_default() = runTest {
@@ -581,6 +813,169 @@ class ChatViewModelTest {
         advanceUntilIdle()
     }
 
+    // HG-49: the same 4090, but the user walks away before dealing with it. In the report the
+    // failure happened at 22:05, the user opened two other conversations, and came back at 22:14 —
+    // by then the nav-scoped ViewModel that recorded the failure was gone. The bubble survived in
+    // the runtime store, so it still said 未发送, but its code had collapsed to the generic
+    // SESS-007 fallback and its tap did nothing at all. Both halves of that are this test.
+    @Test fun a_failed_send_keeps_its_code_and_its_retry_after_leaving_the_chat_and_coming_back() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.submit("s1-live", "巨浪事业群呢") } throws
+            com.hermes.client.data.network.GatewayRpcException(
+                4090,
+                "Session s1 already has a live owner (desktop, pid 5313, running 1h23m).",
+            ) andThen Unit
+        val shared = newRuntimeStore()
+        val vm = buildVm(runtimeStore = shared)
+        vm.open("s1")
+        runCurrent()
+        vm.send("巨浪事业群呢")
+        runCurrent()
+        val failed = vm.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals(
+            com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE,
+            vm.sendErrorCode(failed.id),
+        )
+
+        // Back to the list, into other conversations, then back here: the destination was popped,
+        // so this is a different ViewModel over the same runtime store.
+        val reopened = buildVm(runtimeStore = shared)
+        reopened.open("s1")
+        advanceUntilIdle()
+
+        val still = reopened.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals("the failed bubble is still there", failed.id, still.id)
+        assertEquals(com.hermes.client.domain.DeliveryState.FAILED, still.delivery)
+        assertEquals(
+            "it must still name the real cause instead of collapsing to the generic SESS-007",
+            com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE,
+            reopened.sendErrorCode(still.id),
+        )
+
+        // And the tap has to actually do something. Offering it and swallowing it is worse than
+        // not offering it (docs/ERROR_HANDLING.md).
+        reopened.retrySend(still.id)
+        runCurrent()
+        val resent = reopened.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT, resent.delivery)
+        coVerify(exactly = 2) { chatRepo.submit("s1-live", "巨浪事业群呢") }
+
+        events.emit(event("message.complete", "s1-live", "done"))
+        advanceUntilIdle()
+    }
+
+    // HG-49, the cold-start half. The process died: the runtime store is empty and REST history
+    // can never contain this turn, because upstream never accepted it. The record on disk is the
+    // only thing left, so the bubble is re-inserted from it — under its stored id, which is what
+    // lets the retry remove the same turn it replaces.
+    @Test fun a_refused_send_comes_back_after_a_cold_start_and_can_still_be_retried() = runTest {
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(
+            listOf(
+                com.hermes.client.data.repository.UnsentRecord(
+                    token = draftToken,
+                    messageId = "u-restored",
+                    text = "巨浪事业群呢",
+                    code = "HR-SESS-013",
+                    retryable = true,
+                    updatedAt = 1L,
+                ),
+            ),
+        )
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        val restored = vm.state.value.messages.single { it.id == "u-restored" }
+        assertEquals("巨浪事业群呢", restored.text)
+        assertEquals(com.hermes.client.domain.DeliveryState.FAILED, restored.delivery)
+        assertEquals(
+            com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE,
+            vm.sendErrorCode("u-restored"),
+        )
+        assertFalse("a restored failure is not a running turn", vm.state.value.isGenerating)
+
+        vm.retrySend("u-restored")
+        runCurrent()
+        val resent = vm.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT, resent.delivery)
+        assertNull("the record is gone once it actually went out", unsent.peek(draftToken))
+
+        events.emit(event("message.complete", "s1-live", "done"))
+        advanceUntilIdle()
+    }
+
+    // Attachments are in-memory bytes and are deliberately not persisted (the same ruling drafts
+    // get). Sending the text alone would deliver less than the user meant, so the restored turn
+    // takes HR-SESS-015 and the tap is withheld — docs/ERROR_HANDLING.md: an offer that cannot
+    // work is worse than none.
+    @Test fun a_restored_send_that_had_attachments_says_so_and_refuses_the_retry() = runTest {
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(
+            listOf(
+                com.hermes.client.data.repository.UnsentRecord(
+                    token = draftToken, messageId = "u-withfiles", text = "看这几张图",
+                    code = "HR-SESS-007", retryable = true, attachments = 3, updatedAt = 1L,
+                ),
+            ),
+        )
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        assertEquals(
+            com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST,
+            vm.sendErrorCode("u-withfiles"),
+        )
+
+        vm.retrySend("u-withfiles")
+        advanceUntilIdle()
+        assertTrue("the bubble stays put", vm.state.value.messages.any { it.id == "u-withfiles" })
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+    }
+
+    @Test fun a_session_owned_by_another_client_says_so_and_keeps_its_retry() = runTest {
+        // HG-30: the desktop held the conversation, upstream refused with 4090, and the phone
+        // collapsed it into the generic HR-SESS-007 "点按重试" — a retry that repeats the same
+        // refusal for as long as the other side is running. The tap is right (the conflict clears
+        // by itself); the sentence was not.
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.submit("s1-live", "hello") } throws
+            com.hermes.client.data.network.GatewayRpcException(
+                4090,
+                "Session s1 already has a live owner (desktop, pid 32991, running 2h22m).",
+            ) andThen Unit
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+
+        vm.send("hello")
+        runCurrent()
+
+        val failed = vm.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals(
+            "retryable, so FAILED — not the terminal UNDELIVERABLE of a conversation that is gone",
+            com.hermes.client.domain.DeliveryState.FAILED,
+            failed.delivery,
+        )
+        assertEquals(
+            com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE,
+            vm.sendErrorCode(failed.id),
+        )
+        assertTrue(vm.sendDiagnostic(failed.id)!!.contains("HR-SESS-013"))
+
+        // The retry must still be offered: the moment the desktop lets go, the same send works.
+        vm.retrySend(failed.id)
+        runCurrent()
+        val resent = vm.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT, resent.delivery)
+        assertEquals(null, vm.sendErrorCode(resent.id))
+        coVerify(exactly = 2) { chatRepo.submit("s1-live", "hello") }
+
+        events.emit(event("message.complete", "s1-live", "done"))
+        advanceUntilIdle()
+    }
+
     @Test fun send_waits_for_live_handle_instead_of_using_stored_session_id() = runTest {
         val resumed = kotlinx.coroutines.CompletableDeferred<String?>()
         coEvery { chatRepo.resume("s1", null) } coAnswers { resumed.await() }
@@ -729,6 +1124,136 @@ class ChatViewModelTest {
         coVerify(exactly = 1) { chatRepo.resume("s1", null) }
     }
 
+    // HG-29. A conversation upstream reaped answers 4001 to prompt.submit and then 4007 to the
+    // resume the client retries with. The old behaviour flattened both into a retryable
+    // HR-SESS-007 "点按重试" that could never succeed. A conversation opened as new, with nothing
+    // persisted, must instead be replaced silently and the typed message delivered to the
+    // replacement — the user loses neither the message nor anything else, because there was
+    // nothing else.
+    //
+    // Timing note (house pattern, see stale_submit_resumes_and_retries_once_with_new_handle): a
+    // just-submitted turn leaves the runtime in SUBMITTING, and the store's process poller loops
+    // on a 5s delay while a runtime has active work. advanceUntilIdle() would advance virtual time
+    // into that loop forever, so drive the send with runCurrent() and only advance once
+    // message.complete has taken the run out of the active phases.
+    @Test fun reaped_empty_session_is_recreated_and_the_message_is_delivered() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "live-1" andThenThrows
+            com.hermes.client.data.network.GatewayRpcException(4007, "session not found")
+        coEvery { chatRepo.submit("live-1", "hello") } throws
+            com.hermes.client.data.network.GatewayRpcException(4001, "session not found")
+        coEvery { chatRepo.createSession(any(), any()) } returns
+            com.hermes.client.data.repository.CreatedSession("s2", null)
+        coEvery { chatRepo.resume("s2", null) } returns "live-2"
+        coEvery { chatRepo.submit("live-2", "hello") } returns Unit
+
+        val vm = buildVm()
+        vm.open("s1", isNewSession = true)
+        advanceUntilIdle()
+
+        vm.send("hello")
+        runCurrent()
+
+        coVerify(exactly = 1) { chatRepo.createSession(any(), any()) }
+        coVerify(exactly = 1) { chatRepo.submit("live-2", "hello") }
+        assertEquals("the screen must re-navigate to the live id", "s2", vm.recreatedSessionId.value)
+        assertEquals(
+            "a delivered message must not be left looking failed",
+            com.hermes.client.domain.DeliveryState.SENT,
+            vm.state.value.messages.last { it.role == Role.USER }.delivery,
+        )
+
+        events.emit(event("message.complete", "live-2", "done"))
+        advanceUntilIdle()
+    }
+
+    // The other half of the same rule: a conversation that may hold history is NEVER silently
+    // replaced — that would cut the transcript loose from everything said before. It is terminal,
+    // and terminal means HR-SESS-001 with no retry offered, not HR-SESS-007 with one that lies.
+    @Test fun reaped_session_with_history_is_terminal_and_never_recreated() = runTest {
+        coEvery { sessionRepo.history(any(), any()) } returns listOf(
+            ChatMessage(id = "h1", role = Role.USER, text = "earlier"),
+            ChatMessage(id = "h2", role = Role.ASSISTANT, text = "earlier reply"),
+        )
+        coEvery { chatRepo.resume("s1", null) } returns "live-1" andThenThrows
+            com.hermes.client.data.network.GatewayRpcException(4007, "session not found")
+        coEvery { chatRepo.submit("live-1", "hello") } throws
+            com.hermes.client.data.network.GatewayRpcException(4001, "session not found")
+
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        vm.send("hello")
+        runCurrent()
+
+        coVerify(exactly = 0) { chatRepo.createSession(any(), any()) }
+        assertNull("a session with history must not be replaced", vm.recreatedSessionId.value)
+        assertEquals(
+            "the bubble must say the conversation is gone, not offer a retry",
+            com.hermes.client.domain.DeliveryState.UNDELIVERABLE,
+            vm.state.value.messages.last { it.role == Role.USER }.delivery,
+        )
+        advanceUntilIdle()
+    }
+
+    // Tapping the bubble of a terminal failure must do nothing. The UI already withholds the tap;
+    // this is the ViewModel refusing to re-dispatch even if something else asks it to.
+    @Test fun retrySend_ignores_an_undeliverable_bubble() = runTest {
+        coEvery { sessionRepo.history(any(), any()) } returns listOf(
+            ChatMessage(id = "h1", role = Role.USER, text = "earlier"),
+        )
+        coEvery { chatRepo.resume("s1", null) } returns "live-1" andThenThrows
+            com.hermes.client.data.network.GatewayRpcException(4007, "session not found")
+        coEvery { chatRepo.submit("live-1", "hello") } throws
+            com.hermes.client.data.network.GatewayRpcException(4001, "session not found")
+
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        vm.send("hello")
+        runCurrent()
+
+        val bubble = vm.state.value.messages.last { it.role == Role.USER }
+        vm.retrySend(bubble.id)
+        runCurrent()
+
+        coVerify(exactly = 1) { chatRepo.submit("live-1", "hello") }
+        assertEquals(
+            "the bubble stays exactly as it was",
+            com.hermes.client.domain.DeliveryState.UNDELIVERABLE,
+            vm.state.value.messages.last { it.role == Role.USER }.delivery,
+        )
+        advanceUntilIdle()
+    }
+
+    // Upstream broadcasts session.reclaimed precisely so the next prompt is not sent into a session
+    // that no longer exists. Acting on it saves a doomed round trip AND, more importantly, is the
+    // only warning that arrives before the user has typed anything.
+    @Test fun session_reclaimed_event_recovers_without_a_doomed_submit() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "live-1"
+        coEvery { chatRepo.createSession(any(), any()) } returns
+            com.hermes.client.data.repository.CreatedSession("s2", null)
+        coEvery { chatRepo.resume("s2", null) } returns "live-2"
+        coEvery { chatRepo.submit("live-2", "hello") } returns Unit
+
+        val vm = buildVm()
+        vm.open("s1", isNewSession = true)
+        advanceUntilIdle()
+
+        events.emit(event("session.reclaimed", "s1"))
+        runCurrent()
+
+        vm.send("hello")
+        runCurrent()
+
+        coVerify(exactly = 0) { chatRepo.submit("live-1", any()) }
+        coVerify(exactly = 1) { chatRepo.createSession(any(), any()) }
+        coVerify(exactly = 1) { chatRepo.submit("live-2", "hello") }
+
+        events.emit(event("message.complete", "live-2", "done"))
+        advanceUntilIdle()
+    }
+
     // Selecting in the chat sheet ALWAYS switches THIS session's model (the `/model … --session`
     // slash) — the sheet no longer carries a scope choice; the profile default is edited on the
     // settings Models screen only.
@@ -748,11 +1273,53 @@ class ChatViewModelTest {
         assertTrue("onDone must be invoked so the caller dismisses the sheet", onDoneCalled)
     }
 
-    // A worker failure ("slash worker closed pipe") throws — it must surface in the sheet's error
-    // (not the chat transcript), and the sheet must stay open (onDone not invoked) so the user can
-    // retry or pick a different model.
+    // 快捷切换 (docs/DESIGN.md §5.17) is fed by this: every switch that actually took effect goes
+    // to the front of the device-local recents list.
+    @Test fun a_successful_switch_is_recorded_for_the_quick_switch_row() = runTest {
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+
+        vm.onSelectFromSheet("anthropic", "opus") {}
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { recentsStore.record("anthropic", "opus") }
+    }
+
+    // The other half: a switch that did NOT take effect must not offer itself as a shortcut.
+    @Test fun a_failed_switch_is_not_recorded() = runTest {
+        coEvery { chatRepo.slashExec("s1", any()) } throws
+            com.hermes.client.data.network.GatewayRpcException(5000, "could not resolve credentials")
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+
+        vm.onSelectFromSheet("anthropic", "opus") {}
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { recentsStore.record(any(), any()) }
+    }
+
+    // 恢复默认 changes the model too, so the chip row has to offer the way back as well.
+    @Test fun restoring_the_default_is_recorded_too() = runTest {
+        coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "def-model") }
+        coEvery { modelRepo.providers(any()) } returns listOf(
+            com.hermes.client.data.network.ModelProviderDto(
+                slug = "prov", isCurrent = true, models = listOf("def-model"),
+            ),
+        )
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+
+        vm.restoreDefaultModel {}
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { recentsStore.record("prov", "def-model") }
+    }
+
+    // A refused switch surfaces in the sheet's error (not the chat transcript), and the sheet stays
+    // open (onDone not invoked) so the user can retry or pick a different model.
     @Test fun onSelectFromSheet_failure_surfaces_sheet_error() = runTest {
-        coEvery { chatRepo.slashExec("s1", any()) } throws RuntimeException("slash worker closed pipe")
+        coEvery { chatRepo.slashExec("s1", any()) } throws
+            com.hermes.client.data.network.GatewayRpcException(5000, "could not resolve credentials")
         val vm = buildVm()
         vm.open("s1"); advanceUntilIdle()
 
@@ -760,7 +1327,57 @@ class ChatViewModelTest {
         vm.onSelectFromSheet("anthropic", "opus") { onDoneCalled = true }
         advanceUntilIdle()
 
-        assertTrue("a failed switch must surface a sheet error", vm.modelSheet.value.error != null)
+        val error = vm.modelSheet.value.error
+        assertEquals("HR-RPC-004", error?.code?.value)
+        assertTrue("a refused switch is worth retrying", error?.retryable == true)
+        assertFalse("the sheet must stay open on failure", onDoneCalled)
+    }
+
+    // HG-28. `slash.exec` 5030 means the Mac's Hermes could not start its slash worker at all — the
+    // managed 0.3.0 bundle shipped sources that its own child processes could not import, so every
+    // slash command was dead. Collapsing that into HR-RPC-004 told the user "请重试" for something
+    // no number of retries could fix; it needs its own non-retryable code.
+    @Test fun onSelectFromSheet_maps_a_dead_slash_worker_to_its_own_terminal_code() = runTest {
+        coEvery { chatRepo.slashExec("s1", any()) } throws
+            com.hermes.client.data.network.GatewayRpcException(
+                5030,
+                "slash worker closed pipe: ... (ModuleNotFoundError: No module named 'tui_gateway')",
+            )
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+
+        var onDoneCalled = false
+        vm.onSelectFromSheet("anthropic", "opus") { onDoneCalled = true }
+        advanceUntilIdle()
+
+        val error = vm.modelSheet.value.error
+        assertEquals("HR-RPC-007", error?.code?.value)
+        assertFalse("retrying a worker that cannot start is a lie", error?.retryable == true)
+        assertFalse("the sheet must stay open on failure", onDoneCalled)
+        assertTrue(
+            "the cause must survive for diagnostics",
+            error?.technicalCause?.contains("tui_gateway") == true,
+        )
+    }
+
+    // "恢复默认" runs the same slash, so it must classify failures the same way.
+    @Test fun restoreDefaultModel_maps_a_dead_slash_worker_to_its_own_terminal_code() = runTest {
+        coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "def-model") }
+        coEvery { modelRepo.providers(any()) } returns listOf(
+            com.hermes.client.data.network.ModelProviderDto(
+                slug = "prov", isCurrent = true, models = listOf("def-model"),
+            ),
+        )
+        coEvery { chatRepo.slashExec("s1", any()) } throws
+            com.hermes.client.data.network.GatewayRpcException(5030, "slash worker closed pipe")
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+
+        var onDoneCalled = false
+        vm.restoreDefaultModel { onDoneCalled = true }
+        advanceUntilIdle()
+
+        assertEquals("HR-RPC-007", vm.modelSheet.value.error?.code?.value)
         assertFalse("the sheet must stay open on failure", onDoneCalled)
     }
 
@@ -946,29 +1563,5 @@ class ChatViewModelTest {
         val vm = buildVm()
         vm.stopReading()
         io.mockk.verify { tts.stop() }
-    }
-
-    @Test fun setPersona_sends_personality_slash() = runTest {
-        val vm = buildVm()
-        vm.setPersona("witty"); advanceUntilIdle()
-        io.mockk.coVerify { chatRepo.slashExec(any(), "/personality witty") }
-    }
-
-    @Test fun setPersona_null_clears_with_none() = runTest {
-        val vm = buildVm()
-        vm.setPersona(null); advanceUntilIdle()
-        io.mockk.coVerify { chatRepo.slashExec(any(), "/personality none") }
-    }
-
-    // chat.slashExec returns command-level errors in its output string (only transport failures
-    // throw), so a gateway rejection of an unknown persona must surface as an error, not silently
-    // set active — otherwise the UI would show a persona as applied when the gateway refused it.
-    @Test fun setPersona_rejection_surfaces_error_and_does_not_set_active() = runTest {
-        coEvery { chatRepo.slashExec(any(), any()) } returns "unknown personality: x"
-        val vm = buildVm()
-        vm.setPersona("bad"); advanceUntilIdle()
-
-        assertTrue("a gateway rejection must surface a persona error", vm.personaUi.value.error != null)
-        assertEquals(null, vm.personaUi.value.active)
     }
 }

@@ -39,6 +39,22 @@ enum class AccountTransportMode {
     LEGACY,
 }
 
+/**
+ * The only `HR-*` codes a re-login banner is allowed to quote. Every one of them has a registered
+ * bilingual explanation and is non-retryable, which is what lets the banner carry no action.
+ */
+internal val REAUTHENTICATION_REASON_CODES =
+    setOf("HR-AUTH-003", "HR-AUTH-004", "HR-AUTH-005", "HR-BIND-004")
+
+/**
+ * Collapses anything else to `HR-AUTH-003`: a WebSocket handshake rejection carries a status code
+ * and no body, and a newer Gateway may send a code this build has never heard of. `HR-AUTH-003` is
+ * the honest floor — the server itself merges "expired" and "unrecognised token" into it rather
+ * than handing out a token-probing oracle.
+ */
+internal fun normalizeReauthenticationReason(code: String?): String =
+    code?.takeIf { it in REAUTHENTICATION_REASON_CODES } ?: "HR-AUTH-003"
+
 /** Owns refresh rotation and the single active account-mode routing decision. */
 class AccountSessionManager(
     private val store: AccountSessionStore,
@@ -191,7 +207,7 @@ class AccountSessionManager(
                 refreshed.accessToken
             } catch (error: AccountApiException) {
                 if (error.statusCode == 401 || error.errorCode in INVALID_SESSION_CODES) {
-                    invalidateAccountSession()
+                    invalidateAccountSession(error.errorCode)
                 }
                 throw error
             }
@@ -235,6 +251,13 @@ class AccountSessionManager(
 
     fun requiresAccountReauthentication(): Boolean = store.accountReauthenticationRequired()
 
+    /**
+     * Why the session ended, when the server ended it. Null after an explicit sign-out, so the
+     * sign-in page can stay silent about a logout the user performed themselves.
+     */
+    fun accountReauthenticationReason(): String? =
+        store.accountReauthenticationReason()?.takeIf { store.accountReauthenticationRequired() }
+
     /** Called only from the explicit Legacy connection action. */
     fun allowExplicitLegacyFallback() {
         store.setAccountReauthenticationRequired(false)
@@ -255,7 +278,7 @@ class AccountSessionManager(
     /** Terminal account WebSocket handshake failures map to the narrowest durable recovery. */
     fun handleTransportHandshakeRejection(statusCode: Int, rejectedDeviceId: String?) {
         when (statusCode) {
-            401 -> clearLocal()
+            401 -> clearLocal(reason = "HR-AUTH-003")
             404 -> {
                 val current = _session.value ?: return
                 if (rejectedDeviceId == null || rejectedDeviceId == current.selectedDeviceId) {
@@ -270,7 +293,7 @@ class AccountSessionManager(
     /** Applies the same recovery to account REST responses without treating ordinary 404s as revocation. */
     fun handleRestRejection(statusCode: Int, errorCode: String?, rejectedDeviceId: String?) {
         when {
-            statusCode == 401 || errorCode in INVALID_SESSION_CODES -> invalidateAccountSession()
+            statusCode == 401 || errorCode in INVALID_SESSION_CODES -> invalidateAccountSession(errorCode)
             errorCode == "HR-BIND-011" && !rejectedDeviceId.isNullOrBlank() ->
                 handleTransportHandshakeRejection(404, rejectedDeviceId)
         }
@@ -292,8 +315,15 @@ class AccountSessionManager(
         }
     }
 
-    fun clearLocal(requireReauthentication: Boolean = true) {
-        store.clearAccountSession(requireReauthentication)
+    /**
+     * [reason] is recorded only when [requireReauthentication] is true, and deliberately stays null
+     * on the explicit sign-out path — see [AccountSessionStore.clearAccountSession].
+     */
+    fun clearLocal(requireReauthentication: Boolean = true, reason: String? = null) {
+        store.clearAccountSession(
+            requireReauthentication,
+            reason.takeIf { requireReauthentication }?.let(::normalizeReauthenticationReason),
+        )
         store.setExplicitLegacyConnectionSelected(false)
         store.clearPendingEmailChallenge()
         store.clearPendingAccountDeletion()
@@ -303,8 +333,11 @@ class AccountSessionManager(
     }
 
     /** A failed opt-in probe restores Legacy; an already-active account still fails closed. */
-    private fun invalidateAccountSession() {
-        clearLocal(requireReauthentication = _session.value?.activationPending != true)
+    private fun invalidateAccountSession(reason: String? = null) {
+        clearLocal(
+            requireReauthentication = _session.value?.activationPending != true,
+            reason = normalizeReauthenticationReason(reason),
+        )
     }
 
     private fun update(value: AccountSession) {

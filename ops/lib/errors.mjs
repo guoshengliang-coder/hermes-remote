@@ -139,6 +139,34 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "inspect_binding_rollout_stage_and_retry",
   }),
+  productionMultiDeviceRollout: Object.freeze({
+    code: "HR-OPS-022",
+    summaryZh: "生产多终端灰度未完成，已阻止启用或恢复为单终端状态。请检查灰度阶段后重试。",
+    summaryEn: "The production multi-device rollout did not complete. Enablement was blocked or single-device mode was restored. Inspect the rollout stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_multi_device_rollout_stage_and_retry",
+  }),
+  productionIdentityWebRollout: Object.freeze({
+    code: "HR-OPS-023",
+    summaryZh: "生产身份与 Web 账号中心灰度未完成，已阻止启用或恢复为多终端状态。请检查灰度阶段后重试。",
+    summaryEn: "The production identity and Web account-center rollout did not complete. Enablement was blocked or multi-device mode was restored. Inspect the rollout stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_identity_web_rollout_stage_and_retry",
+  }),
+  productionSharingRollout: Object.freeze({
+    code: "HR-OPS-024",
+    summaryZh: "生产整机共享灰度未完成，已阻止启用或恢复为身份与 Web 账号中心状态。请检查灰度阶段后重试。",
+    summaryEn: "The production whole-device sharing rollout did not complete. Enablement was blocked or the identity and Web account-center state was restored. Inspect the rollout stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_sharing_rollout_stage_and_retry",
+  }),
+  productionComponentRollout: Object.freeze({
+    code: "HR-OPS-025",
+    summaryZh: "生产 Desktop 组件安装灰度未完成，已阻止启用或恢复为原组件能力状态。请检查灰度阶段后重试。",
+    summaryEn: "The production Desktop component rollout did not complete. Enablement was blocked or the previous component capability was restored. Inspect the rollout stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_component_rollout_stage_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;

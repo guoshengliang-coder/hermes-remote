@@ -135,10 +135,22 @@ class HermesNotifier(
 
     fun cancelSummary() = mgr.cancel(Notif.SUMMARY_NOTIFICATION_ID)
 
-    /** Remove every session card and the group summary (used once at process start). */
+    /**
+     * Remove the session cards a previous process left behind (used once at process start), but
+     * keep the ones that are asking the user for something.
+     *
+     * This used to cancel every card in the group, because run state was memory-only and a card
+     * left by a dead process could never be updated again. An ongoing "running" card is indeed
+     * stale on sight and still goes. A 「需要你处理」 card is different: it does not need updating,
+     * it needs to be tappable, and [com.hermes.client.notifications.NotificationActionReceiver]
+     * answers it entirely from its intent extras with no memory state at all. Cancelling it threw
+     * away the one way left to approve something after the app was swiped away (HG-31). A
+     * force-stop still clears it, which degrades to the old behaviour rather than below it.
+     */
     fun cancelSessionCards() {
         mgr.activeNotifications
             .filter { it.notification.group == Notif.GROUP_SESSIONS }
+            .filterNot { it.notification.channelId == Notif.CHANNEL_ATTENTION }
             .forEach { mgr.cancel(it.id) }
     }
 

@@ -8,6 +8,8 @@ import com.hermes.client.domain.Role
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.localizedMessage
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -44,6 +46,60 @@ class DeliveryStateTest {
         assertTrue(zh.any { it.code > 0x4E00 } && zh != en)
         assertTrue(error.retryable)
         assertTrue(error.sanitizedDiagnostic().contains("token=<redacted>"))
+    }
+
+    // HG-29: the terminal counterpart. "Conversation is gone" must be a different code with a
+    // different retryability, or the bubble cannot tell the user anything true.
+    @Test fun undeliverable_code_is_registered_bilingual_and_not_retryable() {
+        val error = AppError(AppErrorCode.SESSION_NOT_FOUND, retryable = false, technicalCause = "session not found")
+        val zh = error.localizedMessage(AppLanguage.ZH)
+        val en = error.localizedMessage(AppLanguage.EN)
+        assertTrue(zh.contains("HR-SESS-001") && en.contains("HR-SESS-001"))
+        assertTrue(zh.any { it.code > 0x4E00 } && zh != en)
+        assertFalse("a conversation that no longer exists cannot be retried into existence", error.retryable)
+        assertEquals("SESS-001", AppErrorCode.SESSION_NOT_FOUND.compact)
+        assertNotEquals(AppErrorCode.MESSAGE_SEND_FAILED, AppErrorCode.SESSION_NOT_FOUND)
+    }
+
+    // HG-30: the third shape. Retryable like SESS-007, but for a reason the user can act on, so it
+    // must not reuse SESS-007's copy — "点按重试" alone sends them back into the same refusal.
+    @Test fun owned_elsewhere_code_is_registered_bilingual_and_retryable() {
+        val error = AppError(
+            AppErrorCode.SESSION_OWNED_ELSEWHERE,
+            retryable = true,
+            technicalCause = "Session s1 already has a live owner (desktop, pid 32991)",
+        )
+        val zh = error.localizedMessage(AppLanguage.ZH)
+        val en = error.localizedMessage(AppLanguage.EN)
+        assertTrue(zh.contains("HR-SESS-013") && en.contains("HR-SESS-013"))
+        assertTrue(zh.any { it.code > 0x4E00 } && zh != en)
+        assertTrue("the other client finishing is what makes this one work", error.retryable)
+        assertEquals("SESS-013", AppErrorCode.SESSION_OWNED_ELSEWHERE.compact)
+        // Distinct from both neighbours: not the generic failure, not the terminal one.
+        assertNotEquals(AppErrorCode.MESSAGE_SEND_FAILED, AppErrorCode.SESSION_OWNED_ELSEWHERE)
+        assertNotEquals(
+            error.localizedMessage(AppLanguage.ZH),
+            AppError(AppErrorCode.MESSAGE_SEND_FAILED, retryable = true).localizedMessage(AppLanguage.ZH),
+        )
+    }
+
+    // HG-49: the fourth shape. A refused send restored from disk after the app restarted, whose
+    // staged attachments did not survive with it — the bytes are never persisted. Replaying it
+    // would deliver less than the user meant, so unlike SESS-007 and SESS-013 this one withholds
+    // the tap rather than offering a retry that quietly drops the images.
+    @Test fun attachments_lost_code_is_registered_bilingual_and_not_retryable() {
+        val error = AppError(AppErrorCode.UNSENT_ATTACHMENTS_LOST, retryable = false)
+        val zh = error.localizedMessage(AppLanguage.ZH)
+        val en = error.localizedMessage(AppLanguage.EN)
+        assertTrue(zh.contains("HR-SESS-015") && en.contains("HR-SESS-015"))
+        assertTrue(zh.any { it.code > 0x4E00 } && zh != en)
+        assertFalse("the attachments are gone; re-sending the text alone is not the same send", error.retryable)
+        assertEquals("SESS-015", AppErrorCode.UNSENT_ATTACHMENTS_LOST.compact)
+        // It has to read differently from the generic failure, or the user retries into nothing.
+        assertNotEquals(
+            zh,
+            AppError(AppErrorCode.MESSAGE_SEND_FAILED, retryable = true).localizedMessage(AppLanguage.ZH),
+        )
     }
 
     @Test fun compact_code_drops_only_the_prefix_and_stays_unique() {

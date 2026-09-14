@@ -1,0 +1,292 @@
+<!DOCTYPE html><html lang="zh-CN" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
+<title>Hermes 会话搜索优化</title>
+<!-- Tailwind CSS CDN with plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            paper: {
+              DEFAULT: '#FAF9F5',
+              surface: '#F5F3ED',
+              variant: '#ECE9E0',
+              border: '#E3E0D6'
+            },
+            hermes: {
+              primary: '#004AC6',
+              primaryHover: '#003BA1',
+              highlightActive: '#B6D1FF',
+              highlightNormal: '#D9E6FF',
+              dark: '#1D1C19',
+              muted: '#7A766E',
+              subtle: '#9E9B93'
+            }
+          },
+          fontFamily: {
+            sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"PingFang SC"', '"Hiragino Sans GB"', '"Microsoft YaHei"', 'sans-serif'],
+            mono: ['"SF Mono"', 'Menlo', 'Consolas', 'monospace']
+          },
+          boxShadow: {
+            'floating-input': '0 8px 24px -4px rgba(29, 28, 25, 0.08), 0 2px 6px -1px rgba(29, 28, 25, 0.04)',
+            'nav-subtle': '0 1px 0 0 rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.02)'
+          }
+        }
+      }
+    }
+  </script>
+<style data-purpose="custom-scroll-and-hit">
+    /* 隐藏滚动条但保留滑动功能 */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    /* 命中词高亮视觉微调 */
+    .hit-current {
+      background-color: #A6C8FF;
+      color: #002B7A;
+      font-weight: 600;
+      border-radius: 3px;
+      padding: 0.5px 3px;
+      margin: 0 1px;
+    }
+    .hit-other {
+      background-color: #D6E4FF;
+      color: #173B8A;
+      font-weight: 500;
+      border-radius: 3px;
+      padding: 0.5px 2.5px;
+      margin: 0 1px;
+    }
+  </style>
+</head>
+<body class="bg-stone-900 flex justify-center items-center min-h-screen p-0 sm:p-4 antialiased selection:bg-blue-100 selection:text-blue-900">
+<!-- BEGIN: MobileDeviceFrame -->
+<main class="w-full max-w-[420px] h-[100vh] sm:h-[880px] bg-paper relative flex flex-col overflow-hidden sm:rounded-[40px] sm:shadow-2xl sm:ring-1 sm:ring-black/10">
+<!-- BEGIN: AndroidStatusBar -->
+<header class="w-full h-10 pt-2 px-5 flex justify-between items-center z-40 bg-paper/95 backdrop-blur-md select-none text-[13px] font-medium tracking-tight text-hermes-dark shrink-0">
+<!-- 左侧时间与网络状态 -->
+<div class="flex items-center space-x-1.5">
+<span class="font-semibold tracking-normal text-sm">1:56</span>
+<span class="text-[10px] bg-hermes-dark/8 text-hermes-dark/80 px-1 py-0.2 rounded font-mono font-bold">VPN</span>
+<!-- 小圆点/时钟图标指示 -->
+<svg class="w-3.5 h-3.5 text-hermes-dark/70 inline-block ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+<path d="M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2zm0 18c-4.411 0-8-3.589-8-8s3.589-8 8-8 8 3.589 8 8-3.589 8-8 8zm.5-13H11v6l5.2 3.1.8-1.3-4.5-2.7V7z"></path>
+</svg>
+</div>
+<!-- 右侧无线信号与电量指示 -->
+<div class="flex items-center space-x-1.5 text-hermes-dark">
+<span class="font-mono text-[11px] text-hermes-muted font-normal">3.2<span class="text-[9px]">K/s</span></span>
+<!-- 5G 标识 -->
+<span class="text-[10px] font-bold tracking-tight">5G</span>
+<!-- 信号阶梯 -->
+<svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+<path d="M2 20h20L12 4 2 20z"></path>
+</svg>
+<!-- 电池百分比与电量图标 -->
+<div class="flex items-center space-x-0.5 ml-1">
+<span class="font-mono text-xs font-semibold">74</span>
+<svg class="w-4 h-4 fill-current rotate-90" viewBox="0 0 24 24">
+<rect fill="none" height="12" rx="2" stroke="currentColor" stroke-width="1.5" width="17" x="2" y="6"></rect>
+<rect height="8" rx="1" width="10" x="4" y="8"></rect>
+<path d="M20 10h1.5a0.5 0.5 0 0 1 .5.5v3a0.5 0.5 0 0 1-.5.5H20v-4z"></path>
+</svg>
+</div>
+</div>
+</header>
+<!-- END: AndroidStatusBar -->
+<!-- BEGIN: TopSearchUnifiedHeader -->
+<!-- 同位替换原导航栏的高集成会话搜索顶栏组件 -->
+<section class="bg-paper/95 backdrop-blur-md px-4 pt-1 pb-2.5 z-30 shadow-nav-subtle border-b border-paper-border/60 shrink-0" data-purpose="unified-search-header"><div class="w-full flex items-center space-x-2">
+  <!-- 返回按钮 (退出搜索返回会话) -->
+  <button aria-label="退出搜索返回会话" class="w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-hermes-dark/80 hover:text-hermes-dark hover:bg-paper-variant active:scale-95 transition shrink-0">
+    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" viewBox="0 0 24 24">
+      <line x1="19" y1="12" x2="5" y2="12"></line>
+      <polyline points="12 19 5 12 12 5"></polyline>
+    </svg>
+  </button>
+
+  <!-- 全宽一体化搜索胶囊 (集成立体搜索框、文本、清除键、匹配计数与上下切换导航) -->
+  <div class="flex-1 h-10 bg-paper-surface hover:bg-paper-variant/70 transition-colors rounded-full pl-3 pr-1.5 flex items-center justify-between shadow-inner min-w-0">
+    <!-- 左侧搜索区域：放大镜图标 + 文本/光标 + 清除按钮 -->
+    <div class="flex items-center min-w-0 flex-1 mr-1">
+      <!-- 标准清晰 Material 搜索放大镜图标 -->
+      <svg class="w-4 h-4 text-hermes-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35m0 0A7.5 7.5 0 104.5 4.5a7.5 7.5 0 0012.15 12.15z"></path>
+      </svg>
+      <div class="flex items-center ml-2.5 flex-1 min-w-0 cursor-text">
+        <span class="text-[14.5px] text-hermes-dark font-medium leading-none">图</span>
+        <span class="w-[1.5px] h-3.5 bg-hermes-primary animate-pulse ml-0.5 rounded-full inline-block"></span>
+      </div>
+      <!-- 文本清除按钮 -->
+      <button aria-label="清空输入" class="w-4 h-4 rounded-full bg-hermes-dark/8 hover:bg-hermes-dark/15 flex items-center justify-center text-hermes-subtle hover:text-hermes-dark transition shrink-0 ml-1">
+        <svg class="w-2.5 h-2.5 stroke-current" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" viewBox="0 0 24 24">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    <!-- 右侧胶囊内控制组：分界微线 + 匹配计数 + 上下导航按钮 -->
+    <div class="flex items-center shrink-0 space-x-0.5 pl-1.5 border-l border-paper-border/80">
+      <span class="text-xs font-semibold text-hermes-primary px-1 font-mono tracking-tight select-none">
+        4<span class="text-hermes-subtle font-normal">/12</span>
+      </span>
+      <!-- 上一个匹配项 -->
+      <button aria-label="上一个匹配项" class="w-7 h-7 rounded-full flex items-center justify-center text-hermes-primary hover:bg-paper-variant active:scale-95 transition">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" viewBox="0 0 24 24">
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </button>
+      <!-- 下一个匹配项 -->
+      <button aria-label="下一个匹配项" class="w-7 h-7 rounded-full flex items-center justify-center text-hermes-primary hover:bg-paper-variant active:scale-95 transition">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" viewBox="0 0 24 24">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </button>
+    </div>
+  </div>
+</div></section>
+<!-- END: TopSearchUnifiedHeader -->
+<!-- BEGIN: ConversationStream -->
+<!-- 暖纸底对话展示流，优化字距、行高与段落节奏 -->
+<main class="flex-1 overflow-y-auto px-4 py-3 space-y-4 no-scrollbar relative" data-purpose="chat-messages-container">
+<!-- AI 思考过程折叠胶囊 -->
+
+<!-- 命中消息卡片：外层施加柔和暖蓝定位指示框与微晕 -->
+<article class="p-4 relative transition duration-200" data-purpose="assistant-targeted-message">
+<!-- 卡片头部小工具调用标签 -->
+
+<!-- 核心分析结论（正文内容排版） -->
+<div class="text-[15.5px] text-hermes-dark leading-[1.68] space-y-3 font-normal tracking-[0.01em]">
+<p class="font-bold text-[16px] text-hermes-dark">
+            结论：两张<mark class="hit-current font-bold">图</mark>暴露的是两类会话可靠性问题，不应当作单一网络故障处理。
+          </p>
+<ul class="space-y-2.5 pl-1">
+<li class="flex items-start">
+<span class="w-1.5 h-1.5 rounded-full bg-hermes-dark/60 mt-2.5 mr-2 shrink-0"></span>
+<p class="flex-1">
+<mark class="hit-other">图</mark>一：Relay 连接异常，但页面还在重连；AI 查询结果本身也明确承认 <strong class="font-semibold text-hermes-dark">09-09 数据尚未入库</strong>，不能据此判断停投。
+              </p>
+</li>
+<li class="flex items-start">
+<span class="w-1.5 h-1.5 rounded-full bg-hermes-dark/60 mt-2.5 mr-2 shrink-0"></span>
+<p class="flex-1">
+<mark class="hit-other">图</mark>二：用户消息实际未送达，报 <code class="bg-paper-variant/80 px-1 py-0.5 rounded text-[13.5px] font-mono font-medium text-rose-700">SESS-007</code>；因此“是否能监控人工审核状态”的问题目前没有得到系统回答。
+              </p>
+</li>
+</ul>
+<div class="pt-2 border-t border-paper-border/60">
+<h4 class="font-semibold text-[15px] text-hermes-dark mb-1.5">
+              事实（截<mark class="hit-other">图</mark>可核对）
+            </h4>
+<ol class="space-y-2 text-[14.5px] leading-relaxed text-hermes-dark/90 pl-1">
+<li class="flex items-start">
+<span class="font-mono text-xs text-hermes-muted mt-1 mr-1.5 shrink-0">1.</span>
+<span class="">
+<mark class="hit-other">图</mark>一顶部同时出现“<strong class="font-medium text-hermes-dark">Relay 暂时无法连接</strong>”与“<strong class="font-medium text-hermes-dark">正在连接 Relay...</strong>”；AI 说明最新批次仅含至 <strong class="font-medium">09-08</strong>，09-09 的 09:00 批次未落库。
+                </span>
+</li>
+<li class="flex items-start">
+<span class="font-mono text-xs text-hermes-muted mt-1 mr-1.5 shrink-0">2.</span>
+<span class="">
+<mark class="hit-other">图</mark>二用户消息下方明确显示“未发送”。
+                </span>
+</li>
+</ol>
+</div>
+</div>
+<!-- 消息底部工具条与模型署名 -->
+<footer class="mt-4 pt-3 flex items-center justify-between text-xs text-hermes-subtle border-t border-paper-border/50">
+<div class="flex items-center space-x-1 font-mono text-[11.5px]">
+<span class="">模型: gpt-5.6-terra</span>
+</div>
+<!-- 快捷操作按钮组 -->
+<div class="flex items-center space-x-3 text-hermes-muted">
+<button aria-label="复制" class="hover:text-hermes-dark transition">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+<rect height="13" rx="2" ry="2" width="13" x="9" y="9"></rect>
+<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+</svg>
+</button>
+<button aria-label="点赞" class="hover:text-hermes-dark transition">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+<path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
+</svg>
+</button>
+<button aria-label="朗读" class="hover:text-hermes-dark transition">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+<path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+</svg>
+</button>
+<button aria-label="重新生成" class="hover:text-hermes-dark transition">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+<polyline points="23 4 23 10 17 10"></polyline>
+<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+</svg>
+</button>
+</div>
+</footer>
+</article>
+<!-- 快速滚动到底部悬浮球（FAB） -->
+<div class="fixed right-5 bottom-24 z-20">
+<button aria-label="回到底部" class="w-9 h-9 rounded-full bg-white/90 shadow-md border border-paper-border flex items-center justify-center text-hermes-dark hover:bg-white active:scale-95 transition">
+<svg class="w-4 h-4 text-hermes-dark" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" viewBox="0 0 24 24">
+<polyline points="6 9 12 15 18 9"></polyline>
+</svg>
+</button>
+</div>
+</main>
+<!-- END: ConversationStream -->
+<!-- BEGIN: BottomChatInputBar -->
+<!-- 延续 Hermes Mobile 规范的微悬浮底板与圆润形态 -->
+<footer class="p-3 pb-1 bg-paper border-t border-paper-border/30 shrink-0 z-30" data-purpose="chat-floating-bar">
+<div class="bg-white rounded-[26px] shadow-floating-input border border-paper-border/80 px-3 py-1.5 flex items-center space-x-2">
+<!-- 语音/键盘切换 -->
+<button aria-label="语音输入" class="w-9 h-9 rounded-full flex items-center justify-center text-hermes-dark hover:bg-paper-surface active:scale-95 transition shrink-0">
+<svg class="w-5 h-5 text-hermes-dark" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" viewBox="0 0 24 24">
+<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+<path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+<line x1="12" x2="12" y1="19" y2="23"></line>
+<line x1="8" x2="16" y1="23" y2="23"></line>
+</svg>
+</button>
+<!-- 输入提示占位文字 -->
+<div class="flex-1 py-1 cursor-text select-none">
+<span class="text-[15px] text-hermes-muted">发消息或按住说话</span>
+</div>
+<!-- 附件拓展按键 (+) -->
+<button aria-label="添加附件或扩展" class="w-8 h-8 rounded-full flex items-center justify-center text-hermes-muted hover:text-hermes-dark hover:bg-paper-surface active:scale-95 transition shrink-0">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+<line x1="12" x2="12" y1="5" y2="19"></line>
+<line x1="5" x2="19" y1="12" y2="12"></line>
+</svg>
+</button>
+<!-- 沉稳类黑主要发送按钮 -->
+<button aria-label="发送消息" class="w-8 h-8 rounded-full bg-hermes-dark hover:bg-black active:scale-95 text-paper flex items-center justify-center transition shrink-0 shadow-sm">
+<svg class="w-4 h-4 ml-0.5 transform rotate-45" fill="currentColor" viewBox="0 0 24 24">
+<path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+</svg>
+</button>
+</div>
+<!-- 免责与生成标识 -->
+<div class="text-center py-1.5 text-[11px] text-hermes-subtle select-none font-medium">
+        内容由 AI 生成，请核对关键事实
+      </div>
+<!-- Android 底部手势指示横条 -->
+<div class="w-full flex justify-center pb-1 pt-0.5">
+<div class="w-32 h-1 bg-hermes-dark/30 rounded-full"></div>
+</div>
+</footer>
+<!-- END: BottomChatInputBar -->
+</main>
+<!-- END: MobileDeviceFrame -->
+
+
+</body></html>

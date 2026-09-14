@@ -162,6 +162,58 @@ class GatewayHealthMonitorTest {
     // backgroundScope.launch child via advanceUntilIdle() — reproduced with a minimal
     // backgroundScope.launch { flow.collect {} } case outside this class. Unconfined avoids it;
     // the assertions below are unchanged from the brief.
+    /**
+     * Regression for HG-42. The probe that ran while the network was stalling wrote
+     * GatewayUnreachable; a second later the socket reconnected and every REST call went back to
+     * 200 — and the red 「Relay 暂时无法连接」 strip stayed up anyway, because the collector only
+     * listened for the socket going away, never for it coming back, and the periodic probe is 30
+     * seconds apart. The strip has to describe the backend, not the last bad moment.
+     */
+    @Test fun ws_reconnect_clears_a_stale_unreachable() = runTest(UnconfinedTestDispatcher()) {
+        // Not a fixed answer sequence: constructing the monitor with a Disconnected socket makes
+        // its own collector fire a probe straight away, which would eat the failures meant for the
+        // precondition. A flag says "the network is stalling" for as long as the test needs.
+        var stalling = true
+        coEvery { api.gatewayStatus() } answers {
+            if (stalling) throw java.io.IOException("stalling") else ok()
+        }
+        val conn = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
+        val m = GatewayHealthMonitor(api, FakeConnectivity(true), conn, backgroundScope)
+        m.probe()
+        advanceUntilIdle()
+        assertTrue(
+            "precondition: the strip is up, got ${m.health.value}",
+            m.health.value is GatewayHealth.GatewayUnreachable,
+        )
+
+        stalling = false
+        conn.value = ConnectionState.Connected
+        advanceUntilIdle()
+
+        assertTrue(
+            "a recovered socket must re-probe and clear the strip, got ${m.health.value}",
+            m.health.value is GatewayHealth.Healthy,
+        )
+    }
+
+    /**
+     * The other half of that rule: a reconnect on an already-healthy client must not spend a
+     * request confirming what it already knows. The periodic probe owns the steady state.
+     */
+    @Test fun ws_reconnect_on_a_healthy_client_does_not_probe_again() = runTest(UnconfinedTestDispatcher()) {
+        coEvery { api.gatewayStatus() } returns ok()
+        val conn = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
+        val m = GatewayHealthMonitor(api, FakeConnectivity(true), conn, backgroundScope)
+        m.probe()
+        advanceUntilIdle()
+        io.mockk.clearMocks(api, answers = false)
+
+        conn.value = ConnectionState.Connected
+        advanceUntilIdle()
+
+        io.mockk.coVerify(exactly = 0) { api.gatewayStatus() }
+    }
+
     @Test fun ws_disconnect_triggers_a_probe() = runTest(UnconfinedTestDispatcher()) {
         coEvery { api.gatewayStatus() } returns ok()
         val conn = MutableStateFlow<ConnectionState>(ConnectionState.Connected)

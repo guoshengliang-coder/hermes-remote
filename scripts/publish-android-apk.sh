@@ -27,13 +27,16 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-[[ -z "$(git -C "$ROOT" status --porcelain)" ]] || { echo "Publishing requires a clean worktree" >&2; exit 1; }
+# Say WHAT is dirty, not just that something is. A bare "requires a clean worktree" from a CI
+# runner sends you guessing at a tree you cannot see; the 0.1.119 publish burned a cycle on it.
+dirty() { git -C "$ROOT" status --porcelain; }
+[[ -z "$(dirty)" ]] || { echo "Publishing requires a clean worktree; these paths are not clean:" >&2; dirty >&2; exit 1; }
 git -C "$ROOT" fetch origin main
 HEAD_COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
 [[ "$HEAD_COMMIT" == "$(git -C "$ROOT" rev-parse origin/main)" ]] || { echo "HEAD must be pushed to origin/main before publishing" >&2; exit 1; }
 
 if [[ "$GATE_OWNED" == 1 ]]; then
-  APK_RELEASE_METADATA_FILE="$GATE" "$ROOT/scripts/package-debug-apk.sh"
+  APK_REQUIRE_MISSIONGO_CONFIG=1 APK_RELEASE_METADATA_FILE="$GATE" "$ROOT/scripts/package-debug-apk.sh"
 fi
 PUBLISHED_AT="$(git -C "$ROOT" show -s --format=%cI "$HEAD_COMMIT" | python3 -c 'import datetime,sys; print(datetime.datetime.fromisoformat(sys.stdin.read().strip()).astimezone(datetime.timezone.utc).isoformat().replace("+00:00","Z"))')"
 # Metadata is derived only from the gate output and the reviewed release description; minSdk comes
@@ -43,7 +46,7 @@ ARTIFACT="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["arti
 FILE_NAME="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["fileName"])' "$META")"
 VERSION_CODE="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["versionCode"])' "$META")"
 REMOTE_TMP="/tmp/hermes-release-${VERSION_CODE}-${HEAD_COMMIT}"
-[[ -z "$(git -C "$ROOT" status --porcelain)" ]] || { echo "Worktree changed during package gate" >&2; exit 1; }
+[[ -z "$(dirty)" ]] || { echo "Worktree changed during package gate; these paths are not clean:" >&2; dirty >&2; exit 1; }
 [[ "$(git -C "$ROOT" rev-parse HEAD)" == "$HEAD_COMMIT" && "$HEAD_COMMIT" == "$(git -C "$ROOT" rev-parse origin/main)" ]] || { echo "HEAD changed during package gate" >&2; exit 1; }
 ssh "$USER@$HOST" "umask 077; test ! -e '$REMOTE_TMP'; mkdir -- '$REMOTE_TMP'; mkdir -p -- '$REMOTE_TMP/deploy' '$REMOTE_TMP/release-server/src'"
 scp "$ARTIFACT" "$USER@$HOST:$REMOTE_TMP/$FILE_NAME"

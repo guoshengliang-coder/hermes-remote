@@ -620,6 +620,33 @@ fun clarifyExpiredNotice(language: com.hermes.client.ui.localization.AppLanguage
         "This question expired before the answer arrived (HR-CLARIFY-001). The agent has moved on — tell it your choice directly in the composer.",
     )
 
+/**
+ * User-visible notice for HR-APPROVAL-001: the approve/deny landed on a request Hermes had already
+ * timed out and decided for itself. `approval.respond` returns nothing, so this is inferred from
+ * the run being over before the answer was sent; the copy therefore does not claim delivery.
+ * Registered in docs/ERROR_HANDLING.md.
+ */
+fun approvalExpiredNotice(language: com.hermes.client.ui.localization.AppLanguage): String =
+    com.hermes.client.ui.localization.localized(
+        language,
+        "这次审批没有送达，Hermes 已按超时自行处置了这条命令（HR-APPROVAL-001）。如果还需要执行，请在输入框重新说一次。",
+        "This approval didn't reach the agent — Hermes had already timed out and decided on its own (HR-APPROVAL-001). If you still want it run, say so in the composer.",
+    )
+
+/**
+ * User-visible notice for HR-APPROVAL-002: this conversation is waiting on an approval, but the
+ * request itself did not survive the app restart. Unlike a clarify request, an approval carries no
+ * id and `approval.respond` returns nothing, so a card rebuilt from a local snapshot could address
+ * a command the user never saw. Saying so is the honest option; see SessionPhaseStore's KDoc.
+ * Registered in docs/ERROR_HANDLING.md.
+ */
+fun approvalLostNotice(language: com.hermes.client.ui.localization.AppLanguage): String =
+    com.hermes.client.ui.localization.localized(
+        language,
+        "这条会话在等你确认，但那次审批请求没能在 App 重启后保留下来（HR-APPROVAL-002），这里无法再批准它。请在输入框直接告诉它你的决定。",
+        "This conversation is waiting for your approval, but the request itself didn't survive the app restart (HR-APPROVAL-002), so it can't be approved from here. Tell the agent your decision in the composer.",
+    )
+
 fun parseClarifyRequest(payload: kotlinx.serialization.json.JsonObject): ClarifyRequest {
     fun prim(e: kotlinx.serialization.json.JsonElement?): String? =
         (e as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull?.ifBlank { null }
@@ -856,3 +883,23 @@ fun ChatUiState.withAttachment(a: PendingAttachment): ChatUiState =
 
 fun ChatUiState.withoutAttachment(id: String): ChatUiState =
     copy(pendingAttachments = pendingAttachments.filterNot { it.id == id })
+
+/**
+ * Swap one pending attachment's content while keeping its id and its **position** in the strip.
+ *
+ * Position matters: attachments upload in list order, so removing and re-adding would silently
+ * reorder what the user is about to send. A no-op when the id is gone, which is what happens if the
+ * chip was removed while the editor was open.
+ */
+fun ChatUiState.withReplacedAttachment(
+    id: String,
+    bytes: ByteArray,
+    mimeType: String,
+    name: String,
+): ChatUiState = copy(
+    pendingAttachments = pendingAttachments.map {
+        // The revision bump is load-bearing, not bookkeeping: without it the new state compares
+        // equal to the old one and MutableStateFlow throws the assignment away.
+        if (it.id == id) PendingAttachment(id, bytes, mimeType, name, revision = it.revision + 1) else it
+    },
+)

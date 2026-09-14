@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 2,
+  "releaseVersion": "0.4.0",
+  "channel": "internal",
+  "architecture": "arm64",
+  "minimumMacOS": "14.0",
+  "createdAt": "2026-09-13T00:00:00Z",
+  "expiresAt": "2026-09-27T00:00:00Z",
+  "artifactOrigin": "https://downloads.example",
+  "artifactPathPrefix": "/desktop/components/0.4.0",
+  "signing": {
+    "keyId": "desktop-internal-2026-a",
+    "privateKeyFile": "/absolute/protected/path/desktop-release-ed25519.pem"
+  },
+  "components": [
+    {
+      "kind": "python_runtime",
+      "version": "3.11.15",
+      "architecture": "arm64",
+      "installPhase": "bootstrap",
+      "requiredForBootstrap": true,
+      "reuseContract": "exact_content",
+      "source": "/absolute/staging/path/python-runtime.tar.gz",
+      "entrypoint": "bin/python3",
+      "contentSHA256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "dependencies": []
+    },
+    {
+      "kind": "hermes_core",
+      "version": "0.21.0",
+      "architecture": "arm64",
+      "installPhase": "bootstrap",
+      "requiredForBootstrap": true,
+      "reuseContract": "exact_content",
+      "source": "/absolute/staging/path/hermes-core.tar.gz",
+      "entrypoint": "bin/hermes",
+      "contentSHA256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "dependencies": [
+        {
+          "kind": "python_runtime",
+          "contentSHA256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    },
+    {
+      "kind": "node_runtime",
+      "version": "22.23.2",
+      "architecture": "arm64",
+      "installPhase": "bootstrap",
+      "requiredForBootstrap": true,
+      "reuseContract": "exact_content",
+      "source": "/absolute/staging/path/node-runtime.tar.gz",
+      "entrypoint": "bin/node",
+      "contentSHA256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "dependencies": []
+    },
+    {
+      "kind": "connector",
+      "version": "0.3.0",
+      "architecture": "arm64",
+      "installPhase": "bootstrap",
+      "requiredForBootstrap": true,
+      "reuseContract": "exact_content",
+      "source": "/absolute/staging/path/connector.tar.gz",
+      "entrypoint": "bin/hermes-connector",
+      "contentSHA256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "dependencies": [
+        {
+          "kind": "node_runtime",
+          "contentSHA256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        {
+          "kind": "hermes_core",
+          "contentSHA256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ]
+    },
+    {
+      "kind": "browser_automation",
+      "version": "123.0.0",
+      "architecture": "arm64",
+      "installPhase": "on_demand",
+      "requiredForBootstrap": false,
+      "onDemandTrigger": "browser_automation",
+      "reuseContract": "verified_compatibility",
+      "compatibilityIdentifier": "chromium-cdp-1",
+      "source": "/absolute/staging/path/browser-automation.tar.gz",
+      "entrypoint": "bin/chromium",
+      "contentSHA256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "dependencies": []
+    }
+  ]
+}

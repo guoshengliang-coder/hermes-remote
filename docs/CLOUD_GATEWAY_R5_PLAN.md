@@ -19,8 +19,10 @@ R5-C4 timer 和首次 R5-E6 异机恢复/状态激活已完成。2026-09-06 又�
 受保护制品修复并重放同一代次，异机恢复、schema 7、账号 smoke、状态激活、ack 和后续监控全部通过。
 2026-09-09 又以 `main 787bdc917190` 完成 Gateway 0.4.9 常规发布、邮箱 OTP 生产灰度、schema 15 迁移，
 以及迁移后的新一轮加密捕获、Mac PostgreSQL 18 真实恢复、0.4.9 镜像账号 smoke、状态激活和监控复查。
-R5-E 数据库恢复自动化门禁与 R5-F2 邮箱登录灰度均已完成；Google、绑定、多设备分享、身份管理、Web
-账号中心和 Desktop 托管安装仍未启用。
+R5-E 数据库恢复自动化门禁、R5-F2 邮箱登录、R5-F3 单终端绑定、R5-F4 多自有终端开关以及 F5-A/F5-B
+身份/Web/分享开关均已完成生产执行。Desktop 托管安装、身份管理、Web session 和整机分享已启用；
+Google 与账号删除仍关闭，当前没有邀请或 grant。第二台自有 Mac 的 F4 实机 canary 和 F5-B 双账号分享
+canary 仍待执行。
 邮箱登录验收后的只读绑定预检发现，0.4.9 镜像内置 Docker healthcheck 把开发端口 `8787` 写死，而
 受管 green 槽实际监听 `PORT=18788`；因此公开业务/readiness 正常，但容器被 Docker 持续标记为
 `unhealthy`。后续绑定灰度在新版本镜像使用运行时 `PORT`、非默认容器端口 OCI 门禁通过并完成常规
@@ -42,6 +44,10 @@ Android/Connector 的 URL、Token 与协议。
 | R5-D 受管基线 | 从已验证的旧服务进入可回滚的受管 release/slot 基线，账号标志保持关闭 | `current`/`previous`、journal、自动恢复和兼容 smoke 全绿 | 是，维护窗与切流需授权 |
 | R5-E 数据库准备 | 用目标不可变镜像迁移 schema；加密导出、异机复制、独立恢复及账号 smoke | 30 天内的严格恢复证据，legacy 客户端仍正常 | 是，迁移/备份需授权 |
 | R5-F1 常规发版 | 受管基线内的 blue↔green 常规 deploy/rollback 路径（`scripts/production-release.mjs`），账号与数据库标志继续关闭；只改 upstream include，不动站点文件 | 一次性演练完成接管→发版→回滚且站点文件不变；单测覆盖授权矩阵 | 是，每次发版单独授权 |
+| R5-F2 邮箱登录灰度 | 只启用邮箱 OTP、schema 15、邮件回执与账号会话，其他账号能力关闭 | 实际投递、恢复证据、Legacy 兼容与两轮 smoke 全绿 | 是，已按独立授权执行并记录 |
+| R5-F3 单终端绑定灰度 | 只启用一台自有 Mac 的绑定、V2 Connector 与 Desktop 托管安装 | 精确 binding/generation、端到端流量、回滚点和单 Connector 不变量通过 | 是，每次执行单独授权 |
+| R5-F4 多自有终端灰度 | 独立启用 plural devices、显式设备路由与最多三台自有 Mac；分享仍关闭 | 2026-09-13 生产 flag 与路由已 committed，原 Mac 在线且未创建第二个 binding；第二台 canary Mac 的选择/会话亲和、容量竞争和恢复策略仍待实机验收 | 是，生产执行已授权完成；实机绑定仍需所有者操作 |
+| R5-F5 整机共享灰度 | F5-A 先启用身份/Web 接受面，F5-B 再启用账号 B→账号 A 的邀请、使用、撤销与退出 | F5-A/F5-B 开关和路由已于 2026-09-13 committed；仍需双账号邮件接受、operator 权限、跨账号隔离、五秒内断流和无孤儿 grant 实机验收 | 是，生产开关已执行；业务 canary 仍需所有者操作 |
 | R5-F 正式晋级 | 使用已在 GitHub 一次性 staging 验证的同一制品执行生产候选与切换 | 观察窗、Android/Desktop/Connector、回滚点和审计通过 | 是，最终 go/no-go |
 
 任何源码合并、GitHub staging 成功或只读审计通过都不等于生产授权。安装软件、修改监听、创建数据库、
@@ -270,3 +276,77 @@ binding/V2 WebSocket Nginx include，并仅把 `ACCOUNT_BINDING_ENABLED` 与
 Hermes 与 release identity 持续健康。失败时逐字节恢复环境和站点并验证公开 binding 回到 404、私有回到
 503，统一返回 `HR-OPS-021`。多设备、分享、身份管理、Web、删除与 Google 仍关闭；本段是代码门禁，尚未
 构成生产执行结果。
+
+## R5-F4 / R5-F5 后续多终端与共享晋级
+
+R5-F4 是 R5-F3 之后的独立操作器能力，不能通过手改活动槽环境启用
+`ACCOUNT_MULTI_DEVICE_ENABLED`。默认关闭的源码操作器、配置 schema、manifest 固定入口、故障测试和
+稳定 `HR-OPS-022` 失败码已经完成。2026-09-13 已通过独立授权在生产提交 flag 与 plural routes，活动
+Gateway 保持 `0.4.15-6b7d60fa6bbf`，数据库仍只有一条 active/online binding，未创建第二台设备。操作器只允许从精确 committed 的单终端状态开始，安装 plural device
+和显式 device-scoped REST/WebSocket 路由，保持邮箱 provider、数据库 schema、Legacy 路由、分享、
+Google、删除以及其他环境字节不变。候选与公网 smoke 必须同时证明原 Mac 仍在线、第二台 canary Mac
+拥有不同的 binding/generation/device ID、选择不会移动旧会话、任一 Connector 重启不影响另一台，且
+并发第四台只能得到一个稳定容量拒绝；这些第二台 Mac 的实机门禁仍待设备可访问时完成。
+
+账号托管接管会按设计停用 Legacy Connector，因此 F4/F5 操作器在变更前捕获 Legacy App-Token 路径的
+精确状态：仍有旧 Connector 时必须是健康响应；已完成托管接管时允许精确的
+`503 {"error":"device_offline"}`。重启后和观察窗口后的两轮检查必须保持同一状态；认证失败、其他 5xx
+或格式漂移仍然失败关闭。2026-09-13 的第一次 F4 生产尝试正是在旧门禁上于预检阶段停止，未创建 journal
+且未修改环境或 Nginx，随后补上了这项迁移态回归覆盖。
+
+R5-F4 的回滚边界取决于是否已经产生第二个 committed binding。在此之前，操作器可以逐字节恢复单终端
+环境和 Nginx 路由。此后关闭 multi-device 会让合法状态失去可达入口，因此自动回滚必须失败关闭：只能
+向前修复，或先由所有者通过正常、已确认的 unbind 流程移除 canary binding，再恢复单终端模式。操作器
+不得直接删除数据库行、撤销第一台 Mac，或用显示名猜测要删除的设备。
+
+R5-F5 分为两个独立 journal 和授权。F5-A 启用共享所需的身份管理与 HTTPS 账户接受面，验证邮箱 provider、
+Secure/HttpOnly/SameSite Cookie、CSRF、Origin、CSP、邮件域和投递监控；此时
+`ACCOUNT_DEVICE_SHARING_ENABLED` 仍为 `0`。F5-B 只能从 committed F5-A 加上 committed R5-F4 开始，
+再启用整机共享及其邀请/接受/撤销/退出路由，保持 Google、删除和自有终端上限不变。
+
+F5-A 的默认关闭源码操作器、严格配置 schema、schema-7 不可变 bundle 入口、精确 Nginx allowlist、
+故障注入和稳定 `HR-OPS-023` 已完成。操作器要求 committed R5-F4，并独立固定当前 release identity，
+只把 identity management、Web account center 和 Web session 三个标志一同打开；Google、删除和 sharing
+继续关闭。公开 smoke 检查账号 shell 的 CSP/no-store、安全 Cookie、CSRF/Origin 拒绝、未认证身份与安装
+管理 guard，并证明 Google、删除和分享探针仍由边缘以 404 absent 或 405 method rejected 拒绝。2026-09-13
+第一次生产尝试因旧操作器只接受 404 而在变更前停止；未创建 journal、路由或修改标志，随后增加 405
+生产边缘合同回归。失败时逐字节恢复多终端环境与站点文件、
+删除独立 identity-Web include 并再次验证多终端状态。代码合并和 bundle 生成不授权生产执行。
+
+第二次生产尝试进入启用阶段后发现生成环境漏掉 Gateway Web Session 强制要求的
+`ACCOUNT_WEB_ORIGIN`，readiness 因进程拒绝启动而失败；操作器完整恢复 F4，journal 记录为
+`rolled_back`，Connector 随后重连。规范环境现同时固定 `ACCOUNT_WEB_ORIGIN` 与 F5-B 将使用的
+`ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN`，并只对尚未启用身份/Web/分享的旧 F4 环境提供一次兼容升级。
+
+2026-09-13 的授权重试使用全绿 `main 8a4f17a1fb80` 的 schema-8 运维 bundle；run
+`925f7085-5f48-4d42-b895-fe1e2f1610de` 在 blue committed。Gateway 仍为 `0.4.15-6b7d60fa6bbf`，
+schema 15/PostgreSQL 18、Nginx 和容器健康；identity management、Web account center/session 已开启，
+sharing、Google 和删除仍关闭。公网安全合同、401 guard、禁用路由 404/405、Connector/device WebSocket、
+Legacy `device_offline` 保持和零新增业务记录均通过。数据库仍为一个 active/online binding 与六个 revoked
+binding；F5-A 没有创建账号、身份、installation 或 binding。下一项生产开关是需单独授权的 F5-B。
+
+F5-B 的默认关闭源码操作器、严格配置 schema、schema-8 不可变 bundle 入口、独立 sharing Nginx
+allowlist、故障注入和稳定 `HR-OPS-024` 已完成。操作器只接受 committed F5-A、committed R5-F4、
+完全匹配的 identity-Web 环境/路由与当前 release identity，只打开 sharing 标志；Google、删除、三台
+自有终端上限及其他能力保持不变。公开与 loopback smoke 固定五名 grantee、十台已接受共享终端，检查
+native/Web 未认证 guard、Web CSRF 拒绝、原有账号中心安全边界、Legacy 和 release identity。即时失败会
+逐字节恢复 F5-A 环境与站点文件并删除独立 sharing include；操作器自身不创建邀请或 grant，代码合并
+和 bundle 生成仍不授权生产执行。
+
+2026-09-13 的单独授权生产执行复用已验证的 `Hermes-R5D-Ops-8a4f17a1fb80`；run
+`eed13c62-ab0d-44ea-b1da-adcb8f117afa` 在 blue committed。分享路由 4,289 bytes、SHA-256
+`12a4a6be42265fdcabd3e41ea75d1eed6781f6780f9474f468b7745eecf8ec07` 与本地渲染一致，三份 include
+各一次，Gateway `0.4.15-6b7d60fa6bbf`、schema 15/PostgreSQL 18、Nginx 与容器保持健康。公网 native/Web
+分享 guard、CSRF 拒绝、身份/安装/设备 guard、禁用的 Google/删除、Connector/device WebSocket 和 Legacy
+状态全部通过；数据库邀请和 grant 均为零，其他业务计数不变。F5-B 开关已完成，但双账号业务 canary
+仍不能在无账号 A/B 和可操作 Mac 的情况下代验。
+
+F5-B canary 使用两个独立账号和一台由账号 B 拥有的 Mac。B 完成 `device.share` 邮箱复核与整机披露后
+邀请 A；A 通过自己的已验证邮箱接受 72 小时邀请，以 `operator` 身份执行 REST、WebSocket、普通 prompt、
+`/model`、`/compact` 和文件流量，但不能分享、绑定、替换、解绑、旋转或管理 B 的资源。B 撤销和 A 退出
+分别验证只删除匹配 grant、新请求立即失败、活动 WebSocket 最迟五秒关闭，而 B 与其他授权客户端继续。
+
+F5-B 在邀请接受前回滚时必须取消 canary invitation。已有 grant 后，操作器必须先走正常撤销并证明断流，
+才能关闭 sharing flag；不得把活跃 grant 隐藏在关闭的 capability 后面。容量门禁继续固定每台终端五个
+grantee、每个账号十台已接受共享终端。R5-F4、F5-A、F5-B 的生产开关已经按各自授权执行；第二台
+自有 Mac 与双账号分享验收仍需真实设备和账号，不得用开关成功代替。

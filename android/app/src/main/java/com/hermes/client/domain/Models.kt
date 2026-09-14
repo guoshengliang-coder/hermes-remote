@@ -85,7 +85,12 @@ data class ChatFile(
  * `prompt.submit`, then SENT; FAILED when the send raised (or the live-handle wait timed out).
  * History rows and assistant turns are SENT by definition (the default).
  */
-enum class DeliveryState { SENDING, SENT, FAILED }
+/**
+ * A user turn's fate on its way to the Mac. [FAILED] is worth retrying — a dropped socket, a
+ * timeout, a stale live handle. [UNDELIVERABLE] is not: the conversation no longer exists upstream
+ * and could not be replaced, so every retry would repeat the same refusal (see HR-SESS-001).
+ */
+enum class DeliveryState { SENDING, SENT, FAILED, UNDELIVERABLE }
 
 data class ChatMessage(
     val id: String,

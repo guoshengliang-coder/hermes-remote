@@ -1,7 +1,7 @@
 # Desktop managed-release contract
 
-Status: local E4-D implementation contract. No production release key, artifact, endpoint, or rollout
-flag is configured by this document.
+Status: local E4-D schema-v1 and componentized C3 schema-v2 implementation contract. No production
+release key, artifact, endpoint, or rollout flag is configured by this document.
 
 ## Trust boundary
 
@@ -55,6 +55,27 @@ Gateway must independently advertise `desktopBootstrap.runtimeContract=hermes-se
 key/URL, an absent server capability, or a contract mismatch closes the install gate before any
 download or machine mutation.
 
+The schema-v2 component path has an additional independent capability. Gateway advertises
+`desktopBootstrap.componentManifestSchemaVersion=2` only behind the default-off
+`ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED=1` flag, which requires the managed-install gate above.
+Desktop requires its valid local component-preflight configuration, that exact schema value, and the
+same `hermes-serve-v1` contract before treating the component bootstrap runtime as available. The
+existing schema-v1 capability alone can never authorize component download or migration.
+
+After those gates pass, Desktop's preflight uses the composed component runtime and retains the exact
+verifier-issued schema-v2 token only in memory beside the matching presentation result. A later
+preparation action must consume that token directly; it may not reconstruct authority from the release
+version, component rows, URLs, or byte counts. Refresh failure, capability withdrawal, and sign-out
+discard both the token and its presentation.
+
+The component UI may call `prepare` only with that retained token and only after a fresh Cloud
+capability check plus the clean-machine/legacy-service preflight. Preparation downloads and verifies
+missing bootstrap components in its private UUID workspace without changing services. The native
+confirmation passes the executor's exact release-specific text; immediately before `commit`, Desktop
+refreshes the capability and machine preflight again. Schema-v1 and schema-v2 operations are mutually
+exclusive. A cleanup failure retains only the executor-issued preparation or exact interrupted run ID
+for cleanup retry and never reconstructs another install request.
+
 The packaged Account & Devices surface uses the same split: “下载并验证安装包” is preparation, and a
 second native sheet displays the exact signed version before “安装并连接” can commit. The clean-Mac
 preflight runs again immediately before commit. Any responder on reserved loopback port 9119,
@@ -67,15 +88,47 @@ mismatches fail closed before another installation.
 `HERMES_HOME=<absolute non-root path>`, `HERMES_DESKTOP=1`, and the path of one installation-local
 session-token file. Its signed wrapper validates that the file is regular, current-user owned,
 private, bounded, and canonical before exporting the value to Hermes; the Connector validates and
-reads the same file for REST headers and the `/api/ws?token=` handshake. The token file is generated
-locally at mode `0600`, never enters a manifest or Cloud request, and neither LaunchAgent contains its
-value. Readiness is the exact line `HERMES_BACKEND_READY port=9119`; the distinct
+reads the same file for REST headers and the `/api/ws?token=` handshake. Both readers accept the
+generated 43-character base64url format and the historical 64-character lowercase-hex format that
+Desktop preserves during migration. Component packaging executes the staged Connector reader against
+both accepted formats and an uppercase-hex rejection before creating its archive. The token file is
+generated locally at mode `0600`, never enters a manifest or Cloud request, and neither LaunchAgent
+contains its value. Readiness is the exact line
+`HERMES_BACKEND_READY port=9119`; the distinct
 port collision line is `BACKEND_PORT_IN_USE port=9119`. No provider/model secret belongs in the
 LaunchAgent: Hermes continues reading its profile-scoped state and private `.env` beneath
 `HERMES_HOME`. This contract follows the official
 [Hermes CLI reference](https://github.com/nousresearch/hermes-agent/blob/main/website/docs/reference/cli-commands.md),
 [Desktop guide](https://github.com/nousresearch/hermes-agent/blob/main/website/docs/user-guide/desktop.md),
 and [backend readiness parser](https://github.com/NousResearch/hermes-agent/blob/main/apps/desktop/electron/backend-ready.ts).
+
+Managed release 0.3.1 is the first published immutable release that satisfies this token-file
+contract on both components. The historical 0.3.0 Connector accepts only `HERMES_SESSION_TOKEN` and
+must retain its inline LaunchAgent value; Desktop must not infer current-runtime support merely from
+an embedded manifest URL that points to a newer release.
+
+### Import path: the bundle must not depend on PYTHONPATH
+
+The staged `hermes_server` component keeps the Hermes sources under `app/` and its dependencies
+under `runtime/site-packages/`, and `bin/hermes-server` puts both on `PYTHONPATH`. That is enough
+for the process the launcher starts and **not** enough for the processes that process starts.
+
+Hermes spawns children — the slash worker among them — through
+`tools/environments/local.py`, which deliberately strips the Hermes repo root back out of the
+child's `PYTHONPATH`. In the bundle `app/` is that repo root, so the child was left with no route to
+`tui_gateway` at all: managed release 0.3.0 could not run a single slash command, and the Android
+model picker, which applies a selection with `/model … --session`, failed every time (HG-28).
+
+The bundle therefore also writes `_hermes_go_managed_paths.pth` into the interpreter's own
+site-packages (`runtime/python/lib/python3.11/site-packages/`). `site` processes `.pth` files for
+real site directories on every start of that interpreter, and no `PYTHONPATH` edit can remove them.
+The line derives the bundle root from `sys.prefix` at run time — never a baked-in absolute path,
+which would not survive extraction on another machine — and guards each entry with `isdir` so a
+partially extracted bundle degrades instead of breaking every interpreter start.
+
+**Constraint for anything added later:** if a child process must import it, it has to be reachable
+without `PYTHONPATH`. `scripts/test/desktop-managed-python-path.test.mjs` holds that line, and
+asserts the pre-fix failure first so it cannot pass for the wrong reason.
 
 ## Envelope
 
@@ -170,7 +223,11 @@ remote binding confirmation. The coordinator starts managed Hermes first and sta
 after two independent checks pass: an exact `HERMES_BACKEND_READY port=9119` line appended after a
 private-log checkpoint, and a healthy loopback HTTP probe. A stale marker or an unrelated process
 already occupying port 9119 cannot satisfy both process-specific evidence requirements. New log data
-is bounded to 64 KiB and unsafe/symlinked logs fail closed. A pre-commit failure stops Connector then
+is bounded to 64 KiB and unsafe/symlinked logs fail closed. When the Cloud binding is already
+committed, the coordinator also records its server-provided `endToEnd.checkedAt` immediately before
+starting Connector and requires a strictly newer healthy timestamp for the exact binding/generation.
+The same rule protects restoration after a failed token-file migration, so cached booleans cannot
+prove either the candidate or rollback Connector. A pre-commit failure stops Connector then
 Hermes, restores the exact legacy LaunchAgent when applicable, restores the previous managed pointer,
 and records the safe terminal state. An ambiguous remote commit stops both managed services and
 enters manual attention without guessing that legacy should become authoritative.
@@ -231,6 +288,142 @@ The verifier rechecks the Ed25519 signature over the exact payload bytes, strict
 origin, archive names and entrypoints, byte sizes, and SHA-256 digests. Any publisher or verifier
 failure is emitted as the bilingual, retryable `HR-RELEASE-004` diagnostic. The example values are
 documentation placeholders and are not approved production identities.
+
+Build schema-v2 inputs from `desktop/Packaging/component-archives-v2.example.json` with the separate
+default-inert command:
+
+```bash
+npm run desktop:components-v2:package -- \
+  --config /absolute/protected/path/component-archives-v2.json \
+  --output /absolute/empty/component-output
+```
+
+It produces independent `python_runtime`, `hermes_core`, `node_runtime`, and `connector` archives and
+can include prepared `browser_automation`, `speech_runtime`, and `document_tools` roots. Optional roots
+must already be normalized, secret-free component trees with an executable health entrypoint; the
+builder copies them through the same bounded, no-link filter and runs the type-specific validation
+before creating any archive. Success prints each archive's size, byte SHA-256, normalized
+extracted-content SHA-256, entrypoint, install phase, and dependency kinds plus separate bootstrap and
+deferred download totals. `hermes_core` requires `python_runtime`; Connector
+requires both `hermes_core` and `node_runtime`. During activation Desktop supplies
+`HERMES_PYTHON_RUNTIME_ROOT` to Hermes and `HERMES_NODE_RUNTIME_ROOT` to Connector. These values point
+to already verified content-store roots and are never baked into or written back to a shared component.
+Speech and document components require `python_runtime`; browser automation has no archive dependency
+and is the only component allowed to declare compatible system reuse. The output identities can be
+copied directly into the schema-v2 publisher input.
+
+Schema v2 uses separate commands and cannot enter the schema-v1 acquisition/install types. Start
+from `desktop/Packaging/component-release-v2.example.json`. Each component input supplies the content
+identity produced by the component builder; the publisher safely extracts the archive, normalizes the
+declared entrypoint to owner-executable, and recomputes relative paths, file bytes and executable bits
+before signing. A dependency names both its component kind and exact content identity. Bootstrap
+Hermes and Connector components cannot depend on an on-demand component. Only browser automation may
+declare `verified_compatibility`, and that declaration still carries the exact managed fallback
+content identity.
+
+```bash
+npm run desktop:component-release:package -- \
+  --config /absolute/protected/path/component-publisher.json \
+  --output /absolute/empty/component-output
+
+npm run desktop:component-release:verify -- \
+  --manifest /absolute/component-output/Hermes-Desktop-Components-0.4.0-arm64.manifest.json \
+  --artifacts /absolute/component-output \
+  --key-id desktop-internal-2026-a \
+  --public-key '<unpadded-base64url-public-key>' \
+  --origin https://downloads.example \
+  --channel internal \
+  --architecture arm64
+```
+
+The independent verifier repeats signature, field, dependency, compressed-file and extracted-content
+checks. Desktop maps the same verified entries directly to the component preflight model. Its v2
+downloader keeps an owner-only partial file after an interrupted transfer, accepts a resumed response
+only with the exact `206` and `Content-Range`, and re-reads the completed file for the full signed size
+and SHA-256 before exposing the final archive name. These commands create and verify local candidates;
+they do not replace the production schema-v1 endpoint.
+
+After the four bootstrap archives have been committed, Desktop's v2 activation planner reopens their
+receipts, recomputes every content identity, validates executable entrypoints and health probes, and
+requires the exact builder dependency graph. It then derives Hermes and Connector LaunchAgents using
+the immutable content-store paths and the signed Python/Node identities. The schema-v1 writer refuses
+these runtime-root fields, while the schema-v2 writer accepts them only when their roots match the same
+managed layout and content hashes, which it recomputes immediately before persisting the LaunchAgent.
+This planner is not yet wired into the shipping install transaction.
+
+The local v2 installer accepts a non-forgeable installation token produced by that strict verifier,
+then orders safe download, extraction, immutable store commit, final activation validation, and release
+reference publication. Network interruption keeps a private UUID workspace for exact-manifest resume;
+an explicit cancel may remove that exact validly marked workspace, other failures remove it, and a
+reference is never published for an incomplete activation plan. The returned plan remains preparation
+input only and does not itself modify credentials, `current`, LaunchAgents, or running services.
+
+Installed optional components receive a separate immutable
+`capability-references/<release>/<kind>.json` reference only after the base release reference exists
+and the exact managed content has been revalidated. Garbage collection validates and snapshots both
+reference classes, keeps content shared by multiple releases, and refuses orphaned or malformed
+capability-reference trees. This contract does not itself download or activate an optional component.
+
+The local first-use installer accepts the same verifier-only token plus an exact signed
+`onDemandTrigger`. It requires the release's bootstrap reference and revalidates the complete
+bootstrap activation plan before host scanning or network access, then resolves the trigger's
+optional dependency closure in topological order. Healthy managed content is reused, a compatible
+system browser is path-validated again, and missing components use the resumable downloader, safe
+extractor, immutable store, and capability references. Interrupted transport is resumable only from
+a private UUID workspace bound to both manifest and trigger. This remains default-inert and returns
+resolved paths without changing credentials, `current`, LaunchAgents, or running services.
+
+The optional-runtime writer can combine the returned speech and document roots into a deterministic,
+read-only `.pth` projection after probing the exact managed Python ABI. The LaunchAgent model exposes
+that projection through `HERMES_LAZY_INSTALL_TARGET` and exposes a revalidated browser through
+`AGENT_BROWSER_EXECUTABLE_PATH`, both of which upstream Hermes already understands. Existing
+projections are accepted only when their ownership, permissions, file set, ABI, and paths match
+exactly. This primitive remains default-inert: it does not persist the LaunchAgent or restart Hermes.
+
+The default-inert activation coordinator applies that environment only while holding the migration
+operation lease and only for the exact `account_active` base release with both managed services
+loaded. It atomically replaces the Hermes LaunchAgent, restarts Hermes alone, and requires a fresh
+readiness marker plus healthy loopback status. A failed activation restores the exact prior plist and
+re-proves the old Hermes service after any stop; a successful activation permits one caller-supplied
+capability retry. Its original interface required the complete active optional-component set so a
+later trigger could not remove an earlier capability; the resolver below now owns that aggregation.
+
+The default-inert active-component resolver supplies that aggregation boundary. It accepts the
+verifier-only manifest token and the exact component closure returned for the current trigger, then
+revalidates all managed capability references for that base release against signed identities,
+owner-only receipts, full content hashes, executable entrypoints, and bounded health probes. A
+currently configured external browser is retained only when its exact LaunchAgent path passes the
+signed compatibility rule and a fresh allowlisted scan. The activation transaction owns the resolver
+and calls it under the migration operation lease before preparing a replacement LaunchAgent; an
+external caller can no longer supply an arbitrary active-component array. Production signal-to-trigger
+wiring remains separate; the enclosing default-inert coordinator is described next.
+
+The default-inert capability coordinator now supplies the enclosing transaction. Its input is a fixed
+browser, speech, or document type; the corresponding trigger is read only from the verifier-backed
+manifest. It installs that dependency closure, regenerates the exact bootstrap activation plan, then
+hands the result to the locked resolver/activation path and one-shot retry. Unsupported manifest
+capabilities, failed installs, and duplicate concurrent requests stop before LaunchAgent or service
+mutation. Hermes 0.21.0 exposes no structured producer for this input, so no shipping request path is
+wired and no error text is treated as a capability signal.
+
+The component preflight presentation now has a default-inert trusted loading boundary. A fixed HTTPS
+manifest URL is fetched with the existing bounded, no-redirect downloader; the exact envelope must
+pass the schema-v2 Ed25519 verifier before the managed-store or external-environment scanner receives
+anything. Failed downloads and signatures are inert, and overlapping refreshes are rejected. The
+result remains a read-only preflight value: production configuration and install-flow wiring are
+separate release work.
+
+The packaged app now reserves a separate default-false `HermesGoComponentPreflightEnabled` gate and
+an empty `HermesGoDesktopComponentManifestURL`. Enabling the gate requires a complete unambiguous HTTPS
+v2 URL plus the already pinned release origin, channel, architecture, key ID, and Ed25519 public key;
+every partial or malformed combination is invalid. The v1 manifest URL remains distinct, preventing a
+schema-v1 bootstrap envelope from being routed into the component verifier.
+
+Before that transaction, the local component preflight coordinator accepts the same verifier-only
+token and combines rehashed managed-store candidates with allowlisted external observations. It emits
+the per-component reuse/download/defer decisions and exact bootstrap/deferred byte totals. A matching
+Python or Node version is never sufficient for reuse, and a managed component that exists but fails
+its health probe blocks the plan instead of being mislabeled as safely replaceable.
 
 A real release still requires all of the following outside this local implementation:
 

@@ -33,6 +33,8 @@ test("email-only environment keeps every wider account surface off and contains 
   const rendered = renderEmailRolloutEnvironment(fixture.releaseConfig, fixture.config, "green");
   assert.match(rendered, /^PORT=18788$/m);
   assert.match(rendered, /^HOST=127\.0\.0\.1$/m);
+  assert.match(rendered, /^ACCOUNT_WEB_ORIGIN=https:\/\/gateway\.example\.com$/m);
+  assert.match(rendered, /^ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN=https:\/\/gateway\.example\.com$/m);
   for (const required of [
     "ACCOUNT_AUTH_ENABLED=1",
     "ACCOUNT_EMAIL_OTP_ENABLED=1",

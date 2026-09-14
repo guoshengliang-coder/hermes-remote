@@ -25,6 +25,7 @@ const EMAIL_KEYS = Object.freeze([
   "ACCOUNT_WEB_SESSION_ENABLED",
   "ACCOUNT_DELETION_ENABLED",
   "ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED",
+  "ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED",
   "ACCOUNT_DATABASE_URL_FILE",
   "ACCOUNT_TOKEN_HASH_KEY_FILE",
   "ACCOUNT_EMAIL_OTP_HASH_KEY_FILE",
@@ -37,6 +38,8 @@ const EMAIL_KEYS = Object.freeze([
   "ACCOUNT_DATABASE_CONNECT_TIMEOUT_MS",
   "ACCOUNT_TRUST_LOOPBACK_PROXY",
   "ACCOUNT_GATEWAY_ORIGIN",
+  "ACCOUNT_WEB_ORIGIN",
+  "ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN",
   "ACCOUNT_MAX_PENDING_CONNECTOR_PROOFS",
   "ACCOUNT_MAX_UNAUTHENTICATED_CONNECTORS",
   "ACCOUNT_MAX_UNAUTHENTICATED_CONNECTORS_PER_IP",
@@ -45,6 +48,14 @@ const EMAIL_KEYS = Object.freeze([
   "ACCOUNT_AUDIT_RETENTION_DAYS",
   "MAX_LIFECYCLE_EVENTS",
 ]);
+
+const ORIGIN_KEYS = Object.freeze([
+  "ACCOUNT_WEB_ORIGIN",
+  "ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN",
+]);
+const PRE_COMPONENT_KEYS = Object.freeze(EMAIL_KEYS.filter((key) => key !== "ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED"));
+const PRE_ORIGIN_KEYS = Object.freeze(EMAIL_KEYS.filter((key) => !ORIGIN_KEYS.includes(key)));
+const LEGACY_EMAIL_KEYS = Object.freeze(PRE_COMPONENT_KEYS.filter((key) => !ORIGIN_KEYS.includes(key)));
 
 const EMAIL_EXACT = Object.freeze({
   HOST: "127.0.0.1",
@@ -65,6 +76,7 @@ const EMAIL_EXACT = Object.freeze({
   ACCOUNT_WEB_SESSION_ENABLED: "0",
   ACCOUNT_DELETION_ENABLED: "0",
   ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED: "0",
+  ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED: "0",
   ACCOUNT_DATABASE_URL_FILE: "/run/hermes-go/secrets/account-database-url",
   ACCOUNT_TOKEN_HASH_KEY_FILE: "/run/hermes-go/secrets/account-token-hash-key",
   ACCOUNT_EMAIL_OTP_HASH_KEY_FILE: "/run/hermes-go/secrets/account-email-otp-hash-key",
@@ -103,7 +115,29 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
     && values.ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED === "1";
   const emailOnly = values.ACCOUNT_BINDING_ENABLED === "0"
     && values.ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED === "0";
-  if (!bindingEnabled && !emailOnly) fail("production_release_email_environment_invalid");
+  const multiDeviceEnabled = values.ACCOUNT_MULTI_DEVICE_ENABLED === "1";
+  const identityManagementEnabled = values.ACCOUNT_IDENTITY_MANAGEMENT_ENABLED === "1";
+  const webAccountCenterEnabled = values.ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED === "1";
+  const webSessionEnabled = values.ACCOUNT_WEB_SESSION_ENABLED === "1";
+  const identityWebEnabled = identityManagementEnabled && webAccountCenterEnabled && webSessionEnabled;
+  const identityWebPartiallyEnabled = identityManagementEnabled || webAccountCenterEnabled || webSessionEnabled;
+  const sharingEnabled = values.ACCOUNT_DEVICE_SHARING_ENABLED === "1";
+  const desktopComponentInstallEnabled = values.ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED === "1";
+  const originKeysMissing = ORIGIN_KEYS.every((key) => values[key] === undefined);
+  const originKeysPresent = ORIGIN_KEYS.every((key) => values[key] !== undefined);
+  if ((!originKeysMissing && !originKeysPresent) || (originKeysMissing && (identityWebEnabled || sharingEnabled))) {
+    fail("production_release_email_environment_invalid");
+  }
+  if (originKeysMissing) {
+    for (const key of ORIGIN_KEYS) values[key] = origin;
+  }
+  if ((!bindingEnabled && !emailOnly) || (multiDeviceEnabled && !bindingEnabled)
+      || (identityWebPartiallyEnabled && !identityWebEnabled)
+      || (identityWebEnabled && !multiDeviceEnabled)
+      || (sharingEnabled && !identityWebEnabled)
+      || (desktopComponentInstallEnabled && !bindingEnabled)) {
+    fail("production_release_email_environment_invalid");
+  }
   const expected = {
     ...EMAIL_EXACT,
     PORT: String(selected.gatewayPort),
@@ -111,7 +145,15 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
     ACCOUNT_EMAIL_OTP_ISSUER: origin,
     ACCOUNT_GATEWAY_ORIGIN: origin,
     ACCOUNT_BINDING_ENABLED: bindingEnabled ? "1" : "0",
+    ACCOUNT_MULTI_DEVICE_ENABLED: multiDeviceEnabled ? "1" : "0",
+    ACCOUNT_DEVICE_SHARING_ENABLED: sharingEnabled ? "1" : "0",
+    ACCOUNT_IDENTITY_MANAGEMENT_ENABLED: identityWebEnabled ? "1" : "0",
+    ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED: identityWebEnabled ? "1" : "0",
+    ACCOUNT_WEB_SESSION_ENABLED: identityWebEnabled ? "1" : "0",
     ACCOUNT_DESKTOP_MANAGED_INSTALL_ENABLED: bindingEnabled ? "1" : "0",
+    ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED: desktopComponentInstallEnabled ? "1" : "0",
+    ACCOUNT_WEB_ORIGIN: origin,
+    ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN: origin,
   };
   for (const key of EMAIL_KEYS) {
     if (key === "ACCOUNT_DATABASE_SSL") {
@@ -121,7 +163,11 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
     }
   }
   return Object.freeze({
-    mode: bindingEnabled ? "email_binding" : "email_otp",
+    mode: sharingEnabled
+      ? (desktopComponentInstallEnabled ? "email_sharing_components" : "email_sharing")
+      : identityWebEnabled
+        ? "email_identity_web"
+        : (multiDeviceEnabled ? "email_multi_device" : (bindingEnabled ? "email_binding" : "email_otp")),
     digest: digest(content),
     values: Object.freeze({ ...values }),
   });
@@ -131,7 +177,8 @@ export function renderProductionReleaseEnvironment(config, slot, inspected) {
   const selected = config.slots[slot];
   if (!selected) fail("production_release_candidate_slot_unknown");
   if (inspected?.mode === "disabled") return renderDeployGatewayEnvironment(config, slot);
-  if (!new Set(["email_otp", "email_binding"]).has(inspected?.mode) || !inspected.values) {
+  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components"]).has(inspected?.mode)
+      || !inspected.values) {
     fail("production_release_environment_mode_invalid");
   }
   return EMAIL_KEYS.map((key) => {
@@ -162,6 +209,78 @@ export function renderBindingRolloutEnvironment(config, slot, inspected) {
   }).join("\n") + "\n";
 }
 
+export function renderMultiDeviceRolloutEnvironment(config, slot, inspected) {
+  const selected = config.slots[slot];
+  if (!selected) fail("production_release_candidate_slot_unknown");
+  if (inspected?.mode !== "email_binding" || !inspected.values) {
+    fail("production_release_multi_device_requires_binding_environment");
+  }
+  return EMAIL_KEYS.map((key) => {
+    let value = inspected.values[key];
+    if (key === "PORT") value = String(selected.gatewayPort);
+    if (key === "ACCOUNT_MULTI_DEVICE_ENABLED") value = "1";
+    if (typeof value !== "string" || /[\r\n\0]/.test(value)) {
+      fail("production_release_email_environment_invalid");
+    }
+    return `${key}=${value}`;
+  }).join("\n") + "\n";
+}
+
+export function renderIdentityWebRolloutEnvironment(config, slot, inspected) {
+  const selected = config.slots[slot];
+  if (!selected) fail("production_release_candidate_slot_unknown");
+  if (inspected?.mode !== "email_multi_device" || !inspected.values) {
+    fail("production_release_identity_web_requires_multi_device_environment");
+  }
+  return EMAIL_KEYS.map((key) => {
+    let value = inspected.values[key];
+    if (key === "PORT") value = String(selected.gatewayPort);
+    if (new Set([
+      "ACCOUNT_IDENTITY_MANAGEMENT_ENABLED",
+      "ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED",
+      "ACCOUNT_WEB_SESSION_ENABLED",
+    ]).has(key)) value = "1";
+    if (typeof value !== "string" || /[\r\n\0]/.test(value)) {
+      fail("production_release_email_environment_invalid");
+    }
+    return `${key}=${value}`;
+  }).join("\n") + "\n";
+}
+
+export function renderSharingRolloutEnvironment(config, slot, inspected) {
+  const selected = config.slots[slot];
+  if (!selected) fail("production_release_candidate_slot_unknown");
+  if (inspected?.mode !== "email_identity_web" || !inspected.values) {
+    fail("production_release_sharing_requires_identity_web_environment");
+  }
+  return EMAIL_KEYS.map((key) => {
+    let value = inspected.values[key];
+    if (key === "PORT") value = String(selected.gatewayPort);
+    if (key === "ACCOUNT_DEVICE_SHARING_ENABLED") value = "1";
+    if (typeof value !== "string" || /[\r\n\0]/.test(value)) {
+      fail("production_release_email_environment_invalid");
+    }
+    return `${key}=${value}`;
+  }).join("\n") + "\n";
+}
+
+export function renderComponentRolloutEnvironment(config, slot, inspected) {
+  const selected = config.slots[slot];
+  if (!selected) fail("production_release_candidate_slot_unknown");
+  if (inspected?.mode !== "email_sharing" || !inspected.values) {
+    fail("production_release_components_require_sharing_environment");
+  }
+  return EMAIL_KEYS.map((key) => {
+    let value = inspected.values[key];
+    if (key === "PORT") value = String(selected.gatewayPort);
+    if (key === "ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED") value = "1";
+    if (typeof value !== "string" || /[\r\n\0]/.test(value)) {
+      fail("production_release_email_environment_invalid");
+    }
+    return `${key}=${value}`;
+  }).join("\n") + "\n";
+}
+
 export function sameProductionReleaseEnvironment(left, right) {
   return left?.mode === right?.mode && left?.digest === right?.digest;
 }
@@ -171,17 +290,27 @@ function parseCanonicalEnvironment(content) {
     fail("production_release_environment_format_invalid");
   }
   const lines = content.slice(0, -1).split("\n");
-  if (lines.length !== EMAIL_KEYS.length) fail("production_release_environment_fields_invalid");
+  const keys = lines.length === EMAIL_KEYS.length
+    ? EMAIL_KEYS
+    : (lines.length === PRE_COMPONENT_KEYS.length
+      ? PRE_COMPONENT_KEYS
+      : (lines.length === PRE_ORIGIN_KEYS.length
+        ? PRE_ORIGIN_KEYS
+        : (lines.length === LEGACY_EMAIL_KEYS.length ? LEGACY_EMAIL_KEYS : null)));
+  if (!keys) fail("production_release_environment_fields_invalid");
   const values = {};
   lines.forEach((line, index) => {
     const separator = line.indexOf("=");
     const key = line.slice(0, separator);
     const value = line.slice(separator + 1);
-    if (separator < 1 || key !== EMAIL_KEYS[index] || key in values || !value) {
+    if (separator < 1 || key !== keys[index] || key in values || !value) {
       fail("production_release_environment_fields_invalid");
     }
     values[key] = value;
   });
+  if (values.ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED === undefined) {
+    values.ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED = "0";
+  }
   return values;
 }
 

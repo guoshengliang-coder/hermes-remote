@@ -12,34 +12,35 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.hermes.client.domain.Session
 import com.hermes.client.ui.components.BranchStrokeIcon
 import com.hermes.client.ui.components.FolderStrokeIcon
-import com.hermes.client.ui.components.PinStrokeIcon
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 
 /**
- * The shared session subline: `[pin] [14dp glyph] <project|branch> · <model>` (docs/DESIGN.md
+ * The shared session subline: `[pin] [glyph] <project|branch> · <model>` (docs/DESIGN.md
  * §5.2). The lead segment takes at most 60% of the width before ellipsizing so the model stays
  * visible; the default project renders no lead segment at all (absence = default). Inherits the
- * surrounding text style and colour (ListItem's supporting slot), so it sits in any list.
+ * surrounding text style and colour, so it sits in any list.
  *
- * [pinned] prefixes a 14dp brand-blue pin — the row-level pinned marker. It lives here rather
- * than in ListItem's leading slot so every title in the list shares one left edge and the marker
- * does not wander between top- and centre-aligned as the row gains a status line
+ * [pinned] prefixes a two-tone filled pin (ui/components/PinIcon.kt) — the row-level pinned
+ * marker. It is the subline's first element, not a leading slot on the row, so every title in the
+ * list shares one left edge and the marker does not wander as the row gains a status line
  * (decision 2026-09-02).
  *
- * Laid out with a plain [Layout], not BoxWithConstraints: ListItem measures its slots
- * intrinsically, and SubcomposeLayout-based components throw when asked for intrinsics.
+ * Laid out with a plain [Layout], not BoxWithConstraints: the surrounding list may measure its
+ * slots intrinsically, and SubcomposeLayout-based components throw when asked for intrinsics.
  *
- * The 12sp step is applied HERE rather than at each ListItem (decision 2026-09-10): four screens
+ * The type step is applied HERE rather than at each call site (decision 2026-09-10): four screens
  * render this line — the session list, search results, the project drill-down and the archive —
- * and a subline that is 12sp in one list and 14sp in another is worse than either size. Material's
- * ListItem would otherwise hand it bodyMedium at 14sp, only 1sp under the title, which is what
- * made the secondary line compete with the primary one (docs/DESIGN.md §5.2).
+ * and a subline that is one size in one list and another size in the next is worse than either
+ * choice. That is also why the 5th pull's 12 → 11.5 reaches all four, while the rest of that
+ * pull's density change stops at the session list (docs/DESIGN.md §5.2).
  */
 @Composable
 fun SessionSubline(
@@ -47,22 +48,33 @@ fun SessionSubline(
     lead: SublineLead = SublineLead.PROJECT,
     defaultProjectPath: String? = null,
     pinned: Boolean = false,
+    hasDraft: Boolean = false,
+    isBot: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     // The project's real name when the catalog knows it (upstream projects have names of their
     // own); the folder basename otherwise, which is what this row always used to show.
     val projectName = LocalProjectNames.current(session)
-    val parts = sessionSublineParts(session, lead, defaultProjectPath, projectName)
-    if (parts.isEmpty && !pinned) return
+    val raw = sessionSublineParts(session, lead, defaultProjectPath, projectName, isBot)
+    // The bot list's third model state, worded here rather than in the pure rule. Saying 默认模型
+    // would be a claim about someone else's turn that we cannot make — the app once went further
+    // and wrote the profile default into the session's own state, so the chip named a model that
+    // had never touched that conversation (docs/DESIGN.md §5.16, ui/chat/ModelChipLabel.kt).
+    val parts = if (raw.modelUnknown) {
+        raw.copy(model = localized(LocalAppLanguage.current, "模型未知", "Model unknown"))
+    } else {
+        raw
+    }
+    if (parts.isEmpty && !pinned && !hasDraft) return
     // One step lighter than ListItem's onSurfaceVariant, matching the design's "muted" tier
-    // (decision 2026-09-10). The design puts the folder glyph and the "device only" note a further
-    // step down again at #A8A29E — NOT adopted: that measures 2.39:1 on paper, under the 3:1 floor
-    // a graphic owes. Icon and text share this one tier instead.
+    // (decision 2026-09-10). The glyph goes a further step down to the design's faint tier
+    // (SublineFaint) — 2.39:1 on paper, adopted 2026-09-11 when the contrast floors were dropped
+    // in favour of following the mock exactly (docs/DESIGN.md §7 item 8).
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.outline,
     ) {
-        androidx.compose.material3.ProvideTextStyle(com.hermes.client.ui.theme.SessionRowSubline) {
-            SublineContent(parts, lead, pinned, modifier)
+        androidx.compose.material3.ProvideTextStyle(com.hermes.client.ui.tuning.tunedSubline()) { // TUNING-TEMP
+            SublineContent(parts, lead, pinned, hasDraft, modifier)
         }
     }
 }
@@ -72,20 +84,46 @@ private fun SublineContent(
     parts: SessionSublineParts,
     lead: SublineLead,
     pinned: Boolean,
+    hasDraft: Boolean,
     modifier: Modifier,
 ) {
-    if (!pinned) {
+    if (!pinned && !hasDraft) {
         SublineBody(parts, lead, modifier)
         return
     }
     val language = LocalAppLanguage.current
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-            PinStrokeIcon,
-            contentDescription = localized(language, "已置顶", "Pinned"),
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(14.dp),
-        )
+        if (pinned) {
+            // `Image`, not `Icon`: the pin is two-tone and a tint would flatten it (see PinIcon.kt).
+            // `Image` has no contentDescription of its own, so the announcement moves to a semantics
+            // modifier — SessionSublineTest asserts on it, and TalkBack has nothing else to say that
+            // this row is pinned when the group header is collapsed or off screen.
+            androidx.compose.foundation.Image(
+                imageVector = com.hermes.client.ui.components.pinnedIcon(),
+                contentDescription = null,
+                modifier = Modifier
+                    .size(com.hermes.client.ui.tuning.tunedSublineGlyph()) // TUNING-TEMP
+                    .semantics {
+                        contentDescription = localized(language, "已置顶", "Pinned")
+                    },
+            )
+        }
+        if (hasDraft) {
+            if (pinned) Spacer(Modifier.width(4.dp))
+            // A word, in the one accent this line otherwise never uses (the rest sits on `outline`).
+            // Deliberately NOT a dot in the row's trailing slot: a neutral dot one dp from the
+            // unread dot is the confusion docs/DESIGN.md §5.2 already paid for once, with the
+            // terminal grey dot. Deliberately not a fourth line either — a conditional line
+            // changes the row's height, which `row-height-probe` exists to hold still.
+            Text(
+                localized(language, "草稿", "Draft"),
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                modifier = Modifier.semantics {
+                    contentDescription = localized(language, "有未发送的草稿", "Has an unsent draft")
+                },
+            )
+        }
         if (!parts.isEmpty) {
             Spacer(Modifier.width(4.dp))
             SublineBody(parts, lead, Modifier.weight(1f, fill = false))
@@ -108,8 +146,8 @@ private fun SublineBody(parts: SessionSublineParts, lead: SublineLead, modifier:
             Icon(
                 if (lead == SublineLead.BRANCH) BranchStrokeIcon else FolderStrokeIcon,
                 contentDescription = null,
-                tint = LocalContentColor.current,
-                modifier = Modifier.size(14.dp),
+                tint = com.hermes.client.ui.theme.sublineFaintColor(),
+                modifier = Modifier.size(com.hermes.client.ui.tuning.tunedSublineGlyph()), // TUNING-TEMP
             )
             Text(leadText, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (model != null) {

@@ -1,0 +1,146 @@
+<!DOCTYPE html><html lang="zh-CN" style=""><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hermes 主题选择底部弹单 (黑曜石深色版)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            obsidian: '#0F1217',
+            'obsidian-dim': '#0A0D11',
+            'obsidian-low': '#161A22',
+            'obsidian-container': '#1A1F27',
+            'obsidian-high': '#1E232B',
+            'obsidian-highest': '#262C35',
+            'obsidian-border': '#2E343D',
+            'ink-dark': '#E2E0DB',
+            'ink-dark-variant': '#A8A49C',
+            'outline-dark': '#8D897E',
+            'outline-dark-variant': '#423F3A',
+            'brand-blue': '#2563EB',
+            'brand-blue-night': '#3B82F6',
+            'status-good': '#7CDC80',
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #0A0D11;
+      color: #E2E0DB;
+      -webkit-font-smoothing: antialiased;
+    }
+    .sheet-shadow-dark {
+      box-shadow: 0 -12px 40px -4px rgba(0, 0, 0, 0.7), 0 -2px 16px 0 rgba(0, 0, 0, 0.5);
+    }
+    .radio-dot-dark {
+      box-shadow: inset 0 0 0 4px #1E232B;
+    }
+  </style>
+</head>
+<body class="bg-obsidian-dim flex items-center justify-center min-h-screen p-0 md:p-6 select-none">
+  <!-- Mobile Screen Container -->
+  <div class="relative w-full max-w-[390px] h-[844px] bg-obsidian overflow-hidden shadow-2xl md:rounded-[40px] border border-obsidian-border flex flex-col justify-end">
+    
+    <!-- Background: Realistic Drawer / Card Page Underlay in Dark Mode -->
+    <div class="absolute inset-0 z-0 pointer-events-none flex flex-col">
+      <!-- Status bar -->
+      <div class="h-11 px-6 flex justify-between items-center text-xs font-semibold text-ink-dark-variant pt-2">
+        <span class="">09:41</span>
+        <div class="flex items-center space-x-1.5">
+          <svg class="w-3.5 h-3.5 text-ink-dark-variant" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-4.97 0-9 4.03-9 9 0 2.12.74 4.07 1.97 5.61L4.35 18.25c-.39.39-.39 1.02 0 1.41.39.39 1.02.39 1.41 0l.64-.64C7.93 20.26 9.88 21 12 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm0 16c-3.86 0-7-3.14-7-7s3.14-7 7-7 7 3.14 7 7-3.14 7-7 7z"></path></svg>
+          <svg class="w-3.5 h-3.5 text-ink-dark-variant" viewBox="0 0 24 24" fill="currentColor"><path d="M2 17h20v2H2zm1.15-4.05L4 11.47l.85 1.48 1.3-.75-.85-1.48H7v-1.5H5.3l.85-1.48-1.3-.75L4 8.47l-.85-1.48-1.3.75.85 1.48H1v1.5h1.7l-.85 1.48zM9 13h13v2H9zm0-6h13v2H9z"></path></svg>
+          <div class="w-5 h-2.5 border border-ink-dark-variant rounded-sm p-0.5 flex items-center">
+            <div class="w-3 h-full bg-ink-dark-variant rounded-xs"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Simulated Dark Drawer Underlay Content -->
+      <div class="px-5 pt-3 pb-8 flex-1 space-y-4 filter blur-[1px]">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-2.5">
+            <div class="w-8 h-8 rounded-full bg-obsidian-highest border border-obsidian-border flex items-center justify-center text-ink-dark font-semibold text-sm">H</div>
+            <span class="text-base font-semibold tracking-tight text-ink-dark">控制台与状态</span>
+          </div>
+          <span class="text-xs text-ink-dark-variant bg-obsidian-high px-2 py-0.5 rounded-full font-mono border border-obsidian-border">v1.4.2</span>
+        </div>
+
+        <!-- Identity card -->
+        <div class="bg-obsidian-low rounded-2xl p-4 border border-obsidian-border flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <div class="w-11 h-11 rounded-full bg-obsidian-highest border border-obsidian-border flex items-center justify-center text-ink-dark font-bold">GS</div>
+            <div>
+              <div class="text-sm font-semibold text-ink-dark">default 主空间</div>
+              <div class="text-xs text-ink-dark-variant flex items-center gap-1.5 mt-0.5">
+                <span class="w-2 h-2 rounded-full bg-status-good"></span>
+                <span class="">网关运行中 · mac-mini</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Settings group item -->
+        <div class="bg-obsidian-low rounded-2xl p-4 border border-obsidian-border space-y-3">
+          <div class="flex justify-between items-center text-sm">
+            <span class="text-ink-dark font-medium">外观主题</span>
+            <span class="text-ink-dark-variant text-xs font-semibold">黑曜石深色</span>
+          </div>
+          <div class="h-px bg-obsidian-highest"></div>
+          <div class="flex justify-between items-center text-sm">
+            <span class="text-ink-dark font-medium">默认模型</span>
+            <span class="text-ink-dark-variant text-xs font-mono">deepseek-v4-flash</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scrim / Backdrop Overlay (Dark Obsidian Tinted) -->
+    <div class="absolute inset-0 z-10 bg-black/65 backdrop-blur-[2px] transition-opacity duration-200"></div>
+
+    <!-- Bottom Sheet Container in Dark Mode -->
+    <div class="relative z-20 w-full bg-obsidian-high rounded-t-[28px] border-t border-obsidian-border sheet-shadow-dark flex flex-col animate-slide-up">
+      <!-- Drag Handle -->
+      <div class="pt-3 pb-1.5 flex justify-center w-full cursor-grab">
+        <div class="w-9 h-1.5 bg-outline-dark-variant rounded-full"></div>
+      </div>
+
+      <!-- Header Section -->
+      <div class="px-6 pt-2 flex items-center justify-between pb-2"><h2 class="text-lg font-semibold tracking-tight text-ink-dark">外观与主题</h2><button class="w-8 h-8 rounded-full bg-obsidian-highest border border-obsidian-border/80 flex items-center justify-center text-ink-dark-variant hover:text-ink-dark hover:bg-obsidian transition-colors focus:outline-none" aria-label="关闭"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button></div>
+
+      <!-- Theme Options List in Dark Mode -->
+      <div class="px-5 pb-3 space-y-3 pt-3"><div class="group relative flex items-center justify-between p-3.5 rounded-2xl bg-obsidian-low hover:bg-obsidian-highest/70 border border-obsidian-border transition-all cursor-pointer"><div class="flex items-center space-x-3.5"><div class="w-10 h-10 rounded-xl bg-obsidian border border-obsidian-border flex items-center justify-center text-ink-dark-variant shadow-xs"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg></div><div><div class="flex items-center space-x-2"><span class="text-sm font-semibold text-ink-dark">跟随系统</span></div><p class="text-xs text-ink-dark-variant mt-0.5">根据 Android 系统当前外观自动切换</p></div></div><div class="w-5 h-5 rounded-full border-2 border-outline-dark-variant group-hover:border-ink-dark-variant transition-colors flex-shrink-0"></div></div><div class="group relative flex items-center justify-between p-3.5 rounded-2xl bg-obsidian-low hover:bg-obsidian-highest/70 border border-obsidian-border transition-all cursor-pointer"><div class="flex items-center space-x-3.5"><div class="w-10 h-10 rounded-xl bg-obsidian border border-obsidian-border flex items-center justify-center text-ink-dark-variant shadow-xs"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg></div><div><div class="flex items-center space-x-1.5"><span class="text-sm font-semibold text-ink-dark">温润浅色</span></div><p class="text-xs text-ink-dark-variant mt-0.5">手工纸质柔光，长文案阅读无眩光</p></div></div><div class="w-5 h-5 rounded-full border-2 border-outline-dark-variant group-hover:border-ink-dark-variant transition-colors flex-shrink-0"></div></div><div class="group relative flex items-center justify-between p-3.5 rounded-2xl bg-obsidian-low hover:bg-obsidian-highest/70 border border-obsidian-border transition-all cursor-pointer"><div class="flex items-center space-x-3.5"><div class="w-10 h-10 rounded-xl bg-obsidian border border-obsidian-border flex items-center justify-center text-ink-dark shadow-xs"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg></div><div><div class="flex items-center space-x-2"><span class="text-sm font-semibold text-ink-dark">黑曜石深色</span><span class="px-1.5 py-0.5 text-[10px] font-semibold bg-obsidian-highest text-ink-dark rounded-md border border-obsidian-border">当前使用</span></div><p class="text-xs text-ink-dark-variant mt-0.5">暗夜极客质感，OLED 省电高对比</p></div></div><div class="w-5 h-5 rounded-full border-2 border-ink-dark flex items-center justify-center flex-shrink-0"><div class="w-2 h-2 rounded-full bg-ink-dark"></div></div></div></div>
+
+      <!-- Action & Tip Footer -->
+      <div class="px-6 pb-6 flex flex-col items-center pt-3">
+        
+        <!-- Native pill button to confirm / dismiss in Dark Mode -->
+        <button class="w-full h-12 bg-ink-dark hover:bg-white text-obsidian font-semibold text-sm rounded-xl transition-all shadow-md active:scale-[0.99] flex items-center justify-center space-x-2 cursor-pointer"><span class="tracking-wide">完成</span></button>
+      </div>
+
+      <!-- Android Gesture Navigation Bar Area -->
+      <div class="h-6 w-full flex justify-center items-center pb-2">
+        <div class="w-32 h-1 bg-ink-dark/25 rounded-full"></div>
+      </div>
+    </div>
+
+  </div>
+
+
+
+
+
+
+
+
+</body></html>

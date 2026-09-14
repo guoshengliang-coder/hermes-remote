@@ -100,8 +100,9 @@ jobs:
         with:
           # Without a key, setup-gradle stores the configuration-cache entry and throws it away:
           # "Configuration-cache data will not be saved/restored without an encryption key being
-          # provided." Every Android CI run so far has logged "Configuration cache entry stored"
-          # and never "reused". An absent secret is the current behaviour, not a failure.
+          # provided." Before the key existed every run logged "Configuration cache entry stored";
+          # with it, runs log "Reusing configuration cache." — except the first run after a change
+          # to app/build.gradle.kts, which every release makes. An absent secret is not a failure.
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
       - run: ./gradlew :app:testDebugUnitTest --no-daemon
 
@@ -123,8 +124,9 @@ jobs:
         with:
           # Without a key, setup-gradle stores the configuration-cache entry and throws it away:
           # "Configuration-cache data will not be saved/restored without an encryption key being
-          # provided." Every Android CI run so far has logged "Configuration cache entry stored"
-          # and never "reused". An absent secret is the current behaviour, not a failure.
+          # provided." Before the key existed every run logged "Configuration cache entry stored";
+          # with it, runs log "Reusing configuration cache." — except the first run after a change
+          # to app/build.gradle.kts, which every release makes. An absent secret is not a failure.
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
       - run: ./gradlew :app:lintDebug --no-daemon
 

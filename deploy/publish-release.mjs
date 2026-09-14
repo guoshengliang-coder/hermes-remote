@@ -90,11 +90,69 @@ export async function publishRelease(root,apkPath,metadata,options={}){
   }finally{await lock.release();}
 }
 
+/** Where a retired APK goes. Inside the data root but never served: the index is what serves. */
+export const ARCHIVE_DIR='archive';
+
+/**
+ * Retire every catalog entry older than the newest [keep], moving their APKs into [ARCHIVE_DIR].
+ *
+ * Split out from [publishRelease] rather than folded into it on purpose: publishing must never
+ * make room for itself by dropping somebody's release. This runs as its own reviewed maintenance
+ * step (docs/APP_UPDATE.md), and it goes through the same lock, the same validation and the same
+ * atomic index write, because "never hand-edit the index" only holds if there is a tool.
+ *
+ * Nothing is deleted. The APK is renamed into the archive directory, where it is off the served
+ * path but still on disk for rollback, and the previous index is left in index.json.prev exactly
+ * as a publish would. The newest entry can never be retired whatever [keep] says.
+ *
+ * Idempotent: retiring twice with the same [keep] is a no-op the second time.
+ */
+export async function retireReleases(root,{keep,dryRun=false,...options}={}){
+  if(!Number.isSafeInteger(keep)||keep<1)throw new Error('keep must be a positive integer');
+  const lock=await acquireLock(root,options);
+  try{
+    const indexPath=path.join(root,'index.json');
+    const current=validateIndex(JSON.parse(await readFile(indexPath,'utf8')));
+    const ordered=[...current.versions].sort((a,b)=>b.versionCode-a.versionCode);
+    const kept=ordered.slice(0,keep),retired=ordered.slice(keep);
+    if(retired.length===0)return{retired:[],kept:kept.length,changed:false};
+    // Belt and braces: the served entry is the newest, and slice() already keeps it. Assert it
+    // anyway, because a future caller passing keep=0 would otherwise revoke the current release.
+    if(retired.some(v=>v.versionCode===current.latestVersionCode))throw new Error('refusing to retire the current release');
+    if(dryRun)return{retired:retired.map(v=>v.versionName),kept:kept.length,changed:false};
+    const next={schemaVersion:1,channel:current.channel,latestVersionCode:kept[0].versionCode,generatedAt:current.generatedAt,versions:kept};
+    validateIndex(next);
+    const suffix=`.tmp-${unique()}`,previousPath=`${indexPath}.prev`;
+    const archive=path.join(root,ARCHIVE_DIR);await mkdir(archive,{recursive:true});
+    await lock.assertHeld();
+    try{
+      // Index first, then the files: a reader that catches us mid-way sees a valid index whose
+      // every entry still resolves. The reverse order would serve 404s.
+      try{await durableCopy(indexPath,previousPath,previousPath+suffix);await syncDirectory(root);}catch(error){if(error?.code!=='ENOENT')throw error;}
+      await atomicJson(indexPath,next,indexPath+suffix);await syncDirectory(root);
+      for(const version of retired){
+        const from=path.join(root,version.fileName),to=path.join(archive,version.fileName);
+        try{await rename(from,to);}catch(error){if(error?.code!=='ENOENT')throw error;}
+      }
+      await syncDirectory(archive);await syncDirectory(root);
+    }finally{await rm(previousPath+suffix,{force:true});await rm(indexPath+suffix,{force:true});}
+    return{retired:retired.map(v=>v.versionName),kept:kept.length,changed:true};
+  }finally{await lock.release();}
+}
+
 if(process.argv[1]===fileURLToPath(import.meta.url)){
   const [apk,metaPath]=process.argv.slice(2),root=process.env.RELEASE_DATA_ROOT;
+  if(apk==='--retire'){
+    const keep=Number(metaPath);
+    if(!root)throw new Error('usage: RELEASE_DATA_ROOT=... publish-release.mjs --retire KEEP');
+    if(process.env.PUBLISH_FLOCK_HELD==='1')await rm(path.join(root,LOCK_DIR),{recursive:true,force:true});
+    const result=await retireReleases(root,{keep,dryRun:process.env.RETIRE_DRY_RUN==='1'});
+    console.log(JSON.stringify(result));
+  } else {
   if(!apk||!metaPath||!root)throw new Error('usage: RELEASE_DATA_ROOT=... publish-release.mjs APK METADATA');
   // The official shell caller sets this only while Linux flock holds the data-root kernel lock.
   // Under that exclusive fence, removing a directory left by a crashed prior process is race-free.
   if(process.env.PUBLISH_FLOCK_HELD==='1')await rm(path.join(root,LOCK_DIR),{recursive:true,force:true});
   await publishRelease(root,apk,JSON.parse(await readFile(metaPath,'utf8')));
+  }
 }

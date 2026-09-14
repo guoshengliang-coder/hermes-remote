@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.ShortText
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -58,6 +60,43 @@ internal fun ShareTranscriptSheet(
             title = l10n("长图", "Image"),
             subtitle = l10n("一张图发出去，适合直接给人看", "One picture to send — best for reading right away"),
             onClick = onImage,
+        )
+        androidx.compose.foundation.layout.Spacer(Modifier.size(20.dp))
+    }
+}
+
+/**
+ * Where the chosen format goes (HG-40). A second layer rather than a fourth row on the format
+ * sheet: format and destination are different questions, and side by side "share into a
+ * conversation" reads as a fourth format.
+ *
+ * 分享到会话 leads and the system sheet is last, by DESIGN.md §5.4's rule that the exit action
+ * goes at the bottom — the system sheet hands the content out of the app.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun ShareDestinationSheet(
+    onIntoConversation: () -> Unit,
+    onSystemShare: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = hermesSheetState()) {
+        Text(
+            l10n("分享到哪里", "Share where"),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(start = 20.dp, bottom = 4.dp),
+        )
+        ShareFormatRow(
+            icon = Icons.Rounded.Forum,
+            title = l10n("分享到会话", "Into a conversation"),
+            subtitle = l10n("放进这台设备上的另一个对话，等你补一句再发", "Drop it into another conversation here — add a note before sending"),
+            onClick = onIntoConversation,
+        )
+        ShareFormatRow(
+            icon = Icons.Rounded.IosShare,
+            title = l10n("系统分享", "System share sheet"),
+            subtitle = l10n("发给其他应用或保存到手机", "Send to another app, or save it"),
+            onClick = onSystemShare,
         )
         androidx.compose.foundation.layout.Spacer(Modifier.size(20.dp))
     }

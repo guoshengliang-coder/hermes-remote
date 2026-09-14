@@ -31,6 +31,31 @@ class AppErrorTest {
         assertFalse(diagnostic.contains("abc"))
     }
 
+    /**
+     * HR-CONN-003 has been registered in docs/ERROR_HANDLING.md the whole time and had no producer
+     * in the client. HG-42 is what that cost: every RPC blocked on the readiness gate surfaced as
+     * a generic "message send failed", pointing the user at their message when the thing that had
+     * failed was the connection.
+     */
+    @Test fun aHandshakeTimeoutHasItsOwnBilingualCopyAndIsRetryable() {
+        val error = AppError(
+            AppErrorCode.HANDSHAKE_TIMEOUT,
+            retryable = true,
+            stage = "prompt_submit",
+            technicalCause = "gateway readiness timeout token=xyz",
+        )
+        assertEquals("HR-CONN-003", AppErrorCode.HANDSHAKE_TIMEOUT.value)
+        assertTrue(error.localizedMessage(AppLanguage.ZH).let { it.contains("握手超时") && it.endsWith("(HR-CONN-003)") })
+        assertTrue(
+            error.localizedMessage(AppLanguage.EN)
+                .let { it.contains("handshake timed out") && it.endsWith("(HR-CONN-003)") },
+        )
+        assertTrue(error.retryable)
+        val diagnostic = error.sanitizedDiagnostic()
+        assertTrue(diagnostic.contains("HR-CONN-003"))
+        assertFalse(diagnostic.contains("xyz"))
+    }
+
     @Test fun diagnosticsKeepTheCodeAndRedactSecrets() {
         val diagnostic = AppError(
             code = AppErrorCode.CONNECTION_FAILED,

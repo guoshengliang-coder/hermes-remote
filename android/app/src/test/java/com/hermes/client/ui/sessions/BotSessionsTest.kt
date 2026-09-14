@@ -2,6 +2,7 @@ package com.hermes.client.ui.sessions
 
 import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.domain.Session
+import com.hermes.client.ui.localization.AppLanguage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -10,9 +11,9 @@ import org.junit.Test
 
 private fun session(
     id: String, source: String?, lastActive: Long? = 0L, messageCount: Int = 3,
-    archived: Boolean = false,
+    archived: Boolean = false, model: String? = null,
 ) = Session(
-    id = id, title = id, model = null, provider = null, messageCount = messageCount,
+    id = id, title = id, model = model, provider = null, messageCount = messageCount,
     profile = "default", archived = archived, source = source, lastActive = lastActive,
 )
 
@@ -26,7 +27,7 @@ class BotSessionsTest {
     /**
      * `cron` is in EXCLUDED_SOURCES but is NOT a conversation. It is openable in chat today from
      * the activity feed, and treating it as one would sign its turns with a peer who does not
-     * exist and hide handoff from a session that can legitimately use it.
+     * exist.
      */
     @Test fun a_scheduled_run_is_not_a_bot_session() {
         assertFalse(isBotSession("cron"))
@@ -64,6 +65,11 @@ class BotSessionsTest {
         assertFalse("tui" in BOT_SOURCES)
     }
 
+    /**
+     * HG-54 item 2 — "每个渠道组内部按时间排序，最新的放前面" — is this test. Both tiers are held:
+     * the channels themselves are ordered by their most recent conversation, and within a channel
+     * the newest conversation comes first.
+     */
     @Test fun sections_are_grouped_by_channel_and_ordered_by_recency() {
         val sections = botSections(
             listOf(
@@ -112,5 +118,47 @@ class BotSessionsTest {
 
     @Test fun bot_sources_stay_inside_the_excluded_set() {
         assertTrue(SessionRepository.EXCLUDED_SOURCES.containsAll(BOT_SOURCES))
+    }
+
+    // ── botStatusLine (HG-54 item 3) ─────────────────────────────────────────────────────────
+
+    private val now = 1_700_000_000_000L
+
+    @Test fun the_status_line_says_when_and_how_much() {
+        val s = session("a", "dingtalk", lastActive = now - 12 * 60_000, messageCount = 26)
+        assertEquals("12 分钟前 · 26 条", botStatusLine(s, now, AppLanguage.ZH))
+        assertEquals("12m ago · 26 messages", botStatusLine(s, now, AppLanguage.EN))
+    }
+
+    @Test fun one_message_is_singular_in_english() {
+        val s = session("a", "dingtalk", lastActive = now, messageCount = 1)
+        assertEquals("刚刚 · 1 条", botStatusLine(s, now, AppLanguage.ZH))
+        assertEquals("just now · 1 message", botStatusLine(s, now, AppLanguage.EN))
+    }
+
+    /**
+     * Upstream omits `last_active` often enough that rendering `relativeTimeLabel`'s em dash would
+     * make "—" the common reading. The segment is dropped instead, and the count still shows.
+     */
+    @Test fun a_missing_timestamp_drops_the_time_rather_than_printing_a_dash() {
+        val s = session("a", "dingtalk", lastActive = null, messageCount = 4)
+        assertEquals("4 条", botStatusLine(s, now, AppLanguage.ZH))
+        assertEquals("4 messages", botStatusLine(s, now, AppLanguage.EN))
+    }
+
+    /**
+     * Null, not an empty string: §5.2 gates the status line on the TEXT, and a blank Text still
+     * costs a full line of row height.
+     */
+    @Test fun nothing_to_say_is_null_not_an_empty_line() {
+        val s = session("a", "dingtalk", lastActive = null, messageCount = 0)
+        assertNull(botStatusLine(s, now, AppLanguage.ZH))
+        assertNull(botStatusLine(s, now, AppLanguage.EN))
+    }
+
+    @Test fun a_timestamp_with_no_messages_still_says_when() {
+        val s = session("a", "dingtalk", lastActive = now - 3 * 60 * 60_000, messageCount = 0)
+        assertEquals("3 小时前", botStatusLine(s, now, AppLanguage.ZH))
+        assertEquals("3h ago", botStatusLine(s, now, AppLanguage.EN))
     }
 }

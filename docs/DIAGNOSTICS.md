@@ -41,6 +41,8 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 | `cause=event:message.complete` | 完成信号走了实时 socket | 正常路径 |
 | `cause=lifecycle:run.completed` | 完成信号走了 inbox 补投 | socket 没听到时 |
 | `cause=probe:gave-up` / `cause=reconnect` | 兜底探测 / 重连恢复 | 见 §5.4 |
+| `[phase] restored N runtime(s) from disk (skipped M already live)` | 冷启动从磁盘恢复了多少条运行状态，以及多少条被先到的实时事件让位 | 每次冷启动一行 |
+| `cause=restore` | 这个相位来自磁盘快照，不是来自事件 | 只在冷启动；**之后应当紧跟一条 `cause=reconnect` 或 `[session] probe`** |
 | `[lifecycle] run.completed s=<id> late=124s` | inbox 事件比发生时刻晚了多久（手机时钟 − Mac 时钟） | 26% 的完成 >30s |
 | `[history] reconcile s=<id>: N messages, accepted=false` | 对账为何拒绝某次快照 | 阶梯每一档 |
 | `[event] buffered … / replaying N buffered event(s)` | 别名未建立时事件被缓冲、随后重放 | Mac 端发起的运行 |
@@ -56,8 +58,19 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 | `[ws] reconnect scheduled in Nms (gen=N, attempt=N)` | 退避已排期 | 每次断开 |
 | `[ws] reconnect dropped (gen=N): <原因>` | **排期的重连没有执行，以及为什么** | 见下 |
 | `[ws] close() requested: <理由>` / `cancelNow()` | App 主动关闭，以及是哪一个调用方 | 退后台 / 关通知 |
+| `[ws] opening socket refused: closed by the app` | 已关闭的客户端拒绝重新进入 `Connecting`（HG-42 的入口守卫） | 竞态；出现即说明守卫拦住了一次 |
+| `[ws] connect() forcing a fresh socket — stalled: <snapshot>` | 一个超过握手超时仍 `socket=none` 的 `Connecting` 被强行换掉 | 罕见；出现即异常，见下 |
+| `[error] connection stalled in <state> — repairing: <snapshot>` | 监督者发现某个非终态不再推进，强制重连 | 罕见；出现即说明有一条没被想到的停滞路径 |
+| `[health] <上一档> → <这一档>` | `/api/status` 探测的结论变化（`healthy` / `unreachable` / `device-offline`），红条就由它驱动 | 只在换档时 |
+| `[session] upstream reclaimed <id>; next send will recover` | 上游把这个会话回收了（`event session.reclaimed`），它之后的任何 prompt 都会失败 | 掉线超过 120s 后重连 |
+| `[session] recreated <旧id> as <新id> → handle=…` | 被回收的空会话已被静默换成新会话，消息照常送达 | 承接上一行 |
+| `[ws] rpc#N session.create ← ok (…ms)` | 会话确实建出来了。**只有 `session.create` 记回包**，别的方法成功时不记 | 每次新建 |
 | `[lifecycle] app foregrounded` / `app backgrounded` | 前后台切换 | 每次 |
 | `[lifecycle] monitoring mode <MODE>` | 保活策略每次选定的模式 | 每次变化 |
+
+**只有 `cause=restore` 而始终没有后续的 `cause=reconnect` / `[session] probe` 行**，说明恢复出来的状态
+从未被对账过——手机整段时间离线，或该会话的 deviceId 不在当前传输路由上。此时行内显示的是**最后已知**
+状态，不是此刻的真相；判断前先确认这一点（HG-31）。
 
 **握手停滞（HG-19）**：`Connecting` 只有两个出口——收到 `gateway.ready`，或 socket 死掉。曾经有
 第三种情形无人处理：socket 建立了、既不完成握手也不关闭。表现是横幅一直「正在连接 Relay…」、每个
@@ -76,10 +89,58 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 就是协程体没跑到，这时 `[ws] snapshot` 那一行（横幅升起时写的）给出当时的全部内部状态。
 HG-27 就停在这里：那一版还没有这些行，四处缺陷叠加，只能靠杀进程脱身。
 
+**红条与 socket 是两件事**：顶部粉色的「Relay 暂时无法连接」由 `[health]` 驱动（`/api/status` 探测），
+聊天页的「正在连接 Relay…」由 `[ws]` 驱动（WebSocket 状态）。两者可以互相矛盾，而且矛盾本身就是线索：
+REST 一路 200 而 socket 卡死，是 HG-19 那一类；socket 已经 `gateway.ready` 而红条还挂着，是探测结果
+过期。探测在前台每 30 秒一次、退后台完全停止，所以红条**必须**在 socket 恢复时立刻重探一次，否则它
+描述的是上一个坏时刻而不是现在（HG-42）。排查时按时间对齐这两类行：`[health] … → healthy` 应当紧跟在
+`gateway.ready` 之后，而不是落后半分钟。
+
+**自愈记录随反馈一起到（0.1.124 起）**：诊断日志默认关闭，而 HG-27 和 HG-42 都是用户先发现、事后
+才想起开日志——App 其实早就自己检测到了故障，只是没有地方把它留下来。现在客户端每次**自己修好**一次
+停滞（`connect()` 强换，或下面那条监督者兜底），都会在一个**始终开启**的小记录里存下时间、类型和当时
+的快照，最多 5 条，并在任何一次反馈提交时作为 `connection` 上下文一起送出（`selfHealCount` 是累计
+次数，`selfHeal1..5` 是最近几条）。所以拿到一份写着「连不上」的报告时，**先看这个上下文**：有
+`selfHealCount` 就说明这台设备确实反复停滞过，而且当时的 `[ws] snapshot` 已经在手上，不必再请用户
+复现一次。健康设备不会带这个上下文。
+
+**Connecting 但根本没有 socket（HG-42）**：上面几种停滞里，至少还有一个 socket 或一个看门狗在场。
+最后一种什么都没有：`[ws] snapshot` 读作 `state=Connecting … manuallyClosed=true … watchdog=finished
+socket=none`，而 `connectingFor` 一路涨到几百秒。这是**已被关闭**的客户端却停在 `Connecting`——
+`onSocketClosed()` 需要一个 socket 才会触发，看门狗早已按「closed by the app」退场，于是之后每一次
+`connect()` 都被打印成 `connect() no-op — already Connecting`，每一个 RPC 都以
+`rpc … blocked: no gateway.ready in 15000ms` 失败。判据就是这三者同时出现：`Connecting`、
+`manuallyClosed=true`、`socket=none`。
+
+0.1.124 起这个组合不应再出现：`openSocket()` 会拒绝一个已关闭的客户端（日志写
+`opening socket refused: closed by the app`），而一个超过握手超时仍然 `socket=none` 的 `Connecting`
+会被下一次 `connect()` 强行换掉，写作 `connect() forcing a fresh socket — stalled: …`。看到后面这行，
+说明兜底生效了、而某条路径仍然制造了停滞的 `Connecting`——把那一行连同它前面的 `close() requested`
+一起带走，那是定位入口的全部线索。
+
+**最后一道兜底：谁都不调用 connect() 时怎么办。** 上面那条要有人调 `connect()` 才生效。握手看门狗
+只管「socket 开着但不说话」，退避只管「socket 死了」，三者加起来覆盖的是**我们想到过的每一条路径**
+——而 HG-42 之前也是这么以为的。所以另有一个监督者，它只问一个跟成因无关的问题：**还在动吗？**
+任何非终态（`Connecting` / `Reconnecting`）停留超过 `stallDeadlineMs`（> 握手超时 + 最长退避）就
+写一行 `[error] connection stalled in <state> — repairing: <snapshot>` 并强制重连。它由状态本身驱动
+（`collectLatest`，状态一变就取消等待），所以空闲或健康时不排任何东西。看到这一行，意味着**又有一条
+没被想到的路径**造出了停滞——它已经被自动修好了，但那行快照就是下一次排查的起点，值得开条目。
+
 **连接停下来了但没人说为什么**：`reconnect scheduled in Nms` 之后应当出现下一个
 `opening socket`。若换来的是 `reconnect dropped`，那一行会说明是 App 主动关闭（对应前面的
 `close() requested: …`，多半是退到后台，属正常省电）还是被更新的一代顶掉。两者都没有、日志就此
 停住，才是真的异常。
+
+**消息发不出去、点重试也没用（HG-29）**：先找 `event session.reclaimed session=<id>`。有这一行，
+答案就结束了 —— 上游的孤儿回收器（掉线 120 秒后触发，见第 1 问的 `ws_orphan_reap`）已经把这个会话
+收走，之后 `prompt.submit` 必答 4001、跟着的 `session.resume` 必答 4007。两者在日志里都写作
+"session not found"，但含义不同：**4001 是 live handle 过期（resume 一次就好），4007 是持久会话在
+该 profile 的 state.db 里根本不存在（终态，重试永远不会成功）**。0.1.119 起客户端会处理这个事件：
+空会话静默重建（看 `recreated … as …`），有历史的会话报终态 `SESS-001` 且不再给重试。
+
+顺带一个**不是**故障的现象：新会话在首条消息落库前，`GET /api/sessions/<id>/messages` 一直返回
+404 `{"detail":"Session not found"}`，首条消息发出后立刻变 200。这不代表 create 失败。0.1.119 起
+这种 404 记在 `[history]` 而不是 `[error]`，也不再弹「无法加载历史消息」。
 
 判读：
 - 列表卡「思考中」但没有任何 `→COMPLETED_UNREAD` / `→IDLE` 行 → 终止信号一条都没到，去第 2 问。

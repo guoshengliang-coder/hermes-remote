@@ -22,9 +22,12 @@ const RELEASES_DIR = path.join(ROOT, 'android', 'releases');
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
+// Every version-line pattern ends in `[ \t]*$`, never `\s*$`. Under the m flag `\s*` also matches
+// newlines, so a version line followed by a blank line matched one newline too far and the rewrite
+// deleted the blank line — the 0.1.116 release commit had to put it back by hand.
 export function parseGradleVersions(text) {
-  const name = /^val\s+appVersionName\s*=\s*"([^"]+)"\s*$/m.exec(text);
-  const code = /^val\s+appVersionCode\s*=\s*(\d+)\s*$/m.exec(text);
+  const name = /^val\s+appVersionName\s*=\s*"([^"]+)"[ \t]*$/m.exec(text);
+  const code = /^val\s+appVersionCode\s*=\s*(\d+)[ \t]*$/m.exec(text);
   if (!name || !code) throw new Error('android/app/build.gradle.kts: appVersionName/appVersionCode not found');
   if (!SEMVER.test(name[1])) throw new Error(`appVersionName is not semver: ${name[1]}`);
   return {versionName: name[1], versionCode: Number(code[1])};
@@ -36,8 +39,8 @@ export function nextVersion({versionName, versionCode}) {
 }
 
 export function applyGradleVersions(text, next) {
-  const withCode = text.replace(/^val\s+appVersionCode\s*=\s*\d+\s*$/m, `val appVersionCode = ${next.versionCode}`);
-  const withName = withCode.replace(/^val\s+appVersionName\s*=\s*"[^"]+"\s*$/m, `val appVersionName = "${next.versionName}"`);
+  const withCode = text.replace(/^val\s+appVersionCode\s*=\s*\d+[ \t]*$/m, `val appVersionCode = ${next.versionCode}`);
+  const withName = withCode.replace(/^val\s+appVersionName\s*=\s*"[^"]+"[ \t]*$/m, `val appVersionName = "${next.versionName}"`);
   const parsed = parseGradleVersions(withName);
   if (parsed.versionName !== next.versionName || parsed.versionCode !== next.versionCode) {
     throw new Error('failed to rewrite the version truth source');
@@ -137,10 +140,26 @@ function remoteReleaseTags() {
     .map(line => line.split('\t')[1].replace('refs/tags/', ''));
 }
 
+const USAGE = `Usage: node scripts/bump-android-release.mjs --notes-file <path> (--summary <text> | --summary-file <path>) [--dry-run]
+
+Allocates the next Android version from a clean checkout of the current origin/main: bumps
+appVersionName and appVersionCode in android/app/build.gradle.kts, adds the android/README.md entry
+and moves its staged-APK filename, and writes android/releases/<version>.json.
+
+  --notes-file <path>     release notes: a JSON array, or paragraphs separated by blank lines
+  --summary <text>        the android/README.md entry for this version
+  --summary-file <path>   the same, read from a file
+  --dry-run               run every check and print what would be written, without writing
+  -h, --help              show this help
+
+It does not commit, tag, build, or publish. Afterwards, ./scripts/package-debug-apk.sh must pass.
+`;
+
 function parseArgs(argv) {
   const options = {dryRun: false};
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
+    if (arg === '--help' || arg === '-h') return {help: true};
     if (arg === '--dry-run') options.dryRun = true;
     else if (arg === '--notes-file') options.notesFile = argv[++i];
     else if (arg === '--summary') options.summary = argv[++i];
@@ -158,6 +177,10 @@ function parseArgs(argv) {
 
 function main(argv) {
   const options = parseArgs(argv);
+  if (options.help) {
+    process.stdout.write(USAGE);
+    return;
+  }
   assertReleasableCheckout();
 
   const gradleText = readFileSync(GRADLE_FILE, 'utf8');

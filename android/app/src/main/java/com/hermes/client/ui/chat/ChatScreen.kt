@@ -1,5 +1,4 @@
 package com.hermes.client.ui.chat
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 
 import android.Manifest
 import android.app.Activity
@@ -31,13 +30,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -50,16 +47,13 @@ import androidx.compose.material.icons.automirrored.rounded.NoteAdd
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Archive
-import androidx.compose.material.icons.rounded.Forum
-import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PhotoLibrary
@@ -67,8 +61,6 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -103,15 +95,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.ui.components.connectionBannerModel
 import com.hermes.client.ui.localization.LocalAppLanguage
@@ -132,7 +124,25 @@ fun ChatScreen(
     onMenu: () -> Unit = {},
     /** Escape hatch from a zero-hit in-chat search to the global search, carrying the query. */
     onSearchAll: ((String) -> Unit)? = null,
+    /**
+     * The top bar's ＋. This one STACKS on the current chat (HG-39) — it is the only chat entry
+     * point that does, see HermesNav.openStackedChat.
+     */
     onNewChat: (String) -> Unit = {},
+    /**
+     * Upstream replaced this conversation with a fresh id. This one must REPLACE the entry, not
+     * stack: it is the same conversation under a new name, and stacking would leave the dead id
+     * one back-press away — and pile up another layer every time it happens.
+     */
+    onSessionRecreated: (String) -> Unit = onNewChat,
+    /** Prompt library, reached from the composer's 常用提示 sheet — Settings no longer lists it. */
+    onManagePrompts: () -> Unit = {},
+    /**
+     * HG-40: open the conversation something was just delivered into. Canonical, not stacked —
+     * after handing content to another conversation the next move is to work in it, not to come
+     * straight back here (docs/SESSION_EXCHANGE_REQUIREMENTS.md §6.5).
+     */
+    onOpenDelivered: (ChatLaunch) -> Unit = {},
     onUnauthorized: () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
@@ -182,6 +192,7 @@ fun ChatScreen(
         }
     }
     val unauthorized by vm.unauthorized.collectAsStateWithLifecycle()
+    val recreatedSessionId by vm.recreatedSessionId.collectAsStateWithLifecycle()
     val sessionTitle by vm.sessionTitle.collectAsStateWithLifecycle()
     val workspace by vm.workspace.collectAsStateWithLifecycle()
     val workspaceProjects by vm.workspaceProjects.collectAsStateWithLifecycle()
@@ -210,6 +221,14 @@ fun ChatScreen(
     // saveable) because anything living inside the markdown tree vanishes during the re-parse
     // window on rotation, taking a dialog hosted there down with it.
     var fullscreenTableRaw by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    // Which image is open fullscreen, and in which message. Ids rather than indices: hydration
+    // refreshes msg.images, and an index would then point at a different photo. Saveable, because
+    // the old per-grid `remember` lived inside a LazyColumn item and a rotation or a history
+    // reconcile silently closed whatever the user was looking at.
+    var viewerOwner by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    var viewerImageId by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    // Which pending attachment the image editor is open on.
+    var editAttachmentId by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
     // Collapsing the sheet (swipe/outside tap) parks the request instead of skipping it:
     // the reopen strip below brings it back, and the session stays in "needs you" on Home.
     var clarifyCollapsed by remember(sessionId, state.pendingClarify?.requestId) { mutableStateOf(false) }
@@ -220,11 +239,6 @@ fun ChatScreen(
     val speaking by vm.speaking.collectAsStateWithLifecycle()
     val savedPrompts by vm.savedPrompts.collectAsStateWithLifecycle()
     var showPromptSheet by remember { mutableStateOf(false) }
-    val personaUi by vm.personaUi.collectAsStateWithLifecycle()
-    var showPersonaSheet by remember { mutableStateOf(false) }
-    var showHandoffSheet by remember { mutableStateOf(false) }
-    var confirmHandoff by remember { mutableStateOf<com.hermes.client.data.network.MessagingPlatformDto?>(null) }
-    var handoffBusy by remember { mutableStateOf(false) }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { vm.stopReading() } }
     var draft by rememberSaveable(sessionId) { mutableStateOf("") }
     var composerFocused by rememberSaveable(sessionId) { mutableStateOf(false) }
@@ -330,7 +344,7 @@ fun ChatScreen(
         ChatSearchContext(
             query = query,
             currentMessageId = currentHit?.let { conversationTurns.getOrNull(it.turnIndex)?.id },
-            currentSource = currentHit?.source,
+            currentOccurrence = currentHit?.occurrence,
         )
     } else null
     // Highlight scrolling lives inside ChatMessageList: with reverseLayout the turn index must be
@@ -343,7 +357,9 @@ fun ChatScreen(
         composerFocused = false
         focusManager.clearFocus()
     }
-    androidx.activity.compose.BackHandler(enabled = !searchOpen && !composerFocused && fullscreenTableRaw == null) {
+    androidx.activity.compose.BackHandler(
+        enabled = !searchOpen && !composerFocused && fullscreenTableRaw == null && viewerOwner == null,
+    ) {
         onMenu()
     }
     val focusRequester = remember(sessionId) { FocusRequester() }
@@ -359,6 +375,20 @@ fun ChatScreen(
         // A fresh navigation entry must never inherit the outgoing chat's IME/focus state.
         collapseComposer()
     }
+    // One toast for the whole batch: six separate ones for six unreadable conversations would
+    // bury the chips that did arrive (HG-38).
+    LaunchedEffect(sessionId) {
+        vm.sessionAttachFailures.collect { count ->
+            android.widget.Toast.makeText(
+                context,
+                com.hermes.client.data.error.AppError(
+                    com.hermes.client.data.error.AppErrorCode.SESSION_TRANSCRIPT_UNAVAILABLE,
+                    retryable = true,
+                ).localizedMessage(language) + localized(language, "（$count 个）", " ($count)"),
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
     LaunchedEffect(composerFocused) {
         // The compact and expanded layouts use different field placements. Re-request focus after
         // expansion so the keyboard remains open instead of flashing and immediately collapsing.
@@ -368,6 +398,10 @@ fun ChatScreen(
     androidx.compose.runtime.LaunchedEffect(initialDraft) {
         initialDraft?.takeIf { it.isNotEmpty() }?.let { draft = it; vm.clearInitialDraft() }
     }
+    // Persist the unsent composer text (HG-41). Keyed on the value rather than wired into each
+    // assignment: `draft` is written by typing, dictation, slash fill, prompt insert, @-mention
+    // completion, edit-and-resend and the share handoff, and one missed site is a lost draft.
+    androidx.compose.runtime.LaunchedEffect(sessionId, draft) { vm.rememberDraft(draft) }
     // Slash-command palette: when the draft is a "/query", show matching commands.
     val slashMatches = if (draft.startsWith("/") && !draft.contains(' ')) {
         val q = draft.drop(1).lowercase()
@@ -401,6 +435,9 @@ fun ChatScreen(
         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
         vm.send(draft)
         draft = ""
+        // Ahead of the debounce: the row must lose its 「草稿」 marker as the message leaves, not
+        // a moment later.
+        vm.clearDraft()
         // Sending hands the stage to the run: drop the keyboard and the expanded composer so
         // the viewport shows the new instruction and what happens next. The scroll-to-bottom is
         // driven by THIS action (tick), never inferred from data changes.
@@ -409,17 +446,26 @@ fun ChatScreen(
     }
 
     // Image attach: read picked/captured bytes and stage them onto the session.
-    val clipboard = LocalClipboardManager.current
-    var transcriptMenu by remember { mutableStateOf(false) }
     var creatingNewChat by remember { mutableStateOf(false) }
     var confirmArchive by rememberSaveable(sessionId) { mutableStateOf(false) }
     var archiving by remember { mutableStateOf(false) }
     // Share-transcript format picker + the offscreen image export it can start.
     var shareFormatSheet by remember { mutableStateOf(false) }
     var transcriptImageExporting by remember { mutableStateOf(false) }
+    // HG-40: format is chosen first and destination second, so the format has to outlive the sheet
+    // that chose it. [shareFormat] holds it while the destination is being picked; once the target
+    // picker opens, [pendingShareFormat] carries it the rest of the way.
+    var shareFormat by remember { mutableStateOf<ShareFormat?>(null) }
+    var pendingShareFormat by remember { mutableStateOf<ShareFormat?>(null) }
+    var sharePickerOpen by remember { mutableStateOf(false) }
+    // Non-null while the long image is being rendered FOR a conversation rather than for the
+    // system sheet; carries the target so the sink knows where the bytes go.
+    var imageDeliveryTarget by remember { mutableStateOf<ChatLaunch?>(null) }
+    var shareImageTooLarge by remember { mutableStateOf(false) }
     // Menu entry to the prompt list; the list itself lives in ChatMessageList, which owns the turns.
     var promptListTick by remember { mutableStateOf(0L) }
     var showAttachSheet by remember { mutableStateOf(false) }
+    var showSessionPicker by remember { mutableStateOf(false) }
     var savingImageId by remember { mutableStateOf<String?>(null) }
     var pendingSaveAsImage by remember { mutableStateOf<com.hermes.client.domain.ChatImage?>(null) }
     var showCameraPermissionDialog by rememberSaveable { mutableStateOf(false) }
@@ -430,6 +476,26 @@ fun ChatScreen(
     // before the export's first suspension point resumes. The write, the share sheet AND the
     // failure toast all disappeared together, so the tap read as "nothing happened" (HG-9).
     val exportScope = androidx.compose.runtime.rememberCoroutineScope()
+
+    // The top bar's ＋. Creation is a gateway round trip, so the button holds a spinner and
+    // refuses re-entry until it settles — double-tapping used to create two conversations.
+    val startNewChat: () -> Unit = {
+        if (!creatingNewChat) {
+            creatingNewChat = true
+            exportScope.launch {
+                try {
+                    vm.createNewSession()?.let(onNewChat)
+                        ?: android.widget.Toast.makeText(
+                            context,
+                            localized(language, "无法新建对话，请重试。", "Couldn't start a new conversation. Retry."),
+                            android.widget.Toast.LENGTH_SHORT,
+                        ).show()
+                } finally {
+                    creatingNewChat = false
+                }
+            }
+        }
+    }
 
     fun showAttachmentError(message: String?) {
         android.widget.Toast.makeText(
@@ -686,99 +752,15 @@ fun ChatScreen(
         runCatching { speech.launch(intent) }
     }
 
+    // Upstream reclaimed this conversation and the send path replaced it with a fresh one. The
+    // runtime — and the message in flight — already moved; re-navigate so the entry names the live
+    // conversation instead of the dead id, which back-then-forward would otherwise reopen.
+    LaunchedEffect(recreatedSessionId) {
+        recreatedSessionId?.takeIf { it != sessionId }?.let(onSessionRecreated)
+    }
     // I1: route back to Setup when the server returns 401
     LaunchedEffect(unauthorized) {
         if (unauthorized) onUnauthorized()
-    }
-
-    if (showHandoffSheet) {
-        val targets by vm.handoffTargets.collectAsStateWithLifecycle()
-        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { showHandoffSheet = false }) {
-            Text(
-                localized(language, "转到哪个渠道？", "Move to which channel?"),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp),
-            )
-            if (targets.isEmpty()) {
-                Text(
-                    localized(
-                        language,
-                        "没有可用的渠道。渠道要先启用，并且在目标聊天里设过默认投递落点。",
-                        "No channel is available. A channel must be enabled and have a delivery target set.",
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                )
-            }
-            targets.forEach { platform ->
-                androidx.compose.material3.ListItem(
-                    headlineContent = { Text(platform.name ?: platform.id) },
-                    supportingContent = {
-                        Text(
-                            localized(language, "落点：", "Target: ") + (platform.homeChannel ?: ""),
-                        )
-                    },
-                    modifier = Modifier.clickable {
-                        showHandoffSheet = false
-                        confirmHandoff = platform
-                    },
-                )
-            }
-            Spacer(Modifier.height(16.dp))
-        }
-    }
-
-    confirmHandoff?.let { platform ->
-        val name = platform.name ?: platform.id
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { if (!handoffBusy) confirmHandoff = null },
-            title = { Text(localized(language, "转到$name？", "Move to $name?")) },
-            text = {
-                // Every consequence, before the tap: this cannot be undone from the phone.
-                Text(
-                    localized(
-                        language,
-                        "这条对话会搬到 $name 的默认落点，并在那边继续。\n\n" +
-                            "· $name 当前那条对话会结束\n" +
-                            "· 这条对话会从手机的会话列表消失\n" +
-                            "· 搬过去之后拉不回来",
-                        "This conversation moves to $name's delivery target and continues there.\n\n" +
-                            "· $name's current conversation ends\n" +
-                            "· This one leaves the phone's list\n" +
-                            "· It cannot be moved back",
-                    ),
-                )
-            },
-            confirmButton = {
-                androidx.compose.material3.TextButton(
-                    enabled = !handoffBusy,
-                    onClick = {
-                        handoffBusy = true
-                        exportScope.launch {
-                            val error = vm.handoffCurrentSession(platform.id)
-                            handoffBusy = false
-                            confirmHandoff = null
-                            android.widget.Toast.makeText(
-                                context,
-                                error?.localizedMessage(language)
-                                    ?: localized(language, "已转到 $name", "Moved to $name"),
-                                android.widget.Toast.LENGTH_LONG,
-                            ).show()
-                            // On success this conversation now belongs to the channel and is gone
-                            // from the list; staying on it would show a session that no longer
-                            // lives here. On failure nothing moved, so stay put.
-                            if (error == null) onMenu()
-                        }
-                    },
-                ) { Text(if (handoffBusy) localized(language, "转移中…", "Moving…") else localized(language, "转过去", "Move")) }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(enabled = !handoffBusy, onClick = { confirmHandoff = null }) {
-                    Text(localized(language, "取消", "Cancel"))
-                }
-            },
-        )
     }
 
     androidx.compose.runtime.CompositionLocalProvider(
@@ -794,44 +776,37 @@ fun ChatScreen(
                 onQueryChange = { query = it },
                 matchCount = matches.size,
                 currentIndex = currentMatch,
-                currentHit = currentHit,
                 historyLoaded = state.historyLoaded,
                 onPrevious = { if (matches.isNotEmpty()) currentMatch = (currentMatch - 1 + matches.size) % matches.size },
                 onNext = { if (matches.isNotEmpty()) currentMatch = (currentMatch + 1) % matches.size },
                 onClose = { searchOpen = false; query = "" },
                 onSearchAll = onSearchAll,
-            ) else Row(
-                Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.background)
-                    .statusBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Bare 48dp icon (M3 top-bar convention): the floating white containers read as
-                // separate controls fighting the content; naked icons blend into the bar.
-                IconButton(onClick = onMenu) {
-                    Icon(
-                        Icons.AutoMirrored.Rounded.ArrowBack,
-                        contentDescription = localized(language, "返回", "Back"),
-                        modifier = Modifier.offset(x = (-4).dp),
-                    )
-                }
-                androidx.compose.foundation.layout.Column(
-                    Modifier
-                        .weight(1f)
-                        .padding(horizontal = 12.dp),
-                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-                ) {
-                    Text(
-                        sessionTitle,
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontSize = adaptiveSessionTitleSize(sessionTitle).sp,
-                            lineHeight = (adaptiveSessionTitleSize(sessionTitle) + 4).sp,
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+            ) else ChatTopBar(
+                title = sessionTitle,
+                // HG-37: an empty new session keeps only 返回 and the title block.
+                actionsVisible = chatTopBarActionsVisible(isNewSession, state.messages.size, state.isGenerating),
+                creatingNewChat = creatingNewChat,
+                refreshingConversation = refreshingConversation,
+                promptsLabel = promptListTitle(botOrigin, language),
+                onBack = onMenu,
+                onNewChat = startNewChat,
+                onSearch = { searchOpen = true },
+                onPrompts = { promptListTick = System.currentTimeMillis() },
+                onRefresh = {
+                    if (!state.isGenerating) viewportController.holdCurrent()
+                    vm.refreshCurrentConversation()
+                },
+                onShare = {
+                    // The format picker owns the decision now: plain text, a Markdown file, or a
+                    // rendered image.
+                    if (state.messages.none { it.text.isNotBlank() }) {
+                        android.widget.Toast.makeText(context, localized(language, "暂无可导出的内容", "Nothing to export yet"), android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        shareFormatSheet = true
+                    }
+                },
+                onArchive = { confirmArchive = true },
+                subtitle = {
                     // Project · branch beneath the title: the workspace this chat's tools run in,
                     // and the door to change it. Only profiles that have projects at all get the
                     // row — a profile of plain chats keeps the single-line bar (docs/DESIGN.md §5.4).
@@ -859,159 +834,23 @@ fun ChatScreen(
                             onClick = { projectSheetOpen = true },
                         )
                     }
-                }
-                // The top bar carries the one highest-frequency action; search moved into the
-                // menu below (docs/DESIGN.md §5.4, HG-5). Reading an answer and wanting to start
-                // the next thing is the common case, and it used to cost a trip back to the list.
-                IconButton(
-                    onClick = {
-                        if (!creatingNewChat) {
-                            creatingNewChat = true
-                            exportScope.launch {
-                                try {
-                                    vm.createNewSession()?.let(onNewChat)
-                                        ?: android.widget.Toast.makeText(
-                                            context,
-                                            localized(language, "无法新建对话，请重试。", "Couldn't start a new conversation. Retry."),
-                                            android.widget.Toast.LENGTH_SHORT,
-                                        ).show()
-                                } finally {
-                                    creatingNewChat = false
-                                }
-                            }
-                        }
-                    },
-                    enabled = !creatingNewChat,
-                ) {
-                    if (creatingNewChat) {
-                        com.hermes.client.ui.components.HermesMark(size = 20.dp)
-                    } else {
-                        Icon(
-                            Icons.Rounded.Add,
-                            contentDescription = localized(language, "新建对话", "New conversation"),
-                            modifier = Modifier.offset(x = 4.dp),
-                        )
-                    }
-                }
-                Box {
-                    IconButton(onClick = { transcriptMenu = true }) {
-                        Icon(
-                            Icons.Rounded.MoreVert,
-                            contentDescription = localized(language, "更多", "More"),
-                            modifier = Modifier.offset(x = (-4).dp),
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = transcriptMenu,
-                        onDismissRequest = { transcriptMenu = false },
-                        shape = RoundedCornerShape(16.dp),
-                        containerColor = MaterialTheme.colorScheme.surface,
-                    ) {
-                            // Navigation before actions (docs/DESIGN.md §5.4). Search leads: it
-                            // lost its top-bar slot to 新建对话, so it must be the first thing
-                            // found here.
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(localized(language, "搜索对话", "Search this chat")) },
-                                onClick = {
-                                    transcriptMenu = false
-                                    searchOpen = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(com.hermes.client.ui.components.PromptListIcon, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(promptListTitle(botOrigin, language)) },
-                                onClick = {
-                                    transcriptMenu = false
-                                    promptListTick = System.currentTimeMillis()
-                                },
-                            )
-                            DropdownMenuItem(
-                                leadingIcon = {
-                                    if (refreshingConversation) {
-                                        Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
-                                            com.hermes.client.ui.components.HermesMark(size = 20.dp)
-                                        }
-                                    } else {
-                                        Icon(Icons.Rounded.Refresh, contentDescription = null, Modifier.size(20.dp))
-                                    }
-                                },
-                                text = { Text(localized(language, "刷新对话", "Refresh conversation")) },
-                                enabled = !refreshingConversation,
-                                onClick = {
-                                    transcriptMenu = false
-                                    if (!state.isGenerating) viewportController.holdCurrent()
-                                    vm.refreshCurrentConversation()
-                                },
-                            )
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(localized(language, "复制对话", "Copy transcript")) },
-                                onClick = {
-                                    val t = transcriptText(state.messages, language, botOrigin)
-                                    if (t.isBlank()) {
-                                        android.widget.Toast.makeText(context, localized(language, "暂无可导出的内容", "Nothing to export yet"), android.widget.Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        runCatching {
-                                            clipboard.setText(AnnotatedString(t))
-                                            android.widget.Toast.makeText(context, localized(language, "对话已复制", "Transcript copied"), android.widget.Toast.LENGTH_SHORT).show()
-                                        }.onFailure {
-                                            android.widget.Toast.makeText(context, localized(language, "无法复制对话", "Couldn't copy transcript"), android.widget.Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                    transcriptMenu = false
-                                },
-                            )
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Rounded.Share, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(localized(language, "分享对话", "Share transcript")) },
-                                onClick = {
-                                    // The format picker owns the decision now: plain text, a
-                                    // Markdown file, or a rendered image.
-                                    if (state.messages.none { it.text.isNotBlank() }) {
-                                        android.widget.Toast.makeText(context, localized(language, "暂无可导出的内容", "Nothing to export yet"), android.widget.Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        shareFormatSheet = true
-                                    }
-                                    transcriptMenu = false
-                                },
-                            )
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Rounded.Archive, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(localized(language, "归档对话", "Archive conversation")) },
-                                onClick = {
-                                    transcriptMenu = false
-                                    confirmArchive = true
-                                },
-                            )
-                            // Handoff moves a LOCAL conversation out to a platform, one direction
-                            // only. This one is already on a platform, so there is nowhere for it
-                            // to go and the gateway refuses it outright (4025/4026).
-                            if (botOrigin == null) {
-                                DropdownMenuItem(
-                                    leadingIcon = { Icon(Icons.Rounded.Forum, contentDescription = null, Modifier.size(20.dp)) },
-                                    text = { Text(localized(language, "转到消息渠道", "Move to a channel")) },
-                                    onClick = {
-                                        transcriptMenu = false
-                                        vm.loadHandoffTargets()
-                                        showHandoffSheet = true
-                                    },
-                                )
-                            }
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null, Modifier.size(20.dp)) },
-                                text = { Text(localized(language, "切换人格", "Switch persona")) },
-                                onClick = {
-                                    transcriptMenu = false
-                                    vm.loadPersonas()
-                                    showPersonaSheet = true
-                                },
-                            )
-                    }
-                }
-            }
+                },
+            )
         },
         bottomBar = {
+            // While search is open the composer is gone (HG-46): it cannot be used from here, and
+            // a full-width input under a list you are stepping through is mostly a way to tap the
+            // wrong thing. Its INSET job survives it, though — the search field raises the same
+            // keyboard, and with nothing consuming that inset the transcript would run underneath
+            // it. So the bar keeps its height and gives up its content.
+            if (searchOpen) {
+                Spacer(
+                    Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
+                )
+                return@Scaffold
+            }
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -1020,6 +859,24 @@ fun ChatScreen(
                     .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                // HG-38: the chips all arrive at once when the last conversation is rendered, so
+                // this line is the only thing saying work is in flight. Sits above the chip row,
+                // where the chips it is promising will appear.
+                val attachingSessions by vm.attachingSessions.collectAsStateWithLifecycle()
+                if (attachingSessions > 0) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        com.hermes.client.ui.components.HermesMark(size = 16.dp)
+                        Text(
+                            localized(language, "正在生成 $attachingSessions 份对话记录…", "Preparing $attachingSessions transcripts…"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
                 if (state.pendingAttachments.isNotEmpty()) {
                     LazyRow(
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -1027,31 +884,56 @@ fun ChatScreen(
                     ) {
                         items(state.pendingAttachments, key = { it.id }) { a ->
                             if (a.kind == AttachmentKind.IMAGE) {
-                                val thumb by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, a.id) {
+                                val thumb by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, a.contentKey) {
                                     value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                        decodeThumbnail(a.bytes, reqPx = 200)?.asImageBitmap()
+                                        decodeSampled(ImageSource.Bytes(a.contentKey, a.bytes), reqPx = 200)
                                     }
                                 }
                                 Box(Modifier.size(58.dp)) {
                                     val bmp = thumb
+                                    // The chip is the primary target and opens a preview: picking a
+                                    // photo and then not being able to check which one it was is
+                                    // what HG-35 complained about first.
+                                    val openPreview = Modifier
+                                        .size(58.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable(
+                                            onClickLabel = localized(language, "查看图片", "View image"),
+                                        ) {
+                                            viewerOwner = PENDING_VIEWER_OWNER
+                                            viewerImageId = a.id
+                                        }
                                     if (bmp != null) {
                                         Image(
                                             bitmap = bmp,
                                             contentDescription = localized(language, "待发送图片", "Image ready to send"),
-                                            modifier = Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)),
+                                            modifier = openPreview,
                                             contentScale = ContentScale.Crop,
                                         )
                                     } else {
-                                        Box(Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
+                                        Box(openPreview.background(MaterialTheme.colorScheme.surfaceVariant))
                                     }
+                                    // 24dp disc, 32dp target. The two cannot both reach 48dp on a
+                                    // 58dp chip; DESIGN.md §5.7 allows the badge to stay small
+                                    // because Remove also exists at 46dp inside the preview.
                                     Box(
-                                        Modifier.align(Alignment.TopEnd).padding(2.dp).size(24.dp)
-                                            .clip(androidx.compose.foundation.shape.CircleShape)
-                                            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f))
+                                        Modifier.align(Alignment.TopEnd).size(32.dp)
                                             .clickable { vm.removeAttachment(a.id) },
                                         contentAlignment = Alignment.Center,
                                     ) {
-                                        Icon(Icons.Rounded.Close, localized(language, "移除图片", "Remove image"), tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(15.dp))
+                                        Box(
+                                            Modifier.padding(2.dp).size(24.dp)
+                                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                                .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f)),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.Close,
+                                                localized(language, "移除附件", "Remove attachment"),
+                                                tint = androidx.compose.ui.graphics.Color.White,
+                                                modifier = Modifier.size(15.dp),
+                                            )
+                                        }
                                     }
                                 }
                             } else {
@@ -1337,6 +1219,7 @@ fun ChatScreen(
                         listState = listState,
                         highlightIndex = highlightIndex,
                         searchContext = chatSearchContext,
+                        searchOpen = searchOpen,
                         scrollToBottomTick = sendToBottomTick,
                         openPromptListTick = promptListTick,
                         viewportController = viewportController,
@@ -1344,6 +1227,7 @@ fun ChatScreen(
                         onEditResend = { text -> draft = text; focusRequester.requestFocus() },
                         onRetrySend = { vm.retrySend(it) },
                         sendDiagnosticFor = { vm.sendDiagnostic(it) },
+                        sendErrorCodeFor = { vm.sendErrorCode(it) },
                         onRegenerate = { vm.regenerate() },
                         onRetryWithModel = {
                             retryAfterModelSwitch = true
@@ -1353,10 +1237,10 @@ fun ChatScreen(
                         isSpeaking = speaking,
                         onReadAloud = { vm.readAloud(it) },
                         onStopReading = { vm.stopReading() },
-                        onImageSave = ::saveImage,
-                        onImageSaveAs = ::saveImageAs,
-                        onImageShare = ::shareImage,
-                        savingImageId = savingImageId,
+                        onOpenImage = { messageId, image ->
+                            viewerOwner = messageId
+                            viewerImageId = image.id
+                        },
                         onFileOpen = { handleFile(it, share = false) },
                         onFileShare = { handleFile(it, share = true) },
                         modifier = Modifier.fillMaxSize(),
@@ -1371,7 +1255,7 @@ fun ChatScreen(
                     // fades out 150ms with the first message. Display-only — the composer keeps
                     // every control exactly where it already is.
                     androidx.compose.animation.AnimatedVisibility(
-                        visible = isNewSession && state.messages.isEmpty() && !state.isGenerating,
+                        visible = newChatGreetingVisible(isNewSession, state.messages.size, state.isGenerating),
                         enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(150)),
                         exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)),
                     ) {
@@ -1466,8 +1350,33 @@ fun ChatScreen(
                     showPromptSheet = true
                 }.padding(horizontal = 8.dp),
             )
+            // A row, not a fourth tile: the three tiles above are all "take a file off this phone",
+            // while this and 常用提示 are "pick something the system already has" (HG-38).
+            ListItem(
+                headlineContent = { Text(localized(language, "添加会话", "Add conversations"), style = MaterialTheme.typography.titleMedium) },
+                supportingContent = { Text(localized(language, "把已有对话转成 Markdown 一起发出", "Send existing conversations along as Markdown")) },
+                leadingContent = { Icon(Icons.Rounded.Forum, contentDescription = null) },
+                modifier = Modifier.clickable {
+                    showAttachSheet = false
+                    showSessionPicker = true
+                }.padding(horizontal = 8.dp),
+            )
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    if (showSessionPicker) {
+        com.hermes.client.ui.sessions.SessionPickerDialog(
+            mode = com.hermes.client.ui.sessions.SessionPickerMode.Reference(
+                remainingAttachmentSlots(state.pendingAttachments.size),
+            ),
+            excludeSessionId = sessionId,
+            onCancel = { showSessionPicker = false },
+            onPicked = { picked ->
+                showSessionPicker = false
+                vm.attachSessions(picked)
+            },
+        )
     }
 
     if (showCameraPermissionDialog) {
@@ -1523,6 +1432,107 @@ fun ChatScreen(
             vm.refreshReasoning()
         }
     }
+    // Resolved from state every frame rather than captured on open, so a hydration that completes
+    // while the viewer is up simply appears, and a deletion that empties the list closes it.
+    val viewerItems = remember(viewerOwner, state.messages, state.pendingAttachments) {
+        when (viewerOwner) {
+            null -> emptyList()
+            PENDING_VIEWER_OWNER -> state.pendingAttachments
+                .filter { it.kind == AttachmentKind.IMAGE }
+                .map { ImageViewerItem(it.id, ImageSource.Bytes(it.contentKey, it.bytes)) }
+            else -> state.messages.firstOrNull { it.id == viewerOwner }
+                ?.images
+                .orEmpty()
+                .mapNotNull { image ->
+                    image.localPath?.let { ImageViewerItem(image.id, ImageSource.Path(it), image) }
+                }
+        }
+    }
+    val closeViewer = {
+        val wasTranscript = viewerOwner != null && viewerOwner != PENDING_VIEWER_OWNER
+        viewerOwner = null
+        viewerImageId = null
+        // Only the transcript viewer froze the list; the composer strip never moved it.
+        if (wasTranscript) viewportController.requestHeldRestore()
+    }
+    LaunchedEffect(viewerOwner, viewerItems.isEmpty()) {
+        // Pending bytes do not survive process death, so a restored viewer that resolves to nothing
+        // closes itself instead of showing an empty pager.
+        if (viewerOwner != null && viewerItems.isEmpty()) closeViewer()
+    }
+    // The editor only ever works on a staged attachment: a sent image has been uploaded and has
+    // nowhere to go back to, and "annotate and resend" is a separate feature.
+    val editTarget = remember(editAttachmentId, state.pendingAttachments) {
+        editAttachmentId?.let { id -> state.pendingAttachments.firstOrNull { it.id == id } }
+    }
+    LaunchedEffect(editAttachmentId, editTarget) {
+        // The chip can be removed while the editor is open.
+        if (editAttachmentId != null && editTarget == null) editAttachmentId = null
+    }
+    editTarget?.let { target ->
+        com.hermes.client.ui.chat.imageedit.ImageEditorDialog(
+            sourceBytes = target.bytes,
+            onCancel = { editAttachmentId = null },
+            onDone = { result ->
+                editAttachmentId = null
+                when (result) {
+                    // Nothing changed, so the original bytes are kept byte-for-byte rather than
+                    // being re-encoded and quietly downscaled.
+                    is com.hermes.client.ui.chat.imageedit.ImageEditResult.Unchanged -> Unit
+                    is com.hermes.client.ui.chat.imageedit.ImageEditResult.Failed ->
+                        showAttachmentError(result.error.localizedMessage(language))
+                    is com.hermes.client.ui.chat.imageedit.ImageEditResult.Edited -> {
+                        val encoded = runCatching {
+                            encodeUnderCap(result.bitmap, target.name, recycle = true)
+                        }.getOrNull()
+                        if (encoded == null) {
+                            showAttachmentError(
+                                AppError(AppErrorCode.IMAGE_EDIT_SAVE_FAILED, retryable = true)
+                                    .localizedMessage(language),
+                            )
+                        } else {
+                            // Same id, so the chip keeps its place in the strip and the upload order
+                            // the user arranged is preserved.
+                            vm.replaceAttachment(
+                                target.id,
+                                encoded.bytes,
+                                encoded.mimeType,
+                                editedAttachmentName(target.name),
+                            )
+                        }
+                    }
+                }
+            },
+        )
+    }
+
+    if (viewerOwner != null && viewerItems.isNotEmpty()) {
+        ImageViewer(
+            items = viewerItems,
+            currentId = viewerImageId,
+            chrome = if (viewerOwner == PENDING_VIEWER_OWNER) {
+                ImageViewerChrome.Pending(
+                    onEdit = { id -> closeViewer(); editAttachmentId = id },
+                    onDelete = { id ->
+                        val index = viewerItems.indexOfFirst { it.id == id }
+                        val next = neighbourAfterRemoval(viewerItems, index)
+                        vm.removeAttachment(id)
+                        if (next == null) closeViewer() else viewerImageId = next.id
+                    },
+                )
+            } else {
+                ImageViewerChrome.Sent(
+                    onSave = ::saveImage,
+                    onSaveAs = ::saveImageAs,
+                    onShare = ::shareImage,
+                    savingImageId = savingImageId,
+                )
+            },
+            onPageChange = { viewerImageId = it },
+            onDismiss = closeViewer,
+        )
+    }
+
     fullscreenTableRaw?.let { raw ->
         com.hermes.client.ui.chat.TableFullscreenDialog(
             raw = raw,
@@ -1551,16 +1561,23 @@ fun ChatScreen(
         // pinned open, the current group open, everything else collapsed to one scannable line.
         var expandedGroups by remember(sessionId) { mutableStateOf<Set<String>?>(null) }
         val effectiveExpanded = expandedGroups ?: setOfNotNull(resolvedCurrentProvider)
-        val items = com.hermes.client.ui.models.modelSelectorRows(
-            providers = providers, favorites = favorites, query = modelSheet.query,
+        val groups = com.hermes.client.ui.models.modelSelectorGroups(
+            providers = providers, favorites = favorites,
             currentProvider = resolvedCurrentProvider, currentModel = currentModel,
             expandedGroups = effectiveExpanded,
             presets = reasoningPresets,
         )
+        val recents by vm.recentModels.collectAsStateWithLifecycle()
+        // Provider display names come from the live catalogue, never from what was stored.
+        val recentChips = recents.map { r ->
+            r.copy(providerLabel = providers.firstOrNull { it.slug == r.provider }?.name ?: r.provider)
+        }
         val currentSummary = currentModel?.takeIf { it.isNotBlank() }?.let { model ->
             com.hermes.client.ui.models.CurrentModelSummary(
                 model = model,
-                provider = resolvedCurrentProvider,
+                provider = providers.firstOrNull { it.slug == resolvedCurrentProvider }?.name
+                    ?: resolvedCurrentProvider,
+                badgeText = localized(language, "当前使用", "In use"),
                 scopeText = if (modelOverridden) {
                     val default = defaultModel
                     if (default != null) localized(language, "此对话覆盖（默认是 $default）", "This chat override (default: $default)")
@@ -1570,8 +1587,7 @@ fun ChatScreen(
             )
         }
         com.hermes.client.ui.models.ModelSelectorSheet(
-            items = items,
-            query = modelSheet.query, onQueryChange = vm::onSheetQuery,
+            groups = groups,
             onToggleFavorite = vm::toggleFavorite,
             onSelect = { p, m ->
                 vm.onSelectFromSheet(p, m) {
@@ -1587,11 +1603,12 @@ fun ChatScreen(
             },
             pendingKey = modelSheet.pendingKey,
             error = modelSheet.error?.localizedMessage(language),
-            onDismiss = { modelSheetOpen = false; retryAfterModelSwitch = false; vm.onSheetQuery("") },
+            onDismiss = { modelSheetOpen = false; retryAfterModelSwitch = false },
             onRefresh = { vm.ensureProviders(force = true) },
             refreshing = catalogRefreshing,
             currentSummary = currentSummary,
             onRestoreDefault = { vm.restoreDefaultModel { modelSheetOpen = false } },
+            recents = recentChips,
             reasoningEffort = sheetReasoning,
             onSelectReasoning = vm::setReasoning,
             reasoningPending = reasoningPending,
@@ -1686,16 +1703,45 @@ fun ChatScreen(
         )
     }
 
+    // ── 分享对话: format first, then destination (HG-40, docs/SESSION_EXCHANGE_REQUIREMENTS.md §6).
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
     if (shareFormatSheet) {
-        val density = androidx.compose.ui.platform.LocalDensity.current.density
-        val subject = localized(language, "Hermes GO 对话记录", "Hermes GO chat transcript")
         ShareTranscriptSheet(
-            onText = {
+            onText = { shareFormatSheet = false; shareFormat = ShareFormat.TEXT },
+            onMarkdown = { shareFormatSheet = false; shareFormat = ShareFormat.MARKDOWN },
+            onImage = {
                 shareFormatSheet = false
+                // Strategy A (docs/DESIGN.md §5.13): refuse an over-budget transcript HERE, before
+                // the destination question. Being asked where to send something that cannot be
+                // produced is worse than being told early.
+                if (!transcriptImageFitsBudget(state.messages, density)) {
+                    android.widget.Toast.makeText(
+                        context,
+                        localized(
+                            language,
+                            "对话较长，长图无法完整生成，建议改用 Markdown 文件分享。",
+                            "This conversation is too long for one image — share it as a Markdown file instead.",
+                        ),
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                } else {
+                    shareFormat = ShareFormat.IMAGE
+                }
+            },
+            onDismiss = { shareFormatSheet = false },
+        )
+    }
+
+    val shareSubject = localized(language, "Hermes GO 对话记录", "Hermes GO chat transcript")
+
+    /** Hand the chosen format to the system share sheet — the behaviour that existed before HG-40. */
+    fun shareOutside(format: ShareFormat) {
+        when (format) {
+            ShareFormat.TEXT -> {
                 val body = transcriptText(state.messages, language, botOrigin)
                 val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(android.content.Intent.EXTRA_SUBJECT, subject)
+                    putExtra(android.content.Intent.EXTRA_SUBJECT, shareSubject)
                     putExtra(android.content.Intent.EXTRA_TEXT, body)
                 }
                 runCatching {
@@ -1703,9 +1749,8 @@ fun ChatScreen(
                 }.onFailure {
                     android.widget.Toast.makeText(context, localized(language, "无法分享对话", "Couldn't share transcript"), android.widget.Toast.LENGTH_SHORT).show()
                 }
-            },
-            onMarkdown = {
-                shareFormatSheet = false
+            }
+            ShareFormat.MARKDOWN -> {
                 val now = System.currentTimeMillis()
                 val markdown = transcriptMarkdown(
                     title = sessionTitle,
@@ -1721,7 +1766,7 @@ fun ChatScreen(
                         baseName = transcriptFileBaseName(sessionTitle, now),
                         markdown = markdown,
                         chooserTitle = localized(language, "分享对话", "Share transcript"),
-                        subject = subject,
+                        subject = shareSubject,
                     )
                     if (!ok) {
                         android.widget.Toast.makeText(
@@ -1734,39 +1779,146 @@ fun ChatScreen(
                         ).show()
                     }
                 }
-            },
-            onImage = {
-                shareFormatSheet = false
-                // Strategy A (docs/DESIGN.md §5): refuse over-budget transcripts up front and
-                // point at the Markdown export rather than emitting a broken or OOM-ing capture.
-                if (!transcriptImageFitsBudget(state.messages, density)) {
-                    android.widget.Toast.makeText(
-                        context,
-                        localized(
-                            language,
-                            "对话较长，长图无法完整生成，建议改用 Markdown 文件分享。",
-                            "This conversation is too long for one image — share it as a Markdown file instead.",
+            }
+            ShareFormat.IMAGE -> { transcriptImageExporting = true }
+        }
+    }
+
+    /**
+     * Deliver the chosen format into [targetId] and open it. Text and Markdown are ready
+     * immediately; the long image has to be rendered first, so it parks the target and lets the
+     * offscreen exporter below finish the job.
+     */
+    fun deliverInto(target: ChatLaunch, format: ShareFormat) {
+        val targetId = target.sessionId
+        when (format) {
+            ShareFormat.TEXT -> {
+                vm.deliverToSession(targetId, text = transcriptText(state.messages, language, botOrigin))
+                onOpenDelivered(target)
+            }
+            ShareFormat.MARKDOWN -> {
+                val now = System.currentTimeMillis()
+                val markdown = transcriptMarkdown(
+                    title = sessionTitle,
+                    messages = state.messages,
+                    language = language,
+                    exportedAtMillis = now,
+                    model = currentModel,
+                    origin = botOrigin,
+                )
+                vm.deliverToSession(
+                    targetId,
+                    attachments = listOf(
+                        com.hermes.client.share.PendingShareAttachment(
+                            bytes = markdown.toByteArray(Charsets.UTF_8),
+                            mimeType = "text/markdown",
+                            name = transcriptAttachmentName(sessionTitle, now),
                         ),
-                        android.widget.Toast.LENGTH_LONG,
-                    ).show()
-                } else {
-                    transcriptImageExporting = true
+                    ),
+                )
+                onOpenDelivered(target)
+            }
+            ShareFormat.IMAGE -> {
+                imageDeliveryTarget = target
+                transcriptImageExporting = true
+            }
+        }
+    }
+
+    shareFormat?.let { format ->
+        ShareDestinationSheet(
+            onIntoConversation = { pendingShareFormat = format; shareFormat = null; sharePickerOpen = true },
+            onSystemShare = { shareFormat = null; shareOutside(format) },
+            onDismiss = { shareFormat = null },
+        )
+    }
+
+    if (sharePickerOpen) {
+        com.hermes.client.ui.sessions.SessionPickerDialog(
+            mode = com.hermes.client.ui.sessions.SessionPickerMode.Deliver,
+            excludeSessionId = sessionId,
+            onCancel = { sharePickerOpen = false; pendingShareFormat = null },
+            onPicked = { picked ->
+                sharePickerOpen = false
+                val target = picked.firstOrNull()
+                val chosen = pendingShareFormat
+                pendingShareFormat = null
+                if (target != null && chosen != null) deliverInto(ChatLaunch.existing(target), chosen)
+            },
+            onNewConversation = {
+                sharePickerOpen = false
+                val chosen = pendingShareFormat
+                pendingShareFormat = null
+                if (chosen != null) {
+                    exportScope.launch {
+                        val created = vm.createNewSession()
+                        if (created == null) {
+                            android.widget.Toast.makeText(
+                                context,
+                                localized(language, "无法新建对话，请重试。", "Couldn't start a new conversation. Retry."),
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                        } else {
+                            deliverInto(ChatLaunch.new(created), chosen)
+                        }
+                    }
                 }
             },
-            onDismiss = { shareFormatSheet = false },
         )
     }
 
     if (transcriptImageExporting) {
+        val target = imageDeliveryTarget
         OffscreenTranscriptExporter(
             title = sessionTitle,
             messages = state.messages,
             exportedAtMillis = remember { System.currentTimeMillis() },
             origin = botOrigin,
+            // Null sink = the system share sheet, exactly as before. A target means the same
+            // picture goes into a conversation instead (HG-40).
+            sink = if (target == null) null else { bitmap, _ ->
+                val png = java.io.ByteArrayOutputStream().use { out ->
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                    out.toByteArray()
+                }
+                if (png.size > MAX_DIRECT_ATTACHMENT_BYTES) {
+                    // The height budget passed but the encoded file did not. Say the same thing
+                    // the budget gate says rather than a generic render failure.
+                    shareImageTooLarge = true
+                    false
+                } else {
+                    vm.deliverToSession(
+                        target.sessionId,
+                        attachments = listOf(
+                            com.hermes.client.share.PendingShareAttachment(
+                                bytes = png,
+                                mimeType = "image/png",
+                                name = transcriptFileBaseName(sessionTitle, System.currentTimeMillis()) + ".png",
+                            ),
+                        ),
+                    )
+                    true
+                }
+            },
             onDone = { ok ->
                 transcriptImageExporting = false
-                if (!ok) {
-                    android.widget.Toast.makeText(
+                val delivered = imageDeliveryTarget
+                imageDeliveryTarget = null
+                when {
+                    ok && delivered != null -> onOpenDelivered(delivered)
+                    shareImageTooLarge -> {
+                        shareImageTooLarge = false
+                        android.widget.Toast.makeText(
+                            context,
+                            localized(
+                                language,
+                                "对话较长，长图无法完整生成，建议改用 Markdown 文件分享。",
+                                "This conversation is too long for one image — share it as a Markdown file instead.",
+                            ),
+                            android.widget.Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    !ok -> android.widget.Toast.makeText(
                         context,
                         com.hermes.client.data.error.AppError(
                             com.hermes.client.data.error.AppErrorCode.TRANSCRIPT_IMAGE_FAILED,
@@ -1779,29 +1931,30 @@ fun ChatScreen(
         )
     }
 
+
     if (showPromptSheet) {
         val promptSheetState = com.hermes.client.ui.components.hermesSheetState()
-        ModalBottomSheet(onDismissRequest = { showPromptSheet = false }, sheetState = promptSheetState) {
-            if (savedPrompts.isEmpty()) {
-                Text(
-                    localized(language, "暂无常用提示，可前往“设置 › 常用提示”添加。", "No saved prompts yet — add them in Settings › Saved prompts."),
-                    modifier = Modifier.padding(24.dp),
-                )
-            } else {
-                LazyColumn(Modifier.fillMaxWidth()) {
-                    items(savedPrompts, key = { it.id }) { p ->
-                        ListItem(
-                            headlineContent = { Text(p.title) },
-                            supportingContent = { Text(p.body.lineSequence().firstOrNull().orEmpty()) },
-                            modifier = Modifier.clickable {
-                                draft = if (draft.isBlank()) p.body else draft.trimEnd() + "\n" + p.body
-                                showPromptSheet = false
-                                focusRequester.requestFocus()
-                            },
-                        )
-                    }
-                }
-            }
+        // Sheet gestures OFF (docs/DESIGN.md §5.8 global rule): scrolling the list never drags or
+        // closes the sheet; closing is the grab bar, the scrim, or back.
+        ModalBottomSheet(
+            onDismissRequest = { showPromptSheet = false },
+            sheetState = promptSheetState,
+            sheetGesturesEnabled = false,
+            dragHandle = { com.hermes.client.ui.components.SheetCloseHandle { showPromptSheet = false } },
+        ) {
+            SavedPromptSheetContent(
+                prompts = savedPrompts,
+                onPick = { p ->
+                    draft = if (draft.isBlank()) p.body else draft.trimEnd() + "\n" + p.body
+                    showPromptSheet = false
+                    focusRequester.requestFocus()
+                },
+                onManage = {
+                    showPromptSheet = false
+                    onManagePrompts()
+                },
+            )
+            Spacer(Modifier.height(16.dp))
         }
     }
 
@@ -1821,14 +1974,60 @@ fun ChatScreen(
             onPick = { project -> vm.moveToProject(project) { projectSheetOpen = false } },
         )
     }
+}
 
-    if (showPersonaSheet) {
-        PersonaSheet(
-            ui = personaUi,
-            onPick = { vm.setPersona(it) },
-            onRetry = { vm.loadPersonas() },
-            onDismiss = { showPersonaSheet = false },
-        )
+/**
+ * Body of the composer's 常用提示 sheet.
+ *
+ * 「管理」 is the only way into the prompt library since HG-33 took the row out of Settings, so the
+ * sheet that spends prompts is also the sheet that maintains them. Header shape follows the model
+ * sheet (docs/DESIGN.md §5.8): centred title + count, action on the right.
+ */
+@Composable
+internal fun SavedPromptSheetContent(
+    prompts: List<com.hermes.client.data.repository.SavedPrompt>,
+    onPick: (com.hermes.client.data.repository.SavedPrompt) -> Unit,
+    onManage: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val language = LocalAppLanguage.current
+    Column(modifier) {
+        Box(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+            Column(
+                Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(localized(language, "常用提示", "Saved prompts"), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    localized(language, "${prompts.size} 条", "${prompts.size} prompts"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            TextButton(
+                onClick = onManage,
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
+            ) {
+                Text(localized(language, "管理", "Manage"))
+            }
+        }
+        if (prompts.isEmpty()) {
+            Text(
+                localized(language, "还没有常用提示，点右上角「管理」添加。", "No saved prompts yet — tap Manage to add one."),
+                modifier = Modifier.padding(24.dp),
+            )
+        } else {
+            LazyColumn(Modifier.fillMaxWidth()) {
+                items(prompts, key = { it.id }) { p ->
+                    ListItem(
+                        headlineContent = { Text(p.title) },
+                        supportingContent = { Text(p.body.lineSequence().firstOrNull().orEmpty()) },
+                        modifier = Modifier.clickable { onPick(p) },
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1877,6 +2076,56 @@ internal fun adaptiveSessionTitleSize(title: String): Int = when {
     title.length <= 22 -> 18
     else -> 16
 }
+
+/**
+ * Whether the chat top bar shows ＋ and ⋮ (HG-37, docs/DESIGN.md §5.4).
+ *
+ * An empty new session shows neither: ＋ would open a new conversation from a conversation that
+ * is already new and empty, and every one of the five overflow items — search, my prompts,
+ * refresh, share, archive — acts on a transcript that does not exist yet. The moment the first
+ * message lands, or generation starts, both come back.
+ *
+ * This is the greeting overlay's predicate, negated, and deliberately the *same* expression:
+ * the bar and the greeting describe one state, and the 0.1.88 bug was born of a second copy.
+ * Note it reads the nav argument, not `ChatUiState` — that object mirrors `runtime.chat` and any
+ * flag written into it is overwritten on the next collect (see ChatComponents.kt).
+ *
+ * An existing session that happens to have no messages is NOT this state: its actions stay, the
+ * requirement is about 新会话 specifically, and refresh/share/archive are exactly what someone
+ * looking at an unexpectedly empty old conversation reaches for.
+ */
+internal fun chatTopBarActionsVisible(
+    isNewSession: Boolean,
+    messageCount: Int,
+    isGenerating: Boolean,
+): Boolean = !newChatGreetingVisible(isNewSession, messageCount, isGenerating)
+
+/**
+ * What the composer opens with: this conversation's saved draft, plus any text a share just
+ * delivered into it (HG-40 with HG-41).
+ *
+ * **Appended, never replaced.** A 分享到会话 landing on a conversation the user had already
+ * started typing in must not delete the half-sentence they wrote — keeping exactly that is what
+ * the draft cache exists for. Separated by a blank line, so the two read as two things.
+ */
+internal fun composerSeed(savedDraft: String?, sharedText: String?): String? {
+    val draft = savedDraft?.takeIf { it.isNotBlank() }
+    val shared = sharedText?.takeIf { it.isNotBlank() }
+    return when {
+        draft != null && shared != null -> draft.trimEnd() + "\n\n" + shared
+        else -> draft ?: shared
+    }
+}
+
+/** Which rendering of the transcript 「分享对话」 is working with (HG-40). */
+internal enum class ShareFormat { TEXT, MARKDOWN, IMAGE }
+
+/** The new-session greeting overlay's visibility; see [chatTopBarActionsVisible]. */
+internal fun newChatGreetingVisible(
+    isNewSession: Boolean,
+    messageCount: Int,
+    isGenerating: Boolean,
+): Boolean = isNewSession && messageCount == 0 && !isGenerating
 
 @Composable
 private fun AttachmentActionCard(
@@ -1994,17 +2243,3 @@ private fun ConnectionRecoveryBanner(message: String) {
     }
 }
 
-
-/**
- * Decode [bytes] to a Bitmap downsampled so its largest side is roughly [reqPx] px — a chip thumbnail
- * never needs full resolution, and decoding a 12MP photo at full size (×ATTACH_CAP) risks OOM/jank.
- */
-private fun decodeThumbnail(bytes: ByteArray, reqPx: Int): android.graphics.Bitmap? {
-    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-    var sample = 1
-    val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
-    while (maxDim > 0 && maxDim / sample > reqPx * 2) sample *= 2
-    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
-    return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
-}

@@ -32,6 +32,8 @@ final class DesktopMigrationJournalTests: XCTestCase {
             bindingGeneration: 1
         )
         XCTAssertEqual(journal.state, .preflight)
+        XCTAssertEqual(journal.schemaVersion, 2)
+        XCTAssertEqual(journal.releaseLayout, .bundledRelease)
         for state: DesktopMigrationState in [
             .accountStaged,
             .candidateStarting,
@@ -98,7 +100,119 @@ final class DesktopMigrationJournalTests: XCTestCase {
         )) { error in
             XCTAssertEqual(error as? DesktopMigrationJournalError, .inputMismatch)
         }
+        XCTAssertThrowsError(try store.begin(
+            runID: runID,
+            lastKnownGoodMode: .legacy,
+            releaseVersion: original.releaseVersion,
+            releaseLayout: .componentStore,
+            bindingID: original.bindingID,
+            bindingGeneration: original.bindingGeneration
+        )) { error in
+            XCTAssertEqual(error as? DesktopMigrationJournalError, .inputMismatch)
+        }
         XCTAssertEqual(try store.load(), original)
+    }
+
+    func testComponentStoreLayoutPersistsAcrossEveryTransition() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try DesktopMigrationJournalStore(root: root)
+        let runID = "30000000-0000-4000-8000-000000000003"
+        var journal = try store.begin(
+            runID: runID,
+            lastKnownGoodMode: .none,
+            releaseVersion: "2.0.0",
+            releaseLayout: .componentStore,
+            bindingID: "40000000-0000-4000-8000-000000000004",
+            bindingGeneration: 1
+        )
+
+        for state: DesktopMigrationState in [
+            .accountStaged,
+            .candidateStarting,
+            .candidateAuthenticated,
+            .candidateHealthy,
+            .commitPending,
+            .accountActive,
+        ] {
+            journal = try store.transition(runID: runID, to: state)
+            XCTAssertEqual(journal.schemaVersion, 2)
+            XCTAssertEqual(journal.releaseLayout, .componentStore)
+        }
+
+        XCTAssertEqual(try store.load(), journal)
+    }
+
+    func testLegacySchemaOneLoadsAsBundledAndUpgradesOnTransition() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let runID = "50000000-0000-4000-8000-000000000005"
+        try writeRawJournal([
+            "schemaVersion": 1,
+            "runID": runID,
+            "state": "preflight",
+            "lastKnownGoodMode": "legacy",
+            "releaseVersion": "1.2.3",
+            "bindingID": "60000000-0000-4000-8000-000000000006",
+            "bindingGeneration": 1,
+            "updatedAt": "2026-09-14T00:00:00.000Z",
+        ], at: root)
+        let store = try DesktopMigrationJournalStore(root: root)
+
+        let legacy = try XCTUnwrap(store.load())
+        XCTAssertEqual(legacy.schemaVersion, 1)
+        XCTAssertEqual(legacy.releaseLayout, .bundledRelease)
+
+        let upgraded = try store.transition(runID: runID, to: .accountStaged)
+        XCTAssertEqual(upgraded.schemaVersion, 2)
+        XCTAssertEqual(upgraded.releaseLayout, .bundledRelease)
+        let data = try Data(contentsOf: root.appendingPathComponent("migration-state.json"))
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        XCTAssertEqual(object["schemaVersion"] as? Int, 2)
+        XCTAssertEqual(object["releaseLayout"] as? String, "bundled_release")
+    }
+
+    func testSchemaAndReleaseLayoutCombinationsFailClosed() throws {
+        let cases: [[String: Any]] = [
+            [
+                "schemaVersion": 1,
+                "runID": "70000000-0000-4000-8000-000000000007",
+                "state": "preflight",
+                "lastKnownGoodMode": "none",
+                "releaseVersion": "1.2.3",
+                "releaseLayout": "component_store",
+                "updatedAt": "2026-09-14T00:00:00.000Z",
+            ],
+            [
+                "schemaVersion": 2,
+                "runID": "70000000-0000-4000-8000-000000000007",
+                "state": "preflight",
+                "lastKnownGoodMode": "none",
+                "releaseVersion": "1.2.3",
+                "updatedAt": "2026-09-14T00:00:00.000Z",
+            ],
+            [
+                "schemaVersion": 2,
+                "runID": "70000000-0000-4000-8000-000000000007",
+                "state": "preflight",
+                "lastKnownGoodMode": "none",
+                "releaseVersion": "1.2.3",
+                "releaseLayout": "unknown",
+                "updatedAt": "2026-09-14T00:00:00.000Z",
+            ],
+        ]
+
+        for object in cases {
+            let root = temporaryRoot()
+            defer { try? FileManager.default.removeItem(at: root) }
+            try writeRawJournal(object, at: root)
+            let store = try DesktopMigrationJournalStore(root: root)
+            XCTAssertThrowsError(try store.load()) { error in
+                XCTAssertEqual(error as? DesktopMigrationJournalError, .invalidState)
+            }
+        }
     }
 
     func testNewRunReplacesTerminalRolledBackJournal() throws {
@@ -254,5 +368,19 @@ final class DesktopMigrationJournalTests: XCTestCase {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("hermes-migration-\(UUID().uuidString)", isDirectory: true)
             .resolvingSymlinksInPath()
+    }
+
+    private func writeRawJournal(_ object: [String: Any], at root: URL) throws {
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let state = root.appendingPathComponent("migration-state.json")
+        try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]).write(to: state)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: state.path
+        )
     }
 }

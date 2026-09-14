@@ -36,15 +36,29 @@ import androidx.compose.ui.graphics.Color
 /** What a status colour MEANS, independent of theme. */
 enum class StatusTone { GOOD, WARN, BAD, RUNNING }
 
-private val GOOD_LIGHT = 0xFF2E7D32.toInt() // 4.87:1 on warm paper — safe as 12sp label text
-private val WARN_LIGHT = 0xFFC2410C.toInt() // 4.92:1 — text-legal, unlike the #C77700 it replaced
-private val BAD_LIGHT = 0xFFC62828.toInt() //  5.34:1
+private val GOOD_LIGHT = 0xFF2E7D32.toInt() // 4.87:1 on warm paper
+private val WARN_LIGHT = 0xFFB45309.toInt() // 4.53:1
+private val BAD_LIGHT = 0xFFB91C1C.toInt() //  6.15:1
 private val RUNNING_LIGHT = 0xFF0369A1.toInt() // 5.63:1
 
-private val GOOD_DARK = 0xFF7CDC80.toInt() // 10.71:1 on the dark surface
+private val GOOD_DARK = 0xFF34D399.toInt()
 private val WARN_DARK = 0xFFFBBF24.toInt() // 11.24:1
-private val BAD_DARK = 0xFFFFB4AB.toInt() // 10.68:1
+private val BAD_DARK = 0xFFF87171.toInt()
 private val RUNNING_DARK = 0xFF67E8F9.toInt() // 12.94:1
+
+/**
+ * The design source runs TWO ambers for "waiting on you", and they are not interchangeable: the
+ * pillar and the status dot take the brighter [WARN_GRAPHIC_LIGHT], the group header and the
+ * status sentence take the deeper [WARN_LIGHT]. Reading them as one amber — which this file did
+ * until 2026-09-11 — flattens a distinction the mock draws on purpose, between a mark you see and
+ * a word you read.
+ *
+ * The bright one is 3.02:1 on warm paper. That used to disqualify it under the 3:1 graphic floor;
+ * the floors were dropped on 2026-09-11 in favour of following the mock exactly
+ * (docs/DESIGN.md §7 item 8).
+ */
+private val WARN_GRAPHIC_LIGHT = 0xFFD97706.toInt() // 3.02:1 — graphics only
+private val WARN_GRAPHIC_DARK = 0xFFF59E0B.toInt()
 
 /**
  * The status colour for [tone] on the given theme, as ARGB.
@@ -59,6 +73,15 @@ fun statusArgb(tone: StatusTone, dark: Boolean): Int = when (tone) {
     StatusTone.BAD -> if (dark) BAD_DARK else BAD_LIGHT
     StatusTone.RUNNING -> if (dark) RUNNING_DARK else RUNNING_LIGHT
 }
+
+/**
+ * The graphic tier of [StatusTone.WARN] — the pillar and the waiting dot. Every other tone draws
+ * its mark in the same colour as its words; only WARN splits, because the design source does.
+ */
+fun warnGraphicArgb(dark: Boolean): Int = if (dark) WARN_GRAPHIC_DARK else WARN_GRAPHIC_LIGHT
+
+@Composable
+fun warnGraphicColor(dark: Boolean = isDarkSurface()): Color = Color(warnGraphicArgb(dark))
 
 /**
  * Compose-facing wrapper. The default reads the EFFECTIVE theme, never the system setting —

@@ -37,4 +37,27 @@ class AttachmentsTest {
     @Test fun direct_attachment_limit_is_safely_below_tunnel_limit() {
         assertEquals(6 * 1024 * 1024, MAX_DIRECT_ATTACHMENT_BYTES)
     }
+
+    @Test fun remaining_slots_are_shared_with_everything_already_staged() {
+        assertEquals(ATTACH_CAP, remainingAttachmentSlots(0))
+        assertEquals(4, remainingAttachmentSlots(2))
+        assertEquals(0, remainingAttachmentSlots(ATTACH_CAP))
+        // Defensive: a list somehow past the cap must not hand out negative slots.
+        assertEquals(0, remainingAttachmentSlots(ATTACH_CAP + 3))
+    }
+
+
+    @Test fun duplicate_attachment_names_are_disambiguated_before_the_extension() {
+        assertEquals(
+            listOf("周报.md", "周报 (2).md", "周报 (3).md", "别的.md"),
+            uniqueAttachmentNames(listOf("周报.md", "周报.md", "周报.md", "别的.md")),
+        )
+    }
+
+    @Test fun a_name_without_an_extension_is_still_disambiguated() {
+        assertEquals(listOf("notes", "notes (2)"), uniqueAttachmentNames(listOf("notes", "notes")))
+        // A leading dot is the whole name, not an extension.
+        assertEquals(listOf(".env", ".env (2)"), uniqueAttachmentNames(listOf(".env", ".env")))
+    }
+
 }

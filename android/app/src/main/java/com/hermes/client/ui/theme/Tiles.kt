@@ -1,5 +1,6 @@
 package com.hermes.client.ui.theme
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -42,7 +43,7 @@ fun tileColor(): Color =
  * on both tiers (17.07:1 light, 15.24:1 dark) — pinned by FabColorTest.
  */
 internal val FabContainerLight = Color(0xFF181C24)
-internal val FabContainerDark = Color(0xFF1E232B)
+internal val FabContainerDark = Color(0xFF181C24)
 
 /**
  * Dark needs a hairline; light does not. A near-black fill separates from warm paper on its own
@@ -59,6 +60,61 @@ fun fabContainerColor(): Color = if (isDarkSurface()) FabContainerDark else FabC
 /** The FAB's hairline: an opaque ring in dark, nothing in light. See [FabOutlineDark]. */
 @Composable
 fun fabOutlineColor(): Color = if (isDarkSurface()) FabOutlineDark else Color.Transparent
+
+// ── Cron detail's primary action (docs/DESIGN.md §5.18, Stitch 基线-定时任务/任务详情) ─────────
+//
+// 「立即运行」 is a filled near-black button — the same reasoning as the FAB: a scheduled-jobs page
+// is wall-to-wall status colour, so the one button that STARTS something must not borrow a hue
+// that reports how something went.
+//
+// Its own token rather than [FabContainerLight]'s, per §2.7 item 1: the two happen to share the
+// light value and have nothing to do with each other, so moving one must not drag the other. The
+// dark tier is where they actually differ — the detail mock lifts the button off the obsidian
+// ground (#1E232B) instead of sinking it, and rings it with the same hairline the FAB uses.
+internal val CronActionLight = Color(0xFF181C24)
+internal val CronActionDark = Color(0xFF1E232B)
+
+/** The action button's hairline: dark only, like the FAB's. */
+internal val CronActionOutlineDark = Color(0xFF3A4049)
+
+@Composable
+fun cronActionColor(): Color = if (isDarkSurface()) CronActionDark else CronActionLight
+
+@Composable
+fun cronActionOutlineColor(): Color = if (isDarkSurface()) CronActionOutlineDark else Color.Transparent
+
+// ── Cron detail's cards (docs/DESIGN.md §5.18) ────────────────────────────────────────────────
+//
+// The pale-card language of §2.3, with the detail mock's own values: the card is brighter than
+// the page in light and a step above the obsidian ground in dark. These are page content, not a
+// floating layer — the list rows sit on bare paper (§2.1) and only the detail page has cards.
+internal val CronCardLight = Color(0xFFFFFFFF)
+internal val CronCardDark = Color(0xFF161A22)
+
+/**
+ * The card's hairline. The mock's dark tier is `rgba(255,255,255,0.05)`; §2.1 wants opaque pairs
+ * so a colour can be pinned, and this is that alpha resolved against the card — the same value the
+ * card page's tile border already uses.
+ */
+internal val CronCardBorderLight = Color(0xFFE9E8E4)
+internal val CronCardBorderDark = Color(0xFF262C35)
+
+/** The prompt card's header strip: a half-step off the card, so the card reads as two zones. */
+internal val CronCardHeaderLight = Color(0xFFFCFBF8)
+internal val CronCardHeaderDark = Color(0xFF13171E)
+
+/** The prompt block itself — recessed, the way a code block is everywhere else. */
+internal val CronInsetLight = Color(0xFFFAF9F5)
+internal val CronInsetDark = Color(0xFF0A0D11)
+
+@Composable fun cronCardColor(): Color = if (isDarkSurface()) CronCardDark else CronCardLight
+@Composable fun cronCardBorderColor(): Color = if (isDarkSurface()) CronCardBorderDark else CronCardBorderLight
+@Composable fun cronCardHeaderColor(): Color = if (isDarkSurface()) CronCardHeaderDark else CronCardHeaderLight
+@Composable fun cronInsetColor(): Color = if (isDarkSurface()) CronInsetDark else CronInsetLight
+
+/** No shadow in dark: the ground is already darker than the card. Same rule as every other card. */
+@Composable
+fun cronCardShadow(): Dp = if (isDarkSurface()) 0.dp else 1.dp
 
 /**
  * The run spinner (docs/DESIGN.md §5.2). Blue — NOT the cyan that `StatusTone.RUNNING` paints the
@@ -106,6 +162,118 @@ fun onIncidentColor(): Color =
     if (isDarkSurface()) OnIncidentDark else OnIncidentLight
 
 /** Dark shadows are invisible, so the dark tier carries the card on fill alone. */
+/**
+ * The session subline's faintest tier — the folder glyph and the 「仅此设备」note
+ * (docs/DESIGN.md §5.2). The design source's `#A8A29E`, which is 2.39:1 on warm paper: below both
+ * the 4.5:1 text floor and the 3:1 graphic one. Adopted anyway on 2026-09-11, when following the
+ * mock exactly replaced the floors (§7 item 8). If it disappears on a real screen, that is the
+ * trade being paid, not a bug.
+ */
+internal val SublineFaintLight = Color(0xFFA8A29E)
+internal val SublineFaintDark = Color(0xFF64615B)
+
+@Composable
+fun sublineFaintColor(): Color = if (isDarkSurface()) SublineFaintDark else SublineFaintLight
+
+/**
+ * The group-header pillars (docs/DESIGN.md §5.2). One colour per group, straight from the
+ * design source — the 2026-09-10 "only 需要你处理 carries a hue" rule was reversed on 2026-09-11
+ * because an all-neutral list of headers reads flat.
+ *
+ * 需要你处理's pillar is the graphic amber and lives in StatusColors, next to the dot it matches.
+ *
+ * **Known collision, accepted**: the dark 今天 pillar is `#34D399`, which is exactly the dark
+ * `StatusTone.GOOD` a 「已完成」 dot draws. The design source has this collision too — it paints
+ * both with its mint. Recorded here rather than quietly resolved, because the rule since
+ * 2026-09-11 is that the mock wins.
+ *
+ * **昨天 and the slate swap** (HG-52, 2026-09-14). 前 7 天 and 更早 used to share one pair, which
+ * is what HG-52 asked to end. The rule the four time buckets now follow is *the nearer the past,
+ * the more solid the mark*, and it has to hold in both themes:
+ *
+ * - 昨天 is teal, the neighbouring grade of 今天's emerald — the three read as one cooling ramp
+ *   emerald → teal → slate rather than as three unrelated hues. There is no Stitch draft for this
+ *   bucket; the value is derived, and `design-conformance.json` says so.
+ * - 前 7 天 and 更早 are the two slates that already existed, swapped per theme. In light, 前 7 天
+ *   takes the darker `#64748B` and 更早 the lighter `#94A3B8`; in dark it is the other way round,
+ *   because on a dark ground the lighter slate is the more present one. Two new hex values in
+ *   total, and the ordering reads the same way in both themes.
+ */
+internal val PillarPinnedLight = Color(0xFF2563EB)
+internal val PillarPinnedDark = Color(0xFF3B82F6)
+internal val PillarTodayLight = Color(0xFF059669)
+internal val PillarTodayDark = Color(0xFF34D399)
+internal val PillarYesterdayLight = Color(0xFF0D9488)
+internal val PillarYesterdayDark = Color(0xFF2DD4BF)
+internal val PillarRecentLight = Color(0xFF64748B)
+internal val PillarRecentDark = Color(0xFF94A3B8)
+internal val PillarOlderLight = Color(0xFF94A3B8)
+internal val PillarOlderDark = Color(0xFF64748B)
+
+@Composable
+fun pillarPinnedColor(): Color = if (isDarkSurface()) PillarPinnedDark else PillarPinnedLight
+
+@Composable
+fun pillarTodayColor(): Color = if (isDarkSurface()) PillarTodayDark else PillarTodayLight
+
+@Composable
+fun pillarYesterdayColor(): Color = if (isDarkSurface()) PillarYesterdayDark else PillarYesterdayLight
+
+@Composable
+fun pillarRecentColor(): Color = if (isDarkSurface()) PillarRecentDark else PillarRecentLight
+
+@Composable
+fun pillarOlderColor(): Color = if (isDarkSurface()) PillarOlderDark else PillarOlderLight
+
+/**
+ * The group-header LABEL colours (docs/DESIGN.md §5.2, decision 2026-09-13).
+ *
+ * Every group's label now carries its own hue, reversing the 2026-09-10 rule that only 需要你处理
+ * did. The 8th pull's two group-header mocks disagreed — the light draft colours one label, the
+ * dark draft colours all four — and the product owner settled on all four in both themes.
+ *
+ * **These are not the pillar values, and that is the point.** A pillar is a 4×14dp mark; a label is
+ * text. Light 更早's pillar is `#94A3B8`, which as text on the warm paper is about 2.1:1 — the light
+ * draft itself writes that label in a neutral rather than in its pillar colour, which is the tell.
+ * So each tone gets a readable grade of its own hue: the dark values are the ones the dark draft
+ * actually draws (`#60A5FA` / `#34D399` / `#CBD5E1`), and only light 更早 is derived — it borrows the
+ * darker slate from the dark pillar pair, ~4.3:1.
+ *
+ * 需要你处理 is not here: its label has always been `statusColor(StatusTone.WARN)`, the deep text
+ * amber, which is already the readable grade of the graphic amber its pillar uses.
+ *
+ * **昨天 gets a label pair; 前 7 天 and 更早 keep sharing one** (HG-52, 2026-09-14). HG-52 asked for
+ * three distinct PILLARS, and that is what it got. The labels do not follow, because three readable
+ * greys set as text are not three colours a reader can tell apart — they are three shades of "grey
+ * text", and splitting them would cost legibility to express a distinction nobody can see. The
+ * precedent is right above: a label already refuses to follow its own pillar when following would
+ * make it unreadable, and 定时任务's two tones take `onSurfaceVariant` outright.
+ *
+ * Light 昨天 is teal-700 `#0F766E` rather than the pillar's teal-600, by the same rule that derives
+ * light 更早: text takes the readable grade of its hue, the mark takes the drawn one.
+ */
+internal val GroupLabelPinnedLight = Color(0xFF2563EB)
+internal val GroupLabelPinnedDark = Color(0xFF60A5FA)
+internal val GroupLabelTodayLight = Color(0xFF059669)
+internal val GroupLabelTodayDark = Color(0xFF34D399)
+internal val GroupLabelYesterdayLight = Color(0xFF0F766E)
+internal val GroupLabelYesterdayDark = Color(0xFF2DD4BF)
+internal val GroupLabelOlderLight = Color(0xFF64748B)
+internal val GroupLabelOlderDark = Color(0xFFCBD5E1)
+
+@Composable
+fun groupLabelPinnedColor(): Color = if (isDarkSurface()) GroupLabelPinnedDark else GroupLabelPinnedLight
+
+@Composable
+fun groupLabelTodayColor(): Color = if (isDarkSurface()) GroupLabelTodayDark else GroupLabelTodayLight
+
+@Composable
+fun groupLabelYesterdayColor(): Color =
+    if (isDarkSurface()) GroupLabelYesterdayDark else GroupLabelYesterdayLight
+
+@Composable
+fun groupLabelOlderColor(): Color = if (isDarkSurface()) GroupLabelOlderDark else GroupLabelOlderLight
+
 @Composable
 fun tileShadow(): Dp = if (isDarkSurface()) 0.dp else 1.dp
 
@@ -114,3 +282,533 @@ fun tileShadow(): Dp = if (isDarkSurface()) 0.dp else 1.dp
 fun hairlineColor(): Color =
     if (isDarkSurface()) lerp(MaterialTheme.colorScheme.surface, Color.White, 0.14f)
     else Color(0xFFEFEEEA) // surfaceContainer — one warm step past the card fill
+
+// ── Card page (docs/DESIGN.md §5.1, Stitch 基线-卡片页 / 暗夜, second pull 2026-09-11) ─────────
+//
+// The drawer's own tile language, kept apart from [tileColor] on purpose: the card-page mock
+// fills its cards with warm paper-subtle and rings them in a hairline, the usage page's mock does
+// not exist yet, and the product owner ruled that the usage page keeps the old faint card until
+// it has a mock of its own. Two truths for now, one per page.
+//
+// The second pull lightened everything: the cards went from pure white to #F4F3EE, and the
+// shortcut rows left their card entirely — they are bare rows on the drawer now, separated by
+// hairlines. The status capsule is gone with the latency bands it carried.
+
+/** The drawer sheet itself: paper in light (= surface), one container step UP from the ground
+ *  in dark (= surfaceContainerLow). A literal pair so the fixture can pin it as one role. */
+internal val CardDrawerLight = Color(0xFFFAF9F5)
+internal val CardDrawerDark = Color(0xFF161A22)
+
+@Composable
+fun cardDrawerColor(): Color = if (isDarkSurface()) CardDrawerDark else CardDrawerLight
+
+/** Card fill: paper-subtle in light (NOT white — changed by the second pull), one step up in dark. */
+internal val CardTileLight = Color(0xFFF4F3EE)
+internal val CardTileDark = Color(0xFF1E232B)
+
+/**
+ * The card's hairline. The mock draws `#E3E2DF` at 60% over the paper ground; this is that blend
+ * resolved to an opaque value so the fixture can pin it, the same way the dark capsule's rgba was
+ * resolved in the first pull.
+ */
+internal val CardTileBorderLight = Color(0xFFECEBE8)
+internal val CardTileBorderDark = Color(0xFF262C35)
+
+/** Between shortcut rows. Dark is the mock's `white/5` over the drawer, resolved to opaque. */
+internal val CardDividerLight = Color(0xFFEFEEEA)
+internal val CardDividerDark = Color(0xFF21252D)
+
+/** The build-type chip's fill. The gear button carries no fill at all since the second pull. */
+internal val CardChipLight = Color(0xFFEFEEEA)
+internal val CardChipDark = Color(0xFF1E232B)
+
+/** Row icons, right-hand values and the gear: the mock's `ink-muted`, one step lighter than body ink. */
+internal val CardInkMutedLight = Color(0xFF605C54)
+internal val CardInkMutedDark = Color(0xFFA8A49C)
+
+/** The 40dp rounded tile behind the remote-node icon: paper in light, one step up in dark. */
+internal val CardIconTileLight = Color(0xFFFAF9F5)
+internal val CardIconTileDark = Color(0xFF262C35)
+internal val CardIconTileBorderLight = Color(0xFFECEBE8)
+internal val CardIconTileBorderDark = Color(0xFF31373F)
+
+/**
+ * The "checked, and you are on the newest build" dot on the 检查更新 row. Green in both tiers, as
+ * drawn. An update that IS available takes the amber graphic tier of WARN instead, so the row has
+ * one dot with two meanings and never two dots.
+ */
+val CardDotGood = Color(0xFF16A34A)
+
+/**
+ * The footer's hairline rules, which fade to transparent away from the ✦.
+ *
+ * The dark mock paints these and the tagline in COLD greys (#717684 / #8A90A0). §2.1 bans cold
+ * neutrals on warm paper — and the drawer is the same sheet in both themes — so the dark tier uses
+ * the warm `outline` instead. Recorded as a deviation in design-conformance.json.
+ */
+internal val CardFooterRuleLight = Color(0xFF777268)
+internal val CardFooterRuleDark = Color(0xFF8D897E)
+
+@Composable fun cardTileColor(): Color = if (isDarkSurface()) CardTileDark else CardTileLight
+@Composable fun cardTileBorderColor(): Color = if (isDarkSurface()) CardTileBorderDark else CardTileBorderLight
+@Composable fun cardDividerColor(): Color = if (isDarkSurface()) CardDividerDark else CardDividerLight
+@Composable fun cardChipColor(): Color = if (isDarkSurface()) CardChipDark else CardChipLight
+@Composable fun cardInkMutedColor(): Color = if (isDarkSurface()) CardInkMutedDark else CardInkMutedLight
+@Composable fun cardIconTileColor(): Color = if (isDarkSurface()) CardIconTileDark else CardIconTileLight
+@Composable fun cardIconTileBorderColor(): Color = if (isDarkSurface()) CardIconTileBorderDark else CardIconTileBorderLight
+@Composable fun cardFooterRuleColor(): Color = if (isDarkSurface()) CardFooterRuleDark else CardFooterRuleLight
+
+/** The mock's `shadow-sm` — a whisper in light, nothing in dark (the border carries it there). */
+@Composable
+fun cardTileShadow(): Dp = if (isDarkSurface()) 0.dp else 1.dp
+
+// ── Card page · theme sheet (docs/DESIGN.md §5.1, Stitch 基线-卡片页/主题设置 / 暗夜) ───────────
+//
+// Its own small family, and not a reuse of the `card*` tokens above, because the theme sheet is a
+// RAISED layer over the drawer while those describe the drawer itself. The second card-page pull
+// dropped the drawer's cards to paper-subtle #F4F3EE; the sheet mock kept white. Every value below
+// is read off the sheet mock, light for light and dark for dark.
+//
+// The layering rule the two tiers share, despite looking different: THE OPTION CARD NEVER RISES
+// ABOVE THE SHEET — its boundary is carried by the hairline. Light draws sheet and card in the
+// same white and separates them with [CardThemeBorderLight]; dark recesses the card one step under
+// the sheet and rings it. This is not §2.3's "card brighter than ground", and does not have to be:
+// the sheet is already the raised thing, so a card inside it has nowhere left to rise to.
+
+/** The sheet container. Dark happens to equal [CardTileDark]; light does not equal [CardTileLight]. */
+internal val CardThemeSheetLight = Color(0xFFFFFFFF)
+internal val CardThemeSheetDark = Color(0xFF1E232B)
+
+/** One option card. */
+internal val CardThemeOptionLight = Color(0xFFFFFFFF)
+internal val CardThemeOptionDark = Color(0xFF161A22)
+
+/** The hairline on the option card, the icon tile and the 「当前使用」 badge — one value for all three. */
+internal val CardThemeBorderLight = Color(0xFFE9E8E4)
+internal val CardThemeBorderDark = Color(0xFF2E343D)
+
+/** The 40dp rounded tile behind each option's icon. */
+internal val CardThemeIconTileLight = Color(0xFFF4F4F0)
+internal val CardThemeIconTileDark = Color(0xFF0F1217)
+
+/**
+ * The selected radio and the save button's fill: a neutral near-black / near-white, deliberately
+ * NOT the brand colour.
+ *
+ * The second exception to §1 原则3 after [FabContainerLight], and for the same reason: picking a
+ * theme is not a runtime state, and a slab of brand blue in an app whose every other accent reports
+ * one would be read as a status rather than as a choice.
+ */
+internal val CardThemeAccentLight = Color(0xFF181C24)
+internal val CardThemeAccentDark = Color(0xFFE2E0DB)
+
+/** Ink on [CardThemeAccentLight] / [CardThemeAccentDark]: 17.07:1 light, 15.71:1 dark. */
+internal val CardThemeAccentInkLight = Color(0xFFFFFFFF)
+internal val CardThemeAccentInkDark = Color(0xFF0F1217)
+
+/**
+ * The 「当前使用」 badge's fill. The light mock never drew this badge — it left the slot beside the
+ * title as an empty span — so the light value is derived from [CardChipLight], the other small
+ * neutral pill on this page. Dark is the mock's own #262C35.
+ */
+internal val CardThemeBadgeLight = Color(0xFFEFEEEA)
+internal val CardThemeBadgeDark = Color(0xFF262C35)
+
+@Composable fun cardThemeSheetColor(): Color = if (isDarkSurface()) CardThemeSheetDark else CardThemeSheetLight
+@Composable fun cardThemeOptionColor(): Color = if (isDarkSurface()) CardThemeOptionDark else CardThemeOptionLight
+@Composable fun cardThemeBorderColor(): Color = if (isDarkSurface()) CardThemeBorderDark else CardThemeBorderLight
+@Composable fun cardThemeIconTileColor(): Color = if (isDarkSurface()) CardThemeIconTileDark else CardThemeIconTileLight
+@Composable fun cardThemeAccentColor(): Color = if (isDarkSurface()) CardThemeAccentDark else CardThemeAccentLight
+@Composable fun cardThemeAccentInkColor(): Color = if (isDarkSurface()) CardThemeAccentInkDark else CardThemeAccentInkLight
+@Composable fun cardThemeBadgeColor(): Color = if (isDarkSurface()) CardThemeBadgeDark else CardThemeBadgeLight
+
+// ── 模型选择 (docs/DESIGN.md §5.17, Stitch 基线-模型选择 / 暗夜, 2026-09-12) ─────────────────────
+//
+// Its own family for the same reason `card*` and `cardTheme*` are theirs: every value below is
+// read off the model-selection mock, and that mock disagrees with the card page's about what a
+// card is filled with (#161A22 here, #1E232B there). One family per screen, no silent sharing.
+//
+// THE LIGHT TIER IS NOT THE MOCK'S. The mock draws its neutrals from Tailwind's COLD `neutral`
+// ramp — #FAFAFA / #F5F5F5 / #E5E5E5 / #A3A3A3 / #737373 — on a warm paper ground. §2.1 bans cold
+// neutrals on warm paper, and the card page already resolved this the same way. Each cold step is
+// therefore swapped for the repo's warm step of equal lightness, once, here:
+//
+//     #FAFAFA → #F4F4F0   #F5F5F5 → #EFEEEA   #E5E5E5 → #ECEBE8
+//     #A3A3A3 → #A8A29E   #737373 → #605C54   #D4D4D4 → #C9C7C2
+//
+// The DARK tier needs no such swap — the mock's dark neutrals already are this repo's ladder
+// (#161A22 = surfaceContainerLow, #1A1F27 = surfaceContainer, #1E232B = surfaceContainerHigh,
+// #262C35 = surfaceContainerHighest, #8D897E = outline, #A8A49C = onSurfaceVariant) — so it is
+// transcribed verbatim. Every swap is recorded row by row in design-conformance.json.
+//
+// The blues are NOT swapped. §2.1 bans cold NEUTRALS; a brand-blue tint is the brand colour.
+
+/** The status card and every provider card. Light is white on paper; dark recesses one step. */
+internal val ModelCardLight = Color(0xFFFFFFFF)
+internal val ModelCardDark = Color(0xFF161A22)
+
+/** The card's hairline ring. */
+internal val ModelCardBorderLight = Color(0xFFECEBE8)
+internal val ModelCardBorderDark = Color(0xFF262C35)
+
+/** Inside a card: under the title bar, between rows, above the reasoning row. */
+internal val ModelDividerLight = Color(0xFFEFEEEA)
+internal val ModelDividerDark = Color(0xFF262C35)
+
+/** A provider card's title bar — one step off the card fill, not off the ground. */
+internal val ModelBarLight = Color(0xFFF4F4F0)
+internal val ModelBarDark = Color(0xFF1A1F27)
+
+/** Recessed slots ON a card: the reasoning row, the small neutral badges, the ✕ button. */
+internal val ModelInsetLight = Color(0xFFEFEEEA)
+internal val ModelInsetDark = Color(0xFF1E232B)
+
+/** Badge text, the reasoning label, a quick-switch chip's model name. */
+internal val ModelInkMutedLight = Color(0xFF605C54)
+internal val ModelInkMutedDark = Color(0xFFA8A49C)
+
+/** The faintest step: every provider subline, the 「N 项」 count, the 固定顶部 note. */
+internal val ModelInkFaintLight = Color(0xFFA8A29E)
+internal val ModelInkFaintDark = Color(0xFF8D897E)
+
+/**
+ * The brand accent: the status card's 6dp stripe, the effort dot, the in-flight spinner.
+ *
+ * Numerically the same pair as [SpinnerLight]/[SpinnerDark] and [PillarPinnedLight]/[PillarPinnedDark]
+ * — three mocks independently landed on the same cobalt. Kept as its own pair rather than aliased,
+ * because nothing says the model sheet's accent has to move when the session list's pillar does.
+ */
+internal val ModelAccentLight = Color(0xFF2563EB)
+internal val ModelAccentDark = Color(0xFF3B82F6)
+
+/** Ink on the accent tint: the selected row's name, 「正在切换至 X」, 「恢复默认」. */
+internal val ModelAccentInkLight = Color(0xFF1D4ED8)
+internal val ModelAccentInkDark = Color(0xFF60A5FA)
+
+/** The selected row / chip: a blue tint, and the ring that carries it in both tiers. */
+internal val ModelCurrentFillLight = Color(0xFFEFF6FF)
+internal val ModelCurrentFillDark = Color(0xFF0C1A30)
+internal val ModelCurrentBorderLight = Color(0xFFBFDBFE)
+internal val ModelCurrentBorderDark = Color(0xFF3B82F6)
+
+/** The 「切换中…」 badge's fill — one step deeper than the row tint it sits on. */
+internal val ModelSwitchChipLight = Color(0xFFDBEAFE)
+internal val ModelSwitchChipDark = Color(0xFF142A4D)
+
+/**
+ * The favourite star. Amber, where this app has painted it brand blue since it shipped: the mock
+ * is explicit (`text-amber-500` / `#FBBF24`) and a blue star on a sheet whose selection state is
+ * also blue made "starred" and "in use" the same colour.
+ *
+ * The dark value is exactly `StatusTone.WARN`'s dark text step. A coincidence of two mocks, not a
+ * shared token — a star is not a warning.
+ */
+internal val ModelStarLight = Color(0xFFF59E0B)
+internal val ModelStarDark = Color(0xFFFBBF24)
+
+/** An unstarred star: present, clearly off, and not competing with the row's text. */
+internal val ModelStarOffLight = Color(0xFFC9C7C2)
+internal val ModelStarOffDark = Color(0xFF423F3A)
+
+@Composable fun modelCardColor(): Color = if (isDarkSurface()) ModelCardDark else ModelCardLight
+@Composable fun modelCardBorderColor(): Color = if (isDarkSurface()) ModelCardBorderDark else ModelCardBorderLight
+@Composable fun modelDividerColor(): Color = if (isDarkSurface()) ModelDividerDark else ModelDividerLight
+@Composable fun modelBarColor(): Color = if (isDarkSurface()) ModelBarDark else ModelBarLight
+@Composable fun modelInsetColor(): Color = if (isDarkSurface()) ModelInsetDark else ModelInsetLight
+@Composable fun modelInkMutedColor(): Color = if (isDarkSurface()) ModelInkMutedDark else ModelInkMutedLight
+@Composable fun modelInkFaintColor(): Color = if (isDarkSurface()) ModelInkFaintDark else ModelInkFaintLight
+@Composable fun modelAccentColor(): Color = if (isDarkSurface()) ModelAccentDark else ModelAccentLight
+@Composable fun modelAccentInkColor(): Color = if (isDarkSurface()) ModelAccentInkDark else ModelAccentInkLight
+@Composable fun modelCurrentFillColor(): Color = if (isDarkSurface()) ModelCurrentFillDark else ModelCurrentFillLight
+@Composable fun modelCurrentBorderColor(): Color = if (isDarkSurface()) ModelCurrentBorderDark else ModelCurrentBorderLight
+@Composable fun modelSwitchChipColor(): Color = if (isDarkSurface()) ModelSwitchChipDark else ModelSwitchChipLight
+@Composable fun modelStarColor(): Color = if (isDarkSurface()) ModelStarDark else ModelStarLight
+@Composable fun modelStarOffColor(): Color = if (isDarkSurface()) ModelStarOffDark else ModelStarOffLight
+
+/** The mock's `shadow-warm-sm` — a whisper in light, nothing in dark (the ring carries it there). */
+@Composable
+fun modelCardShadow(): Dp = if (isDarkSurface()) 0.dp else 1.dp
+
+// ── 聊天页浮层 (docs/DESIGN.md §5.4, Stitch 基线-聊天页/滑动引导胶囊 与 /我的提问 + 暗夜, 2026-09-12) ──
+//
+// Its own family, like `card*`, `cardTheme*` and `model*` before it. The reason here is sharper
+// than "one family per screen": these two mocks are the project's first **de-blued** surfaces.
+// Every other floating thing in this app says "I am the brand" with `primaryContainer`; the turn
+// pill and the prompt sheet now say it with paper, ink and a hairline instead. Aliasing them onto
+// the session list's pill tokens would re-blue them the next time that mock moves.
+//
+// Unlike the model sheet, THE LIGHT TIER NEEDED ALMOST NO WARM SWAP: these two mocks were drawn
+// on warm paper from the start (#FAF9F5 / #E5E3DC / #EBE9E2 / #F4F2EA / #EFEEEA are all warm —
+// R > G > B), so §2.1's ban on cold neutrals never bites. Two values are still nudged onto the
+// repo's existing warm rungs, and both are recorded row by row in design-conformance.json.
+//
+// The dark tier is this repo's ladder verbatim: #161A22 = surfaceContainerLow,
+// #1E232B = surfaceContainerHigh, #262C35 = surfaceContainerHighest, #2E343D = surfaceBright,
+// #0F1217 = surface, #E2E0DB = onSurface, #A8A49C = onSurfaceVariant, #8D897E = outline.
+
+/** The turn pill's body. Paper-white over the transcript in light; one rung up from it in dark. */
+internal val ChatPillFillLight = Color(0xFFFFFFFF)
+internal val ChatPillFillDark = Color(0xFF1E232B)
+
+/** The pill's hairline ring — in dark it is what separates the pill from the transcript at all. */
+internal val ChatPillBorderLight = Color(0xFFE5E3DC)
+internal val ChatPillBorderDark = Color(0xFF2E343D)
+
+/** The 20dp disc behind the jump arrow. The mock's only tinted shape left on this pill. */
+internal val ChatPillIconChipLight = Color(0xFFF4F2EA)
+internal val ChatPillIconChipDark = Color(0xFF2E343D)
+
+/** The 1dp × 15dp rule between the jump segment and the list segment. */
+internal val ChatPillDividerLight = Color(0xFFEBE9E2)
+internal val ChatPillDividerDark = Color(0xFF2E343D)
+
+/**
+ * The prompt sheet's own fill.
+ *
+ * Not `surfaceContainerLow` (what `ModalBottomSheet` defaults to): the mock puts the sheet on
+ * paper `#FAF9F5` in light and recesses it to `#161A22` in dark — two different rungs, so no one
+ * scheme role spans the pair.
+ */
+internal val ChatSheetLight = Color(0xFFFAF9F5)
+internal val ChatSheetDark = Color(0xFF161A22)
+
+/** Under the header, and between two ordinary rows. The same rule in both places, per the mock. */
+internal val ChatSheetHairlineLight = Color(0xFFEFEEEA)
+internal val ChatSheetHairlineDark = Color(0xFF262C35)
+
+/**
+ * Every neutral inset on the sheet: the 「N 条」 count chip, the two 32dp header buttons, and an
+ * ordinary row's number disc. The mock paints all three the same, so they are one token.
+ */
+internal val ChatChipLight = Color(0xFFEFEEEA)
+internal val ChatChipDark = Color(0xFF1E232B)
+
+/**
+ * The ring the DARK mock draws around each of those insets, and light does not.
+ *
+ * Dark needs it because `#1E232B` on `#161A22` is barely a step; light's `#EFEEEA` on `#FAF9F5`
+ * carries itself. Drawn only in dark — see `chatChipBorder()` — and recorded as a light/dark
+ * difference in `stitch.lock.json`'s `pairs` rather than as a conformance row, because a colour
+ * row cannot say "absent".
+ */
+internal val ChatChipBorderDark = Color(0xFF262C35)
+
+/**
+ * The 「N 条」 count chip's text.
+ *
+ * Its own pair because the mock does not use one role for both tiers: light is the `outline` step
+ * (#777268), dark is the `onSurfaceVariant` step (#A8A49C) — one rung brighter than dark `outline`.
+ * Binding both to `outline` left the dark chip a step too dim, which is exactly the kind of drift
+ * the conformance fixture exists to catch, so it gets a row there too.
+ */
+internal val ChatChipInkLight = Color(0xFF777268)
+internal val ChatChipInkDark = Color(0xFFA8A49C)
+
+/** A row's trailing chevron. Quiet enough to not compete with the prompt text beside it. */
+internal val ChatRowChevronLight = Color(0xFFA8A29E)
+internal val ChatRowChevronDark = Color(0xFF777268)
+
+/**
+ * The row you are reading.
+ *
+ * Numerically the same pair as [ChatChipLight]/[ChatChipDark] — the mock genuinely fills the
+ * current row with the same neutral as the chips, and lets the ring plus the inverted number disc
+ * carry "current" instead of a brand tint. Kept as its own name because the two move for
+ * different reasons: this one moves when "current" is restyled, that one when a chip is.
+ */
+internal val ChatCurrentFillLight = Color(0xFFEFEEEA)
+internal val ChatCurrentFillDark = Color(0xFF1E232B)
+internal val ChatCurrentBorderLight = Color(0xFFE9E8E4)
+internal val ChatCurrentBorderDark = Color(0xFF262C35)
+
+/**
+ * The current row's number disc: ink on paper, inverted.
+ *
+ * This is what replaced the brand-blue disc. It is the strongest contrast either tier has
+ * (16.2:1 light, 15.9:1 dark), which is the point — one glance finds "where am I" without the
+ * page having to spend its accent colour on it.
+ */
+internal val ChatCurrentDiscLight = Color(0xFF1B1C1A)
+internal val ChatCurrentDiscDark = Color(0xFFFFFFFF)
+internal val ChatCurrentDiscInkLight = Color(0xFFFFFFFF)
+internal val ChatCurrentDiscInkDark = Color(0xFF0F1217)
+
+/** The current row's timestamp — a step brighter than an ordinary row's, in dark only. */
+internal val ChatCurrentTimeLight = Color(0xFF777268)
+internal val ChatCurrentTimeDark = Color(0xFFC8C5BD)
+
+@Composable fun chatPillFillColor(): Color = if (isDarkSurface()) ChatPillFillDark else ChatPillFillLight
+@Composable fun chatPillBorderColor(): Color = if (isDarkSurface()) ChatPillBorderDark else ChatPillBorderLight
+@Composable fun chatPillIconChipColor(): Color = if (isDarkSurface()) ChatPillIconChipDark else ChatPillIconChipLight
+@Composable fun chatPillDividerColor(): Color = if (isDarkSurface()) ChatPillDividerDark else ChatPillDividerLight
+@Composable fun chatSheetColor(): Color = if (isDarkSurface()) ChatSheetDark else ChatSheetLight
+@Composable fun chatSheetHairlineColor(): Color = if (isDarkSurface()) ChatSheetHairlineDark else ChatSheetHairlineLight
+@Composable fun chatChipColor(): Color = if (isDarkSurface()) ChatChipDark else ChatChipLight
+@Composable fun chatChipInkColor(): Color = if (isDarkSurface()) ChatChipInkDark else ChatChipInkLight
+@Composable fun chatRowChevronColor(): Color = if (isDarkSurface()) ChatRowChevronDark else ChatRowChevronLight
+@Composable fun chatCurrentFillColor(): Color = if (isDarkSurface()) ChatCurrentFillDark else ChatCurrentFillLight
+@Composable fun chatCurrentBorderColor(): Color = if (isDarkSurface()) ChatCurrentBorderDark else ChatCurrentBorderLight
+@Composable fun chatCurrentDiscColor(): Color = if (isDarkSurface()) ChatCurrentDiscDark else ChatCurrentDiscLight
+@Composable fun chatCurrentDiscInkColor(): Color = if (isDarkSurface()) ChatCurrentDiscInkDark else ChatCurrentDiscInkLight
+@Composable fun chatCurrentTimeColor(): Color = if (isDarkSurface()) ChatCurrentTimeDark else ChatCurrentTimeLight
+
+/** The chip/disc ring the mock draws in dark only. Null in light, where the fill carries itself. */
+@Composable
+fun chatChipBorder(): BorderStroke? =
+    if (isDarkSurface()) BorderStroke(1.dp, ChatChipBorderDark) else null
+
+// ── 会话行长按操作单 (docs/DESIGN.md §5.5, Stitch 基线-会话列表页/长按下拉菜单 / 暗夜, 2026-09-12) ──
+//
+// Its own family, for the same reason `card*`, `cardTheme*` and `model*` are theirs: every value
+// below is read off the row-menu mock, and that mock does not agree with the others about what a
+// bottom sheet is filled with. Light here is the PAPER itself (#FAF9F5 = surface) with a hairline
+// top edge, where the theme sheet's mock is pure white and M3's own default is
+// surfaceContainerLow. One family per screen, no silent sharing.
+//
+// Two rgba values are resolved to their opaque composite rather than kept as an alpha, the way
+// the card page resolved its own: a fixture can pin a colour, not a blend.
+//
+//     divider light  rgba(119,114,104,0.12) over #FAF9F5 → #EAE9E4
+//     divider dark   rgba(255,255,255,0.06) over #161A22 → #24282F
+//     top edge light rgba(0,0,0,0.04)       over #FAF9F5 → #F0EFEB
+//     top edge dark  rgba(255,255,255,0.08) over #161A22 → #292C34
+//
+// Two DARK values are swapped, not transcribed — the rest of the dark tier already is this repo's
+// warm ladder (#161A22 surfaceContainerLow, #262C35 surfaceContainerHighest, #E2E0DB onSurface,
+// #A8A49C onSurfaceVariant, #FFB4AB error) and is copied verbatim:
+//
+//     handle    #3A4049 → #423F3A   (cold grey; §2.1 bans cold neutrals, = outlineVariant dark)
+//     ink faint #777268 → #8D897E   (the mock reached for the LIGHT tier's outline, = outline dark)
+//
+// Both swaps are recorded row by row in design-conformance.json.
+
+/** The sheet ground. Light is the page's own paper; only the top edge separates them. */
+internal val RowMenuSheetLight = Color(0xFFFAF9F5)
+internal val RowMenuSheetDark = Color(0xFF161A22)
+
+/** The hairline along the sheet's top edge — what keeps the light sheet off the page behind it. */
+internal val RowMenuSheetBorderLight = Color(0xFFF0EFEB)
+internal val RowMenuSheetBorderDark = Color(0xFF292C34)
+
+/** The 36×4dp grab bar. */
+internal val RowMenuHandleLight = Color(0xFFC9C7C2)
+internal val RowMenuHandleDark = Color(0xFF423F3A)
+
+/** The type chip's fill, and the ✕ button's. */
+internal val RowMenuChipLight = Color(0xFFEFEEEA)
+internal val RowMenuChipDark = Color(0xFF262C35)
+
+/** The type chip's 1dp stroke — what keeps a #EFEEEA chip off #FAF9F5 paper at 1.05:1. */
+internal val RowMenuChipBorderLight = Color(0xFFE0DEDA)
+internal val RowMenuChipBorderDark = Color(0xFF373D45)
+
+/** The type chip's text. The mock puts light on the variant tier and dark on the full one. */
+internal val RowMenuChipInkLight = Color(0xFF494641)
+internal val RowMenuChipInkDark = Color(0xFFE2E0DB)
+
+/** Under the header, and above the delete row. */
+internal val RowMenuDividerLight = Color(0xFFEAE9E4)
+internal val RowMenuDividerDark = Color(0xFF24282F)
+
+/** Trailing hints, the trailing project value, and its chevron. */
+internal val RowMenuInkFaintLight = Color(0xFF777268)
+internal val RowMenuInkFaintDark = Color(0xFF8D897E)
+
+/** The ✕ glyph. */
+internal val RowMenuCloseInkLight = Color(0xFF777268)
+internal val RowMenuCloseInkDark = Color(0xFFA8A49C)
+
+@Composable fun rowMenuSheetColor(): Color = if (isDarkSurface()) RowMenuSheetDark else RowMenuSheetLight
+@Composable fun rowMenuSheetBorderColor(): Color = if (isDarkSurface()) RowMenuSheetBorderDark else RowMenuSheetBorderLight
+@Composable fun rowMenuHandleColor(): Color = if (isDarkSurface()) RowMenuHandleDark else RowMenuHandleLight
+@Composable fun rowMenuChipColor(): Color = if (isDarkSurface()) RowMenuChipDark else RowMenuChipLight
+@Composable fun rowMenuChipBorderColor(): Color = if (isDarkSurface()) RowMenuChipBorderDark else RowMenuChipBorderLight
+@Composable fun rowMenuChipInkColor(): Color = if (isDarkSurface()) RowMenuChipInkDark else RowMenuChipInkLight
+@Composable fun rowMenuDividerColor(): Color = if (isDarkSurface()) RowMenuDividerDark else RowMenuDividerLight
+@Composable fun rowMenuInkFaintColor(): Color = if (isDarkSurface()) RowMenuInkFaintDark else RowMenuInkFaintLight
+@Composable fun rowMenuCloseInkColor(): Color = if (isDarkSurface()) RowMenuCloseInkDark else RowMenuCloseInkLight
+
+// ── 聊天内搜索条 (docs/DESIGN.md §5.4, Stitch 基线-聊天页/搜索 与 /暗夜 与 /无内容状态, 2026-09-12) ──
+//
+// Its own family, same rule as every other screen's: the search mock does not agree with the
+// prompt-sheet mock about what a neutral inset is filled with. Light here is #F5F3ED — one rung
+// ABOVE [ChatChipLight]'s #EFEEEA and below the paper, a field you type into rather than a chip
+// you read. Dark lands on #1E232B, which IS [ChatChipDark]; the two are kept apart by name because
+// they move for different reasons, and the dark ring around the field is literally `chatChipBorder()`
+// (the mock draws the same 1dp #262C35 hairline the sheet's insets get, and light draws none).
+//
+// The DARK mock could not be downloaded as HTML — its file entry sits in Stitch's `stitch_files`
+// store, which is not anonymously readable, unlike every other screen's. Dark values below were
+// sampled from the full-size (780×1768) screenshot instead; see stitch.lock.json for the method
+// and for which values are literal reads versus swaps.
+
+/** The field itself. Light is a rung above the sheet chip; dark is the same neutral inset. */
+internal val ChatSearchFieldLight = Color(0xFFF5F3ED)
+internal val ChatSearchFieldDark = Color(0xFF1E232B)
+
+/**
+ * The hairline between the query and the counter, inside the field.
+ *
+ * Light resolves the mock's `border-paper-border/80` over the field fill rather than keeping an
+ * alpha — a fixture pins a colour, not a blend. Dark's measured #3A4049 is a COLD grey and is
+ * swapped for the warm ladder's `outlineVariant`, exactly as the row-menu's handle was.
+ */
+internal val ChatSearchDividerLight = Color(0xFFE7E4DB)
+internal val ChatSearchDividerDark = Color(0xFF423F3A)
+
+/**
+ * The two navigation arrows, when there is something to navigate.
+ *
+ * Its own pair because the mocks answer differently and both answers are right for their tier:
+ * light paints them the brand blue, dark paints them plain `onSurface`. Same shape of decision as
+ * [ChatChipInkLight]/[ChatChipInkDark] — binding both tiers to one scheme role would overrule one
+ * of the two mocks. Disabled drops to [ChatSearchInkFaintLight]/[ChatSearchInkFaintDark].
+ */
+internal val ChatSearchArrowLight = Color(0xFF004AC6)
+internal val ChatSearchArrowDark = Color(0xFFE2E0DB)
+
+/**
+ * The hairline under the bar.
+ *
+ * The ordinary chat top bar has none — this one is the mock's, and it earns its keep: while
+ * search is open the top of the screen is a different mode, and the line is what says so when
+ * the transcript behind it has not moved.
+ */
+internal val ChatSearchHairlineLight = Color(0xFFECEAE2)
+internal val ChatSearchHairlineDark = Color(0xFF262C35)
+
+/** `/N`, and the glyph in the field's own clear button. The quietest tier the bar uses. */
+internal val ChatSearchInkFaintLight = Color(0xFFA8A29E)
+internal val ChatSearchInkFaintDark = Color(0xFF8D897E)
+
+/**
+ * The clear button's disc. Light resolves the mock's `bg-hermes-dark/8` over the field fill;
+ * dark is a literal read off the screenshot, and needs no warm swap — it sits on the same
+ * slightly cool obsidian ladder (#1E232B / #262C35 / #2E343D) this repo already transcribed.
+ */
+internal val ChatSearchClearDiscLight = Color(0xFFE4E2DC)
+internal val ChatSearchClearDiscDark = Color(0xFF343940)
+
+/**
+ * Every hit EXCEPT the one the counter points at, and the one place in this repo where a pair
+ * holds the SAME value twice.
+ *
+ * Both mocks paint the marks identically — a pale blue sticker with dark blue ink — so the dark
+ * tier is not a darkened variant of the light one, it is the light one. That is deliberate in the
+ * mock: a hit has to read as an overlay ON the text rather than as part of the theme, and it is
+ * the reason these survived de-blueing (§5.4: 常驻中性 / 反馈用品牌色).
+ *
+ * The focused hit is NOT here: HG-45 replaced the mock's #A6C8FF current tier with a solid brand
+ * fill taken straight from the scheme, because half a step of blue away from this one could not be
+ * told apart when both were on screen. Ink is carried explicitly rather than left to `onSurface`,
+ * which in dark would put #E2E0DB on this at 1.6:1 — the least readable text on the screen.
+ */
+internal val ChatSearchHitOther = Color(0xFFD6E4FF)
+internal val ChatSearchHitOtherInk = Color(0xFF173B8A)
+
+@Composable fun chatSearchFieldColor(): Color = if (isDarkSurface()) ChatSearchFieldDark else ChatSearchFieldLight
+@Composable fun chatSearchDividerColor(): Color = if (isDarkSurface()) ChatSearchDividerDark else ChatSearchDividerLight
+@Composable fun chatSearchInkFaintColor(): Color = if (isDarkSurface()) ChatSearchInkFaintDark else ChatSearchInkFaintLight
+@Composable fun chatSearchArrowColor(): Color = if (isDarkSurface()) ChatSearchArrowDark else ChatSearchArrowLight
+@Composable fun chatSearchHairlineColor(): Color = if (isDarkSurface()) ChatSearchHairlineDark else ChatSearchHairlineLight
+@Composable fun chatSearchClearDiscColor(): Color = if (isDarkSurface()) ChatSearchClearDiscDark else ChatSearchClearDiscLight

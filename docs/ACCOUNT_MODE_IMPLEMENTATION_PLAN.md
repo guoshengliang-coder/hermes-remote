@@ -10,7 +10,10 @@ Expansion note: this plan preserves the original Google-only, one-active-Mac V1 
 history. The accepted forward plan for email OTP, multiple owned Macs, cross-account device sharing,
 the Web account center, and Desktop clean-machine bootstrap is
 `ACCOUNT_PLATFORM_EXPANSION.md`. Those additions are capability-gated and do not retroactively alter
-the completed I0-I3A evidence.
+the completed I0-I3A evidence. Its 2026-09-13 update makes the post-E9 sequence explicit: E10 ships
+the Desktop restart-health correction, E11 admits multiple owned Mac/Hermes terminals, E12 admits
+whole-terminal sharing from owner account B to grantee account A, and E13 closes the combined
+physical and distribution gates.
 
 Rollout update (2026-09-07): the original Google-first release order in this historical plan is
 superseded. The first account release uses email OTP only; Google and Apple move to a later provider

@@ -3,7 +3,9 @@ package com.hermes.client.domain
 import com.hermes.client.data.network.MessageDto
 import com.hermes.client.data.network.SessionDto
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MappersTest {
@@ -58,6 +60,123 @@ class MappersTest {
 
         assertEquals("图如下：\n架构图", parsed.text)
         assertEquals("https://cdn.example.com/diagram.png", parsed.images.single().sourceUrl)
+    }
+
+    /**
+     * HG-25. The desktop renders `PR ![](…/gh.png) #30332` inside a table cell with the GitHub mark
+     * in place. On Android the mark vanished, because the rule that hoists an assistant's images
+     * into the message's image grid was context-blind: it deleted the markup from the cell and
+     * filed a 16px favicon as a full-width card above the answer. An image sharing its line with
+     * text is punctuation, and belongs where the author put it.
+     */
+    @Test fun an_image_inside_a_table_cell_stays_in_the_prose_and_is_not_hoisted() {
+        val parsed = parseMessageContent(
+            """
+                | 提案 | 上限 |
+                |---|---|
+                | PR ![](https://github.githubassets.com/gh.png) #30332 | 8,000 |
+            """.trimIndent(),
+        )
+
+        assertTrue(
+            "the cell must keep its image markup, got: ${parsed.text}",
+            parsed.text.contains("![](https://github.githubassets.com/gh.png)"),
+        )
+        assertTrue("and it must not become a card, got ${parsed.images}", parsed.images.isEmpty())
+    }
+
+    @Test fun an_image_mid_sentence_stays_in_the_prose() {
+        val parsed = parseMessageContent("构建状态 ![绿](https://ci.example.com/ok.svg) 一切正常。")
+
+        assertEquals("构建状态 ![绿](https://ci.example.com/ok.svg) 一切正常。", parsed.text)
+        assertTrue(parsed.images.isEmpty())
+    }
+
+    /**
+     * The other half of the same rule: an image that IS the content still becomes a card, and its
+     * markup still collapses to the alt text, exactly as before.
+     */
+    @Test fun an_image_alone_on_its_line_is_still_hoisted_into_the_image_grid() {
+        val parsed = parseMessageContent("结果：\n![图一](https://cdn.example.com/a.png)\n![图二](https://cdn.example.com/b.png)")
+
+        assertEquals("结果：\n图一\n图二", parsed.text)
+        assertEquals(
+            listOf("https://cdn.example.com/a.png", "https://cdn.example.com/b.png"),
+            parsed.images.map { it.sourceUrl },
+        )
+    }
+
+    /**
+     * Only HTTPS is fetchable, so anything else must collapse to the alt text rather than reach the
+     * renderer as an image it is guaranteed to fail — which drew an empty box where a word belonged.
+     */
+    @Test fun an_image_that_can_never_be_fetched_collapses_to_its_alt_text() {
+        assertEquals(
+            "状态 绿 一切正常。",
+            parseMessageContent("状态 ![绿](http://ci.example.com/ok.svg) 一切正常。").text,
+        )
+        assertEquals("图 示意图", parseMessageContent("图 ![示意图](data:image/png;base64,AAAA)").text)
+        assertTrue(parseMessageContent("图 ![示意图](data:image/png;base64,AAAA)").images.isEmpty())
+    }
+
+    /**
+     * The bug the AST rewrite exists for, and the third of its family after HG-23 and HG-25: the
+     * attachment rules were regexes over the whole message, and a regex cannot see that it is
+     * standing inside a fenced example. An assistant teaching Markdown syntax had its own example
+     * rewritten underneath it — `![架构图](…)` became the bare word 架构图 — while the message grew
+     * an image card and a downloadable file the user was never offered. The file card even offered
+     * to fetch a path out of the example.
+     */
+    @Test fun markdown_inside_a_code_fence_is_neither_rewritten_nor_turned_into_an_attachment() {
+        val raw = """
+            给你一个 Markdown 例子：
+
+            ```markdown
+            ![架构图](https://cdn.example.com/diagram.png)
+            [报告](/Users/me/report.pdf)
+            ```
+
+            照着写就行。
+        """.trimIndent()
+
+        val parsed = parseMessageContent(raw)
+
+        assertEquals("the fenced example must survive verbatim", raw, parsed.text)
+        assertTrue("no phantom image card, got ${parsed.images}", parsed.images.isEmpty())
+        assertTrue("no phantom file card, got ${parsed.files}", parsed.files.isEmpty())
+    }
+
+    /** Same rule at the smaller grain: a code span is content too. */
+    @Test fun markdown_inside_a_code_span_is_left_alone() {
+        val raw = "行内写法是 `![alt](https://cdn.example.com/a.png)`，注意感叹号。"
+
+        val parsed = parseMessageContent(raw)
+
+        assertEquals(raw, parsed.text)
+        assertTrue(parsed.images.isEmpty())
+    }
+
+    /**
+     * And the rule does still fire outside the fence in the same message — the fix is context, not
+     * a blanket retreat.
+     */
+    @Test fun an_image_outside_the_fence_is_still_hoisted_when_the_same_message_has_one_inside() {
+        val raw = """
+            ```markdown
+            ![例子](https://cdn.example.com/example.png)
+            ```
+
+            ![真图](https://cdn.example.com/real.png)
+        """.trimIndent()
+
+        val parsed = parseMessageContent(raw)
+
+        assertEquals(
+            listOf("https://cdn.example.com/real.png"),
+            parsed.images.map { it.sourceUrl },
+        )
+        assertTrue("the example keeps its markup", parsed.text.contains("![例子](https://cdn.example.com/example.png)"))
+        assertFalse("the real one leaves the prose", parsed.text.contains("![真图]"))
     }
 
     @Test fun image_generate_natural_language_path_becomes_remote_image() {

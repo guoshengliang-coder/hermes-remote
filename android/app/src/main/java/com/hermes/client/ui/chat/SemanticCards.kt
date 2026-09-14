@@ -59,7 +59,6 @@ import com.hermes.client.domain.ToolCall
 import com.hermes.client.domain.ToolStatus
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
-import com.hermes.client.ui.theme.LocalToolCallTechnical
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -294,15 +293,10 @@ internal fun SemanticToolCard(tool: ToolCall, completed: Boolean = false) {
     }
     val language = LocalAppLanguage.current
     val clipboard = LocalClipboardManager.current
-    val technical = LocalToolCallTechnical.current
     var expanded by rememberSaveable(tool.id) { mutableStateOf(false) }
-    // A tool-output hit in the current turn opens the card so the hit is visible (see ThinkingCard).
-    val autoExpand = shouldAutoExpand(LocalChatSearch.current, LocalTurnIsCurrentHit.current, SearchSource.TOOL, tool.output)
-    androidx.compose.runtime.LaunchedEffect(autoExpand) { if (autoExpand) expanded = true }
     val hasOutput = tool.output.isNotBlank()
     val running = tool.status == ToolStatus.RUNNING
     val failed = !running && (tool.exitCode ?: 0) != 0
-    val outputSize = remember(tool.id, tool.output.length) { tool.output.toByteArray().size }
     val borderColor = when {
         failed -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.4f)
         else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
@@ -331,7 +325,6 @@ internal fun SemanticToolCard(tool: ToolCall, completed: Boolean = false) {
                         running -> localized(language, "运行中…", "Running…")
                         failed -> "exit ${tool.exitCode}"
                         tool.durationMs != null -> formatToolDuration(tool.durationMs)
-                        technical && hasOutput -> formatPayloadSize(outputSize)
                         else -> localized(language, "已完成", "Completed")
                     },
                     style = MaterialTheme.typography.labelSmall,
@@ -376,8 +369,9 @@ internal fun SemanticToolCard(tool: ToolCall, completed: Boolean = false) {
                         val body = tool.output
                         if (expanded && body.isNotBlank()) {
                             SelectionContainer {
+                                // Not search-marked: tool output is out of the search scope (HG-45).
                                 Text(
-                                    text = searchHighlighted(body.take(12_000)),
+                                    text = body.take(12_000),
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         fontFamily = FontFamily.Monospace,
                                         fontSize = 12.sp,
@@ -742,9 +736,6 @@ internal fun ToolTimelineCard(
 ) {
     val language = LocalAppLanguage.current
     var cardExpanded by rememberSaveable("timeline-card-$stateKey") { mutableStateOf(!completed) }
-    val searchable = remember(tools) { tools.joinToString("\n") { it.name + " " + it.output } }
-    val autoExpand = shouldAutoExpand(LocalChatSearch.current, LocalTurnIsCurrentHit.current, SearchSource.TOOL, searchable)
-    androidx.compose.runtime.LaunchedEffect(autoExpand) { if (autoExpand) cardExpanded = true }
     val failed = tools.count { (it.exitCode ?: 0) != 0 }
     // A completed timeline that is folded shut carries NO container: it is one quiet line, not a
     // card (docs/DESIGN.md §5.4, HG-15). Folding alone was not enough — the bordered surface kept

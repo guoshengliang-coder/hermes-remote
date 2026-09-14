@@ -50,9 +50,24 @@ test("component builder creates source-pinned relocatable Hermes and Connector a
   assert.match(hermesNames, /runtime\/python\/bin\/python3\.11/);
   assert.match(hermesNames, /runtime\/read-private-session-token\.py/);
   assert.match(hermesNames, /runtime\/site-packages\/dependency\.py/);
+  // The Hermes sources must be reachable without PYTHONPATH: upstream strips the repo root from
+  // every child process it spawns, and the slash worker is one (HG-28). The behavioural proof
+  // lives in desktop-managed-python-path.test.mjs; this only guards the file's presence.
+  assert.match(hermesNames, /runtime\/python\/lib\/python3\.11\/site-packages\/_hermes_go_managed_paths\.pth/);
   assert.doesNotMatch(hermesNames, /\.git|\.env|private\.pem|node_modules/);
 
   run("/usr/bin/tar", ["-xzf", result.artifacts[0].path, "-C", extracted]);
+  const sitePath = await readFile(
+    path.join(extracted, "runtime/python/lib/python3.11/site-packages/_hermes_go_managed_paths.pth"),
+    "utf8",
+  );
+  // Derived from sys.prefix at run time, never baked in: the Desktop extracts the release to a
+  // path the build machine never sees.
+  assert.match(sitePath, /sys\.prefix/);
+  assert.match(sitePath, /"app"/);
+  assert.equal(sitePath.startsWith("import "), true);
+  assert.equal(sitePath.trimEnd().includes("\n"), false, "a .pth is one line; a second line is data, not code");
+
   const hermesLauncher = await readFile(path.join(extracted, "bin/hermes-server"), "utf8");
   const tokenReader = await readFile(path.join(extracted, "runtime/read-private-session-token.py"), "utf8");
   assert.match(hermesLauncher, /HERMES_DASHBOARD_SESSION_TOKEN/);
@@ -71,6 +86,20 @@ test("component builder rejects a symlink in an allowlisted runtime tree", async
   const fixture = await makeFixture(t);
   await symlink("dependency.py", path.join(fixture.sitePackages, "linked.py"));
   await assert.rejects(build(fixture), isCause("component_input_unsafe"));
+  assert.deepEqual(await readdir(fixture.output), []);
+});
+
+test("component builder rejects a Connector archive that drops historical hex tokens", async (t) => {
+  const fixture = await makeFixture(t, {
+    connectorTokenSource: `import { readFileSync } from "node:fs";
+export function loadHermesSessionToken({ file }) {
+  const token = readFileSync(file, "utf8");
+  if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error("malformed");
+  return token;
+}
+`,
+  });
+  await assert.rejects(build(fixture), isCause("connector_token_contract_invalid"));
   assert.deepEqual(await readdir(fixture.output), []);
 });
 
@@ -93,7 +122,7 @@ async function build(fixture) {
   });
 }
 
-async function makeFixture(t) {
+async function makeFixture(t, options = {}) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-component-test-")));
   t.after(() => rm(root, { recursive: true, force: true }));
   const repo = path.join(root, "repo");
@@ -108,7 +137,7 @@ async function makeFixture(t) {
   await mkdir(sitePackages);
   await mkdir(output);
 
-  await writeFixtureRepo(repo);
+  await writeFixtureRepo(repo, options.connectorTokenSource);
   await writeFixtureHermes(hermes);
   await writeFile(path.join(python, "bin/python3.11"), "fake mach-o", { mode: 0o700 });
   await writeFile(path.join(python, "lib/python3.11/os.py"), "# stdlib\n");
@@ -136,7 +165,13 @@ async function makeFixture(t) {
   return { root, repo, hermes, python, sitePackages, output, configPath };
 }
 
-async function writeFixtureRepo(repo) {
+async function writeFixtureRepo(repo, connectorTokenSource = `import { readFileSync } from "node:fs";
+export function loadHermesSessionToken({ file }) {
+  const token = readFileSync(file, "utf8");
+  if (!/^(?:[A-Za-z0-9_-]{43}|[0-9a-f]{64})$/.test(token)) throw new Error("malformed");
+  return token;
+}
+`) {
   await mkdir(path.join(repo, "connector/dist"), { recursive: true });
   await mkdir(path.join(repo, "protocol/dist"), { recursive: true });
   await mkdir(path.join(repo, "node_modules/ws/lib"), { recursive: true });
@@ -144,6 +179,7 @@ async function writeFixtureRepo(repo) {
     name: "@hermes-remote/connector", version: "0.1.2", type: "module",
   }));
   await writeFile(path.join(repo, "connector/dist/index.js"), "console.log('connector');\n");
+  await writeFile(path.join(repo, "connector/dist/hermes-session-token.js"), connectorTokenSource);
   await writeFile(path.join(repo, "connector/dist/index.test.js"), "throw new Error('do not ship');\n");
   await writeFile(path.join(repo, "connector/dist/index.js.map"), "{}\n");
   await writeFile(path.join(repo, "connector/dist/index.d.ts"), "export {};\n");

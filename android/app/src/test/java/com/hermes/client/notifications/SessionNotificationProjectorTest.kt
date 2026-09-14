@@ -59,6 +59,34 @@ class SessionNotificationProjectorTest {
         assertNull(projectSessionNotification(input(SessionRunPhase.IDLE), on))
     }
 
+    @Test fun only_the_needs_you_kinds_ride_the_attention_channel() {
+        // HermesNotifier.cancelSessionCards() decides what a cold start keeps by channel id: the
+        // shade is all it can see, so "is this card asking the user for something" has to be
+        // readable from the channel alone. Moving a kind off this mapping would silently start
+        // deleting approvals again on every cold start (HG-31).
+        val needsUser = listOf(
+            projectSessionNotification(input(SessionRunPhase.WAITING_APPROVAL, approval = approval()), on)!!,
+            projectSessionNotification(input(SessionRunPhase.WAITING_CLARIFICATION, clarify = clarify("A", "B")), on)!!,
+            projectSessionNotification(input(SessionRunPhase.WAITING_ATTENTION), on)!!,
+        )
+        needsUser.forEach {
+            assertTrue(it.kind?.needsUser == true)
+            assertEquals(Notif.CHANNEL_ATTENTION, it.channelId)
+        }
+
+        val rest = listOf(
+            projectSessionNotification(input(SessionRunPhase.THINKING), on)!!,
+            projectSessionNotification(input(SessionRunPhase.RECONNECTING), on)!!,
+            projectSessionNotification(input(SessionRunPhase.COMPLETED_UNREAD, lastAssistantText = "done"), on)!!,
+            projectSessionNotification(input(SessionRunPhase.FAILED), on)!!,
+            projectSessionNotification(input(SessionRunPhase.INTERRUPTED), on)!!,
+        )
+        rest.forEach {
+            assertFalse(it.kind?.needsUser == true)
+            assertNotEquals(Notif.CHANNEL_ATTENTION, it.channelId)
+        }
+    }
+
     @Test fun every_kind_of_the_same_session_shares_one_id_and_route() {
         val ids = listOf(
             input(SessionRunPhase.THINKING),

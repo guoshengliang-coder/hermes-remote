@@ -13,6 +13,7 @@ import mockwebserver3.MockWebServer
 import mockwebserver3.junit4.MockWebServerRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -398,6 +399,57 @@ class HermesRestApiTest {
         assertTrue("body should contain profile name", body.contains("\"personal\""))
     }
 
+    /**
+     * A cron action that fails carries the server's own code out (HG-51).
+     *
+     * It used to throw `HermesApiException(code, "trigger failed")` with `errorCode` null and the
+     * body unread, so the screen had nothing to show but a hardcoded `HR-RPC-001` and the user had
+     * nothing to report.
+     */
+    @Test fun a_refused_cron_trigger_carries_the_servers_stable_code() = runTest {
+        serverRule.server.enqueue(
+            MockResponse.Builder().code(409).body(
+                """{"error":{"code":"HR-BIND-009","message":"Choose which Mac to use before opening this content.","retryable":false,"recoveryAction":"select_device"}}"""
+            ).build(),
+        )
+
+        val failure = runCatching { api(serverRule.server).triggerCron("job-1") }.exceptionOrNull()
+
+        val error = failure as HermesApiException
+        assertEquals(409, error.code)
+        assertEquals("HR-BIND-009", error.errorCode)
+
+        val recorded = serverRule.server.takeRequest()
+        assertEquals("POST", recorded.method)
+        assertTrue(recorded.target.startsWith("/api/cron/jobs/job-1/trigger"))
+    }
+
+    /**
+     * No envelope is the ordinary case for a plain Hermes error page, and it must not be mistaken
+     * for a code. `errorCode` stays null so the caller falls back to its own registered code rather
+     * than showing the user a scrap of HTML.
+     */
+    @Test fun a_cron_trigger_failure_without_an_envelope_reports_no_stable_code() = runTest {
+        serverRule.server.enqueue(
+            MockResponse.Builder().code(404).body("<html>Not Found</html>").build(),
+        )
+
+        val failure = runCatching { api(serverRule.server).triggerCron("job-1") }.exceptionOrNull()
+
+        val error = failure as HermesApiException
+        assertEquals(404, error.code)
+        assertNull(error.errorCode)
+    }
+
+    @Test fun a_successful_cron_trigger_raises_nothing() = runTest {
+        serverRule.server.enqueue(MockResponse.Builder().code(200).body("{}").build())
+
+        api(serverRule.server).triggerCron("job-1", profile = "default")
+
+        val recorded = serverRule.server.takeRequest()
+        assertTrue(recorded.target.contains("profile=default"))
+    }
+
     private class MemoryAccountStore(private var account: AccountSession?) : AccountSessionStore {
         private var reauthenticationRequired = false
         private var explicitLegacy = false
@@ -408,13 +460,13 @@ class HermesRestApiTest {
             reauthenticationRequired = false
         }
         override fun clearAccountSession() { account = null }
-        override fun clearAccountSession(requireReauthentication: Boolean) {
+        override fun clearAccountSession(requireReauthentication: Boolean, reason: String?) {
             account = null
             reauthenticationRequired = requireReauthentication
             explicitLegacy = false
         }
         override fun accountReauthenticationRequired() = reauthenticationRequired
-        override fun setAccountReauthenticationRequired(required: Boolean) {
+        override fun setAccountReauthenticationRequired(required: Boolean, reason: String?) {
             reauthenticationRequired = required
         }
         override fun explicitLegacyConnectionSelected() = explicitLegacy

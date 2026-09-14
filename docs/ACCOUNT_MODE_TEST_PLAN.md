@@ -396,6 +396,32 @@ Sequence:
 The record includes timestamps, versions, hashes, status codes, safe correlation IDs, and pass/fail;
 it never contains real tokens, provider proofs, Cookies, passwords, private keys, or message content.
 
+### 8.1 Post-E9 staged acceptance
+
+Do not treat the physical sequence above as one all-or-nothing flag change. Run and record these
+gates in order:
+
+1. **E10 Desktop stabilization:** package Desktop 0.2.10/build 13 with managed release 0.3.4, verify
+   that app replacement does not restart managed services, and prove that an intentional Connector
+   restart advances Cloud `endToEnd.checkedAt` for the same binding/generation.
+2. **E11 multiple owned terminals:** enable only multi-device discovery/selection and explicit
+   device-scoped routing. Add a second owned Mac without changing the first, verify conversation
+   affinity and independent restart behavior, then exercise the three-owned/fourth-rejected race.
+3. **E12-A sharing prerequisites:** prove the email identity-management and HTTPS recipient-acceptance
+   surface, CSRF boundary, delivery monitoring, and capability-off rollback before enabling sharing.
+4. **E12-B account B to account A sharing:** B invites A to one named owned Mac, A accepts as
+   `operator`, and A uses REST, WebSocket, normal prompt, `/model`, `/compact`, and file traffic.
+   Verify A cannot manage or delegate B's terminal. Test B revoke and A leave independently; each
+   must close only A's live socket within five seconds and preserve B's traffic.
+5. **E13 combined resilience:** repeat with two phones and two Macs across client, Connector, host,
+   Gateway, provider, and network restarts/outages, then run explicit rollback and forward recovery.
+
+Before the second owned binding commits, the E11 rollout may restore the exact single-terminal flag
+and route state. After it commits, flag rollback is blocked until the owner-authorized canary binding
+is removed or forward recovery completes. Before a share grant exists, E12 rollback cancels the
+canary invitation. After acceptance, rollback first revokes the canary grant and proves socket
+closure; it must not leave an active grant hidden behind a disabled capability.
+
 ## 9. Release gates
 
 - **R0 Contract:** API, data, threat, error, migration, and test contracts reviewed.
@@ -403,7 +429,11 @@ it never contains real tokens, provider proofs, Cookies, passwords, private keys
 - **R2 Client alpha:** Desktop and Android state/navigation/security tests pass against dev backend.
 - **R3 Migration:** every fault-injection boundary returns to a known state; exactly-one-Connector
   invariant passes.
-- **R4 Physical:** Mac mini + two-phone + second-Mac acceptance passes.
+- **R4a Physical single-terminal:** Mac mini + two-phone restart-health acceptance passes.
+- **R4b Physical multi-terminal:** second/third owned Mac selection, affinity, capacity, and
+  independent-restart acceptance passes.
+- **R4c Physical sharing:** account B → account A invite/use/revoke/leave acceptance passes without
+  owner or unrelated-client interruption.
 - **R5 Artifact:** versioned APK and Desktop package gates pass; docs and rollback are current.
 - **R6 Production:** separately authorized staged enablement succeeds with monitored rollback signals.
 

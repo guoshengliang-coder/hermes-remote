@@ -8,6 +8,7 @@ import com.hermes.client.data.network.HermesApiException
 import com.hermes.client.data.network.GatewayRpcException
 import com.hermes.client.data.network.ProfileDto
 import com.hermes.client.data.network.str
+import com.hermes.client.data.progress.SessionRunPhase
 import com.hermes.client.data.progress.SessionRuntimeKey
 import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.progress.ManualHistoryResult
@@ -17,6 +18,7 @@ import com.hermes.client.data.repository.ChatMediaRepository
 import com.hermes.client.data.repository.ChatFileRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.ProfileRepository
+import com.hermes.client.data.repository.SessionReadStore
 import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
@@ -66,6 +68,7 @@ class ChatViewModel @Inject constructor(
     private val profileRepo: ProfileRepository,
     private val profileManager: ProfileManager,
     private val favoritesStore: com.hermes.client.data.repository.ModelFavoritesStore,
+    private val recentsStore: com.hermes.client.data.repository.ModelRecentsStore,
     private val pendingShareStore: com.hermes.client.share.PendingShareStore,
     private val tts: com.hermes.client.data.tts.TextToSpeechController,
     private val promptStore: com.hermes.client.data.repository.PromptStore,
@@ -76,8 +79,21 @@ class ChatViewModel @Inject constructor(
     @param:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
     private val projectPrefs: com.hermes.client.data.repository.ProjectPrefsStore,
     private val projectCatalog: com.hermes.client.data.repository.ProjectCatalog,
-    private val tools: com.hermes.client.data.repository.ToolsRepository,
     private val botSendNotice: com.hermes.client.data.repository.BotSendNoticeStore,
+    private val draftStore: com.hermes.client.data.repository.DraftSnapshot,
+    /**
+     * Messages that were submitted and refused (HG-49). Distinct from [draftStore]: a draft was
+     * never sent, this one was and upstream said no, so it carries the code that says why and
+     * whether trying again can work.
+     */
+    private val unsentStore: com.hermes.client.data.repository.UnsentSnapshot,
+    /**
+     * Application scope, for the draft write only (HG-41). It MUST NOT be `viewModelScope`: the
+     * draft has to be saved precisely when the user leaves, and leaving pops the chat destination,
+     * which clears this ViewModel and cancels that scope — the debounced write would be cancelled
+     * exactly in the case it exists for. Nothing else here may use it.
+     */
+    private val draftScope: kotlinx.coroutines.CoroutineScope,
     private val accountSessions: AccountSessionManager? = null,
     private val conversationDevices: ConversationDeviceStore? = null,
 ) : ViewModel() {
@@ -92,15 +108,67 @@ class ChatViewModel @Inject constructor(
     private companion object {
         /** How long a manual refresh waits for Hermes' session.info after probing an active run. */
         const val MANUAL_REFRESH_PROBE_SETTLE_MS = 1_500L
+
+        /**
+         * Debounce for the draft write (HG-41). Long enough that ordinary typing coalesces into
+         * one whole-file rewrite, short enough that it has landed by the time a back press can
+         * follow the keystroke that triggered it.
+         */
+        const val DRAFT_SAVE_DEBOUNCE_MS = 400L
         const val LIVE_HANDLE_TIMEOUT_MS = 25_000L
         const val STALE_SESSION_CODE = 4001
+
+        /**
+         * Upstream's durable lookup missed: `session.resume` cannot find this conversation in the
+         * profile's state.db at all. Unlike [STALE_SESSION_CODE] — a live handle that merely went
+         * stale and resumes into a fresh one — this one is terminal: resuming again can only fail.
+         */
+        const val SESSION_NOT_FOUND_CODE = 4007
+
+        /**
+         * Another surface already owns this conversation, so upstream refuses our `prompt.submit`:
+         * only one client at a time may run a session. Not the same as 4009 "busy" — that is the
+         * session running a turn of its own — and not terminal either: the moment the other side
+         * lets go, the very same send succeeds. So this one keeps its retry, and only has to say
+         * why (see [AppErrorCode.SESSION_OWNED_ELSEWHERE]).
+         *
+         * We classify on the number alone. The message upstream attaches names the owning surface
+         * and its pid, but that text is not a contract — see docs/HERMES_CONTRACT.md.
+         */
+        const val SESSION_OWNED_ELSEWHERE_CODE = 4090
+
+        /**
+         * `slash.exec` could not run at all: the Mac's Hermes failed to spawn its slash worker
+         * ("slash worker closed pipe"). Distinct from a slash the worker ran and refused.
+         */
+        const val SLASH_WORKER_FAILED_CODE = 5030
     }
+
+    /**
+     * Upstream no longer has this conversation: it broadcast `session.reclaimed`, or `session.resume`
+     * answered [SESSION_NOT_FOUND_CODE]. Distinct from an ordinary send failure because retrying can
+     * never succeed — see [AppErrorCode.SESSION_NOT_FOUND].
+     */
+    private class SessionGoneException(reason: String) : Exception(reason)
 
     private val _state = MutableStateFlow(ChatUiState.empty())
     val state: StateFlow<ChatUiState> = _state.asStateFlow()
 
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+    /**
+     * How many conversations are still being turned into Markdown attachments (HG-38); 0 when
+     * idle. The composer shows a line while it runs — the chips all land at once when it finishes,
+     * rather than appearing one at a time in a "generating" state that `PendingAttachment` has no
+     * notion of.
+     */
+    private val _attachingSessions = MutableStateFlow(0)
+    val attachingSessions: StateFlow<Int> = _attachingSessions.asStateFlow()
+
+    /** Emits the number of picked conversations that could not be read; see [attachSessions]. */
+    private val _sessionAttachFailures = MutableSharedFlow<Int>(extraBufferCapacity = 4)
+    val sessionAttachFailures: kotlinx.coroutines.flow.SharedFlow<Int> = _sessionAttachFailures
+
     private val _refreshEvents = MutableSharedFlow<ConversationRefreshEvent>(extraBufferCapacity = 4)
     val refreshEvents: SharedFlow<ConversationRefreshEvent> = _refreshEvents
     private val _lastConfirmedRunElapsedMs = MutableStateFlow<Long?>(null)
@@ -256,6 +324,15 @@ class ChatViewModel @Inject constructor(
     private val _botOrigin = MutableStateFlow<com.hermes.client.ui.sessions.BotOrigin?>(null)
     val botOrigin: StateFlow<com.hermes.client.ui.sessions.BotOrigin?> = _botOrigin.asStateFlow()
 
+    /**
+     * Set once when a conversation upstream reclaimed was silently replaced by a fresh one. The
+     * screen re-navigates to this id: the runtime (and the message in flight) already moved, but
+     * the navigation entry still names the dead conversation, and going back and forward would
+     * otherwise reopen it.
+     */
+    private val _recreatedSessionId = MutableStateFlow<String?>(null)
+    val recreatedSessionId: StateFlow<String?> = _recreatedSessionId.asStateFlow()
+
     /** Ids of turns sent from this device this session; see [com.hermes.client.ui.chat.userTurnLabel]. */
     private val _locallySentIds = MutableStateFlow<Set<String>>(emptySet())
     val locallySentIds: StateFlow<Set<String>> = _locallySentIds.asStateFlow()
@@ -299,13 +376,69 @@ class ChatViewModel @Inject constructor(
             explicit || (cur != null && def != null && cur != def)
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), false)
 
-    // Text handed off from a share (Share-to-Hermes). ChatScreen pre-fills the composer with it once.
+    // The composer's opening text: this conversation's saved draft (HG-41), or text handed off
+    // from a share (Share-to-Hermes). ChatScreen pre-fills the composer with it once.
     private val _initialDraft = MutableStateFlow<String?>(null)
     val initialDraft: StateFlow<String?> = _initialDraft.asStateFlow()
     fun clearInitialDraft() { _initialDraft.value = null }
 
+    /** [SessionReadStore.token] for the open conversation; null until [open] resolves the profile. */
+    private var draftToken: String? = null
+    private var draftSaveJob: kotlinx.coroutines.Job? = null
+    /**
+     * Guards the composer-versus-disk race at open. The composer starts empty and only fills in
+     * once the stored draft has been read, so until that read lands a blank composer means "not
+     * filled in yet", not "the user cleared it" — writing it through would delete the very draft
+     * being restored. [draftTouched] is the other side: if the user typed while the read was in
+     * flight, their words win and the stored text is not pushed over them.
+     */
+    private var draftSeeded = false
+    private var draftTouched = false
+
+    /**
+     * Remember the composer's unsent text (HG-41), debounced so typing is not a write storm —
+     * Preferences DataStore rewrites the whole file on every edit.
+     *
+     * Blank text deletes the record rather than storing an empty one, so the session list never
+     * marks a row 「草稿」 for a composer the user emptied.
+     */
+    fun rememberDraft(text: String) {
+        val token = draftToken ?: return
+        if (!draftSeeded && text.isBlank()) return
+        draftTouched = true
+        draftSaveJob?.cancel()
+        draftSaveJob = draftScope.launch {
+            kotlinx.coroutines.delay(DRAFT_SAVE_DEBOUNCE_MS)
+            draftStore.save(token, text)
+        }
+    }
+
+    /** Drop the draft now, ahead of the debounce — the message went out, or was thrown away. */
+    fun clearDraft() {
+        val token = draftToken ?: return
+        draftSaveJob?.cancel()
+        draftScope.launch { draftStore.clear(token) }
+    }
+
     val favorites: kotlinx.coroutines.flow.StateFlow<Set<String>> =
         favoritesStore.favorites.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    /**
+     * The 快捷切换 chips (docs/DESIGN.md §5.17): models this device recently switched to, newest
+     * first. Stored as favKeys, split back into (provider, model) here rather than in the store,
+     * so the store stays a plain ordered list of keys like the favourites set beside it.
+     */
+    val recentModels: kotlinx.coroutines.flow.StateFlow<List<com.hermes.client.ui.models.ModelRecent>> =
+        recentsStore.recents
+            .map { keys ->
+                keys.mapNotNull { key ->
+                    val parts = key.split('\u0000')
+                    if (parts.size == 2) {
+                        com.hermes.client.ui.models.ModelRecent(parts[0], parts[1])
+                    } else null
+                }
+            }
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** True while a response is being read aloud. */
     val speaking: kotlinx.coroutines.flow.StateFlow<Boolean> = tts.speaking
@@ -320,6 +453,33 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             val result = runCatching { fileRepository.download(file) }
             onResult(result)
+        }
+    }
+
+    /**
+     * Fetch the files behind whatever images the transcript currently references (HG-44).
+     *
+     * Always hydrates the COMMITTED messages — the ones on screen — rather than a list some caller
+     * happens to be holding. Every route into the transcript needs this: history parsed out of REST
+     * carries a remote path and no local file, and the bubble draws that as a waiting mark. Two of
+     * the four routes never called it at all, so a cold open showed waiting marks that only the
+     * network could clear, and the network's own attempt was being discarded on the way back in.
+     *
+     * Never blocks the text. The transcript is authoritative as soon as it lands; the pictures
+     * catch up, and `acceptHydratedImages` merges them by image id without disturbing live rows.
+     */
+    private fun hydrateImages(key: SessionRuntimeKey) {
+        viewModelScope.launch {
+            val committed = runtimeStore.messagesFor(key)
+            if (committed.none { message -> message.images.any { it.localPath.isNullOrBlank() } }) return@launch
+            runCatching { mediaRepository.hydrateMessages(committed, key.profile) }
+                .onSuccess { runtimeStore.acceptHydratedImages(key, it) }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    com.hermes.client.data.diagnostics.DebugLog.log(
+                        "media", "hydrate s=${key.sessionId} failed: ${error.message}",
+                    )
+                }
         }
     }
 
@@ -356,7 +516,6 @@ class ChatViewModel @Inject constructor(
         promptStore.prompts.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptyList())
 
     data class ModelSheetUi(
-        val query: String = "",
         // favKey of the row whose selection is in flight; non-null disables the list (no double
         // submits) and shows the spinner on that row.
         val pendingKey: String? = null,
@@ -438,6 +597,28 @@ class ChatViewModel @Inject constructor(
     private var sendJob: Job? = null
     private var refreshJob: Job? = null
     private var runtimeKey: SessionRuntimeKey? = null
+    /** Set when [open] finds a restored approval wait; emitted once the transcript is on screen. */
+    private var approvalLostNoticePending = false
+
+    /**
+     * Upstream told us it reclaimed this conversation (`session.reclaimed`, broadcast when its
+     * idle/LRU/WS-orphan reaper collects a session). The next `prompt.submit` would answer
+     * "session not found", so the send path skips straight to recovery instead of spending a
+     * doomed round trip first. Cleared when [open] binds a conversation.
+     */
+    private var sessionReclaimed = false
+
+    /**
+     * Positive evidence that this conversation has nothing to lose: it was opened as a brand-new
+     * session and no server-persisted turn has been seen since. Only such a conversation may be
+     * silently re-created when upstream reaps it. Anything else — including a history fetch that
+     * never completed — counts as "might have history" and stays terminal, because re-creating it
+     * would cut the transcript loose from everything said before.
+     */
+    private var sessionKnownEmpty = false
+
+    /** A re-created conversation's id, held back until the turn that caused it has finished. */
+    private var pendingRecreatedId: String? = null
     private var currentProfile: String? = null
     private var currentDeviceId: String? = null
     private var liveHandleGate = CompletableDeferred<String>()
@@ -499,6 +680,15 @@ class ChatViewModel @Inject constructor(
         val key = runtimeStore.register(id, profile, resolvedDevice)
         runtimeKey = key
         runtimeStore.setVisible(key, true)
+        // A conversation restored from disk as "waiting for approval" has no card to show: the
+        // request carries no id and approval.respond returns nothing, so rebuilding one locally
+        // could approve a command the user never saw. Say that instead of showing nothing
+        // (HR-APPROVAL-002). Only for restored runtimes — live WAITING_APPROVAL with no card is
+        // the ordinary gap between answering from the shade and the next gateway event.
+        // Assigned outright, not only set: a previous open whose history never arrived must not
+        // leave the flag armed for whatever conversation is opened next.
+        approvalLostNoticePending = key in runtimeStore.restoredKeys.value &&
+            runtimeStore.runtimes.value[key]?.phase == SessionRunPhase.WAITING_APPROVAL
         val cachedMeta = sessions.cachedSession(id, profile, currentDeviceId)
         val fallbackTitle = if (isNewSession) localized(language, "新会话", "New session") else localized(language, "会话", "Chat")
         _sessionTitle.value = when {
@@ -523,7 +713,15 @@ class ChatViewModel @Inject constructor(
         _explicitSessionOverride.value = false
         _reasoningEffort.value = null
         val cachedHistory = sessions.cachedHistory(id, profile, currentDeviceId)?.map { it.organizedForDisplay() }
+        sessionReclaimed = false
+        sessionKnownEmpty = isNewSession && cachedHistory.isNullOrEmpty()
         runtimeStore.markHistoryLoading(key, cachedHistory)
+        // Cached transcripts carry image REFERENCES, not files: a row parsed out of history has a
+        // remote path and no local one, which the bubble draws as a waiting mark. Neither cache
+        // path used to hydrate, so a cold open showed waiting marks until the network answered —
+        // and until HG-44 the network path's own hydration was being discarded, so they stayed
+        // (docs/IMAGE_ATTACHMENT_REQUIREMENTS.md §5: waiting is a state, not a resting place).
+        if (!cachedHistory.isNullOrEmpty()) hydrateImages(key)
         // The memory cache holds ten transcripts and dies with the process, so with ~200 sessions
         // a cold open is the normal case, not the exception. Ask the disk in parallel with the
         // network: whichever answers first ends the skeleton, and acceptCachedHistory stands down
@@ -535,22 +733,34 @@ class ChatViewModel @Inject constructor(
                 val organized = kotlinx.coroutines.withContext(defaultDispatcher) {
                     stored.map { it.organizedForDisplay() }
                 }
-                if (storedSessionId == id) runtimeStore.acceptCachedHistory(key, organized)
+                if (storedSessionId == id) {
+                    if (organized.isNotEmpty()) sessionKnownEmpty = false
+                    runtimeStore.acceptCachedHistory(key, organized)
+                    hydrateImages(key)
+                }
             }
         }
-        collectJob?.cancel()
-        collectJob = viewModelScope.launch {
-            runtimeStore.runtimes
-                .map { it[key] }
-                .filterNotNull()
-                .collect { runtime ->
-                    _state.value = runtime.chat
-                    runtime.liveHandle?.takeIf { it.isNotBlank() }?.let { sessionId = it }
-                }
-        }
-        // A share created this session and stashed its text; surface it as the initial composer draft.
+        collectRuntime(key)
+        // What the composer opens with. A draft the user typed here themselves outranks a share
+        // handoff — in practice they never compete, since a share only ever lands on the session
+        // it just created, but if they ever did, the user's own unsent words are the ones to keep.
+        val token = SessionReadStore.token(profile, id, currentDeviceId)
+        draftToken = token
+        draftSeeded = false
+        draftTouched = false
+        draftSaveJob?.cancel()
+        // A refused send is not a draft and does not go in the composer — it goes back on the
+        // transcript as the failed bubble it was, with the code that explains it (HG-49).
+        unsentToken = token
+        failedSends.clear()
+        seedUnsent(token, id, key)
         val ps = pendingShareStore.take(id)
-        ps?.text?.let { _initialDraft.value = it }
+        viewModelScope.launch {
+            val saved = draftStore.read(token)
+            if (storedSessionId != id) return@launch
+            if (!draftTouched) composerSeed(saved, ps?.text)?.let { _initialDraft.value = it }
+            draftSeeded = true
+        }
         com.hermes.client.data.diagnostics.DebugLog.log("session", "open($id)")
         // Load the server-authoritative title/model separately from history so neither request
         // blocks the other. A new zero-message session may not have metadata yet; it stays
@@ -586,34 +796,53 @@ class ChatViewModel @Inject constructor(
                     rawHistory.map { it.organizedForDisplay() }
                 }
                 com.hermes.client.data.diagnostics.DebugLog.log("session", "history($id) → ${organizedHistory.size} messages")
+                if (organizedHistory.isNotEmpty()) sessionKnownEmpty = false
                 runtimeStore.acceptHistory(key, organizedHistory, requestStartedAt)
                 runtimeStore.markRead(key)
-                // Do not hold the transcript behind image downloads. Show text and placeholders
-                // immediately, then merge cached/downloaded thumbnails by stable history id.
-                launch {
-                    val hydrated = mediaRepository.hydrateMessages(organizedHistory, profile)
-                    runtimeStore.acceptHydratedImages(key, hydrated)
+                if (approvalLostNoticePending) {
+                    approvalLostNoticePending = false
+                    appendSystem(approvalLostNotice(appLanguage))
                 }
+                // Do not hold the transcript behind image downloads. Show text and placeholders
+                // immediately, then merge the thumbnails in as they land.
+                //
+                // Hydrate what the store COMMITTED, not `organizedHistory` (HG-44). `acceptHistory`
+                // runs `alignMessageIds` over these rows, so the list fetched here and the list on
+                // screen no longer share message ids. `acceptHydratedImages` now matches on image
+                // ids, which survive the rewrite — but hydrating the committed list keeps the two
+                // sides describing the same transcript, and costs nothing.
+                hydrateImages(key)
             } catch (e: HermesApiException) {
-                com.hermes.client.data.diagnostics.DebugLog.log("error", "history($id) failed: ${e.code} ${e.message}")
-                if (e.code == 401) { _unauthorized.value = true; return@launch }
-                val message = if (e.errorCode == "HR-BIND-011") {
-                    localized(
-                        appLanguage,
-                        "此 Mac 已无法由当前账号使用，请选择其他设备。（HR-BIND-011）",
-                        "That Mac is no longer available to this account. Choose another device. (HR-BIND-011)",
+                // A session with no persisted turn yet has no REST row either: upstream answers 404
+                // {"detail":"Session not found"} until the first message lands, then 200. That is
+                // the normal opening second of every new conversation, not a failure — reporting it
+                // as one puts "无法加载历史消息" under a chat that is working fine, and buries the
+                // real 404s (a conversation upstream actually reaped) in the noise.
+                if (e.code == 404 && sessionKnownEmpty) {
+                    com.hermes.client.data.diagnostics.DebugLog.log(
+                        "history", "history($id) 404 — new session has no stored turn yet",
                     )
                 } else {
-                    localized(
-                        appLanguage,
-                        "无法加载历史消息（HR-RPC-001）",
-                        "Couldn't load message history (HR-RPC-001)",
+                    com.hermes.client.data.diagnostics.DebugLog.log("error", "history($id) failed: ${e.code} ${e.message}")
+                    if (e.code == 401) { _unauthorized.value = true; return@launch }
+                    val message = if (e.errorCode == "HR-BIND-011") {
+                        localized(
+                            appLanguage,
+                            "此 Mac 已无法由当前账号使用，请选择其他设备。（HR-BIND-011）",
+                            "That Mac is no longer available to this account. Choose another device. (HR-BIND-011)",
+                        )
+                    } else {
+                        localized(
+                            appLanguage,
+                            "无法加载历史消息（HR-RPC-001）",
+                            "Couldn't load message history (HR-RPC-001)",
+                        )
+                    }
+                    runtimeStore.historyFailed(
+                        key,
+                        message,
                     )
                 }
-                runtimeStore.historyFailed(
-                    key,
-                    message,
-                )
             } catch (e: Exception) {
                 // Keep a cached/live transcript visible if history refresh fails.
                 com.hermes.client.data.diagnostics.DebugLog.log("error", "history($id) failed: ${e.message}")
@@ -635,6 +864,16 @@ class ChatViewModel @Inject constructor(
                     // correctly both on-device and under test.
                     runCatching { java.util.Base64.getDecoder().decode(imgB64) }
                         .onSuccess { bytes -> stageAttachment(bytes, imgMime, share.attachmentName ?: "attachment") }
+                        .onFailure { e ->
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                            appendError(localizedText("附件处理失败（HR-FILE-001）", "Attachment failed (HR-FILE-001)"))
+                        }
+                }
+                // HG-40: a 分享到会话 handed this conversation ready-made bytes — a transcript as
+                // Markdown, or as an image. Staged as chips rather than attached immediately, so
+                // the user can still say what they are for, and can drop one if they misfired.
+                share.attachments.forEach { a ->
+                    runCatching { stageAttachment(a.bytes, a.mimeType, a.name) }
                         .onFailure { e ->
                             if (e is kotlinx.coroutines.CancellationException) throw e
                             appendError(localizedText("附件处理失败（HR-FILE-001）", "Attachment failed (HR-FILE-001)"))
@@ -700,6 +939,18 @@ class ChatViewModel @Inject constructor(
                 it.sessionId == null || it.sessionId == sessionId || it.sessionId == storedSessionId
             }
                 .onEach { event ->
+                    // Upstream reclaimed this conversation out from under us (its idle / LRU /
+                    // WS-orphan reaper). It broadcasts this precisely so the next prompt is not
+                    // sent into a session that no longer exists — see the send path, which now
+                    // recovers instead of offering a retry that can never succeed.
+                    if (event.type == "session.reclaimed" &&
+                        (event.sessionId == sessionId || event.sessionId == storedSessionId)
+                    ) {
+                        sessionReclaimed = true
+                        com.hermes.client.data.diagnostics.DebugLog.log(
+                            "session", "upstream reclaimed $storedSessionId; next send will recover",
+                        )
+                    }
                     if (event.type == "session.info" && (event.sessionId == sessionId || event.sessionId == storedSessionId)) {
                         // Live workspace: cwd/branch straight from the gateway. Keep the repo root
                         // we already know when the folder did not change (session.info omits it).
@@ -801,11 +1052,8 @@ class ChatViewModel @Inject constructor(
                     }
                 }
                 // Text is authoritative immediately; media hydration may finish just after the
-                // success affordance and merges by stable message identity without blanking rows.
-                launch {
-                    val hydrated = mediaRepository.hydrateMessages(organizedHistory, profile)
-                    if (runtimeKey == key) runtimeStore.acceptHydratedImages(key, hydrated)
-                }
+                // success affordance and merges by stable image identity without blanking rows.
+                if (runtimeKey == key) hydrateImages(key)
                 com.hermes.client.data.diagnostics.DebugLog.log(
                     "session", "manual-refresh($id) → ${organizedHistory.size} messages",
                 )
@@ -834,6 +1082,76 @@ class ChatViewModel @Inject constructor(
         runtimeKey?.let { key -> runtimeStore.updateChat(key) { next } }
     }
 
+    /**
+     * HG-38: turn each picked conversation into its own Markdown attachment on this message.
+     *
+     * One document per conversation, never merged — that is what the requirement asks for, and a
+     * merged file would also lose which turn came from where. The transcript is fetched from the
+     * network rather than the cache: referencing a record that is missing its last three turns is
+     * worse than waiting a moment for it.
+     *
+     * A conversation that cannot be read does not take the others down with it; the ones that
+     * loaded still become chips and the count of failures is reported once.
+     */
+    fun attachSessions(picked: List<com.hermes.client.domain.Session>) {
+        if (picked.isEmpty()) return
+        _attachingSessions.value = picked.size
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val docs = mutableListOf<Pair<String, ByteArray>>()
+            var failures = 0
+            picked.forEach { source ->
+                val markdown = runCatching {
+                    val history = sessions.history(source.id, source.profile, source.deviceId)
+                    transcriptMarkdownForAttachment(
+                        title = source.title,
+                        messages = history,
+                        language = appLanguage,
+                        exportedAtMillis = now,
+                        maxBytes = MAX_DIRECT_ATTACHMENT_BYTES,
+                        model = source.model,
+                    )
+                }.getOrElse { e ->
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    com.hermes.client.data.diagnostics.DebugLog.log(
+                        "error", "attachSession(${source.id}) failed: ${e.message}",
+                    )
+                    null
+                }
+                if (markdown.isNullOrBlank()) {
+                    failures++
+                } else {
+                    docs += transcriptAttachmentName(source.title, now) to markdown.toByteArray(Charsets.UTF_8)
+                }
+            }
+            _attachingSessions.value = 0
+            val names = uniqueAttachmentNames(docs.map { it.first })
+            docs.forEachIndexed { index, (_, bytes) ->
+                stageAttachment(bytes, "text/markdown", names[index])
+            }
+            if (failures > 0) _sessionAttachFailures.emit(failures)
+        }
+    }
+
+    /**
+     * HG-40: hand [text] and [attachments] to another conversation on this device.
+     *
+     * Parks them in the one-shot [com.hermes.client.share.PendingShareStore] keyed by the target,
+     * exactly as an inbound share from another app does; the target's own `open()` picks them up
+     * and turns them into a draft and chips. Nothing is sent — the user says what the content is
+     * for, and then presses send (docs/SESSION_EXCHANGE_REQUIREMENTS.md §2).
+     */
+    fun deliverToSession(
+        targetSessionId: String,
+        text: String? = null,
+        attachments: List<com.hermes.client.share.PendingShareAttachment> = emptyList(),
+    ) {
+        pendingShareStore.put(
+            targetSessionId,
+            com.hermes.client.share.PendingShare(text = text, attachments = attachments),
+        )
+    }
+
     fun stageAttachment(bytes: ByteArray, mimeType: String, name: String = "attachment") {
         // Generate the id outside update{}: staging is called from background (IO) threads, and the
         // update lambda can re-run under CAS contention — a shared counter would race/collide. UUID
@@ -843,6 +1161,16 @@ class ChatViewModel @Inject constructor(
         mutateState { it.withAttachment(PendingAttachment(id, bytes, mimeType, name)) }
     }
     fun removeAttachment(id: String) { mutateState { it.withoutAttachment(id) } }
+
+    /** Put an edited image back where it came from, under the same id. See [withReplacedAttachment]. */
+    fun replaceAttachment(id: String, bytes: ByteArray, mimeType: String, name: String) {
+        require(bytes.size <= MAX_DIRECT_ATTACHMENT_BYTES) { "Attachment exceeds 6 MB" }
+        mutateState { it.withReplacedAttachment(id, bytes, mimeType, name) }
+    }
+
+    /** The staged bytes for [id], or null if it is gone — the editor's input. */
+    fun pendingAttachment(id: String): PendingAttachment? =
+        _state.value.pendingAttachments.firstOrNull { it.id == id }
 
     /** Create a fresh chat in the currently active profile for the top-bar + action. */
     suspend fun createNewSession(): String? =
@@ -874,77 +1202,113 @@ class ChatViewModel @Inject constructor(
             )
     }
 
-    private val _handoffTargets = MutableStateFlow<List<com.hermes.client.data.network.MessagingPlatformDto>>(emptyList())
-    /** Channels this conversation could be moved to: enabled, connected, and with a home chat set. */
-    val handoffTargets: StateFlow<List<com.hermes.client.data.network.MessagingPlatformDto>> = _handoffTargets.asStateFlow()
+    /** A send that raised, kept so the bubble's tap-to-retry can replay it with its attachments. */
+    private data class FailedSend(val text: String, val attachments: List<PendingAttachment>, val error: com.hermes.client.data.error.AppError)
 
-    fun loadHandoffTargets() = viewModelScope.launch {
-        runCatching { tools.messagingPlatforms(profileManager.active.value) }
-            .onSuccess { platforms ->
-                // Offering a channel that would be refused (disabled, or no home chat) turns a
-                // typed refusal into a dead end the user has to discover by trying.
-                _handoffTargets.value = platforms.filter {
-                    it.enabled && it.configured && !it.homeChannel.isNullOrBlank()
-                }
-            }
+    /**
+     * This map used to be the ONLY record of why a send failed, and it dies with the ViewModel —
+     * which the nav graph clears the moment the user presses back. The bubble outlived it in the
+     * runtime store, so coming back showed a failure whose code had degraded to the generic
+     * `HR-SESS-007` and whose "点按重试" tap fell straight through [retrySend]'s first line (HG-49).
+     * It is now a cache in front of [unsentStore], seeded by [seedUnsent] when a conversation opens.
+     */
+    private val failedSends = LinkedHashMap<String, FailedSend>()
+
+    /** Which conversation the entries in [failedSends] belong to, so the store write is addressed. */
+    private var unsentToken: String? = null
+
+    private fun rememberUnsent(messageId: String, failed: FailedSend) {
+        failedSends[messageId] = failed
+        val token = unsentToken ?: return
+        draftScope.launch {
+            unsentStore.save(
+                com.hermes.client.data.repository.UnsentRecord(
+                    token = token,
+                    messageId = messageId,
+                    text = failed.text,
+                    code = failed.error.code.value,
+                    retryable = failed.error.retryable,
+                    attachments = failed.attachments.size,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
     }
 
     /**
-     * Moves this conversation to a messaging channel and waits for the gateway's watcher to finish.
-     *
-     * The move is not reversible from here: the channel's current conversation ends, this one is
-     * re-bound to that chat, and it leaves the phone's list because its source becomes the channel.
-     * The caller confirms first (docs/DESIGN.md §5.5).
+     * The turn stopped being unsent — it went out, it was replaced by a retry, or the user got rid
+     * of it. Uses [draftScope] for the same reason the draft write does: leaving the screen is one
+     * of the moments this has to survive.
      */
-    suspend fun handoffCurrentSession(platform: String): com.hermes.client.data.error.AppError? {
-        val id = storedSessionId.takeIf { it.isNotBlank() }
-            ?: return com.hermes.client.data.error.AppError(
-                com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND,
-                retryable = false, stage = "session_handoff",
-            )
-        val queued = runCatching { chat.requestHandoff(id, platform) }
-            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
-        queued.exceptionOrNull()?.let { failure ->
-            val rpc = (failure as? com.hermes.client.data.network.GatewayRpcException)?.code
-            val code = com.hermes.client.data.repository.handoffErrorCode(rpc)
-            return com.hermes.client.data.error.AppError(
-                code,
-                retryable = code == com.hermes.client.data.error.AppErrorCode.HANDOFF_SESSION_BUSY ||
-                    code == com.hermes.client.data.error.AppErrorCode.HANDOFF_IN_FLIGHT ||
-                    code == com.hermes.client.data.error.AppErrorCode.RPC_FAILED,
-                technicalCause = failure.message, stage = "session_handoff",
-            )
-        }
-        // The gateway watcher polls every two seconds and the move runs a full agent turn on the
-        // far side; give it a bounded wait rather than leaving the user on a spinner forever.
-        repeat(30) {
-            kotlinx.coroutines.delay(2_000)
-            val (state, error) = runCatching { chat.handoffState(id) }.getOrNull() ?: (null to null)
-            when (com.hermes.client.data.repository.handoffPhase(state)) {
-                com.hermes.client.data.repository.HandoffPhase.COMPLETED -> return null
-                com.hermes.client.data.repository.HandoffPhase.FAILED ->
-                    return com.hermes.client.data.error.AppError(
-                        com.hermes.client.data.error.AppErrorCode.RPC_FAILED,
-                        retryable = true, technicalCause = error, stage = "session_handoff",
-                    )
-                else -> Unit
-            }
-        }
-        // Still pending after a minute: the row is queued and the watcher owns it, so this is a
-        // "stopped waiting", not a failure — saying it failed could make the user queue a second.
-        return null
+    private fun forgetUnsent(messageId: String) {
+        failedSends.remove(messageId)
+        val token = unsentToken ?: return
+        draftScope.launch { unsentStore.clear(token) }
     }
 
-    /** A send that raised, kept so the bubble's tap-to-retry can replay it with its attachments. */
-    private data class FailedSend(val text: String, val attachments: List<PendingAttachment>, val error: com.hermes.client.data.error.AppError)
-    private val failedSends = LinkedHashMap<String, FailedSend>()
+    /**
+     * Put a refused send back on screen after the ViewModel — or the whole process — went away.
+     *
+     * The bubble cannot come from history: upstream never accepted this turn, so no REST transcript
+     * will ever contain it. It is re-inserted under its stored id, which is what lets a later retry
+     * remove the same turn it replaces.
+     *
+     * Attachments are not persisted (`UnsentStore`), so a record that had them cannot be replayed as
+     * it was. Rather than quietly sending the text alone, the restored turn takes `HR-SESS-015` and
+     * is not retryable — the tap is withheld, per docs/ERROR_HANDLING.md.
+     */
+    private fun seedUnsent(token: String, sessionId: String, key: SessionRuntimeKey?) {
+        viewModelScope.launch {
+            val record = unsentStore.read(token) ?: return@launch
+            if (storedSessionId != sessionId || unsentToken != token) return@launch
+            if (failedSends.containsKey(record.messageId)) return@launch
+            val lost = record.attachments > 0
+            val code = if (lost) {
+                com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST
+            } else {
+                com.hermes.client.data.error.AppErrorCode.entries.firstOrNull { it.value == record.code }
+                    ?: com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED
+            }
+            failedSends[record.messageId] = FailedSend(
+                record.text,
+                emptyList(),
+                com.hermes.client.data.error.AppError(
+                    code,
+                    retryable = record.retryable && !lost,
+                    stage = "prompt_submit",
+                ),
+            )
+            val present = (key?.let { runtimeStore.runtimes.value[it]?.chat?.messages } ?: _state.value.messages)
+                .any { it.id == record.messageId }
+            if (present) return@launch
+            val restore: (ChatUiState) -> ChatUiState = { state ->
+                state.withUserMessage(record.text, messageId = record.messageId)
+                    .withDelivery(record.messageId, com.hermes.client.domain.DeliveryState.FAILED)
+                    .copy(isGenerating = false)
+            }
+            key?.let { runtimeStore.updateChat(it, restore) } ?: mutateState(restore)
+        }
+    }
 
     /** Redacted diagnostic for a failed user turn (long-press → copy), null when it did not fail. */
     fun sendDiagnostic(messageId: String): String? = failedSends[messageId]?.error?.sanitizedDiagnostic()
 
+    /**
+     * Which failure a failed user turn actually was, so the bubble can say it. Null when the turn
+     * did not fail. The bubble reads its copy and its compact code from this rather than guessing
+     * from the delivery state — several failures share one state and must not share one sentence.
+     */
+    fun sendErrorCode(messageId: String): com.hermes.client.data.error.AppErrorCode? =
+        failedSends[messageId]?.error?.code
+
     /** Replays a failed turn as a fresh message: the failed bubble is removed, then sent again. */
     fun retrySend(messageId: String) {
-        val failed = failedSends.remove(messageId) ?: return
+        val failed = failedSends[messageId] ?: return
+        // A terminal failure (the conversation is gone upstream) keeps its bubble and its code.
+        // Re-dispatching would only repeat the same 4001/4007 and replace one dead error with
+        // another; the UI does not offer the tap either, this is the belt to that braces.
+        if (!failed.error.retryable) return
+        forgetUnsent(messageId)
         runtimeKey?.let { runtimeStore.removeMessage(it, messageId) }
             ?: mutateState { it.withoutMessage(messageId) }
         dispatch(failed.text, failed.attachments)
@@ -1047,19 +1411,46 @@ class ChatViewModel @Inject constructor(
                 )
                 // The gateway acknowledged the turn: the bubble goes from "sending" to solid.
                 updateDelivery(messageId, com.hermes.client.domain.DeliveryState.SENT)
+                // Nothing is outstanding in this conversation any more, so the session row stops
+                // saying 未发送. Harmless when there was no record: clear() is idempotent.
+                forgetUnsent(messageId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
-                // A gateway error (e.g. "session not found") or the live-handle timeout must surface
-                // ON THE BUBBLE (未发送 + tap-to-retry, HR-SESS-007), never crash and never as a
-                // detached error row. The session goes back to idle — a send that never left the
-                // phone is not a failed run.
+                // A gateway error or the live-handle timeout must surface ON THE BUBBLE (未发送 +
+                // tap-to-retry, HR-SESS-007), never crash and never as a detached error row. The
+                // session goes back to idle — a send that never left the phone is not a failed run.
+                //
+                // One failure is NOT retryable: upstream no longer has the conversation and we were
+                // not able to replace it. Offering "点按重试" there is a lie — every tap repeats the
+                // same 4001/4007 — so it gets its own terminal code instead (HR-SESS-001).
+                //
+                // A second one is retryable but not for the reason the generic copy implies: another
+                // client owns the session (4090). The tap stays — the conflict ends by itself — but
+                // the bubble has to name the cause, or the user just taps into the same refusal.
+                val rpcCode = (e as? GatewayRpcException)?.code
+                val gone = e is SessionGoneException
+                val ownedElsewhere = rpcCode == SESSION_OWNED_ELSEWHERE_CODE
+                // A third failure that is not a failed send: the prompt never left the phone
+                // because the socket never finished its handshake. Calling that 「消息发送失败」
+                // points the user at their message; the thing to fix is the connection (HG-42).
+                val handshakeStalled = e is com.hermes.client.data.network.GatewayReadinessTimeoutException
                 val error = com.hermes.client.data.error.AppError(
-                    com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED,
-                    retryable = true, technicalCause = e.message, stage = "prompt_submit",
+                    when {
+                        gone -> com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND
+                        ownedElsewhere -> com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE
+                        handshakeStalled -> com.hermes.client.data.error.AppErrorCode.HANDSHAKE_TIMEOUT
+                        else -> com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED
+                    },
+                    retryable = !gone, technicalCause = e.message, stage = "prompt_submit",
                 )
-                com.hermes.client.data.diagnostics.DebugLog.log("session", "send($expectedStoredId) failed: ${e.message}")
-                failedSends[messageId] = FailedSend(text, atts, error)
+                // Carry the numeric code into the log. Without it a diagnostic export shows only
+                // upstream's prose, and the code that would have classified the failure is lost.
+                com.hermes.client.data.diagnostics.DebugLog.log(
+                    "session",
+                    "send($expectedStoredId) failed: ${rpcCode?.let { "$it " } ?: ""}${e.message}",
+                )
+                rememberUnsent(messageId, FailedSend(text, atts, error))
                 updateSentImages(messageId) { images ->
                     images.map { image ->
                         if (image.state == com.hermes.client.domain.ImageTransferState.UPLOADING) {
@@ -1074,8 +1465,19 @@ class ChatViewModel @Inject constructor(
                         } else file
                     }
                 }
-                updateDelivery(messageId, com.hermes.client.domain.DeliveryState.FAILED)
+                updateDelivery(
+                    messageId,
+                    if (gone) com.hermes.client.domain.DeliveryState.UNDELIVERABLE
+                    else com.hermes.client.domain.DeliveryState.FAILED,
+                )
                 runtimeKey?.let(runtimeStore::finishLocal) ?: mutateState { it.copy(isGenerating = false) }
+            } finally {
+                // The bubble has reached its final state (sent, failed or undeliverable), so it is
+                // safe to hand the screen the new id and let it re-navigate.
+                pendingRecreatedId?.let { recreated ->
+                    pendingRecreatedId = null
+                    _recreatedSessionId.value = recreated
+                }
             }
         }
     }
@@ -1105,12 +1507,7 @@ class ChatViewModel @Inject constructor(
                     AttachmentKind.IMAGE -> {
                         val attached = chat.attachImagePath(handle, uploaded.path)
                         updateSentImage(messageId, attachment.id) { image ->
-                            image.copy(
-                                remotePath = attached.path,
-                                width = attached.width,
-                                height = attached.height,
-                                state = com.hermes.client.domain.ImageTransferState.READY,
-                            )
+                            image.mergedWithUpstream(attached.path, attached.width, attached.height)
                         }
                     }
                     AttachmentKind.PDF -> {
@@ -1148,16 +1545,94 @@ class ChatViewModel @Inject constructor(
             }
         }
 
+        // Upstream has reaped this conversation: resuming it again can only fail, so the choice is
+        // between starting a fresh one and admitting defeat. Re-create ONLY with positive evidence
+        // that nothing is being cut loose ([sessionKnownEmpty]) — the user keeps the message they
+        // typed and never notices. A conversation that might hold history is terminal instead, so a
+        // silent re-create can never orphan a transcript.
+        suspend fun recoverFromReclaim(reason: String): String {
+            if (!sessionKnownEmpty) throw SessionGoneException(reason)
+            return recreateConversation(storedId, profile)
+        }
+
         try {
+            if (sessionReclaimed) {
+                com.hermes.client.data.diagnostics.DebugLog.log(
+                    "session", "send($storedId) skipping submit: upstream reclaimed this session",
+                )
+                submitOn(recoverFromReclaim("session reclaimed upstream"))
+                return
+            }
             submitOn(initialHandle)
         } catch (error: GatewayRpcException) {
+            if (error.code == SESSION_NOT_FOUND_CODE) {
+                submitOn(recoverFromReclaim(error.message ?: "session not found"))
+                return
+            }
             if (error.code != STALE_SESSION_CODE) throw error
             com.hermes.client.data.diagnostics.DebugLog.log(
                 "session", "submit rejected as stale; resuming $storedId and retrying once",
             )
             val key = runtimeKey ?: throw error
-            val recovered = recoverLiveHandle(storedId, profile, key)
+            val recovered = try {
+                recoverLiveHandle(storedId, profile, key)
+            } catch (gone: GatewayRpcException) {
+                // 4001 said the live handle was stale; 4007 says the durable session is not there
+                // at all. Only the second one is terminal — the first legitimately resumes.
+                if (gone.code != SESSION_NOT_FOUND_CODE) throw gone
+                com.hermes.client.data.diagnostics.DebugLog.log(
+                    "session", "resume($storedId) → 4007; upstream no longer has this conversation",
+                )
+                recoverFromReclaim(gone.message ?: "session not found")
+            }
             submitOn(recovered)
+        }
+    }
+
+    /**
+     * Replace a conversation upstream reclaimed with a fresh one and carry the pending turn across.
+     * The runtime moves to the new key so the bubble the user is looking at — the message they just
+     * typed — survives the swap, and [recreatedSessionId] tells the screen to re-navigate to the
+     * canonical id so back-navigation and deep links do not resurrect the dead one.
+     */
+    private suspend fun recreateConversation(oldStoredId: String, profile: String?): String {
+        val oldKey = runtimeKey ?: throw SessionGoneException("no runtime bound for $oldStoredId")
+        val created = chat.createSession(profile, _workspace.value?.cwd)
+        val newKey = runtimeStore.rekey(oldKey, created.id)
+        storedSessionId = created.id
+        runtimeKey = newKey
+        sessionReclaimed = false
+        sessionKnownEmpty = true
+        collectRuntime(newKey)
+        val handle = chat.resume(created.id, profile)?.takeIf { it.isNotBlank() }
+            ?: throw SessionGoneException("resume of recreated ${created.id} returned no live handle")
+        sessionId = handle
+        runtimeStore.bindLiveHandle(newKey, handle)
+        liveHandleGate = CompletableDeferred<String>().also { it.complete(handle) }
+        com.hermes.client.data.diagnostics.DebugLog.log(
+            "session", "recreated $oldStoredId as ${created.id} → handle=$handle",
+        )
+        // Parked, not published: publishing navigates, navigating tears this ViewModel down, and
+        // that would cancel the very send we are in the middle of recovering. [dispatch] releases
+        // it once the turn has landed one way or the other.
+        pendingRecreatedId = created.id
+        return handle
+    }
+
+    /**
+     * Mirror one runtime into the screen state. Split out of [open] because a conversation upstream
+     * reclaimed is re-created under a NEW key, and the collector has to follow it there.
+     */
+    private fun collectRuntime(key: SessionRuntimeKey) {
+        collectJob?.cancel()
+        collectJob = viewModelScope.launch {
+            runtimeStore.runtimes
+                .map { it[key] }
+                .filterNotNull()
+                .collect { runtime ->
+                    _state.value = runtime.chat
+                    runtime.liveHandle?.takeIf { it.isNotBlank() }?.let { sessionId = it }
+                }
         }
     }
 
@@ -1258,8 +1733,18 @@ class ChatViewModel @Inject constructor(
     fun respondApproval(choice: ApprovalChoice) {
         mutateState { it.copy(pendingApproval = null) }
         viewModelScope.launch {
+            val respondedAt = System.currentTimeMillis()
             runCatching { chat.respondApproval(sessionId, choice) }
-                .onSuccess { runtimeKey?.let(runtimeStore::continueAfterInput) }
+                .onSuccess {
+                    val key = runtimeKey ?: return@onSuccess
+                    // approval.respond answers nothing, so "did it land" has to be inferred from
+                    // whether the run was still waiting afterwards (HR-APPROVAL-001). An approval
+                    // whose command then finished the turn ends with a terminal AFTER the answer,
+                    // which is why confirmInputAccepted compares against respondedAt.
+                    if (!runtimeStore.confirmInputAccepted(key, respondedAt)) {
+                        appendSystem(approvalExpiredNotice(appLanguage))
+                    }
+                }
                 .onFailure {
                     if (it is kotlinx.coroutines.CancellationException) throw it
                     // The sheet is already gone; surface the failure so a lost approve/deny is visible.
@@ -1361,7 +1846,6 @@ class ChatViewModel @Inject constructor(
         runtimeKey?.let { runtimeStore.setVisible(it, false) }
     }
 
-    fun onSheetQuery(q: String) { _modelSheet.value = _modelSheet.value.copy(query = q) }
     fun toggleFavorite(provider: String, model: String) =
         viewModelScope.launch { favoritesStore.toggle(provider, model) }
 
@@ -1372,6 +1856,21 @@ class ChatViewModel @Inject constructor(
      * sheet is dismissed by the caller via [onDone] and the model's remembered reasoning preset
      * is applied. A second tap while one selection is in flight is ignored.
      */
+    /**
+     * Classify a failed `/model …` slash. A worker that never started (`slash.exec` 5030) is not a
+     * refused switch: the Mac's Hermes cannot run ANY slash command, so "请重试" would send the user
+     * round a loop that cannot end — which is exactly what HG-28 looked like from the phone. It gets
+     * its own non-retryable code; everything else keeps the ordinary retryable one.
+     */
+    private fun modelSwitchError(e: Throwable, stage: String): com.hermes.client.data.error.AppError {
+        val workerGone = (e as? GatewayRpcException)?.code == SLASH_WORKER_FAILED_CODE
+        return com.hermes.client.data.error.AppError(
+            if (workerGone) com.hermes.client.data.error.AppErrorCode.SLASH_WORKER_UNAVAILABLE
+            else com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_FAILED,
+            retryable = !workerGone, technicalCause = e.message, stage = stage,
+        )
+    }
+
     fun onSelectFromSheet(provider: String, model: String, onDone: () -> Unit) {
         if (_modelSheet.value.pendingKey != null) return
         val key = com.hermes.client.data.repository.favKey(provider, model)
@@ -1383,6 +1882,7 @@ class ChatViewModel @Inject constructor(
                     _currentProvider.value = provider
                     _explicitSessionOverride.value = true
                     _modelSheet.value = ModelSheetUi()  // reset + clear pending/error
+                    recentsStore.record(provider, model)
                     applyReasoningPresetFor(provider, model)
                     onDone()
                 }
@@ -1390,10 +1890,7 @@ class ChatViewModel @Inject constructor(
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     _modelSheet.value = _modelSheet.value.copy(
                         pendingKey = null,
-                        error = com.hermes.client.data.error.AppError(
-                            com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_FAILED,
-                            retryable = true, technicalCause = e.message, stage = "model_session_switch",
-                        ),
+                        error = modelSwitchError(e, "model_session_switch"),
                     )
                 }
         }
@@ -1419,6 +1916,8 @@ class ChatViewModel @Inject constructor(
                     _currentProvider.value = provider
                     _explicitSessionOverride.value = false
                     _modelSheet.value = ModelSheetUi()
+                    // Restoring the default IS a switch — the chip row should offer the way back.
+                    recentsStore.record(provider, model)
                     applyReasoningPresetFor(provider, model)
                     onDone()
                 }
@@ -1426,10 +1925,7 @@ class ChatViewModel @Inject constructor(
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     _modelSheet.value = _modelSheet.value.copy(
                         pendingKey = null,
-                        error = com.hermes.client.data.error.AppError(
-                            com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_FAILED,
-                            retryable = true, technicalCause = e.message, stage = "model_restore_default",
-                        ),
+                        error = modelSwitchError(e, "model_restore_default"),
                     )
                 }
         }
@@ -1518,48 +2014,6 @@ class ChatViewModel @Inject constructor(
 
     fun selectProfile(name: String) {
         viewModelScope.launch { runCatching { profileRepo.setActive(name) } }
-    }
-
-    data class PersonaUi(
-        val personas: List<Persona> = emptyList(),
-        val active: String? = null,
-        val loading: Boolean = false,
-        val error: LocalizedText? = null,
-    )
-    private val _personaUi = MutableStateFlow(PersonaUi())
-    val personaUi: StateFlow<PersonaUi> = _personaUi.asStateFlow()
-
-    /** Fetch the profile's configured personalities (called when the persona sheet opens). */
-    fun loadPersonas() {
-        _personaUi.value = _personaUi.value.copy(loading = true, error = null)
-        viewModelScope.launch {
-            runCatching { configRepo.get(profileManager.active.value) }
-                .onSuccess { cfg -> _personaUi.value = PersonaUi(parsePersonas(cfg), activePersonaOf(cfg)) }
-                .onFailure { e ->
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    _personaUi.value = _personaUi.value.copy(loading = false, error = localizedText("加载角色失败（HR-CONFIG-001）", "Couldn't load personas (HR-CONFIG-001)"))
-                }
-        }
-    }
-
-    /** Apply a persona to this session (null / "none" / "default" clears it). */
-    fun setPersona(name: String?) {
-        val wire = name?.takeIf { it.isNotBlank() && !it.equals("none", true) && !it.equals("default", true) } ?: "none"
-        _personaUi.value = _personaUi.value.copy(loading = true, error = null)
-        viewModelScope.launch {
-            runCatching { chat.slashExec(sessionId, "/personality $wire") }
-                .onSuccess { out ->
-                    if (out != null && out.contains("unknown", ignoreCase = true)) {
-                        _personaUi.value = _personaUi.value.copy(loading = false, error = localizedText("应用角色失败（HR-RPC-001）", "Couldn't apply that persona (HR-RPC-001)"))
-                    } else {
-                        _personaUi.value = _personaUi.value.copy(loading = false, active = if (wire == "none") null else wire)
-                    }
-                }
-                .onFailure { e ->
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    _personaUi.value = _personaUi.value.copy(loading = false, error = localizedText("应用角色失败（HR-RPC-001）", "Couldn't apply persona (HR-RPC-001)"))
-                }
-        }
     }
 }
 

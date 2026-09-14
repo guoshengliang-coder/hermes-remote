@@ -50,6 +50,7 @@ export interface AccountCapabilities {
   };
   desktopBootstrap?: {
     runtimeContract: "hermes-serve-v1";
+    componentManifestSchemaVersion?: 2;
   };
   server?: {
     version: string;
@@ -81,6 +82,7 @@ export class AccountHttpController {
       multiDeviceEnabled?: boolean;
       sharingEnabled?: boolean;
       desktopManagedInstallEnabled?: boolean;
+      desktopComponentInstallEnabled?: boolean;
       sharingService?: AccountSharingService;
       serverRelease?: ServerReleaseManifest;
     } = {},
@@ -102,6 +104,7 @@ export class AccountHttpController {
           Boolean(this.options.multiDeviceEnabled),
           Boolean(this.options.sharingEnabled),
           Boolean(this.options.desktopManagedInstallEnabled),
+          Boolean(this.options.desktopComponentInstallEnabled),
           this.options.serverRelease,
         ), {
           "cache-control": "public, max-age=60",
@@ -1219,6 +1222,7 @@ function capabilities(
   multiDeviceEnabled: boolean,
   sharingEnabled: boolean,
   desktopManagedInstallEnabled: boolean,
+  desktopComponentInstallEnabled: boolean,
   serverRelease?: ServerReleaseManifest,
 ): AccountCapabilities {
   return {
@@ -1258,6 +1262,9 @@ function capabilities(
     ...(enabled && controlEnabled && desktopManagedInstallEnabled ? {
       desktopBootstrap: {
         runtimeContract: "hermes-serve-v1" as const,
+        ...(desktopComponentInstallEnabled ? {
+          componentManifestSchemaVersion: 2 as const,
+        } : {}),
       },
     } : {}),
     ...(serverRelease ? {

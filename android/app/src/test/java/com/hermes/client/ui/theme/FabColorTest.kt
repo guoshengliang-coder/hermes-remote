@@ -16,9 +16,12 @@ import org.junit.Test
  */
 class FabColorTest {
 
+    // One fill for both tiers since 2026-09-11: the dark mock moved to the light tier's #181C24
+    // and the repo followed it (docs/DESIGN.md §7 item 8 — the mock decides). The ring below is
+    // what keeps the dark one visible; it did that job at #1E232B too.
     @Test fun values_are_pinned() {
         assertEquals(0xFF181C24.toInt(), FabContainerLight.toArgb())
-        assertEquals(0xFF1E232B.toInt(), FabContainerDark.toArgb())
+        assertEquals(0xFF181C24.toInt(), FabContainerDark.toArgb())
     }
 
     @Test fun fab_is_never_the_brand_colour() {

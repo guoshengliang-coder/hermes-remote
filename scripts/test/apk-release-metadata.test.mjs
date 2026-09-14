@@ -24,7 +24,8 @@ const badgingText = ({name = 'com.hermes.remote', code = '76', version = '0.1.75
 const gateJson = (extra = {}) => ({
   gate: 'APK_RELEASE_OK', versionName: '0.1.75', versionCode: 76,
   artifact: '/build/Hermes-Remote-0.1.75-debug.apk', sizeBytes: 4321,
-  certificateSha256: CERT, sha256: 'a'.repeat(64), minSdk: 26, ...extra,
+  certificateSha256: CERT, sha256: 'a'.repeat(64), minSdk: 26,
+  missionGoConfigured: true, ...extra,
 });
 
 async function workspace() {
@@ -109,6 +110,18 @@ test('a gate without a trustworthy minSdk cannot publish metadata', async () => 
   }
 });
 
+test('a public release gate must prove MissionGo configuration was verified', async () => {
+  const {missionGoConfigured, ...withoutProof} = gateJson();
+  await assert.rejects(buildMetadata(withoutProof), /MissionGo configuration/);
+  for (const bad of [false, 'true', 1, null]) {
+    await assert.rejects(
+      buildMetadata(gateJson({missionGoConfigured: bad})),
+      /MissionGo configuration/,
+      `accepted MissionGo proof ${JSON.stringify(bad)}`,
+    );
+  }
+});
+
 test('the release scripts stay wired to the extracted minSdk and parse cleanly', async () => {
   const gate = await readFile(path.join(ROOT, 'scripts', 'package-debug-apk.sh'), 'utf8');
   const publisher = await readFile(path.join(ROOT, 'scripts', 'publish-android-apk.sh'), 'utf8');
@@ -116,7 +129,10 @@ test('the release scripts stay wired to the extracted minSdk and parse cleanly',
   assert.match(gate, /apk_signing\.py/);
   assert.match(gate, /'minSdk':int\(min_sdk\)/);
   assert.match(gate, /MIN_SDK=\$MIN_SDK/);
+  assert.match(gate, /:app:verifyMissionGoConfiguration/);
+  assert.match(gate, /'missionGoConfigured':missiongo_configured == 'true'/);
   assert.match(publisher, /release_metadata\.py/);
+  assert.match(publisher, /APK_REQUIRE_MISSIONGO_CONFIG=1/);
   assert.equal(/minSdk['"]?\s*[:=]\s*\d/.test(publisher), false, 'the publisher must not hard-code a minSdk');
   await run('bash', ['-n', path.join(ROOT, 'scripts', 'package-debug-apk.sh')]);
   await run('bash', ['-n', path.join(ROOT, 'scripts', 'publish-android-apk.sh')]);

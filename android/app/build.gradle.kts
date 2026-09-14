@@ -5,8 +5,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // Increment both values for every APK distributed to testers. Keep versionCode
 // strictly increasing so Android always accepts the newer package as an update.
-val appVersionCode = 117
-val appVersionName = "0.1.116"
+val appVersionCode = 129
+val appVersionName = "0.1.128"
 
 // Temporary shared debug identity used by every authorized Hermes Remote build host. The private
 // keystore stays outside Git at ~/.android/debug.keystore; only its public certificate digest is
@@ -34,9 +34,26 @@ val missionGoProps = Properties().apply {
 }
 fun missionGoSetting(propertyName: String, environmentName: String): String =
     (missionGoProps.getProperty(propertyName) ?: System.getenv(environmentName) ?: "").trim()
+val missionGoEndpoint = missionGoSetting("missiongoEndpoint", "MISSIONGO_ENDPOINT")
+val missionGoSdkToken = missionGoSetting("missiongoSdkToken", "MISSIONGO_SDK_TOKEN")
 
 fun javaStringLiteral(value: String): String =
     "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+tasks.register("verifyMissionGoConfiguration") {
+    group = "verification"
+    description = "Fails unless both MissionGo values used by this build are configured."
+    inputs.property("endpointConfigured", missionGoEndpoint.isNotEmpty())
+    inputs.property("sdkTokenConfigured", missionGoSdkToken.isNotEmpty())
+    doLast {
+        check(inputs.properties["endpointConfigured"] == true) {
+            "MissionGo endpoint is missing; configure missiongoEndpoint or MISSIONGO_ENDPOINT."
+        }
+        check(inputs.properties["sdkTokenConfigured"] == true) {
+            "MissionGo SDK token is missing; configure missiongoSdkToken or MISSIONGO_SDK_TOKEN."
+        }
+    }
+}
 
 plugins {
     alias(libs.plugins.android.application)
@@ -70,12 +87,12 @@ android {
         buildConfigField(
             "String",
             "MISSIONGO_ENDPOINT",
-            javaStringLiteral(missionGoSetting("missiongoEndpoint", "MISSIONGO_ENDPOINT")),
+            javaStringLiteral(missionGoEndpoint),
         )
         buildConfigField(
             "String",
             "MISSIONGO_SDK_TOKEN",
-            javaStringLiteral(missionGoSetting("missiongoSdkToken", "MISSIONGO_SDK_TOKEN")),
+            javaStringLiteral(missionGoSdkToken),
         )
     }
     signingConfigs {
@@ -207,6 +224,7 @@ dependencies {
     implementation(libs.activity.compose)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
+    implementation(libs.compose.foundation)
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)

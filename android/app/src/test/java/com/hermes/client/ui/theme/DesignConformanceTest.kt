@@ -88,16 +88,110 @@ class DesignConformanceTest {
             "scheme" -> when (name) {
                 "primary" -> scheme.primary
                 "onSurface" -> scheme.onSurface
+                "onPrimary" -> scheme.onPrimary
                 "onSurfaceVariant" -> scheme.onSurfaceVariant
                 "outline" -> scheme.outline
                 "outlineVariant" -> scheme.outlineVariant
+                "surface" -> scheme.surface
+                "surfaceContainerLow" -> scheme.surfaceContainerLow
+                "error" -> scheme.error
                 else -> error("unknown scheme role '$name' in ref '$ref'")
             }.toArgb()
+            // The graphic tier of WARN: the pillar and the waiting dot, which the design source
+            // paints a brighter amber than the words beside them.
+            "warnGraphic" -> warnGraphicArgb(dark)
             "tiles" -> when (name) {
                 "fab" -> if (dark) FabContainerDark else FabContainerLight
                 "spinner" -> if (dark) SpinnerDark else SpinnerLight
                 "incidentBg" -> if (dark) IncidentContainerDark else IncidentContainerLight
                 "incidentInk" -> if (dark) OnIncidentDark else OnIncidentLight
+                "sublineFaint" -> if (dark) SublineFaintDark else SublineFaintLight
+                "pillarPinned" -> if (dark) PillarPinnedDark else PillarPinnedLight
+                "pillarToday" -> if (dark) PillarTodayDark else PillarTodayLight
+                "pillarYesterday" -> if (dark) PillarYesterdayDark else PillarYesterdayLight
+                "pillarRecent" -> if (dark) PillarRecentDark else PillarRecentLight
+                "pillarOlder" -> if (dark) PillarOlderDark else PillarOlderLight
+                // Group header LABELS, separate from the pillars since 2026-09-13: a pillar is a
+                // mark and a label is text, so 更早 cannot share one value across both.
+                "groupLabelPinned" -> if (dark) GroupLabelPinnedDark else GroupLabelPinnedLight
+                "groupLabelToday" -> if (dark) GroupLabelTodayDark else GroupLabelTodayLight
+                "groupLabelYesterday" -> if (dark) GroupLabelYesterdayDark else GroupLabelYesterdayLight
+                "groupLabelOlder" -> if (dark) GroupLabelOlderDark else GroupLabelOlderLight
+                // Card page (docs/DESIGN.md §5.1), second pull 2026-09-11.
+                "cardDrawer" -> if (dark) CardDrawerDark else CardDrawerLight
+                "cardTile" -> if (dark) CardTileDark else CardTileLight
+                "cardTileBorder" -> if (dark) CardTileBorderDark else CardTileBorderLight
+                "cardDivider" -> if (dark) CardDividerDark else CardDividerLight
+                "cardChip" -> if (dark) CardChipDark else CardChipLight
+                "cardInkMuted" -> if (dark) CardInkMutedDark else CardInkMutedLight
+                "cardIconTile" -> if (dark) CardIconTileDark else CardIconTileLight
+                "cardIconTileBorder" -> if (dark) CardIconTileBorderDark else CardIconTileBorderLight
+                "cardDotGood" -> CardDotGood
+                "cardFooterRule" -> if (dark) CardFooterRuleDark else CardFooterRuleLight
+                // Card page · theme sheet (docs/DESIGN.md §5.1 主题弹层).
+                "cardThemeSheet" -> if (dark) CardThemeSheetDark else CardThemeSheetLight
+                "cardThemeOption" -> if (dark) CardThemeOptionDark else CardThemeOptionLight
+                "cardThemeBorder" -> if (dark) CardThemeBorderDark else CardThemeBorderLight
+                "cardThemeIconTile" -> if (dark) CardThemeIconTileDark else CardThemeIconTileLight
+                "cardThemeAccent" -> if (dark) CardThemeAccentDark else CardThemeAccentLight
+                "cardThemeAccentInk" -> if (dark) CardThemeAccentInkDark else CardThemeAccentInkLight
+                "cardThemeBadge" -> if (dark) CardThemeBadgeDark else CardThemeBadgeLight
+                // 模型选择 (docs/DESIGN.md §5.17 模型选择).
+                "modelCard" -> if (dark) ModelCardDark else ModelCardLight
+                "modelCardBorder" -> if (dark) ModelCardBorderDark else ModelCardBorderLight
+                "modelDivider" -> if (dark) ModelDividerDark else ModelDividerLight
+                "modelBar" -> if (dark) ModelBarDark else ModelBarLight
+                "modelInset" -> if (dark) ModelInsetDark else ModelInsetLight
+                "modelInkMuted" -> if (dark) ModelInkMutedDark else ModelInkMutedLight
+                "modelInkFaint" -> if (dark) ModelInkFaintDark else ModelInkFaintLight
+                "modelAccent" -> if (dark) ModelAccentDark else ModelAccentLight
+                "modelAccentInk" -> if (dark) ModelAccentInkDark else ModelAccentInkLight
+                "modelCurrentFill" -> if (dark) ModelCurrentFillDark else ModelCurrentFillLight
+                "modelCurrentBorder" -> if (dark) ModelCurrentBorderDark else ModelCurrentBorderLight
+                "modelSwitchChip" -> if (dark) ModelSwitchChipDark else ModelSwitchChipLight
+                "modelStar" -> if (dark) ModelStarDark else ModelStarLight
+                "modelStarOff" -> if (dark) ModelStarOffDark else ModelStarOffLight
+                // 聊天页浮层 (docs/DESIGN.md §5.4 上一组对话胶囊 / 我的提问).
+                "chatPillFill" -> if (dark) ChatPillFillDark else ChatPillFillLight
+                "chatPillBorder" -> if (dark) ChatPillBorderDark else ChatPillBorderLight
+                "chatPillIconChip" -> if (dark) ChatPillIconChipDark else ChatPillIconChipLight
+                "chatPillDivider" -> if (dark) ChatPillDividerDark else ChatPillDividerLight
+                "chatSheet" -> if (dark) ChatSheetDark else ChatSheetLight
+                "chatSheetHairline" -> if (dark) ChatSheetHairlineDark else ChatSheetHairlineLight
+                "chatChip" -> if (dark) ChatChipDark else ChatChipLight
+                "chatChipInk" -> if (dark) ChatChipInkDark else ChatChipInkLight
+                "chatRowChevron" -> if (dark) ChatRowChevronDark else ChatRowChevronLight
+                "chatCurrentFill" -> if (dark) ChatCurrentFillDark else ChatCurrentFillLight
+                "chatCurrentBorder" -> if (dark) ChatCurrentBorderDark else ChatCurrentBorderLight
+                "chatCurrentDisc" -> if (dark) ChatCurrentDiscDark else ChatCurrentDiscLight
+                "chatCurrentDiscInk" -> if (dark) ChatCurrentDiscInkDark else ChatCurrentDiscInkLight
+                "chatCurrentTime" -> if (dark) ChatCurrentTimeDark else ChatCurrentTimeLight
+                // 聊天内搜索条 (docs/DESIGN.md §5.4 聊天内搜索).
+                "chatSearchField" -> if (dark) ChatSearchFieldDark else ChatSearchFieldLight
+                "chatSearchDivider" -> if (dark) ChatSearchDividerDark else ChatSearchDividerLight
+                "chatSearchHairline" -> if (dark) ChatSearchHairlineDark else ChatSearchHairlineLight
+                "chatSearchArrow" -> if (dark) ChatSearchArrowDark else ChatSearchArrowLight
+                "chatSearchInkFaint" -> if (dark) ChatSearchInkFaintDark else ChatSearchInkFaintLight
+                "chatSearchClearDisc" -> if (dark) ChatSearchClearDiscDark else ChatSearchClearDiscLight
+                "chatSearchHitOther" -> ChatSearchHitOther
+                "chatSearchHitOtherInk" -> ChatSearchHitOtherInk
+
+                // 会话行长按操作单 (docs/DESIGN.md §5.5 行长按操作单).
+                "rowMenuSheet" -> if (dark) RowMenuSheetDark else RowMenuSheetLight
+                "rowMenuSheetBorder" -> if (dark) RowMenuSheetBorderDark else RowMenuSheetBorderLight
+                "rowMenuHandle" -> if (dark) RowMenuHandleDark else RowMenuHandleLight
+                "rowMenuChip" -> if (dark) RowMenuChipDark else RowMenuChipLight
+                "rowMenuChipBorder" -> if (dark) RowMenuChipBorderDark else RowMenuChipBorderLight
+                "rowMenuChipInk" -> if (dark) RowMenuChipInkDark else RowMenuChipInkLight
+                "rowMenuDivider" -> if (dark) RowMenuDividerDark else RowMenuDividerLight
+                "rowMenuInkFaint" -> if (dark) RowMenuInkFaintDark else RowMenuInkFaintLight
+                "rowMenuCloseInk" -> if (dark) RowMenuCloseInkDark else RowMenuCloseInkLight
+                // 定时任务 (docs/DESIGN.md §5.18 定时任务).
+                "cronAction" -> if (dark) CronActionDark else CronActionLight
+                "cronCard" -> if (dark) CronCardDark else CronCardLight
+                "cronCardBorder" -> if (dark) CronCardBorderDark else CronCardBorderLight
+                "cronCardHeader" -> if (dark) CronCardHeaderDark else CronCardHeaderLight
+                "cronInset" -> if (dark) CronInsetDark else CronInsetLight
                 else -> error("unknown tiles role '$name' in ref '$ref'")
             }.toArgb()
             else -> error("unknown ref kind '$kind' in ref '$ref'")
@@ -111,8 +205,61 @@ class DesignConformanceTest {
         check(kind == "type") { "unknown ref kind '$kind' in ref '$ref'" }
         val style: TextStyle = when (name) {
             "SessionRowTitle" -> SessionRowTitle
+            "SessionRowTitleRead" -> SessionRowTitleRead
             "SessionRowSubline" -> SessionRowSubline
             "SessionRowStatus" -> SessionRowStatus
+            "SessionGroupHeader" -> SessionGroupHeader
+            "SessionGroupCount" -> SessionGroupCount
+            "SessionGroupNote" -> SessionGroupNote
+            "SegmentLabel" -> SegmentLabel
+            "CardWordmark" -> CardWordmark
+            "CardChip" -> CardChip
+            "CardIdentityName" -> CardIdentityName
+            "CardIdentitySub" -> CardIdentitySub
+            "CardNodeTitle" -> CardNodeTitle
+            "CardRowTitle" -> CardRowTitle
+            "CardRowValue" -> CardRowValue
+            "CardFooter" -> CardFooter
+            "CardThemeTitle" -> CardThemeTitle
+            "CardThemeOptionTitle" -> CardThemeOptionTitle
+            "CardThemeBadge" -> CardThemeBadge
+            "CardThemeCta" -> CardThemeCta
+            "ModelSheetTitle" -> ModelSheetTitle
+            "ModelCardName" -> ModelCardName
+            "ModelCardProvider" -> ModelCardProvider
+            "ModelCardAction" -> ModelCardAction
+            "ModelEffortValue" -> ModelEffortValue
+            "ModelEffortLabel" -> ModelEffortLabel
+            "ModelBadge" -> ModelBadge
+            "ModelRowBadge" -> ModelRowBadge
+            "ModelGroupTitle" -> ModelGroupTitle
+            "ModelGroupCount" -> ModelGroupCount
+            "ModelRowName" -> ModelRowName
+            "ModelRowProvider" -> ModelRowProvider
+            "ModelQuickChipProvider" -> ModelQuickChipProvider
+            "ChatPillLabel" -> ChatPillLabel
+            "ChatSheetTitle" -> ChatSheetTitle
+            "ChatSheetCount" -> ChatSheetCount
+            "ChatPromptLabel" -> ChatPromptLabel
+            "ChatPromptLabelCurrent" -> ChatPromptLabelCurrent
+            "ChatPromptTime" -> ChatPromptTime
+            "ChatSearchQuery" -> ChatSearchQuery
+            "ChatSearchCount" -> ChatSearchCount
+
+            "RowMenuTitle" -> RowMenuTitle
+            "RowMenuAction" -> RowMenuAction
+            "RowMenuHint" -> RowMenuHint
+            "RowMenuChipLabel" -> RowMenuChipLabel
+            "CronTopBarTitle" -> CronTopBarTitle
+            "CronTopBarSubtitle" -> CronTopBarSubtitle
+            "CronDetailTopBarTitle" -> CronDetailTopBarTitle
+            "CronFieldLabel" -> CronFieldLabel
+            "CronFieldValue" -> CronFieldValue
+            "CronScheduleValue" -> CronScheduleValue
+            "CronPill" -> CronPill
+            "CronSectionTitle" -> CronSectionTitle
+            "CronPromptBody" -> CronPromptBody
+            "CronRunMeta" -> CronRunMeta
             "labelMedium" -> HermesTypography.labelMedium
             "bodyLarge" -> HermesTypography.bodyLarge
             "titleMedium" -> HermesTypography.titleMedium

@@ -3,6 +3,7 @@ package com.hermes.client.ui.cron
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.network.CronJobDto
+import com.hermes.client.data.network.HermesApiException
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.ToolsRepository
 import com.hermes.client.data.error.AppError
@@ -16,7 +17,22 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-enum class CronAction { PAUSE, RESUME, RUN }
+enum class CronAction { PAUSE, RESUME, RUN, DELETE }
+
+/**
+ * A short failure line for a cron screen: what failed, then the code that failed it.
+ *
+ * The code is read off the throwable — the server's own stable code when this build knows it,
+ * `HR-CRON-003` when it does not. Before HG-51 every one of these strings ended in a hand-typed
+ * 「（HR-RPC-001）」 regardless of what had happened, which is a transport code asserting a cause
+ * nobody had read off the wire. Shared by the list, the detail page and the editor so the next one
+ * cannot drift back to a literal.
+ */
+internal fun cronFailureText(zh: String, en: String, error: Throwable): LocalizedText {
+    val code = AppErrorCode.fromValue((error as? HermesApiException)?.errorCode)
+        ?: AppErrorCode.CRON_ACTION_FAILED
+    return localizedText("$zh（${code.value}）", "$en (${code.value})")
+}
 
 data class CronUiState(
     val jobs: List<CronJobDto> = emptyList(),
@@ -54,20 +70,39 @@ class CronViewModel @Inject constructor(
 
     fun runAction(jobId: String, name: String, action: CronAction) = viewModelScope.launch {
         val p = _state.value.profile
-        val ok = runCatching {
+        val outcome = runCatching {
             when (action) {
                 CronAction.PAUSE -> tools.pauseCron(jobId, p)
                 CronAction.RESUME -> tools.resumeCron(jobId, p)
                 CronAction.RUN -> tools.triggerCron(jobId, p)
+                CronAction.DELETE -> tools.deleteCron(jobId, p)
             }
-        }.isSuccess
-        val message = when (action) {
-            CronAction.PAUSE -> if (ok) localizedText("已暂停 $name", "Paused $name") else localizedText("无法暂停 $name（HR-RPC-001）", "Couldn't pause $name (HR-RPC-001)")
-            CronAction.RESUME -> if (ok) localizedText("已恢复 $name", "Resumed $name") else localizedText("无法恢复 $name（HR-RPC-001）", "Couldn't resume $name (HR-RPC-001)")
-            CronAction.RUN -> if (ok) localizedText("已触发 $name", "Triggered $name") else localizedText("无法触发 $name（HR-RPC-001）", "Couldn't trigger $name (HR-RPC-001)")
         }
+        val message = outcome.fold(
+            onSuccess = {
+                when (action) {
+                    CronAction.PAUSE -> localizedText("已暂停 $name", "Paused $name")
+                    CronAction.RESUME -> localizedText("已恢复 $name", "Resumed $name")
+                    CronAction.RUN -> localizedText("已触发 $name", "Triggered $name")
+                    CronAction.DELETE -> localizedText("已删除 $name", "Deleted $name")
+                }
+            },
+            // The code comes from the failure, not from a literal typed beside the verb (HG-51).
+            // All four of these used to end in 「（HR-RPC-001）」 whatever had actually gone wrong.
+            // The toast names the job first: that is what the user was looking at.
+            onFailure = { error ->
+                when (action) {
+                    CronAction.PAUSE -> cronFailureText("无法暂停 $name", "Couldn't pause $name", error)
+                    CronAction.RESUME -> cronFailureText("无法恢复 $name", "Couldn't resume $name", error)
+                    CronAction.RUN -> cronFailureText("无法触发 $name", "Couldn't trigger $name", error)
+                    CronAction.DELETE -> cronFailureText("无法删除 $name", "Couldn't delete $name", error)
+                }
+            },
+        )
         _state.value = _state.value.copy(message = message)
-        if (ok) runCatching { tools.cronJobs(p) }.onSuccess { jobs -> _state.value = _state.value.copy(jobs = jobs) }
+        if (outcome.isSuccess) {
+            runCatching { tools.cronJobs(p) }.onSuccess { jobs -> _state.value = _state.value.copy(jobs = jobs) }
+        }
     }
 
     fun clearMessage() { _state.value = _state.value.copy(message = null) }
