@@ -337,6 +337,15 @@ and the exact managed content has been revalidated. Garbage collection validates
 reference classes, keeps content shared by multiple releases, and refuses orphaned or malformed
 capability-reference trees. This contract does not itself download or activate an optional component.
 
+The local first-use installer accepts the same verifier-only token plus an exact signed
+`onDemandTrigger`. It requires the release's bootstrap reference and revalidates the complete
+bootstrap activation plan before host scanning or network access, then resolves the trigger's
+optional dependency closure in topological order. Healthy managed content is reused, a compatible
+system browser is path-validated again, and missing components use the resumable downloader, safe
+extractor, immutable store, and capability references. Interrupted transport is resumable only from
+a private UUID workspace bound to both manifest and trigger. This remains default-inert and returns
+resolved paths without changing credentials, `current`, LaunchAgents, or running services.
+
 Before that transaction, the local component preflight coordinator accepts the same verifier-only
 token and combines rehashed managed-store candidates with allowlisted external observations. It emits
 the per-component reuse/download/defer decisions and exact bootstrap/deferred byte totals. A matching

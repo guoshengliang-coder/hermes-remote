@@ -287,6 +287,15 @@ rules as bootstrap references; it retains shared optional content across release
 orphaned or malformed capability references. This storage primitive remains default-inert and does
 not yet initiate a first-use download.
 
+The following default-inert transaction now resolves one signed `onDemandTrigger` and its optional
+dependency closure. It validates the installed base release through both the garbage-collection
+snapshot and activation health probes before scanning the host or creating a download workspace.
+Managed content is rehashed, a compatible system browser is path-checked again, and missing content
+uses the existing resumable downloader, safe extractor, atomic store commit, and capability
+references. Transport interruption preserves only a manifest-and-trigger-bound UUID workspace;
+other failures remove it. The result is still an unwired local primitive and does not mutate
+credentials, the active release, LaunchAgents, or processes.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 
