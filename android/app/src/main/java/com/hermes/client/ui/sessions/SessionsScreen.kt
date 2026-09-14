@@ -48,7 +48,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -212,31 +211,65 @@ fun SessionsScreen(
                                     "Once someone talks to Hermes on DingTalk, Slack or another app, the record shows up here.",
                                 ),
                             )
-                        else -> LazyColumn(Modifier.fillMaxSize()) {
-                            sections.forEach { section ->
-                                item(key = "bot-hdr-${section.source}") {
-                                    Text(
-                                        botSourceLabel(section.source),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(
-                                            start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp,
-                                        ),
-                                    )
-                                }
-                                items(section.sessions, key = { "bot-${it.id}" }) { s ->
-                                    ListItem(
-                                        // The read tier: this list carries no unread state, and the
-                                        // heavier tier is what unread MEANS (docs/DESIGN.md §5.2).
-                                        headlineContent = { Text(s.title, style = com.hermes.client.ui.theme.SessionRowTitleRead) },
-                                        supportingContent = {
-                                            Text(
-                                                localized(language, "${s.messageCount} 条", "${s.messageCount} messages"),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                            )
-                                        },
-                                        modifier = Modifier.clickable { onOpen(ChatLaunch.existing(s)) },
-                                    )
+                        else -> {
+                            // One clock for the whole list, taken when the list is built rather than
+                            // per row, so every 「12 分钟前」 on screen is measured from the same
+                            // instant. It re-reads whenever the sessions reload — which ON_RESUME
+                            // and the segment switch already do.
+                            val nowMs = remember(state.botSessions) { System.currentTimeMillis() }
+                            // Unlike the Chats segment this does NOT hold the first frame back on
+                            // `pinnedTokens == null`. That gate exists because a 已置顶 section
+                            // arriving late is INSERTED above the reader's anchor row and carries
+                            // the pinned rows off screen with it (HG-11). This segment groups by
+                            // channel and has no such section, so a pin resolving a frame later
+                            // only adds a glyph to a row that is already where it belongs.
+                            val isPinned = { s: Session ->
+                                com.hermes.client.data.repository.PinStore.token(s.profile, s.id, s.deviceId) in
+                                    (pinnedTokens ?: emptySet())
+                            }
+                            // Collapsible, keyed by channel — the same `rememberSaveable` list the
+                            // Chats segment uses, not a second mechanism.
+                            var collapsed by androidx.compose.runtime.saveable.rememberSaveable {
+                                androidx.compose.runtime.mutableStateOf(emptyList<String>())
+                            }
+                            val toggle: (String) -> Unit = { k ->
+                                collapsed = if (k in collapsed) collapsed - k else collapsed + k
+                            }
+                            LazyColumn(Modifier.fillMaxSize()) {
+                                sections.forEach { section ->
+                                    val key = "bot-${section.source}"
+                                    item(key = "bot-hdr-${section.source}") {
+                                        SectionHeader(
+                                            botSourceLabel(section.source),
+                                            section.sessions.size,
+                                            SectionTone.CHANNEL,
+                                            collapsed = key in collapsed,
+                                            onToggle = { toggle(key) },
+                                        )
+                                    }
+                                    if (key in collapsed) return@forEach
+                                    items(section.sessions, key = { "bot-${it.id}" }) { s ->
+                                        // The SAME row as the Chats segment (HG-54): hand-drawn
+                                        // layout, long-press sheet, 28dp trailing slot. `unread` /
+                                        // `hasDraft` / `hasUnsent` stay false — this list carries no
+                                        // read state, and the heavier title tier is what unread
+                                        // MEANS (docs/DESIGN.md §5.2).
+                                        SessionRow(
+                                            session = s,
+                                            isPinned = isPinned(s),
+                                            defaultProjectPath = defaultProjectPath,
+                                            onMoveToProject = { moveTarget = s },
+                                            runtime = vm.runtimeFor(s, runtimes),
+                                            isBot = true,
+                                            nowMs = nowMs,
+                                            onOpen = { onOpen(ChatLaunch.existing(s)) },
+                                            onTogglePin = { vm.togglePin(s) },
+                                            onRename = { vm.rename(s, it) },
+                                            onArchive = { vm.archive(s) },
+                                            onDelete = { vm.delete(s) },
+                                            modifier = Modifier.animateItem(),
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -627,6 +660,15 @@ internal fun SessionRow(
     onRename: (String) -> Unit,
     onArchive: () -> Unit,
     onDelete: () -> Unit,
+    /**
+     * Renders this row for the Bots segment (HG-54): no project in the subline, 模型未知 instead of
+     * a silently missing model, and a status line of `<relative time> · <N messages>` instead of
+     * the runtime phase. Everything else — the hand-drawn layout, the long-press sheet, the 28dp
+     * trailing slot — is deliberately the SAME component, which is what the item asked for.
+     */
+    isBot: Boolean = false,
+    /** Only read when [isBot]; passed in rather than read from a clock so the row stays testable. */
+    nowMs: Long = 0L,
     modifier: Modifier = Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -697,22 +739,39 @@ internal fun SessionRow(
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
             androidx.compose.foundation.layout.Spacer(Modifier.size(com.hermes.client.ui.tuning.tunedSublineGap())) // TUNING-TEMP
-            SessionSubline(session, defaultProjectPath = defaultProjectPath, pinned = isPinned, hasDraft = hasDraft)
+            SessionSubline(
+                session,
+                defaultProjectPath = defaultProjectPath,
+                pinned = isPinned,
+                hasDraft = hasDraft,
+                isBot = isBot,
+            )
             // Gate on the TEXT, not on the phase. The phase-based guard let a blank label through,
             // and a blank Text still costs a full line — under `ListItem` that used to tip the row
             // into the 88dp tier; now it would just add an empty line. Either way it is wrong.
-            val unsentLine = sessionStatusIsUnsent(runtime, hasUnsent)
-            sessionStatusLine(runtime, language, hasUnsent)?.let { label ->
+            //
+            // The bot line answers a different question — when, and how much — so it takes the
+            // prose face and a neutral colour rather than borrowing a runtime phase's hue, which
+            // would claim a run state that no one here is in.
+            val unsentLine = !isBot && sessionStatusIsUnsent(runtime, hasUnsent)
+            val statusText =
+                if (isBot) botStatusLine(session, nowMs, language)
+                else sessionStatusLine(runtime, language, hasUnsent)
+            statusText?.let { label ->
                 androidx.compose.foundation.layout.Spacer(Modifier.size(com.hermes.client.ui.tuning.tunedStatusGap())) // TUNING-TEMP
                 Text(
                     label,
                     // Only the running line is monospaced in the mock; the verdicts
                     // (已完成 / 运行失败 / 已中断 / 未发送) stay on the prose face.
-                    style = com.hermes.client.ui.tuning.tunedStatus(!unsentLine && runtime?.phase?.isActive == true), // TUNING-TEMP
+                    style = com.hermes.client.ui.tuning.tunedStatus(!isBot && !unsentLine && runtime?.phase?.isActive == true), // TUNING-TEMP
                     // 未发送 borrows the same red as 运行失败 rather than inventing a tone: both are
                     // "this did not work", and a second red would have to justify itself in
                     // design-conformance.json (docs/DESIGN.md §7).
-                    color = if (unsentLine) statusColor(StatusTone.BAD) else runtimeColor(runtime!!.phase),
+                    color = when {
+                        isBot -> MaterialTheme.colorScheme.outline
+                        unsentLine -> statusColor(StatusTone.BAD)
+                        else -> runtimeColor(runtime!!.phase)
+                    },
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )

@@ -68,6 +68,12 @@ class SessionsViewModelTest {
         messageCount = 1, profile = profile, workspace = "No workspace", source = "hermes-dispatch",
     )
 
+    /** A conversation that happened on another app — what the Bots segment renders. */
+    private fun bot(id: String, title: String = id, profile: String = "personal") = Session(
+        id = id, title = title, model = null, provider = null,
+        messageCount = 3, profile = profile, source = "dingtalk", lastActive = 1L,
+    )
+
     private val drafts = com.hermes.client.data.repository.FakeDraftSnapshot(
         listOf(com.hermes.client.data.repository.DraftRecord(token = "personal/s1", text = "半句话", updatedAt = 1L)),
     )
@@ -449,6 +455,72 @@ class SessionsViewModelTest {
         activeProfileFlow.value = "work"
         advanceUntilIdle()
         assertEquals(listOf(DEFAULT_PROJECT_ID, "/u/andrew/work/acme"), vm.projectsState.value.tree.map { it.id })
+    }
+
+    /**
+     * HG-54: the row actions are now shared with the Bots segment, so their refresh has to be too.
+     *
+     * `refresh()` only refills `sessions`, which the Bots segment does not render — it reads the
+     * same endpoint separately. Archiving a bot row therefore succeeded upstream while the row sat
+     * on screen until the next resume.
+     *
+     * Note what this is keyed on: the SESSION being a bot session, not the view mode. `viewMode` is
+     * `WhileSubscribed`, so its `.value` reads SESSIONS whenever nothing is collecting it — this
+     * test passes with no collector precisely because the rule does not consult it.
+     */
+    @Test fun rowActionsOnABotSessionReloadTheBotsList() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        coEvery { sessionRepo.botSessions() } returns listOf(bot("b1"), bot("b2"))
+        val vm = buildVm()
+        vm.loadBots()
+        advanceUntilIdle()
+        assertEquals(listOf("b1", "b2"), vm.state.value.botSessions.map { it.id })
+
+        coEvery { sessionRepo.archive("b1", true, "personal", null) } returns Unit
+        coEvery { sessionRepo.botSessions() } returns listOf(bot("b2"))
+        vm.archive(bot("b1"))
+        advanceUntilIdle()
+
+        assertEquals(listOf("b2"), vm.state.value.botSessions.map { it.id })
+    }
+
+    /** The same reload, for the other two mutations that share the sheet. */
+    @Test fun deleteAndRenameOnABotSessionReloadTheBotsList() = runTest {
+        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        coEvery { sessionRepo.botSessions() } returns listOf(bot("b1"), bot("b2"))
+        val vm = buildVm()
+        vm.loadBots()
+        advanceUntilIdle()
+
+        coEvery { sessionRepo.delete("b1", "personal", null) } returns Unit
+        coEvery { sessionRepo.botSessions() } returns listOf(bot("b2"))
+        vm.delete(bot("b1"))
+        advanceUntilIdle()
+        assertEquals(listOf("b2"), vm.state.value.botSessions.map { it.id })
+
+        coEvery { sessionRepo.rename("b2", "新名字", "personal", null) } returns Unit
+        coEvery { sessionRepo.botSessions() } returns listOf(bot("b2", title = "新名字"))
+        vm.rename(bot("b2"), "新名字")
+        advanceUntilIdle()
+        assertEquals(listOf("新名字"), vm.state.value.botSessions.map { it.title })
+    }
+
+    /**
+     * An ordinary session must NOT re-read the bots list — that is a second network call, and the
+     * row the user touched cannot be in it.
+     */
+    @Test fun rowActionsOnAnOrdinarySessionLeaveTheBotsListAlone() = runTest {
+        modeFlow.value = ViewMode.BOTS // even here: what matters is the session, not the segment
+        coEvery { sessionRepo.listAllProfiles() } returns emptyList()
+        coEvery { sessionRepo.botSessions() } returns listOf(bot("b1"))
+        val vm = buildVm()
+        advanceUntilIdle()
+
+        coEvery { sessionRepo.archive("s1", true, "personal", null) } returns Unit
+        vm.archive(session("s1", "Hi"))
+        advanceUntilIdle()
+
+        io.mockk.coVerify(exactly = 0) { sessionRepo.botSessions() }
     }
 
     // The Chats list recovers the same way in either segment — Bots reads the same

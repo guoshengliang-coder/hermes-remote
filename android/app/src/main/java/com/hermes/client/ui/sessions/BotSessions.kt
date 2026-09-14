@@ -82,3 +82,32 @@ fun botSourceLabel(source: String): String = when (source) {
         part.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
     }
 }
+
+/**
+ * The status line under a bot row: `<relative time> · <N messages>` (docs/DESIGN.md §5.16).
+ *
+ * The Chats list can leave time implicit because its groups ARE the time buckets. The Bots list
+ * groups by channel instead, so a row has to say when it last happened or the reader has no way
+ * to tell — which is what HG-54 asked for.
+ *
+ * Pure, with [nowMs] passed in, the same contract as `relativeTimeLabel` — that is what makes both
+ * testable without a clock. Returns null when there is nothing to say: §5.2 gates the status line
+ * on the TEXT, not on the condition, because a blank Text still costs a full line.
+ */
+fun botStatusLine(
+    session: Session,
+    nowMs: Long,
+    language: com.hermes.client.ui.localization.AppLanguage,
+): String? {
+    val zh = language == com.hermes.client.ui.localization.AppLanguage.ZH
+    val count = session.messageCount.takeIf { it > 0 }?.let {
+        if (zh) "$it 条" else if (it == 1) "1 message" else "$it messages"
+    }
+    // `relativeTimeLabel` renders a null timestamp as "—", which reads as a value rather than as
+    // absence. Upstream omits `last_active` often enough on these rows that the em dash would
+    // become the common case, so the segment is dropped instead.
+    val since = session.lastActive?.let {
+        com.hermes.client.ui.util.relativeTimeLabel(it, nowMs, language)
+    }
+    return listOfNotNull(since, count).takeIf { it.isNotEmpty() }?.joinToString(" · ")
+}

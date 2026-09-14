@@ -49,12 +49,22 @@ fun SessionSubline(
     defaultProjectPath: String? = null,
     pinned: Boolean = false,
     hasDraft: Boolean = false,
+    isBot: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     // The project's real name when the catalog knows it (upstream projects have names of their
     // own); the folder basename otherwise, which is what this row always used to show.
     val projectName = LocalProjectNames.current(session)
-    val parts = sessionSublineParts(session, lead, defaultProjectPath, projectName)
+    val raw = sessionSublineParts(session, lead, defaultProjectPath, projectName, isBot)
+    // The bot list's third model state, worded here rather than in the pure rule. Saying 默认模型
+    // would be a claim about someone else's turn that we cannot make — the app once went further
+    // and wrote the profile default into the session's own state, so the chip named a model that
+    // had never touched that conversation (docs/DESIGN.md §5.16, ui/chat/ModelChipLabel.kt).
+    val parts = if (raw.modelUnknown) {
+        raw.copy(model = localized(LocalAppLanguage.current, "模型未知", "Model unknown"))
+    } else {
+        raw
+    }
     if (parts.isEmpty && !pinned && !hasDraft) return
     // One step lighter than ListItem's onSurfaceVariant, matching the design's "muted" tier
     // (decision 2026-09-10). The glyph goes a further step down to the design's faint tier
