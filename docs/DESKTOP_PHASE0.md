@@ -302,8 +302,16 @@ trigger, reuse rule, fixed Python dependency edges, bounded link-free content, a
 entrypoint before producing any archive. The output now separates bootstrap and deferred bytes, and
 each optional archive carries the same normalized content identity used by the signed manifest and
 Desktop store. This makes the real dependency trees publishable without mixing them back into the
-bootstrap Python archive; runtime projection and first-use process restart remain separate local
-integration gates before the path can be enabled.
+bootstrap Python archive.
+
+C4's seventh default-inert slice projects installed speech and document `site-packages` roots into a
+content-addressed, read-only `.pth` directory after probing the exact managed interpreter's Python
+X.Y and extension ABI. The Hermes LaunchAgent model can inject that directory through upstream's
+`HERMES_LAZY_INSTALL_TARGET` and can inject a revalidated managed or system browser through
+`AGENT_BROWSER_EXECUTABLE_PATH`. The writer rejects symlinks, unsafe ownership or permissions,
+duplicate component kinds, external Python content, ABI-probe failure, and any mutation of an
+existing projection. It does not persist a LaunchAgent or restart a process; first-use activation,
+controlled restart, and one-shot capability retry remain the next local integration gate.
 
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.

@@ -352,6 +352,13 @@ extractor, immutable store, and capability references. Interrupted transport is 
 a private UUID workspace bound to both manifest and trigger. This remains default-inert and returns
 resolved paths without changing credentials, `current`, LaunchAgents, or running services.
 
+The optional-runtime writer can combine the returned speech and document roots into a deterministic,
+read-only `.pth` projection after probing the exact managed Python ABI. The LaunchAgent model exposes
+that projection through `HERMES_LAZY_INSTALL_TARGET` and exposes a revalidated browser through
+`AGENT_BROWSER_EXECUTABLE_PATH`, both of which upstream Hermes already understands. Existing
+projections are accepted only when their ownership, permissions, file set, ABI, and paths match
+exactly. This primitive remains default-inert: it does not persist the LaunchAgent or restart Hermes.
+
 Before that transaction, the local component preflight coordinator accepts the same verifier-only
 token and combines rehashed managed-store candidates with allowlisted external observations. It emits
 the per-component reuse/download/defer decisions and exact bootstrap/deferred byte totals. A matching
