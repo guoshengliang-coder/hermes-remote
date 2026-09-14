@@ -486,6 +486,16 @@ grant/挑战并要求重新获取验证码，不得清除仍有效的账号会�
      毫秒数 = `formatLatency`（<1000ms 显示 `N ms`，否则 `X.X s`）。
      **第二版删掉了状态胶囊、延迟三档（优/普通/延迟）与在线数/总数**，右侧只剩纯文本。
      连接器离线（稿未画）：副行「连接器离线」、右侧「离线」，都用 `StatusTone.BAD`。
+     - **抽屉的几块 tile 必须跟着当前 Mac 变**（决策 2026-09-14，HG-48）。它们此前只订阅
+       `profileManager.active`，而换 Mac 不改 profile —— 于是设备名是进程启动时取的一张快照，
+       此后再不更新；同一个 `refresh()` 里的「定时任务 N 个任务」一起陈旧。
+       现在 `CardPageViewModel` 另外订阅 `AccountSessionManager.session` 的 `selectedDeviceId`
+       （`distinctUntilChanged` + `drop(1)`，所以「重新检查连接」重选同一台不会重复拉取），
+       并且 `CardPage` 在抽屉**打开时**也刷新一次。
+     - **那句「(also called when the drawer opens)」在 `refresh()` 的注释里挂了几个月，没有一个
+       调用方。** 这个 ViewModel 挂在 Activity 作用域（卡片页是抽屉内容，在 NavHost 之外），
+       去远程设备页切完再回来拿到的是同一个实例、同一份 state，所以连导航也没能掩盖它。
+       现由 `CardPageViewModelTest` 钉死（旧行为下必红）。
   4. **快捷行**（**不在卡里**，坐在抽屉上）：行高 **48dp**、左右内距 4、按压圆角 8、行间
      `cardDividerColor()` 发丝线；图标 20 + 12 间距 + 标题 14.5/500，右侧 [6dp 点] + 右值 13
      （最大宽 160、缩字下限 12）+ 16dp 细箭头。行：
