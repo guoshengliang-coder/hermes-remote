@@ -6,7 +6,7 @@ public enum DesktopComponentReuseContract: String, Codable, Sendable {
     case verifiedCompatibility = "verified_compatibility"
 }
 
-public struct DesktopComponentReleaseDependency: Codable, Equatable, Sendable {
+public struct DesktopComponentReleaseDependency: Codable, Equatable, Hashable, Sendable {
     public let kind: DesktopManagedComponentKind
     public let contentSHA256: String
 
@@ -135,6 +135,17 @@ public struct DesktopComponentReleaseManifestV2: Codable, Equatable, Sendable {
     }
 }
 
+/// Capability token proving that the manifest came from the strict Ed25519 verifier. The raw
+/// manifest remains available for presentation and preflight, while installation requires this
+/// non-forgeable wrapper so an unsigned caller-constructed value cannot select download URLs.
+public struct VerifiedDesktopComponentReleaseManifestV2: Equatable, Sendable {
+    public let manifest: DesktopComponentReleaseManifestV2
+
+    fileprivate init(manifest: DesktopComponentReleaseManifestV2) {
+        self.manifest = manifest
+    }
+}
+
 public enum DesktopComponentReleaseVerificationError: Error, Equatable, Sendable {
     case invalidConfiguration
     case responseTooLarge
@@ -246,6 +257,12 @@ public struct DesktopComponentReleaseManifestV2Verifier: Sendable {
         }
         try validate(manifest)
         return manifest
+    }
+
+    public func verifyForInstallation(
+        _ envelopeData: Data
+    ) throws -> VerifiedDesktopComponentReleaseManifestV2 {
+        VerifiedDesktopComponentReleaseManifestV2(manifest: try verify(envelopeData))
     }
 
     private func validate(_ manifest: DesktopComponentReleaseManifestV2) throws {

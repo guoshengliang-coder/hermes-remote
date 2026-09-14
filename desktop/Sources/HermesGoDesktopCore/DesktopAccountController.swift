@@ -966,7 +966,9 @@ public actor DesktopAccountController {
                 supportsDeviceSharing: supportsDeviceSharing,
                 maxSharedDevices: capabilitiesSnapshot?.binding.maxSharedDevices ?? 0,
                 accountDeletionEnabled: capabilitiesSnapshot?.accountAuth.accountDeletion == true,
-                desktopBootstrapRuntimeContract: capabilitiesSnapshot?.desktopBootstrap?.runtimeContract
+                desktopBootstrapRuntimeContract: capabilitiesSnapshot?.desktopBootstrap?.runtimeContract,
+                desktopComponentManifestSchemaVersion:
+                    capabilitiesSnapshot?.desktopBootstrap?.componentManifestSchemaVersion
             )
             dashboardSnapshot = dashboard
             return .signedIn(dashboard)

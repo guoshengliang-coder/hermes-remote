@@ -1,6 +1,6 @@
 import Foundation
 
-public enum DesktopManagedComponentKind: String, Codable, CaseIterable, Sendable {
+public enum DesktopManagedComponentKind: String, Codable, CaseIterable, Hashable, Sendable {
     case pythonRuntime = "python_runtime"
     case nodeRuntime = "node_runtime"
     case hermesCore = "hermes_core"

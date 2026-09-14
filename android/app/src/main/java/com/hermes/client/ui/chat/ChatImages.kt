@@ -42,9 +42,16 @@ import kotlinx.coroutines.withContext
  * Images attached to one message.
  *
  * A single image is shown **whole**: its container takes the image's own aspect ratio, so a tall
- * screenshot is recognisable without opening it and the bubble narrows around it. Two or more stay a
- * cropped 2-up grid — a deliberate trade recorded in `docs/DESIGN.md` §5.4, because a ragged grid is
- * harder to read than a cropped one and sharing screenshots is overwhelmingly a single-image act.
+ * screenshot is recognisable without opening it and the bubble narrows around it.
+ *
+ * Two or more are **also whole** (HG-43, 2026-09-14). The grid gives every cell one shared ratio —
+ * the median of the group's own — and draws each image `Fit` inside it, so the columns stay even
+ * and nothing is cut off. It was a fixed-height cropped grid until now, recorded on 2026-09-12 as
+ * a deliberate trade; what reopened it was three photographed ID cards arriving as three middle
+ * strips. That note named the two ways out, masonry or one shared ratio, and this is the second.
+ *
+ * Cells are also smaller than they were (108dp ceiling, from 132dp fixed). A thumbnail is for
+ * recognising which picture it is — the rest is one tap away in the viewer.
  *
  * Tapping asks [onOpen] to open the viewer; this composable owns no viewer state of its own. It used
  * to, in a `remember` inside a LazyColumn item, where a rotation or a history reconcile silently
@@ -71,21 +78,32 @@ internal fun ChatImageGrid(
         }
         return
     }
-    Column(verticalArrangement = Arrangement.spacedBy(GRID_CELL_GAP)) {
-        images.chunked(2).forEach { rowImages ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(GRID_CELL_GAP),
-            ) {
-                rowImages.forEach { image ->
-                    ChatImageThumbnail(
-                        image = image,
-                        modifier = Modifier.weight(1f).height(GRID_CELL_HEIGHT),
-                        contentScale = ContentScale.Crop,
-                        onClick = { if (image.localPath != null) onOpen(image) },
-                    )
+    // One ratio for the whole grid, so the rows line up even though the pictures do not match.
+    val aspect = remember(images) {
+        gridCellAspect(images.map { (it.width ?: 0) to (it.height ?: 0) })
+    }
+    BoxWithConstraints {
+        val cellWidth = (maxWidth - GRID_CELL_GAP) / 2
+        val cellHeight = gridCellHeight(cellWidth, aspect)
+        Column(verticalArrangement = Arrangement.spacedBy(GRID_CELL_GAP)) {
+            images.chunked(2).forEach { rowImages ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(GRID_CELL_GAP),
+                ) {
+                    rowImages.forEach { image ->
+                        ChatImageThumbnail(
+                            image = image,
+                            modifier = Modifier.weight(1f).height(cellHeight),
+                            // Fit, not Crop: the cell carries the group's ratio rather than this
+                            // image's, so an image that differs from the median is matted at the
+                            // edges instead of having those edges cut away.
+                            contentScale = ContentScale.Fit,
+                            onClick = { if (image.localPath != null) onOpen(image) },
+                        )
+                    }
+                    if (rowImages.size == 1) Spacer(Modifier.weight(1f))
                 }
-                if (rowImages.size == 1) Spacer(Modifier.weight(1f))
             }
         }
     }
@@ -99,7 +117,7 @@ private fun ChatImageThumbnail(
     onClick: () -> Unit,
 ) {
     val language = LocalAppLanguage.current
-    BoxWithConstraints(modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface)) {
+    BoxWithConstraints(modifier.clip(RoundedCornerShape(14.dp))) {
         val density = LocalDensity.current
         // Decode to the cell we actually measured rather than a fixed 900px. Six full-size decodes
         // is tens of megabytes for thumbnails a few hundred pixels wide.
@@ -112,6 +130,14 @@ private fun ChatImageThumbnail(
         val transferring = remember(image) {
             image.state == ImageTransferState.UPLOADING ||
                 ((image.remotePath != null || image.sourceUrl != null) && image.state != ImageTransferState.FAILED)
+        }
+        // The fill is for the EMPTY states only (HG-43). While a cell is waiting or broken it needs
+        // a shape to be a placeholder at all; once the picture is drawn it must go, because a grid
+        // cell now mats whatever does not match the shared ratio, and a `surface` mat on the
+        // bubble's own ground reads as a row of little white cards behind the photos. Matting in
+        // the bubble's colour is matting you do not notice.
+        if (bitmap == null) {
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface))
         }
         Box(Modifier.fillMaxSize().clickable(onClick = onClick), contentAlignment = Alignment.Center) {
             val bmp = bitmap

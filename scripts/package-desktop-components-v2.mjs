@@ -13,6 +13,7 @@ try {
     "DESKTOP_COMPONENT_ARCHIVES_V2_OK",
     `ARCHITECTURE=${result.architecture}`,
     `BOOTSTRAP_SIZE_BYTES=${result.bootstrapSizeBytes}`,
+    `DEFERRED_SIZE_BYTES=${result.deferredSizeBytes}`,
     `TOTAL_SIZE_BYTES=${result.totalSizeBytes}`,
     ...result.artifacts.flatMap((artifact) => {
       const prefix = artifact.component.toUpperCase();
@@ -24,6 +25,8 @@ try {
         `${prefix}_SHA256=${artifact.sha256}`,
         `${prefix}_CONTENT_SHA256=${artifact.contentSHA256}`,
         `${prefix}_DEPENDENCIES=${artifact.dependencies.join(",")}`,
+        `${prefix}_INSTALL_PHASE=${artifact.installPhase}`,
+        ...(artifact.onDemandTrigger ? [`${prefix}_ON_DEMAND_TRIGGER=${artifact.onDemandTrigger}`] : []),
       ];
     }),
     "",

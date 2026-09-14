@@ -145,12 +145,16 @@ fun SessionListTuningScreen(
                 HexRow("需要你处理", tuning.pillarNeedsYouDark) { onChange(tuning.copy(pillarNeedsYouDark = it)) }
                 HexRow("已置顶", tuning.pillarPinnedDark) { onChange(tuning.copy(pillarPinnedDark = it)) }
                 HexRow("今天", tuning.pillarTodayDark) { onChange(tuning.copy(pillarTodayDark = it)) }
-                HexRow("前 7 天 / 更早", tuning.pillarOlderDark) { onChange(tuning.copy(pillarOlderDark = it)) }
+                HexRow("昨天", tuning.pillarYesterdayDark) { onChange(tuning.copy(pillarYesterdayDark = it)) }
+                HexRow("前 7 天", tuning.pillarRecentDark) { onChange(tuning.copy(pillarRecentDark = it)) }
+                HexRow("更早", tuning.pillarOlderDark) { onChange(tuning.copy(pillarOlderDark = it)) }
             } else {
                 HexRow("需要你处理", tuning.pillarNeedsYouLight) { onChange(tuning.copy(pillarNeedsYouLight = it)) }
                 HexRow("已置顶", tuning.pillarPinnedLight) { onChange(tuning.copy(pillarPinnedLight = it)) }
                 HexRow("今天", tuning.pillarTodayLight) { onChange(tuning.copy(pillarTodayLight = it)) }
-                HexRow("前 7 天 / 更早", tuning.pillarOlderLight) { onChange(tuning.copy(pillarOlderLight = it)) }
+                HexRow("昨天", tuning.pillarYesterdayLight) { onChange(tuning.copy(pillarYesterdayLight = it)) }
+                HexRow("前 7 天", tuning.pillarRecentLight) { onChange(tuning.copy(pillarRecentLight = it)) }
+                HexRow("更早", tuning.pillarOlderLight) { onChange(tuning.copy(pillarOlderLight = it)) }
             }
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))

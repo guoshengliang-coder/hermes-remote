@@ -89,18 +89,34 @@ data class SessionListTuning(
     val pillarNeedsYouLight: String = "#D97706",
     val pillarPinnedLight: String = "#2563EB",
     val pillarTodayLight: String = "#059669",
+    val pillarYesterdayLight: String = "#0D9488",
+    val pillarRecentLight: String = "#64748B",
     val pillarOlderLight: String = "#94A3B8",
     val pillarNeedsYouDark: String = "#F59E0B",
     val pillarPinnedDark: String = "#3B82F6",
     val pillarTodayDark: String = "#34D399",
+    val pillarYesterdayDark: String = "#2DD4BF",
+    val pillarRecentDark: String = "#94A3B8",
     val pillarOlderDark: String = "#64748B",
 ) {
     /** True when nothing has been moved — the panel is showing the shipped design. */
     val isDefault: Boolean get() = this == SessionListTuning()
 }
 
-/** Four pillar colours resolved for one theme. */
-data class PillarColors(val needsYou: Color, val pinned: Color, val today: Color, val older: Color)
+/**
+ * The session list's pillar colours resolved for one theme.
+ *
+ * [recent] is 前 7 天 and [older] is 更早. They shared one slot until HG-52 (2026-09-14); note that
+ * their light and dark values are each other's, which is deliberate — see Tiles.kt.
+ */
+data class PillarColors(
+    val needsYou: Color,
+    val pinned: Color,
+    val today: Color,
+    val yesterday: Color,
+    val recent: Color,
+    val older: Color,
+)
 
 /** `#RRGGBB` → Color, falling back to [fallback] so a half-typed hex never crashes the list. */
 fun parseHex(value: String, fallback: Color = Color.Magenta): Color {
@@ -114,12 +130,14 @@ fun parseHex(value: String, fallback: Color = Color.Magenta): Color {
 fun pillarsOf(t: SessionListTuning, dark: Boolean): PillarColors = if (dark) {
     PillarColors(
         parseHex(t.pillarNeedsYouDark), parseHex(t.pillarPinnedDark),
-        parseHex(t.pillarTodayDark), parseHex(t.pillarOlderDark),
+        parseHex(t.pillarTodayDark), parseHex(t.pillarYesterdayDark),
+        parseHex(t.pillarRecentDark), parseHex(t.pillarOlderDark),
     )
 } else {
     PillarColors(
         parseHex(t.pillarNeedsYouLight), parseHex(t.pillarPinnedLight),
-        parseHex(t.pillarTodayLight), parseHex(t.pillarOlderLight),
+        parseHex(t.pillarTodayLight), parseHex(t.pillarYesterdayLight),
+        parseHex(t.pillarRecentLight), parseHex(t.pillarOlderLight),
     )
 }
 
@@ -161,6 +179,8 @@ fun SessionListTuning.asReport(): String {
         row("pillarNeedsYou 浅/深", "$pillarNeedsYouLight / $pillarNeedsYouDark", "${d.pillarNeedsYouLight} / ${d.pillarNeedsYouDark}")
         row("pillarPinned 浅/深", "$pillarPinnedLight / $pillarPinnedDark", "${d.pillarPinnedLight} / ${d.pillarPinnedDark}")
         row("pillarToday 浅/深", "$pillarTodayLight / $pillarTodayDark", "${d.pillarTodayLight} / ${d.pillarTodayDark}")
+        row("pillarYesterday 浅/深", "$pillarYesterdayLight / $pillarYesterdayDark", "${d.pillarYesterdayLight} / ${d.pillarYesterdayDark}")
+        row("pillarRecent 浅/深", "$pillarRecentLight / $pillarRecentDark", "${d.pillarRecentLight} / ${d.pillarRecentDark}")
         row("pillarOlder 浅/深", "$pillarOlderLight / $pillarOlderDark", "${d.pillarOlderLight} / ${d.pillarOlderDark}")
     }
     return if (changed.isEmpty()) {

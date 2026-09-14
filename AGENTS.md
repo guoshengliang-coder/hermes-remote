@@ -22,6 +22,19 @@ When multiple agents work at the same time, prefer a dedicated branch and worktr
 reset, or delete another worktree. The integration agent owns the final merge, version bump, build,
 and release artifact so those operations happen exactly once.
 
+A worktree created for a task is removed by the agent that created it, once the task's pull request is
+merged and the resulting `main` checks pass. Confirm `git status --porcelain` is empty and run
+`git worktree remove <path>` (never `rm -rf`); if Git refuses, stop and report instead of forcing it.
+Then delete the branch: run `git fetch --prune origin`, and only if
+`git merge-base --is-ancestor <branch> origin/main` succeeds, run `git branch -D <branch>`; otherwise
+stop and report. Do not rely on `git branch -d`: once the remote branch is gone it compares against the
+current checkout's `HEAD`, not `main`, and refuses merged branches. A task that did not create its own
+worktree removes nothing. Never
+remove the integration worktree, a worktree locked with `git worktree lock`, or one holding
+uncommitted or untracked changes — report those. A release worktree is removed only after the
+publication's public size and hash verification has passed. Follow-up work after a merge starts a new
+branch from `main` rather than reviving the removed one.
+
 The integration worktree — the one holding `main` — belongs to the integration agent alone. No other
 agent may edit files in it; every other task works on its own branch and worktree. An integration
 agent that finds uncommitted changes there reports them and never commits or discards them. Merging

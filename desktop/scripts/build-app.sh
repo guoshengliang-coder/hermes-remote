@@ -54,6 +54,16 @@ if [ -n "${HERMES_GO_MANAGED_BOOTSTRAP_ENABLED:-}" ]; then
     *) echo "HERMES_GO_MANAGED_BOOTSTRAP_ENABLED must be 0 or 1." >&2; exit 1 ;;
   esac
 fi
+if [ -n "${HERMES_GO_COMPONENT_PREFLIGHT_ENABLED:-}" ]; then
+  case "$HERMES_GO_COMPONENT_PREFLIGHT_ENABLED" in
+    0) plutil -replace HermesGoComponentPreflightEnabled -bool false "$app/Contents/Info.plist" ;;
+    1) plutil -replace HermesGoComponentPreflightEnabled -bool true "$app/Contents/Info.plist" ;;
+    *) echo "HERMES_GO_COMPONENT_PREFLIGHT_ENABLED must be 0 or 1." >&2; exit 1 ;;
+  esac
+fi
+if [ -n "${HERMES_GO_DESKTOP_COMPONENT_MANIFEST_URL:-}" ]; then
+  plutil -replace HermesGoDesktopComponentManifestURL -string "$HERMES_GO_DESKTOP_COMPONENT_MANIFEST_URL" "$app/Contents/Info.plist"
+fi
 if [ -n "${HERMES_GO_DESKTOP_RELEASE_MANIFEST_URL:-}" ]; then
   plutil -replace HermesGoDesktopReleaseManifestURL -string "$HERMES_GO_DESKTOP_RELEASE_MANIFEST_URL" "$app/Contents/Info.plist"
 fi

@@ -35,12 +35,14 @@ import com.hermes.client.ui.theme.statusColor
  *
  * One per group header. TIME split into TODAY and OLDER on 2026-09-11: the design source gives
  * 今天 its own green and puts 前 7 天 / 更早 on a slate, so a single "time" tone could not express it.
+ * [YESTERDAY] and [RECENT] arrived with HG-52 (2026-09-14), which added a 昨天 bucket and ended
+ * 前 7 天 and 更早 sharing one colour — [OLDER] used to serve both.
  *
  * [ACTIVE] and [PAUSED] are the scheduled-jobs list's two neutral groups (docs/DESIGN.md §5.18).
  * They take scheme roles rather than the literal pillar colours: 已启用 / 已暂停 are not time
  * buckets, and borrowing 今天's green would claim a health state the group does not carry.
  */
-internal enum class SectionTone { NEEDS_YOU, PINNED, TODAY, OLDER, ACTIVE, PAUSED }
+internal enum class SectionTone { NEEDS_YOU, PINNED, TODAY, YESTERDAY, RECENT, OLDER, ACTIVE, PAUSED }
 
 /**
  * The group header shared by every grouped list — sessions, and now scheduled jobs
@@ -67,7 +69,11 @@ internal fun SectionHeader(
         SectionTone.NEEDS_YOU -> statusColor(StatusTone.WARN)
         SectionTone.PINNED -> com.hermes.client.ui.theme.groupLabelPinnedColor()
         SectionTone.TODAY -> com.hermes.client.ui.theme.groupLabelTodayColor()
-        SectionTone.OLDER -> com.hermes.client.ui.theme.groupLabelOlderColor()
+        SectionTone.YESTERDAY -> com.hermes.client.ui.theme.groupLabelYesterdayColor()
+        // 前 7 天 and 更早 share ONE label colour even though HG-52 split their pillars. Three
+        // readable greys as text are not three colours a reader can separate; the pillars carry the
+        // distinction, which is what the item actually asked for. See Tiles.kt.
+        SectionTone.RECENT, SectionTone.OLDER -> com.hermes.client.ui.theme.groupLabelOlderColor()
         // The scheduled-jobs pair stays neutral: 已启用 / 已暂停 are not categories competing for
         // attention, and they have no mock of their own to take a hue from.
         //
@@ -92,9 +98,11 @@ internal fun SectionHeader(
         SectionTone.NEEDS_YOU -> tunedPillars.needsYou
         SectionTone.PINNED -> tunedPillars.pinned
         SectionTone.TODAY -> tunedPillars.today
+        SectionTone.YESTERDAY -> tunedPillars.yesterday
+        SectionTone.RECENT -> tunedPillars.recent
         SectionTone.OLDER -> tunedPillars.older
-        // Not tuned: the session-list panel has four slots because the session list has four
-        // groups. These two are scheme roles and move with the palette, not with that panel.
+        // Not tuned: the session-list panel has one slot per session-list group. These two are
+        // scheme roles and move with the palette, not with that panel.
         SectionTone.ACTIVE -> MaterialTheme.colorScheme.outline
         SectionTone.PAUSED -> MaterialTheme.colorScheme.outlineVariant
     }

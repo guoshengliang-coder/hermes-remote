@@ -333,6 +333,18 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideUnsentStore(
+        @ApplicationContext context: Context,
+    ): com.hermes.client.data.repository.UnsentStore =
+        com.hermes.client.data.repository.UnsentStore(context)
+
+    @Provides
+    fun provideUnsentSnapshot(
+        store: com.hermes.client.data.repository.UnsentStore,
+    ): com.hermes.client.data.repository.UnsentSnapshot = store
+
+    @Provides
+    @Singleton
     fun provideProjectsRepository(
         client: HermesGatewayClient,
         json: Json,

@@ -38,10 +38,13 @@ class ConnectionSettingsViewModelTest {
     // And the unsent drafts (HG-41), for the same reason.
     private val drafts = mockk<com.hermes.client.data.repository.DraftStore>(relaxed = true)
 
+    // And the refused sends (HG-49) — an unsent message is user content just like a draft.
+    private val unsent = mockk<com.hermes.client.data.repository.UnsentStore>(relaxed = true)
+
     @Before fun setUp() { Dispatchers.setMain(StandardTestDispatcher()) }
     @After fun tearDown() = Dispatchers.resetMain()
 
-    private fun buildVm() = ConnectionSettingsViewModel(store, rest, chat, gatedAuth, transcripts, phases, drafts)
+    private fun buildVm() = ConnectionSettingsViewModel(store, rest, chat, gatedAuth, transcripts, phases, drafts, unsent)
 
     @Test fun prefills_fields_from_stored_config() {
         every { store.load() } returns GatewayConfig("https://host.ts.net", "tok123")

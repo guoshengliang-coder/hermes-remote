@@ -40,7 +40,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,7 +73,6 @@ import com.hermes.client.ui.theme.StatusTone
 import com.hermes.client.ui.theme.fabContainerColor
 import com.hermes.client.ui.theme.fabOutlineColor
 import com.hermes.client.ui.theme.statusColor
-import kotlinx.coroutines.launch
 
 /**
  * The scheduled-jobs list (docs/DESIGN.md §5.18; Stitch 基线-定时任务列表 / 暗夜, 2026-09-12).
@@ -200,7 +198,6 @@ internal fun CronScreenContent(
                     val sections = remember(state.jobs, nowMs) { cronSections(state.jobs, nowMs) }
                     val needsYou = sections.firstOrNull { it.group == CronGroup.NEEDS_YOU }?.jobs?.size ?: 0
                     val listState = rememberLazyListState()
-                    val scope = rememberCoroutineScope()
                     LazyColumn(Modifier.fillMaxSize(), state = listState) {
                         // The same inset card the home screen uses. Without it a long list makes
                         // the reader scroll to find out whether anything is wrong at all.
@@ -215,9 +212,13 @@ internal fun CronScreenContent(
                                         "$needsYou job(s) need attention",
                                     ),
                                     icon = AlertTriangleIcon,
-                                    // Tappable: it scrolls to the group that needs a person, and a
-                                    // strip that only announces is a dead end.
-                                    onClick = { scope.launch { listState.animateScrollToItem(1) } },
+                                    // NOT tappable (HG-50, 2026-09-14). It used to scroll to the
+                                    // 需要你处理 group — which is the very next thing on screen, so
+                                    // the tap arrived back where it started. A strip that announces
+                                    // is the right shape here; the rows below it are the doors.
+                                    // (On the home screen the same component IS tappable: there the
+                                    // jobs are on another page entirely.)
+                                    onClick = null,
                                 )
                             }
                         }

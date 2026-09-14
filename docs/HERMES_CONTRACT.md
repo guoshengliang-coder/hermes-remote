@@ -61,6 +61,8 @@ renames disappears silently — deserialization yields null, never an error.
 /api/profiles          /api/profiles/active
 /api/files             /api/files/upload
 /api/cron/jobs         /api/cron/jobs/{id}    /api/cron/jobs/{id}/runs
+/api/cron/jobs/{id}/pause    /api/cron/jobs/{id}/resume    /api/cron/jobs/{id}/trigger
+/api/cron/delivery-targets
 /api/mobile/events     /api/mobile/events/ack /api/mobile/events/read
 /api/model/options     /api/model/set         /api/tools/toolsets
 /api/skills            /api/skills/toggle     /api/analytics/usage
@@ -69,6 +71,14 @@ renames disappears silently — deserialization yields null, never an error.
 
 Authentication is the `X-Hermes-Session-Token` header. The Mac's Hermes credential never leaves the
 Mac; the phone holds only its own app token (see `docs/ARCHITECTURE.md`).
+
+**The three cron action paths and `/api/cron/delivery-targets` were added to this list on
+2026-09-14 (HG-51). They were not new** — the app has been calling
+`POST /api/cron/jobs/{id}/{pause|resume|trigger}` all along, and §7 already discussed
+`delivery-targets` in prose. They were simply never written into the inventory, which is the exact
+failure mode this document exists to prevent: an upstream rename of `trigger` would have surfaced
+as 「操作失败」 and nothing else. Nothing here is pinned by `HermesContractTest` (it covers names in
+text grammars, not routes), so this list is the only record.
 
 ### 3. WebSocket RPC methods
 
@@ -121,6 +131,16 @@ and its pid; we deliberately do not parse it. There is no version negotiation he
 this document), so that prose can change under us at any time, and a user-facing sentence must not
 be hostage to it. If a future Hermes renumbers these, the symptom is a send failure falling back to
 the generic `HR-SESS-007` — check `ChatViewModel`'s constants first.
+
+**Hermes 0.21.0 has no wire-level missing-capability event.** Optional dependency failures are not a
+JSON-RPC error code that Desktop can safely intercept. `tools.lazy_deps.FeatureUnavailable` formats
+English prose, `agent/tool_executor.py` wraps thrown tool failures as `Error executing tool ...`, and
+some capability paths deliberately catch installation/import errors and fall back or return no
+optional result (for example document extraction). Consequently Hermes GO must not map error strings
+to browser, speech, or document downloads, and it cannot safely retry a turn from such text. The
+Desktop coordinator accepts a closed capability kind in preparation for a future versioned upstream
+event; adopting that event requires updating this inventory and the upgrade checklist before wiring
+the production request path.
 
 **Upstream strips its own repo root out of every child process's `PYTHONPATH`.**
 `tools/environments/local.py` builds the environment for anything Hermes spawns, and
@@ -330,6 +350,8 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
 7. Confirm the `messages` table still exposes `timestamp` (section 1b): `sqlite3 ~/.hermes/state.db
    ".schema messages"`. A rename silently empties every history timestamp again.
 8. Run the attachment and streaming smoke tests in `docs/SMOKE_TEST.md` against the upgraded Hermes.
+8b. Confirm whether Hermes exposes a versioned missing-capability event with a closed capability kind.
+    Never substitute parsing `FeatureUnavailable` or tool-error prose for that event.
 9. **Read the source, not the notes.** See below.
 
 ## Known hazards

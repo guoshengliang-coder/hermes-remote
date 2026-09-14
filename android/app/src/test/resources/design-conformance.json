@@ -63,6 +63,16 @@
       "reason": "",
       "note": "深色 #34D399 与 status-good 深色档完全同色 —— 稿子自己就是这样画的（今天立柱与「已完成」圆点同一支薄荷绿）。2026-09-11 产品负责人要求恢复彩色立柱时接受了这一点。" },
 
+    { "role": "pillar.yesterday", "ref": "tiles:pillarYesterday",
+      "design": ["#0D9488", "#2DD4BF"], "impl": ["#0D9488", "#2DD4BF"],
+      "reason": "稿子里没有这一档 —— 昨天分组是 HG-52（2026-09-14）新加的，Stitch 稿只画到四组。取值是推导：teal-600/400 是今天那支 emerald 的邻档，让今天→昨天→前 7 天读成一条 绿→青→灰 的降温坡，而不是三个互不相干的色相。",
+      "note": "design 列写的就是 impl —— 没有稿子可对，这一行钉的是「实现与本文件记的决策一致」，不是「实现与稿子一致」。" },
+
+    { "role": "pillar.recent", "ref": "tiles:pillarRecent",
+      "design": ["#64748B", "#94A3B8"], "impl": ["#64748B", "#94A3B8"],
+      "reason": "稿子里前 7 天与更早共用一支石板灰，HG-52 要求两者分开。不引入新色相，改用既有的两个灰按主题互换：浅色前 7 天取较深的 #64748B、更早取较浅的 #94A3B8，深色反过来。规则是「越近的一档越实」，两个主题下同向成立。",
+      "note": "与 pillar.older 互为对方的值，这是有意的，不是抄错。" },
+
     { "role": "pillar.older", "ref": "tiles:pillarOlder",
       "design": ["#94A3B8", "#64748B"], "impl": ["#94A3B8", "#64748B"],
       "reason": "" },
@@ -76,6 +86,11 @@
       "design": ["#059669", "#34D399"], "impl": ["#059669", "#34D399"],
       "reason": "",
       "note": "浅色等于色柱；深色 #34D399 取自暗色稿。" },
+
+    { "role": "group.label.yesterday", "ref": "tiles:groupLabelYesterday",
+      "design": ["#0F766E", "#2DD4BF"], "impl": ["#0F766E", "#2DD4BF"],
+      "reason": "同 pillar.yesterday，稿子里没有这一档。浅色取 teal-700 而不是色柱的 teal-600，沿用 group.label.older 那条规则：色标取画出来的那一档，文字取同色相的可读档。",
+      "note": "前 7 天与更早的组名仍共用 group.label.older —— HG-52 要的是三个色柱分开，不是三个组名分开。三档可读灰做文字读者分不出来，拆了只会牺牲可读性去表达一个看不见的区分。" },
 
     { "role": "group.label.older", "ref": "tiles:groupLabelOlder",
       "design": ["#94A3B8", "#CBD5E1"], "impl": ["#64748B", "#CBD5E1"],

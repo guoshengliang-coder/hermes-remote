@@ -193,8 +193,8 @@ final class DesktopIssueTests: XCTestCase {
         )
         XCTAssertEqual(ambiguous.code, .migrationRollbackFailed)
         XCTAssertFalse(ambiguous.retryable)
-        XCTAssertFalse(ambiguous.detailChinese.isEmpty)
-        XCTAssertFalse(ambiguous.detailEnglish.isEmpty)
+        XCTAssertTrue(ambiguous.detailChinese.contains("停止继续变更"))
+        XCTAssertTrue(ambiguous.detailEnglish.contains("further changes were stopped"))
 
         let cleanup = DesktopIssue(code: .migrationCleanupPending)
         XCTAssertEqual(cleanup.code.rawValue, "HR-MIGRATE-005")

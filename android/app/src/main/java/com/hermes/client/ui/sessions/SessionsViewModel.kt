@@ -73,6 +73,7 @@ class SessionsViewModel @Inject constructor(
     private val projectsRepo: ProjectsRepository,
     private val projectCatalog: com.hermes.client.data.repository.ProjectCatalog,
     private val draftStore: com.hermes.client.data.repository.DraftSnapshot,
+    private val unsentStore: com.hermes.client.data.repository.UnsentSnapshot,
     private val accountSessions: AccountSessionManager? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(
@@ -149,6 +150,23 @@ class SessionsViewModel @Inject constructor(
 
     /** True if [session] has an unsent draft, keyed by the session's own profile. */
     fun hasDraft(session: Session, tokens: Set<String>? = draftTokens.value): Boolean =
+        com.hermes.client.data.repository.SessionReadStore.token(
+            session.profile, session.id, session.deviceId,
+        ) in tokens.orEmpty()
+
+    /**
+     * Conversations holding a message that was submitted and REFUSED (HG-49). Same shape and the
+     * same `null` gate as [draftTokens], and it is deliberately a separate set: a draft was never
+     * sent and is the user's own business, a refused send is something that went wrong and has to
+     * be said out loud on the row.
+     */
+    val unsentTokens: StateFlow<Set<String>?> =
+        unsentStore.tokens
+            .catch { emit(emptySet()) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** True if [session] holds a message that was sent and refused. */
+    fun hasUnsent(session: Session, tokens: Set<String>? = unsentTokens.value): Boolean =
         com.hermes.client.data.repository.SessionReadStore.token(
             session.profile, session.id, session.deviceId,
         ) in tokens.orEmpty()

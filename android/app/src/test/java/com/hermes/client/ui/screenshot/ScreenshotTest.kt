@@ -620,6 +620,7 @@ class ScreenshotTest {
         pinned: Boolean = false,
         unread: Boolean = false,
         hasDraft: Boolean = false,
+        hasUnsent: Boolean = false,
     ) {
         androidx.compose.foundation.layout.Box(
             androidx.compose.ui.Modifier.background(tint),
@@ -632,6 +633,7 @@ class ScreenshotTest {
                 runtime = runtime,
                 unread = unread,
                 hasDraft = hasDraft,
+                hasUnsent = hasUnsent,
                 onOpen = {}, onTogglePin = {}, onRename = {}, onArchive = {}, onDelete = {},
             )
         }
@@ -673,6 +675,59 @@ class ScreenshotTest {
     }
 
     @Test fun sessionRowsDraft() = snap("session-rows-draft") { DraftRows() }
+
+    /**
+     * The 未发送 status line (HG-49). A message that was submitted and REFUSED, which is a different
+     * thing from the 草稿 above: a draft was never sent, this one was and upstream said no.
+     *
+     * It rides the third line in the same red as 运行失败, and takes **no** trailing dot — the same
+     * ruling 已中断 / 运行失败 got, because a mark there sits 1dp from the unread dot (DESIGN.md
+     * §5.2). The rows below are everything it has to coexist with, and the last two are the
+     * precedence pair: a run in flight outranks it, a settled verdict does not.
+     */
+    @androidx.compose.runtime.Composable
+    private fun UnsentRows() {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides
+                com.hermes.client.ui.localization.AppLanguage.ZH,
+        ) {
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.widthIn(max = 360.dp)) {
+            // The reported case: the conversation is idle and the row said nothing at all before.
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0x00000000), "汇总昨天 XDream 事业群工作室数据",
+                "/u/xiaomai", hasUnsent = true,
+            )
+            // Unsent AND unread: the line on the left, the dot on the right, never the same mark.
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0x00000000), "解决 Claude Code 完成未通知",
+                "/u/hermes-remote", unread = true, hasUnsent = true,
+            )
+            // Unsent AND a draft: both are true at once — one word in the subline, one line below.
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0x00000000), "又写了半句", "/u/xiaomai",
+                hasDraft = true, hasUnsent = true,
+            )
+            // A settled verdict yields to it.
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0x00000000), "上一轮跑失败了", "/u/xiaomai",
+                runtime = probeRuntime("unsent-failed", com.hermes.client.data.progress.SessionRunPhase.FAILED),
+                hasUnsent = true,
+            )
+            // A run in flight does not: 正在输出… is the more useful sentence right now.
+            ProbeRow(
+                androidx.compose.ui.graphics.Color(0x00000000), "正在跑的会话", "/u/hermes-remote",
+                runtime = probeRuntime("unsent-run", com.hermes.client.data.progress.SessionRunPhase.STREAMING),
+                hasUnsent = true,
+            )
+            // The control: the same row with nothing unsent.
+            ProbeRow(androidx.compose.ui.graphics.Color(0x00000000), "一切正常", "/u/xiaomai")
+        }
+        }
+    }
+
+    @Test fun sessionRowsUnsent() = snap("session-rows-unsent") { UnsentRows() }
+
+    @Test fun sessionRowsUnsentDark() = snap("session-rows-unsent-dark", darkTheme = true) { UnsentRows() }
 
     /**
      * The session picker's rows (HG-38). The four states that can appear at once: selected,
@@ -791,10 +846,15 @@ class ScreenshotTest {
         }
     }
 
-    // All four group headers in one picture. The amber one is the only coloured pillar in the
-    // product, and it only ever appears when a session is actually waiting on you — which the
-    // local mock can hold for about six seconds, so it has never been caught on a device
-    // (docs/ANDROID_SMOKE.md A-01). This is the one place its colour can be looked at.
+    // All six session-list group headers in one picture. The amber one is only ever on screen when
+    // a session is actually waiting on you — which the local mock can hold for about six seconds,
+    // so it has never been caught on a device (docs/ANDROID_SMOKE.md A-01). This is the one place
+    // its colour can be looked at.
+    //
+    // The last three are the reason this picture matters after HG-52 (2026-09-14): 昨天, 前 7 天 and
+    // 更早 have to be three pillars a reader can tell apart, and 前 7 天 / 更早 are the same two
+    // slates swapped per theme — so the light and dark snapshots have to be compared to each other,
+    // not just to themselves.
     @androidx.compose.runtime.Composable
     private fun SectionHeaders() {
         androidx.compose.foundation.layout.Column {
@@ -808,7 +868,13 @@ class ScreenshotTest {
                 "今天", 4, com.hermes.client.ui.components.SectionTone.TODAY, onToggle = {},
             )
             com.hermes.client.ui.components.SectionHeader(
-                "前 7 天", 19, com.hermes.client.ui.components.SectionTone.OLDER, collapsed = true, onToggle = {},
+                "昨天", 3, com.hermes.client.ui.components.SectionTone.YESTERDAY, onToggle = {},
+            )
+            com.hermes.client.ui.components.SectionHeader(
+                "前 7 天", 19, com.hermes.client.ui.components.SectionTone.RECENT, collapsed = true, onToggle = {},
+            )
+            com.hermes.client.ui.components.SectionHeader(
+                "更早", 55, com.hermes.client.ui.components.SectionTone.OLDER, collapsed = true, onToggle = {},
             )
         }
     }

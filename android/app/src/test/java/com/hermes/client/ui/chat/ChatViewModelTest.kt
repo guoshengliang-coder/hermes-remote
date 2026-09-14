@@ -123,17 +123,28 @@ class ChatViewModelTest {
     // The unsent-draft cache (HG-41); a fake rather than a mock so "blank clears it" is real.
     private var drafts = com.hermes.client.data.repository.FakeDraftSnapshot()
 
+    // Messages that were submitted and refused (HG-49). Shared across the ViewModels a test builds,
+    // which is the whole point: in production this store outlives the chat destination.
+    private var unsent = com.hermes.client.data.repository.FakeUnsentSnapshot()
+
+    /**
+     * A runtime store that outlives one ViewModel, so a test can model leaving the chat screen and
+     * coming back. In production this store is an application singleton and the ViewModel is scoped
+     * to the nav entry; a test that builds a fresh store per ViewModel cannot see the difference.
+     */
+    private fun newRuntimeStore(): SessionRuntimeStore {
+        val runtimeJob = SupervisorJob()
+        runtimeJobs += runtimeJob
+        return SessionRuntimeStore(chatRepo, CoroutineScope(runtimeJob + Dispatchers.Main), profileManager)
+    }
+
     private fun buildVm(
         accountSessions: com.hermes.client.data.auth.AccountSessionManager? = null,
         conversationDevices: com.hermes.client.data.auth.ConversationDeviceStore? = null,
+        runtimeStore: SessionRuntimeStore = newRuntimeStore(),
     ): ChatViewModel {
         val runtimeJob = SupervisorJob()
         runtimeJobs += runtimeJob
-        val runtimeStore = SessionRuntimeStore(
-            chatRepo,
-            CoroutineScope(runtimeJob + Dispatchers.Main),
-            profileManager,
-        )
         val store = com.hermes.client.data.repository.ModelCatalogStore(
             modelRepo, profileManager, credentialStore, connectivityChecker, chatRepo,
             CoroutineScope(runtimeJob + Dispatchers.Main),
@@ -146,7 +157,7 @@ class ChatViewModelTest {
             com.hermes.client.data.repository.ProjectCatalog(
                 mockk(relaxed = true), sessionRepo, profileManager, projectPrefs,
             ),
-            botSendNotice, drafts, CoroutineScope(runtimeJob + Dispatchers.Main),
+            botSendNotice, drafts, unsent, CoroutineScope(runtimeJob + Dispatchers.Main),
             accountSessions, conversationDevices,
         )
     }
@@ -800,6 +811,127 @@ class ChatViewModelTest {
         // the virtual clock would never go idle.
         events.emit(event("message.complete", "s1-live", "done"))
         advanceUntilIdle()
+    }
+
+    // HG-49: the same 4090, but the user walks away before dealing with it. In the report the
+    // failure happened at 22:05, the user opened two other conversations, and came back at 22:14 —
+    // by then the nav-scoped ViewModel that recorded the failure was gone. The bubble survived in
+    // the runtime store, so it still said 未发送, but its code had collapsed to the generic
+    // SESS-007 fallback and its tap did nothing at all. Both halves of that are this test.
+    @Test fun a_failed_send_keeps_its_code_and_its_retry_after_leaving_the_chat_and_coming_back() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.submit("s1-live", "巨浪事业群呢") } throws
+            com.hermes.client.data.network.GatewayRpcException(
+                4090,
+                "Session s1 already has a live owner (desktop, pid 5313, running 1h23m).",
+            ) andThen Unit
+        val shared = newRuntimeStore()
+        val vm = buildVm(runtimeStore = shared)
+        vm.open("s1")
+        runCurrent()
+        vm.send("巨浪事业群呢")
+        runCurrent()
+        val failed = vm.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals(
+            com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE,
+            vm.sendErrorCode(failed.id),
+        )
+
+        // Back to the list, into other conversations, then back here: the destination was popped,
+        // so this is a different ViewModel over the same runtime store.
+        val reopened = buildVm(runtimeStore = shared)
+        reopened.open("s1")
+        advanceUntilIdle()
+
+        val still = reopened.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals("the failed bubble is still there", failed.id, still.id)
+        assertEquals(com.hermes.client.domain.DeliveryState.FAILED, still.delivery)
+        assertEquals(
+            "it must still name the real cause instead of collapsing to the generic SESS-007",
+            com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE,
+            reopened.sendErrorCode(still.id),
+        )
+
+        // And the tap has to actually do something. Offering it and swallowing it is worse than
+        // not offering it (docs/ERROR_HANDLING.md).
+        reopened.retrySend(still.id)
+        runCurrent()
+        val resent = reopened.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT, resent.delivery)
+        coVerify(exactly = 2) { chatRepo.submit("s1-live", "巨浪事业群呢") }
+
+        events.emit(event("message.complete", "s1-live", "done"))
+        advanceUntilIdle()
+    }
+
+    // HG-49, the cold-start half. The process died: the runtime store is empty and REST history
+    // can never contain this turn, because upstream never accepted it. The record on disk is the
+    // only thing left, so the bubble is re-inserted from it — under its stored id, which is what
+    // lets the retry remove the same turn it replaces.
+    @Test fun a_refused_send_comes_back_after_a_cold_start_and_can_still_be_retried() = runTest {
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(
+            listOf(
+                com.hermes.client.data.repository.UnsentRecord(
+                    token = draftToken,
+                    messageId = "u-restored",
+                    text = "巨浪事业群呢",
+                    code = "HR-SESS-013",
+                    retryable = true,
+                    updatedAt = 1L,
+                ),
+            ),
+        )
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        val restored = vm.state.value.messages.single { it.id == "u-restored" }
+        assertEquals("巨浪事业群呢", restored.text)
+        assertEquals(com.hermes.client.domain.DeliveryState.FAILED, restored.delivery)
+        assertEquals(
+            com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE,
+            vm.sendErrorCode("u-restored"),
+        )
+        assertFalse("a restored failure is not a running turn", vm.state.value.isGenerating)
+
+        vm.retrySend("u-restored")
+        runCurrent()
+        val resent = vm.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT, resent.delivery)
+        assertNull("the record is gone once it actually went out", unsent.peek(draftToken))
+
+        events.emit(event("message.complete", "s1-live", "done"))
+        advanceUntilIdle()
+    }
+
+    // Attachments are in-memory bytes and are deliberately not persisted (the same ruling drafts
+    // get). Sending the text alone would deliver less than the user meant, so the restored turn
+    // takes HR-SESS-015 and the tap is withheld — docs/ERROR_HANDLING.md: an offer that cannot
+    // work is worse than none.
+    @Test fun a_restored_send_that_had_attachments_says_so_and_refuses_the_retry() = runTest {
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(
+            listOf(
+                com.hermes.client.data.repository.UnsentRecord(
+                    token = draftToken, messageId = "u-withfiles", text = "看这几张图",
+                    code = "HR-SESS-007", retryable = true, attachments = 3, updatedAt = 1L,
+                ),
+            ),
+        )
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        assertEquals(
+            com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST,
+            vm.sendErrorCode("u-withfiles"),
+        )
+
+        vm.retrySend("u-withfiles")
+        advanceUntilIdle()
+        assertTrue("the bubble stays put", vm.state.value.messages.any { it.id == "u-withfiles" })
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
     }
 
     @Test fun a_session_owned_by_another_client_says_so_and_keeps_its_retry() = runTest {

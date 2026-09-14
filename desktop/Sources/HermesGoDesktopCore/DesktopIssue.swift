@@ -214,7 +214,7 @@ public struct DesktopIssue: Error, Equatable, Sendable {
         case .migrationCandidateFailed:
             ("新连接验证失败", "New connection validation failed", "新连接验证失败，已恢复原来的连接。", "The new connection failed validation, so the original connection was restored.", true, .retry)
         case .migrationRollbackFailed:
-            ("自动恢复未完成", "Automatic recovery didn't finish", "自动恢复未完成，请按诊断步骤修复 Connector；Hermes 未被修改。", "Automatic recovery did not finish. Follow the diagnostic steps to repair the Connector; Hermes was not changed.", false, .details)
+            ("自动恢复未完成", "Automatic recovery didn't finish", "自动恢复未完成，系统已停止继续变更。请按诊断步骤检查 Hermes 与 Connector。", "Automatic recovery did not finish, so further changes were stopped. Follow the diagnostic steps to inspect Hermes and Connector.", false, .details)
         case .migrationCleanupPending:
             ("升级完成，临时文件待清理", "Upgrade finished; cleanup is pending", "新连接已生效，但下载临时文件尚未清理。请重试清理；不要重复安装。", "The new connection is active, but temporary download files still need cleanup. Retry cleanup; do not install again.", true, .retry)
         }

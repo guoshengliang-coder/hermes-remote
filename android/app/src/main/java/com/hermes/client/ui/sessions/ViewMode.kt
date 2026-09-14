@@ -36,35 +36,54 @@ fun splitNeedsYou(
 /** The recency buckets the session list renders below Pinned. */
 data class RecencyGroups(
     val today: List<Session>,
+    val yesterday: List<Session>,
     val week: List<Session>,
     val earlier: List<Session>,
 )
 
 /**
- * Bucket [sessions] as Today / Previous 7 days / Earlier (ChatGPT's convention — a ROLLING
- * 7-day window, so nothing dumps into Earlier at a week boundary). "Today" is the device's
- * local calendar day; the week bucket is the 7 days before it, excluding today; everything
- * else — sessions with no timestamp included — is Earlier. Each bucket is newest-first.
+ * Bucket [sessions] as Today / Yesterday / Previous 7 days / Earlier (ChatGPT's convention — a
+ * ROLLING 7-day window, so nothing dumps into Earlier at a week boundary). "Today" and
+ * "Yesterday" are the device's local calendar days; the week bucket is what remains of the
+ * 7 days before today once yesterday is taken out; everything else — sessions with no timestamp
+ * included — is Earlier. Each bucket is newest-first.
  * Pure: [nowMs] and [zone] injected so boundaries unit-test without a clock.
+ *
+ * Yesterday was split out of the week bucket in HG-52; the window itself did not move, so a
+ * session that used to read "前 7 天" either says "昨天" now or stays where it was.
+ *
+ * [startOfYesterday] is a CALENDAR day back, not `startOfToday - 24h`. The two differ by an hour
+ * on a DST changeover, and on that day the fixed-millisecond form would either leave an hour of
+ * yesterday in the week bucket or pull an hour of the day before into yesterday. (The existing
+ * [weekFloor] still uses fixed milliseconds. That is the shipped 7-day semantics and changing it
+ * is not part of HG-52 — but the new boundary does not inherit the flaw.)
  */
 fun groupByRecency(
     sessions: List<Session>,
     nowMs: Long,
     zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
 ): RecencyGroups {
-    val startOfToday = java.time.Instant.ofEpochMilli(nowMs).atZone(zone)
-        .toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
+    val localToday = java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+    val startOfToday = localToday.atStartOfDay(zone).toInstant().toEpochMilli()
+    val startOfYesterday = localToday.minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
     val weekFloor = startOfToday - 7L * 24 * 60 * 60 * 1000
     val today = ArrayList<Session>()
+    val yesterday = ArrayList<Session>()
     val week = ArrayList<Session>()
     val earlier = ArrayList<Session>()
     for (s in sessions) {
         val t = s.lastActive
         when {
             t != null && t >= startOfToday -> today.add(s)
+            t != null && t >= startOfYesterday -> yesterday.add(s)
             t != null && t >= weekFloor -> week.add(s)
             else -> earlier.add(s)
         }
     }
-    return RecencyGroups(sessionsByRecency(today), sessionsByRecency(week), sessionsByRecency(earlier))
+    return RecencyGroups(
+        sessionsByRecency(today),
+        sessionsByRecency(yesterday),
+        sessionsByRecency(week),
+        sessionsByRecency(earlier),
+    )
 }

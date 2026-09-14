@@ -193,6 +193,83 @@ final class DesktopManagedComponentStoreTests: XCTestCase {
         }
     }
 
+    func testWriterRecordsImmutableCapabilityReferenceOnlyAfterBaseRelease() throws {
+        let base = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let store = base.appendingPathComponent("managed", isDirectory: true)
+        let writer = try DesktopManagedComponentStoreWriter(
+            root: store, currentUserID: Darwin.getuid()
+        )
+        func committedReceipt(
+            kind: DesktopManagedComponentKind,
+            contents: String
+        ) throws -> DesktopManagedComponentReceipt {
+            let source = base.appendingPathComponent("source-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+            try Data(contents.utf8).write(to: source.appendingPathComponent("runtime"))
+            let identity = try DesktopManagedComponentContentHasher()
+                .identify(directory: source).sha256
+            let receipt = DesktopManagedComponentReceipt(
+                kind: kind,
+                version: "1.2.3",
+                architecture: "arm64",
+                contentSHA256: identity
+            )
+            _ = try writer.commit(
+                sourceDirectory: source,
+                receipt: receipt,
+                runID: UUID().uuidString,
+                healthProbe: { _ in true }
+            )
+            return receipt
+        }
+        let python = try committedReceipt(kind: .pythonRuntime, contents: "python")
+        let browser = try committedReceipt(kind: .browserAutomation, contents: "browser")
+
+        XCTAssertThrowsError(try writer.recordCapabilityReference(
+            releaseVersion: "1.2.3", receipt: browser, runID: UUID().uuidString
+        )) {
+            XCTAssertEqual(
+                $0 as? DesktopManagedComponentStoreError,
+                .missingReleaseReference
+            )
+        }
+        _ = try writer.recordReferences(
+            releaseVersion: "1.2.3", receipts: [python], runID: UUID().uuidString
+        )
+        let reference = try writer.recordCapabilityReference(
+            releaseVersion: "1.2.3", receipt: browser, runID: UUID().uuidString
+        )
+        let original = try Data(contentsOf: reference)
+        XCTAssertEqual(
+            try writer.recordCapabilityReference(
+                releaseVersion: "1.2.3", receipt: browser, runID: UUID().uuidString
+            ),
+            reference
+        )
+        XCTAssertEqual(try Data(contentsOf: reference), original)
+        let decoded = try JSONDecoder().decode(
+            DesktopManagedCapabilityReference.self, from: original
+        )
+        XCTAssertEqual(decoded.releaseVersion, "1.2.3")
+        XCTAssertEqual(decoded.component.kind, .browserAutomation)
+        XCTAssertEqual(decoded.component.contentSHA256, browser.contentSHA256)
+
+        XCTAssertThrowsError(try writer.recordCapabilityReference(
+            releaseVersion: "1.2.3", receipt: python, runID: UUID().uuidString
+        )) {
+            XCTAssertEqual($0 as? DesktopManagedComponentStoreError, .invalidReceipt)
+        }
+        let otherBrowser = try committedReceipt(
+            kind: .browserAutomation, contents: "other-browser"
+        )
+        XCTAssertThrowsError(try writer.recordCapabilityReference(
+            releaseVersion: "1.2.3", receipt: otherBrowser, runID: UUID().uuidString
+        )) {
+            XCTAssertEqual($0 as? DesktopManagedComponentStoreError, .referenceConflict)
+        }
+    }
+
     func testFailedHealthProbeRemovesOnlyCurrentWorkspace() throws {
         let base = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: base) }

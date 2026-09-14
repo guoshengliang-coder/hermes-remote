@@ -439,6 +439,7 @@ fun HermesNav(
                     onOpenProjects = { push("projects") },
                     onOpenArchived = { push("archived") },
                     onOpenCron = { push("cron") },
+                    onOpenCronJob = { id -> push("cron_detail/$id") },
                     onOpenMessaging = { push("messaging") },
                     onUnauthorized = onUnauthorized,
                 )

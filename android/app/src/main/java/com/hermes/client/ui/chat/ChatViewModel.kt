@@ -82,6 +82,12 @@ class ChatViewModel @Inject constructor(
     private val botSendNotice: com.hermes.client.data.repository.BotSendNoticeStore,
     private val draftStore: com.hermes.client.data.repository.DraftSnapshot,
     /**
+     * Messages that were submitted and refused (HG-49). Distinct from [draftStore]: a draft was
+     * never sent, this one was and upstream said no, so it carries the code that says why and
+     * whether trying again can work.
+     */
+    private val unsentStore: com.hermes.client.data.repository.UnsentSnapshot,
+    /**
      * Application scope, for the draft write only (HG-41). It MUST NOT be `viewModelScope`: the
      * draft has to be saved precisely when the user leaves, and leaving pops the chat destination,
      * which clears this ViewModel and cancels that scope — the debounced write would be cancelled
@@ -450,6 +456,33 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Fetch the files behind whatever images the transcript currently references (HG-44).
+     *
+     * Always hydrates the COMMITTED messages — the ones on screen — rather than a list some caller
+     * happens to be holding. Every route into the transcript needs this: history parsed out of REST
+     * carries a remote path and no local file, and the bubble draws that as a waiting mark. Two of
+     * the four routes never called it at all, so a cold open showed waiting marks that only the
+     * network could clear, and the network's own attempt was being discarded on the way back in.
+     *
+     * Never blocks the text. The transcript is authoritative as soon as it lands; the pictures
+     * catch up, and `acceptHydratedImages` merges them by image id without disturbing live rows.
+     */
+    private fun hydrateImages(key: SessionRuntimeKey) {
+        viewModelScope.launch {
+            val committed = runtimeStore.messagesFor(key)
+            if (committed.none { message -> message.images.any { it.localPath.isNullOrBlank() } }) return@launch
+            runCatching { mediaRepository.hydrateMessages(committed, key.profile) }
+                .onSuccess { runtimeStore.acceptHydratedImages(key, it) }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    com.hermes.client.data.diagnostics.DebugLog.log(
+                        "media", "hydrate s=${key.sessionId} failed: ${error.message}",
+                    )
+                }
+        }
+    }
+
     fun saveImageToGallery(
         image: com.hermes.client.domain.ChatImage,
         onResult: (Result<com.hermes.client.data.repository.SavedChatImage>) -> Unit,
@@ -683,6 +716,12 @@ class ChatViewModel @Inject constructor(
         sessionReclaimed = false
         sessionKnownEmpty = isNewSession && cachedHistory.isNullOrEmpty()
         runtimeStore.markHistoryLoading(key, cachedHistory)
+        // Cached transcripts carry image REFERENCES, not files: a row parsed out of history has a
+        // remote path and no local one, which the bubble draws as a waiting mark. Neither cache
+        // path used to hydrate, so a cold open showed waiting marks until the network answered —
+        // and until HG-44 the network path's own hydration was being discarded, so they stayed
+        // (docs/IMAGE_ATTACHMENT_REQUIREMENTS.md §5: waiting is a state, not a resting place).
+        if (!cachedHistory.isNullOrEmpty()) hydrateImages(key)
         // The memory cache holds ten transcripts and dies with the process, so with ~200 sessions
         // a cold open is the normal case, not the exception. Ask the disk in parallel with the
         // network: whichever answers first ends the skeleton, and acceptCachedHistory stands down
@@ -697,6 +736,7 @@ class ChatViewModel @Inject constructor(
                 if (storedSessionId == id) {
                     if (organized.isNotEmpty()) sessionKnownEmpty = false
                     runtimeStore.acceptCachedHistory(key, organized)
+                    hydrateImages(key)
                 }
             }
         }
@@ -709,6 +749,11 @@ class ChatViewModel @Inject constructor(
         draftSeeded = false
         draftTouched = false
         draftSaveJob?.cancel()
+        // A refused send is not a draft and does not go in the composer — it goes back on the
+        // transcript as the failed bubble it was, with the code that explains it (HG-49).
+        unsentToken = token
+        failedSends.clear()
+        seedUnsent(token, id, key)
         val ps = pendingShareStore.take(id)
         viewModelScope.launch {
             val saved = draftStore.read(token)
@@ -759,11 +804,14 @@ class ChatViewModel @Inject constructor(
                     appendSystem(approvalLostNotice(appLanguage))
                 }
                 // Do not hold the transcript behind image downloads. Show text and placeholders
-                // immediately, then merge cached/downloaded thumbnails by stable history id.
-                launch {
-                    val hydrated = mediaRepository.hydrateMessages(organizedHistory, profile)
-                    runtimeStore.acceptHydratedImages(key, hydrated)
-                }
+                // immediately, then merge the thumbnails in as they land.
+                //
+                // Hydrate what the store COMMITTED, not `organizedHistory` (HG-44). `acceptHistory`
+                // runs `alignMessageIds` over these rows, so the list fetched here and the list on
+                // screen no longer share message ids. `acceptHydratedImages` now matches on image
+                // ids, which survive the rewrite — but hydrating the committed list keeps the two
+                // sides describing the same transcript, and costs nothing.
+                hydrateImages(key)
             } catch (e: HermesApiException) {
                 // A session with no persisted turn yet has no REST row either: upstream answers 404
                 // {"detail":"Session not found"} until the first message lands, then 200. That is
@@ -1004,11 +1052,8 @@ class ChatViewModel @Inject constructor(
                     }
                 }
                 // Text is authoritative immediately; media hydration may finish just after the
-                // success affordance and merges by stable message identity without blanking rows.
-                launch {
-                    val hydrated = mediaRepository.hydrateMessages(organizedHistory, profile)
-                    if (runtimeKey == key) runtimeStore.acceptHydratedImages(key, hydrated)
-                }
+                // success affordance and merges by stable image identity without blanking rows.
+                if (runtimeKey == key) hydrateImages(key)
                 com.hermes.client.data.diagnostics.DebugLog.log(
                     "session", "manual-refresh($id) → ${organizedHistory.size} messages",
                 )
@@ -1159,7 +1204,91 @@ class ChatViewModel @Inject constructor(
 
     /** A send that raised, kept so the bubble's tap-to-retry can replay it with its attachments. */
     private data class FailedSend(val text: String, val attachments: List<PendingAttachment>, val error: com.hermes.client.data.error.AppError)
+
+    /**
+     * This map used to be the ONLY record of why a send failed, and it dies with the ViewModel —
+     * which the nav graph clears the moment the user presses back. The bubble outlived it in the
+     * runtime store, so coming back showed a failure whose code had degraded to the generic
+     * `HR-SESS-007` and whose "点按重试" tap fell straight through [retrySend]'s first line (HG-49).
+     * It is now a cache in front of [unsentStore], seeded by [seedUnsent] when a conversation opens.
+     */
     private val failedSends = LinkedHashMap<String, FailedSend>()
+
+    /** Which conversation the entries in [failedSends] belong to, so the store write is addressed. */
+    private var unsentToken: String? = null
+
+    private fun rememberUnsent(messageId: String, failed: FailedSend) {
+        failedSends[messageId] = failed
+        val token = unsentToken ?: return
+        draftScope.launch {
+            unsentStore.save(
+                com.hermes.client.data.repository.UnsentRecord(
+                    token = token,
+                    messageId = messageId,
+                    text = failed.text,
+                    code = failed.error.code.value,
+                    retryable = failed.error.retryable,
+                    attachments = failed.attachments.size,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+    }
+
+    /**
+     * The turn stopped being unsent — it went out, it was replaced by a retry, or the user got rid
+     * of it. Uses [draftScope] for the same reason the draft write does: leaving the screen is one
+     * of the moments this has to survive.
+     */
+    private fun forgetUnsent(messageId: String) {
+        failedSends.remove(messageId)
+        val token = unsentToken ?: return
+        draftScope.launch { unsentStore.clear(token) }
+    }
+
+    /**
+     * Put a refused send back on screen after the ViewModel — or the whole process — went away.
+     *
+     * The bubble cannot come from history: upstream never accepted this turn, so no REST transcript
+     * will ever contain it. It is re-inserted under its stored id, which is what lets a later retry
+     * remove the same turn it replaces.
+     *
+     * Attachments are not persisted (`UnsentStore`), so a record that had them cannot be replayed as
+     * it was. Rather than quietly sending the text alone, the restored turn takes `HR-SESS-015` and
+     * is not retryable — the tap is withheld, per docs/ERROR_HANDLING.md.
+     */
+    private fun seedUnsent(token: String, sessionId: String, key: SessionRuntimeKey?) {
+        viewModelScope.launch {
+            val record = unsentStore.read(token) ?: return@launch
+            if (storedSessionId != sessionId || unsentToken != token) return@launch
+            if (failedSends.containsKey(record.messageId)) return@launch
+            val lost = record.attachments > 0
+            val code = if (lost) {
+                com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST
+            } else {
+                com.hermes.client.data.error.AppErrorCode.entries.firstOrNull { it.value == record.code }
+                    ?: com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED
+            }
+            failedSends[record.messageId] = FailedSend(
+                record.text,
+                emptyList(),
+                com.hermes.client.data.error.AppError(
+                    code,
+                    retryable = record.retryable && !lost,
+                    stage = "prompt_submit",
+                ),
+            )
+            val present = (key?.let { runtimeStore.runtimes.value[it]?.chat?.messages } ?: _state.value.messages)
+                .any { it.id == record.messageId }
+            if (present) return@launch
+            val restore: (ChatUiState) -> ChatUiState = { state ->
+                state.withUserMessage(record.text, messageId = record.messageId)
+                    .withDelivery(record.messageId, com.hermes.client.domain.DeliveryState.FAILED)
+                    .copy(isGenerating = false)
+            }
+            key?.let { runtimeStore.updateChat(it, restore) } ?: mutateState(restore)
+        }
+    }
 
     /** Redacted diagnostic for a failed user turn (long-press → copy), null when it did not fail. */
     fun sendDiagnostic(messageId: String): String? = failedSends[messageId]?.error?.sanitizedDiagnostic()
@@ -1179,7 +1308,7 @@ class ChatViewModel @Inject constructor(
         // Re-dispatching would only repeat the same 4001/4007 and replace one dead error with
         // another; the UI does not offer the tap either, this is the belt to that braces.
         if (!failed.error.retryable) return
-        failedSends.remove(messageId)
+        forgetUnsent(messageId)
         runtimeKey?.let { runtimeStore.removeMessage(it, messageId) }
             ?: mutateState { it.withoutMessage(messageId) }
         dispatch(failed.text, failed.attachments)
@@ -1282,6 +1411,9 @@ class ChatViewModel @Inject constructor(
                 )
                 // The gateway acknowledged the turn: the bubble goes from "sending" to solid.
                 updateDelivery(messageId, com.hermes.client.domain.DeliveryState.SENT)
+                // Nothing is outstanding in this conversation any more, so the session row stops
+                // saying 未发送. Harmless when there was no record: clear() is idempotent.
+                forgetUnsent(messageId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
@@ -1318,7 +1450,7 @@ class ChatViewModel @Inject constructor(
                     "session",
                     "send($expectedStoredId) failed: ${rpcCode?.let { "$it " } ?: ""}${e.message}",
                 )
-                failedSends[messageId] = FailedSend(text, atts, error)
+                rememberUnsent(messageId, FailedSend(text, atts, error))
                 updateSentImages(messageId) { images ->
                     images.map { image ->
                         if (image.state == com.hermes.client.domain.ImageTransferState.UPLOADING) {

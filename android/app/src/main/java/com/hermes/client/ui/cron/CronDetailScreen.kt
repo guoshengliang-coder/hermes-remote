@@ -285,6 +285,15 @@ internal fun CronDetailContent(
                         }
                     }
 
+                    // The action the user just took, if it failed (HG-51). Above the job's own
+                    // errors because it is the newer event and the one they are waiting on: the
+                    // snackbar says the code and goes away, this keeps the cause reachable.
+                    state.actionError?.let { failure ->
+                        item(key = "action-error") {
+                            CronErrorBlock(failure, raw = failure.technicalCause.orEmpty())
+                        }
+                    }
+
                     // Errors are a 保留项 — the mocks draw a healthy job and never show this block,
                     // and an implementation must not delete it to match a mock. The localized code
                     // and a short reason come first; the raw cause stays behind 展开 (§ERROR_HANDLING).

@@ -122,6 +122,8 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "消息未发送，点按气泡重试。", "The message was not sent. Tap the bubble to retry.")
         AppErrorCode.SESSION_OWNED_ELSEWHERE ->
             localized(language, "该会话正在另一个客户端上运行，请在那边结束后重试。", "This conversation is running on another client. Finish it there, then retry.")
+        AppErrorCode.UNSENT_ATTACHMENTS_LOST ->
+            localized(language, "附件已丢失，请重新选择附件后发送。", "The attachments are gone. Pick them again and send.")
         AppErrorCode.SESSION_TRANSCRIPT_UNAVAILABLE ->
             localized(language, "无法读取所选会话的内容，请重试。", "Couldn't read the selected conversation. Retry.")
         AppErrorCode.SESSION_ARCHIVE_FAILED ->
@@ -164,6 +166,12 @@ fun AppError.localizedMessage(language: AppLanguage): String {
                 "任务上次运行失败，请查看详情。",
                 "The task's last run failed. Check the details.",
             )
+        AppErrorCode.CRON_ACTION_FAILED ->
+            localized(
+                language,
+                "操作没有成功，请查看详情后重试。",
+                "The action didn't go through. Review the details and retry.",
+            )
         AppErrorCode.MESSAGING_LIST_FAILED ->
             localized(language, "无法加载消息渠道，请重试。", "Couldn't load messaging channels. Retry.")
         AppErrorCode.MESSAGING_SAVE_FAILED ->
@@ -187,3 +195,15 @@ fun AppError.localizedMessage(language: AppLanguage): String {
     }
     return "$summary (${code.value})"
 }
+
+/**
+ * The same copy as [localizedMessage], in the language-independent form a ViewModel can hold.
+ *
+ * Both languages come from the one catalogue above rather than being hand-written at the call site
+ * — which is how the cron screens ended up printing 「操作失败（HR-RPC-001）」 for every failure:
+ * once the string is typed inline, its code is a literal nobody rechecks.
+ */
+fun AppError.asLocalizedText(): LocalizedText = LocalizedText(
+    zh = localizedMessage(AppLanguage.ZH),
+    en = localizedMessage(AppLanguage.EN),
+)

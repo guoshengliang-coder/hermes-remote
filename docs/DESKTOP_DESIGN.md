@@ -33,6 +33,33 @@ explicit “安装并连接” action may enter the machine-changing phase. Comm
 and duplicate installation. A successful install with pending temporary cleanup shows only “重试清理”
 and `HR-MIGRATE-005`; it never suggests reinstalling.
 
+The componentized v2 preflight uses a separate native card before the machine-changing confirmation.
+Its header names the target release. Three compact pills show direct reuse count, bootstrap download,
+and deferred first-use download; the deferred pill is omitted when its byte total is zero. Every
+component row has one unambiguous state: managed reuse, compatible system reuse, install-time download,
+or on-demand download. Sizes use stable `KiB`/`MiB`/`GiB` units, and the footer always states that this
+read-only scan does not modify Homebrew, the user's environment, or running services. The card has no
+install action until a production v2 capability and signing configuration make the result actionable.
+The packaged feature remains visually absent and performs no network or filesystem scan while its
+default-off configuration gate is closed. With a complete development configuration, Desktop loads the
+signed result after account bootstrap and again from the existing Refresh action only when Gateway also
+advertises component manifest schema 2 and the exact `hermes-serve-v1` runtime contract. An absent or
+future schema, runtime mismatch, failed download, signature check, or local scan stays fail-closed,
+performs no component-manifest request, and does not expose a machine-changing fallback.
+A successful refresh keeps the verifier-issued installation token only in model memory beside that
+exact displayed result; the card itself still receives presentation data only and cannot manufacture
+an installation request.
+When the schema-v2 rollout gates are enabled and the existing-service preflight is also safe, the card
+adds “下载缺失组件”. Its progress copy states that services are unchanged during preparation. A second
+native sheet names the signed version, describes the managed component directory, two user LaunchAgents,
+account binding, and brief service switch, and requires “安装并连接”. While either schema-v1 or v2
+operation is preparing, awaiting confirmation, committing, recovering, or awaiting required cleanup,
+the other installer, account mutations, and manual refresh remain disabled. A failed cleanup offers
+only “重试清理”; successful migration with cleanup pending must not offer installation again.
+Once Gateway selects schema 2 for a locally configured Desktop, a v2 trust/download/scan failure shows
+the structured migration error and Refresh recovery; the schema-v1 download button must not silently
+reappear as a fallback.
+
 For the email-first release, the signed-out Desktop surface must use email plus a six-digit one-time
 code as its only login action. It must not show or attempt Google when the Gateway advertises only
 `email_otp`. The existing browser OAuth UI remains future-provider code and is not part of the first
