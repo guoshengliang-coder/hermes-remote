@@ -194,8 +194,8 @@ test("R5-D operator bundle manifest binds one safe archive to the exact source c
   });
   await writeJson(manifestPath, manifest);
   const parsed = await loadProductionBaselineBundleManifest(manifestPath);
-  assert.equal(parsed.schemaVersion, 8);
-  assert.equal(parsed.kind, "hermes-go-production-baseline-bundle-v8");
+  assert.equal(parsed.schemaVersion, 9);
+  assert.equal(parsed.kind, "hermes-go-production-baseline-bundle-v9");
   assert.equal(parsed.sourceCommit, sourceCommit);
   assert.equal(parsed.entrypoint, "scripts/production-baseline.mjs");
   assert.equal(parsed.connectorEntry, "connector/dist/index.js");
@@ -206,8 +206,14 @@ test("R5-D operator bundle manifest binds one safe archive to the exact source c
   assert.equal(parsed.multiDeviceRolloutEntrypoint, "scripts/production-multi-device-rollout.mjs");
   assert.equal(parsed.identityWebRolloutEntrypoint, "scripts/production-identity-web-rollout.mjs");
   assert.equal(parsed.sharingRolloutEntrypoint, "scripts/production-sharing-rollout.mjs");
+  assert.equal(parsed.componentRolloutEntrypoint, "scripts/production-component-rollout.mjs");
 
-  const identityWebManifest = { ...manifest, schemaVersion: 7, kind: "hermes-go-production-baseline-bundle-v7" };
+  const sharingManifest = { ...manifest, schemaVersion: 8, kind: "hermes-go-production-baseline-bundle-v8" };
+  delete sharingManifest.componentRolloutEntrypoint;
+  await writeJson(manifestPath, sharingManifest);
+  assert.equal((await loadProductionBaselineBundleManifest(manifestPath)).componentRolloutEntrypoint, undefined);
+
+  const identityWebManifest = { ...sharingManifest, schemaVersion: 7, kind: "hermes-go-production-baseline-bundle-v7" };
   delete identityWebManifest.sharingRolloutEntrypoint;
   await writeJson(manifestPath, identityWebManifest);
   assert.equal((await loadProductionBaselineBundleManifest(manifestPath)).sharingRolloutEntrypoint, undefined);

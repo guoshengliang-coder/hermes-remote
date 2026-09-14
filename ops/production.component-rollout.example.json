@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "environment": "production",
+  "operator": "release-operator",
+  "productionReleaseConfig": "/secure-input/hermes-go/production-release.json",
+  "host": {
+    "hostname": "gateway-prod",
+    "architecture": "amd64"
+  },
+  "gateway": {
+    "origin": "https://gateway.example.com",
+    "runtimeContract": "hermes-serve-v1"
+  },
+  "componentRelease": {
+    "schemaVersion": 2,
+    "releaseVersion": "0.4.0",
+    "manifestUrl": "https://gateway.example.com/desktop/components/0.4.0/Hermes-Desktop-Components-0.4.0-arm64.manifest.json",
+    "manifestSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "keyId": "desktop-internal-2026-a",
+    "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  "deployment": {
+    "observationSeconds": 30
+  }
+}

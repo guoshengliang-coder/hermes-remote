@@ -14,6 +14,7 @@ import { renderEmailRolloutEnvironment } from "../../ops/lib/production-account-
 import {
   inspectProductionReleaseEnvironment,
   renderBindingRolloutEnvironment,
+  renderComponentRolloutEnvironment,
   renderIdentityWebRolloutEnvironment,
   renderMultiDeviceRolloutEnvironment,
   renderProductionReleaseEnvironment,
@@ -207,6 +208,29 @@ test("R5-F1 recognizes and preserves the exact sharing runtime", async (t) => {
   assert.match(candidate, /^ACCOUNT_IDENTITY_MANAGEMENT_ENABLED=1$/m);
   assert.match(candidate, /^ACCOUNT_GOOGLE_AUTH_ENABLED=0$/m);
   assert.match(candidate, /^ACCOUNT_DELETION_ENABLED=0$/m);
+});
+
+test("R5-F1 recognizes and preserves the component-enabled sharing runtime", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  await writeEmailEnvironment(config, "blue");
+  let inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderBindingRolloutEnvironment(config, "blue", inspected), { mode: 0o600 });
+  inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderMultiDeviceRolloutEnvironment(config, "blue", inspected), { mode: 0o600 });
+  inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderIdentityWebRolloutEnvironment(config, "blue", inspected), { mode: 0o600 });
+  inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderSharingRolloutEnvironment(config, "blue", inspected), { mode: 0o600 });
+  inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "blue"), renderComponentRolloutEnvironment(config, "blue", inspected), { mode: 0o600 });
+
+  const enabled = await inspectProductionReleaseEnvironment(config, "blue");
+  assert.equal(enabled.mode, "email_sharing_components");
+  const candidate = renderProductionReleaseEnvironment(config, "green", enabled);
+  assert.match(candidate, /^PORT=18788$/m);
+  assert.match(candidate, /^ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED=1$/m);
+  assert.match(candidate, /^ACCOUNT_DEVICE_SHARING_ENABLED=1$/m);
 });
 
 test("R5-F1 rejects email-mode schema changes and post-admission environment drift", async (t) => {

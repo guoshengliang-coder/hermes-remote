@@ -845,6 +845,33 @@ binding and six revoked bindings, with zero share invitations and zero access gr
 the explicitly user-driven B-to-A invitation/use/revoke/leave canary; do not call that matrix complete from the flag
 rollout alone.
 
+## Production Desktop component gray rollout (R5-F6; pending)
+
+R5-F6 starts only from the exact production sharing state on a Gateway release that includes the schema-v2
+capability. It changes only `ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED=1`; it does not edit Nginx, the database,
+bindings, identities, sharing state, or Desktop services on any Mac.
+
+Publish the immutable signed component manifest and every declared archive first. Prepare a root-only `0600`
+configuration from `ops/production.component-rollout.example.json`, pinning the exact manifest URL, SHA-256,
+key ID and Ed25519 public key. Validate it against
+`ops/hermes-go-production-component-rollout-config.schema.json`, then run from the matching schema-9 operator
+bundle:
+
+```bash
+node scripts/production-component-rollout.mjs \
+  --config /secure-input/hermes-go/production-component-rollout.json \
+  --confirm production:<configured-hostname>
+```
+
+Admission verifies the active release identity, schema 15/PostgreSQL 18 readiness, sharing environment, public
+manifest headers and hash, manifest signature, and every component's public bytes. The operator takes the shared
+deployment lock, snapshots the exact environment, enables only the component flag, restarts the active Gateway,
+and verifies the full account/sharing/Legacy/WebSocket surface plus
+`desktopBootstrap.componentManifestSchemaVersion: 2` twice across the observation window. Any failure restores
+the previous environment and verifies that the component capability disappeared again. `HR-OPS-025` names all
+failures; inspect `/var/lib/hermes-go/ops/component-rollout.json` before retrying. Source merge and bundle
+generation do not authorize production execution.
+
 ## Edge JSON compression (2026-09-07, authorized)
 
 Nothing on the path compressed anything. Hermes returns no `Content-Encoding` even when asked for gzip, the
