@@ -440,6 +440,83 @@ test("deployment smoke surfaces only allowlisted structured verifier diagnostics
   assert.equal(verifierEnvironment.GATEWAY_SMOKE_ROUTE, "public");
 });
 
+test("public deployment smoke supplies a temporary Connector when managed Desktop left Legacy offline", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "gateway-public-smoke-offline-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const inputs = path.join(root, "inputs");
+  await mkdir(inputs);
+  const secrets = {
+    appTokenSource: path.join(inputs, "app-token"),
+    connectorTokenSource: path.join(inputs, "connector-token"),
+    internalStatusTokenSource: path.join(inputs, "internal-status-token"),
+  };
+  await Promise.all(Object.values(secrets).map((filePath, index) => (
+    writeFile(filePath, String.fromCharCode(97 + index).repeat(64), { mode: 0o600 })
+  )));
+  const connectorEntry = path.join(inputs, "connector.mjs");
+  await writeFile(connectorEntry, "export {};\n", { mode: 0o600 });
+  const spawns = [];
+  let healthCalls = 0;
+  const smoke = await createStagingSmokeCallbacks({
+    secrets,
+    gateway: { defaultDeviceId: "test-device" },
+    legacySource: { gatewayPort: 8444 },
+    slots: { blue: { gatewayPort: 18787 }, green: { gatewayPort: 18788 } },
+  }, {
+    env: {
+      HERMES_SMOKE_CONNECTOR_ENTRY: connectorEntry,
+      HERMES_BASE_URL: "http://127.0.0.1:19001",
+      HERMES_BASIC_AUTH_USERNAME: "demo",
+      HERMES_BASIC_AUTH_PASSWORD: "secret",
+      FILES_ROOT: root,
+      UPLOAD_ROOT: inputs,
+    },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ connectors: healthCalls++ === 0 ? 0 : 1 }),
+    }),
+    sleep: async () => {},
+    spawnImpl: (command, arguments_, options) => {
+      spawns.push({ command, arguments: arguments_, options });
+      const child = new EventEmitter();
+      child.exitCode = null;
+      child.signalCode = null;
+      child.kill = (signal) => {
+        child.signalCode = signal;
+        child.exitCode = 0;
+      };
+      if (arguments_[0] !== connectorEntry) {
+        child.stderr = new PassThrough();
+        queueMicrotask(() => {
+          child.stderr.end();
+          child.exitCode = 0;
+          child.emit("exit", 0, null);
+          child.emit("close", 0, null);
+        });
+      }
+      return child;
+    },
+  });
+
+  await smoke.publicSmoke({
+    gatewayUrl: "https://gateway.example.invalid",
+    candidateSlot: "green",
+    publicRoute: true,
+    expectedDeviceId: "test-device",
+    expectedSourceCommit: "a".repeat(40),
+    expectedServerVersion: "0.4.16",
+  });
+
+  assert.equal(spawns.length, 2);
+  assert.equal(spawns[0].arguments[0], connectorEntry);
+  assert.equal(spawns[0].options.env.GATEWAY_URL, "wss://gateway.example.invalid/v1/connect");
+  assert.equal(spawns[0].options.env.DEVICE_ID, "test-device");
+  assert.equal(spawns[0].options.env.SESSION_OBSERVER_ENABLED, "0");
+  assert.equal(spawns[0].options.stdio, "ignore");
+  assert.deepEqual(spawns[1].options.stdio, ["ignore", "ignore", "pipe"]);
+  assert.equal(healthCalls, 2);
+});
+
 test("unstructured verifier output is never copied into deployment diagnostics", () => {
   const unsafe = "Error: token=secret-value at /private/operator/path.mjs";
   assert.equal(parseGatewaySmokeDiagnostic(unsafe), "unavailable");

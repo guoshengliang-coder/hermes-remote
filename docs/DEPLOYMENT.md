@@ -473,6 +473,13 @@ health command with the same `/readyz` probe derived from the slot's runtime `PO
 adopting or rolling forward an immutable older image whose embedded healthcheck used fixed port `8787`; the
 operator does not alter the image and does not weaken the Docker health gate.
 
+The public smoke accepts the two legitimate Legacy states. When a Legacy Connector is already online it is used
+unchanged. When an account-mode Desktop has intentionally retired that Connector and `/relay-health` reports zero,
+the operator starts a short-lived Connector with the existing production smoke token, verifies the full public
+route, and stops it again. A failed post-switch smoke may leave the old slot fully restored while its journal still
+records `route_switched` or `draining`; `--operation recover` may restore the archived committed journal only after
+the old slot, candidate shutdown, release links, Nginx checkpoint and reverse lifecycle-handoff marker all match.
+
 `--operation rollback` is the same machine pointed at the release behind `previous`; the configuration's
 `targetArtifactManifest` must name that exact bundle (keep the previous bundle on the host) and a `previous`
 that is still the legacy descriptor is refused — that case is an R5-B recovery, not a slot rollback.
