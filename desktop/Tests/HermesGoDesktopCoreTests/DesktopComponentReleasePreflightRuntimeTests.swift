@@ -23,6 +23,23 @@ final class DesktopComponentReleasePreflightRuntimeTests: XCTestCase {
         XCTAssertEqual(scanner.scannedManifests(), [fixture.manifest])
     }
 
+    func testTrustedLoadKeepsExactVerifierTokenBesidePresentationResult() async throws {
+        let fixture = try RuntimeManifestFixture()
+        let scanner = RuntimePreflightScanner(result: fixture.result)
+        let runtime = try DesktopComponentReleasePreflightRuntime(
+            manifestURL: fixture.manifestURL,
+            downloader: RuntimeManifestDownloader(result: fixture.envelope),
+            verifier: fixture.verifier,
+            scanner: scanner
+        )
+
+        let trusted = try await runtime.loadTrusted(healthProbe: { _, _, _ in true })
+
+        XCTAssertEqual(trusted.result, fixture.result)
+        XCTAssertEqual(trusted.verifiedManifest.manifest, fixture.manifest)
+        XCTAssertEqual(scanner.scannedManifests(), [fixture.manifest])
+    }
+
     func testInvalidEnvelopeStopsBeforeEnvironmentScan() async throws {
         let fixture = try RuntimeManifestFixture()
         let downloader = RuntimeManifestDownloader(result: Data("unsigned".utf8))
