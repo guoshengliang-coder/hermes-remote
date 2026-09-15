@@ -720,3 +720,30 @@ the exact signed hash. This closes publication and production capability enablem
 the explicit two-stage confirmation flow, existing-Hermes reuse, managed-service activation and rollback still
 need physical acceptance on the user's MacBook. The DMG remains ad-hoc signed and has not passed Developer ID
 signing, notarization, stapling or clean-machine Gatekeeper acceptance.
+
+## 2026-09-15 Desktop 0.2.12 account-selected Overview release
+
+PR #303 corrected account-mode Overview so its heading, connection summary, and
+Connector/Gateway/Hermes/end-to-end topology follow the Mac selected in Account & Devices. PR #304
+then allocated Desktop 0.2.12/build 15 and merged as
+`a790e5dc3c4a2b99bae9167f1430125f7ee3f41f`, including the separately merged Dock-visibility
+correction. The release commit's CI and SAST workflows completed successfully.
+
+A fresh detached worktree whose `HEAD` exactly matched `origin/main` passed the canonical asset check,
+all 312 Desktop tests, debug and configured release builds, strict ad-hoc codesign verification, and
+`hdiutil verify`. The production-configured app pins `https://mrlgs.net`, managed release 0.3.4,
+component release 0.4.0, the approved `desktop-internal-2026-a` trust identity, `internal`/`arm64`, and
+`hermes-serve-v1`; managed bootstrap and component preflight are enabled. Its Dock application flag is
+enabled (`LSUIElement=false`).
+
+The 2,672,675-byte DMG has SHA-256
+`c78ee7d7f9438981da5ba7095a506fee3f4e0f202e8f16ace37b162492fa8723` and is published at
+`https://mrlgs.net/desktop/apps/0.2.12/Hermes-Go-Desktop-0.2.12-dev.dmg`. The root-owned mode-0644
+server copy reproduced the local size and hash. A full public HTTPS download returned HTTP 200 with
+immutable caching and `nosniff`, reproduced the exact size and hash, and passed `hdiutil verify` again.
+The 0.2.11 rollback URL still returns HTTP 200, while POST to the new exact route is rejected with HTTP
+403.
+
+This remains an internal ad-hoc build. It is not Developer ID signed, notarized, or stapled. Physical
+MacBook acceptance must still confirm the selected-device Overview and Dock behavior after installing
+0.2.12.

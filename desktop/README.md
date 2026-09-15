@@ -1,11 +1,11 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.12** (build 15). It adds the separately gated schema-v2
-component bootstrap path: Desktop verifies the signed component manifest, reuses exact compatible
-local runtimes, downloads only missing bootstrap components into a private cache, and requires a
-second explicit confirmation before it changes the managed component store, account binding,
-LaunchAgents, or services. The production capability remains off until the signed 0.4.0 component
-release is published and its rollout is explicitly enabled.
+Current internal test release: **0.2.12** (build 15). It carries the production-enabled schema-v2
+component bootstrap path, keeps the app visible in the Dock, and makes Overview follow the Mac selected
+in Account & Devices. Desktop verifies the signed component manifest, reuses exact compatible local
+runtimes, downloads only missing bootstrap components into a private cache, and requires a second
+explicit confirmation before it changes the managed component store, account binding, LaunchAgents,
+or services.
 
 Desktop 0.2.10 (build 13) remains installed with managed release 0.3.4 on the historical test Mac. It
 packages the post-restart Cloud health freshness correction. Immediately before starting an
