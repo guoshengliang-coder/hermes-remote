@@ -46,6 +46,7 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 | `[lifecycle] run.completed s=<id> late=124s` | inbox 事件比发生时刻晚了多久（手机时钟 − Mac 时钟） | 26% 的完成 >30s |
 | `[history] reconcile s=<id>: N messages, accepted=false` | 对账为何拒绝某次快照 | 阶梯每一档 |
 | `[event] buffered … / replaying N buffered event(s)` | 别名未建立时事件被缓冲、随后重放 | Mac 端发起的运行 |
+| `[event] unmatched sessions.changed without session id` | **0.1.128 及更早才有**。上游的列表级广播被整条丢弃 | 见下方 HG-57 |
 | `[session] probe s=<id> failed (n)` | 探测失败次数 | 网络差 / Mac 失联 |
 | `[ws] opening socket (gen=N)` / `socket closed (gen=N): …` | socket 生死 | 每次重连 |
 | `[ws] socket upgraded (gen=N)` | HTTP 升级完成，此后在等 `gateway.ready` | 每次连接 |
@@ -130,6 +131,21 @@ socket=none`，而 `connectingFor` 一路涨到几百秒。这是**已被关闭*
 `opening socket`。若换来的是 `reconnect dropped`，那一行会说明是 App 主动关闭（对应前面的
 `close() requested: …`，多半是退到后台，属正常省电）还是被更新的一代顶掉。两者都没有、日志就此
 停住，才是真的异常。
+
+**会话在 Mac 上跑着，手机却一点运行状态都没有（HG-57）**：判据是该会话**一条 `[phase]` 行都没有**，
+而它的历史条数在涨（连着两次 `history(<id>) → N messages`，N 变大）。0.1.128 及更早有两条成因：
+① 自愈是单向的 —— `probe` / `probeActiveRuntimes` / `resumeRunningSessions` 以及手动刷新的候选集都
+要求 `phase.isActive`，于是「以为在跑其实结束了」能纠正，「以为结束了其实在跑」没有任何一条路；
+② 上游的 `sessions.changed` 没有 session id，被会话级事件路径整条丢弃，日志里表现为成片的
+`unmatched sessions.changed without session id`（或多个活动 run 时的 `ambiguous … across N runs`）。
+之后：`sessions.changed` 改为触发「去重新对账 / 刷新」，手动刷新无条件先探测一次。排查时若仍看到
+成片的 unmatched 行，说明装的是修复前的版本。
+
+**发出去了但四分钟没动静，被当成没发出去（HG-56）**：判据是 `prompt.submit` 之后有 `message.start`
+（消息确实送达了），而首个 `cause=event:message.delta` 距它很久 —— HG-56 是 4 分 28 秒。这段时间里
+0.1.128 及更早的聊天页只有一枚标记和一个停止按钮，用户多半会按停止再发一次，于是转写里出现两条
+一样的用户气泡、日志里两次 `submit … chars=N`，两次都是真的送达。看到成对的重复 submit 夹着一次
+`session.interrupt`，先按这条读，不要当成发送失败。
 
 **消息发不出去、点重试也没用（HG-29）**：先找 `event session.reclaimed session=<id>`。有这一行，
 答案就结束了 —— 上游的孤儿回收器（掉线 120 秒后触发，见第 1 问的 `ws_orphan_reap`）已经把这个会话

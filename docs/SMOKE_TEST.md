@@ -821,3 +821,44 @@ transcript. What none of them can prove is what a person actually sees, so on a 
 
 Emulator-only checks (1) and (2) were exercised during development; (3), (4) and (5) still need a
 real device with a real Mac at the other end.
+
+## HG-58 / HG-57 / HG-56 (2026-09-18 branch claude/hg-58-57-56-send-and-run-state)
+
+Three reports from one HONOR MBH-AN10 (Android 16 / API 36) on 0.1.127–0.1.128. All three were
+diagnosed from the attached diagnostic logs; the parts below are the ones no JVM test can settle.
+
+### Automated here (L1)
+
+- The `SESS-016` bubble: copy, compact code, and **no tap** — `DeliveryStateTest`, plus the
+  `user-bubble-delivery*` goldens (including 360dp / fontScale 1.3, where the sentence has to yield
+  and the code must not wrap).
+- `TERMINAL_SEND_ERROR_CODES` holds exactly the three codes that withhold the tap, and not the two
+  that clear by themselves — `DeliveryStateTest`.
+- `sessions.changed` reaches a probe instead of being dropped, is throttled to one round per burst,
+  is never credited to whichever run happens to be active, and a curiosity probe that fails never
+  writes a verdict — `SessionsChangedProbeTest`.
+- The run-wait label: silent under five seconds, `已运行 4分28秒` at the duration HG-56 actually sat
+  through, and nothing at all without a start time — `SessionRunIndicatorTest`.
+- Desktop: the written LaunchAgent carries the search path, an agent written without one still
+  validates and is repaired by the next optional-component activation, and a malformed `PATH` is
+  refused — `DesktopManagedBootstrapConfigurationTests`, `DesktopOnDemandRuntimeActivatorTests`.
+
+### Still needs a device or a real Mac
+
+1. **HG-58 end to end — unverified.** Attach a PDF from the phone and send it. Requires Hermes Go
+   Desktop rebuilt from this branch **and the managed Hermes service restarted** so the rewritten
+   agent takes effect; no machine has done that. Read-only precondition check on the Mac: the
+   managed `hermes-server` process's `PATH` contains `/opt/homebrew/bin`. Expected afterwards: the
+   PDF sends. Expected if the dependency is genuinely absent: the bubble reads
+   「Mac 缺少 PDF 渲染依赖 SESS-016」and **does not respond to a tap**.
+2. **HG-57 on a device.** Start a conversation on the Mac (Desktop or a cron job), leave it running,
+   then open it on the phone. Expected: the running state appears without the user doing anything,
+   and pressing refresh on an apparently-finished conversation reports 「仍在运行」rather than
+   「当前对话已刷新」. The diagnostic log should no longer contain runs of
+   `unmatched sessions.changed without session id`.
+3. **HG-56 on a device.** Send a prompt to a conversation whose first token is slow (a long tool
+   chain). Expected: after five seconds the indicator starts reading 「已运行 N 秒」and keeps
+   counting, so the wait is legible instead of being read as a failed send.
+4. **Vendor spread.** The reporting phone (HONOR MBH-AN10, API 36) is not attached to the build
+   host. The devices here are vivo V2166BA (SDK 33) and HONOR CLK-AN00 (SDK 34); neither reaches
+   `targetSdk` 37. Name the device in any result rather than writing "verified on device".

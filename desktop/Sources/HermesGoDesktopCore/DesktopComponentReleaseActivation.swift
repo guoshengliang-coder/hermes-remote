@@ -29,6 +29,15 @@ public struct DesktopResolvedManagedComponent: Equatable, Sendable {
 
 /// A read-only, content-addressed launch plan. Creating it revalidates every bootstrap component
 /// through the managed-store inspector and never consults PATH, Homebrew, or a mutable user venv.
+///
+/// That still holds for everything resolved here. One bounded exception lives elsewhere: since
+/// HG-58 the agent this plan is written into carries a `PATH`
+/// (`DesktopHermesRuntimeContract.searchPath`) so that *optional external* binaries the user
+/// installed — a PDF rasteriser, say — are reachable at all. launchd's bare
+/// `/usr/bin:/bin:/usr/sbin:/sbin` made an installed poppler invisible and Hermes reported it as
+/// "not installed". No managed component is resolved that way, and none may be: the cost of the
+/// exception is that a capability riding on it depends on what the user's Homebrew contains, which
+/// is exactly the dependency this type refuses to take for the components it owns.
 public struct DesktopComponentReleaseActivationPlan: Equatable, Sendable {
     public let releaseVersion: String
     public let components: [DesktopResolvedManagedComponent]

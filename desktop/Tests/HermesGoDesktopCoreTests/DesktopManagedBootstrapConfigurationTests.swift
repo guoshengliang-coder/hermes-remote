@@ -53,8 +53,18 @@ final class DesktopManagedBootstrapConfigurationTests: XCTestCase {
                 "HERMES_HOME": "/Users/test/.hermes",
                 "HERMES_DESKTOP": "1",
                 "HERMES_SESSION_TOKEN_FILE": "/Users/test/.hermes-go/secrets/hermes-session-token",
+                // HG-58. launchd hands an agent /usr/bin:/bin:/usr/sbin:/sbin and nothing more, so
+                // without this the managed server cannot see anything the user installed: a PDF
+                // attachment was refused with "pdftoppm not installed" while pdftoppm sat in
+                // /opt/homebrew/bin, installed four and a half hours earlier.
+                "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
             ]
         )
+        // Both Homebrew prefixes, because the Intel one differs; the launchd four kept at the tail,
+        // because this widens the search rather than redirecting it.
+        XCTAssertTrue(DesktopHermesRuntimeContract.searchPath.hasSuffix("/usr/bin:/bin:/usr/sbin:/sbin"))
+        XCTAssertTrue(DesktopHermesRuntimeContract.searchPath.contains("/opt/homebrew/bin"))
+        XCTAssertTrue(DesktopHermesRuntimeContract.searchPath.contains("/usr/local/bin"))
         XCTAssertTrue(contract.isReadyAnnouncement("HERMES_BACKEND_READY port=9119"))
         XCTAssertFalse(contract.isReadyAnnouncement("HERMES_BACKEND_READY port=9120"))
         XCTAssertTrue(contract.isPortConflictAnnouncement("BACKEND_PORT_IN_USE port=9119"))
@@ -62,6 +72,23 @@ final class DesktopManagedBootstrapConfigurationTests: XCTestCase {
             hermesHome: URL(fileURLWithPath: "/"),
             sessionTokenFile: URL(fileURLWithPath: "/tmp/hermes-session-token")
         ))
+    }
+
+    /// The `PATH` on an existing LaunchAgent is compared out of the base when a replacement is
+    /// validated (an agent written before HG-58 has none at all), so it has to be checked for shape
+    /// rather than trusted: "allowed to differ" must not become "allowed to be anything".
+    func testSearchPathShapeIsCheckedRatherThanTrusted() {
+        XCTAssertTrue(DesktopHermesRuntimeContract.isValidSearchPath(DesktopHermesRuntimeContract.searchPath))
+        XCTAssertTrue(DesktopHermesRuntimeContract.isValidSearchPath("/usr/bin"))
+
+        XCTAssertFalse(DesktopHermesRuntimeContract.isValidSearchPath(""))
+        // A relative entry would resolve against whatever directory launchd happened to start in.
+        XCTAssertFalse(DesktopHermesRuntimeContract.isValidSearchPath("/usr/bin:bin"))
+        // An empty entry means "the current directory" to execvp — the classic PATH foot-gun.
+        XCTAssertFalse(DesktopHermesRuntimeContract.isValidSearchPath("/usr/bin::/bin"))
+        XCTAssertFalse(DesktopHermesRuntimeContract.isValidSearchPath("/"))
+        XCTAssertFalse(DesktopHermesRuntimeContract.isValidSearchPath("/usr/bin/../bin"))
+        XCTAssertFalse(DesktopHermesRuntimeContract.isValidSearchPath("/usr/bin:/b\u{0}in"))
     }
 
     func testManagedBootstrapIsDisabledWhenFlagIsAbsentOrZero() {

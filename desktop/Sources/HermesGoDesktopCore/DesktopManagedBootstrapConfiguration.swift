@@ -20,6 +20,40 @@ public enum DesktopHermesRuntimeContract: String, Equatable, Sendable {
         URL(string: "http://\(Self.loopbackHost):\(Self.loopbackPort)")!
     }
 
+    /// Search path handed to the managed Hermes server.
+    ///
+    /// launchd gives an agent `/usr/bin:/bin:/usr/sbin:/sbin` and nothing else, which is what the
+    /// managed server ran with until HG-58: a user attached a PDF, Hermes answered
+    /// `pdf.attach 5028 "pdftoppm not installed (poppler-utils package required)"`, and the binary
+    /// had in fact been installed four and a half hours earlier — in `/opt/homebrew/bin`, where the
+    /// agent could not see it. "Not installed" was upstream describing its own PATH, not the disk.
+    ///
+    /// Both Homebrew prefixes are listed because the Intel one differs, and the launchd four stay at
+    /// the tail rather than being replaced: this widens the search, it does not redirect it. A
+    /// managed component still resolves through the managed store, never through here — the
+    /// difference is that an *optional external* binary the user installed now has somewhere to be
+    /// found. That is a deliberate, bounded exception to the rule stated in
+    /// `DesktopComponentReleaseActivation`; its cost is that such a capability now depends on what
+    /// the user's Homebrew happens to contain.
+    public static let searchPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+    /// Whether a `PATH` read back off an existing LaunchAgent is shaped like a search list we wrote:
+    /// non-empty, colon-separated, every entry an absolute path, no control characters. Used when
+    /// comparing an on-disk agent against a replacement, where `PATH` is allowed to differ (an agent
+    /// written before HG-58 has none at all) but must not be allowed to be anything at all.
+    public static func isValidSearchPath(_ value: String) -> Bool {
+        guard !value.isEmpty,
+              !value.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+        else { return false }
+        let entries = value.split(separator: ":", omittingEmptySubsequences: false)
+        guard !entries.isEmpty else { return false }
+        return entries.allSatisfy { entry in
+            let path = String(entry)
+            return path.hasPrefix("/") && path != "/"
+                && URL(fileURLWithPath: path).standardizedFileURL.path == path
+        }
+    }
+
     public func environmentVariables(hermesHome: URL, sessionTokenFile: URL) throws -> [String: String] {
         let home = hermesHome.standardizedFileURL
         let tokenFile = sessionTokenFile.standardizedFileURL
@@ -32,6 +66,7 @@ public enum DesktopHermesRuntimeContract: String, Equatable, Sendable {
             "HERMES_HOME": home.path,
             "HERMES_DESKTOP": "1",
             "HERMES_SESSION_TOKEN_FILE": tokenFile.path,
+            "PATH": Self.searchPath,
         ]
     }
 

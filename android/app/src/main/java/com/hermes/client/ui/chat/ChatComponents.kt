@@ -1055,7 +1055,9 @@ fun ChatMessageList(
                             // The run is active but no bubble is streaming yet (docs/DESIGN.md §5.6):
                             // the indicator belongs to the session's run, so it lives in this
                             // permanent slot rather than in a bubble that may not exist.
-                            if (sessionRunIndicator) RunningStatusLine(sessionRunPlaceholder(sessionId))
+                            if (sessionRunIndicator) {
+                                RunningStatusLine(sessionRunPlaceholder(sessionId, state.runStartedAt))
+                            }
                             if (processesVisible) BackgroundProcessesCard(visibleProcesses)
                         }
                     } else {
@@ -1342,6 +1344,27 @@ private fun MessageBubble(
     }
 }
 
+/**
+ * Send failures whose bubble must not offer a tap, keyed by the code the send actually failed with.
+ *
+ * docs/ERROR_HANDLING.md: `retryable = false` means the tap is withheld, not merely discouraged —
+ * "an offer that cannot work is worse than none, because the user keeps paying for it" (HG-29).
+ * A code lands here when no amount of tapping on this phone can change the answer:
+ *  - SESS-001, the conversation is gone upstream and could not be silently replaced;
+ *  - SESS-015, the restored send's staged attachments did not survive the restart, so replaying it
+ *    would deliver less than the user meant;
+ *  - SESS-016, the Mac's Hermes cannot reach its PDF rendering dependency (HG-58) — the fix is on
+ *    the Mac, and until it happens every attempt repeats the same 5028.
+ *
+ * SESS-013 is deliberately absent: another client owning the conversation clears by itself, so that
+ * one keeps its tap and only names the cause.
+ */
+internal val TERMINAL_SEND_ERROR_CODES = setOf(
+    com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND,
+    com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST,
+    com.hermes.client.data.error.AppErrorCode.PDF_RENDER_DEPENDENCY_MISSING,
+)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun UserBubble(
@@ -1368,7 +1391,6 @@ internal fun UserBubble(
     // and offers no tap: the conversation is gone upstream, so retrying is not on the table.
     val undeliverable = msg.delivery == com.hermes.client.domain.DeliveryState.UNDELIVERABLE
     val failed = msg.delivery == com.hermes.client.domain.DeliveryState.FAILED || undeliverable
-    val retryable = failed && !undeliverable
     var revealSending by remember(msg.id) { mutableStateOf(false) }
     LaunchedEffect(msg.id, sending) {
         if (sending) { delay(SENDING_REVEAL_DELAY_MS); revealSending = true } else revealSending = false
@@ -1405,9 +1427,22 @@ internal fun UserBubble(
             // No "未发送 ·" prefix, same as SESS-001: the dimmed bubble and the error mark already
             // say it did not send, and the prefix pushed the code onto a second line at 360dp/1.3.
             localized(language, "会话正在另一个客户端运行", "Running on another client")
+        com.hermes.client.data.error.AppErrorCode.PDF_RENDER_DEPENDENCY_MISSING ->
+            // Same shape as SESS-001/013: no "未发送 ·" prefix, because the dimmed bubble and the
+            // error mark already said it did not send, and the prefix costs the code its line at
+            // 360dp / fontScale 1.3. Names the Mac, because that is where the fix is.
+            localized(language, "Mac 缺少 PDF 渲染依赖", "Mac is missing a PDF renderer")
         else -> localized(language, "未发送 · 点按重试", "Not sent · Tap to retry")
     }
     val failedCode = failedErrorCode.compact
+    // Whether the tap is offered follows the same rule as the copy: the code decides, not the
+    // delivery state. `retryable = failed && !undeliverable` was true for every FAILED bubble,
+    // so a terminal code that never got its own DeliveryState — SESS-015's restored send whose
+    // attachments are gone, and now SESS-016 — still took the click and still printed
+    // "点按重试", with only ChatViewModel.retrySend's early return behind it. That is the belt
+    // without the braces docs/ERROR_HANDLING.md asks for: a non-retryable failure must not carry
+    // a retry affordance at all.
+    val retryable = failed && !undeliverable && failedErrorCode !in TERMINAL_SEND_ERROR_CODES
     // In a channel conversation the right-hand column carries two different speakers: the person
     // on the other app, and anything typed here. Naming them apart is not decoration — a blanket
     // peer label would sign the reader's own words with somebody else's name.
@@ -2788,14 +2823,20 @@ internal fun showsSessionRunIndicator(isGenerating: Boolean, messages: List<Chat
     isGenerating && messages.none { it.role == Role.ASSISTANT && it.isStreaming }
 
 /**
- * A content-less streaming record for [RunningStatusLine]: with no output there is no label and no
- * elapsed suffix, so the mark stands alone exactly as it does before a real turn's first token.
+ * A content-less streaming record for [RunningStatusLine]: there is no output yet, so there is no
+ * label — but [runStartedAt] still gives the line something true to count from.
+ *
+ * It used to carry no timestamp either, which is what made a long silent wait indistinguishable
+ * from a message that never left: HG-56 sat here for four and a half minutes before the first
+ * token, showing one mark and a stop button, and the user reasonably concluded the send had failed
+ * and sent it again.
  */
-internal fun sessionRunPlaceholder(sessionId: String) = ChatMessage(
+internal fun sessionRunPlaceholder(sessionId: String, runStartedAt: Long? = null) = ChatMessage(
     id = "run-indicator-$sessionId",
     role = Role.ASSISTANT,
     text = "",
     isStreaming = true,
+    timestamp = runStartedAt,
 )
 
 /**
@@ -2834,6 +2875,17 @@ internal fun RunningStatusLine(msg: ChatMessage) {
         // "Preparing…" would only be read once and then replaced a beat later by the real status.
         val style = MaterialTheme.typography.bodySmall
         val color = MaterialTheme.colorScheme.onSurfaceVariant
+        // ...but only for a few seconds. A wait long enough to be doubted has to be measured, or a
+        // working Mac and a message that never sent look identical (HG-56). The number is the whole
+        // content: it is the one thing we know to be true before any output arrives.
+        val waitLabel = if (hasOutput) null else runWaitElapsedLabel(
+            msg.timestamp,
+            nowTick,
+            zh = language == com.hermes.client.ui.localization.AppLanguage.ZH,
+        )
+        if (waitLabel != null) {
+            Text(waitLabel, style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
         if (hasOutput) when (status) {
             is RunningStatus.Tool -> Text(
                 localized(language, "正在运行 ", "Running ") + status.label + "…" + elapsedSuffix,

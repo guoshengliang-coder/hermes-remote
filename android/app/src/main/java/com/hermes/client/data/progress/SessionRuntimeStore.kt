@@ -53,6 +53,16 @@ data class SessionRuntimeKey(
 
 enum class ManualHistoryResult { CHANGED, UNCHANGED, BUSY }
 
+/**
+ * Upstream's list-level "something changed" broadcast.
+ *
+ * It names no session — it is about the list, not about one conversation — which is why every one
+ * of them used to be dropped by the session-scoped event path. Two screens act on it now: the
+ * session list refreshes, and [SessionRuntimeStore] asks about the conversations on screen.
+ * Declared here rather than inside the store's private companion so both can name the same string.
+ */
+internal const val SESSIONS_CHANGED_EVENT = "sessions.changed"
+
 enum class SessionRunPhase {
     IDLE,
     SUBMITTING,
@@ -146,6 +156,7 @@ internal fun SessionRuntime.normalized(): SessionRuntime {
     return copy(
         chat = chat.copy(
             isGenerating = active,
+            runStartedAt = if (active) runStartedAt else null,
             messages = messages,
             pendingApproval = if (active) chat.pendingApproval else null,
             pendingClarify = if (active) chat.pendingClarify else null,
@@ -227,6 +238,12 @@ class SessionRuntimeStore(
     @Volatile private var appInForeground = false
     @Volatile private var connected = false
     private val lastProbeAt = ConcurrentHashMap<SessionRuntimeKey, Long>()
+    /**
+     * Throttle for [onSessionsChanged]. The broadcast arrives in bursts — one per list mutation
+     * upstream makes — and it names no session, so unlike [lastProbeAt] there is nothing to key it
+     * by; one clock for the whole store is the honest shape.
+     */
+    @Volatile private var lastSessionsChangedProbeAt = 0L
     private val probeFailures = ConcurrentHashMap<SessionRuntimeKey, Int>()
     @Volatile private var watchdogJob: Job? = null
     /**
@@ -618,9 +635,20 @@ class SessionRuntimeStore(
      * silent past [ACTIVE_RUN_HARD_CAP_MS] and failed to answer twice is marked interrupted, so
      * a row cannot spin forever after the Mac disappears.
      */
-    suspend fun probe(key: SessionRuntimeKey, force: Boolean = false): ProbeResult {
+    suspend fun probe(
+        key: SessionRuntimeKey,
+        force: Boolean = false,
+        includeIdle: Boolean = false,
+    ): ProbeResult {
         val runtime = _runtimes.value[key] ?: return ProbeResult.IDLE
-        if (!runtime.phase.isActive || runtime.phase == SessionRunPhase.RECONNECTING) return ProbeResult.IDLE
+        val believedActive =
+            runtime.phase.isActive && runtime.phase != SessionRunPhase.RECONNECTING
+        // Every automatic caller asks only about runs the store already believes are active — that
+        // is the cheap half, and the half that cannot mislead. [includeIdle] opens the other
+        // direction for the callers that have a reason to distrust an idle phase (the user pressing
+        // refresh, a sessions.changed broadcast): upstream had been running a conversation for
+        // minutes while the phone showed nothing, and no probe would ever have asked (HG-57).
+        if (!believedActive && !includeIdle) return ProbeResult.IDLE
         if (!connected) return ProbeResult.OFFLINE
         val now = clock()
         if (!force && now - (lastProbeAt[key] ?: 0L) < PROBE_MIN_INTERVAL_MS) return ProbeResult.RATE_LIMITED
@@ -637,7 +665,13 @@ class SessionRuntimeStore(
                     val failures = probeFailures.merge(key, 1, Int::plus) ?: 1
                     DebugLog.log("session", "probe s=${key.sessionId} failed ($failures): ${error.message}")
                     val silentFor = now - runtime.lastEventAt
-                    if (failures >= PROBE_FAILURES_BEFORE_GIVING_UP && silentFor > ACTIVE_RUN_HARD_CAP_MS) {
+                    // Only a run we believed was active can be declared interrupted. An idle
+                    // conversation that fails a curiosity probe has no verdict to lose: writing one
+                    // would be inventing an outcome, which is the thing markUnconfirmed exists not
+                    // to do.
+                    if (believedActive &&
+                        failures >= PROBE_FAILURES_BEFORE_GIVING_UP && silentFor > ACTIVE_RUN_HARD_CAP_MS
+                    ) {
                         DebugLog.log("session", "probe s=${key.sessionId}: silent ${silentFor / 60_000} min and unreachable, marking interrupted")
                         markUnconfirmed(key)
                         probeFailures.remove(key)
@@ -1339,7 +1373,31 @@ class SessionRuntimeStore(
         }
     }
 
+    /**
+     * Upstream's "something in the session list moved" broadcast.
+     *
+     * It carries no session id — it is a list-level notice, not a session event — so [resolve]
+     * could only ever guess at one: with a single active run it attributed the event to that run
+     * (refreshing its `lastEventAt` and quietly postponing the watchdog), and otherwise dropped it
+     * as `unmatched`/`ambiguous`. Either way nothing was learned from it, while the phone logged
+     * hundreds of them during HG-57, in which a conversation ran upstream for minutes with no
+     * indication on screen.
+     *
+     * So it is handled here instead, before resolution: treat it as "go and ask", and ask about the
+     * conversations actually on screen. That is the one place where a probe is worth spending
+     * whether or not the phase claims to be running — see [probe]'s `includeIdle`.
+     */
+    private fun onSessionsChanged() {
+        val now = clock()
+        if (now - lastSessionsChangedProbeAt < SESSIONS_CHANGED_PROBE_MIN_INTERVAL_MS) return
+        val watched = visible.toList()
+        if (watched.isEmpty()) return
+        lastSessionsChangedProbeAt = now
+        watched.forEach { key -> appScope.launch { probe(key, includeIdle = true) } }
+    }
+
     private fun applyEvent(event: ServerEvent) {
+        if (event.type == SESSIONS_CHANGED_EVENT) { onSessionsChanged(); return }
         val key = resolve(event) ?: return
         if (event.type == "message.start") lastActiveKey = key
         updateRuntime(key, cause = "event:${event.type}") { runtime ->
@@ -1690,6 +1748,14 @@ class SessionRuntimeStore(
         const val WATCHDOG_TICK_MS = 60_000L
         /** One probe per run per minute, however many triggers fire. */
         const val PROBE_MIN_INTERVAL_MS = 60_000L
+        /**
+         * A burst of these arrives whenever upstream touches the list (a title, a usage update),
+         * and each one would otherwise fan out a resume per visible conversation. Five seconds is
+         * short enough that a state change the user is watching for is noticed while they are still
+         * looking, and long enough that a burst costs one round of probes rather than twenty. The
+         * per-run [PROBE_MIN_INTERVAL_MS] still applies underneath.
+         */
+        const val SESSIONS_CHANGED_PROBE_MIN_INTERVAL_MS = 5_000L
         /** Silent this long AND unreachable twice: the outcome is unconfirmed, the row stops spinning. */
         const val ACTIVE_RUN_HARD_CAP_MS = 30 * 60_000L
         const val PROBE_FAILURES_BEFORE_GIVING_UP = 2

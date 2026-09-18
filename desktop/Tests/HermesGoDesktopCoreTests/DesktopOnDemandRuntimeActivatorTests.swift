@@ -83,6 +83,123 @@ final class DesktopOnDemandRuntimeActivatorTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: plist), originalData)
     }
 
+    /// HG-58: an agent written before the PATH existed still validates, and activating an optional
+    /// component repairs it.
+    ///
+    /// `validHermesLaunchAgentBase` compares an on-disk agent against the replacement and rejects
+    /// any difference outside its allowed set — which is the right rule, and which would have made
+    /// every optional-component activation fail on precisely the machines still missing the PATH.
+    /// It is compared out of the base instead, and since the replacement is what gets written, the
+    /// repair rides along with the next activation rather than waiting for a reinstall.
+    func testAnAgentWrittenWithoutAPathStillValidatesAndGetsOneBack() throws {
+        let fixture = try RuntimeActivationFixture()
+        defer { fixture.cleanup() }
+        let installer = DesktopManagedInstaller(layout: fixture.layout)
+        let plist = try installer.writeHermesLaunchAgent(
+            try fixture.configuration.componentLaunchAgents(for: fixture.plan).hermes,
+            activationPlan: fixture.plan
+        )
+
+        // Rewind the file to what this machine would have had before the change.
+        var legacy = try XCTUnwrap(PropertyListSerialization.propertyList(
+            from: try Data(contentsOf: plist), options: [], format: nil
+        ) as? [String: Any])
+        var legacyEnvironment = try XCTUnwrap(legacy["EnvironmentVariables"] as? [String: String])
+        legacyEnvironment.removeValue(forKey: "PATH")
+        legacy["EnvironmentVariables"] = legacyEnvironment
+        try PropertyListSerialization.data(
+            fromPropertyList: legacy, format: .xml, options: 0
+        ).write(to: plist)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: plist.path)
+        XCTAssertNil(try propertyListEnvironment(at: plist)?["PATH"])
+
+        let browser = fixture.root.appendingPathComponent("browser")
+        try Data("browser".utf8).write(to: browser)
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: browser.path)
+        let component = DesktopResolvedOnDemandComponent(
+            kind: .browserAutomation,
+            location: .external(executable: browser)
+        )
+        let preparer = DesktopOnDemandRuntimePreparer(
+            writer: try DesktopOptionalComponentRuntimeWriter(
+                storeRoot: fixture.store,
+                projectionRoot: fixture.root.appendingPathComponent("runtime-projections"),
+                currentUserID: getuid()
+            ),
+            installer: installer,
+            configuration: fixture.configuration
+        )
+
+        _ = try preparer.prepare(
+            installed: DesktopInstalledOnDemandCapability(
+                releaseVersion: fixture.plan.releaseVersion,
+                trigger: "browser.open",
+                components: [component],
+                referenceURLs: []
+            ),
+            activeComponents: [component],
+            activationPlan: fixture.plan
+        )
+
+        let updated = try XCTUnwrap(try propertyListEnvironment(at: plist))
+        XCTAssertEqual(updated["PATH"], DesktopHermesRuntimeContract.searchPath)
+        XCTAssertEqual(updated["AGENT_BROWSER_EXECUTABLE_PATH"], browser.path)
+    }
+
+    /// The other half of the same rule: allowed to differ is not allowed to be anything. A PATH
+    /// somebody else put on the agent has to look like a search list we would have written.
+    func testAnAgentCarryingAMalformedPathIsRefused() throws {
+        let fixture = try RuntimeActivationFixture()
+        defer { fixture.cleanup() }
+        let installer = DesktopManagedInstaller(layout: fixture.layout)
+        let plist = try installer.writeHermesLaunchAgent(
+            try fixture.configuration.componentLaunchAgents(for: fixture.plan).hermes,
+            activationPlan: fixture.plan
+        )
+
+        var tampered = try XCTUnwrap(PropertyListSerialization.propertyList(
+            from: try Data(contentsOf: plist), options: [], format: nil
+        ) as? [String: Any])
+        var environment = try XCTUnwrap(tampered["EnvironmentVariables"] as? [String: String])
+        // An empty entry is "the current directory" to execvp — the classic PATH foot-gun.
+        environment["PATH"] = "/usr/bin::/bin"
+        tampered["EnvironmentVariables"] = environment
+        try PropertyListSerialization.data(
+            fromPropertyList: tampered, format: .xml, options: 0
+        ).write(to: plist)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: plist.path)
+
+        let browser = fixture.root.appendingPathComponent("browser")
+        try Data("browser".utf8).write(to: browser)
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: browser.path)
+        let component = DesktopResolvedOnDemandComponent(
+            kind: .browserAutomation,
+            location: .external(executable: browser)
+        )
+        let preparer = DesktopOnDemandRuntimePreparer(
+            writer: try DesktopOptionalComponentRuntimeWriter(
+                storeRoot: fixture.store,
+                projectionRoot: fixture.root.appendingPathComponent("runtime-projections"),
+                currentUserID: getuid()
+            ),
+            installer: installer,
+            configuration: fixture.configuration
+        )
+
+        XCTAssertThrowsError(try preparer.prepare(
+            installed: DesktopInstalledOnDemandCapability(
+                releaseVersion: fixture.plan.releaseVersion,
+                trigger: "browser.open",
+                components: [component],
+                referenceURLs: []
+            ),
+            activeComponents: [component],
+            activationPlan: fixture.plan
+        )) { error in
+            XCTAssertEqual(error as? DesktopManagedInstallError, .unsafeFilesystemObject)
+        }
+    }
+
     func testHealthyActivationRestartsHermesAndRetriesCapabilityExactlyOnce() async throws {
         let fixture = try RuntimeActivationFixture()
         defer { fixture.cleanup() }

@@ -124,6 +124,12 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "该会话正在另一个客户端上运行，请在那边结束后重试。", "This conversation is running on another client. Finish it there, then retry.")
         AppErrorCode.UNSENT_ATTACHMENTS_LOST ->
             localized(language, "附件已丢失，请重新选择附件后发送。", "The attachments are gone. Pick them again and send.")
+        AppErrorCode.PDF_RENDER_DEPENDENCY_MISSING ->
+            localized(
+                language,
+                "Mac 上的 Hermes 找不到 PDF 渲染依赖，无法附加 PDF。",
+                "Hermes on the Mac can't find its PDF rendering dependency, so the PDF can't be attached.",
+            )
         AppErrorCode.SESSION_TRANSCRIPT_UNAVAILABLE ->
             localized(language, "无法读取所选会话的内容，请重试。", "Couldn't read the selected conversation. Retry.")
         AppErrorCode.SESSION_ARCHIVE_FAILED ->

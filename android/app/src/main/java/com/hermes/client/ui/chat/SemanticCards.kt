@@ -166,6 +166,31 @@ internal fun formatElapsedTime(elapsedMs: Long, zh: Boolean): String {
     }
 }
 
+/**
+ * How long a wait has to last before the running indicator starts saying how long it has lasted.
+ *
+ * Nothing is said below it, deliberately: an ordinary turn answers in a couple of seconds, and a
+ * label that appears and is replaced a beat later is read once and then only flickers. Past it the
+ * opposite is true — silence stops reading as "any moment now" and starts reading as "it never
+ * sent", which is the conclusion HG-56 reached after four and a half minutes of a bare mark and a
+ * stop button, twice.
+ */
+internal const val RUN_WAIT_ELAPSED_AFTER_MS = 5_000L
+
+/**
+ * "已运行 1分24秒" / "Running for 1m24s" for a run that has produced nothing yet, or null while the
+ * wait is still short enough to be ordinary (or when there is no start time to count from).
+ *
+ * Separate from [formatElapsedTime]'s suffix because this one stands alone: with no output there is
+ * no sentence for it to hang off, and the number is the entire content.
+ */
+internal fun runWaitElapsedLabel(startedAt: Long?, now: Long, zh: Boolean): String? {
+    if (startedAt == null) return null
+    val elapsed = now - startedAt
+    if (elapsed < RUN_WAIT_ELAPSED_AFTER_MS) return null
+    return (if (zh) "已运行 " else "Running for ") + formatElapsedTime(elapsed, zh = zh)
+}
+
 internal fun runningStatusFor(message: ChatMessage): RunningStatus {
     val tool = message.tools.lastOrNull { it.status == ToolStatus.RUNNING }
     if (tool != null) {
