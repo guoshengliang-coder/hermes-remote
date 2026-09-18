@@ -1,13 +1,21 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.13** (build 16). It gives the managed Hermes server a
+Current internal test release candidate: **0.2.14** (build 17). It gives the managed Hermes server a
 `PATH`. launchd starts an agent with `/usr/bin:/bin:/usr/sbin:/sbin` and nothing else, so anything the
 user had installed was invisible to it: a PDF attachment from the phone was refused with
 `pdf.attach 5028 "pdftoppm not installed"` on a Mac where `pdftoppm` had been installed four and a half
 hours earlier, in `/opt/homebrew/bin` (HG-58). The written agent now carries both Homebrew prefixes
 ahead of launchd's four, an agent written before this validates without one and is repaired by the next
-optional-component activation, and a malformed `PATH` on disk is refused. **The fix reaches a Mac only
-once this build is installed and the managed Hermes service restarts.**
+optional-component activation, and a malformed `PATH` on disk is refused.
+
+0.2.13 would have fixed nothing on a Mac that had already migrated, because the only writers are a
+migration and an optional-component activation and installing a newer Desktop is neither. 0.2.14 adds
+the startup repair that closes that: `reconcileCommittedHermesSearchPath()` runs on the same startup
+reconciliation as the account and token-file ones, adds the key to an agent it recognises, leaves an
+existing well-formed `PATH` alone, refuses a malformed one, restarts **only** Hermes, and restores the
+exact previous file if that restart cannot prove a healthy server. It happens at most once per machine
+— the second launch finds the key present and spends nothing. **The restart is not announced and
+cannot be declined, and nothing can tell whether a turn is in flight.**
 
 0.2.12 (build 15) carried the production-enabled schema-v2 component bootstrap path, kept the app
 visible in the Dock, and made Overview follow the Mac selected in Account & Devices. Desktop verifies
