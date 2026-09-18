@@ -142,6 +142,20 @@ class ChatViewModel @Inject constructor(
          * ("slash worker closed pipe"). Distinct from a slash the worker ran and refused.
          */
         const val SLASH_WORKER_FAILED_CODE = 5030
+
+        /**
+         * `pdf.attach` could not rasterise the PDF: the Mac's Hermes cannot reach `pdftoppm`
+         * (poppler-utils). Upstream words it "pdftoppm not installed", but that is its view of its
+         * own PATH, not of the disk — the managed Hermes runs as a launchd agent whose PATH is the
+         * bare /usr/bin:/bin:/usr/sbin:/sbin, so a Homebrew poppler sitting in /opt/homebrew/bin is
+         * invisible to it (HG-58: the binary had been installed four and a half hours earlier).
+         *
+         * Terminal for the phone either way: nothing it can do makes the next attempt land, so the
+         * bubble names this instead of the generic send failure and withholds the tap.
+         *
+         * Classified on the number alone, like 4001/4007/4090 — see docs/HERMES_CONTRACT.md.
+         */
+        const val PDF_RENDER_DEPENDENCY_MISSING_CODE = 5028
     }
 
     /**
@@ -1004,14 +1018,20 @@ class ChatViewModel @Inject constructor(
             _refreshing.value = true
             try {
                 val wasActive = runtimeStore.runtimes.value[key]?.let { it.phase.isActive || it.chat.isGenerating } == true
-                if (wasActive) {
-                    runtimeStore.probe(key, force = true)
-                    // Hermes answers session.resume with session.info{running}; give it a beat to
-                    // land so the outcome reported below is the confirmed one, not the stale one.
-                    withTimeoutOrNull(MANUAL_REFRESH_PROBE_SETTLE_MS) {
-                        runtimeStore.runtimes.map { it[key]?.let { r -> r.phase.isActive || r.chat.isGenerating } }
-                            .first { it != true }
-                    }
+                // Ask Hermes whichever way the belief runs. This used to be gated on `wasActive`,
+                // which made the button one-directional: it could correct "I think it is running"
+                // and never "I think it has finished" — and the second is the state the user is
+                // staring at when they press it (HG-57: upstream ran for minutes, the screen showed
+                // nothing, and the refresh they reached for never sent a single resume).
+                runtimeStore.probe(key, force = true, includeIdle = true)
+                // Hermes answers session.resume with session.info{running}; give it a beat to land
+                // so the outcome reported below is the confirmed one, not the stale one. Waiting
+                // for the belief to *change* rather than for it to become false, because either
+                // direction is now a possible answer.
+                withTimeoutOrNull(MANUAL_REFRESH_PROBE_SETTLE_MS) {
+                    runtimeStore.runtimes
+                        .map { it[key]?.let { r -> r.phase.isActive || r.chat.isGenerating } == true }
+                        .first { it != wasActive }
                 }
                 val rawHistory = sessions.history(id, profile, currentDeviceId)
                 val organizedHistory = withContext(defaultDispatcher) {
@@ -1435,14 +1455,28 @@ class ChatViewModel @Inject constructor(
                 // because the socket never finished its handshake. Calling that 「消息发送失败」
                 // points the user at their message; the thing to fix is the connection (HG-42).
                 val handshakeStalled = e is com.hermes.client.data.network.GatewayReadinessTimeoutException
+                // A fourth: the attachment could not be rasterised because the Mac's Hermes cannot
+                // reach `pdftoppm` (5028). Retryable only in the sense that someone has to go fix
+                // the Mac first — from the phone every tap repeats the same refusal, which is the
+                // offer HG-29 ruled out. So it is terminal here, with copy that names the cause.
+                val pdfDependencyMissing = rpcCode == PDF_RENDER_DEPENDENCY_MISSING_CODE
                 val error = com.hermes.client.data.error.AppError(
                     when {
                         gone -> com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND
                         ownedElsewhere -> com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE
                         handshakeStalled -> com.hermes.client.data.error.AppErrorCode.HANDSHAKE_TIMEOUT
+                        pdfDependencyMissing ->
+                            com.hermes.client.data.error.AppErrorCode.PDF_RENDER_DEPENDENCY_MISSING
                         else -> com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED
                     },
-                    retryable = !gone, technicalCause = e.message, stage = "prompt_submit",
+                    // Decided per code, not by one predicate: every new terminal failure that gets
+                    // folded in here has to say so itself, or it inherits a tap it cannot honour.
+                    retryable = !gone && !pdfDependencyMissing,
+                    // Keep the numeric code in the copyable diagnostic, not only in DebugLog below:
+                    // upstream's prose is the part that can change under us, the number is the part
+                    // we classify on, and the user pasting a diagnostic should be handing us both.
+                    technicalCause = rpcCode?.let { "$it ${e.message}" } ?: e.message,
+                    stage = "prompt_submit",
                 )
                 // Carry the numeric code into the log. Without it a diagnostic export shows only
                 // upstream's prose, and the code that would have classified the failure is lost.

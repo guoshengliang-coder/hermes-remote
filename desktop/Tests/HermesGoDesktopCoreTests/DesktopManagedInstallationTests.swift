@@ -310,6 +310,10 @@ final class DesktopManagedInstallationTests: XCTestCase {
                 "HERMES_HOME": testRoot.appendingPathComponent("hermes-home").path,
                 "HERMES_DESKTOP": "1",
                 "HERMES_SESSION_TOKEN_FILE": layout.hermesSessionToken.path,
+                // HG-58: without a PATH the agent inherits launchd's bare four directories, and
+                // every optional binary the user installed is invisible to the server — Hermes
+                // reported an installed pdftoppm as "not installed" for exactly this reason.
+                "PATH": DesktopHermesRuntimeContract.searchPath,
             ]
         )
         XCTAssertNil(decoded["KeepAlive"])

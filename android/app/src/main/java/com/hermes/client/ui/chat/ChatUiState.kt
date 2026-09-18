@@ -704,6 +704,14 @@ data class ChatUiState(
     val pendingApproval: ApprovalRequest? = null,
     val pendingClarify: ClarifyRequest? = null,
     val isGenerating: Boolean = false,
+    /**
+     * When the active run started, mirrored from the runtime by `normalized()` the same way
+     * [isGenerating] is. The transcript needs it to say how long a wait has lasted: before the first
+     * token there is no assistant message to read a timestamp off, and HG-56 was four and a half
+     * minutes of exactly that — a stop button and nothing else, which the user read as "it never
+     * sent". Null whenever the run is not active.
+     */
+    val runStartedAt: Long? = null,
     val pendingAttachments: List<PendingAttachment> = emptyList(),
     // Loading history is not the same thing as a confirmed empty conversation. Keeping these
     // separate prevents the chat from flashing the new-chat empty state before REST returns.

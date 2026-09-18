@@ -586,6 +586,16 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
                 }
                 environment.removeValue(forKey: key)
             }
+            // PATH is compared out of the base too, but it is a colon-joined search list rather than
+            // a single path, so it gets its own shape check instead of the one above. It is allowed
+            // to differ because an agent written before HG-58 has no PATH at all; holding those to
+            // an exact match would make every optional-component activation fail on exactly the
+            // machines that still need the repair. Since the replacement is what gets written,
+            // activating a component also gives such an agent its PATH.
+            if let value = environment["PATH"] as? String {
+                guard DesktopHermesRuntimeContract.isValidSearchPath(value) else { return nil }
+            }
+            environment.removeValue(forKey: "PATH")
             object["EnvironmentVariables"] = environment
             return object
         }

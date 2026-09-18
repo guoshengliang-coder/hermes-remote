@@ -70,6 +70,14 @@ enum class AppErrorCode(val value: String) {
     // The words are still on screen, but replaying the send would deliver less than the user meant,
     // so the tap is withheld rather than quietly sending half of it.
     UNSENT_ATTACHMENTS_LOST("HR-SESS-015"),
+    // The Mac's Hermes refused a PDF attachment because it could not find its rendering
+    // dependency (`pdf.attach` 5028). Upstream words this as "pdftoppm not installed", but it
+    // really means "not on my PATH": the managed Hermes is a launchd agent whose PATH is the
+    // bare /usr/bin:/bin:/usr/sbin:/sbin, so a Homebrew poppler is invisible to it (HG-58).
+    // The conversation is fine and the words are still on screen, but nothing the phone can do
+    // makes the next attempt land, so the tap is withheld rather than replayed into the same
+    // refusal — the HG-29 rule.
+    PDF_RENDER_DEPENDENCY_MISSING("HR-SESS-016"),
     INSTALL_PERMISSION_REQUIRED("HR-PERM-003"),
     HISTORY_INCOMPLETE("HR-SYNC-001"),
     RUN_UNCONFIRMED("HR-SYNC-002"),

@@ -670,3 +670,37 @@ Mac's services.
   WebSocket session. Connector telemetry recorded one new `/api/ws` tunnel carrying 1,572 frames to
   the phone and 28 frames from it without a tunnel error, closing the post-reboot phone check.
 - Developer ID signing, notarization, stapling, and clean-Mac acceptance remain pending.
+
+### Managed Hermes search path — 2026-09-18 (HG-58)
+
+The LaunchAgent Desktop writes for the managed Hermes server had no `PATH`. launchd gives an agent
+`/usr/bin:/bin:/usr/sbin:/sbin` and nothing else, so nothing the user installed was reachable from
+it. The symptom was a PDF attachment refused with `pdf.attach 5028 "pdftoppm not installed
+(poppler-utils package required)"` on a Mac where `pdftoppm` had been installed four and a half
+hours earlier, in `/opt/homebrew/bin`. Upstream was describing its own `PATH`, not the disk.
+
+`DesktopHermesRuntimeContract.environmentVariables` now also returns
+`PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`. Both Homebrew prefixes are
+listed because the Intel one differs, and launchd's four stay at the tail: this widens the search, it
+does not redirect it.
+
+**It is a bounded exception to a rule this project states out loud.**
+`DesktopComponentReleaseActivation` says the managed activation plan "never consults PATH, Homebrew,
+or a mutable user venv", and that still holds for every component the plan resolves — those keep
+coming from the signed managed store. What the exception buys is that an *optional external* binary
+the user installed can be found at all. What it costs is that a capability riding on such a binary
+now depends on the state of the user's Homebrew. The principled alternative is to ship a PDF
+rasteriser as a managed on-demand component, the way `AGENT_BROWSER_EXECUTABLE_PATH` ships a browser;
+that is a feature, not a bug fix, and is not attempted here.
+
+Existing installations are repaired without a reinstall. `validHermesLaunchAgentBase` compares an
+on-disk agent against its replacement and rejects any difference outside an allowed set; `PATH` joins
+that set, because an agent written before this change has none at all and holding it to an exact
+match would fail every optional-component activation on exactly the machines that still need the
+repair. It is checked for shape rather than trusted — absolute entries only, no empty entry, no
+control characters (`DesktopHermesRuntimeContract.isValidSearchPath`) — and since the replacement is
+what gets written, the next activation puts the `PATH` in place.
+
+Not verified here: that a PDF attachment now succeeds end to end. That needs the managed Hermes
+service restarted with a rewritten agent, which this change did not do on any machine. The read-only
+check afterwards is that the managed `hermes-server` process's `PATH` contains `/opt/homebrew/bin`.

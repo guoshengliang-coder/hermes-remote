@@ -101,7 +101,19 @@ process.list     projects.tree    projects.project_sessions
 
 Server events consumed: `message.start` / `message.delta` / `message.complete`,
 `tool.start` / `tool.complete`, `session.info` / `session.lifecycle`,
-`approval.request`, `clarify.request`, `session.reclaimed`.
+`approval.request`, `clarify.request`, `session.reclaimed`, `sessions.changed`.
+
+**`sessions.changed` is the only one of these that names no session.** It is a list-level broadcast
+— "something in the session list moved" — so its payload carries no `session_id` or
+`stored_session_id`, and the session-scoped resolver could only ever guess at one. Until HG-57 every
+single one was therefore dropped, while upstream sent hundreds of them during a conversation that
+ran on the Mac with nothing showing on the phone. It is now matched by type before resolution and
+treated as "go and ask": the session list refreshes, and the conversations actually on screen get a
+probe. Nothing is inferred from it about any particular session, because nothing may be.
+
+There is no version negotiation here either. If a future Hermes renames or drops it, the symptom is
+not an error — it is a session list that stops refreshing by itself, and a run whose state is only
+corrected when the user opens or refreshes the conversation.
 
 **`session.reclaimed` is the only warning that a conversation died while nobody was looking.**
 Upstream broadcasts it (`tui_gateway/session_lifecycle.py`, `_announce_session_reclaimed`) whenever
@@ -125,12 +137,21 @@ nor terminal: the same send succeeds once the other side lets go, which is why t
 retry and only names the cause (`HR-SESS-013`, HG-30). Note it is *not* 4009 "busy" — that is the
 session running a turn of its own.
 
-These are the `prompt.submit` numbers we depend on — **4001**, **4007**, **4090** — and the
-dependency is on the numbers only. The message upstream attaches to 4090 names the owning surface
-and its pid; we deliberately do not parse it. There is no version negotiation here (see the end of
-this document), so that prose can change under us at any time, and a user-facing sentence must not
-be hostage to it. If a future Hermes renumbers these, the symptom is a send failure falling back to
-the generic `HR-SESS-007` — check `ChatViewModel`'s constants first.
+**`pdf.attach` answers 5028 when it cannot rasterise a PDF**, and its message —
+"pdftoppm not installed (poppler-utils package required)" — must not be repeated to a user. It
+describes upstream's own `PATH`, not the disk. On the machine that reported HG-58 the binary had
+been installed four and a half hours earlier, in `/opt/homebrew/bin`, invisible to a managed Hermes
+that launchd had started with the bare `/usr/bin:/bin:/usr/sbin:/sbin`; a literal translation would
+have sent the user to install something they already had. The phone classifies on **5028** alone and
+says the Mac cannot find its PDF rendering dependency (`HR-SESS-016`, terminal — nothing the phone
+does changes the answer). The Desktop side of that fix is `DesktopHermesRuntimeContract.searchPath`.
+
+These are the upstream numbers we depend on — **4001**, **4007**, **4090** on `prompt.submit`, and
+**5028** on `pdf.attach` — and the dependency is on the numbers only. The message upstream attaches
+to 4090 names the owning surface and its pid; we deliberately do not parse it. There is no version
+negotiation here (see the end of this document), so that prose can change under us at any time, and
+a user-facing sentence must not be hostage to it. If a future Hermes renumbers these, the symptom is
+a send failure falling back to the generic `HR-SESS-007` — check `ChatViewModel`'s constants first.
 
 **Hermes 0.21.0 has no wire-level missing-capability event.** Optional dependency failures are not a
 JSON-RPC error code that Desktop can safely intercept. `tools.lazy_deps.FeatureUnavailable` formats
@@ -352,6 +373,14 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
 8. Run the attachment and streaming smoke tests in `docs/SMOKE_TEST.md` against the upgraded Hermes.
 8b. Confirm whether Hermes exposes a versioned missing-capability event with a closed capability kind.
     Never substitute parsing `FeatureUnavailable` or tool-error prose for that event.
+8c. Confirm the four numbers the phone classifies on are still those conditions: `prompt.submit`
+    4001 / 4007 / 4090, and `pdf.attach` **5028**. They are in `ChatViewModel`'s companion object
+    and nowhere else. A renumber does not error — the failure quietly becomes the generic
+    `HR-SESS-007`, which offers a retry that cannot work.
+8d. Confirm `sessions.changed` is still broadcast, still carries no session id, and is still sent
+    when the list moves. It is the only event the app treats as "go and ask" rather than as news
+    about one conversation; losing it is silent (a list that stops refreshing itself), so the proof
+    is a diagnostic log showing the line during an upstream-started run.
 9. **Read the source, not the notes.** See below.
 
 ## Known hazards

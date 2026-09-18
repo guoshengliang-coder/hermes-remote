@@ -433,6 +433,11 @@ class SessionsViewModel @Inject constructor(
             chat.events.collect { event ->
                 val shouldRefresh = when (event.type) {
                     "session.title", "message.complete", "error", "gateway.ready" -> true
+                    // Upstream's list-level broadcast: the list is what it is about, so this screen
+                    // is exactly who should listen. It was absent from this table and carries no
+                    // session id, so nothing anywhere acted on it — the list went stale while
+                    // upstream said so hundreds of times (HG-57). Coalesced by scheduleEventRefresh.
+                    com.hermes.client.data.progress.SESSIONS_CHANGED_EVENT -> true
                     "session.info" -> event.bool("running") == false
                     else -> false
                 }

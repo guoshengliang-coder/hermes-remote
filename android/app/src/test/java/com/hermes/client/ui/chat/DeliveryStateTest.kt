@@ -102,6 +102,50 @@ class DeliveryStateTest {
         )
     }
 
+    // HG-58: the fifth shape. `pdf.attach` came back 5028 — the Mac's Hermes cannot reach
+    // pdftoppm. Upstream calls that "not installed", but on the reported machine poppler had been
+    // installed four and a half hours earlier; the managed Hermes is a launchd agent whose PATH is
+    // the bare /usr/bin:/bin:/usr/sbin:/sbin, so it simply could not see it. Either way the phone
+    // can do nothing about it, so this one withholds the tap like SESS-001 and SESS-015.
+    @Test fun pdf_dependency_code_is_registered_bilingual_and_not_retryable() {
+        val error = AppError(
+            AppErrorCode.PDF_RENDER_DEPENDENCY_MISSING,
+            retryable = false,
+            technicalCause = "5028 pdftoppm not installed (poppler-utils package required)",
+        )
+        val zh = error.localizedMessage(AppLanguage.ZH)
+        val en = error.localizedMessage(AppLanguage.EN)
+        assertTrue(zh.contains("HR-SESS-016") && en.contains("HR-SESS-016"))
+        assertTrue(zh.any { it.code > 0x4E00 } && zh != en)
+        assertFalse("the fix is on the Mac; every tap repeats the same 5028", error.retryable)
+        assertEquals("SESS-016", AppErrorCode.PDF_RENDER_DEPENDENCY_MISSING.compact)
+        assertNotEquals(
+            zh,
+            AppError(AppErrorCode.MESSAGE_SEND_FAILED, retryable = true).localizedMessage(AppLanguage.ZH),
+        )
+        // The numeric code has to survive into the copyable diagnostic: upstream's prose is the
+        // part that can change under us, the number is the part ChatViewModel classifies on.
+        assertTrue(error.sanitizedDiagnostic().contains("5028"))
+    }
+
+    // docs/ERROR_HANDLING.md: "retryable = false means the tap is withheld, not merely
+    // discouraged". The bubble decides that from the code, so the set it decides from has to hold
+    // every terminal send failure — before HG-58 it did not exist at all and SESS-015 printed
+    // "点按重试" with only ChatViewModel.retrySend's early return behind it.
+    @Test fun terminal_send_codes_are_exactly_the_ones_that_withhold_the_tap() {
+        assertEquals(
+            setOf(
+                AppErrorCode.SESSION_NOT_FOUND,
+                AppErrorCode.UNSENT_ATTACHMENTS_LOST,
+                AppErrorCode.PDF_RENDER_DEPENDENCY_MISSING,
+            ),
+            TERMINAL_SEND_ERROR_CODES,
+        )
+        // The two that clear by themselves stay out of it, or the user loses a tap that works.
+        assertFalse(AppErrorCode.MESSAGE_SEND_FAILED in TERMINAL_SEND_ERROR_CODES)
+        assertFalse(AppErrorCode.SESSION_OWNED_ELSEWHERE in TERMINAL_SEND_ERROR_CODES)
+    }
+
     @Test fun compact_code_drops_only_the_prefix_and_stays_unique() {
         assertEquals("SESS-007", AppErrorCode.MESSAGE_SEND_FAILED.compact)
         assertEquals("RPC-001", AppErrorCode.RPC_FAILED.compact)

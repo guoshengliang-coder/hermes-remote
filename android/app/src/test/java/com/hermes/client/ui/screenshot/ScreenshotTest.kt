@@ -564,8 +564,9 @@ class ScreenshotTest {
                 modifier = androidx.compose.ui.Modifier.padding(horizontal = 22.dp, vertical = 16.dp),
                 verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(18.dp),
             ) {
-                // The two FAILED rows differ only by error code — that is the point of the
-                // golden: same retryable state, different sentence (HG-30).
+                // The FAILED rows differ only by error code — that is the point of the golden:
+                // the same delivery state, a different sentence, and (since HG-58) a different
+                // answer to whether the row offers a tap at all.
                 listOf(
                     userTurn("h-1", "已发送的消息", com.hermes.client.domain.DeliveryState.SENT) to null,
                     userTurn("u-2", "发送中的消息", com.hermes.client.domain.DeliveryState.SENDING) to null,
@@ -573,6 +574,11 @@ class ScreenshotTest {
                         com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED,
                     userTurn("u-5", "会话被别处占用的消息", com.hermes.client.domain.DeliveryState.FAILED) to
                         com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE,
+                    // HG-58: a FAILED row that must NOT read 「点按重试」. It is the widest of the
+                    // sentences in both languages, so this is now the row that decides whether the
+                    // compact code still fits on one line at 360dp / fontScale 1.3.
+                    userTurn("u-6", "带 PDF 附件的消息", com.hermes.client.domain.DeliveryState.FAILED) to
+                        com.hermes.client.data.error.AppErrorCode.PDF_RENDER_DEPENDENCY_MISSING,
                     userTurn("u-4", "会话已消失的消息", com.hermes.client.domain.DeliveryState.UNDELIVERABLE) to
                         com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND,
                 ).forEach { (msg, code) ->
