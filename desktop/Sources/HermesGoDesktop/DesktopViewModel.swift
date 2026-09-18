@@ -1168,7 +1168,13 @@ final class DesktopViewModel: ObservableObject {
         do {
             _ = try await Task.detached(priority: .utility) {
                 try runtime.reconcileTransferredAccountActive()
-                return try await runtime.reconcileCommittedHermesSessionTokenStorage()
+                _ = try await runtime.reconcileCommittedHermesSessionTokenStorage()
+                // HG-58: an installation migrated before the managed agent carried a PATH keeps
+                // running Hermes with launchd's bare four directories, where nothing the user
+                // installed is visible. Neither a migration nor an optional-component activation is
+                // guaranteed to happen again on such a Mac, so the repair belongs on the one path
+                // every launch takes. It answers false and touches nothing once the key is there.
+                return try await runtime.reconcileCommittedHermesSearchPath()
             }.value
         } catch {
             reconciliationIssue = DesktopIssue(

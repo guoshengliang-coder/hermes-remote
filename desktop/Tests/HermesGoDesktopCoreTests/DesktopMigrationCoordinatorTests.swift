@@ -546,6 +546,161 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         XCTAssertTrue(fixture.runner.events().isEmpty)
     }
 
+    // HG-58. A Mac migrated before the managed agent carried a PATH keeps running Hermes with
+    // launchd's bare /usr/bin:/bin:/usr/sbin:/sbin, where nothing the user installed is visible —
+    // which is how an installed pdftoppm was reported as "not installed". Neither a migration nor an
+    // optional-component activation is guaranteed to happen again on such a machine, so the repair
+    // runs from the startup reconciliation that every launch takes.
+    func testACommittedAgentWithoutASearchPathIsRepairedAndOnlyHermesRestarts() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        try fixture.removeEnvironmentKey(at: fixture.layout.hermesLaunchAgent, key: "PATH")
+        let connectorBefore = try Data(contentsOf: fixture.layout.connectorLaunchAgent)
+        let before = try fixture.environment(at: fixture.layout.hermesLaunchAgent)
+
+        let repaired = try await fixture.coordinator.reconcileCommittedHermesSearchPath()
+        XCTAssertTrue(repaired)
+
+        let after = try fixture.environment(at: fixture.layout.hermesLaunchAgent)
+        XCTAssertEqual(after["PATH"], DesktopHermesRuntimeContract.searchPath)
+        // Exactly one key changed. Anything else in that file — including keys this build has never
+        // heard of — belongs to whoever put it there.
+        XCTAssertEqual(after.filter { $0.key != "PATH" }, before)
+        // The Connector's agent has no PATH and no business gaining one, so it is not touched at all.
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.connectorLaunchAgent), connectorBefore)
+        // Only Hermes restarts: the Connector's file did not change, so there is nothing for it to
+        // re-read. The token-file reconcile restarts both because both files changed there.
+        XCTAssertEqual(fixture.serviceMutations(), [
+            "bootout:\(DesktopManagedInstallLayout.hermesLabel)",
+            "bootstrap:\(DesktopManagedInstallLayout.hermesLabel)",
+        ])
+        XCTAssertEqual(fixture.runner.loadedLabels(), [
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
+    }
+
+    // What makes the restart affordable: it happens once. A second launch finds the key already
+    // there, changes nothing, and spends no service mutation and no health poll — which is also why
+    // no marker file is needed to remember that the repair ran.
+    func testASearchPathAlreadyInPlaceCostsNothing() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        let before = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+
+        let repaired = try await fixture.coordinator.reconcileCommittedHermesSearchPath()
+        XCTAssertFalse(repaired)
+
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), before)
+        XCTAssertTrue(fixture.serviceMutations().isEmpty)
+    }
+
+    // A PATH that is already well formed is left exactly as it is, whatever it says. It may be a
+    // value a later release chose or one the user set; replacing it would be this method deciding
+    // something it was never asked to decide.
+    func testAnExistingWellFormedSearchPathIsNotOverwritten() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        try fixture.setEnvironmentValue(
+            at: fixture.layout.hermesLaunchAgent,
+            key: "PATH",
+            value: "/opt/custom/bin:/usr/bin"
+        )
+
+        let repaired = try await fixture.coordinator.reconcileCommittedHermesSearchPath()
+        XCTAssertFalse(repaired)
+
+        XCTAssertEqual(
+            try fixture.environment(at: fixture.layout.hermesLaunchAgent)["PATH"],
+            "/opt/custom/bin:/usr/bin"
+        )
+        XCTAssertTrue(fixture.serviceMutations().isEmpty)
+    }
+
+    // A malformed one is refused rather than corrected, and refused before anything is touched. An
+    // empty entry means "the current directory" to execvp, which is not a value to quietly replace
+    // on someone's behalf — it is a sign the file is not what we think it is.
+    func testAMalformedSearchPathIsRefusedBeforeAnyServiceChanges() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        try fixture.setEnvironmentValue(
+            at: fixture.layout.hermesLaunchAgent,
+            key: "PATH",
+            value: "/usr/bin::/bin"
+        )
+        let before = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+
+        do {
+            _ = try await fixture.coordinator.reconcileCommittedHermesSearchPath()
+            XCTFail("a malformed PATH must not be repaired over")
+        } catch {
+            XCTAssertEqual(error as? DesktopManagedInstallError, .unsafeFilesystemObject)
+        }
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), before)
+        XCTAssertTrue(fixture.serviceMutations().isEmpty)
+    }
+
+    // The repair only knows how to fix an agent it recognises. One whose program arguments were
+    // changed is somebody else's file, and the answer is to stop, not to rewrite part of it.
+    func testAnUnrecognisedAgentIsRefusedBeforeAnyServiceChanges() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        try fixture.removeEnvironmentKey(at: fixture.layout.hermesLaunchAgent, key: "PATH")
+        let data = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+        var object = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any]
+        )
+        object["ProgramArguments"] = ["/usr/bin/true", "serve"]
+        try PropertyListSerialization.data(fromPropertyList: object, format: .xml, options: 0)
+            .write(to: fixture.layout.hermesLaunchAgent)
+        let before = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+
+        do {
+            _ = try await fixture.coordinator.reconcileCommittedHermesSearchPath()
+            XCTFail("an agent we did not write must not be edited")
+        } catch {
+            XCTAssertEqual(error as? DesktopManagedInstallError, .unsafeFilesystemObject)
+        }
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), before)
+        XCTAssertTrue(fixture.serviceMutations().isEmpty)
+    }
+
+    // A Mac left with the old PATH is the state it was already in and can send everything except a
+    // PDF; a Mac left with a rewritten agent and no running Hermes cannot do anything at all. So a
+    // restart that cannot prove a healthy server puts the file back and starts the old one again.
+    func testAFailedRestartRestoresTheAgentAndTheRunningServer() async throws {
+        let fixture = try Fixture(
+            legacyRunning: false,
+            resumeBoundBinding: true,
+            hermesReadinessResponses: [false, true]
+        )
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        try fixture.removeEnvironmentKey(at: fixture.layout.hermesLaunchAgent, key: "PATH")
+        let before = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+
+        do {
+            _ = try await fixture.coordinator.reconcileCommittedHermesSearchPath()
+            XCTFail("an unhealthy restart must not be reported as a repair")
+        } catch {
+            XCTAssertEqual(
+                error as? DesktopMigrationCoordinatorError,
+                .hermesHealthTimedOut
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), before)
+        XCTAssertNil(try fixture.environment(at: fixture.layout.hermesLaunchAgent)["PATH"])
+        XCTAssertEqual(fixture.runner.loadedLabels(), [
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
+    }
+
     func testCommittedInlineTokenMigrationRestartsInOrderAndCommitsMarker() async throws {
         let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
         defer { fixture.cleanup() }
@@ -992,6 +1147,48 @@ private final class Fixture {
                 : target.split(separator: "/").last.map(String.init) ?? target
             return "\(operation):\(label)"
         }
+    }
+
+    /// Rewinds a managed agent to the shape a Desktop written before HG-58 left on disk.
+    func removeEnvironmentKey(at url: URL, key: String) throws {
+        let data = try Data(contentsOf: url)
+        guard var object = try PropertyListSerialization.propertyList(
+            from: data,
+            options: [],
+            format: nil
+        ) as? [String: Any],
+        var environment = object["EnvironmentVariables"] as? [String: Any]
+        else { throw DesktopManagedInstallError.persistenceFailed }
+        environment.removeValue(forKey: key)
+        object["EnvironmentVariables"] = environment
+        let rewound = try PropertyListSerialization.data(
+            fromPropertyList: object,
+            format: .xml,
+            options: 0
+        )
+        try rewound.write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    /// Writes an arbitrary value into one environment key, to test what the repair refuses.
+    func setEnvironmentValue(at url: URL, key: String, value: String) throws {
+        let data = try Data(contentsOf: url)
+        guard var object = try PropertyListSerialization.propertyList(
+            from: data,
+            options: [],
+            format: nil
+        ) as? [String: Any],
+        var environment = object["EnvironmentVariables"] as? [String: Any]
+        else { throw DesktopManagedInstallError.persistenceFailed }
+        environment[key] = value
+        object["EnvironmentVariables"] = environment
+        let written = try PropertyListSerialization.data(
+            fromPropertyList: object,
+            format: .xml,
+            options: 0
+        )
+        try written.write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
     private func replaceTokenEnvironment(at url: URL, inlineKey: String, token: String) throws {

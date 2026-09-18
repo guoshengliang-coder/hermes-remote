@@ -143,6 +143,11 @@ public final class DesktopManagedRecoveryRuntime: @unchecked Sendable {
     public func reconcileCommittedHermesSessionTokenStorage() async throws -> Bool {
         try await migration.reconcileCommittedHermesSessionTokenStorage()
     }
+
+    @discardableResult
+    public func reconcileCommittedHermesSearchPath() async throws -> Bool {
+        try await migration.reconcileCommittedHermesSearchPath()
+    }
 }
 
 /// Fully composed managed-bootstrap dependencies. Creating this value is inert: directories,
