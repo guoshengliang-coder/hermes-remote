@@ -1,11 +1,19 @@
 # Hermes Go Desktop
 
-Current internal test release: **0.2.12** (build 15). It carries the production-enabled schema-v2
-component bootstrap path, keeps the app visible in the Dock, and makes Overview follow the Mac selected
-in Account & Devices. Desktop verifies the signed component manifest, reuses exact compatible local
-runtimes, downloads only missing bootstrap components into a private cache, and requires a second
-explicit confirmation before it changes the managed component store, account binding, LaunchAgents,
-or services.
+Current internal test release candidate: **0.2.13** (build 16). It gives the managed Hermes server a
+`PATH`. launchd starts an agent with `/usr/bin:/bin:/usr/sbin:/sbin` and nothing else, so anything the
+user had installed was invisible to it: a PDF attachment from the phone was refused with
+`pdf.attach 5028 "pdftoppm not installed"` on a Mac where `pdftoppm` had been installed four and a half
+hours earlier, in `/opt/homebrew/bin` (HG-58). The written agent now carries both Homebrew prefixes
+ahead of launchd's four, an agent written before this validates without one and is repaired by the next
+optional-component activation, and a malformed `PATH` on disk is refused. **The fix reaches a Mac only
+once this build is installed and the managed Hermes service restarts.**
+
+0.2.12 (build 15) carried the production-enabled schema-v2 component bootstrap path, kept the app
+visible in the Dock, and made Overview follow the Mac selected in Account & Devices. Desktop verifies
+the signed component manifest, reuses exact compatible local runtimes, downloads only missing bootstrap
+components into a private cache, and requires a second explicit confirmation before it changes the
+managed component store, account binding, LaunchAgents, or services.
 
 Desktop 0.2.10 (build 13) remains installed with managed release 0.3.4 on the historical test Mac. It
 packages the post-restart Cloud health freshness correction. Immediately before starting an
