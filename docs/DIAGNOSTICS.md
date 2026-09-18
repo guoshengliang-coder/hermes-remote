@@ -135,7 +135,13 @@ socket=none`，而 `connectingFor` 一路涨到几百秒。这是**已被关闭*
 **会话在 Mac 上跑着，手机却一点运行状态都没有（HG-57）**：判据是该会话**一条 `[phase]` 行都没有**，
 而它的历史条数在涨（连着两次 `history(<id>) → N messages`，N 变大）。0.1.128 及更早有两条成因：
 ① 自愈是单向的 —— `probe` / `probeActiveRuntimes` / `resumeRunningSessions` 以及手动刷新的候选集都
-要求 `phase.isActive`，于是「以为在跑其实结束了」能纠正，「以为结束了其实在跑」没有任何一条路；
+要求 `phase.isActive`，于是「以为结束了其实在跑」没有任何一条路；
+
+> **更正（HG-59，2026-09-18）：** 这里原本还写着「以为在跑其实结束了」**能**纠正。它不能。
+> `probe` 成功本身从不改 phase，它只 `bindLiveHandle`；把 THINKING 拉回完成的一直只有上游推来的
+> `session.info{running:false}` 一条路。上游不推时，86 次成功的 probe 一次也纠正不了 —— 那正是
+> HG-59。0.1.130 起补上第二条：静默超过 `STALE_RUN_MS` 的 probe 会去读一次 REST 历史，
+> 上游已落下最终回复就判 `COMPLETED_UNREAD`，写作 `cause=probe:history-settled`。
 ② 上游的 `sessions.changed` 没有 session id，被会话级事件路径整条丢弃，日志里表现为成片的
 `unmatched sessions.changed without session id`（或多个活动 run 时的 `ambiguous … across N runs`）。
 之后：`sessions.changed` 改为触发「去重新对账 / 刷新」，手动刷新无条件先探测一次。排查时若仍看到
@@ -161,7 +167,12 @@ socket=none`，而 `connectingFor` 一路涨到几百秒。这是**已被关闭*
 判读：
 - 列表卡「思考中」但没有任何 `→COMPLETED_UNREAD` / `→IDLE` 行 → 终止信号一条都没到，去第 2 问。
 - 有 `[lifecycle] … late=600s` → 手机睡着了，不是服务端慢；去看 `[ws] socket closed` 是否早于结束时刻。
-- 有 `rejected: …` 连续四档 → REST 落后于本地，看第 1 问的 `finish_reason` 是否已经 `stop`。
+- 有 `rejected: userTurns N<M` / `assistantTurns N<M` 连续四档 → REST 落后于本地，看第 1 问的
+  `finish_reason` 是否已经 `stop`。**但 `rejected: last user turn differs` 不属于这一类** —— 它是
+  文本对不上，与新旧无关，REST 往往反而**领先**本地（HG-59 里 REST 已有 47 条而本地停在 31 条）。
+- `rejected: last user turn differs` 反复出现，且该会话每轮提交都带附件 → HG-59：上游把自己的附件
+  记号贴在持久化的 user 行上，0.1.129 及更早要求文本完全相等，于是那个会话的每一次对账都被拒，
+  连下拉刷新也一起被挡成 `BUSY`。0.1.130 起改为「远端包含本地」，与 assistant 那一支一致。
 
 ## 第 2 问：事件丢在哪一层（HK 网关主机）
 

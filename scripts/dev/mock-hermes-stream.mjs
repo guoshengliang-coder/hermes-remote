@@ -242,6 +242,8 @@ let promptCount = 0;
 const promptTexts = [];
 const pendingClarifyAnswers = [];
 let clarifyForm = 0; // rotates: 0 single-choice, 1 multi-select, 2 batch
+/** Answer session.resume WITHOUT the session.info push, the way a real upstream sometimes does. */
+const SILENT_RESUME = process.env.HR_MOCK_SILENT_RESUME === "1";
 const LIVE_ID = "live-mock-1";
 const STORED_ID = "stored-mock-1";
 
@@ -570,6 +572,12 @@ wss.on("connection", (socket) => {
       }
       case "session.resume": {
         reply({ session_id: LIVE_ID });
+        // Hermes' session.info is a response-shaped push, not a guarantee. Real upstreams
+        // sometimes answer a resume without one, and because this mock always sent it, the
+        // client's only self-heal path was always available here -- which is why HG-59 (a
+        // finished run spinning for ten minutes) was unreachable in the dev stack and in every
+        // rehearsal built on it. HR_MOCK_SILENT_RESUME=1 reproduces the upstream that stays quiet.
+        if (SILENT_RESUME) break;
         const ws = workspaceFor(String(request.params?.session_id ?? ""));
         emit("session.info", String(request.params?.session_id ?? STORED_ID), { running: false, cwd: ws.cwd, branch: ws.branch });
         break;
