@@ -658,6 +658,9 @@ class SessionRuntimeStore(
                 onSuccess = { handle ->
                     probeFailures.remove(key)
                     bindLiveHandle(key, handle)
+                    if (believedActive && now - runtime.lastEventAt > STALE_RUN_MS) {
+                        settleSilentRunFromHistory(key, runtime)
+                    }
                     ProbeResult.PROBED
                 },
                 onFailure = { error ->
@@ -679,6 +682,74 @@ class SessionRuntimeStore(
                     } else ProbeResult.FAILED
                 },
             )
+    }
+
+    /**
+     * A successful `session.resume` proves the conversation exists. It does NOT prove this turn is
+     * still running -- resume answers exactly the same for a run that finished minutes ago. The
+     * only signal that retires a phase is a pushed `session.info{running:false}`, and that push is
+     * response-shaped: we neither own it nor can version-negotiate it (docs/HERMES_CONTRACT.md).
+     * When it does not arrive, nothing corrects the store. HG-59 spun for ten minutes across 86
+     * probes, every single one of them successful, while 21 REST answers already carried the
+     * finished turn.
+     *
+     * So for a run that has gone quiet, give the push a moment to land and then read the one
+     * authoritative thing we CAN fetch: the transcript. A persisted assistant body means this run
+     * produced its answer and the phase is stale.
+     *
+     * Requiring that body is what keeps this honest, and it has to be the body rather than a turn
+     * count because `message.start` already left an empty assistant placeholder locally. A bare
+     * silence timeout would retire a long tool call -- precisely the run that legitimately goes
+     * quiet for minutes -- so the transcript, not the clock, casts the deciding vote.
+     */
+    private suspend fun settleSilentRunFromHistory(key: SessionRuntimeKey, observed: SessionRuntime) {
+        val repository = sessionRepository ?: return
+        delay(SESSION_INFO_GRACE_MS)
+        val waited = _runtimes.value[key] ?: return
+        // The push landed while we waited, or a fresh prompt moved the run on: nothing to settle.
+        if (!waited.phase.isActive || waited.phase == SessionRunPhase.RECONNECTING) return
+        if (waited.lastEventAt != observed.lastEventAt) return
+        val expectation = expectationFor(waited)
+        val history = try {
+            repository.history(key.sessionId, key.profile, key.deviceId).map { it.organizedForDisplay() }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            DebugLog.log("session", "settle s=${key.sessionId} could not read history: ${error.message}")
+            return
+        }
+        if (!history.covers(expectation)) return
+        // `message.start` already put an empty assistant placeholder in the local list, so a turn
+        // count cannot tell "answered" from "still going" -- the body is what distinguishes them.
+        val persisted = history.lastOrNull { it.role == Role.ASSISTANT }?.text.orEmpty().trim()
+        if (persisted.isEmpty()) return
+        // Never retire a run using a snapshot that holds less than what this phone already saw.
+        val local = waited.chat.messages.lastOrNull { it.role == Role.ASSISTANT }?.text.orEmpty().trim()
+        if (persisted.length < local.length) return
+        val now = clock()
+        DebugLog.log("session") {
+            "settle s=${key.sessionId}: silent ${(now - observed.lastEventAt) / 1000}s, " +
+                "upstream has persisted a ${persisted.length}-char answer -- already answered"
+        }
+        updateRuntime(key, cause = "probe:history-settled") { runtime ->
+            if (!runtime.phase.isActive || runtime.phase == SessionRunPhase.RECONNECTING) {
+                return@updateRuntime runtime
+            }
+            runtime.copy(
+                chat = runtime.chat.copy(isGenerating = false),
+                phase = if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.COMPLETED_UNREAD,
+                toolName = null,
+                startedLocally = false,
+                lastTerminalAt = now,
+            )
+        }
+        if (isWatched(key)) markRead(key) else markUnread(key)
+        // Same relaxation the observed run.completed path uses: the phone may hold only a partial
+        // streaming prefix, so demanding that exact assistant body back would reject the
+        // authoritative answer forever.
+        _runtimes.value[key]?.let { settled ->
+            scheduleHistoryReconciliation(key, expectationFor(settled).copy(lastAssistantText = ""))
+        }
     }
 
     /** Probe every active runtime; [staleOnly] restricts it to runs silent past [STALE_RUN_MS]. */
@@ -1638,7 +1709,18 @@ class SessionRuntimeStore(
         val assistants = filter { it.role == Role.ASSISTANT }
         if (users.size < expectation.userTurns) return "userTurns ${users.size}<${expectation.userTurns}"
         if (assistants.size < expectation.assistantTurns) return "assistantTurns ${assistants.size}<${expectation.assistantTurns}"
-        if (expectation.lastUserText.isNotBlank() && users.lastOrNull()?.text.orEmpty().matchText() != expectation.lastUserText) {
+        // Upstream staples its own attachment bookkeeping onto the persisted user row, and
+        // Mappers only strips the shapes it knows, anchored to whole lines. A turn sent with
+        // images therefore comes back longer than what the user typed, and an equality test
+        // rejects that snapshot forever (HG-59): the phone kept a finished run spinning for ten
+        // minutes while every REST answer already carried the result. Match the assistant branch
+        // below -- the remote row containing the local text is what "covers" has to mean, because
+        // the exact persisted shape belongs to Hermes and we cannot version-negotiate it.
+        val lastUser = users.lastOrNull()?.text.orEmpty().matchText()
+        if (expectation.lastUserText.isNotBlank() &&
+            lastUser != expectation.lastUserText &&
+            !lastUser.contains(expectation.lastUserText)
+        ) {
             return "last user turn differs"
         }
         if (expectation.lastAssistantText.isBlank()) return null
@@ -1758,6 +1840,12 @@ class SessionRuntimeStore(
         const val SESSIONS_CHANGED_PROBE_MIN_INTERVAL_MS = 5_000L
         /** Silent this long AND unreachable twice: the outcome is unconfirmed, the row stops spinning. */
         const val ACTIVE_RUN_HARD_CAP_MS = 30 * 60_000L
+        /**
+         * How long a probe waits for Hermes' `session.info{running}` before going to read the
+         * transcript instead. Matches the 1.5s the chat screen already allows that push
+         * (docs/DESIGN.md §5.4); past it, the answer is not coming on this round.
+         */
+        const val SESSION_INFO_GRACE_MS = 1_500L
         const val PROBE_FAILURES_BEFORE_GIVING_UP = 2
         /** Tail window that coalesces a burst of phase changes into one whole-file rewrite. */
         const val PHASE_PERSIST_MIN_INTERVAL_MS = 2_000L
