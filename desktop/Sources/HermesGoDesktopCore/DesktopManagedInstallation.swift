@@ -91,6 +91,18 @@ public struct DesktopHermesSessionTokenMigration: Sendable {
     fileprivate let originalSessionToken: Data?
 }
 
+/// A managed Hermes LaunchAgent that has been given the search path it was missing, plus the exact
+/// bytes to put back if the restart that follows does not produce a healthy server.
+///
+/// Distinct from [DesktopHermesLaunchAgentReplacement], which an optional-component activation hands
+/// around: this one touches a single environment key on an agent that is otherwise left alone.
+public struct DesktopHermesSearchPathRepair: Sendable {
+    public let launchAgentURL: URL
+    public let logURL: URL
+
+    fileprivate let originalLaunchAgent: Data
+}
+
 public struct DesktopHermesLaunchAgentReplacement: Sendable {
     public let launchAgentURL: URL
     public let logURL: URL
@@ -299,6 +311,86 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
             originalConnectorLaunchAgent: connector.data,
             originalSessionToken: originalToken
         )
+    }
+
+    /// Give a committed managed Hermes agent the `PATH` it predates, or report that it needs nothing.
+    ///
+    /// launchd reads a LaunchAgent's environment when it bootstraps the job, and until HG-58 the one
+    /// Desktop writes carried no `PATH` at all — so the managed server ran with launchd's bare
+    /// `/usr/bin:/bin:/usr/sbin:/sbin` and could not see anything the user had installed. Writing the
+    /// key into new agents fixed that for new installs; it did nothing for a Mac already migrated,
+    /// because the only writers are a migration and an optional-component activation, and an ordinary
+    /// app upgrade is neither. This is the path for those machines.
+    ///
+    /// Deliberately narrow:
+    ///  - an agent that already has a well-formed `PATH` is left exactly as it is, whatever it says.
+    ///    It may be a value a future release chose or one the user set; replacing it would be this
+    ///    method deciding something it was never asked to decide. Changing the contents of a `PATH`
+    ///    that is already there is a migration of its own, and would need to be designed as one.
+    ///  - a malformed `PATH` is refused rather than overwritten, which is the same answer
+    ///    `validHermesLaunchAgentBase` gives.
+    ///  - only that one key is touched. Everything else in the agent — including keys this build has
+    ///    never heard of — is carried through byte for byte by re-serialising the parsed object.
+    ///
+    /// Returns nil when nothing needs doing, which is what makes the caller idempotent without a
+    /// marker file: once the key is in place this answers nil forever, so the restart that follows a
+    /// repair happens at most once per machine.
+    public func prepareHermesSearchPathRepair() throws -> DesktopHermesSearchPathRepair? {
+        let hermes = try loadManagedLaunchAgent(
+            layout.hermesLaunchAgent,
+            label: DesktopManagedInstallLayout.hermesLabel,
+            component: .hermesServer,
+            trailingArguments: ["serve", "--host", "127.0.0.1", "--port", "9119"],
+            expectedLog: layout.logsRoot.appendingPathComponent("hermes-server.log"),
+            expectedErrorLog: layout.logsRoot.appendingPathComponent("hermes-server.error.log")
+        )
+        guard var environment = hermes.object["EnvironmentVariables"] as? [String: Any],
+              environment.allSatisfy({ $0.value is String })
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+
+        if let existing = environment["PATH"] as? String {
+            guard DesktopHermesRuntimeContract.isValidSearchPath(existing) else {
+                throw DesktopManagedInstallError.unsafeFilesystemObject
+            }
+            return nil
+        }
+
+        environment["PATH"] = DesktopHermesRuntimeContract.searchPath
+        var repaired = hermes.object
+        repaired["EnvironmentVariables"] = environment
+        let data: Data
+        do {
+            data = try PropertyListSerialization.data(
+                fromPropertyList: repaired,
+                format: .xml,
+                options: 0
+            )
+        } catch { throw DesktopManagedInstallError.persistenceFailed }
+        guard data.count <= 64 * 1024 else { throw DesktopManagedInstallError.persistenceFailed }
+
+        do {
+            try atomicWrite(data, to: layout.hermesLaunchAgent, permissions: 0o600)
+        } catch {
+            try? atomicWrite(hermes.data, to: layout.hermesLaunchAgent, permissions: 0o600)
+            throw error
+        }
+        return DesktopHermesSearchPathRepair(
+            launchAgentURL: layout.hermesLaunchAgent,
+            logURL: hermes.logURL,
+            originalLaunchAgent: hermes.data
+        )
+    }
+
+    /// Put back the agent [prepareHermesSearchPathRepair] rewrote, byte for byte.
+    ///
+    /// Used when the restart that followed could not prove a healthy server: a Mac left with the old
+    /// `PATH` is the state it was already in and can send everything except a PDF, while a Mac left
+    /// with a rewritten agent and no running Hermes cannot do anything at all.
+    public func rollbackHermesSearchPathRepair(_ repair: DesktopHermesSearchPathRepair) throws {
+        guard repair.launchAgentURL.standardizedFileURL.path
+                == layout.hermesLaunchAgent.standardizedFileURL.path
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        try atomicWrite(repair.originalLaunchAgent, to: layout.hermesLaunchAgent, permissions: 0o600)
     }
 
     public func commitHermesSessionTokenFileMigration() throws {

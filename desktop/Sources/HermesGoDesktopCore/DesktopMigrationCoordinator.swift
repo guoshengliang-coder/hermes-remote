@@ -469,6 +469,76 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         }
     }
 
+    /// Gives a committed managed installation the Hermes search path it predates, restarting only the
+    /// Hermes server so the new environment is actually read.
+    ///
+    /// launchd reads a LaunchAgent's environment at bootstrap, so the agent this rewrites has no
+    /// effect until the job is started again — which is why the restart is part of the operation and
+    /// not left to the next reboot. Only Hermes is restarted: the Connector's own agent is untouched
+    /// here, unlike the token-file contract where both files changed. That follows
+    /// `DesktopOnDemandRuntimeActivator`, which restarts Hermes alone after rewriting the same agent.
+    ///
+    /// Idempotent without a marker: [DesktopManagedInstaller.prepareHermesSearchPathRepair] answers
+    /// nil once the key is present, so this returns false and touches no service. A machine therefore
+    /// pays for one Hermes restart, once, and a machine that never needed the repair pays nothing.
+    ///
+    /// The cost is stated plainly because it is real: the restart is not announced and cannot be
+    /// declined, and nothing here can tell whether a turn is in flight — no Hermes API reports it and
+    /// Desktop has never had such a check (the token-file reconcile above restarts both services on
+    /// the same terms). What bounds it is that it happens at most once per machine, at app launch.
+    @discardableResult
+    public func reconcileCommittedHermesSearchPath() async throws -> Bool {
+        guard let preview = try journal.loadReadOnly(),
+              preview.state == .accountActive,
+              let previewBindingID = preview.bindingID,
+              let previewGeneration = preview.bindingGeneration
+        else { return false }
+        let operationLease = try journal.acquireOperationLease()
+        defer { withExtendedLifetime(operationLease) {} }
+        guard let recorded = try journal.load(),
+              recorded.state == .accountActive,
+              recorded.bindingID == previewBindingID,
+              recorded.bindingGeneration == previewGeneration
+        else { return false }
+
+        let services = launchAgent.inspectAllowingDuplicateConnector()
+        guard services.accountLoaded, services.hermesLoaded else {
+            throw DesktopMigrationCoordinatorError.invalidStartingState
+        }
+        guard let repair = try installer.prepareHermesSearchPathRepair() else { return false }
+
+        do {
+            let checkpoint = try hermesReadiness.checkpoint(logURL: repair.logURL)
+            try launchAgent.stopHermes()
+            try launchAgent.startHermes(plistURL: repair.launchAgentURL)
+            guard try await hermesReadiness.waitUntilReady(
+                checkpoint: checkpoint,
+                contract: .serveV1,
+                maximumAttempts: maximumHealthPolls,
+                delayNanoseconds: healthPollDelayNanoseconds
+            ) else { throw DesktopMigrationCoordinatorError.hermesHealthTimedOut }
+            return true
+        } catch {
+            do {
+                try installer.rollbackHermesSearchPathRepair(repair)
+                if launchAgent.inspectAllowingDuplicateConnector().hermesLoaded {
+                    try launchAgent.stopHermes()
+                }
+                try launchAgent.startHermes(plistURL: repair.launchAgentURL)
+                let restored = try hermesReadiness.checkpoint(logURL: repair.logURL)
+                guard try await hermesReadiness.waitUntilReady(
+                    checkpoint: restored,
+                    contract: .serveV1,
+                    maximumAttempts: maximumHealthPolls,
+                    delayNanoseconds: healthPollDelayNanoseconds
+                ) else { throw DesktopMigrationCoordinatorError.rollbackFailed }
+            } catch {
+                throw DesktopMigrationCoordinatorError.rollbackFailed
+            }
+            throw error
+        }
+    }
+
     private func waitForCandidate(bindingID: String, generation: Int, runID: String) async throws {
         var authenticated = false
         for attempt in 0..<maximumHealthPolls {

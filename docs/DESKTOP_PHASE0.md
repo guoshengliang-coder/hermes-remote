@@ -704,3 +704,41 @@ what gets written, the next activation puts the `PATH` in place.
 Not verified here: that a PDF attachment now succeeds end to end. That needs the managed Hermes
 service restarted with a rewritten agent, which this change did not do on any machine. The read-only
 check afterwards is that the managed `hermes-server` process's `PATH` contains `/opt/homebrew/bin`.
+
+### Startup repair of the managed search path — 2026-09-18 (HG-58, follow-up)
+
+The paragraph above understated the gap. Writing the key into newly written agents left every Mac
+that had *already* migrated exactly where it was: the only writers are a migration and an
+optional-component activation, and installing a newer Desktop is neither — the 0.2.4 record on this
+page already notes that replacing the app does not restart or rewrite the managed services. Shipping
+0.2.13 by itself would therefore have fixed nothing on the machine that reported HG-58.
+
+`DesktopMigrationCoordinator.reconcileCommittedHermesSearchPath()` closes it. It joins
+`reconcileTransferredAccountActive` and `reconcileCommittedHermesSessionTokenStorage` on the startup
+reconciliation `DesktopViewModel.recoverManagedBootstrapAfterRestart()` runs, deliberately on the
+recovery runtime rather than the bootstrap one: `HermesGoManagedBootstrapEnabled` gates new installs,
+and the affected machines are precisely the ones already installed.
+
+What it will and will not touch:
+
+- It repairs only an agent it recognises — `loadManagedLaunchAgent` has already checked the label,
+  the program arguments, the executable's location, both log paths, ownership and mode.
+- It adds one key. Everything else is carried through by re-serialising the parsed object, including
+  keys this build has never heard of.
+- A `PATH` that is already well formed is left alone, whatever it says. It may be a value a later
+  release chose or one the user set. Changing the *contents* of an existing search path is a
+  migration of its own and would have to be designed as one.
+- A malformed `PATH` is refused rather than corrected, the same answer `validHermesLaunchAgentBase`
+  gives.
+- Only Hermes restarts. The Connector's agent has no `PATH`, did not change, and has nothing to
+  re-read — unlike the token-file contract, where both files changed and both services restart.
+- A restart that cannot prove a healthy server puts the original file back and starts the old
+  configuration again. A Mac left with the old `PATH` is where it already was and can send everything
+  except a PDF; a Mac left with a rewritten agent and no Hermes cannot do anything at all.
+
+**The cost, stated rather than buried: the restart is not announced and cannot be declined, and
+nothing can tell whether a turn is in flight.** No Hermes API reports it, and Desktop has never had
+such a check — the token-file reconcile beside it restarts *both* services on the same terms. What
+bounds it is that it happens at most once per machine: the repair is idempotent through its own
+state, so the second launch finds the key present, returns false, and spends nothing. No marker file
+is involved, which also means a machine whose `PATH` is removed again is repaired again.
