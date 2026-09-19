@@ -858,3 +858,48 @@ restarts Connector, so it should be done when no phone-side run is in flight. Th
 requires the explicit confirmation in Desktop that exists to obtain a person's consent; it was
 deliberately not automated. This remains an internal ad-hoc build: not Developer ID signed, not
 notarized, not stapled.
+
+## 2026-09-19 managed release 0.3.5 controlled activation exception
+
+The MacBook used for the HG-65/HG-64 reproduction was subsequently running Desktop 0.2.16/build 19,
+whose schema-v1 release pin is 0.3.5, but its already-active managed installation still had no
+product upgrade action. The owner therefore explicitly authorized one operator-controlled exception
+to move the existing account-mode installation from 0.3.4 to 0.3.5. This is evidence for that one
+activation; it does not claim that Desktop now implements an active-install upgrade path.
+
+Before mutation, the public copies of the 0.3.5 manifest and both archives passed the independent
+Ed25519 verifier against the approved key, origin, channel and architecture. Their sizes and hashes
+matched the publication record above. The managed journal was `account_active` at release 0.3.4,
+both managed services were running, loopback status returned HTTP 200, Connector had an active
+account-mode Gateway connection, and Hermes reported zero active sessions. Each activation attempt
+first wrote an owner-only recovery snapshot of the journal, both LaunchAgents and previous current
+target. The 0.3.5 component trees were installed under a new owner-only immutable release directory;
+their identities are Hermes Server 0.21.0 at the pinned upstream commit and Connector 0.1.4 at the
+release commit recorded above.
+
+The transaction's gates caused two safe rollbacks before the successful activation. The first
+operator wrapper used ordinary `mv -f` to replace a symlink to a directory; macOS instead placed the
+temporary link inside the old release. The exact-current-target gate caught that no switch occurred,
+restored the 0.3.4 journal and services, and the stray temporary link was later removed. The wrapper
+was corrected to use symlink-preserving replacement semantics and verified in an isolated directory.
+The second attempt switched the pointer, but its 75-second Hermes health gate expired. It restored
+the 0.3.4 pointer and journal, restarted Hermes before Connector, and recovered loopback health and
+the active account-mode Gateway connection. The new Hermes tree differed from 0.3.4 only by absent
+runtime-generated Python caches and passed an isolated cold-start probe in 16 seconds. Operational
+evidence was consistent with treating launchd label removal as complete before the old managed PID
+and loopback listener had fully drained.
+
+The successful retry temporarily quit Desktop to remove coordinator races, then required the old
+Hermes and Connector PIDs to exit and `127.0.0.1:9119` to become free before switching. It atomically
+moved `current` from `releases/0.3.4` to `releases/0.3.5`, updated only the journal's release version
+and timestamp, started Hermes before Connector, and reopened Desktop after both gates passed. Final
+inspection found both launchd PIDs executing from 0.3.5, Hermes 0.21.0 returning HTTP 200 with config
+version 40 and zero active sessions, Connector 0.1.4 holding an established upstream TLS connection
+and reporting active account mode, the journal reading 0.3.5, and the release marker and journal
+remaining owner-only. The old 0.3.4 release and all recovery snapshots remain available for
+rollback.
+
+This closes the controlled activation only. A phone-side reproduction of the original oversized
+local WebSocket response must still confirm the Connector 0.1.4 behavior: close code 1009 with the
+declared limit and no rapid anonymous-1006 reconnect loop. A full reboot and a normal Desktop-driven
+active-release upgrade remain separate acceptance gaps.
