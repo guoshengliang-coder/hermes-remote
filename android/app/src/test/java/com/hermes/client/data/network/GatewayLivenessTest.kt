@@ -225,7 +225,7 @@ class GatewayLivenessTest {
         ) {
             // Stands in for the machinery excusing itself, which is what left HG-42's client in
             // Connecting with watchdog=finished and socket=none.
-            override fun onSocketClosed(gen: Int, reason: String, retry: Boolean) = Unit
+            override fun onSocketClosed(gen: Int, reason: String, retry: Boolean, closeCode: Int?) = Unit
         }
         try {
             withContext(Dispatchers.Default) {

@@ -106,6 +106,28 @@ private val ATTACHMENT_VOICE_NOTE = Regex(
 )
 
 /**
+ * The bare placeholder upstream leaves in place of an attachment it has already consumed — one line
+ * per file, no caption, no path.
+ *
+ * Unlike the notes above it says nothing at all: not where the file is, not what was in it. The
+ * person sent three screenshots and their own turn came back with three lines reading
+ * `[screenshot]` stapled under the images they can already see (HG-60).
+ *
+ * Two things make this worth its own pattern rather than an entry in the family above. It carries
+ * no `sent a`, so the fast path in [withoutAttachmentScaffolding] used to return before any of this
+ * ran. And it is anchored to a whole line on purpose: `[screenshot]` quoted mid-sentence by a person
+ * writing about the app is a real thing to say, and must survive.
+ *
+ * Wide by intent — upstream owns this grammar and we cannot version-negotiate it
+ * (docs/HERMES_CONTRACT.md §4). Only the labels observed in production are listed; a new one shows
+ * up as a stray line, which is a bug report, not a crash.
+ */
+private val ATTACHMENT_BARE_PLACEHOLDER = Regex(
+    """(?m)^[ \t]*\[(?:screenshot|image|photo|picture|attachment|file|document|audio|video)]\s*$""",
+    RegexOption.IGNORE_CASE,
+)
+
+/**
  * [text] with Hermes' attachment context notes removed, wherever they sit.
  *
  * Position is not a reliable marker. Upstream only ever prepends the note, but the production
@@ -118,8 +140,17 @@ private val ATTACHMENT_VOICE_NOTE = Regex(
  * attachment reaches us.
  */
 fun withoutAttachmentScaffolding(text: String): String {
-    if (!text.contains("sent a", ignoreCase = true) && !text.contains("sent an", ignoreCase = true)) return text
-    return listOf(ATTACHMENT_PATH_NOTE, ATTACHMENT_URL_PLACEHOLDER, ATTACHMENT_VOICE_NOTE)
+    // The fast path has to let the bare placeholders through: they carry no `sent a` at all, and
+    // returning early on them is why HG-60's three `[screenshot]` lines reached the screen.
+    val mayCarryNote = text.contains("sent a", ignoreCase = true) ||
+        text.contains("sent an", ignoreCase = true)
+    if (!mayCarryNote && !text.contains('[')) return text
+    return listOf(
+        ATTACHMENT_PATH_NOTE,
+        ATTACHMENT_URL_PLACEHOLDER,
+        ATTACHMENT_VOICE_NOTE,
+        ATTACHMENT_BARE_PLACEHOLDER,
+    )
         .fold(text) { carried, pattern -> pattern.replace(carried, "") }
         .lines()
         .joinToString("\n") { it.trimEnd() }

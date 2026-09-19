@@ -29,6 +29,7 @@ import { createConnectorLogger, parseConnectorLogLevel, summarizeHermesFrame } f
 import { ObserverStateStore } from "./session-observer.js";
 import { loadHermesSessionToken } from "./hermes-session-token.js";
 import { describeRejectedPath } from "./file-log.js";
+import { tunnelCloseForApp } from "./tunnel-close.js";
 
 // Launchd captures stdout/stderr without timestamps, which made the 2026-09-01
 // reconnect-churn investigation impossible to correlate with server-side events.
@@ -64,6 +65,12 @@ const localRequestTimeoutMs = positiveIntEnv("LOCAL_REQUEST_TIMEOUT_MS", 60_000)
 const chatRequestTimeoutMs = positiveIntEnv("CHAT_REQUEST_TIMEOUT_MS", 10 * 60_000);
 const localSocketConnectTimeoutMs = positiveIntEnv("LOCAL_WS_CONNECT_TIMEOUT_MS", 15_000);
 const maxWirePayloadBytes = positiveIntEnv("MAX_WIRE_PAYLOAD_BYTES", 20 * 1024 * 1024);
+/**
+ * Ceiling on one frame from the local Hermes. Deliberately below [maxWirePayloadBytes]: every frame
+ * is base64'd onto the control channel, so 12 MiB here is ~16 MiB on the wire — raising it to 20
+ * would not carry a bigger frame, it would move the failure one hop later and take the whole
+ * control channel with it instead of one tunnel.
+ */
 const maxLocalSocketPayloadBytes = positiveIntEnv("MAX_LOCAL_WS_PAYLOAD_BYTES", 12 * 1024 * 1024);
 const maxPendingSocketFrames = positiveIntEnv("MAX_PENDING_WS_FRAMES", 256);
 const maxControlBufferedBytes = positiveIntEnv("MAX_CONTROL_BUFFERED_BYTES", 24 * 1024 * 1024);
@@ -86,6 +93,8 @@ const pendingSocketFrames = new Map<string, TunnelSocketFrame[]>();
 // Per app tunnel: when it opened and how many Hermes frames it carried, so a close line can say
 // whether the phone was still attached when a run's terminal event went by.
 const tunnelStats = new Map<string, { openedAt: number; framesToApp: number; framesFromApp: number; lastTerminal?: string }>();
+/** The last local-socket error per tunnel, so its close can say what actually killed it. */
+const localErrors = new Map<string, string>();
 const responseChunkWaiters = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
 let retryMs = 1_000;
 let controlSocket: WebSocket | undefined;
@@ -641,10 +650,21 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
       pendingSocketFrames.delete(request.id);
       const stats = tunnelStats.get(request.id);
       tunnelStats.delete(request.id);
+      const localError = localErrors.get(request.id);
+      localErrors.delete(request.id);
+      const forwarded = tunnelCloseForApp(
+        code,
+        reason.toString(),
+        localError,
+        maxLocalSocketPayloadBytes,
+      );
+      const forwardedCode = forwarded.code;
+      const forwardedReason = forwarded.reason;
       log.info("tunnel.close", {
         tunnel: request.id,
-        code,
-        reason: reason.toString(),
+        code: forwardedCode,
+        reason: forwardedReason,
+        localCode: code,
         durationMs: stats ? Date.now() - stats.openedAt : undefined,
         framesToApp: stats?.framesToApp,
         framesFromApp: stats?.framesFromApp,
@@ -655,13 +675,23 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
         type: "tunnel.ws.close",
         version: PROTOCOL_VERSION,
         id: request.id,
-        code,
-        reason: reason.toString(),
+        code: forwardedCode,
+        reason: forwardedReason,
       });
     });
     local.on("error", (error) => {
       console.error("Local Hermes WebSocket error", error.message);
-      log.error("tunnel.local_error", { tunnel: request.id, error: error.message });
+      // Keep it: `ws` destroys the socket after this, and the close that follows carries 1006 with
+      // no reason — which the gateway cannot forward (safeCloseCode rejects 1006) and turns into a
+      // bare 1011. The phone then has an anonymous failure, reconnects, resumes the same session,
+      // and gets the same oversized frame: HG-65's 197 closes in 24 minutes were one conversation
+      // doing this to itself. The close handler below says what happened instead.
+      localErrors.set(request.id, error.message);
+      log.error("tunnel.local_error", {
+        tunnel: request.id,
+        error: error.message,
+        maxPayloadBytes: maxLocalSocketPayloadBytes,
+      });
     });
   } catch (error) {
     log.error("tunnel.open_failed", { tunnel: request.id, error: safeError(error) });

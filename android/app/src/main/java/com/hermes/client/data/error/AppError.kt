@@ -10,6 +10,11 @@ enum class AppErrorCode(val value: String) {
     HANDSHAKE_TIMEOUT("HR-CONN-003"),
     CONNECTION_INTERRUPTED("HR-CONN-004"),
     CONNECTOR_OFFLINE("HR-CONN-005"),
+    // Not a single drop (that is CONNECTION_INTERRUPTED): the socket keeps being accepted and then
+    // dropped, so the operation dies with whichever connection happened to carry it and retrying
+    // right now lands on the next one. Only claimed when the client has actually counted repeated
+    // dropped connections — saying "it keeps failing" on the first failure would be a guess.
+    CONNECTION_UNSTABLE("HR-CONN-007"),
     RPC_FAILED("HR-RPC-001"),
     RPC_TIMEOUT("HR-RPC-002"),
     MODEL_LIST_FAILED("HR-RPC-003"),

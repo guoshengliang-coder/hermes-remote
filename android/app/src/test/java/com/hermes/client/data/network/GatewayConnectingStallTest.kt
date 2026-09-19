@@ -55,13 +55,13 @@ class GatewayConnectingStallTest {
         /** Reaches the shared entry point every caller funnels through. */
         fun openSocketForTest() = openSocket()
 
-        override fun onSocketClosed(gen: Int, reason: String, retry: Boolean) {
+        override fun onSocketClosed(gen: Int, reason: String, retry: Boolean, closeCode: Int?) {
             // Stands in for the real incident, where the machinery that should have torn the
             // attempt down had already excused itself: the watchdog logged "skipped (closed by
             // the app)" instead of reconnecting. Whatever the cause, the client is left claiming
             // Connecting with nothing behind it, and that is the state under test.
             if (swallowSocketDeath) return
-            super.onSocketClosed(gen, reason, retry)
+            super.onSocketClosed(gen, reason, retry, closeCode)
         }
     }
 
