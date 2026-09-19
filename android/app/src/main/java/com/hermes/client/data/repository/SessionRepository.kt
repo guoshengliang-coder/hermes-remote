@@ -182,6 +182,24 @@ class SessionRepository(
     fun hasLoadedAllProfiles(): Boolean = allProfilesLoaded &&
         allProfilesCacheRoute == routeKey(accountSessions?.routingContext())
 
+    /**
+     * Read tokens for every session this process knows about, or null when nothing has been
+     * loaded yet. The launcher badge intersects the persisted unread set with this: that set is
+     * unbounded and only [SessionReadStore.markRead] ever shrinks it, so a token whose session no
+     * longer reaches the list can never be cleared by opening it — the badge would keep counting
+     * something the user cannot see, let alone act on.
+     *
+     * Deliberately built from the unfiltered cache rather than [cachedAllProfiles]: a bot or
+     * non-interactive session that really is unread should still count. Archived and empty
+     * sessions are already gone by the time they land here, and those are correctly invisible.
+     */
+    fun cachedSessionTokens(): Set<String>? {
+        if (!hasLoadedAllProfiles()) return null
+        return allSessionsCache.mapTo(HashSet()) {
+            SessionReadStore.token(it.profile, it.id, it.deviceId)
+        }
+    }
+
     fun cachedSession(sessionId: String, profile: String? = null, deviceId: String? = null): Session? =
         allSessionsCache.firstOrNull {
             it.id == sessionId &&

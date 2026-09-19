@@ -139,7 +139,8 @@ class SessionNotificationCoordinator @Inject constructor(
         }
         // Counted from the plan rather than the shade: a card suppressed because the user is
         // looking at that very chat is not something the icon should still be asking about.
-        val badgeNumber = badgeCount(runtimes.unreadTokens.value, plan.cards)
+        // Null until a session list has loaded — see [badgeCount].
+        val badgeNumber = badgeCount(runtimes.unreadTokens.value, plan.cards, sessions.cachedSessionTokens())
         run {
             val ops = diffPlan(posted, postedSummary, plan)
             ops.forEach { op ->
@@ -147,7 +148,7 @@ class SessionNotificationCoordinator @Inject constructor(
                     when (op) {
                         is NotificationOp.Post -> notifier.post(op.spec)
                         is NotificationOp.Cancel -> notifier.cancel(op.id)
-                        is NotificationOp.Summary -> op.summary?.let { notifier.postSummary(it, badgeNumber) } ?: notifier.cancelSummary()
+                        is NotificationOp.Summary -> op.summary?.let { notifier.postSummary(it, badgeNumber ?: 0) } ?: notifier.cancelSummary()
                     }
                 }.onFailure { DebugLog.log("notif", "apply $op failed: ${it.message}") }
             }
@@ -157,7 +158,7 @@ class SessionNotificationCoordinator @Inject constructor(
         }
         // Outside the ops loop: the OEM badge is not a notification and has to be corrected even
         // when the shade itself did not change — the last unread being read is exactly that case.
-        badge.apply(badgeNumber)
+        badgeNumber?.let { badge.apply(it) }
     }
 
     /** The user swiped the session card away; do not repost it until its state changes. */
